@@ -10,7 +10,7 @@ export { Star } from './star';
 export { ResourceHistory } from './resource-history';
 
 // Ontology
-export type { OntologyVersionConfig, OntologyVersionRow } from './galaxy';
+export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
 
 // Resources
 export { Resources, END_OF_TIME } from './resources';

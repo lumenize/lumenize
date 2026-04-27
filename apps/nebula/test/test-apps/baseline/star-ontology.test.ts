@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, TransactionError, OntologyVersionRow } from '@lumenize/nebula';
+import type { Snapshot, TransactionResult, TransactionError, OntologyState } from '@lumenize/nebula';
 import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -74,11 +74,12 @@ describe('Galaxy ontology', () => {
     await waitForSuccess(client);
 
     client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const row = await waitForSuccess(client) as OntologyVersionRow;
-    expect(row.version).toBe('v1');
-    expect(row.types).toBe(TODO_TYPES);
-    expect(typeof row.validatorBundle).toBe('string');
-    expect(row.validatorBundle.length).toBeGreaterThan(0);
+    const state = await waitForSuccess(client) as OntologyState;
+    expect(state.row.version).toBe('v1');
+    expect(state.row.types).toBe(TODO_TYPES);
+    expect(typeof state.row.validatorBundle).toBe('string');
+    expect(state.row.validatorBundle.length).toBeGreaterThan(0);
+    expect(state.history).toEqual(['v1']);
 
     client[Symbol.dispose]();
   });
@@ -130,10 +131,11 @@ describe('Galaxy ontology', () => {
     const versions = await waitForSuccess(client) as string[];
     expect(versions).toEqual(['v1', 'v2']);
 
-    // Latest is v2
+    // Latest is v2; history reflects both versions in order
     client.callGalaxyGetLatestOntologyVersion(galaxy);
-    const latest = await waitForSuccess(client) as OntologyVersionRow;
-    expect(latest.version).toBe('v2');
+    const latest = await waitForSuccess(client) as OntologyState;
+    expect(latest.row.version).toBe('v2');
+    expect(latest.history).toEqual(['v1', 'v2']);
 
     client[Symbol.dispose]();
   });

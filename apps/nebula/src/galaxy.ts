@@ -37,6 +37,20 @@ export interface OntologyVersionRow {
   relationships: TypeMetadata['relationships'];
 }
 
+/**
+ * Reply shape for `getLatestOntologyVersion()`. Bundles the latest row with
+ * the full ordered version history (oldest → newest, latest = last entry) so
+ * Star fetches both atomically on a cache miss. Star caches `history` locally
+ * to drive 5.5's lazy migration ordering without a follow-up Galaxy round-trip.
+ *
+ * `history` is computed at fetch time from `ontology:_index` — it's not stored
+ * on any row, since the row is immutable but the index keeps growing.
+ */
+export interface OntologyState {
+  row: OntologyVersionRow;
+  history: string[];
+}
+
 // ─── Constants ───────────────────────────────────────────────────────
 
 const VERSION_LABEL_RE = /^[A-Za-z0-9-]+$/;
@@ -105,13 +119,19 @@ export class Galaxy extends NebulaDO {
     });
   }
 
-  /** Latest row, or `null` if no versions have been appended. */
+  /**
+   * Latest row + full ordered version history, or `null` if no versions have
+   * been appended yet. Single-call so Star captures a consistent snapshot of
+   * (current, history) without an interleaved append racing between two RPCs.
+   */
   @mesh()
-  getLatestOntologyVersion(): OntologyVersionRow | null {
+  getLatestOntologyVersion(): OntologyState | null {
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
     if (index.length === 0) return null;
     const latest = index[index.length - 1];
-    return this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(latest)) ?? null;
+    const row = this.ctx.storage.kv.get<OntologyVersionRow>(rowKey(latest));
+    if (!row) return null;
+    return { row, history: index };
   }
 
   /** Specific row by label, or `null` if absent. */

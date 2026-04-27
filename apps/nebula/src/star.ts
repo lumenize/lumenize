@@ -19,7 +19,7 @@ import { NebulaDO, requireAdmin } from './nebula-do';
 import { DagTree } from './dag-tree';
 import { Resources } from './resources';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
-import type { Galaxy, OntologyVersionRow } from './galaxy';
+import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
 
 const INDEX_KEY = 'ontology:_index';
@@ -62,25 +62,27 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * True iff `version` matches the single cached row's version label.
-   * Reads `_index` directly so this works after hibernation (when in-memory
-   * `#row` is null but KV still has the cached row).
+   * True iff `version` matches the latest cached version. Star's `_index`
+   * holds Galaxy's full ordered history at the moment of the last fetch, so
+   * the latest is the last entry — the cached row matches that label.
+   * Older entries in `_index` are part of the migration chain (5.5) but no
+   * row is cached for them.
    */
   #isCachedVersion(version: string): boolean {
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    return index?.[0] === version;
+    return index !== undefined && index.length > 0 && index[index.length - 1] === version;
   }
 
   /**
    * Populate `#row` and `#facet` from KV if not already in memory.
-   * Called by Handler 2 on cache-hit path. The facet helper is a same-isolate
-   * cache lookup once `bundleId` is active, so this is near-zero on warm DOs.
+   * The facet helper is a same-isolate cache lookup once `bundleId` is
+   * active, so this is near-zero on warm DOs.
    */
   #ensureFacet(): { row: OntologyVersionRow; facet: ParserValidator } {
     if (this.#row && this.#facet) return { row: this.#row, facet: this.#facet };
 
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    const version = index?.[0];
+    const version = index?.[index.length - 1];
     if (!version) {
       throw new Error('No ontology cached — Galaxy fetch should have run first');
     }
@@ -99,18 +101,22 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * Replace the cached ontology with a new row, atomically. Drops any
-   * pre-existing row + index entry, writes the new row + single-element
-   * index, and refreshes in-memory `#row` and `#facet`.
+   * Replace the cached ontology with a fresh state from Galaxy, atomically.
+   * Drops the previous row, writes the new latest row, and stores the full
+   * version history (oldest → newest) in `_index`. The history travels with
+   * the row so 5.5's lazy migration has the chain order without needing a
+   * separate Galaxy round-trip.
    */
-  #installRow(row: OntologyVersionRow): void {
+  #installState(state: OntologyState): void {
+    const { row, history } = state;
     this.ctx.storage.transactionSync(() => {
       const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
-      for (const v of prevIndex) {
-        if (v !== row.version) this.ctx.storage.kv.delete(rowKey(v));
+      const prevLatest = prevIndex[prevIndex.length - 1];
+      if (prevLatest && prevLatest !== row.version) {
+        this.ctx.storage.kv.delete(rowKey(prevLatest));
       }
       this.ctx.storage.kv.put(rowKey(row.version), row);
-      this.ctx.storage.kv.put(INDEX_KEY, [row.version]);
+      this.ctx.storage.kv.put(INDEX_KEY, history);
     });
     this.#row = row;
     this.#facet = getParserValidatorFacet(
@@ -179,28 +185,28 @@ export class Star extends NebulaDO {
    * When a continuation fails, Mesh puts an Error instance in $result.
    */
   async doTransaction(
-    fetchedRow: OntologyVersionRow | null | Error,
+    fetchedState: OntologyState | null | Error,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
   ) {
     try {
       // Handle Galaxy fetch failure
-      if (fetchedRow instanceof Error) {
+      if (fetchedState instanceof Error) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleTransactionResult(fetchedRow));
+          this.ctn<NebulaClient>().handleTransactionResult(fetchedState));
         return;
       }
 
-      // Cache miss path: install the fetched row, or surface mismatch / "not found"
-      if (fetchedRow !== null) {
-        if (fetchedRow.version !== ontologyVersion) {
+      // Cache miss path: install the fetched state, or surface mismatch / "not found"
+      if (fetchedState !== null) {
+        if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleTransactionResult(
-              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedRow.version}'. Refresh your schema.`)));
+              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
           return;
         }
-        this.#installRow(fetchedRow);
+        this.#installState(fetchedState);
       } else if (!this.#isCachedVersion(ontologyVersion)) {
         // `null` + no matching cache entry = Galaxy fetch returned no ontology
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -248,26 +254,26 @@ export class Star extends NebulaDO {
 
   /** Handler 2: Execute read + deliver result to client */
   doRead(
-    fetchedRow: OntologyVersionRow | null | Error,
+    fetchedState: OntologyState | null | Error,
     ontologyVersion: string,
     resourceId: string,
     clientId: string,
   ) {
     try {
-      if (fetchedRow instanceof Error) {
+      if (fetchedState instanceof Error) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleReadResult(fetchedRow));
+          this.ctn<NebulaClient>().handleReadResult(fetchedState));
         return;
       }
 
-      if (fetchedRow !== null) {
-        if (fetchedRow.version !== ontologyVersion) {
+      if (fetchedState !== null) {
+        if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleReadResult(
-              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedRow.version}'. Refresh your schema.`)));
+              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
           return;
         }
-        this.#installRow(fetchedRow);
+        this.#installState(fetchedState);
       } else if (!this.#isCachedVersion(ontologyVersion)) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
           this.ctn<NebulaClient>().handleReadResult(

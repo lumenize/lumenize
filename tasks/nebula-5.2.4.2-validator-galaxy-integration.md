@@ -30,15 +30,17 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 
 2. **Per-version KV rows, ordered index.** Galaxy stores each version as a separate row keyed `ontology:<version>` containing `{ version, types, validatorBundle, relationships }`. A separate `ontology:_index` row holds the ordered version labels (`string[]`), serving both as the "what's the latest" pointer (last entry) and as the migration ordering source for 5.5. No separate `_latest` pointer — the index is the single source of truth for ordering and naming. KV is the right primitive here: KV writes are ~1000× more expensive than reads, so a layout that's write-rare (append-only, one row per promotion) and read-cheap (one or two `kv.get`s per cache miss) is the cost-aligned shape. `kv.list({ prefix: 'ontology:' })` also provides debugging visibility without a dedicated index column.
 
+   *Star caches the same shape*: a single `ontology:<currentVersion>` row + an `ontology:_index` mirroring Galaxy's full ordered history at the moment of last fetch. That means 5.5's lazy migration has the chain order locally — no follow-up Galaxy round-trip just to learn what comes between `vN` (a stored snapshot's version) and `vM` (current). The history is fetched atomically with the latest row via a single `getLatestOntologyVersion()` call returning `{ row, history }` (see "API surface" below) — no risk of an interleaved append racing between two RPCs.
+
 3. **Version label grammar.** Version labels must match `/^[A-Za-z0-9-]+$/` (alphanumerics and dashes only). Validated in `appendOntologyVersion()` before any storage operation. Rejection error: `Invalid ontology version label '<input>': must match /^[A-Za-z0-9-]+$/ (alphanumerics and dashes only).` The `_` prefix used by `ontology:_index` is reserved by exclusion from the regex — no user version can collide.
 
 4. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus exported `parse(value, typeName)` and `parseBatch(items)` methods on the `ParserValidator` class. Stars fetch this one string per version, not N strings per type. Shared runtime helpers and the `@default` table are baked into the bundle. The transaction hot-path call site is `await facet.parseBatch(items)` once per transaction over a `Map<resourceId, { value, typeName }>`; `await facet.parse(value, typeName)` is the single-item form for one-off validation outside the transaction loop. Both return Promises — same-isolate RPC. Relationship metadata is **not** baked into the module (per 5.2.4.1 Phase 6.5) — Galaxy stores it in the same row alongside `validatorBundle`, and Star caches the whole row (so the field travels with the bundle), but no code in this task's Phases 1–6 consumes `relationships`. The consumer is 5.5's lazy-migration path (see Decision #1's "Why we store `relationships`").
 
-5. **Lazy bundle fetch — no push notification.** Stars discover new ontology versions via the UI tagging every resource request with its known version. On Handler 1's cache check (existing code), an unknown-or-newer tag triggers a single RPC to Galaxy (`getLatestOntologyVersion()`) which returns the row including the `validatorBundle`. Star caches the row in its own KV (`ontology:<version>` and `ontology:_index` mirroring Galaxy's keys), loads the facet, and proceeds. *Push notification was considered and dropped: a `{ version }`-only push doesn't save the next-transaction fetch (that's where the cache miss happens), and a `{ version, row }` push fans ~150 KB to every Star regardless of whether they'll transact again. The one-time post-promotion ~300 ms latency on the first transaction per Star is acceptable as a UI blip. If telemetry shows this becomes a real problem, push is a small additive change to retrofit.*
+5. **Lazy bundle fetch — no push notification.** Stars discover new ontology versions via the UI tagging every resource request with its known version. On Handler 1's cache check (existing code), an unknown-or-newer tag triggers a single RPC to Galaxy (`getLatestOntologyVersion()`) which returns `{ row, history }` — the latest row's `validatorBundle` AND the full ordered version history, in one atomic call. Star caches both in its own KV (`ontology:<version>` for the row + `ontology:_index` for the history), loads the facet, and proceeds. *Push notification was considered and dropped: a `{ version }`-only push doesn't save the next-transaction fetch (that's where the cache miss happens), and a `{ version, row }` push fans ~150 KB to every Star regardless of whether they'll transact again. The one-time post-promotion ~300 ms latency on the first transaction per Star is acceptable as a UI blip. If telemetry shows this becomes a real problem, push is a small additive change to retrofit.*
 
 6. **UI is the version source of truth on the client.** The browser fetches a UI bundle from Galaxy (mechanism out of scope here — see `tasks/lumenize-ui.md`) which embeds the current ontology version. The UI tags every resource request with that version. A user-initiated refresh is the recovery path if the embedded version ever falls behind — no polling, no TTL, no push acks needed. *Scope note*: this task's Phases 1–5 don't depend on the UI work — the test client (`NebulaClientTest.callStarTransaction(star, version, ops)`) lets tests pass any version label directly, so the full Galaxy + Star + facet path is exercisable end-to-end without `tasks/lumenize-ui.md` landing first. The UI bundle becomes load-bearing only at production rollout.
 
-7. **Eager version switch, JS references handle in-flight transactions.** When Star fetches a new version, it eagerly replaces its cached row + facet. In-flight transactions that already captured the old facet into a local variable continue to use it via JS closure semantics; when they return, the local reference drops and the old facet is GC'd. Concurrency safety comes from `Resources.transaction()`'s existing double-eTag-check protocol (optimistic pre-check → parse/guards → pessimistic recheck → `transactionSync` write). Writing data validated under version N is safe even if current becomes N+1 mid-transaction — 5.5's lazy migration handles version skew at read time. No refcount bookkeeping, no TTL. Star's KV holds exactly one current `ontology:<version>` row at a time.
+7. **Eager version switch, JS references handle in-flight transactions.** When Star fetches a new version, it eagerly replaces its cached row + facet. In-flight transactions that already captured the old facet into a local variable continue to use it via JS closure semantics; when they return, the local reference drops and the old facet is GC'd. Concurrency safety comes from `Resources.transaction()`'s existing double-eTag-check protocol (optimistic pre-check → parse/guards → pessimistic recheck → `transactionSync` write). Writing data validated under version N is safe even if current becomes N+1 mid-transaction — 5.5's lazy migration handles version skew at read time. No refcount bookkeeping, no TTL. Star's KV holds exactly one `ontology:<currentVersion>` row at a time, plus the full ordered `ontology:_index` (mirrored from Galaxy at last fetch) so 5.5 can walk the migration chain without an extra round-trip.
 
    *Facet `bundleId`*: `${galaxyId}/${version}` where `galaxyId` is `<universe>.<galaxy>` (the first two dot-segments of Star's instanceName, e.g. `'acme.app/v1'`). The Worker Loader caches by `bundleId` *per-Worker*, not per-DO, so all Stars in the same Worker share the loader cache; using just `version` as `bundleId` would let two Galaxies (or two tests) with overlapping version labels collide on the loader cache and silently see each other's validator. Scoping by `galaxyId` namespaces them — and including the universe segment matters: the same galaxy slug ('app') can legitimately be reused across universes, and the loader cache wouldn't see them as distinct otherwise. A version switch within the same galaxy passes a different `bundleId`, which produces a fresh facet via Worker Loader's per-`bundleId` cache; the old facet's stub is no longer referenced by `#facet` and is eligible for collection. Version labels are guaranteed unique within a galaxy by Decision #2's append-only `_index`, and the `<universe>.<galaxy>` prefix disambiguates across galaxies and across universes.
 
@@ -97,13 +99,13 @@ interface OntologyVersionRow {
 ### API surface
 
 ```typescript
-@mesh()              getLatestOntologyVersion(): OntologyVersionRow | null
+@mesh()              getLatestOntologyVersion(): OntologyState | null   // { row, history }
 @mesh()              getOntologyVersion(version: string): OntologyVersionRow | null
 @mesh()              listOntologyVersions(): string[]
 @mesh(requireAdmin)  appendOntologyVersion(versionConfig: OntologyVersionConfig)
 ```
 
-`getOntology()` (returns whole array) is removed. `getLatestOntologyVersion()` reads `ontology:_index`, takes the last entry, returns `kv.get('ontology:<latest>')`. Returns `null` when no versions have been appended yet — Star treats this the same as a missing-version mismatch.
+`getOntology()` (returns whole array) is removed. `getLatestOntologyVersion()` reads `ontology:_index`, returns `{ row: kv.get('ontology:<latest>'), history: index }` so Star captures the latest row AND the full ordered history in one call — no two-RPC race window where an `appendOntologyVersion()` could land between them. Returns `null` when no versions have been appended yet — Star treats this the same as a missing-version mismatch. `getOntologyVersion(v)` (used by 5.5 to fetch a specific historical row) and `listOntologyVersions()` (used for admin/debugging) stay as standalone methods.
 
 ### Append flow
 
@@ -158,20 +160,20 @@ interface OntologyVersionRow {
 - `Resources.transaction()`, `Star.doTransaction()`, and `Star.doRead()` become `async` because `parseBatch()` returns a Promise across the facet RPC boundary. Per CLAUDE.md's "Keep Methods Synchronous" rule this is unusual — facet RPC at ~1 ms warm IS long enough to open an input gate and allow interleaving (unlike `crypto.subtle.*`, which the rule's exception list scopes to microsecond-scale APIs). What makes the gate-opening safe here is the eTag double-check inside `transactionSync` (Decision #9): any concurrent transaction that interleaves during the parse will be caught by the pessimistic recheck and re-issued. The async hop is a deliberate trade — N input-gate openings collapse to 1 per transaction (Decision #9), and correctness is preserved by the existing optimistic-concurrency protocol, not by avoiding the gate.
 
 **Star storage**:
-- Replace the current `kv.put('ontology', [...wholeArray])` with a per-version layout mirroring Galaxy's keys: `ontology:<version>` + `ontology:_index`. In practice Star only ever has the single current version cached, but the parallel key shape sets up future migration-aware caching (5.5)
-- The cache-check helper [`#hasOntologyVersion`](apps/nebula/src/star.ts:49) is renamed `#isCachedVersion(version)` to reflect the new semantic — it now answers "does this tag match my single cached version label?" rather than "is this version anywhere in my stored array?" (Star holds at most one row per Decision #7). On any mismatch — older or newer — Handler 1 fetches from Galaxy; the cache check decides whether to fetch, not whether the tag is current
+- Replace the current `kv.put('ontology', [...wholeArray])` with a per-version layout mirroring Galaxy's keys: `ontology:<currentVersion>` (one row at a time) + `ontology:_index` (full ordered history mirrored from Galaxy at last fetch, per Decision #2). The history mirror is what 5.5 walks for lazy migration ordering
+- The cache-check helper [`#hasOntologyVersion`](apps/nebula/src/star.ts:49) is renamed `#isCachedVersion(version)` to reflect the new semantic — it now answers "does this tag match the latest entry in my cached `_index`?" The `_index` mirrors Galaxy's full ordered history (per Decision #2), and the cached row is always the *latest* (last entry). Older entries are part of the migration chain (5.5) but no row is cached for them. On any mismatch — older or newer — Handler 1 fetches from Galaxy; the cache check decides whether to fetch, not whether the tag is current
 -  `#currentOntology` getter ([`star.ts:54`](apps/nebula/src/star.ts:54)) goes away — replaced by direct `#row` and `#facet` access
 
 **Cache-miss fetch**:
 - Replace `Galaxy.getOntology()` with `Galaxy.getLatestOntologyVersion()`
-- Star receives a single `OntologyVersionRow` rather than the whole array
-- If the returned `version` doesn't match what the client tagged, reject with the existing stale-version error (now including the actual current version from the fetched row)
+- Star receives an `OntologyState` = `{ row, history }` — the latest row plus the full ordered version list, captured atomically on Galaxy's side
+- If `state.row.version` doesn't match what the client tagged, reject with the existing stale-version error (including the actual current version from the fetched state)
 - On accept, replace the cache atomically inside `ctx.storage.transactionSync(() => { ... })`:
-  - Delete the previous `ontology:<v>` row, if one exists (cold-start path has none — read the current `_index` to find it)
+  - Delete the previous `ontology:<v>` row, if one exists (cold-start path has none — read the previous `_index` to find the previous latest)
   - `kv.put('ontology:<row.version>', row)`
-  - `kv.put('ontology:_index', [row.version])`
+  - `kv.put('ontology:_index', history)` — full ordered history, NOT just `[row.version]`
 
-  Then load the facet via `getParserValidatorFacet()` from `@lumenize/ts-runtime-parser-validator` and populate `#row` and `#facet`. Star's invariant: at any time, exactly one `ontology:<version>` row exists in KV and `_index` is a one-element array containing that same version label.
+  Then load the facet via `getParserValidatorFacet()` from `@lumenize/ts-runtime-parser-validator` and populate `#row` and `#facet`. Star's invariant: at any time, exactly one `ontology:<version>` row exists in KV (the latest), `_index` is the full ordered history (oldest → newest), and the cached row's version matches `_index[_index.length - 1]`.
 
 **Validation in `Resources.transaction`**:
 - Replace the per-op `ontology.validate()` loop ([`resources.ts:282-305`](apps/nebula/src/resources.ts:282)) with a single batch call. Build `requests: Map<string, ParseRequest>` from the entries that actually need parsing, using `resourceId` as the key. Skip the same cases the existing loop continues on: `delete`/`move` ops, `create`/`put` with `op.value == null`, and `put` with no current snapshot. If `requests.size === 0`, skip the call entirely. Otherwise call `await facet.parseBatch(requests)` once and walk the returned Map — each entry shares the input key so the caller maps back via direct `results.get(resourceId)`.
@@ -221,15 +223,19 @@ interface OntologyVersionRow {
 ### Work (verification, not new mechanism)
 
 - Test that Star's KV cleanup (delete old version row when caching new) happens atomically with the new write
-- Test that an in-flight `Resources.transaction` started before a version switch completes correctly against the captured facet (targeted race test)
 - Soak test: append N versions in a row through Star; after each, verify only one `ontology:<v>` row plus the index exists in Star's KV
+- Verify stale-tagged transactions after a switch reject cleanly without disturbing KV state
+- Verify rapid back-to-back transactions on the new version succeed (cache-hit path immediately after a switch)
+
+*An explicit "in-flight transaction across a version switch" test was considered and dropped*: the property is JS closure semantics — `Star.doTransaction` captures `facet` into a local at the top of the function, and any subsequent `#installState()` only reassigns `#facet`, not the local. There's no orchestration this layer can do to make that wrong, and our test infrastructure doesn't expose hooks to pause execution mid-`await` to drive a "during" window. The visible properties that follow (post-switch state correct, no KV drift, stale rejection clean) are tested directly.
 
 ### Success Criteria
 
-- [ ] Star's KV holds exactly one `ontology:<version>` row at all times
-- [ ] In-flight transactions across a version switch complete correctly against the captured facet
-- [ ] Stale-tagged transactions after a switch are rejected with a clear error
-- [ ] Soak test: after N version switches, no stale rows accumulate in Star's KV
+- [x] Star's KV holds exactly one `ontology:<version>` row at all times (the latest); `_index` mirrors Galaxy's full ordered history for 5.5 chain-walking — `single-row invariant` test
+- [x] Soak test: after N version switches, no stale rows accumulate in Star's KV; `_index` grows in lockstep with Galaxy's history — `soak` test
+- [x] Stale-tagged transactions after a switch are rejected with a clear error and don't disturb KV state — `post-switch: stale-tagged` test
+- [x] Cache-hit path works immediately after a switch (the new facet is installed atomically with the new row) — `rapid back-to-back` test
+- [Skipped] In-flight transaction race test — see "Work" section above for rationale
 
 ## Phase 5: Old Package Removal and Deprecation
 

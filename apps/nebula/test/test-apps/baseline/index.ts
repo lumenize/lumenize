@@ -50,6 +50,23 @@ export class StarTest extends Star {
       ctn[clientMethod](...args),
     );
   }
+
+  /**
+   * Test-only: dump the ontology-related KV keys so tests can verify the
+   * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
+   * `_index` plus the list of `ontology:<version>` rows actually present.
+   */
+  @mesh(requireAdmin)
+  inspectOntologyKv(): { index: string[]; rowVersions: string[] } {
+    const index = this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
+    const rowVersions: string[] = [];
+    for (const [key] of this.ctx.storage.kv.list({ prefix: 'ontology:' })) {
+      if (key === 'ontology:_index') continue;
+      rowVersions.push(key.slice('ontology:'.length));
+    }
+    rowVersions.sort();
+    return { index, rowVersions };
+  }
 }
 
 // ============================================
@@ -309,5 +326,11 @@ export class NebulaClientTest extends NebulaClient {
     this.resetResults();
     const remote = this.ctn<Galaxy>().listOntologyVersions();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarInspectOntologyKv(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectOntologyKv();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }
