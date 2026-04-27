@@ -139,20 +139,6 @@ Values cross via Workers RPC (structured-clone semantics), so `Date`, `Map`, `Se
 
 On success, `data` is the input with any `@default` values filled in. On failure, `errors` is one entry per failing field, with JSON-pointer-like paths (`$input.home.city`). See [API Reference](./api-reference#parservalidatorparse) for the full `ParseResult` and `ValidationError` shapes.
 
-#### Validating many values at once
-
-When you have several values to check, prefer `parseBatch` — it makes one facet RPC call instead of one per value, which matters in DO contexts where every hop opens an input gate. Items can target different `typeName`s in the same call:
-
-```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.test.ts')
-const items = new Map<string, ParseRequest>([
-  ['user-a', { value: { name: 'Alice', home: { street: '1 Main', city: 'SF' } }, typeName: 'User' }],
-  ['user-b', { value: { name: 'Bob', home: { street: '2 Elm', city: 'NY' } }, typeName: 'User' }],
-]);
-const out = await supervisor.parseBatch(bundleId, items);
-```
-
-The result `Map` shares the input keys, so you correlate per-item results back via `out.get(key)`. See [`parseBatch()`](./api-reference#parservalidatorparsebatch) for the full surface.
-
 ## Next steps
 
 - [API Reference](./api-reference) — full signatures and options

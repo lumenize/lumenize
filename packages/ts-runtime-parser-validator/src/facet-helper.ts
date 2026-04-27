@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 
 /**
- * The structured result shape returned by `ParserValidator#parse()`.
+ * The structured result shape returned by `ParserValidator.parse()`.
  *
  * Mirrors the interface baked into the emitted module by
  * `generateParseModule()`. Duplicated here (not imported from the emitted

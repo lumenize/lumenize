@@ -105,7 +105,7 @@ export class SupervisorDO extends DurableObject<Env> {
 
 See [Getting Started](./getting-started) for the complete wiring pattern including schema registration.
 
-## `ParserValidator#parse()`
+## `ParserValidator.parse()`
 
 The method you'll actually call at request time. `getParserValidatorFacet()` returns a `ParserValidator` stub whose one method — `parse(value, typeName)` — returns `Promise<ParseResult>` because it crosses the facet's RPC boundary. (On the generated class itself the method is synchronous; the RPC proxy wraps it in a Promise.)
 
@@ -205,9 +205,9 @@ expect(result).toMatchObject({
 
 See [Additional Constraints](./additional-constraints) for the full list of JSDoc annotations and the typia types they compile into.
 
-## `ParserValidator#parseBatch()`
+## `ParserValidator.parseBatch()`
 
-Validate many values in a single facet RPC call. Use this when you have multiple values to check at once — collapses N RPC hops into 1, which matters in DO contexts where every hop opens an input gate.
+Validate many values in a single facet RPC call. Use this when you have multiple values to check at once — collapses N RPC hops into 1.
 
 ```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
 parseBatch(items: Map<string, ParseRequest>): Promise<Map<string, ParseResult>>;

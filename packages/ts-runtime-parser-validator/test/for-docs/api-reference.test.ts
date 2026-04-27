@@ -71,7 +71,7 @@ describe('generateParseModule()', () => {
   });
 });
 
-describe('ParserValidator#parse()', () => {
+describe('ParserValidator.parse()', () => {
   const facet = makeFacet(TODO_TYPES);
 
   it('unknown type name returns a single-entry error list', async () => {
@@ -141,7 +141,7 @@ interface Person {
   });
 });
 
-describe('ParserValidator#parseBatch()', () => {
+describe('ParserValidator.parseBatch()', () => {
   const TYPES = `
 interface Todo {
   title: string;
