@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult, TransactionError, OntologyVersionConfig } from '@lumenize/nebula';
+import type { Snapshot, TransactionResult, TransactionError, OntologyVersionRow } from '@lumenize/nebula';
 import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -52,7 +52,12 @@ const TODO_TYPES = `
 `;
 
 const TODO_V2_TYPES = `
-  interface Todo { title: string; done: boolean; priority: string; }
+  interface Todo {
+    title: string;
+    done: boolean;
+    /** @default "medium" */
+    priority?: string;
+  }
   interface Person { name: string; email: string; phone?: string; }
 `;
 
@@ -60,7 +65,7 @@ const TODO_V2_TYPES = `
 
 describe('Galaxy ontology', () => {
 
-  it('appendOntologyVersion + getOntology round-trip', async () => {
+  it('appendOntologyVersion + getLatestOntologyVersion round-trip', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
@@ -68,10 +73,12 @@ describe('Galaxy ontology', () => {
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    client.callGalaxyGetOntology(galaxy);
-    const ontology = await waitForSuccess(client) as OntologyVersionConfig[];
-    expect(ontology).toHaveLength(1);
-    expect(ontology[0].version).toBe('v1');
+    client.callGalaxyGetLatestOntologyVersion(galaxy);
+    const row = await waitForSuccess(client) as OntologyVersionRow;
+    expect(row.version).toBe('v1');
+    expect(row.types).toBe(TODO_TYPES);
+    expect(typeof row.validatorBundle).toBe('string');
+    expect(row.validatorBundle.length).toBeGreaterThan(0);
 
     client[Symbol.dispose]();
   });
@@ -88,10 +95,10 @@ describe('Galaxy ontology', () => {
     const error = await waitForError(client);
     expect(error).toContain('already exists');
 
-    // Original unchanged
-    client.callGalaxyGetOntology(galaxy);
-    const ontology = await waitForSuccess(client) as OntologyVersionConfig[];
-    expect(ontology).toHaveLength(1);
+    // Index unchanged
+    client.callGalaxyListOntologyVersions(galaxy);
+    const versions = await waitForSuccess(client) as string[];
+    expect(versions).toEqual(['v1']);
 
     client[Symbol.dispose]();
   });
@@ -119,11 +126,32 @@ describe('Galaxy ontology', () => {
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
-    client.callGalaxyGetOntology(galaxy);
-    const ontology = await waitForSuccess(client) as OntologyVersionConfig[];
-    expect(ontology).toHaveLength(2);
-    expect(ontology[0].version).toBe('v1');
-    expect(ontology[1].version).toBe('v2');
+    client.callGalaxyListOntologyVersions(galaxy);
+    const versions = await waitForSuccess(client) as string[];
+    expect(versions).toEqual(['v1', 'v2']);
+
+    // Latest is v2
+    client.callGalaxyGetLatestOntologyVersion(galaxy);
+    const latest = await waitForSuccess(client) as OntologyVersionRow;
+    expect(latest.version).toBe('v2');
+
+    client[Symbol.dispose]();
+  });
+
+  it('invalid version label rejected', async () => {
+    const star = uniqueStar();
+    const galaxy = galaxyName(star);
+    const { client } = await adminClient(star);
+
+    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'has spaces', types: TODO_TYPES });
+    const error = await waitForError(client);
+    expect(error).toContain('Invalid ontology version label');
+    expect(error).toContain('has spaces');
+
+    // Underscore-prefixed labels collide with reserved keys
+    client.callGalaxyAppendOntologyVersion(galaxy, { version: '_index', types: TODO_TYPES });
+    const error2 = await waitForError(client);
+    expect(error2).toContain('Invalid ontology version label');
 
     client[Symbol.dispose]();
   });
@@ -161,7 +189,7 @@ describe('Star ontology cache', () => {
     client[Symbol.dispose]();
   });
 
-  it('unknown ontologyVersion — error delivered to client', async () => {
+  it('unknown ontologyVersion — version-mismatch error delivered to client', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
@@ -169,11 +197,29 @@ describe('Star ontology cache', () => {
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
+    // Client tagged a version that doesn't exist on Galaxy. Star fetches latest
+    // (v1) and rejects because the tag doesn't match.
     client.callStarTransaction(star, 'v999', {
       [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
-    expect(error).toContain("'v999' not found");
+    expect(error).toContain('version mismatch');
+    expect(error).toContain("'v999'");
+    expect(error).toContain("'v1'");
+
+    client[Symbol.dispose]();
+  });
+
+  it('Galaxy with no ontology — not-found error delivered to client', async () => {
+    const star = uniqueStar();
+    const { client } = await adminClient(star);
+
+    // Galaxy has no ontology registered yet
+    client.callStarTransaction(star, 'v1', {
+      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
+    });
+    const error = await waitForError(client);
+    expect(error).toContain("'v1' not found");
 
     client[Symbol.dispose]();
   });
@@ -186,7 +232,7 @@ describe('Star ontology cache', () => {
     // Register v1 and v2
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES, defaults: { Todo: { priority: 'medium' } } });
+    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch latest (v2) by sending v2 first
@@ -262,12 +308,11 @@ describe('validation integration', () => {
     client.callGalaxyAppendOntologyVersion(galaxy, {
       version: 'v1',
       types: TODO_V2_TYPES,
-      defaults: { Todo: { priority: 'medium' } },
     });
     await waitForSuccess(client);
 
     const resourceId = generateUuid();
-    // Omit 'priority' — default should be applied
+    // Omit 'priority' — `@default "medium"` JSDoc tag should fill it
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
     });

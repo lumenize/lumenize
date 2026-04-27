@@ -1,8 +1,9 @@
 # Phase 5.2.4.2: Galaxy Validator Integration
 
-**Status**: Not started — design pinned 2026-04-25
+**Status**: Phases 2 and 3 complete (landed 2026-04-27). Phases 4 and 5 pending.
 **Depends on**: 5.2.4.1 (parse-validate package)
 **Package**: `apps/nebula/` (Galaxy + Star) consuming `@lumenize/ts-runtime-parser-validator`
+**See also**: [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md) — pulled-out integrated measurement + the two release blog posts. Can run in parallel with Phases 4 and 5 here.
 
 ## Objective
 
@@ -17,27 +18,29 @@ The pre-compiled validator lives as a **DO facet** ([announced 2026-04-13](https
 **Characteristics**:
 - Each Star hosts its own facet, loaded lazily from Galaxy on first use of a version
 - Galaxy is a versioned ontology registry storing one compiled `OntologyVersionRow` per version (types + bundle + relationships); no DW provisioning at promotion time
-- Per-Star cache — one `OntologyVersionRow` in Star KV at a time (~120 KB for a 30-type ontology, per 5.2.4.1 Phase 6 measurements)
+- Per-Star cache — one `OntologyVersionRow` in Star KV at a time (~150 KB for a 30-type ontology: 119 KB `validatorBundle` from 5.2.4.1 Phase 6, plus ~30 KB raw `types` source and `relationships` metadata stored alongside per Decision #1)
 - Sandboxing is preserved (facets = DW-based, same isolation guarantees)
 - Facets are currently Beta (April 2026); track GA timing
 
-No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s output shape and facet-loading mechanics are resolved in 5.2.4.1 Phase 1. Phase 1 below focuses on measuring integration overhead on top of the bare-bench numbers from 5.2.4.1 Phase 6.
+No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s output shape and facet-loading mechanics are resolved in 5.2.4.1 Phase 1. Phase 1 below is a post-implementation measurement step (see "Phase ordering"); it focuses on integration overhead on top of the bare-bench numbers from 5.2.4.1 Phase 6.
 
 ## Design Decisions
 
-1. **Galaxy owns the registry, acts as composer.** On `appendOntologyVersion()`, Galaxy validates the version label, calls `extractTypeMetadata(types)` to get the relationship graph, then calls `generateParseModule(md.writeShapeTypeDefinitions)` to produce the `validatorBundle` (per 5.2.4.1 Phase 6.5). Compilation failure rejects the update at submit time, not at first request. The package itself does no type-graph rewriting; named-interface fields being validated as string IDs is Nebula policy, not a package behavior. The facet's `parse()` expects IDs on relationship fields — the transaction payload Star sees has already-resolved references.
+1. **Galaxy owns the registry, acts as composer.** On `appendOntologyVersion()`, Galaxy validates the version label, calls `extractTypeMetadata(types)` to get the relationship graph, then calls `generateParseModule(md.writeShapeTypeDefinitions)` to produce the `validatorBundle` (per 5.2.4.1 Phase 6.5). Compilation failure rejects the update at submit time, not at first request. The package itself does no type-graph rewriting; named-interface fields being validated as string IDs is Nebula policy, not a package behavior. The facet's `parse()` expects IDs on relationship fields — the transaction payload Star sees has already-resolved references. *Implementation note*: `generateParseModule()` calls `extractTypeMetadata()` again internally on whatever it's handed, so this path runs the extractor twice per promotion. Once-per-promotion is fine; not worth optimizing. Galaxy imports `TypeMetadata` from `@lumenize/ts-runtime-parser-validator` to type the stored `relationships` field. *Why we store `relationships` even though no Phase 1–6 code reads it*: 5.5's lazy migration path will need the relationship graph at read time to walk references when migrating data forward across schema versions. Keeping it on the row co-located with `validatorBundle` and `types` means the migrator gets a single `getOntologyVersion(v)` round-trip rather than re-extracting from `types` source. ~30 KB on top of the bundle is the right trade vs deferred re-extraction cost on every cold migration.
 
 2. **Per-version KV rows, ordered index.** Galaxy stores each version as a separate row keyed `ontology:<version>` containing `{ version, types, validatorBundle, relationships }`. A separate `ontology:_index` row holds the ordered version labels (`string[]`), serving both as the "what's the latest" pointer (last entry) and as the migration ordering source for 5.5. No separate `_latest` pointer — the index is the single source of truth for ordering and naming. KV is the right primitive here: KV writes are ~1000× more expensive than reads, so a layout that's write-rare (append-only, one row per promotion) and read-cheap (one or two `kv.get`s per cache miss) is the cost-aligned shape. `kv.list({ prefix: 'ontology:' })` also provides debugging visibility without a dedicated index column.
 
 3. **Version label grammar.** Version labels must match `/^[A-Za-z0-9-]+$/` (alphanumerics and dashes only). Validated in `appendOntologyVersion()` before any storage operation. Rejection error: `Invalid ontology version label '<input>': must match /^[A-Za-z0-9-]+$/ (alphanumerics and dashes only).` The `_` prefix used by `ontology:_index` is reserved by exclusion from the regex — no user version can collide.
 
-4. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus exported `parse(value, typeName)` and `parseBatch(items)` methods on the `ParserValidator` class. Stars fetch this one string per version, not N strings per type. Shared runtime helpers and the `@default` table are baked into the bundle. The transaction hot-path call site is `await facet.parseBatch(items)` once per transaction over a `Map<resourceId, { value, typeName }>`; `await facet.parse(value, typeName)` is the single-item form for one-off validation outside the transaction loop. Both return Promises — same-isolate RPC. Relationship metadata is **not** baked into the module (per 5.2.4.1 Phase 6.5) — Galaxy stores it in the same row alongside `validatorBundle`, and Star reads it from that row.
+4. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus exported `parse(value, typeName)` and `parseBatch(items)` methods on the `ParserValidator` class. Stars fetch this one string per version, not N strings per type. Shared runtime helpers and the `@default` table are baked into the bundle. The transaction hot-path call site is `await facet.parseBatch(items)` once per transaction over a `Map<resourceId, { value, typeName }>`; `await facet.parse(value, typeName)` is the single-item form for one-off validation outside the transaction loop. Both return Promises — same-isolate RPC. Relationship metadata is **not** baked into the module (per 5.2.4.1 Phase 6.5) — Galaxy stores it in the same row alongside `validatorBundle`, and Star caches the whole row (so the field travels with the bundle), but no code in this task's Phases 1–6 consumes `relationships`. The consumer is 5.5's lazy-migration path (see Decision #1's "Why we store `relationships`").
 
-5. **Lazy bundle fetch — no push notification.** Stars discover new ontology versions via the UI tagging every resource request with its known version. On Handler 1's cache check (existing code), an unknown-or-newer tag triggers a single RPC to Galaxy (`getLatestOntologyVersion()`) which returns the row including the `validatorBundle`. Star caches the row in its own KV (`ontology:<version>` and `ontology:_index` mirroring Galaxy's keys), loads the facet, and proceeds. *Push notification was considered and dropped: a ****\*******`{ version }`****\*-only push doesn't save the next-transaction fetch (that's where the cache miss happens), and a ****\*******`{ version, row }`****\* push fans \~150 KB to every Star regardless of whether they'll transact again. The one-time post-promotion \~300 ms latency on the first transaction per Star is acceptable as a UI blip. If telemetry shows this becomes a real problem, push is a small additive change to retrofit.*
+5. **Lazy bundle fetch — no push notification.** Stars discover new ontology versions via the UI tagging every resource request with its known version. On Handler 1's cache check (existing code), an unknown-or-newer tag triggers a single RPC to Galaxy (`getLatestOntologyVersion()`) which returns the row including the `validatorBundle`. Star caches the row in its own KV (`ontology:<version>` and `ontology:_index` mirroring Galaxy's keys), loads the facet, and proceeds. *Push notification was considered and dropped: a `{ version }`-only push doesn't save the next-transaction fetch (that's where the cache miss happens), and a `{ version, row }` push fans ~150 KB to every Star regardless of whether they'll transact again. The one-time post-promotion ~300 ms latency on the first transaction per Star is acceptable as a UI blip. If telemetry shows this becomes a real problem, push is a small additive change to retrofit.*
 
-6. **UI is the version source of truth on the client.** The browser fetches a UI bundle from Galaxy (mechanism out of scope here — see `tasks/lumenize-ui.md`) which embeds the current ontology version. The UI tags every resource request with that version. A user-initiated refresh is the recovery path if the embedded version ever falls behind — no polling, no TTL, no push acks needed.
+6. **UI is the version source of truth on the client.** The browser fetches a UI bundle from Galaxy (mechanism out of scope here — see `tasks/lumenize-ui.md`) which embeds the current ontology version. The UI tags every resource request with that version. A user-initiated refresh is the recovery path if the embedded version ever falls behind — no polling, no TTL, no push acks needed. *Scope note*: this task's Phases 1–5 don't depend on the UI work — the test client (`NebulaClientTest.callStarTransaction(star, version, ops)`) lets tests pass any version label directly, so the full Galaxy + Star + facet path is exercisable end-to-end without `tasks/lumenize-ui.md` landing first. The UI bundle becomes load-bearing only at production rollout.
 
 7. **Eager version switch, JS references handle in-flight transactions.** When Star fetches a new version, it eagerly replaces its cached row + facet. In-flight transactions that already captured the old facet into a local variable continue to use it via JS closure semantics; when they return, the local reference drops and the old facet is GC'd. Concurrency safety comes from `Resources.transaction()`'s existing double-eTag-check protocol (optimistic pre-check → parse/guards → pessimistic recheck → `transactionSync` write). Writing data validated under version N is safe even if current becomes N+1 mid-transaction — 5.5's lazy migration handles version skew at read time. No refcount bookkeeping, no TTL. Star's KV holds exactly one current `ontology:<version>` row at a time.
+
+   *Facet `bundleId`*: `${galaxyId}/${version}` where `galaxyId` is `<universe>.<galaxy>` (the first two dot-segments of Star's instanceName, e.g. `'acme.app/v1'`). The Worker Loader caches by `bundleId` *per-Worker*, not per-DO, so all Stars in the same Worker share the loader cache; using just `version` as `bundleId` would let two Galaxies (or two tests) with overlapping version labels collide on the loader cache and silently see each other's validator. Scoping by `galaxyId` namespaces them — and including the universe segment matters: the same galaxy slug ('app') can legitimately be reused across universes, and the loader cache wouldn't see them as distinct otherwise. A version switch within the same galaxy passes a different `bundleId`, which produces a fresh facet via Worker Loader's per-`bundleId` cache; the old facet's stub is no longer referenced by `#facet` and is eligible for collection. Version labels are guaranteed unique within a galaxy by Decision #2's append-only `_index`, and the `<universe>.<galaxy>` prefix disambiguates across galaxies and across universes.
 
    *Note for Phase 5.5*: Migrations running in facets may want an additional version check at write time (not just data eTag) to avoid writing migrated data against a stale target schema. Design this when 5.5 picks up.
 
@@ -45,26 +48,15 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 
 9. **`parseBatch()` is the transaction hot-path call (`parse()` is the single-item form).** `Resources.transaction()` calls `parseBatch()` once per transaction over a `Map<resourceId, { value, typeName }>` built from the entries that need parsing. The previous tsc-based method is removed entirely. `@default` filling happens inside the parser; callers discriminate on `result.valid` to narrow to `data` (success) or `errors` (failure). The resulting `data` overwrites `op.value` so downstream Step 7+ sees the filled object. Input-gate openings collapse from N to 1 per transaction; correctness across input-gate windows is still guaranteed by the existing eTag double-check.
 
-10. ** \****`Ontology`**\*\* class abstraction.** [ontology.ts](./apps/nebula/src/ontology.ts) is deleted. Galaxy holds raw rows in KV; Star holds `#row``````: OntologyVersionRow | null` and `#facet``````: ParserValidator | null` as separate fields, populated together on cache miss. The named types for this layer — `OntologyVersionConfig` (input) and `OntologyVersionRow` (stored) — both live in `galaxy.ts` (Galaxy is the producer). A `compileOntologyVersion(versionConfig): OntologyVersionRow` pure helper lives alongside them. *Considered and rejected: keep ****\*******`Ontology`****\* (didn't fit the per-row storage), introduce ****\*******`OntologyVersion`****\* class (singular name awkward; methods were 1-line passthroughs that earned no encapsulation).*
+10. **No `Ontology` class abstraction.** [ontology.ts](./apps/nebula/src/ontology.ts) is deleted. Galaxy holds raw rows in KV; Star holds `#row: OntologyVersionRow | null` and `#facet: ParserValidator | null` as separate fields, populated together on cache miss. The named types for this layer — `OntologyVersionConfig` (input) and `OntologyVersionRow` (stored) — both live in `galaxy.ts` (Galaxy is the producer). A `compileOntologyVersion(versionConfig): OntologyVersionRow` pure helper lives alongside them. *Considered and rejected: keep `Ontology` (didn't fit the per-row storage); introduce `OntologyVersion` class (singular name awkward; methods were 1-line passthroughs that earned no encapsulation).*
 
 11. **Security framing.** DO facet sandboxing (DW-based) is the security boundary; compiling at schema-registration time (not per-request) is a bonus, not the primary defense.
 
-## Phase 1: Facet Integration Validation
+## Phase ordering
 
-**Goal**: Validate the facet-hosted validator end-to-end with Nebula's mesh routing in the loop, and measure the integration cost (if any) on top of the facet path. Hosting approach (facet) and bundle shape are already decided in 5.2.4.1 Phase 1; raw cold/warm latency for facets was measured in 5.2.4.1 Phase 6 (cold ~1.7 s, warm ~1.4 ms deployed). This phase's question is the *additional* cost of putting Galaxy + Star + mesh routing on top of that path.
+Implementation order is **2 → 3 → 4 → 5**. Phases 2 and 3 are tightly coupled (removing `getOntology()` in 2 breaks Star until 3 lands) and ship as one unit; Phase 4 is verification of the lifecycle behavior; Phase 5 removes the old package and deprecates it.
 
-**Work**:
-- Extend the existing baseline test-app at `apps/nebula/test/test-apps/baseline/` to exercise the full path: client → Gateway → Star Handler 1 (cache miss) → Galaxy `getLatestOntologyVersion()` → Star Handler 2 (load facet from row, run `parse()`, write transaction) → response
-- Measure end-to-end: cold path (Star wake + Galaxy fetch + facet load + first parse) and warm path (subsequent transactions)
-- Compare vs the bare GalaxyDO+StarDO bench from `experiments/ts-runtime-parser-validator-spike/`. Identify any meaningful overhead from mesh routing
-- Check facet beta status: any production blockers? API stability signals from Cloudflare?
-
-**Decision gate**: Continue unless production blockers surface. If facets prove to have API instability, correctness issues, or severe perf regressions in the integrated path, pause and reopen the plain-DW path as a fallback before continuing.
-
-**Success Criteria**:
-- [ ] Integrated Galaxy + Star + facet path validates a real transaction end-to-end
-- [ ] End-to-end latency numbers (cold / warm p50 / warm p99) recorded in this file; integration overhead vs bare bench documented
-- [ ] Facet beta-status risks documented
+Integrated measurement and the public-facing blog posts have moved to a separate task: see [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md). That task owns the pre-implementation Cloudflare facet beta-status check, the integrated cold/warm latency benchmarks, the tsc-baseline comparison spike, and the two paired blog posts (release announcement + facet-performance deep-dive). Splitting it out kept this task focused on bounded code changes; it can run in parallel with Phases 4 and 5 here once Phases 2/3 have landed.
 
 ## Phase 2: Galaxy as Per-Version Registry
 
@@ -73,8 +65,8 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 ### What's already in place
 
 - `appendOntologyVersion(versionConfig)` admin-gated `@mesh()` method ([`galaxy.ts:24-38`](apps/nebula/src/galaxy.ts:24))
-- Duplicate-version-label rejection (currently scans the array; will read the index)
-- Eager validation at submit time (currently via `new Ontology(updated)` to throw on parse errors; moves to `compileOntologyVersion()` doing `extractTypeMetadata` + `generateParseModule`)
+- Duplicate-version-label rejection (current implementation scans the array)
+- Eager validation at submit time (current implementation calls `new Ontology(updated)` to surface parse errors)
 - The `requireAdmin` gate carries over unchanged
 
 ### What changes
@@ -105,13 +97,13 @@ interface OntologyVersionRow {
 ### API surface
 
 ```typescript
-@mesh()              getLatestOntologyVersion(): OntologyVersionRow
+@mesh()              getLatestOntologyVersion(): OntologyVersionRow | null
 @mesh()              getOntologyVersion(version: string): OntologyVersionRow | null
 @mesh()              listOntologyVersions(): string[]
 @mesh(requireAdmin)  appendOntologyVersion(versionConfig: OntologyVersionConfig)
 ```
 
-`getOntology()` (returns whole array) is removed. `getLatestOntologyVersion()` reads `ontology:_index`, takes the last entry, returns `kv.get('ontology:<latest>')`.
+`getOntology()` (returns whole array) is removed. `getLatestOntologyVersion()` reads `ontology:_index`, takes the last entry, returns `kv.get('ontology:<latest>')`. Returns `null` when no versions have been appended yet — Star treats this the same as a missing-version mismatch.
 
 ### Append flow
 
@@ -161,12 +153,13 @@ interface OntologyVersionRow {
 - Run `npm run types` to refresh the generated `Env` interface so `this.env.LOADER` type-checks
 
 **Star state**:
-- `#ontology````: Ontology | null` → `#row``````: OntologyVersionRow | null` + `#facet``````: ParserValidator | null`
+- `#ontology: Ontology | null` → `#row: OntologyVersionRow | null` + `#facet: ParserValidator | null`
 - Both fields populated together on cache miss; both replaced together on version switch
+- `Resources.transaction()`, `Star.doTransaction()`, and `Star.doRead()` become `async` because `parseBatch()` returns a Promise across the facet RPC boundary. Per CLAUDE.md's "Keep Methods Synchronous" rule this is unusual — facet RPC at ~1 ms warm IS long enough to open an input gate and allow interleaving (unlike `crypto.subtle.*`, which the rule's exception list scopes to microsecond-scale APIs). What makes the gate-opening safe here is the eTag double-check inside `transactionSync` (Decision #9): any concurrent transaction that interleaves during the parse will be caught by the pessimistic recheck and re-issued. The async hop is a deliberate trade — N input-gate openings collapse to 1 per transaction (Decision #9), and correctness is preserved by the existing optimistic-concurrency protocol, not by avoiding the gate.
 
 **Star storage**:
 - Replace the current `kv.put('ontology', [...wholeArray])` with a per-version layout mirroring Galaxy's keys: `ontology:<version>` + `ontology:_index`. In practice Star only ever has the single current version cached, but the parallel key shape sets up future migration-aware caching (5.5)
-- The cache-check helper [`#hasOntologyVersion`](apps/nebula/src/star.ts:49) shifts from "version exists in stored array" to "tag matches the *single* cached version label" (Star holds at most one row per Decision #7). On any mismatch — older or newer — Handler 1 fetches from Galaxy; the cache check decides whether to fetch, not whether the tag is current
+- The cache-check helper [`#hasOntologyVersion`](apps/nebula/src/star.ts:49) is renamed `#isCachedVersion(version)` to reflect the new semantic — it now answers "does this tag match my single cached version label?" rather than "is this version anywhere in my stored array?" (Star holds at most one row per Decision #7). On any mismatch — older or newer — Handler 1 fetches from Galaxy; the cache check decides whether to fetch, not whether the tag is current
 -  `#currentOntology` getter ([`star.ts:54`](apps/nebula/src/star.ts:54)) goes away — replaced by direct `#row` and `#facet` access
 
 **Cache-miss fetch**:
@@ -174,7 +167,7 @@ interface OntologyVersionRow {
 - Star receives a single `OntologyVersionRow` rather than the whole array
 - If the returned `version` doesn't match what the client tagged, reject with the existing stale-version error (now including the actual current version from the fetched row)
 - On accept, replace the cache atomically inside `ctx.storage.transactionSync(() => { ... })`:
-  - Delete any pre-existing `ontology:<v>` rows (at most one, found via the current `_index`)
+  - Delete the previous `ontology:<v>` row, if one exists (cold-start path has none — read the current `_index` to find it)
   - `kv.put('ontology:<row.version>', row)`
   - `kv.put('ontology:_index', [row.version])`
 
@@ -189,13 +182,11 @@ interface OntologyVersionRow {
 
 ### What gets deleted
 
-- [ontology.ts](./apps/nebula/src/ontology.ts) (the `Ontology` class)
+- [ontology.ts](./apps/nebula/src/ontology.ts) (the `Ontology` class, including its `getDefaults()` / `validate()` / `getRelationship()` methods and the `#latestDefaults` / `#metadata` instance fields)
 - `Ontology` export from [index.ts](./apps/nebula/src/index.ts) (the `OntologyVersionConfig` re-export stays, now sourced from `galaxy.ts`)
-- `OntologyVersionConfig.defaults` field — defaults now come from `@default` JSDoc tags in the types source (5.2.4.1 Phase 4)
-- `OntologyVersionConfig.migrate` field — unused placeholder; 5.5 will define the migration signature
-- `Ontology.getDefaults()`, `Ontology.validate()`, `Ontology.getRelationship()` methods
-- `Ontology` `#latestDefaults` and `#metadata` instance fields
 - The manual defaults-spread block in `Resources.transaction()` Step 5
+
+(`OntologyVersionConfig.defaults` and `.migrate` field removals are listed under Phase 2's "What goes away" since they belong to Galaxy's input shape.)
 
 ### Test migration
 
@@ -203,16 +194,15 @@ interface OntologyVersionRow {
 - The `callGalaxyGetOntology()` helper at [`test-apps/baseline/index.ts:302-304`](apps/nebula/test/test-apps/baseline/index.ts:302) (which calls `Galaxy.getOntology()`) is replaced with helpers that wrap the new mesh API: `callGalaxyGetLatestOntologyVersion()` and/or `callGalaxyListOntologyVersions()`.
 - The `appendOntologyVersion + getOntology round-trip` and ordering tests at [`star-ontology.test.ts:63-94`](apps/nebula/test/test-apps/baseline/star-ontology.test.ts:63) are reshaped to assert against the new per-version API rather than the whole-`OntologyVersionConfig[]` shape.
 
-**Wrangler config** (Nebula app + every test-app under `apps/nebula/test/test-apps/`):
 ### Success Criteria
 
-- [ ] `apps/nebula/wrangler.jsonc` and every test-app wrangler under `apps/nebula/test/test-apps/` have a `LOADER` Worker Loader binding and `compatibility_date >= 2026-04-01`
+- [ ] `apps/nebula/wrangler.jsonc`, `apps/nebula/test/wrangler.jsonc`, and every `apps/nebula/test/test-apps/<name>/test/wrangler.jsonc` have a `LOADER` Worker Loader binding and `compatibility_date >= 2026-04-01`
 - [ ] Star validates via the facet, not in-process tsc
 - [ ] `#row` and `#facet` populated lazily on cache miss; both null until first transaction
 - [ ] Cache survives hibernation: Star reads `ontology:<version>` from its own KV on wake without re-fetching from Galaxy
 - [ ] `@default` filling works through the parse pipeline; `Resources.transaction()` uses `data` from the parse result
 - [ ] All `ontology.validate()` call sites in `apps/nebula/src/` migrated to `facet.parse()` / equivalent
-- [ ] `Ontology` class deleted; `Ontology` export removed from `apps/nebula/src/index.ts`; `OntologyVersionConfig` moved to `galaxy.ts`; `defaults` and `migrate` fields removed; manual defaults-spread removed; tests migrated to `@default` JSDoc
+- [ ] `Ontology` class and `apps/nebula/src/ontology.ts` deleted; `Ontology` export removed from `apps/nebula/src/index.ts`; `OntologyVersionConfig` (without `defaults`/`migrate`) lives in `galaxy.ts`; manual defaults-spread removed; tests migrated to `@default` JSDoc
 - [ ] Disconnected Star recovers on first resource request tagged with a newer version (existing lazy fetch path, validated under the new layout)
 - [ ] Stale-tagged transactions rejected with a clear error including the actual current version
 
@@ -256,69 +246,12 @@ interface OntologyVersionRow {
 - [ ] All tests pass with new package only
 - [ ] `@lumenize/ts-runtime-validator` deprecated on npm with pointer to new package
 
-## Phase 6: Blog posts — release announcement + facet-performance deep-dive
-
-**Goal**: Two paired posts covering the parse-validate pipeline end-to-end. One is the user-facing release announcement; the other is the technical performance deep-dive that Cloudflare-community readers will want as a companion. Ship them together so they cross-link cleanly.
-
-Moved here from 5.2.4.1 Phase 7 (release post) and 5.2.4.1 Phase 8 (facet-performance deep-dive, archived with that task). Rationale for the pairing: the release post is "here's the thing, use it"; the performance post is "here are the numbers, decide if it's right for you." Both benefit from existing alongside the deployed Galaxy + Star + facets stack rather than just the validator slice.
-
-### 6a: Release announcement
-
-The conceptual frame is already in place via two existing posts that launched `@lumenize/ts-runtime-validator`:
-- [index.md](./../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
-- [index.md](./../website/blog/2026-03-25-write-your-types-once/index.md) — the "you write types four times" pain pitch
-
-The new announcement is a shorter follow-up that inherits the frame and announces what's new, not a fresh ground-up essay.
-
-**Content** (target: ~half the scope of the conceptual posts above):
-- What changed under the hood: typia engine replaces tsc, parse-not-just-validate semantics, `@default` filling, DO facet hosting
-- One paragraph on the facets-vs-plain-DW rationale: facets share the parent DO's isolate → same-isolate RPC, no network hop. (The package's `index.md` links to Cloudflare's facets announcement for "what are facets"; the release blog is the place for "why *we* picked them for this.")
-- Deprecation of `@lumenize/ts-runtime-validator` with pointer to the new package
-- Cross-post per the content-distribution memory (Lumenize site + Substack + Medium)
-
-**Rationale for the timing**: writing the announcement after Nebula integration lets us describe the full working system (parse-validate + Galaxy/Star wiring + `@default` lifted into JSDoc + DO facet hosting) in one post, and avoids announcing something that might still hit integration snags. If 5.2.4.1 ships and 5.2.4.2 stalls, we hold the post until 5.2.4.2 lands.
-
-### 6b: Facet performance in practice (technical deep-dive)
-
-**Why it's worth writing**: facets are new (announced 2026-04-13) and community guidance is thin. Our 5.2.4.1 Phase 6 benchmarks produced facet-specific numbers that answer questions other developers will have. Distinguishes Lumenize as having done the homework; pairs naturally with the release announcement.
-
-**Headline framing**: real numbers distinguishing "DO facets are essentially free" (true for infrastructure/billing, Cloudflare's framing) from the per-call latency reality: **DO facets add \~262 ms cold-spawn and \~1 ms per-call RPC overhead** on top of whatever your DO setup already costs. (The post deliberately stays out of the DO cold-wake baseline — that's a separate cost everyone in DOs pays regardless, not something facets add.)
-
-**Numbers to include** (from 5.2.4.1 Phase 6):
-
-| Metric | Number |
-| --- | --- |
-| Facet cold-spawn (added on top of DO wake) | ~262 ms |
-| Warm parse iteration | ~1.4 ms |
-| Per-call RPC overhead (structured-clone + scheduler hop) | ~1 ms |
-| Bundle size, 30-type ontology | 119 KB |
-
-The "added on top of DO wake" framing keeps the focus on facet-specific cost without dragging readers through the DO infrastructure baseline.
-
-**Content checklist**:
-- Lead with the facet-specific number (262 ms cold-spawn) and the warm number (1.4 ms parse). Make those the headline.
-- Include the 30-type benchmark fixture (`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`) so readers can reproduce.
-- Specific guidance on when facets are right (dynamic code hot-swap, per-tenant sandboxed code, ontology-driven schemas) vs wrong (sub-ms per-call latency requirements with no hot-swap need).
-- Apply the framing rules from `feedback_cf_community_framing.md` — Cloudflare's "essentially free" is true at the layer they meant (billing/infra); we're adding the per-call latency view, not contradicting.
-- Run the open 5.2.4.1 Phase 6 follow-up first: tsc baseline comparison via a parallel spike Worker wrapping the old `@lumenize/ts-runtime-validator`, so the post can cite the new-vs-old numbers side by side.
-- CTA links back to the release post and to the `@lumenize/ts-runtime-parser-validator` package docs.
-
-### Success Criteria (combined)
-
-- [ ] tsc-baseline comparison spike run; numbers added to `experiments/ts-runtime-parser-validator-spike/RESULTS.md` (or equivalent).
-- [ ] Release-announcement post drafted at `website/blog/YYYY-MM-DD-parse-validate.md`; references the two existing conceptual posts rather than re-deriving the frame.
-- [ ] Facet-performance post drafted at `website/blog/YYYY-MM-DD-facet-performance-in-practice.md`; leads with facet-specific cost (cold-spawn + warm parse), avoids the DO cold-wake baseline framing.
-- [ ] Reproducer link points at the committed benchmark fixture and the bench script in `experiments/ts-runtime-parser-validator-spike/`.
-- [ ] Both posts cross-link.
-- [ ] Cross-post per `reference_content_distribution.md` (Lumenize site + Substack + Medium).
-
 ## Open Questions
 
-- Integration overhead of mesh routing on top of the facet path (Phase 1 answers this — bare facet numbers already known from 5.2.4.1 Phase 6)
-- DO facets are beta — any API stability or GA timing signals from Cloudflare that affect the rollout schedule?
 - How does 5.2.6 (validation in plain Worker) relate? It was designed for the tsc engine. With this work, the facet IS the validator — 5.2.6 may be superseded or simplified.
-- Plain-DW deployment without a facet parent is a future enhancement — revisit if we need cross-Star bundle sharing
-- Dev mode deferred to `tasks/dev-mode-branching.md` — no facet provisioning in dev
+- Plain-DW deployment without a facet parent is a future enhancement — revisit if we need cross-Star bundle sharing.
+- Dev mode deferred to `tasks/dev-mode-branching.md` — no facet provisioning in dev.
+- Integrated latency measurement, tsc-baseline comparison, facet beta-status check, and the two release blog posts live in [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md).
 
 ## Notes
 

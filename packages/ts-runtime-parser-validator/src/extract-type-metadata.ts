@@ -147,7 +147,7 @@ const tsApi = ts as {
   isTypeLiteralNode: Function;
   getJSDocTags: Function;
   flattenDiagnosticMessageText: Function;
-  SyntaxKind: { NullKeyword: number; UndefinedKeyword: number };
+  SyntaxKind: { NullKeyword: number; UndefinedKeyword: number; TrueKeyword: number; FalseKeyword: number };
 };
 
 function collectInterfaceNamesArray(sourceFile: any): string[] {

@@ -1,6 +1,7 @@
 {
   "name": "nebula",
-  "compatibility_date": "2026-03-12",
+  "compatibility_date": "2026-04-01",
+  "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
       { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },

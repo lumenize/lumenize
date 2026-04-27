@@ -299,9 +299,15 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxyGetOntology(galaxyName: string): void {
+  callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
     this.resetResults();
-    const remote = this.ctn<Galaxy>().getOntology();
+    const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callGalaxyListOntologyVersions(galaxyName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().listOntologyVersions();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 }

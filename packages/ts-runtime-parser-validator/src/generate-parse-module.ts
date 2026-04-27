@@ -383,117 +383,108 @@ function __clonePlain(v, seen) {
 }
 
 /**
- * Apply @default values to \`value\` against type \`typeName\`.
+ * Apply @default values to \`value\` against type \`typeName\`, **mutating in
+ * place**. Returns the same \`value\` reference for caller convenience.
  *
- * Non-destructive: returns a new object (plain branches are cloned; other
- * types pass through). A missing property OR an explicit \`undefined\` is
- * replaced by the default; any other value (including \`null\`) is kept.
+ * In-place is safe because the only entry points are \`parse()\` / \`parseBatch()\`
+ * on the facet, which receive structured-clones across the Workers RPC boundary
+ * — the caller's original object is never touched. Cycles back to the root
+ * survive (no clone breaks them), and identity is preserved for callers that
+ * pass through a value untouched.
  *
- * Recurses through fields whose declared type is another named interface in
- * this module, so a sub-interface's \`@default\` tags apply to nested payloads.
- * Cycle-safe via the \`seen\` WeakMap threaded through the walk.
+ * Default-literal values themselves are still cloned when applied (the literal
+ * is shared across all parses for that type, so we can't hand the same object
+ * reference to every caller).
+ *
+ * Cycle termination: \`seen\` is a WeakSet tracking objects currently being
+ * filled. A re-entry returns immediately, so a self-referential field doesn't
+ * recurse forever — the inner traversal is skipped because the outer call is
+ * already handling that object.
  */
 function __fillDefaults(value, typeName, seen) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
-  if (!seen) seen = new WeakMap();
-  if (seen.has(value)) return seen.get(value);
 
   const typeDefaults = __typeMetadata.defaults[typeName];
   const sub = __typeMetadata.typeGraph[typeName];
-  const out = {};
-  seen.set(value, out);
-  // Clone each field with a FRESH WeakMap — the fill-level \`seen\` tracks
-  // "original → filled" for cycle detection across fill recursion, which is
-  // a separate concern from the cloner's within-subtree cycle tracking.
-  // Sharing one map caused named-interface sub-objects to be seen-marked by
-  // the cloner, which then short-circuited the fill recursion and skipped
-  // nested defaults.
-  for (const k of Object.keys(value)) out[k] = __clonePlain(value[k], new WeakMap());
+  const inlineForType = __typeMetadata.inlineSubtypes[typeName];
+  // Fast-path: nothing to fill for this type. Skip the seen-bookkeeping entirely.
+  if (!typeDefaults && !sub && !inlineForType) return value;
+
+  if (!seen) seen = new WeakSet();
+  if (seen.has(value)) return value;
+  seen.add(value);
 
   if (typeDefaults) {
     for (const field of Object.keys(typeDefaults)) {
-      if (out[field] === undefined) {
-        out[field] = __clonePlain(typeDefaults[field], new WeakMap());
+      if (value[field] === undefined) {
+        value[field] = __clonePlain(typeDefaults[field], new WeakMap());
       }
     }
   }
 
-  // Recursion into named-interface relationships and inline sub-types uses
-  // the ORIGINAL field value (\`value[field]\`), not the cloned (\`out[field]\`),
-  // so the \`seen\` WeakMap's "original → clone" mapping catches cycles
-  // correctly on re-entry. The container shape (undefined | array | set |
-  // readonlyset | map | readonlymap) determines how we iterate the field.
   if (sub) {
     for (const field of Object.keys(sub)) {
       const edge = sub[field];
-      const origVal = value[field];
-      if (origVal === undefined || origVal === null) continue;
+      const fieldVal = value[field];
+      if (fieldVal === undefined || fieldVal === null) continue;
       const containers = edge.container ? [edge.container] : [];
-      const filled = __recurseContainer(origVal, containers, 0, edge.target, seen);
-      if (filled !== origVal) out[field] = filled;
+      __recurseContainer(fieldVal, containers, 0, edge.target, seen);
     }
   }
-  const inline = __typeMetadata.inlineSubtypes[typeName];
-  if (inline) {
-    for (const field of Object.keys(inline)) {
-      const entry = inline[field];
-      const origVal = value[field];
-      if (origVal === undefined || origVal === null) continue;
+  if (inlineForType) {
+    for (const field of Object.keys(inlineForType)) {
+      const entry = inlineForType[field];
+      const fieldVal = value[field];
+      if (fieldVal === undefined || fieldVal === null) continue;
       if (entry.discriminator) {
         // Discriminated union — read the discriminator at runtime to pick a
         // variant. If the runtime value doesn't match any variant, skip
         // recursion; typia's validator will flag the bad discriminator.
-        if (typeof origVal !== 'object' || Array.isArray(origVal)) continue;
-        const discValue = origVal[entry.discriminator.field];
+        if (typeof fieldVal !== 'object' || Array.isArray(fieldVal)) continue;
+        const discValue = fieldVal[entry.discriminator.field];
         const variantSubTypeName = entry.discriminator.variants[String(discValue)];
         if (variantSubTypeName) {
-          const filled = __fillDefaults(origVal, variantSubTypeName, seen);
-          if (filled !== origVal) out[field] = filled;
+          __fillDefaults(fieldVal, variantSubTypeName, seen);
         }
       } else {
         const containers = entry.containers || [];
-        const filled = __recurseContainer(origVal, containers, 0, entry.subTypeName, seen);
-        if (filled !== origVal) out[field] = filled;
+        __recurseContainer(fieldVal, containers, 0, entry.subTypeName, seen);
       }
     }
   }
 
-  return out;
+  return value;
 }
 
 /**
- * Walk a value through an outer-to-inner container chain, applying
- * \`__fillDefaults(leaf, subTypeName, seen)\` at the innermost level. Supports
- * Array (fresh array), Set (fresh Set), Map (fresh Map keyed by original keys).
- * Empty chain means the field is a direct one-to-one reference — recurse
- * straight into the value.
+ * Walk \`val\` through an outer-to-inner container chain, calling
+ * \`__fillDefaults\` (which mutates in place) at the innermost level. Containers
+ * keep their identity — we iterate, we don't rebuild. Empty chain means the
+ * field is a direct reference — recurse straight in.
  */
-function __recurseContainer(origVal, containers, depth, subTypeName, seen) {
+function __recurseContainer(val, containers, depth, subTypeName, seen) {
   if (depth >= containers.length) {
-    // Innermost: element must be a plain object to fill defaults.
-    if (origVal === null || typeof origVal !== 'object' || Array.isArray(origVal)) return origVal;
-    if (origVal instanceof Set || origVal instanceof Map) return origVal;
-    return __fillDefaults(origVal, subTypeName, seen);
+    if (val === null || typeof val !== 'object' || Array.isArray(val)) return;
+    if (val instanceof Set || val instanceof Map) return;
+    __fillDefaults(val, subTypeName, seen);
+    return;
   }
   const container = containers[depth];
-  const walk = (e) => __recurseContainer(e, containers, depth + 1, subTypeName, seen);
   if (container === 'array') {
-    if (!Array.isArray(origVal)) return origVal;
-    return origVal.map(walk);
+    if (!Array.isArray(val)) return;
+    for (const e of val) __recurseContainer(e, containers, depth + 1, subTypeName, seen);
+    return;
   }
   if (container === 'set' || container === 'readonlyset') {
-    if (!(origVal instanceof Set)) return origVal;
-    const next = new Set();
-    for (const e of origVal) next.add(walk(e));
-    return next;
+    if (!(val instanceof Set)) return;
+    for (const e of val) __recurseContainer(e, containers, depth + 1, subTypeName, seen);
+    return;
   }
   if (container === 'map' || container === 'readonlymap') {
-    if (!(origVal instanceof Map)) return origVal;
-    const next = new Map();
-    for (const [k, v] of origVal) next.set(k, walk(v));
-    return next;
+    if (!(val instanceof Map)) return;
+    for (const [, v] of val) __recurseContainer(v, containers, depth + 1, subTypeName, seen);
+    return;
   }
-  return origVal;
 }
 
 export class ParserValidator extends DurableObject {
