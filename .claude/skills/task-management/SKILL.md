@@ -2,7 +2,6 @@
 name: task-management
 description: Workflow selection for new tasks — docs-first vs implementation-first. Use when starting a new task or creating a task file.
 ---
-
 # Task Management
 
 ## Usage
@@ -60,7 +59,7 @@ See `tasks/README.md` for templates. Key elements:
 
 ## Phase Retro
 
-After each phase, briefly answer:
+After each small task file or large phase, briefly answer:
 1. **What did we learn?** (surprising discoveries, undocumented behavior, patterns worth capturing)
 2. **What did we struggle with?** (implementation friction, confusing APIs, wrong assumptions)
 3. **Did any tests fail unexpectedly?** (root cause, not just the fix)
