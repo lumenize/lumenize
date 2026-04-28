@@ -47,8 +47,9 @@ Decide before starting work. (a) is more honest but adds more time to publish; (
 - `@lumenize/nebula/client` Node-safe subpath added so `NebulaClient` can be imported from Node test code without dragging in `cloudflare:workers`.
 
 **Work remaining for Phase 1 if we go path (a)**:
+- **Use `smoke.test.ts` test #3 as the template**. That test does exactly one transaction end-to-end (bootstrap admin → construct NebulaClient → register ontology → fire `callStarTransaction` → assert success). The bench is "do many of those, measure latency" — same setup, replace the single transaction with a vitest `bench(...)` block that fires N transactions on a hot Star.
 - `bench.bench.ts` alongside `smoke.test.ts` — vitest bench mode. Cold = fresh Star (`uniqueStar()` each iteration; the smoke test already does this), warm = hot Star with N iterations against the same scope.
-- The full Nebula transaction path is exercised by the existing smoke test #3: client → Gateway → Star Handler 1 (cache miss) → Galaxy `getOntology()` → Star Handler 2 (loads parser-validator facet, runs `parseBatch()`, writes transaction) → result delivered via mesh callback to the test client.
+- The full Nebula transaction path that gets benched: client → Gateway → Star Handler 1 (cache hit on warm, cache miss on cold) → [if cache miss: Galaxy `getOntology()` → Star Handler 2] → load parser-validator facet → `parseBatch()` → write transaction → result delivered via mesh callback to the test client.
 - Compare integrated numbers vs the bare GalaxyDO+StarDO bench from 5.2.4.1 Phase 6 — call out integration overhead from mesh routing + auth + result callback.
 - Record numbers in `apps/nebula/test/browser/RESULTS.md`.
 
