@@ -16,15 +16,15 @@ The release-coordination work for the parse-validate pipeline: measure the integ
 
 ## Phase 1: Integrated measurement (feeds 2b)
 
-**Status (2026-04-28)**: **Unblocked.** `tasks/nebula-deployable-and-browser-harness.md` shipped end-to-end and is archived at `tasks/archive/nebula-deployable-and-browser-harness.md`. The browser harness lives at `apps/nebula/test/browser/` with a passing 3-test smoke (boot + auth + full client → Gateway → Star → Galaxy → Star round-trip). `wrangler dev` boots cleanly; Nebula can now be deployed.
+**Status (2026-04-28)**: **Unblocked, decision made — go path (a).** `tasks/nebula-deployable-and-browser-harness.md` shipped end-to-end and is archived at `tasks/archive/nebula-deployable-and-browser-harness.md`. The browser harness lives at `apps/nebula/test/browser/` with a passing 3-test smoke (boot + auth + full client → Gateway → Star → Galaxy → Star round-trip). `wrangler dev` boots cleanly; Nebula can now be deployed.
 
-**Picking up here**: the bench becomes a thin `*.bench.ts` file alongside `apps/nebula/test/browser/smoke.test.ts`, reusing the same `globalSetup.ts` (auto-spawn wrangler dev, real magic-link auth bootstrap, `Browser` for cookie-aware fetch). The `browser-bench` vitest project is already configured in `apps/nebula/vitest.config.js`; `npm run bench` from `apps/nebula/` invokes it.
+**Direction (decided 2026-04-28)**: build the integrated bench. Two reasons:
+1. **Validate the harness work end-to-end on a measurement path**, not just a single-transaction smoke. Running N transactions back-to-back will surface anything brittle in the harness that the smoke test doesn't.
+2. **The harness is expected to be the foundation for almost all Nebula testing going forward** — reactivity (5.3 subscriptions), end-to-end client flows, future bench scenarios. Getting it exercised on a real bench cements the patterns.
 
-**Two paths still on the table**:
-- (a) Build the bench — the integrated cold/warm numbers go into 2b directly.
-- (b) Skip the bench — go straight to drafting 2a/2b with the bare-facet numbers from 5.2.4.1 Phase 6 and a "integration overhead is its own post" footnote. The bare numbers may already be enough for 2b's argument.
+A previously considered "skip the bench, ship 2a/2b with bare-facet numbers + a footnote" path was rejected for those reasons. (Notes preserved in this branch's session log.)
 
-Decide before starting work. (a) is more honest but adds more time to publish; (b) ships faster with a clearer scope.
+**Next-session entry point**: a fresh session reading this file cold should be able to pick up here. The relevant files all live under `apps/nebula/test/browser/`. See "Work remaining for Phase 1" below.
 
 **Goal**: Measure the *integrated* facet cost — Galaxy + Star + mesh routing + facet — on top of the bare facet numbers already known from 5.2.4.1 Phase 6 (cold ~1.7 s, warm ~1.4 ms deployed). The implementation tests in 5.2.4.2 already validated correctness; this phase measures the cost.
 
@@ -46,7 +46,7 @@ Decide before starting work. (a) is more honest but adds more time to publish; (
 - `browser-bench` vitest project already configured.
 - `@lumenize/nebula/client` Node-safe subpath added so `NebulaClient` can be imported from Node test code without dragging in `cloudflare:workers`.
 
-**Work remaining for Phase 1 if we go path (a)**:
+**Work remaining for Phase 1**:
 - **Use `smoke.test.ts` test #3 as the template**. That test does exactly one transaction end-to-end (bootstrap admin → construct NebulaClient → register ontology → fire `callStarTransaction` → assert success). The bench is "do many of those, measure latency" — same setup, replace the single transaction with a vitest `bench(...)` block that fires N transactions on a hot Star.
 - `bench.bench.ts` alongside `smoke.test.ts` — vitest bench mode. Cold = fresh Star (`uniqueStar()` each iteration; the smoke test already does this), warm = hot Star with N iterations against the same scope.
 - The full Nebula transaction path that gets benched: client → Gateway → Star Handler 1 (cache hit on warm, cache miss on cold) → [if cache miss: Galaxy `getOntology()` → Star Handler 2] → load parser-validator facet → `parseBatch()` → write transaction → result delivered via mesh callback to the test client.
