@@ -21,6 +21,7 @@
     "prepare": "chmod +x scripts/*.sh",
     "postinstall": "./scripts/setup-symlinks.sh",
     "types": "./scripts/generate-types.sh",
+    "audit:test-mode": "./scripts/audit-test-mode.sh",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",

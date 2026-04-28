@@ -101,6 +101,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] Consider upgrading `@lumenize/testing`'s `websocket-shim` to use a real WebSocket client and integrate the `Browser` cookie jar
+  - **Why**: Currently the shim is fetch-based (does the upgrade through `Browser.fetch`, which carries cookies). It works fine for our auth model where the access token rides in the `lmz.access-token.<jwt>` subprotocol — cookies aren't checked on the WS upgrade. But if a future auth scheme ever validates a session cookie at the upgrade step, the shim would already cover it. Conversely: today's nebula browser harness *probably* falls back to Node's native `WebSocket` for the round-trip path because the shim was built around the Cloudflare Workers `ws` server-side semantics, not a generic-network-WebSocket client. A real WebSocket client (e.g. `ws` package or Node 22's native, with cookies threaded through) would unify both layers.
+  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — investigating whether `browser.WebSocket` is suitable as the WS layer for the nebula round-trip test.
+  - **Scope**: small but non-trivial — would need to either find a real WS client whose handshake we can override (so we can attach the cookie header from `Browser`), or roll our own thin upgrade wrapper. Not blocking anything today; revisit when reactivity tests need real WS auth flows.
+
+- [ ] Consider promoting `waitForEmail` / `extractMagicLink` helpers from `packages/auth/test/e2e-email/email-test-helpers.ts` to a reusable location
+  - **Why**: These helpers are auth-system-agnostic — they just talk to the deployed `email-test` Worker (`https://email-test.transformation.workers.dev`) over WebSocket. They aren't `@lumenize/auth`-specific or Nebula-specific. Currently the Nebula browser harness has to either copy them or import via relative path through another package's `test/` dir.
+  - **Where they could live**: `@lumenize/email-test` (which already exists for the deployed Worker types) could export the client helpers as a subpath. Or a new `@lumenize/testing/email` subpath.
+  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — adding `auth-bootstrap.ts` to the nebula browser harness, which needs the same helpers.
+  - **Don't do this now** — wait until the third consumer needs them.
+
 - [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
 
 - [ ] Audit tests for unawaited expected-rejection cases and remove `dangerouslyIgnoreUnhandledErrors` flag

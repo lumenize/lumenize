@@ -6,6 +6,15 @@ on:
       - main
 
 jobs:
+  audit-test-mode:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Audit TEST_MODE leak surfaces
+        run: ./scripts/audit-test-mode.sh
+
   run-packages-tests-with-coverage:
     runs-on: ubuntu-latest
     steps:
