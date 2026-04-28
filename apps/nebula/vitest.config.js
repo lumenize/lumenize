@@ -47,7 +47,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**'],
         },
       },
       {
