@@ -39,6 +39,7 @@ experiments/
 
 # vitest
 .vitest-cache
+.vitest-attachments
 coverage
 durable-objects/coverage
 __screenshots__

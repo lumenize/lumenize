@@ -1,6 +1,7 @@
 /**
- * Vitest globalSetup — auto-spawns `wrangler dev` against the baseline
- * test-app and exposes its URL to browser tests via `provide()`.
+ * Vitest globalSetup — auto-spawns `wrangler dev` against the browser
+ * test-app and exposes its URL + the email-test TEST_TOKEN to browser
+ * tests via `provide()`.
  *
  * Why this exists: browser tests need a real Worker isolate to talk to
  * (vitest-pool-workers' miniflare runs in-process, where Cloudflare's
@@ -8,13 +9,22 @@
  * gives us a real Worker; timing happens client-side in Chromium where
  * the wall clock advances normally.
  *
- * Reusable: the same pattern can move into Lumenize Mesh's tests when
- * that work picks up (noted in tasks/nebula-5.3-subscriptions.md).
+ * Why HTTPS: NebulaAuth sets cookies with `Secure`, which browsers refuse
+ * over plain http on a non-localhost-treated origin. `--local-protocol https`
+ * makes wrangler generate a self-signed cert; Playwright is configured with
+ * `ignoreHTTPSErrors` to accept it. This keeps the cookie path identical
+ * to production — no test-mode bypasses.
+ *
+ * Why no NEBULA_AUTH_TEST_MODE: tests exercise the real magic-link email
+ * flow via Cloudflare Email Sending → Email Routing → deployed
+ * email-test Worker → WebSocket back to the test. Test mode in any
+ * wrangler invocation is a leak risk.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
-import { setTimeout as delay } from 'node:timers/promises';
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
@@ -78,17 +88,34 @@ async function waitForReady(proc: ChildProcess): Promise<string> {
   });
 }
 
+/**
+ * Read the email-test deployment's TEST_TOKEN from the root .dev.vars so the
+ * browser tests can authenticate to its WebSocket. The wrangler-dev process
+ * has its own .dev.vars symlink for the Worker's secrets; this reads the
+ * same file from globalSetup's Node context.
+ */
+function readTestToken(): string {
+  const path = resolvePath(process.cwd(), '.dev.vars');
+  const contents = readFileSync(path, 'utf8');
+  const match = contents.match(/^TEST_TOKEN=(.*)$/m);
+  if (!match) {
+    throw new Error(`TEST_TOKEN not found in ${path}. Required for the browser harness's e2e email flow.`);
+  }
+  return match[1].trim();
+}
+
 export default async function setup(project: TestProject) {
   const port = await pickFreePort();
+  const testToken = readTestToken();
 
   wranglerProcess = spawn(
-    'npx',
+    'wrangler',
     [
-      'wrangler@4.84.0', 'dev',
+      'dev',
       '--config', WRANGLER_CONFIG,
       '--port', String(port),
-      '--var', 'NEBULA_AUTH_TEST_MODE:true',
-      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:bootstrap-admin@example.com',
+      '--local-protocol', 'https',
+      '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       '--var', 'NEBULA_AUTH_REDIRECT:/app',
       '--log-level', 'info',
@@ -101,11 +128,8 @@ export default async function setup(project: TestProject) {
 
   const baseUrl = await waitForReady(wranglerProcess);
 
-  // Brief settle so Worker handlers are fully registered before tests start
-  // hammering them.
-  await delay(250);
-
   project.provide('wranglerBaseUrl', baseUrl);
+  project.provide('emailTestToken', testToken);
 
   return async () => {
     if (wranglerProcess && !wranglerProcess.killed) {
@@ -132,5 +156,6 @@ export default async function setup(project: TestProject) {
 declare module 'vitest' {
   export interface ProvidedContext {
     wranglerBaseUrl: string;
+    emailTestToken: string;
   }
 }

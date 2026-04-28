@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
 
 // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
@@ -68,10 +67,21 @@ export default defineConfig({
           include: ['test/test-apps/baseline/**/*.test.ts'],
         },
       },
-      // Browser project — real Chromium via Playwright, hits an auto-spawned
-      // `wrangler dev` (real Worker isolate) for end-to-end tests where we need
-      // honest wall-clock timing. The Worker side still has Cloudflare's
-      // `performance.now()` pinning, but we time client-side from the browser.
+      // Browser project — Node-side vitest tests using @lumenize/testing's
+      // Browser class (cookie-aware fetch + CORS validation + WebSocket +
+      // multi-tab Context with sessionStorage). Talks over the network to an
+      // auto-spawned `wrangler dev` (real Worker isolate) for end-to-end tests
+      // that need honest wall-clock timing.
+      //
+      // Why not vitest-browser/Playwright: vitest-browser runs tests inside an
+      // iframe served from vitest's origin. Cross-origin cookies and CORS
+      // pre-flight against wrangler-dev are awkward to thread through the
+      // iframe. Browser solves both natively in Node and matches the
+      // pattern already used in packages/auth/test/e2e-email/.
+      //
+      // NODE_TLS_REJECT_UNAUTHORIZED=0 accepts wrangler-dev's auto-generated
+      // self-signed cert. Required because cookies marked `Secure` (which
+      // NebulaAuth sets) won't be accepted over plain http even on localhost.
       {
         extends: true,
         plugins: [swcPlugin],
@@ -79,18 +89,14 @@ export default defineConfig({
           name: 'browser',
           include: ['test/browser/**/*.test.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
-          browser: {
-            enabled: true,
-            provider: playwright(),
-            headless: true,
-            instances: [{ browser: 'chromium' }],
-          },
           testTimeout: 30000,
+          env: {
+            NODE_TLS_REJECT_UNAUTHORIZED: '0',
+          },
         },
       },
-      // Bench project — same browser harness, *.bench.ts files only. Run via
-      // `npm run bench` (vitest bench), not part of `npm test`. Uses the same
-      // global-setup so wrangler dev is auto-spawned.
+      // Bench project — same harness, *.bench.ts files only. Run via
+      // `npm run bench`, not part of `npm test`.
       {
         extends: true,
         plugins: [swcPlugin],
@@ -98,13 +104,10 @@ export default defineConfig({
           name: 'browser-bench',
           include: ['test/browser/**/*.bench.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
-          browser: {
-            enabled: true,
-            provider: playwright(),
-            headless: true,
-            instances: [{ browser: 'chromium' }],
-          },
           testTimeout: 60000,
+          env: {
+            NODE_TLS_REJECT_UNAUTHORIZED: '0',
+          },
         },
       },
     ],
