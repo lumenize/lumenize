@@ -206,10 +206,12 @@ const sidebars: SidebarsConfig = {
         'auth/getting-started',
         'auth/hono',
         'auth/configuration',
-        'auth/endpoints',
+        'auth/auth-flow',
         'auth/subject-management',
         'auth/delegation',
         'auth/testing',
+        'auth/customizing-email',
+        'auth/using-resend-instead',
       ],
     },
 
@@ -327,29 +329,24 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // TS Runtime Parser-Validator (new, typia-based)
+    // TypeScript Runtime Validator
     {
       type: 'category',
-      label: 'TS Runtime Parser-Validator',
-      items: [
-        'ts-runtime-parser-validator/index',
-        'ts-runtime-parser-validator/getting-started',
-        'ts-runtime-parser-validator/api-reference',
-        'ts-runtime-parser-validator/type-support',
-        'ts-runtime-parser-validator/additional-constraints',
-        'ts-runtime-parser-validator/default',
-      ],
-    },
-
-    // TS Runtime Validator (deprecated, tsc-based)
-    {
-      type: 'category',
-      label: 'TS Runtime Validator (deprecated)',
-      collapsed: true,
+      label: 'TS Runtime Validator',
       items: [
         'ts-runtime-validator/index',
         'ts-runtime-validator/type-support',
         'ts-runtime-validator/api-reference',
+      ],
+    },
+
+    // Nebula
+    {
+      type: 'category',
+      label: 'Nebula',
+      items: [
+        'nebula/auth-flows',
+        'nebula/nebula-client',
       ],
     },
 

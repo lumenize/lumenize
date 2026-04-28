@@ -1,12 +1,12 @@
 /**
  * Nebula-branded email sender.
  *
- * Extends ResendEmailSender with Nebula branding.
+ * Extends CloudflareEmailSender with Nebula branding.
  * Customize templates in follow-on work (see tasks/nebula-auth.md § Email Template Customization).
  */
-import { ResendEmailSender } from '@lumenize/auth';
+import { CloudflareEmailSender } from '@lumenize/auth';
 
-export class NebulaEmailSender extends ResendEmailSender {
+export class NebulaEmailSender extends CloudflareEmailSender {
   from = 'auth@nebula.lumenize.com';
   appName = 'Nebula';
 }

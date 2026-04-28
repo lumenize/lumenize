@@ -60,7 +60,7 @@ should always be up to date.
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.23.0');
+  expect(lumenizeRpcPackage.version).toBe('0.24.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
 ```
@@ -546,19 +546,20 @@ export default {
 ### vitest.config.js
 
 ```javascript vitest.config.js
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
-  plugins: [cloudflareTest({
-    wrangler: { configPath: "./wrangler.jsonc" },
-  })],
-
+export default defineWorkersProject({
   test: {
-    // 2 second global timeout
-    testTimeout: 2000,
-
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./wrangler.jsonc" },  
+      },
+    },
     // Use `vitest --run --coverage` to get test coverage report(s)
     coverage: {
       provider: "istanbul",  // Cannot use V8
@@ -571,8 +572,8 @@ export default defineConfig({
         '**/*.config.ts',
         '**/scratch/**'
       ],
-    }
-  }
+    },
+  },
 });
 
 ```

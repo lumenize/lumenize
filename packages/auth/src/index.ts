@@ -36,6 +36,7 @@ export {
   defaultInviteExistingHtml,
   defaultInviteNewHtml,
 } from './auth-email-sender-base';
+export { CloudflareEmailSender } from './cloudflare-email-sender';
 export { ResendEmailSender } from './resend-email-sender';
 
 // Auth hooks for routeDORequest

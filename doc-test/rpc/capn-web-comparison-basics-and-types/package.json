@@ -1,6 +1,6 @@
 {
 	"name": "capn-web-comparison-basics-and-types",
-	"version": "0.23.0",
+	"version": "0.24.0",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
@@ -11,14 +11,14 @@
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.14.7",
-		"@lumenize/routing": "^0.23.0",
-		"@lumenize/rpc": "^0.23.0",
-		"@lumenize/testing": "^0.23.0",
-		"@vitest/coverage-istanbul": "4.1.4",
+		"@cloudflare/vitest-pool-workers": "0.12.21",
+		"@lumenize/routing": "^0.24.0",
+		"@lumenize/rpc": "^0.24.0",
+		"@lumenize/testing": "^0.24.0",
+		"@vitest/coverage-istanbul": "3.2.4",
 		"capnweb": "^0.1.0",
 		"typescript": "^5.9.2",
-		"vitest": "4.1.4",
+		"vitest": "3.2.4",
 		"wrangler": "^4.72.0"
 	}
 }

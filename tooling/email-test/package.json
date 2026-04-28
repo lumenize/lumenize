@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/email-test",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "Email testing infrastructure — receives inbound emails via Cloudflare Email Routing and pushes to test clients via WebSocket",
   "type": "module",
   "main": "src/index.ts",
@@ -37,10 +37,10 @@
     "postal-mime": "^2.4.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.14.7",
-    "@vitest/coverage-istanbul": "4.1.4",
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
-    "vitest": "4.1.4",
+    "vitest": "3.2.4",
     "wrangler": "^4.38.0"
   }
 }

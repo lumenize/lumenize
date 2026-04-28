@@ -435,6 +435,11 @@ export default {
       "entrypoint": "AuthEmailSender"
     }
   ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -448,51 +453,41 @@ export default {
 }
 ```
 
-:::note Service bindings
-`SpellCheckWorker` and `AuthEmailSender` are [named entrypoints](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`. The `AUTH_EMAIL_SENDER` binding is how the Auth DO delivers email — Step 8 below walks you through creating it.
+:::note Service bindings and Email Sending
+`SpellCheckWorker` and `AuthEmailSender` are [named entrypoints](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`. The `AUTH_EMAIL_SENDER` binding is how the Auth DO delivers email. The `send_email` binding (`EMAIL`) is how Cloudflare actually dispatches those emails — Step 8 walks you through onboarding the domain.
 :::
 
 ## Step 8: Set Up Email Delivery {#email-setup}
 
 Magic links are how your users log in. Without an email provider, the auth flow silently fails — users see "check your email" but nothing arrives. This step takes about 5 minutes.
 
-### 8a. Sign up for Resend
+:::info Requires the Workers Paid plan
+The default email path uses [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/), which is available on the Workers Paid plan (entry tier $5/month). If you'd rather stay on the free tier, see [Using Resend instead](/docs/auth/using-resend-instead) — Resend has a 100-email-per-day free tier.
+:::
 
-[Resend](https://resend.com) is the recommended default — it uses standard `fetch` (no SDK), works natively on Cloudflare Workers, and has a generous free tier (100 emails/day).
+### 8a. Onboard your domain to Cloudflare Email Sending
 
-1. Sign up at [resend.com](https://resend.com)
-2. [Verify your sending domain](https://resend.com/docs/dashboard/domains/introduction) — Resend's dashboard walks you through adding DNS records (SPF, DKIM, DMARC)
-3. Create an API key in the [Resend dashboard](https://resend.com/api-keys)
-4. **Test it**: Click the "Send test email" button in the Resend dashboard to confirm email arrives in your inbox
+In the Cloudflare dashboard: **Email Services → Email Sending → Onboard Domain**. Pick a domain you already host on Cloudflare DNS; Cloudflare adds the required SPF, DKIM, DMARC, and bounce-handling records automatically. See the [Cloudflare Email Sending getting-started docs](https://developers.cloudflare.com/email-service/get-started/send-emails/) for details.
 
-### 8b. Add the API key to your environment
-
-```bash
-# Local development — add to .dev.vars
-RESEND_API_KEY=re_...
-
-# Production — set as a secret
-wrangler secret put RESEND_API_KEY
-```
-
-### 8c. Create your AuthEmailSender class
+### 8b. Create your AuthEmailSender class
 
 Create a tiny `auth-email-sender.ts` alongside your other source files:
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/auth-email-sender.ts')
-import { ResendEmailSender } from '@lumenize/auth';
+import { CloudflareEmailSender } from '@lumenize/auth';
 
-export class AuthEmailSender extends ResendEmailSender {
+export class AuthEmailSender extends CloudflareEmailSender {
   from = 'auth@example.com';
+  // Override templates, subjects, replyTo, or appName here — see @lumenize/auth docs
 }
 ```
 
-Change `auth@example.com` to an address on your verified Resend domain. That's it — `ResendEmailSender` handles the API call, default HTML templates, and subject lines.
+Change `auth@example.com` to an address on the domain you onboarded in 8a. That's it — `CloudflareEmailSender` handles delivery, default HTML templates, and subject lines. No API key to manage.
 
-This class is already exported from your Worker entry point (Step 6) and bound via `AUTH_EMAIL_SENDER` in wrangler.jsonc (Step 7). No additional wiring needed.
+This class is already exported from your Worker entry point (Step 6) and bound via `AUTH_EMAIL_SENDER` and `send_email` in wrangler.jsonc (Step 7). No additional wiring needed.
 
-:::tip Customizing templates or using a different provider
-See [@lumenize/auth: Email Provider](/docs/auth/getting-started#email-provider) for template customization, composing with defaults, and bringing your own email provider (Postmark, SES, SendGrid, etc.).
+:::tip Customizing templates or using Resend
+See [@lumenize/auth: Email Provider](/docs/auth/getting-started#email-provider) for template customization and composing with defaults. Prefer Resend? See [Using Resend instead](/docs/auth/using-resend-instead).
 :::
 
 ## (Optional) Step 9: Configure Turnstile and Rate Limiting {#production-hardening}

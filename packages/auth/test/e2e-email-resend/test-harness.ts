@@ -1,16 +1,17 @@
 import { LumenizeAuth } from '../../src/lumenize-auth.js';
-import { CloudflareEmailSender } from '../../src/cloudflare-email-sender.js';
+import { ResendEmailSender } from '../../src/resend-email-sender.js';
 import { createAuthRoutes } from '../../src/create-auth-routes.js';
 import { routeDORequest } from '@lumenize/routing';
 
 // Re-export the Auth DO for wrangler
 export { LumenizeAuth };
 
-// AuthEmailSender for the e2e test — sends real emails via Cloudflare Email Sending
-// from the verified lumenize.io domain.
-export class AuthEmailSender extends CloudflareEmailSender {
-  from = 'test@lumenize.io';
-  appName = 'Lumenize Test';
+// AuthEmailSender for the Resend e2e smoke test — keeps the Resend path exercised
+// alongside the default Cloudflare path. Uses the verified test.lumenize.com
+// Resend sending domain.
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@test.lumenize.com';
+  appName = 'Lumenize Test (Resend)';
 }
 
 export default {

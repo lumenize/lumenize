@@ -128,7 +128,7 @@ should always be up to date.
 ```typescript test
 import lumenizeTestingPackage from '../../../../packages/testing/package.json';
 it('detects package version', () => {
-  expect(lumenizeTestingPackage.version).toBe('0.23.0');
+  expect(lumenizeTestingPackage.version).toBe('0.24.0');
 });
 ```
 
@@ -472,15 +472,9 @@ Standard vitest configuration for Cloudflare Workers testing with:
 - Coverage configured with Istanbul provider
 
 ```javascript vitest.config.js
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
-  plugins: [cloudflareTest({
-    wrangler: { configPath: "./test/wrangler.jsonc" },
-  })],
-
+export default defineWorkersProject({
   test: {
     deps: {
       optimizer: {
@@ -497,10 +491,13 @@ export default defineConfig({
         }
       }
     },
-
-    // 2 second global timeout
-    testTimeout: 2000,
-
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
+        wrangler: { configPath: "./test/wrangler.jsonc" },  // Important! use the wrangler.jsonc in ./test
+      },
+    },
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'json', 'html'],
@@ -512,8 +509,8 @@ export default defineConfig({
         '**/*.config.ts',
         '**/scratch/**'
       ],
-    }
-  }
+    },
+  },
 });
 
 ```

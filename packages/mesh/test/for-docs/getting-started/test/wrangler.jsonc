@@ -30,6 +30,11 @@
       "entrypoint": "AuthEmailSender"
     }
   ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

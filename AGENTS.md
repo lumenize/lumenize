@@ -1,9 +1,9 @@
 # Lumenize Project Context
 
 ## Overview
-Lumenize is a collection of liberally licensed (MIT) and more restrictively licensed (BSI-1.1) open-source packages targeting Cloudflare's Durable Objects, which are part of Cloudflare's Workers edge computing platform. There are two complementary but distinct goals:
+Lumenize is a collection of liberally licensed (MIT) and more restrictively licensed (BUSL-1.1 — Business Source License) open-source packages targeting Cloudflare's Durable Objects, which are part of Cloudflare's Workers edge computing platform. There are two complementary but distinct goals:
 1. Provide a de✨light✨ful suite of packages that any developer can use to build scalable, high-quality, and maintainable products (MIT licensed).
-2. Build the ultimate framework for vibe coding enterprise or B2B SaaS software products in a rapid and secure manner. It will be BSI-1.1 licensed, available to enterprises via commercial licenses, and offered as a platform as a service (PaaS) with generous free tier.
+2. Build the ultimate framework for vibe coding enterprise or B2B SaaS software products in a rapid and secure manner. It will be BUSL-1.1 licensed, available to enterprises via commercial licenses, and offered as a platform as a service (PaaS) with generous free tier. Nebula-related packages currently marked `UNLICENSED` pending external launch.
 
 ## Guiding Principles
 - **Quality**: 
@@ -80,7 +80,7 @@ When starting a new project, create a task file with phases and steps. See `task
 - Point to source files: `"main": "src/index.ts"`, `"types": "src/index.ts"` (modified during publish - see Publishing and Releases)
 - No build scripts in package.json (builds happen via centralized scripts)
 - Intra-monorepo dependencies use `"*"` as version
-- `"license": "MIT"` or `"license": "BSI-1.1"` for packages. When in doubt ask.
+- `"license": "MIT"` for open-source packages, `"BUSL-1.1"` for Business Source License packages, or `"UNLICENSED"` for Nebula-related code. Use exact SPDX identifiers. When in doubt ask.
 - `files` array: `["src/**/*"]` (modified during publish - see Publishing and Releases)
 
 **For Cloudflare Worker packages**:

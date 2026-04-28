@@ -1,5 +1,5 @@
 {
-  "name": "auth-e2e-email-test",
+  "name": "auth-e2e-email-resend-test",
   "main": "./test-harness.ts",
   "compatibility_date": "2026-03-12",
   "durable_objects": {
@@ -10,22 +10,11 @@
       }
     ]
   },
-  // Self-referencing service binding: AuthEmailSender is a WorkerEntrypoint
-  // exported from this same Worker (test-harness.ts)
   "services": [
     {
       "binding": "AUTH_EMAIL_SENDER",
-      "service": "auth-e2e-email-test",
+      "service": "auth-e2e-email-resend-test",
       "entrypoint": "AuthEmailSender"
-    }
-  ],
-  // Cloudflare Email Sending binding used by CloudflareEmailSender (env.EMAIL.send).
-  // `remote: true` proxies to the real Cloudflare Email Sending service during
-  // local dev / vitest so tests exercise the full end-to-end path.
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true
     }
   ],
   "migrations": [

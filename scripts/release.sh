@@ -18,6 +18,14 @@ echo ""
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Preflight: npm authentication (fail fast before any expensive work)
+if ! NPM_USER=$(npm whoami 2>/dev/null); then
+  echo "❌ Error: Not logged in to npm. Run 'npm login' first."
+  exit 1
+fi
+echo "✅ Authenticated to npm as $NPM_USER"
+echo ""
+
 # Check for uncommitted changes
 if [ -n "$(git status --porcelain)" ]; then
   echo "❌ Error: You have uncommitted changes. Please commit or stash them before releasing."
@@ -203,6 +211,32 @@ echo ""
 npx lerna publish from-package --yes
 echo ""
 echo "✅ Published to npm"
+echo ""
+
+# Step 5.5: Verify publications against the authoritative npm registry
+# (The `npm view` command hits a CDN-cached mirror that can lag; querying
+# registry.npmjs.org directly gives the authoritative state. This catches
+# cases where a package appears to publish but silently doesn't land.)
+echo "🔍 Verifying publications against authoritative registry..."
+echo ""
+VERSION=$(node -e "console.log(require('./lerna.json').version)")
+VERIFY_FAILED=0
+for package in "${PACKAGES[@]}"; do
+  PKG_NAME=$(node -e "console.log(require('./$package/package.json').name)")
+  LATEST=$(curl -sf "https://registry.npmjs.org/$PKG_NAME" 2>/dev/null | node -e "try { const d = JSON.parse(require('fs').readFileSync(0)); console.log(d['dist-tags']?.latest || 'unknown'); } catch { console.log('unknown'); }" 2>/dev/null || echo "unknown")
+  if [ "$LATEST" = "$VERSION" ]; then
+    echo "  ✓ $PKG_NAME@$VERSION live"
+  else
+    echo "  ⚠  $PKG_NAME: expected $VERSION, registry shows $LATEST"
+    VERIFY_FAILED=1
+  fi
+done
+if [ "$VERIFY_FAILED" = "1" ]; then
+  echo ""
+  echo "⚠  One or more packages didn't verify. CDN propagation usually resolves"
+  echo "   in 30–60s. If still missing after a minute, lerna may have reported"
+  echo "   success for something that didn't actually land — investigate."
+fi
 echo ""
 
 # Step 6: Restore dev mode

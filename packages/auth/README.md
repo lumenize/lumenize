@@ -2,8 +2,6 @@
 
 A de✨light✨ful authentication system for Cloudflare Durable Objects with magic link login, JWT tokens, and refresh token rotation.
 
-> **Note**: This package is currently in development and not yet published to npm.
-
 ## Features
 
 - **Magic Link Login**: Passwordless authentication via email
@@ -21,5 +19,5 @@ npm install @lumenize/auth
 
 ## Documentation
 
-Documentation will be available at **[https://lumenize.com/docs/auth](https://lumenize.com/docs/auth)** when the package is published.
+Full documentation: **[https://lumenize.com/docs/auth](https://lumenize.com/docs/auth)**
 
