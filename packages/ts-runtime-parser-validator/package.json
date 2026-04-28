@@ -19,7 +19,8 @@
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
     "types": "wrangler types",
-    "bundle": "node scripts/bundle-dependencies.mjs"
+    "bundle": "node scripts/bundle-dependencies.mjs",
+    "postinstall": "node scripts/bundle-dependencies.mjs"
   },
   "keywords": [
     "cloudflare",
