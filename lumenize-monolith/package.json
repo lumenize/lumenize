@@ -53,7 +53,7 @@
     "update": "npx npm-check-updates -u -t semver && echo '*** WARNING ***, @cloudflare/vitest-pool-workers only works with vitest@3.1.x and @vitest/coverage-istanbul must match vitest version' && echo 'Check/edit package.json, then run `npm install` to update dependencies.'"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.47",
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@cloudflare/workers-types": "^4.20250620.0",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^24.0.3",
@@ -63,7 +63,7 @@
     "typescript": "^5.8.3",
     "typescript-json-schema": "^0.65.1",
     "vitest": "~3.2.3",
-    "wrangler": "^4.20.1"
+    "wrangler": "^4.86.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.832.0",
