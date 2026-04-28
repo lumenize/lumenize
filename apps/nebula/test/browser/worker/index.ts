@@ -9,12 +9,6 @@
  * `StarTest` is reused so server-side test affordances (`whoAmI()`,
  * `inspectOntologyKv()`) stay consistent with the existing test-app suite.
  * `NebulaClientTest` lives browser-side in tests, not as a DO binding.
- *
- * KNOWN BUG (2026-04-28): this Worker currently crashes at module load under
- * real `wrangler dev` with `Cannot read properties of undefined (reading
- * 'slice')`. Vitest-pool-workers' miniflare hides the bug because of
- * different env-initialization timing. See
- * tasks/nebula-deployable-and-browser-harness.md Phase 1.
  */
 
 export {
@@ -25,6 +19,31 @@ export {
   entrypoint as default,
 } from '@lumenize/nebula';
 
-export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+export { NebulaAuth, NebulaAuthRegistry } from '@lumenize/nebula-auth';
 
 export { StarTest } from '../../test-apps/baseline/index';
+
+import { NebulaEmailSender } from '@lumenize/nebula-auth';
+
+/**
+ * Test-harness email sender — overrides production NebulaEmailSender's
+ * `from` from `auth@nebula.lumenize.com` to `test@lumenize.io`.
+ *
+ * Why: the browser harness uses `send_email` with `remote: true`, which
+ * proxies to real Cloudflare Email Sending. That requires the sender
+ * domain to be verified on the account. `lumenize.io` is verified
+ * (used by packages/auth/test/e2e-email/); `nebula.lumenize.com` is not
+ * — sending from it returns "destination address is not a verified
+ * address" and silently drops the email.
+ *
+ * Using `test@lumenize.io` as the from-address piggybacks on the
+ * already-verified domain. The deployed email-test Worker (which catches
+ * routed emails on lumenize.io) sees the email and pushes it back to
+ * the test via WebSocket.
+ *
+ * This subclass is harness-only — production NebulaEmailSender ships
+ * unchanged with its real branded from-address.
+ */
+export class TestNebulaEmailSender extends NebulaEmailSender {
+  override from = 'test@lumenize.io';
+}

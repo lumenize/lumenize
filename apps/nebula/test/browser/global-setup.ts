@@ -118,6 +118,10 @@ export default async function setup(project: TestProject) {
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       '--var', 'NEBULA_AUTH_REDIRECT:/app',
+      // Enable debug logging so email-send failures and other auth-flow
+      // issues surface in the wrangler-dev stdout buffer (otherwise they're
+      // caught and silently swallowed by LumenizeAuth's #sendEmail try/catch).
+      '--var', 'DEBUG:auth,nebula-auth,nebula',
       '--log-level', 'info',
     ],
     {

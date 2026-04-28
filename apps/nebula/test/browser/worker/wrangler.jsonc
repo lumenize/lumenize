@@ -33,7 +33,17 @@
     {
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-browser-test",
-      "entrypoint": "NebulaEmailSender"
+      "entrypoint": "TestNebulaEmailSender"
+    }
+  ],
+  // Cloudflare Email Sending binding used by CloudflareEmailSender (which
+  // NebulaEmailSender extends, after the migration on main). `remote: true`
+  // proxies to the real Cloudflare Email Sending service so the test
+  // exercises the full email round-trip via the deployed email-test Worker.
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true
     }
   ],
   "ratelimits": [
