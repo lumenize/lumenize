@@ -24,6 +24,59 @@ You can pass multiple wrangler.jsonc configs to wrangler dev w/ multiple Worker 
 wrangler dev --ip=0.0.0.0 -c wrangler.jsonc -c ../other-service/wrangler.jsonc
 ```
 
+### Multiple workers projects, envs, and preview urls
+
+**`project-a/wrangler.jsonc`**
+
+```jsonc
+{
+  "name": "project-a",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-29",
+  "services": [
+    { "binding": "B", "service": "project-b" }
+  ],
+  "env": {
+    "preview": {
+      "services": [
+        { "binding": "B", "service": "project-b-preview" }
+      ]
+    }
+  }
+}
+```
+
+**`project-b/wrangler.jsonc`**
+
+```jsonc
+{
+  "name": "project-b",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-29",
+  "env": {
+    "preview": {}
+  }
+}
+```
+
+**Deploy commands and resulting URLs**
+
+```bash
+# from project-b/ — deploy leaf project first so project-a's binding can resolve
+wrangler deploy
+# → https://project-b.my-account.workers.dev
+
+wrangler deploy --env preview
+# → https://project-b-preview.my-account.workers.dev
+
+# from project-a/
+wrangler deploy
+# → https://project-a.my-account.workers.dev   (its B binding resolves to project-b)
+
+wrangler deploy --env preview
+# → https://project-a-preview.my-account.workers.dev   (its B binding resolves to project-b-preview)
+```
+
 ## Database/ORM Ideas
 
 We want to create a new kind of database/ORM

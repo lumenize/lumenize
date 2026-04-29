@@ -1,6 +1,6 @@
 # Typia Visit-Tracking: Copy In + Modify
 
-**Status**: Phases 1–2 shipped 2026-04-24 alongside `@lumenize/ts-runtime-parser-validator` (5.2.4.1, now archived at [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md)). Phase 3 shipped the parser-validator-side regression tests; the upstream-port portion stays deferred per that phase's rationale. **Phase 4 is the remaining work**, blocked on Phase 0's outcome (response deadline 2026-05-08). Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review.
+**Status**: Phases 1–2 shipped 2026-04-24 alongside `@lumenize/ts-runtime-parser-validator` (5.2.4.1, now archived at [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md)). Phase 3 shipped the parser-validator-side regression tests; the upstream-port portion stays deferred per that phase's rationale. **Phase 0 returned positive 2026-04-28** with API design fully settled across a three-comment exchange on [issue #1820](https://github.com/samchon/typia/issues/1820): no new method, no new parameter, recursion-gated WeakSet allocation via `MetadataSchema` traversal — see Phase 0 below for the full thread. Samchon also noted he'll add cycle support himself during the typescript-go migration he's actively working on. **Phase 4 is unblocked but the active track is undecided** — porting our copy to a clean PR is more involved than the original task anticipated; see [Implementation discoveries vs. PR-friendliness](#implementation-discoveries-vs-pr-friendliness). Decision deferred to at least 2026-05-02 (mirroring Samchon's ~4-day response window). Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review.
 
 **Depends on**: None (typia 12.0.2 is pinned).
 **Artifact**: `packages/ts-runtime-parser-validator/forks/typia/` — copied TypeScript source from `samchon/typia@v12.0.2`, modified in-place.
@@ -45,14 +45,42 @@ Before any implementation, open an issue on `samchon/typia` proposing visit-trac
 
 - [x] Draft the issue: problem statement (cycles stack-overflow regardless of declared type, aliases re-walked), proposed opt-in API (threaded `WeakMap` parameter), non-goals (no default behavior change, no perf regression for acyclic callers).
 - [x] Post to `github.com/samchon/typia/issues`. _Posted 2026-04-24._
-- [ ] Wait up to two weeks for a reaction (deadline: 2026-05-08).
+- [x] Wait up to two weeks for a reaction (deadline: 2026-05-08). _Resolved 2026-04-28: positive._
 
-**Exit criteria:**
+**Outcome (2026-04-28): positive, API design fully settled.**
+
+Three-comment exchange on the issue thread:
+
+**Samchon (1)**:
+> Very good idea. Welcome your PR. In typescript-go migration, I'll do that. It would be the best the `WeakMap` created only when recursive relation exists.
+
+**Samchon (2), responding to a clarifying question**:
+> Wanna option A. User doesn't need to be know whether the tracking (`WeakSet`?) is required or not. You can detect whether the recursive/cyclic relationship exist or not by traversing `MetadataSchema`.
+
+**Samchon (3), final clarification**:
+> 1. No new function, no new parameter required
+> 2. You can determine whether WeakSet is required or not by logic level
+> 3. Traverse MetadataSchema, then you can determine it
+
+**Settled design**:
+
+- **Public API unchanged.** No companion function (`createValidateWithCycles<T>()` rejected), no opt-in parameter on `createValidate<T>()`. The existing `createValidate`, `createIs`, `createAssert` and siblings just gain cycle support transparently.
+- **Static recursion gating via `MetadataSchema`.** typia's `MetadataObjectType.recursive: boolean` flag (computed by [forks/typia/core/src/factories/internal/metadata/iterate_metadata_collection.ts:42-54](packages/ts-runtime-parser-validator/forks/typia/core/src/factories/internal/metadata/iterate_metadata_collection.ts#L42-L54), not from tsc) gates emission. When no recursive relationships exist in the type, output is byte-identical to current typia.
+- **`WeakSet` not `WeakMap`.** Once threading per pass is in place, only "have we seen this object" matters — no associated value lookup — so `WeakSet` is the right data structure.
+- **Threading through internal helper signatures is fine** — what's banned is changes to the *public* `createValidate<T>()` API surface. Internal threading is an implementation detail.
+
+**Implications worth noting:**
+
+1. **PR welcome** — track 4a (upstream PR) is unblocked, and the API is settled enough to start the refactor.
+2. **typescript-go migration is active** — Samchon is currently porting typia to typescript-go and intends to add cycle support there himself. Our fork's lifespan likely ends with that cutover regardless of what we do upstream against current TS typia. (The Cloudflare Workers compatibility question for typia-go — Containers vs WASM — is a separate, larger conversation for later.) This gives a clean "out" for deferring the PR work entirely (track 4c).
+3. **Non-recursive DAG-alias-dedup is sacrificed.** Recursion-gated emission means non-recursive types with shared subtree references at runtime (e.g., `[shared, shared]` in a non-recursive container) get re-walked. This is a perf tradeoff, not a correctness regression — and it's Samchon's explicit preference.
+
+**Original exit criteria** (kept as historical context; superseded by the actual outcome above):
 - **Positive** (Samchon engages, says "open a PR" or gives design feedback): Phase 4 is on. Proceed through 1–3 with upstream-PR readiness in mind (clean commits, no Lumenize-specific naming in the touched files).
 - **Negative** (declined, out-of-scope, "won't merge"): skip Phase 4. Proceed through 1–3 freed from upstream conventions.
 - **Silence past two weeks**: treat as negative. Skip Phase 4.
 
-Phases 1–3 are unaffected either way — release needs them. Phase 0 only decides whether we also do Phase 4.
+Phases 1–3 already shipped; Phase 0 unblocks Phase 4 but the active sub-track is now a three-way choice (4a / 4b / 4c) — see Phase 4 for details.
 
 ### Phase 1: Copy in + no-op swap ✅ COMPLETE (2026-04-24)
 
@@ -104,29 +132,68 @@ Phases 1–3 are unaffected either way — release needs them. Phase 0 only deci
 
 **When to revisit**: if Phase 0 returns positive, bring this work back as part of Phase 4a (upstream PR prep) — the PR should include upstream-format tests alongside the visit-tracking change, and ts-patch + harness is on the critical path for acceptance at that point. If Phase 0 returns negative/silent, this port stays deferred indefinitely (Phase 4b does the helper-consolidation instead); the parser-validator test suite remains the regression signal.
 
-### Phase 4: Post-Phase-0 branch
+## Implementation discoveries vs. PR-friendliness
 
-Phase 0's outcome determines which track runs. The two tracks are mutually exclusive — we do one, not both.
+The post-Phase-2 implementation in [forks/typia/core/src/programmers/internal/FeatureProgrammer.ts](packages/ts-runtime-parser-validator/forks/typia/core/src/programmers/internal/FeatureProgrammer.ts) (Lumenize-modification regions at lines 277–805) diverges from Samchon's settled PR design in three coupled ways. None were a deliberate design pivot away from PR-friendliness — D5 always said "unconditional, no threading, no toggle" with the assumption that the PR refactor would add the opt-in shape. What changed is the cost estimate: the refactor isn't "add a flag," it's three coupled changes plus the deferred Phase 3 upstream test port.
 
-#### 4a. Phase 0 positive → Upstream PR
+**1. Closure-scoped `$visited` vs. parameter threading through internal helpers.** `$visited` is declared once in the IIFE (`writeDecomposed`) or once in the per-call arrow (`write`), and helpers close over it. The fork's [README:29](packages/ts-runtime-parser-validator/forks/typia/README.md#L29) is explicit: *"public typia API, parameter signatures, helper call sites — not touched. The map is closure-scoped; no threading."* The settled PR design keeps the public API untouched but threads `$visited` through internal helper signatures so each pass gets its own — touching every emitted helper signature and every call site. Closure scope needed ~3 hooks total; threading is a much wider edit.
 
-Only if Samchon engages and invites a PR.
+**2. Universal wrap vs. recursion-gated wrap.** Every object helper gets the visit guard regardless of whether the type is recursive. Samchon's settled position — emit only when `MetadataSchema` traversal shows recursion — calls for static gating on `MetadataObjectType.recursive`. The flag is already computed by typia (in [iterate_metadata_collection.ts:42-54](packages/ts-runtime-parser-validator/forks/typia/core/src/factories/internal/metadata/iterate_metadata_collection.ts#L42-L54)), so the gate is a read at the emission point. Universal wrapping additionally delivers alias-dedup for non-recursive shared subtrees, which a recursion-gated version loses — Samchon's preference is to accept that perf regression in exchange for zero overhead on non-recursive types.
 
-- [ ] Fork `samchon/typia` on GitHub under your user.
-- [ ] Clone the fork locally, outside the lumenize repo.
-- [ ] Port the visit-tracking change from our local copy to the clean fork — file-for-file copy of the touched files, no Lumenize-specific naming.
-- [ ] Port the curated test subset deferred from Phase 3 (see that section) as part of PR-ready test coverage. At this point ts-patch + harness is on the critical path, so the infrastructure cost is justified.
+**3. `WeakMap<object, Set<string>>` with per-helper-name keying vs. plain `WeakSet<object>`.** `ValidateProgrammer` runs `__is` first; on failure it runs the full validate pass via the same outer IIFE (see [ValidateProgrammer.ts:135-200](packages/ts-runtime-parser-validator/forks/typia/core/src/programmers/ValidateProgrammer.ts#L135-L200)). Both passes share `$visited` via IIFE closure in our implementation. Without per-helper-name keying, `__is` marking an invalid object as visited would short-circuit the follow-on validate pass, hiding errors. The `Set<string>` of helper names — `_io0` for is-helpers, `_vo0` for validate-helpers — keeps the passes independent. **This wrinkle is downstream of (1):** with parameter threading, each pass receives its own `WeakSet` allocated at top-level entry, so per-helper-name keying becomes unnecessary and the data structure simplifies to a plain `WeakSet`. Refactor (3) falls out of doing (1).
+
+**Net: porting to a PR is three coupled refactors plus the deferred Phase 3 upstream test port.** The pre/post-wrapper alternative (acyclify pre-pass + null substitution + restore + error-path remapping) was rejected at task drafting (see "Alternatives Considered and Rejected") and remains rejected — non-nullable alias dedup is impossible in that approach, and ruling it out is the user's explicit position now.
+
+**Why we can't patch just `WeakSet` into our fork without doing the full refactor**: the closure-scoped sharing in our IIFE makes plain `WeakSet` incorrect (refactor 3's bug). `WeakSet` only works once threading is in place. The data-layout change is not a separable patch; it's the tail end of the same refactor.
+
+## Coverage tradeoff: our fork covers more cases than the PR design
+
+Surfacing this explicitly because it inverts the usual upstream-PR calculus: our fork is **strictly more capable** than what would land upstream. Three runtime cases:
+
+| Case | Type structure | Runtime input | Our fork | Samchon's PR design |
+|------|---------------|---------------|----------|---------------------|
+| 1 | Recursive (e.g. `Node.parent: Node`) | Cycle (`a.parent = a`) | ✅ short-circuits | ✅ short-circuits |
+| 2 | Recursive (e.g. `Tree.children: Tree[]`) | DAG aliases (`[shared, shared]`) | ✅ deduped | ✅ deduped |
+| 3 | Non-recursive (e.g. `Container.items: Item[]`) | DAG aliases (`[shared, shared]`) | ✅ deduped | ❌ re-walked |
+
+Case 3 is the regression. Our fork wraps every object helper (universal), so any runtime alias to any object short-circuits. Samchon's design wraps only helpers for types flagged `MetadataObjectType.recursive === true`, so non-recursive shared subtrees re-walk on every reference.
+
+**Why this matters for the 4a vs. 4c choice.** Track 4a isn't "port what we have" — it's "port a less-capable variant and replace what we have with it." The case-3 dedup is one-way: once we PR and switch, we can't easily unship the gate. For Lumenize specifically the regression is probably small (most aliased nodes in our ontology graph are themselves recursive types — entities can reference entities), but it's nonzero and the workload could change.
+
+**Why we can't have both.** The static signal needed to handle case 3 is *runtime structure*, not type structure — there's no `MetadataSchema` flag typia could read in advance to know a non-recursive type will receive a DAG at runtime. Universal-but-cheap (e.g. allocate WeakSet only when input is large) would need runtime heuristics, which Samchon explicitly rejected with "no new function, no new parameter required."
+
+A wider gate that catches non-recursive *DAG-typed shapes* (e.g. `interface Page { header: SharedHeader; footer: SharedHeader }`) is conceivable — emit when any helper is referenced from multiple sites in the type graph, not just self-recursive — but it's a meaningfully different proposal than Samchon settled on. Not worth opening unless we hit a real regression.
+
+### Phase 4: Decision pending — leaning 4c
+
+Phase 0 returned positive and the API design is fully settled. The active sub-track is undecided: **4a (upstream PR)** or **4c (defer pending typia-go migration)**. **4b** stays on the doc as a follow-on if 4a is attempted and stalls, but isn't a primary path. Decision deferred to at least 2026-05-02 (mirroring Samchon's ~4-day response window on the issue).
+
+**Current lean: 4c.** Once the case-3 coverage tradeoff (above) surfaced, the calculus shifted: our fork is strictly more capable than what would land upstream, so 4a means doing more work in exchange for less capability. 4c keeps our case-3 coverage and lets typia-go be the natural sunset point. Not yet a final call — see 4c's rationale and reversibility note.
+
+#### 4a. Upstream PR
+
+Active if we decide the cycle-support port to current TS typia is worth doing on its own merits, even with typia-go on the horizon. **Cost worth flagging up-front**: porting means accepting the case-3 regression in our own runtime — the PR design loses non-recursive DAG-alias dedup (see "Coverage tradeoff" above). One-way: we can't easily unship the gate after the PR lands and we delete the fork.
+
+API design is settled (see Phase 0 outcome). No new public API surface; threading + recursion gating + WeakSet are all internal. Work items:
+
+- [ ] Refactor (1): convert closure-scoped `$visited` to a `WeakSet` parameter threaded through every emitted helper signature and call site. Each top-level emitted function (`__is`, validate body, etc.) allocates its own WeakSet at entry.
+- [ ] Refactor (2): gate emission of (1) on `MetadataObjectType.recursive`. Non-recursive object helpers stay byte-identical to current typia output. Use the existing `MetadataObjectType.recursive: boolean` (computed in [iterate_metadata_collection.ts:42-54](packages/ts-runtime-parser-validator/forks/typia/core/src/factories/internal/metadata/iterate_metadata_collection.ts#L42-L54)) — don't add a new traversal pass.
+- [ ] Refactor (3): drop the `WeakMap<object, Set<string>>` per-helper-name keying — with threaded WeakSet per pass, the keying is dead weight.
+- [ ] Apply the same gate to top-level WeakSet allocation: collection-level traversal of `MetadataSchema` decides whether to allocate at all. If no recursive types in the collection, no allocation, no overhead.
+- [ ] Fork `samchon/typia` on GitHub under your user. Clone the fork outside the lumenize repo.
+- [ ] Port the refactored visit-tracking change to the clean fork — file-for-file, no Lumenize-specific naming.
+- [ ] Port the curated test subset deferred from Phase 3 (see that section) as part of PR-ready test coverage. ts-patch + harness is on the critical path here, so the infrastructure cost is justified.
 - [ ] Rebase against current upstream `main`.
-- [ ] Write PR description: problem statement, opt-in API, test coverage, perf analysis on acyclic inputs, link back to the Phase 0 issue.
+- [ ] Write PR description: problem statement, internal threading + recursion-gating design (citing Samchon's confirmation on issue #1820), test coverage, perf analysis (zero overhead on non-recursive types, lost DAG-alias-dedup tradeoff), link back to issue #1820.
 - [ ] File PR; monitor; respond to feedback.
 
 **Sunset condition (4a)**: if Samchon merges the PR and releases it in typia ≥ 12.x.y, bump `@lumenize/ts-runtime-parser-validator`'s typia deps to that version, swap `bundle-dependencies.mjs` back to `node_modules`, delete `packages/ts-runtime-parser-validator/forks/typia/`, archive this task.
 
-**Hold condition (4a)**: PR stalls past two months from filing or is declined after filing. Switch to track 4b to recoup value from the local copy; archive this task once 4b completes.
+**Hold condition (4a)**: PR stalls past two months from filing or is declined after filing. Switch to track 4b to recoup value from the local copy; archive this task once 4b completes. (Caveat: if typia-go cutover is imminent at that point, prefer 4c — don't invest in 4b for a fork that's about to sunset.)
 
-#### 4b. Phase 0 negative/silent, or 4a stalled/declined → Consolidate runtime helpers into the fork
+#### 4b. Consolidate runtime helpers into the fork
 
-The upstream path is closed, so the "keep our copy minimal for PR acceptance" constraint that D7 held onto stops being load-bearing. Pay back helper-inlining tech debt now.
+Triggered when 4a is attempted and stalls/is declined, AND typia-go cutover isn't imminent enough to make the consolidation a wasted investment. Not a primary path on its own — only a follow-on to 4a's hold condition.
 
 Context: [src/typia-runtime-helpers.ts](packages/ts-runtime-parser-validator/src/typia-runtime-helpers.ts) hand-copies three typia internal helpers (`_validateReport`, `_accessExpressionAsString`, `_createStandardSchema`) as escaped JS source strings, and [src/generate-parse-module.ts:313-322](packages/ts-runtime-parser-validator/src/generate-parse-module.ts) regex-substitutes them into the emitted output. The file explicitly flags expansion pressure: "Phase 5 will expand this set to cover every helper typia can reference (format validators, type guards, TypeGuardError, etc.)." Each new internal helper adds copy-paste-escape + regex-substitution maintenance.
 
@@ -139,6 +206,21 @@ These helpers live in `packages/typia/src/internal/*.ts` in the upstream monorep
 - [ ] Verify all parser-validator tests still pass.
 
 **Sunset condition (4b)**: consolidation ships. The local copy becomes the permanent runtime with less hand-maintained surface area. Archive this task.
+
+#### 4c. Defer pending typia-go migration
+
+Carry the fork as-is until typia-go forces a decision. Three reinforcing reasons:
+
+1. **Our fork is more capable than what would land upstream.** Our universal-wrap design covers case 3 (non-recursive DAG dedup) that Samchon's recursion-gated PR design explicitly drops. PR-ing means trading capability for code we'd delete anyway. (See "Coverage tradeoff" above.)
+2. **Samchon has committed to adding cycle support in the typescript-go migration** he's actively working on, so the fork's lifespan likely ends with that cutover regardless of what we do upstream against current TS typia.
+3. **The Cloudflare Workers compatibility question for typia-go (Containers vs WASM) is a much bigger conversation** than visit-tracking. Handling cycle-support and the runtime question together at typia-go cutover avoids paying the PR-refactor cost on a fork that's about to sunset, and lets us evaluate the case-3 regression with concrete data at that point (does Samchon's typia-go variant ship the same recursion gate? does it matter for our workload?).
+
+- [ ] No active work. Revisit when typia-go ships, or when 5.2.4.1's wire-in needs a typia bump that incorporates Samchon's typescript-go cycle work.
+- [ ] If Samchon's typescript-go branch lands cycle support before our typia-go cutover, evaluate whether to bump typia and delete the fork early (accepting the case-3 regression then), or hold the fork until the typia-go cutover handles both at once.
+
+**Sunset condition (4c)**: typia-go cutover (with or without Samchon-authored cycle support landed first) replaces this fork. At that point, evaluate whether the case-3 regression in the new runtime is acceptable for our workload — if so, archive this task; if not, the wider-gate variant mentioned in "Coverage tradeoff" becomes a fresh upstream conversation.
+
+**Reversibility**: 4c is not a one-way door. If typia-go slips significantly or the Cloudflare-runtime question turns out to block typia-go indefinitely, switching to 4a (or 4b) is still possible — the fork is already in place and working. The cost of waiting is the maintenance burden of carrying the fork in the meantime, which is currently low (no upstream churn we'd want to absorb, since we don't rebase per D4).
 
 ## Phase -1: Captured Ideas
 
