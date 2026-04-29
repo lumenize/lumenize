@@ -124,7 +124,12 @@ Concretely:
 **Success Criteria**:
 - [x] Facet beta-status risks documented (one paragraph, fed back into 2b's post draft if material) — see Phase 0 findings above
 - [x] `apps/nebula/test/browser/` harness built; smoke test passes against auto-spawned `wrangler dev` — shipped 2026-04-28 with the harness task
-- [ ] Integrated cold/warm p50/p99 numbers recorded in `apps/nebula/test/browser/RESULTS.md`
+- [ ] `HarnessNebulaClient` exposes Promise-wrapped `callStarTransaction()` and `callStarPing()` (Promise-based completion off the existing mesh-callback handler — no `vi.waitFor` polling)
+- [ ] No-op `ping()` mesh handler on Star (test-mode-gated or test-only subclass), wired through to client `handlePingResult`
+- [ ] Bench file `apps/nebula/test/browser/bench.bench.ts` with three `bench()` blocks: `warm`, `cold`, `ping` — using `beforeAll` for one-time setup, vi.bench's `warmupIterations` for warm/ping, and an explicit pre-loop warmup transaction for cold
+- [ ] Local bench (`wrangler dev`) green and stable: all three blocks produce percentiles; ping number is single-digit ms
+- [ ] Deployed bench numbers recorded in `apps/nebula/test/browser/RESULTS.md` — both raw (transaction round-trip) and WS-leg-subtracted (in-Worker cost)
+- [ ] Local numbers also recorded in `RESULTS.md` for regression-diagnostic value
 - [ ] Integration overhead vs bare bench documented (one sentence per row)
 
 ## Phase 2: Paired blog posts
