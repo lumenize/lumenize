@@ -65,6 +65,56 @@ What is and isn't cold under this design:
 
 The warm bench reuses the same scope across iterations: hot Star (Handler 1 cache hit, no Galaxy hop), bundle already loaded, Galaxy untouched.
 
+**Bench design notes (decided 2026-04-29)**:
+
+These pin the harness-side decisions before implementation. All four are required for the bench to produce trustworthy numbers; none of them is a "tweak later" item.
+
+1. **Result delivery: Promise wrapper, not polling.** The smoke template uses `vi.waitFor(() => client.callCompleted)` to observe completion. `vi.waitFor`'s default interval is 50 ms — much larger than the warm-path measurement target (~1.4 ms bare, expected single-digit-ms integrated). Polling would dominate the noise floor. The WebSocket push mechanism is *already* there: `handleTransactionResult` is a `@mesh()` handler that fires when the Star's mesh callback arrives over the existing WS. Wrap it with a Promise:
+
+   ```ts
+   class HarnessNebulaClient extends NebulaClient {
+     #pending?: { resolve: (r: TransactionResult) => void; reject: (e: Error) => void };
+
+     @mesh()
+     override handleTransactionResult(result: TransactionResult | Error): void {
+       if (result instanceof Error) this.#pending?.reject(result);
+       else this.#pending?.resolve(result);
+       this.#pending = undefined;
+     }
+
+     callStarTransaction(starName, ontologyVersion, ops): Promise<TransactionResult> {
+       return new Promise((resolve, reject) => {
+         this.#pending = { resolve, reject };
+         this.lmz.call('STAR', starName, this.ctn().transaction(ontologyVersion, ops));
+       });
+     }
+   }
+   ```
+
+   Bench iteration becomes `await client.callStarTransaction(...)` — measures actual WS round-trip with no polling noise. Single-slot `#pending` is fine here because vi.bench is sequential. The throughput task (`tasks/parse-validate-throughput.md`) needs a Map for concurrent in-flight calls; not our concern here.
+
+2. **WS-leg baseline: ping bench.** Local round-trip to `wrangler dev` is negligible (~ms over loopback); deployed round-trip is material (tens to hundreds of ms depending on client/colo geography). To isolate in-Worker cost from network round-trip, run a ping bench alongside the transaction bench: same WS connection, server-side handler does no work, measure round-trip. Subtract from transaction latency to get the in-Worker contribution. Implementation outline:
+   - Add a no-op `ping()` mesh handler on the Star (or Gateway — Star is fine since the transaction path goes through Star anyway): bounces a `handlePingResult` back to the client via the same mesh-callback mechanism.
+   - Add `callStarPing()` to `HarnessNebulaClient`, Promise-wrapped same as transaction.
+   - Bench file gets a third `bench()` block: `ping`. Its number is the floor we subtract.
+   - **Caveat**: a `ping()` mesh handler on `Star` is test/bench-only. Either gate it on `env.NEBULA_AUTH_TEST_MODE` or move it to a test-only subclass — don't ship it to production. A short comment in `star.ts` is enough.
+
+3. **Setup: `beforeAll`, not per-iteration.** The bench measures *transaction* cost, not bootstrap cost. `beforeAll` does: magic-link admin bootstrap + cookie capture + NebulaClient construction + WS connect + Galaxy ontology registration. The bootstrap admin has Universe scope, so a single long-lived client can drive any Star scope at any depth without re-authenticating. Per-iteration the bench just calls `client.callStarTransaction(scope, version, ops)` with the appropriate scope (warm: same scope; cold: vary tenant segment).
+
+4. **Warmup iterations.**
+   - **Warm bench**: use vi.bench's built-in `warmupIterations` (3–5 sufficient). First call against a freshly-spawned `wrangler dev` pays subprocess warm-up, TLS handshake, etc. — don't let that bleed into recorded iterations.
+   - **Cold bench**: pays the one-time bundle load (~262 ms in the bare bench) on the first iteration that varies the bundleId's universe.galaxy. Since our cold-Star/warm-cluster shape *keeps* universe.galaxy constant, the bundle is loaded once and cached — but iteration 1 still pays it. Fire one explicit warmup transaction in `beforeAll` (after ontology registration) so vi.bench's first recorded cold iteration sees a hot bundle. This warmup should target a *different* tenant scope than the bench's iterations to pre-populate caches without skewing iteration 1's "fresh Star" character.
+   - **Ping bench**: vi.bench's `warmupIterations` covers it.
+
+**Local-first, then deploy**:
+
+Get the bench green and stable against `wrangler dev`, then **rerun against a deployed Worker on Cloudflare to get the publishable numbers**. Local numbers are sanity-floor (no network, no real cold-start, different loader-cache behavior). Phase 2b's framing "real numbers from production-equivalent infrastructure" requires deployed.
+
+Concretely:
+- Local pass: bench code compiles, all three blocks (warm + cold + ping) produce stable percentiles, ping number is ~ms range. This is the "implementation correct" gate.
+- Deployed pass: deploy the harness's worker (`apps/nebula/test/browser/worker/`) — Nebula is now deployable, per the harness task. Re-run the bench pointing at the deployed URL (configurable base URL in the harness). Record numbers.
+- Both number sets go in `RESULTS.md`, clearly labeled. The deployed numbers feed 2b; the local numbers help diagnose if/when deployed numbers regress.
+
 **Splits** (already in place):
 - Smoke (and future reactivity tests for 5.3) → `npm test` from `apps/nebula/`. Deterministic assertions only.
 - Bench → `npm run bench` from `apps/nebula/` (already wired). Records numbers, no flaky timing assertions.
