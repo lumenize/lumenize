@@ -89,28 +89,41 @@ cd "$ROOT_DIR"
 echo "✅ Package tests passed"
 echo ""
 
-# Step 2: Run all doc-tests
-echo "2️⃣  Running doc-tests..."
+# Step 2: Run all doc-tests (advisory — doc-test infrastructure is being
+# sunset; failures here do not block release. Track them and warn at the
+# end, but continue to the build/publish steps.)
+echo "2️⃣  Running doc-tests (advisory)..."
 echo ""
 
-# Find all doc-test directories
 DOC_TEST_DIRS=(
   "doc-test/testing/testing-plain-do"
   "doc-test/testing/testing-agent-with-agent-client"
   "doc-test/rpc/quick-start"
 )
 
+DOC_TEST_FAILURES=()
+
 for doc_test in "${DOC_TEST_DIRS[@]}"; do
   if [ -d "$doc_test" ]; then
     echo "Running tests in $doc_test..."
     cd "$ROOT_DIR/$doc_test"
-    npm run test
-    echo ""
+    if npm run test; then
+      echo ""
+    else
+      DOC_TEST_FAILURES+=("$doc_test")
+      echo "⚠️  doc-test failed in $doc_test — continuing (advisory)."
+      echo ""
+    fi
   fi
 done
 
 cd "$ROOT_DIR"
-echo "✅ Doc-tests passed"
+if [ ${#DOC_TEST_FAILURES[@]} -eq 0 ]; then
+  echo "✅ Doc-tests passed"
+else
+  echo "⚠️  Doc-tests failed in: ${DOC_TEST_FAILURES[*]}"
+  echo "   Continuing release — doc-test infrastructure is being sunset."
+fi
 echo ""
 
 # Check external dependency versions against npm registry
