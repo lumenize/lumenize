@@ -9,10 +9,13 @@
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { ActClaim } from '@lumenize/auth';
-import type { ValidationError } from '@lumenize/ts-runtime-validator';
+import type {
+  ParserValidator,
+  ParseRequest,
+  ValidationError,
+} from '@lumenize/ts-runtime-parser-validator';
 import { stringify, parse } from '@lumenize/structured-clone';
 import type { DagTree } from './dag-tree';
-import type { Ontology } from './ontology';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -250,7 +253,11 @@ export class Resources {
     return snapshot;
   }
 
-  transaction(ops: Record<string, OperationDescriptor>, ontology: Ontology): TransactionResult {
+  async transaction(
+    ops: Record<string, OperationDescriptor>,
+    ontologyVersion: string,
+    facet: ParserValidator,
+  ): Promise<TransactionResult> {
     // Empty ops — no-op
     const entries = Object.entries(ops);
     if (entries.length === 0) return { ok: true, eTags: {} };
@@ -275,33 +282,44 @@ export class Resources {
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
 
-    // Step 5: Apply defaults (create only) + validate ALL values against ontology.
-    // Return early if any fail.
-    const ontologyVersion = ontology.latestVersion;
-    const validationErrors: Record<string, TransactionError> = {};
+    // Note: single-phase eTag check by design — the authoritative check
+    // happens at Step 9 inside transactionSync. The originally-designed
+    // optimistic pre-facet check (see tasks/nebula-5-resources.md) was
+    // dropped: it would only fast-fail on stale writes, saving the ~1.4 ms
+    // facet call. eTag conflicts are rare in practice and the pessimistic
+    // check inside transactionSync is sufficient for correctness.
+
+    // Step 5: Parse + validate via facet (one batch call). `parse()` fills
+    // `@default` values into a fresh object per item; on success we write
+    // `result.data` back so downstream Step 7+ sees the filled value.
+    // Skip ops where validation can't or shouldn't run — Step 7 catches them.
+    const requests = new Map<string, ParseRequest>();
     for (const [resourceId, op] of entries) {
       if (op.op === 'create') {
-        if (op.value == null) continue; // Step 7 inside transactionSync will catch null/undefined
-        const typeName = op.typeName;
-        const defaults = ontology.getDefaults(typeName);
-        if (defaults) {
-          op.value = { ...defaults, ...op.value };
-        }
-        const result = ontology.validate(op.value, typeName);
-        if (!result.valid) {
-          validationErrors[resourceId] = { type: 'validation', errors: result.errors };
-        }
+        if (op.value == null) continue;
+        requests.set(resourceId, { value: op.value, typeName: op.typeName });
       } else if (op.op === 'put') {
-        if (op.value == null) continue; // Step 7 inside transactionSync will catch null/undefined
+        if (op.value == null) continue;
         const current = currentSnapshots.get(resourceId);
-        if (!current) continue; // Step 7 inside transactionSync will catch "not found"
-        const typeName = current.meta.typeName;
-        const result = ontology.validate(op.value, typeName);
-        if (!result.valid) {
+        if (!current) continue;
+        requests.set(resourceId, { value: op.value, typeName: current.meta.typeName });
+      }
+      // delete and move — no validation needed
+    }
+
+    const validationErrors: Record<string, TransactionError> = {};
+    if (requests.size > 0) {
+      const results = await facet.parseBatch(requests);
+      for (const [resourceId, result] of results) {
+        if (result.valid) {
+          const op = ops[resourceId];
+          if (op.op === 'create' || op.op === 'put') {
+            op.value = result.data;
+          }
+        } else {
           validationErrors[resourceId] = { type: 'validation', errors: result.errors };
         }
       }
-      // delete and move — no validation needed
     }
     if (Object.keys(validationErrors).length > 0) {
       return { ok: false, errors: validationErrors };

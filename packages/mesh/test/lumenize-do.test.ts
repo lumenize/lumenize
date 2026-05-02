@@ -127,7 +127,7 @@ describe('@lumenize/mesh - onStart() Lifecycle Hook', () => {
     const stub = env.TEST_DO.getByName('onstart-noop-1');
 
     // TestDO uses #initTable() in constructor instead
-    stub.insertUser('user-1', 'Alice', 30);
+    await stub.insertUser('user-1', 'Alice', 30);
     const user = await stub.getUserById('user-1');
 
     expect(user).toMatchObject({ id: 'user-1', name: 'Alice', age: 30 });
@@ -138,9 +138,9 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
   describe('SQL Injectable', () => {
     it('auto-injects sql service', async () => {
       const stub = env.TEST_DO.getByName('sql-inject-test');
-      
-      stub.insertUser('user1', 'Alice', 30);
-      
+
+      await stub.insertUser('user1', 'Alice', 30);
+
       const user = await stub.getUserById('user1');
       expect(user).toMatchObject({
         id: 'user1',
@@ -153,9 +153,9 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       const stub = env.TEST_DO.getByName('sql-cache-test');
       
       // Access sql multiple times - should return same instance
-      stub.insertUser('user1', 'Alice', 30);
-      stub.insertUser('user2', 'Bob', 25);
-      
+      await stub.insertUser('user1', 'Alice', 30);
+      await stub.insertUser('user2', 'Bob', 25);
+
       const user1 = await stub.getUserById('user1');
       const user2 = await stub.getUserById('user2');
       

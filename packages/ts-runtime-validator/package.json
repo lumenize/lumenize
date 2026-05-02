@@ -26,10 +26,10 @@
     "@lumenize/structured-clone": "^0.24.0"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "3.2.4",
+    "@vitest/coverage-istanbul": "4.1.4",
     "esbuild": "0.27.3",
     "typescript": "^5.9.2",
-    "vitest": "3.2.4"
+    "vitest": "4.1.4"
   },
   "keywords": [
     "typescript",
@@ -43,6 +43,5 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
-  },
-  "gitHead": "085b7b468c2a1facea2a9868f91804898d2ded46"
+  }
 }

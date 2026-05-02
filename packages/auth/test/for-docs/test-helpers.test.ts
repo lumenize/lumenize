@@ -11,7 +11,7 @@ import { Browser } from '@lumenize/testing';
 describe('testLoginWithMagicLink Examples', () => {
 
   // Matches index.mdx:403 — Basic login, admin login, and delegation
-  it('basic login, admin login, and delegation', async () => {
+  it('basic login, admin login, and delegation', { timeout: 15000 }, async () => {
     // Pre-setup: authorize actor for alice (the doc example assumes prior authorization)
     const setupAdminBrowser = new Browser();
     const { accessToken: setupAdminToken } = await testLoginWithMagicLink(setupAdminBrowser, 'setup-admin@test.com', {
@@ -69,10 +69,10 @@ describe('testLoginWithMagicLink Examples', () => {
     // @ts-ignore — parseJwtUnsafe returns nullable
     const claims = parseJwtUnsafe(delegatedToken)!.payload;
     expect(claims.act).toBeDefined();
-  }, { timeout: 15000 });
+  });
 
   // Matches testing.mdx:395 — Delegation test flow with actor authorization
-  it('delegation test flow with authorization', async () => {
+  it('delegation test flow with authorization', { timeout: 15000 }, async () => {
     const fetch = (url: string, init?: RequestInit) => new Browser().fetch(`https://localhost${url}`, init);
 
     // Pre-setup: create alice to get her sub (targetSub)
@@ -121,5 +121,5 @@ describe('testLoginWithMagicLink Examples', () => {
     const claims = parseJwtUnsafe(accessToken)!.payload;
     // @ts-ignore — claims.act may be undefined
     expect(claims.act.sub).toBe(actorSub);
-  }, { timeout: 15000 });
+  });
 });

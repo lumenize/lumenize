@@ -84,7 +84,7 @@ Estimated output: ~500-700 lines after stripping, well within agent prompt budge
 **Goal**: Run the agent against real task files and calibrate.
 
 **Success Criteria**:
-- Run against `tasks/nebula-resources.md` — does it catch the kinds of things fresh-context reviews catch?
+- Run against `tasks/nebula-5-resources.md` — does it catch the kinds of things fresh-context reviews catch?
 - Run against a completed task file where we know what the reviews found — does it find the same issues?
 - Findings are actionable, not generic advice
 - `do-conventions` skill retired or redirected to Architecture Guardian

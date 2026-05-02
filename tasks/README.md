@@ -72,6 +72,21 @@ For internal work (refactoring, bug fixes, tooling).
 - Trade-offs
 ```
 
+## Phrasing Conventions
+
+### Inventories: prefer "all files matching" over counts
+
+When a task lists files (or symbols, or call sites) to migrate, prefer a verifiable description over a numeric count:
+
+- ✅ "Migrate **all test files referencing `SELF.fetch('/parse')`** — run `grep -l \"SELF.fetch('/parse')\" test/` to enumerate"
+- ❌ "Migrate **the 5 test files** off `SELF.fetch('/parse')`"
+
+Counts are written-time snapshots. They go stale (someone adds a 6th file before you start) or are wrong on entry (the original author missed some). The success criterion "All N migrated" silently passes when the count was wrong. A description-plus-grep makes the inventory self-verifying at task-execution time.
+
+If you need a count for scoping ("this is small, ~5 files"), include it as commentary, not as the inventory:
+
+> "Migrate all files matching `grep -l 'X' test/` (\~5 files at time of writing)."
+
 ## Completing a Project
 
 Move to archive:

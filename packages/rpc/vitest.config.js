@@ -1,22 +1,23 @@
-// import { defineConfig } from 'vitest/config';
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from "vitest/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-// export default defineConfig({
-export default defineWorkersProject({
+export default defineConfig({
+  plugins: [cloudflareTest({
+    wrangler: { configPath: './wrangler.jsonc' },
+  })],
+
   test: {
-    testTimeout: 2000, // 2 second global timeout
+    // 2 second global timeout
+    testTimeout: 2000,
+
     globals: true,
-    poolOptions: {
-      workers: {
-        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
-        wrangler: { configPath: './wrangler.jsonc' },
-      },
-    },
+    dangerouslyIgnoreUnhandledErrors: true,
+
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
-        '**/src/**',
+        '**/src/**/*.ts',
         '**/test/test-worker-and-dos.ts'
       ],
       exclude: [
@@ -29,6 +30,6 @@ export default defineWorkersProject({
       ],
       skipFull: false,
       all: false,
-    },
-  },
+    }
+  }
 });

@@ -155,12 +155,14 @@ describe('Alarms', () => {
     test('lists all schedules', async () => {
       const stub = env.ALARM_TEST_DO.getByName('list-all-test');
 
-      const date1 = new Date(Date.now() + 1000);
-      const date2 = new Date(Date.now() + 2000);
+      // Deadlines are far enough in the future that none of these alarms can
+      // fire during the test, even under CPU contention from parallel workers.
+      const date1 = new Date(Date.now() + 60_000);
+      const date2 = new Date(Date.now() + 61_000);
 
       await stub.scheduleAlarm(date1, { task: 'first' });
       await stub.scheduleAlarm(date2, { task: 'second' });
-      await stub.scheduleDelayedAlarm(5, { task: 'third' });
+      await stub.scheduleDelayedAlarm(60, { task: 'third' });
 
       const schedules = await stub.getSchedules();
       expect(schedules.length).toBeGreaterThanOrEqual(3);

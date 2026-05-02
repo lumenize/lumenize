@@ -7,6 +7,11 @@ tags:
   - architecture
 description: Cloudflare proved LLMs work better with TypeScript than JSON Schema. We took the next step — use TypeScript interfaces as the runtime validation schema directly. No intermediate format, no DSL, real tsc diagnostics.
 ---
+
+:::info Update — April 29, 2026
+The package described below now ships as [`@lumenize/ts-runtime-parser-validator`](/blog/introducing-parse-validator). Same TypeScript-as-schema idea, but ~50 µs warm parses (down from ~15–25 ms), `parse()` semantics that return the validated value with defaults filled, and hosted as a Cloudflare Durable Object facet. See the [new announcement](/blog/introducing-parse-validator) for what changed. The post below is preserved as written.
+:::
+
 Cloudflare's Code Mode team made a striking discovery: when they [converted JSON Schema to TypeScript](https://blog.cloudflare.com/code-mode/) for MCP tool definitions, LLMs performed dramatically better. The follow-up showed [32-81% token reduction](https://blog.cloudflare.com/code-mode-mcp/) with improved accuracy. And today, their [Dynamic Workers](https://blog.cloudflare.com/dynamic-workers/) platform doubles down — TypeScript interfaces are the way agents understand APIs. As they put it: "Agents know TypeScript... with very few tokens, you can give your agent a precise understanding of your API."
 
 That got me thinking. If TypeScript is the best way to *describe* types — for both humans and LLMs — why are we still maintaining parallel schemas in Zod or JSON Schema to *validate* them? You already write TypeScript interfaces. What if those interfaces were the runtime validation schema?
@@ -100,7 +105,7 @@ The Cloudflare findings confirmed the intuition from multiple angles. Code Mode 
 ## Getting Started
 
 ```bash
-npm install @lumenize/ts-runtime-validator
+npm install @lumenize/ts-runtime-parser-validator
 ```
 
 The [package documentation](/docs/ts-runtime-validator/) covers the full API. The [Type Support & Validation Boundaries](/docs/ts-runtime-validator/type-support) page has tested examples for every supported type — spoiler: it's everything except functions.

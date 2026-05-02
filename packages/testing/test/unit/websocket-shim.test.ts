@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getWebSocketShim } from '../../src/websocket-shim';
 
 describe('getWebSocketShim', () => {
-  let mockFetch: ReturnType<typeof vi.fn>;
+  let mockFetch: ReturnType<typeof vi.fn<typeof fetch>>;
   let mockWebSocket: any;
   let webSocketEventHandlers: Map<string, Function[]>;
 
@@ -24,13 +24,15 @@ describe('getWebSocketShim', () => {
       }),
     };
 
-    // Mock fetch to return a successful WebSocket upgrade
-    mockFetch = vi.fn(async () => {
+    // Mock fetch to return a successful WebSocket upgrade.
+    // The shim only reads `status`, `headers`, and `webSocket` off the response,
+    // so returning a minimal stub is sufficient; cast to satisfy the fetch signature.
+    mockFetch = vi.fn<typeof fetch>(async () => {
       return {
         status: 101,
-        headers: new Headers(), // Add headers object
+        headers: new Headers(),
         webSocket: mockWebSocket,
-      };
+      } as unknown as Response;
     });
   });
 

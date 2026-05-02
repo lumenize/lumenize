@@ -60,7 +60,7 @@ async function browserLogin(
   expect(access_token).toBeDefined();
 
   const { payload } = parseJwtUnsafe(access_token)!;
-  return { accessToken: access_token, payload: payload as NebulaJwtPayload };
+  return { accessToken: access_token, payload: payload as unknown as NebulaJwtPayload };
 }
 
 describe('@lumenize/nebula-auth — Integration Tests', () => {
@@ -109,7 +109,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       });
       expect(refreshA.status).toBe(200);
       const bodyA = await refreshA.json() as any;
-      const payloadA = (parseJwtUnsafe(bodyA.access_token)!.payload as NebulaJwtPayload);
+      const payloadA = (parseJwtUnsafe(bodyA.access_token)!.payload as unknown as NebulaJwtPayload);
       expect(payloadA.access.authScopePattern).toBe(starA);
 
       // --- Step 4: Refresh Star B --- (only Star B cookie sent)
@@ -120,7 +120,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       });
       expect(refreshB.status).toBe(200);
       const bodyB = await refreshB.json() as any;
-      const payloadB = (parseJwtUnsafe(bodyB.access_token)!.payload as NebulaJwtPayload);
+      const payloadB = (parseJwtUnsafe(bodyB.access_token)!.payload as unknown as NebulaJwtPayload);
       expect(payloadB.access.authScopePattern).toBe(starB);
 
       // --- Step 5: Logout from Star B ---
@@ -190,7 +190,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       });
       expect(refreshResp.status).toBe(200);
       const { access_token } = await refreshResp.json() as any;
-      const adminPayload = (parseJwtUnsafe(access_token)!.payload as NebulaJwtPayload);
+      const adminPayload = (parseJwtUnsafe(access_token)!.payload as unknown as NebulaJwtPayload);
       expect(adminPayload.access.authScopePattern).toBe(`${universe}.*`);
       expect(adminPayload.access.admin).toBe(true);
       expect(adminPayload.email).toBe(adminEmail);
@@ -263,7 +263,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       // Login as galaxy admin (founding admin of galaxy DO)
       const galaxyBrowser = new Browser();
       const { accessToken: galaxyToken } = await browserLogin(galaxyBrowser, galaxyId, galaxyAdminEmail);
-      const galaxyPayload = (parseJwtUnsafe(galaxyToken)!.payload as NebulaJwtPayload);
+      const galaxyPayload = (parseJwtUnsafe(galaxyToken)!.payload as unknown as NebulaJwtPayload);
       expect(galaxyPayload.access.authScopePattern).toBe(`${galaxyId}.*`);
 
       // Galaxy admin tries to access universe-level endpoint → rejected by Worker
@@ -306,7 +306,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       });
       expect(refreshResp.status).toBe(200);
       const { access_token } = await refreshResp.json() as any;
-      const payload = (parseJwtUnsafe(access_token)!.payload as NebulaJwtPayload);
+      const payload = (parseJwtUnsafe(access_token)!.payload as unknown as NebulaJwtPayload);
 
       // 4. Verify founding admin status
       expect(payload.access.admin).toBe(true);
@@ -388,7 +388,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       });
       expect(starRefresh.status).toBe(200);
       const starBody = await starRefresh.json() as any;
-      const starPayload = (parseJwtUnsafe(starBody.access_token)!.payload as NebulaJwtPayload);
+      const starPayload = (parseJwtUnsafe(starBody.access_token)!.payload as unknown as NebulaJwtPayload);
 
       // Verify founding admin
       expect(starPayload.access.authScopePattern).toBe(starId);

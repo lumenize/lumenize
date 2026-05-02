@@ -12,7 +12,7 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 - **Auto-generate Env interface** - run `wrangler types`, never manually define it
 - **`compatibility_date: "2026-03-12"`** or later in wrangler.jsonc
 - **Secrets in root `.dev.vars`** - gitignored, auto-symlinked via postinstall; never commit secrets or put them in source code
-- **Docs in `/website/docs/`** - only `.mdx` files, never create temp docs elsewhere
+- **Docs in `/website/docs/`** — always use `.md`; `.mdx` requires explicit human approval and is reserved for pages that truly need JSX components, imports, or expression interpolation. Admonitions (`:::info`) and HTML work in plain `.md`, so most pages don't need `.mdx`. Never create temp docs elsewhere.
 
 ---
 
@@ -43,6 +43,16 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 - `/task-management` - Docs-first vs implementation-first workflows
 - `/refactor-efficiently` - Incremental API changes with `.only` pattern
 - `/release-workflow` - Publish packages to npm
+
+### Experiments
+
+`experiments/*` are point-in-time spikes, not maintained artifacts. Results live in the experiment's `RESULTS.md` / `FINDINGS.md` / blog post, not in keeping the code runnable. An experiment commonly breaks soon after it's run because we modify the source code it depended on — **that's fine**; don't try to fix it.
+
+**Starting a new experiment**: create `experiments/<name>/` with its own `package.json`, `wrangler.jsonc`, etc., then add `"experiments/<name>"` **as an individual entry** (not a glob) to the root `package.json` `workspaces` list, then run `npm install` at the repo root. Individual entries are load-bearing — `experiments/*` would break `npm install` the moment one experiment references a renamed/deleted package.
+
+**When an old experiment breaks**: remove its entry from the root `package.json` `workspaces` list (or delete the dir entirely if the results are already captured elsewhere). Do NOT try to make it run again.
+
+The workspaces list will only contain currently-active experiments. Old ones drop out; that's the intended steady state.
 
 ---
 
@@ -120,6 +130,9 @@ Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async
 ### Fire-and-Forget Error Delivery
 When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
+### Worker Loader Cache
+`env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the loader cache, so identical `bundleId` values silently collide on the first cached entry. Scope `bundleId` by something globally unique (include tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.
+
 ### Instance Variables
 **Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.
 
@@ -195,10 +208,50 @@ type MyEnv = { MY_DO: DurableObjectNamespace; };
 - **Unit testing** only for algorithmically tricky code and UI components
 - **Coverage target**: Close to 100% branch coverage, minimum 80%
 
+### Tests must be capable of failing
+
+A test that passes regardless of the implementation's correctness is worse than no test — it gives false confidence. Before considering a test done, ask: **"If I gutted the code I'm testing, would this assertion fail?"** If the answer is no, the test is checking the wrong thing. Common ways tests pass for the wrong reason:
+
+- **Harness fidelity loss**: a test path that JSON-stringifies (or otherwise serializes) values silently degrades rich types — `Date` becomes `string`, `Map`/`Set` become `{}` or `[]`, `BigInt` throws or vanishes, cyclic refs flatten. The validator may then accept the degraded value, and the test passes — but you've validated the round-trip degradation, not the code under test.
+- **Mocks returning expected values**: a stub that always returns what the test expects passes regardless of real behavior.
+- **Placeholder assertions**: `expect(true).toBe(true)`, `expect(arr.length).toBeGreaterThan(-1)`, anything the universe satisfies.
+- **Snapshot tests generated from broken output**: the snapshot encodes the bug; the test confirms the bug.
+- **Happy-path-only coverage**: failure modes are invisible because no test exercises them.
+- **Cross-test cache pollution**: shared infrastructure caches (Worker Loader, module loader, prompt cache, etc.) survive across `it` blocks within a vitest file. A test that passes when run alone but fails in the full file may be relying on (or being saved by) cache state from another test. Conversely, a test passing when run *with the file* but failing alone hints the same way. The "isolation flips the result" signature is the diagnostic — when you see it, suspect shared cache state before debugging deeper.
+
+When introducing a new test pattern (harness, fixture, mock layer), write a probe that *should fail* — feed in a value the path can't preserve, or a behavior the mock can't simulate — and verify it does fail. Then make it pass by fixing the path. If you can't write a failing probe, the test layer isn't testing anything.
+
 ### Test Organization
 - `test/for-docs/` - Mini-app integration tests that both find bugs and validate documentation examples
 - Pattern A (simple): `wrangler.jsonc` in package root, single vitest project
 - Pattern B (multi-environment): `test/{environment}/wrangler.jsonc` for separate Node.js/Workers environments
+
+### For-docs narrative tests: one big `it`
+
+For-docs tests for narrative docs (Getting Started, walkthroughs — anything where Step 2 depends on Step 1) should be a single `it` block, not split per step. The doc itself is sequential — a user reading it runs Step 1, then Step 2 with the state Step 1 created. The test should mirror that.
+
+```typescript
+// Good: one it, sequential awaits, mirrors doc flow
+it('Getting Started walkthrough', async () => {
+  // Step 1: setup
+  await supervisor.registerModuleSource(bundleId, moduleSource);
+  // Step 2: use it
+  const ok = await supervisor.parse(bundleId, ...);
+  expect(ok.valid).toBe(true);
+  // Step 3: error case (still on the same DO state)
+  const bad = await supervisor.parse(bundleId, ...);
+  expect(bad.valid).toBe(false);
+});
+
+// Bad: split per step — relies on shared DO state across `it` boundaries,
+// which is a flakiness vector (cross-`it` ordering, missing awaits, etc.)
+it('Step 1', async () => { ... });
+it('Step 2', async () => { ... });
+```
+
+Canonical example: [packages/mesh/test/for-docs/getting-started/index.test.ts](packages/mesh/test/for-docs/getting-started/index.test.ts) — one `it`, full walkthrough.
+
+Exceptions: API-reference-style for-docs tests (where each `it` covers an independent code block — `parse(unknownType)`, `parse(typeMismatch)`, etc.) stay split. The split-vs-single rule is "follow the doc's structure" — narrative docs → one `it`; reference docs → one per example.
 
 ### Use `vi.waitFor`, Never `setTimeout`
 ```typescript
@@ -226,12 +279,12 @@ Documentation quality is ensured by custom Docusaurus tooling that guarantees al
 - **Prefer inline links** over "See Also" or "Next Steps" sections at the end of files — sidebar ordering handles navigation and end-of-file link sections get stale without anyone noticing.
 
 ### Where Documentation Lives
-- **Website docs**: `/website/docs/[package-name]/*.mdx` - All user-facing documentation
+- **Website docs**: `/website/docs/[package-name]/*.md` - All user-facing documentation. `.mdx` only with human approval (see Critical Rules).
 - **Package README.md**: Minimal - name, tagline, link to website, key features, installation
 
 ### Code Example Validation
 
-In `.mdx` files, use the `@check-example` annotation to link code blocks to tests:
+In `.md` / `.mdx` files, use the `@check-example` annotation to link code blocks to tests:
 
 ````markdown
 ```typescript @check-example('packages/rpc/test/for-docs/basic-usage.test.ts')
@@ -245,7 +298,7 @@ expect(result).toBe('DO echoed: Hello');
 - **Never use `@skip-check-approved`** — this annotation indicates human review and approval; only humans may add it
 
 ### Documentation Workflow
-1. **Narrative First**: Draft in `.mdx` with `@skip-check`
+1. **Narrative First**: Draft in `.md` with `@skip-check`
 2. **Make Examples Real**: Create `test/for-docs/` tests
 3. **Validate**: Run `npm run check-examples`
 4. **Build**: Run `npm run build` from `/website`

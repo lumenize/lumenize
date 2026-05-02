@@ -6,14 +6,16 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client": "./src/client-index.ts"
   },
   "files": [
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run",
+    "test": "vitest --run && npm run test:node-import",
     "test:coverage": "vitest --coverage --run",
+    "test:node-import": "tsx --test test/node-import.test.mjs",
     "coverage": "COVERAGE=true vitest --run --coverage",
     "types": "wrangler types"
   },
@@ -38,15 +40,17 @@
     "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@lumenize/debug": "*",
-    "@vitest/coverage-istanbul": "3.2.4",
-    "vitest": "3.2.4",
-    "wrangler": "^4.72.0"
+    "@vitest/coverage-istanbul": "4.1.4",
+    "tsx": "^4.19.2",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "4.1.4",
+    "wrangler": "^4.86.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
-    "vitest": "3.2.4"
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "vitest": "4.1.4"
   },
-  "gitHead": "2b8f50508f4c7cbc8905705023cfc206b135395e"
+  "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"
 }

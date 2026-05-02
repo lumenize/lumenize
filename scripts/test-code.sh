@@ -9,6 +9,12 @@ echo "🧪 Running package tests..."
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Pre-flight: TEST_MODE leak audit. Fail fast before running test suites
+# if any *_TEST_MODE pattern leaked into wrangler configs, npm scripts,
+# shell scripts, CI workflows, or .dev.vars files.
+"$ROOT_DIR/scripts/audit-test-mode.sh"
+echo ""
+
 # Find all packages with test scripts
 PACKAGES=()
 for pkg_json in packages/*/package.json apps/*/package.json; do

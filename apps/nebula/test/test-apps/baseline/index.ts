@@ -50,6 +50,39 @@ export class StarTest extends Star {
       ctn[clientMethod](...args),
     );
   }
+
+  /**
+   * Test-only: dump the ontology-related KV keys so tests can verify the
+   * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
+   * `_index` plus the list of `ontology:<version>` rows actually present.
+   */
+  @mesh(requireAdmin)
+  inspectOntologyKv(): { index: string[]; rowVersions: string[] } {
+    const index = this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
+    const rowVersions: string[] = [];
+    for (const [key] of this.ctx.storage.kv.list({ prefix: 'ontology:' })) {
+      if (key === 'ontology:_index') continue;
+      rowVersions.push(key.slice('ontology:'.length));
+    }
+    rowVersions.sort();
+    return { index, rowVersions };
+  }
+
+  /**
+   * Test-only: bench WS-leg baseline. Bounces a one-byte payload back to the
+   * client via the same mesh-callback mechanism as transaction(); the bench
+   * subtracts this round-trip from transaction latency to isolate in-Worker
+   * cost from network round-trip.
+   */
+  @mesh()
+  ping(): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('ping requires a client origin with instanceName in callChain[0]');
+    }
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+      (this.ctn() as any).handlePingResult(1));
+  }
 }
 
 // ============================================
@@ -109,7 +142,7 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarWhoAmI(starInstanceName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().whoAmI();
+    const remote = this.ctn<StarTest>().whoAmI();
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
@@ -299,9 +332,21 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxyGetOntology(galaxyName: string): void {
+  callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
     this.resetResults();
-    const remote = this.ctn<Galaxy>().getOntology();
+    const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callGalaxyListOntologyVersions(galaxyName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().listOntologyVersions();
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarInspectOntologyKv(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectOntologyKv();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }

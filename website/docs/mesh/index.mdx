@@ -7,6 +7,10 @@ import MeshArchitectureDiagram from '../_partials/_mesh-architecture-diagram.mdx
 
 # Lumenize Mesh
 
+:::caution Beta
+APIs may change before the 1.0 release.
+:::
+
 Cloudflare's Durable Objects are powerful — each one is a stateful, single-threaded actor with transactional storage. But out of the box, they're isolated. Workers RPC connects server-side components, but doesn't reach browsers. There's no built-in authentication, no access control framework, and no way for a browser client to be a first-class participant in the system.
 
 **Lumenize Mesh** solves this. It extends Cloudflare's actor model into a true mesh network where DOs, Workers, and browser clients are all equal peers. Every node — whether it's a Durable Object managing state, a Worker doing stateless computation, or a browser client — uses the same API, the same patterns, and the same security model. Authentication and fine-grained access control are required, not optional. Rich types (cycles, `Date`, `Map`, `Set`, `Error` with cause chains) work seamlessly all the way to the browser.

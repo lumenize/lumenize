@@ -10,6 +10,12 @@ echo "📦 Preparing packages for publish..."
 # Get the root directory
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Pre-flight: TEST_MODE leak audit. Block publish if any *_TEST_MODE pattern
+# is present in wrangler configs, npm scripts, shell scripts, CI workflows,
+# or .dev.vars files — these would risk shipping test mode to production.
+"$ROOT_DIR/scripts/audit-test-mode.sh"
+echo ""
+
 # Auto-discover publishable packages (exclude private packages)
 discover_packages() {
   local packages_dir="$ROOT_DIR/packages"

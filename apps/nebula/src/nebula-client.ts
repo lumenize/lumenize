@@ -5,8 +5,13 @@
  * Active scope: baked into the JWT's aud claim (e.g., 'acme.app.tenant-a')
  */
 
-import { LumenizeClient, mesh } from '@lumenize/mesh';
-import type { LumenizeClientConfig } from '@lumenize/mesh';
+// Imports use the Node-safe /client subpath so this file can be imported
+// from Node test harnesses (e.g. apps/nebula/test/browser/) — the main
+// `@lumenize/mesh` entry pulls in `cloudflare:workers` via LumenizeDO and
+// fails outside Workers. The same applies to types: import only from
+// /client to keep this module Node-importable in full.
+import { LumenizeClient, mesh } from '@lumenize/mesh/client';
+import type { LumenizeClientConfig } from '@lumenize/mesh/client';
 import type { TransactionResult, Snapshot } from './resources';
 
 export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {

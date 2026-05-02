@@ -3,182 +3,61 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
 import type { CallEnvelope } from './lmz-api.js';
-import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js';
+import type { NodeType, NodeIdentity, CallContext, OriginAuth } from './types.js';
+import {
+  GatewayMessageType,
+  ClientDisconnectedError,
+  WS_CLOSE_SUPERSEDED,
+  type CallMessage,
+  type CallResponseMessage,
+  type IncomingCallMessage,
+  type IncomingCallResponseMessage,
+  type ConnectionStatusMessage,
+  type GatewayMessage,
+  type GatewayConnectionInfo,
+} from './gateway-messages.js';
+
+// Re-export so existing consumers that import these from
+// `@lumenize/mesh` / `./lumenize-client-gateway.js` keep working.
+export {
+  GatewayMessageType,
+  ClientDisconnectedError,
+  WS_CLOSE_SUPERSEDED,
+};
+export type {
+  CallMessage,
+  CallResponseMessage,
+  IncomingCallMessage,
+  IncomingCallResponseMessage,
+  ConnectionStatusMessage,
+  GatewayMessage,
+  GatewayConnectionInfo,
+};
 
 // ============================================
 // Constants
 // ============================================
 
 /** Grace period before marking subscriptions as lost (5 seconds) */
-const GRACE_PERIOD_MS = 5000;
+const PRODUCTION_GRACE_PERIOD_MS = 5000;
+
+/**
+ * Test-mode grace period (60 seconds). Used only when `LUMENIZE_MESH_TEST_MODE === 'true'`.
+ *
+ * The production default (5 s) is generous relative to real-world reconnect latencies —
+ * even a mobile-network handoff or a tab wake-up typically completes in < 1 s, and a
+ * gateway DO serves a single user's WebSocket so CPU pressure on the DO itself is never
+ * the bottleneck. In the test environment this invariant breaks: vitest runs every mesh
+ * project in parallel, spinning up 10+ miniflare workers at once. Under that contention
+ * a synthetic close/reconnect cycle can take >5 s of wall-clock time, which fires the
+ * grace-period alarm mid-test and erroneously flips `subscriptionRequired` to true.
+ * Bumping to 60 s in test mode gives the reconnect plenty of headroom without changing
+ * production behavior. Production never sees this value.
+ */
+const TEST_GRACE_PERIOD_MS = 60_000;
 
 /** Timeout for client to respond to an incoming call (30 seconds) */
 const CLIENT_CALL_TIMEOUT_MS = 30000;
-
-/** Close code for superseded connections (parallel to HTTP 409 Conflict) */
-export const WS_CLOSE_SUPERSEDED = 4409;
-
-// ============================================
-// Wire Protocol Message Types
-// ============================================
-
-/** Message types for Gateway-Client communication */
-export const GatewayMessageType = {
-  /** Client initiating a call to a mesh node */
-  CALL: 'call',
-  /** Gateway returning the result of a client-initiated call */
-  CALL_RESPONSE: 'call_response',
-  /** Mesh node calling the client (forwarded by Gateway) */
-  INCOMING_CALL: 'incoming_call',
-  /** Client's response to an incoming call */
-  INCOMING_CALL_RESPONSE: 'incoming_call_response',
-  /** Post-handshake status (sent immediately after connection) */
-  CONNECTION_STATUS: 'connection_status',
-} as const;
-
-export type GatewayMessageType = typeof GatewayMessageType[keyof typeof GatewayMessageType];
-
-// ============================================
-// Wire Protocol Message Interfaces
-// ============================================
-
-/**
- * WebSocket Wire Protocol Serialization
- *
- * All messages use JSON over WebSocket. Fields that may contain extended types
- * (Maps, Sets, Dates, custom Errors) use @lumenize/structured-clone:
- *
- * | Field | Preprocessing | Notes |
- * |-------|---------------|-------|
- * | `chain` | Always | May contain any type in method args |
- * | `callContext.state` | Always | User-defined, may contain extended types |
- * | `result` | Always | Method return value, any type |
- * | `error` | Always | Custom Error subclasses with properties |
- * | Other fields | Never | Plain strings/booleans |
- *
- * Note: `error` uses preprocessing to preserve custom Error properties
- * that native structured clone would lose.
- */
-
-/** Message from client initiating a mesh call */
-export interface CallMessage {
-  type: typeof GatewayMessageType.CALL;
-  callId: string;
-  binding: string;
-  instance?: string;
-  /** Preprocessed operation chain (contains method args which may be any type) */
-  chain: any;
-  callContext?: {
-    /** Plain strings - no preprocessing needed */
-    callChain: NodeIdentity[];
-    /** User-defined, preprocessed for WebSocket (may contain Maps, Sets, etc.) */
-    state: any;
-  };
-}
-
-/** Response to a client-initiated call */
-export interface CallResponseMessage {
-  type: typeof GatewayMessageType.CALL_RESPONSE;
-  callId: string;
-  success: boolean;
-  /** Preprocessed result (may be any type) */
-  result?: any;
-  /** Preprocessed error (preserves custom Error properties) */
-  error?: any;
-}
-
-/** Mesh node calling the client (forwarded by Gateway) */
-export interface IncomingCallMessage {
-  type: typeof GatewayMessageType.INCOMING_CALL;
-  callId: string;
-  /** Preprocessed operation chain */
-  chain: any;
-  callContext: {
-    /** Plain strings - no preprocessing needed */
-    callChain: NodeIdentity[];
-    originAuth?: OriginAuth;
-    /** User-defined, preprocessed for WebSocket */
-    state: any;
-  };
-}
-
-/** Client's response to an incoming call */
-export interface IncomingCallResponseMessage {
-  type: typeof GatewayMessageType.INCOMING_CALL_RESPONSE;
-  callId: string;
-  success: boolean;
-  /** Preprocessed result */
-  result?: any;
-  /** Preprocessed error (preserves custom Error properties) */
-  error?: any;
-}
-
-/** Post-handshake status message */
-export interface ConnectionStatusMessage {
-  type: typeof GatewayMessageType.CONNECTION_STATUS;
-  subscriptionRequired: boolean;
-}
-
-/** Union of all Gateway messages */
-export type GatewayMessage =
-  | CallMessage
-  | CallResponseMessage
-  | IncomingCallMessage
-  | IncomingCallResponseMessage
-  | ConnectionStatusMessage;
-
-// ============================================
-// Custom Errors
-// ============================================
-
-/**
- * Error thrown when attempting to call a disconnected client
- *
- * This error is thrown when:
- * - A mesh node calls a client that is not connected
- * - The client's grace period has expired
- * - The client doesn't respond within the timeout
- *
- * Register on globalThis for proper serialization across mesh nodes:
- * ```typescript
- * (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
- * ```
- */
-export class ClientDisconnectedError extends Error {
-  name = 'ClientDisconnectedError';
-
-  constructor(
-    message: string = 'Client is not connected',
-    public readonly clientInstanceName?: string
-  ) {
-    super(message);
-  }
-}
-
-// Register on globalThis for @lumenize/structured-clone serialization
-(globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
-
-// ============================================
-// WebSocket Attachment / Connection Info
-// ============================================
-
-/**
- * Identity and claims stored in the WebSocket attachment (survives hibernation)
- * and passed to lifecycle hooks (`onBeforeCallToMesh`, `onBeforeCallToClient`).
- *
- * `sub` is a convenience field that duplicates `claims.sub`.
- * Token expiration is available as `claims.exp`.
- */
-export interface GatewayConnectionInfo {
-  /** Subject ID from verified JWT. Also present as `claims.sub` (convenience field). */
-  sub: string;
-  /** DO binding name from `X-Lumenize-DO-Binding-Name` routing header. */
-  bindingName: string;
-  /** DO instance name from `X-Lumenize-DO-Instance-Name-Or-Id` routing header. */
-  instanceName: string;
-  /** All JWT payload fields, plus any additional claims from `onBeforeAccept`. */
-  claims: Record<string, unknown>;
-}
 
 // ============================================
 // Internal Types
@@ -229,6 +108,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
   /** Waiters for client reconnection during grace period */
   #pendingReconnectWaiters: ReconnectWaiter[] = [];
+
+  get #gracePeriodMs(): number {
+    return (this.env as any).LUMENIZE_MESH_TEST_MODE === 'true'
+      ? TEST_GRACE_PERIOD_MS
+      : PRODUCTION_GRACE_PERIOD_MS;
+  }
 
   // ============================================
   // Extension Points (subclass overrides)
@@ -467,9 +352,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return;
     }
 
-    // Set grace period alarm (5 seconds)
-    // If client reconnects before alarm fires, subscriptions are preserved
-    await this.ctx.storage.setAlarm(Date.now() + GRACE_PERIOD_MS);
+    // Set grace period alarm (5 seconds in production, 60 seconds in test mode).
+    // If client reconnects before alarm fires, subscriptions are preserved.
+    await this.ctx.storage.setAlarm(Date.now() + this.#gracePeriodMs);
   }
 
   /**
@@ -522,10 +407,19 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Check if we're in grace period
       const alarm = await this.ctx.storage.getAlarm();
 
-      if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+      if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
         // In grace period - wait for reconnection
         log.info('Client disconnected, waiting for reconnect during grace period');
-        await this.#waitForReconnect();
+        try {
+          await this.#waitForReconnect();
+        } catch (err) {
+          // Route thrown errors (e.g., grace-period expiry rejecting waiters) through
+          // preprocess so the caller sees a structured `{ $error }` with the class
+          // preserved, matching the non-grace-period path. Without this, Workers RPC
+          // flattens custom Error subclasses into plain Error with the class name
+          // embedded in the message.
+          return { $error: preprocess(err) };
+        }
         ws = this.#getActiveWebSocket();
 
         if (!ws) {
@@ -813,7 +707,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     const alarm = await this.ctx.storage.getAlarm();
 
-    if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+    if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
       // Reconnected within grace period — subscriptions still active
       return false;
     }

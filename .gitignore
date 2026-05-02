@@ -1,3 +1,10 @@
+.claude/worktrees/
+
+# Bench artifacts (auto-regenerated; canonical THROUGHPUT-RESULTS.md is committed)
+apps/nebula/test/browser/throughput-raw-*.json
+apps/nebula/test/browser/THROUGHPUT-RESULTS-local.md
+apps/nebula/test/browser/THROUGHPUT-RESULTS-deployed.md
+
 # Logs
 logs
 *.log
@@ -37,6 +44,8 @@ experiments/
 
 # vitest
 .vitest-cache
+.vitest-attachments
 coverage
 durable-objects/coverage
 __screenshots__
+vitest.config.*.timestamp-*.mjs

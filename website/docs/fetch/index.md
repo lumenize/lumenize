@@ -5,6 +5,10 @@ description: Cost-effective external API calls from Lumenize Mesh DOs
 
 # Fetch Service
 
+:::danger Experimental
+This package has a known architectural flaw and may change significantly or be replaced.
+:::
+
 De✨light✨fully make external API calls from DOs that extend `LumenizeDO` with reduced wall-clock billing.
 
 :::warning Not worth it below 5s average fetch time

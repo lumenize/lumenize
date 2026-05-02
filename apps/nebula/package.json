@@ -10,15 +10,21 @@
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
+    },
+    "./client": {
+      "import": "./src/client-index.ts",
+      "types": "./src/client-index.ts"
     }
   },
   "files": [
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run",
-    "test:coverage": "vitest --coverage --run",
-    "coverage": "COVERAGE=true vitest --run --coverage",
+    "test": "vitest --run --project unit --project baseline --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project baseline --project browser",
+    "test:throughput": "vitest --run --project browser-throughput",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project baseline --project browser",
+    "bench": "vitest bench --run --project browser-bench",
     "types": "wrangler types"
   },
   "keywords": [
@@ -31,12 +37,13 @@
   "author": "Lumenize",
   "license": "UNLICENSED",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@lumenize/testing": "^0.24.0",
-    "@vitest/coverage-istanbul": "3.2.4",
+    "@vitest/coverage-istanbul": "4.1.4",
     "typescript": "^5.9.2",
-    "vitest": "3.2.4",
-    "wrangler": "^4.72.0"
+    "unplugin-swc": "^1.5.9",
+    "vitest": "4.1.4",
+    "wrangler": "^4.86.0"
   },
   "dependencies": {
     "@lumenize/auth": "^0.24.0",
@@ -44,10 +51,11 @@
     "@lumenize/mesh": "^0.24.0",
     "@lumenize/nebula-auth": "^0.24.0",
     "@lumenize/routing": "^0.24.0",
-    "@lumenize/structured-clone": "^0.24.0"
+    "@lumenize/structured-clone": "^0.24.0",
+    "@lumenize/ts-runtime-parser-validator": "^0.24.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
-    "vitest": "3.2.4"
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "vitest": "4.1.4"
   }
 }

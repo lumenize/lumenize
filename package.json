@@ -10,15 +10,22 @@
     "examples/*",
     "tooling/*",
     "website",
-    "doc-test/*/*"
+    "doc-test/*/*",
+    "experiments/alarm-accuracy",
+    "packages/ts-runtime-parser-validator/forks/typia/core",
+    "packages/ts-runtime-parser-validator/forks/typia/transform",
+    "packages/ts-runtime-parser-validator/forks/typia/interface",
+    "packages/ts-runtime-parser-validator/forks/typia/utils"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
     "postinstall": "./scripts/setup-symlinks.sh",
     "types": "./scripts/generate-types.sh",
+    "audit:test-mode": "./scripts/audit-test-mode.sh",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
+    "coverage": "./scripts/coverage.sh",
     "type-check": "./scripts/type-check.sh",
     "clean": "rm -rf packages/*/dist lumenize-monolith/dist doc-test/*/*/coverage",
     "clean:deps": "rm -rf node_modules packages/*/node_modules lumenize-monolith/node_modules website/node_modules doc-test/*/*/node_modules",
@@ -31,11 +38,12 @@
     "@aws-sdk/client-s3": "^3.934.0",
     "@cloudflare/workers-types": "^4.20251011.0",
     "@types/node": "^25.5.0",
+    "@vitest/coverage-istanbul": "^4.1.4",
     "terser": "^5.44.0",
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "optionalDependencies": {
     "@esbuild/linux-arm64": "^0.27.3",

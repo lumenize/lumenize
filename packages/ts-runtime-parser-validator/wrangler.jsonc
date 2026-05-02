@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lumenize-ts-runtime-parser-validator",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PRIMARY_DO",
+        "class_name": "PrimaryDO"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PrimaryDO"]
+    }
+  ]
+}

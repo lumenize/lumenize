@@ -15,7 +15,7 @@ type ExampleDO = RpcAccessible<InstanceType<typeof ExampleDO>>;
 describe('WebSocket RPC Integration', () => {
 
   // KEPT: Explicit disconnect error handling - edge case not covered by matrix
-  it('should reject pending operations when explicitly disconnected', async () => {
+  it('should reject pending operations when explicitly disconnected', { timeout: 5000 }, async () => {
     const client = createRpcClient<ExampleDO>({
       transport: createWebSocketTransport('example-do', 'websocket-explicit-disconnect-test', {
         baseUrl: 'https://fake-host.com',
@@ -38,10 +38,10 @@ describe('WebSocket RPC Integration', () => {
     
     // Operation should be rejected with disconnect error
     await expect(promise).rejects.toThrow('WebSocket');
-  }, { timeout: 5000 }); // Increase timeout since we have a 2s delay
+  }); // Increase timeout since we have a 2s delay
 
   // Test already-connected path (line 85) - reconnection prevention
-  it('should not reconnect when already connected', async () => {
+  it('should not reconnect when already connected', { timeout: 5000 }, async () => {
     const client = createRpcClient<ExampleDO>({
       transport: createWebSocketTransport('example-do', 'websocket-already-connected-test', {
         baseUrl: 'https://fake-host.com',
@@ -165,10 +165,10 @@ describe('WebSocket RPC Integration', () => {
     } finally {
       // Already disposed
     }
-  }, { timeout: 5000 }); // Increase timeout since we have 2s delays
+  }); // Increase timeout since we have 2s delays
 
   // Test user's custom WebSocket coexistence with RPC client
-  it('should allow user custom WebSocket to coexist with RPC client WebSocket', async () => {
+  it('should allow user custom WebSocket to coexist with RPC client WebSocket', { timeout: 50000 }, async () => {
     const instanceId = 'websocket-custom-coexist-test';
     const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
     
@@ -492,6 +492,6 @@ describe('WebSocket Shim Integration', () => {
     // - Event listeners are removed
     // - Pending operations Map is cleared
     // - No resource accumulation
-  }, { timeout: 50000 });
+  });
 
 });

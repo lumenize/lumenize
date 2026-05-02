@@ -47,8 +47,10 @@ import * as path from 'node:path';
  */
 function normalizeCode(code) {
   return code
-    // Remove import statements (allows docs to show @lumenize/package imports while tests use relative paths)
-    .replace(/^import\s+.*?from\s+['"].*?['"];?\s*$/gm, '')
+    // Remove import statements (single- or multi-line) — allows docs to show
+    // @lumenize/package imports while tests use relative paths. `[\s\S]*?`
+    // spans newlines so `import { A,\n B } from '...';` is stripped too.
+    .replace(/^import\s+[\s\S]*?from\s+['"].*?['"];?[^\S\n]*$/gm, '')
     // Remove export statements from the beginning (export default, export const, etc.)
     .replace(/^export\s+(default\s+)?(class|function|const|let|var|type|interface|enum)\s+/gm, '$2 ')
     // Remove type parameters from class/interface declarations (e.g., DurableObject<Env> → DurableObject)
@@ -402,33 +404,33 @@ function verifyCodeBlock(block, testFileCache, repoRoot) {
 }
 
 /**
- * Find all .mdx files in a directory
+ * Find all .md / .mdx files in a directory
  * @param {string} dir - Directory to search
  * @param {string[]} exclude - Patterns to exclude
  * @returns {string[]}
  */
 function findMdxFiles(dir, exclude = []) {
   const files = [];
-  
+
   function walk(currentDir) {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    
+
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
-      
+
       // Skip excluded paths
       if (exclude.some(pattern => fullPath.includes(pattern))) {
         continue;
       }
-      
+
       if (entry.isDirectory()) {
         walk(fullPath);
-      } else if (entry.name.endsWith('.mdx')) {
+      } else if (entry.name.endsWith('.md') || entry.name.endsWith('.mdx')) {
         files.push(fullPath);
       }
     }
   }
-  
+
   walk(dir);
   return files;
 }

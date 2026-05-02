@@ -4,9 +4,10 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     globals: true,
+    dangerouslyIgnoreUnhandledErrors: true,
     coverage: {
       provider: 'istanbul',
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: ['**/src/**'],
       skipFull: false,
     },

@@ -22,8 +22,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "3.2.4",
-    "vitest": "3.2.4"
+    "@vitest/coverage-istanbul": "4.1.4",
+    "vitest": "4.1.4"
   },
   "keywords": [
     "debug",
@@ -38,5 +38,5 @@
   "publishConfig": {
     "access": "public"
   },
-  "gitHead": "085b7b468c2a1facea2a9868f91804898d2ded46"
+  "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"
 }

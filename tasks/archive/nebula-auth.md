@@ -1,6 +1,6 @@
 # Nebula Auth — COMPLETE
 
-> All 7 phases done. 231 tests, 80.59% branch coverage. Follow-on items moved to `tasks/nebula.md` and `tasks/nebula-client.md`.
+> All 7 phases done. 231 tests, 80.59% branch coverage. Follow-on items moved to `tasks/nebula.md` and `tasks/nebula-7-client.md`.
 
 ## Overview
 
@@ -253,7 +253,7 @@ Same pattern as universe, but registry also validates parent galaxy exists.
 
 ### Discovery Flow
 
-Registry-only. No NebulaAuth involvement. After the user picks a scope, the client tries refresh first (in case a valid path-scoped cookie exists), then falls back to magic link. See `tasks/nebula-client.md` for the full login flow.
+Registry-only. No NebulaAuth involvement. After the user picks a scope, the client tries refresh first (in case a valid path-scoped cookie exists), then falls back to magic link. See `tasks/nebula-7-client.md` for the full login flow.
 
 ```mermaid
 sequenceDiagram
@@ -703,7 +703,7 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 3. **Cookie path does not match Star auth path** — Verify that `browser.getCookiesForRequest('{prefix}/acme.crm.acme-corp/refresh-token')` does NOT include the Universe cookie (path `{prefix}/acme` is not a prefix of `{prefix}/acme.crm.acme-corp`). This is correct — the admin refreshes at Universe level only.
 4. **Verify upward access is denied** — A Galaxy admin JWT for `acme.crm.*` must be rejected when accessing `{prefix}/acme/admin-panel` (galaxy admin cannot access universe).
 
-**Tab simulation deferred** — The Coach Multi-Session test above already verifies cookie path isolation using a single `Browser` instance (shared cookie jar, path-scoped sends). Multi-tab testing with `browser.context(origin)` and per-tab access token storage (sessionStorage independence) is a NebulaClient concern — defer to `tasks/nebula-client.md` when that dual-scope model is implemented.
+**Tab simulation deferred** — The Coach Multi-Session test above already verifies cookie path isolation using a single `Browser` instance (shared cookie jar, path-scoped sends). Multi-tab testing with `browser.context(origin)` and per-tab access token storage (sessionStorage independence) is a NebulaClient concern — defer to `tasks/nebula-7-client.md` when that dual-scope model is implemented.
 
 ### Registry Scenarios
 
@@ -1112,7 +1112,7 @@ These test the full flow through the Worker router (not just RPC wiring tested i
 3. What did we learn that we should carry forward?
 4. Should we update the task file, CLAUDE.md, skills, or MEMORY.md with any guidance for future phases or future tasks?
 
-**Expected outcome:** Coach Carol scenario works end-to-end with path-scoped cookie isolation. Cross-scope admin access works via wildcard fallback in `#verifyBearerToken` (no trusted headers). All self-signup, discovery, and registry flows working through the Worker router. Email included in JWT for downstream use. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+**Expected outcome:** Coach Carol scenario works end-to-end with path-scoped cookie isolation. Cross-scope admin access works via wildcard fallback in `#verifyBearerToken` (no trusted headers). All self-signup, discovery, and registry flows working through the Worker router. Email included in JWT for downstream use. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-7-client.md`.)
 
 **Actual outcome:** 227 tests across 9 files (220 existing + 7 new integration tests). All pass. Changes:
 - `email: string` added to `NebulaJwtPayload` type and `#generateAccessToken` payload
@@ -1149,7 +1149,7 @@ No website docs — this is a single-deployment BSL 1.1 package, not a public to
 
 Moved to their new homes:
 - **`callContext` Upgrade** → `tasks/nebula.md` § Follow-On from nebula-auth
-- **NebulaClient Adaptation** → Already covered in `tasks/nebula-client.md` § Two-Scope Model
+- **NebulaClient Adaptation** → Already covered in `tasks/nebula-7-client.md` § Two-Scope Model
 - **Email Domain Auto-Approval** → `tasks/nebula.md` § Follow-On from nebula-auth
 - **Email Template Customization** → `tasks/nebula.md` § Follow-On from nebula-auth
 - **Billing Infrastructure** → `tasks/nebula.md` § Follow-On from nebula-auth

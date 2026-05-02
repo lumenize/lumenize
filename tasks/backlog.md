@@ -6,10 +6,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
-- [ ] Add DNS redirect from `lumenize.com` → `lumenize.io`. Email sender addresses use `lumenize.io` (domain onboarded for Cloudflare Email Routing + Sending), but users who see an email and type `lumenize.com` into their browser should still land on the real site. Configure a 301 redirect at the `lumenize.com` zone (Cloudflare Rules → Bulk Redirects or a simple Page Rule). Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
-
-- [ ] Audit whether `@lumenize/mesh` docs should add a "Workers Paid plan" admonition similar to the one `@lumenize/auth` is adding for Cloudflare Email Sending. Mesh uses Durable Objects — check current Cloudflare pricing rules for DO on the free tier (DO recently became available on Workers Free with limits, but verify). If Mesh does need the admonition, mirror the wording used in `website/docs/auth/getting-started.mdx`. Also check `@lumenize/nebula-auth` and any other packages that touch platform features with plan gates. Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
-
 
 ## Lumenize Mesh
 
@@ -33,7 +29,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Patterns to benchmark**: fire-and-forget calls, request/response calls, broadcast fanout
   - **Consider**: Whether always using the two one-way call pattern (to avoid DO wall-clock billing) changes the latency tradeoff
   - **Related**: gateway.mdx documents that intra-datacenter hops are typically <10ms, but cross-region can be several hundred ms
-  - **Tooling**: Use `performance.now()` or Cloudflare analytics to measure; compare same-region and cross-region scenarios
+  - **Starting point — reuse the bench harness from the parse-validate release**: [`apps/nebula/test/browser/`](../apps/nebula/test/browser/) already implements the WS-push-observer + ping-subtraction pattern (Node-side test client → real WebSockets → deployed Worker, see `transactions.bench.ts` and `harness-client.ts`). The current ping baseline measures `client → Gateway → Star → Gateway → client` round-trip. To answer this question, add a parallel ping path that bypasses the Gateway (client → Star direct over WebSocket, if achievable, or client → Star via Workers RPC from a thin shim) and compare baselines. Reuse the same `Browser`-based harness, the existing `wrangler dev` autospawn, and the auth bootstrap. The cross-post-test methodology is also documented in `apps/nebula/test/browser/RESULTS.md`.
+  - **Tooling**: Use Node-side `performance.now()` (Cloudflare time-pinning makes in-Worker measurement unreliable — see the WS-push-observer pattern in the bench harness above); compare same-region and cross-region scenarios
 
 - [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)
   - **Reference**: `packages/mesh/test/for-docs/calls/document-do.ts` (`scheduleLocalTask`, `executePendingTask`) and `managing-context.mdx` Manual Persistence section
@@ -78,13 +75,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
   - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
 
-- [ ] Experiment: make all `lmz.call()` with response handlers automatically use two one-way pattern
-  - **Idea**: Instead of awaiting under the covers (which opens input gates and incurs wall-clock billing), `lmz.call()` with a response handler (4th param) would always fire-and-forget and have the callee call back with the result + handler continuation
-  - **Key question**: Does the second hop add meaningful latency, or is it microseconds within a Cloudflare colo?
-  - **If latency is negligible**: Developers never have to choose between patterns — every call is eviction-safe by default. The two one-way pattern becomes invisible infrastructure, not a design decision.
-  - **If latency is significant**: Keep current behavior as default, maybe offer opt-in flag
-  - **Experiment design**: Same operation measured both ways — current call-with-response vs automatic-two-one-way. Measure within same colo and cross-region.
-  - **Related**: Gateway latency experiment (above) is higher priority since it adds an extra hop by design
+- [ ] (Iceboxed 2026-04-30) Make `lmz.call()` with response handlers eviction-safe by default — see [`tasks/icebox/lmz-call-eviction-safe-by-default.md`](icebox/lmz-call-eviction-safe-by-default.md). Originally framed around throughput / billing benefits; the architectural deep-dive in the do-throughput-misread blog post showed those premises don't survive scrutiny because Handler 1 / Handler 2 already addresses them. Only eviction-safety remains, and even that's marginal in practice.
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
@@ -105,7 +96,44 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] Consider upgrading `@lumenize/testing`'s `websocket-shim` to use a real WebSocket client and integrate the `Browser` cookie jar
+  - **Why**: Currently the shim is fetch-based (does the upgrade through `Browser.fetch`, which carries cookies). It works fine for our auth model where the access token rides in the `lmz.access-token.<jwt>` subprotocol — cookies aren't checked on the WS upgrade. But if a future auth scheme ever validates a session cookie at the upgrade step, the shim would already cover it. Conversely: today's nebula browser harness *probably* falls back to Node's native `WebSocket` for the round-trip path because the shim was built around the Cloudflare Workers `ws` server-side semantics, not a generic-network-WebSocket client. A real WebSocket client (e.g. `ws` package or Node 22's native, with cookies threaded through) would unify both layers.
+  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — investigating whether `browser.WebSocket` is suitable as the WS layer for the nebula round-trip test.
+  - **Scope**: small but non-trivial — would need to either find a real WS client whose handshake we can override (so we can attach the cookie header from `Browser`), or roll our own thin upgrade wrapper. Not blocking anything today; revisit when reactivity tests need real WS auth flows.
+
+- [ ] Consider promoting `waitForEmail` / `extractMagicLink` helpers from `packages/auth/test/e2e-email/email-test-helpers.ts` to a reusable location
+  - **Why**: These helpers are auth-system-agnostic — they just talk to the deployed `email-test` Worker (`https://email-test.transformation.workers.dev`) over WebSocket. They aren't `@lumenize/auth`-specific or Nebula-specific. Currently the Nebula browser harness has to either copy them or import via relative path through another package's `test/` dir.
+  - **Where they could live**: `@lumenize/email-test` (which already exists for the deployed Worker types) could export the client helpers as a subpath. Or a new `@lumenize/testing/email` subpath.
+  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — adding `auth-bootstrap.ts` to the nebula browser harness, which needs the same helpers.
+  - **Don't do this now** — wait until the third consumer needs them.
+
 - [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
+
+- [ ] Audit tests for unawaited expected-rejection cases and remove `dangerouslyIgnoreUnhandledErrors` flag
+  - **Why**: During the vitest 3→4 migration we added `dangerouslyIgnoreUnhandledErrors: true` to every `vitest.config.*` because vitest 4 now fails the run (exit 1) on unhandled rejections that vitest 3 silently swallowed. The flag restores vitest 3's behavior but masks real issues (see follow-up notes in that task).
+  - **Pattern to find**: Tests that fire-and-forget a promise which is expected to reject. Example:
+    ```ts
+    someOp();  // kicks off an op that will reject
+    expect(somethingElse).toBe(x);  // test completes
+    // someOp's rejection arrives AFTER the test → unhandled
+    ```
+  - **Fix pattern**: Either `await` the promise and use `rejects.toThrow()`, OR attach `.catch()` to silence the expected rejection:
+    ```ts
+    someOp().catch(() => {});  // expected to reject
+    ```
+  - **Also common**: teardown code that disconnects a client (e.g., `client[Symbol.dispose]()`) which rejects pending in-flight promises. These need `.catch` on the in-flight promises, or the disconnect should settle them gracefully.
+  - **Success criteria**: Remove `dangerouslyIgnoreUnhandledErrors: true` from every vitest config, full suite runs green with exit 0.
+  - **Overlap**: Very related to the RPC-await audit above — both surface through "Unhandled Errors" counts. Probably worth doing together.
+
+- [ ] Audit RPC call sites for proper `await` and turn off SonarQube `no-return-await` rule
+  - **Why**: Cloudflare DO best practice says always `await` Workers RPC calls — unawaited calls become fire-and-forget, which (a) may rejection-leak (surfaces as vitest 4 "Unhandled Errors"), and (b) can end the request context before the RPC completes. SonarQube's `no-return-await` rule pushes you to remove `await` from `return await rpc()`, which changes try/catch semantics in a DO-hostile way: `return await foo()` catches errors *locally* in the current try/catch; `return foo()` passes them to the caller. The `no-return-await` rule was retracted by ESLint/typescript-eslint in 2023–2024 for this exact reason — SonarQube hasn't caught up.
+  - **Audit approach**:
+    1. Grep for RPC call patterns: `grep -rn '^\s*\(env\|this\.\w\+\|stub\)\.\w\+(' src/ packages/*/src/`
+    2. For each hit, classify: awaited / returned / fire-and-forget
+    3. Fire-and-forget cases must be intentional (`ctx.waitUntil` / `lmz.call` with explicit callback per the fire-and-forget-error-delivery pattern in CLAUDE.md) — anything else gets an `await` or `return`
+    4. Inside try/catch that wants local error handling, prefer `return await` over `return` (SonarQube will complain — that's the point)
+  - **Config change**: Disable SonarQube rule `typescript:S7785` (or whichever `no-return-await` equivalent applies to this project) in the project's SonarQube config
+  - **Related**: the "Unhandled Errors" count in vitest 4 output is a proxy metric — if the audit drives it down, we can eventually remove the `dangerouslyIgnoreUnhandledErrors: true` flag from vitest configs. (Discovered during vitest 3→4 migration, 2026-04-20)
 
 - [ ] Add vitest-workers-pool tests for `@lumenize/debug`
   - Current tests run in Node.js only (plain vitest)
@@ -149,6 +177,23 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - With continuations, the "this happens later" part is structurally visible
   - You can still have race conditions, but you're not accidentally creating them
   - Could be a section in continuations.mdx or a standalone concurrency guide
+  - **Reframe per the do-throughput post**: race-prevention is a side-effect of the real value, which is making remote work *explicit* at points where pretending it's local would mislead you. The current framing somewhat over-emphasizes race-prevention; soften toward "explicit remote-work" as the headline benefit.
+
+- [ ] Soften "favor sync over async" emphasis across docs and assistant guidance
+  - **Why**: The DO concurrency model framing — "input gates make code passively correct so long as you don't await" — is elegant for simple workloads but insufficient at scale. Once a system has work crossing Workers RPC boundaries, sibling-DO coordination, or interleaved invocations to hit throughput, you need explicit mechanisms (eTags, two-phase commits, idempotency keys, version vectors). Current docs over-emphasize "no await, no race" as if it's the whole correctness story.
+  - **Where to audit**:
+    - `CLAUDE.md` ("Keep Methods Synchronous", related sections)
+    - `do-conventions` skill
+    - `packages/mesh/**/*.mdx` files that emphasize sync over async
+    - `MEMORY.md` and feedback memories (esp. update with the evolution context — input-gate correctness was a useful early learning that doesn't *replace* explicit-mechanism thinking, just sets the floor)
+  - **What softening looks like**: Don't drop the guidance — input gates ARE great for simple cases. Reframe as: "for simple workloads, input gates carry you a long way; for moderately complex distributed systems, you'll need explicit mechanisms (eTags, two-phase commits, version vectors) in addition." The Actor model inspiration still holds — it just has more in its toolbox than 'don't await.'
+  - **Discovered during**: writing the do-throughput-misread blog post.
+
+- [ ] Audit docs for over-emphasis on "wall-clock billing in the DO is the deciding factor"
+  - **Context**: We've already softened one instance (see `feedback_short_settimeout_billing.md` — short setTimeouts in DOs aren't worth fretting about). Likely others remain.
+  - **Where to audit**: `CLAUDE.md` ("Wall-Clock Billing" section), do-conventions skill, mesh docs, `lumenize-do.mdx`, etc.
+  - **What softening looks like**: Don't drop the guidance — wall-clock billing IS real. But avoid framing it as the SOLE deciding factor. Correctness, simplicity, throughput, and maintainability often outweigh wall-clock cost in moderately complex systems.
+  - **Discovered during**: writing the do-throughput-misread blog post.
 
 - [ ] Add optimistic concurrency example to calls.mdx or a new concurrency patterns doc
   - Show version/timestamp checking pattern
@@ -210,10 +255,55 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Website, Blog, etc.
 
+- [ ] Draft blog post: "When time stops: benchmarking Cloudflare Durable Objects from outside" (working title)
+  - **Why**: The bench harness pattern we built for the parse-validate release is genuinely novel for the Cloudflare community. Most DO bench writeups use `vi.bench` inside the Workers test pool and quietly absorb the time-pinning problem. The WS-push-observer pattern with ping-subtraction is the right answer but not obvious — and it deserves to be documented as its own contribution.
+  - **What to cover**:
+    - The "time stops inside Cloudflare" problem (`Date.now()` pinned within an invocation, hibernation blurring elapsed-time observations)
+    - The WebSocket-push-to-Node-client architecture
+    - Two-bench design: latency (`transactions.bench.ts`) + throughput (`throughput.test.ts`) sharing a ping baseline
+    - Ping-subtraction methodology — and its limits (constant-subtraction is approximate at high N; ping itself has variance; not a joint distribution)
+    - `ThroughputHarnessClient` Map-keyed result dispatch
+    - When NOT to use this pattern (microbenchmarks where harness overhead dominates the work being measured)
+  - **Seed material**: design-notes section of [`apps/nebula/test/browser/RESULTS.md`](../apps/nebula/test/browser/RESULTS.md) ("WS-leg subtraction", "Cold-Star/warm-cluster", "Sample counts" sections), plus the THROUGHPUT-RESULTS.md "open question on ping under load" caveat. Bench source: [`apps/nebula/test/browser/`](../apps/nebula/test/browser/).
+  - **Part of**: parse-validate release thread (alongside introducing-parse-validator, what-i-got-wrong-about-do-throughput, and the to-be-extracted facet-performance post). Target: same-day publish with the others.
+
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
 - [ ] Get a Substack account and cross post there
+
+- [ ] Consider writing "Your DO alarm is probably fine" blog post
+  - **Source**: alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md` Phase 6, deferred). Full results in `experiments/alarm-accuracy/EXPERIMENT_RESULTS.md`.
+  - **Headline number**: p99 alarm jitter at 5 s = 1 ms; alarms at delays ≤ 30 s fire with sub-ms median accuracy and tails under 36 ms. Bimodal at 60 s+ (hibernation cost ~280 ms p99 at 60 s, ~700 ms p99 at 300 s).
+  - **Framing context** (`feedback_cf_community_framing.md`): would push back gently on Kenton's "tens of seconds, use setTimeout below 1 minute" Discord guidance — but only at the 5 s scale we measured.
+  - **Why "consider"**: findings are reassuring rather than dramatic — they confirm "5 s grace period is fine" without overturning Kenton's broader minute-scale claim. May not build community cred enough to justify the write-up + caveats (single time-of-day, single colo, 50 trials/bucket per `EXPERIMENT_RESULTS.md`). If a future re-run hits the 1-minute boundary and finds something more striking, revisit.
+
+## @lumenize/auth
+
+- [ ] Make `@lumenize/auth` an MCP-compliant OAuth 2.1 Authorization Server (agentic access)
+  - **Why**: MCP spec (2025-06) pins remote MCP server auth to OAuth 2.1. Claude Desktop, Cursor, ChatGPT connectors all speak this. Without it, a Lumenize-backed MCP server can't auto-connect to standard MCP clients — users have to manually bolt on custom glue. This is the #1 agentic gap, not social login.
+  - **Leverages existing work**: Ed25519-signed JWTs, refresh rotation, and the RFC 8693 `act` claim (Delegation) are already in place. The `act` claim is exactly the semantic primitive Token Exchange needs — missing piece is the standards-compliant façade around it.
+  - **Endpoints/discovery to add**:
+    - `/.well-known/oauth-authorization-server` (RFC 8414) — AS metadata
+    - `/.well-known/oauth-protected-resource` (RFC 9728) — PRM discovery so clients can find the AS from the resource server
+    - `/authorize` with consent screen (OAuth 2.1 + PKCE mandatory)
+    - `/token` supporting authorization_code grant, refresh_token grant, and `urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693) — token exchange wraps the existing `delegated-token` flow
+    - `/register` — Dynamic Client Registration (RFC 7591) so MCP clients can self-register without pre-provisioned credentials
+    - Resource Indicators (RFC 8707) honored in `/authorize` and `/token` so tokens are scoped to the specific MCP server
+  - **Open design questions**: consent screen UX (reuse admin approval email pattern?), client storage (new DO, or extend auth DO?), scope model (start coarse: `mcp:read`, `mcp:write`?), token format (keep current JWT shape or add audience-bound variant?)
+  - **References**: [MCP auth spec](https://modelcontextprotocol.io/specification/basic/authorization), [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591), [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728), [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)
+  - **Scope**: Big enough to promote to its own task file (`tasks/auth-oauth-provider.md`) when scheduled
+
+- [ ] Add OpenID Connect provider endpoints so other apps can "Sign in with Lumenize"
+  - **Why**: Federated identity provider capability — lets a Lumenize deployment serve as the IdP for third-party apps, SSO out to other tools, etc. Medium severity — matters if customers want to wire their Lumenize account into other SaaS, less critical than the MCP flow.
+  - **What OIDC adds on top of OAuth 2.1**:
+    - `/.well-known/openid-configuration` — OIDC discovery document (superset of `oauth-authorization-server`)
+    - `openid` scope triggers issuance of an ID token alongside the access token
+    - ID token is a JWT with identity claims (`sub`, `email`, `email_verified`, `name`, etc.) signed by the same Ed25519 key chain
+    - `/userinfo` endpoint (optional but expected) for clients to fetch additional claims
+    - JWKS endpoint (`/.well-known/jwks.json`) publishing the public signing keys — we already have key rotation, just need to expose it
+  - **Dependency**: Much of this rides on the OAuth 2.1 AS work above (discovery, `/authorize`, `/token`, consent). Natural follow-on, not independent.
+  - **References**: [OIDC Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html), [OIDC Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 
 ## Nebula Auth
 
@@ -237,4 +327,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Blocker**: As of Jan 2025, `vitest-pool-workers` (workerd 1.20251011.0) throws "Object not disposable" when using `using` with DO stubs. The runtime doesn't implement `Symbol.dispose` on stubs yet. Wait for vitest-pool-workers/workerd to add support, then:
     1. Search codebase for `getDOStub(` calls and change to `using stub = getDOStub(...)`
     2. Update `getDOStub` JSDoc to recommend callers use `using`
+
+## `@lumenize/ts-runtime-parser-validator`
+
+- [ ] **`@default` input/output type asymmetry — dual-type exposure.** Promoted from [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md) Phase -1 (closed 2026-04-24). `@default` on a field creates an input/output type mismatch: input-side the field is absent-allowed, output-side it's always present. Current rule requires `?` (input-honest; consumers pay null-check tax on post-parse data). Most promising fix: add a typia-style `Default<T>` branded type alongside JSDoc `@default`, plus a `Parsed<T>` utility that non-optional-ifies branded fields — Zod-style dual views without dropping the JSDoc path. **Trigger**: users complaining about null-check noise on parsed `data`, or Nebula hitting pain when generating TypeScript client code for ontology consumers. Full analysis in the archived 5.2.4.1 Phase -1.
     3. Update unit test mocks to include `[Symbol.dispose]: () => {}`

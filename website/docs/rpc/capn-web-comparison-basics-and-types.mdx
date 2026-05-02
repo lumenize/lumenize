@@ -546,20 +546,19 @@ export default {
 ### vitest.config.js
 
 ```javascript vitest.config.js
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersProject({
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [cloudflareTest({
+    wrangler: { configPath: "./wrangler.jsonc" },
+  })],
+
   test: {
-    testTimeout: 2000, // 2 second global timeout
-    poolOptions: {
-      workers: {
-        // Must be false to use websockets. Have each test
-        // reference a different DO instance to avoid state sharing.
-        isolatedStorage: false,
-        // Important! use the wrangler.jsonc in ./test
-        wrangler: { configPath: "./wrangler.jsonc" },  
-      },
-    },
+    // 2 second global timeout
+    testTimeout: 2000,
+
     // Use `vitest --run --coverage` to get test coverage report(s)
     coverage: {
       provider: "istanbul",  // Cannot use V8
@@ -572,8 +571,8 @@ export default defineWorkersProject({
         '**/*.config.ts',
         '**/scratch/**'
       ],
-    },
-  },
+    }
+  }
 });
 
 ```

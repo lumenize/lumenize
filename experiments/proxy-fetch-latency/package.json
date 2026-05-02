@@ -18,6 +18,6 @@
     "@lumenize/proxy-fetch": "*"
   },
   "devDependencies": {
-    "wrangler": "^4.38.0"
+    "wrangler": "^4.86.0"
   }
 }

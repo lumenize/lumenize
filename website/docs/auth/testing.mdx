@@ -30,17 +30,18 @@ The [invite endpoint](/docs/auth/subject-management#invite-subjects) supports th
 
 ```javascript @skip-check-approved('config')
 // vitest.config.js
-export default defineWorkersProject({
-  test: {
-    poolOptions: {
-      workers: {
-        wrangler: { configPath: './wrangler.jsonc' },
-        miniflare: {
-          bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
-        },
+import { defineConfig } from 'vitest/config';
+import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
+
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: './wrangler.jsonc' },
+      miniflare: {
+        bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
       },
-    },
-  },
+    }),
+  ],
 });
 ```
 :::
