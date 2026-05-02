@@ -140,7 +140,11 @@ echo "✅ Dry-run complete!"
 echo ""
 echo "📋 Summary:"
 echo "   ✓ All package tests passed"
-echo "   ✓ All doc-tests passed"
+if [ ${#DOC_TEST_FAILURES[@]} -eq 0 ]; then
+  echo "   ✓ All doc-tests passed"
+else
+  echo "   ⚠ Doc-tests failed (advisory): ${DOC_TEST_FAILURES[*]}"
+fi
 echo "   ✓ All packages built successfully"
 echo "   ✓ Development mode restored"
 echo ""
