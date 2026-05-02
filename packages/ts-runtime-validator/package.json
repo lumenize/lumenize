@@ -3,16 +3,16 @@
   "version": "0.25.0",
   "description": "TypeScript-as-schema runtime validation — toTypeScript() serializes values to TS programs, validate() type-checks them with tsc",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     }
   },
   "files": [
-    "dist/**/*",
+    "src/**/*",
     "LICENSE",
     "README.md"
   ],
