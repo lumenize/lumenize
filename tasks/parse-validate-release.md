@@ -261,20 +261,22 @@ Pulled here from 5.2.4.2's original Phase 5. The internal-only parts of that pha
 
 **Pre-Phase 3 gates** (in order):
 - [x] **Docs review pass** of `@lumenize/ts-runtime-parser-validator` — landing-shape confirmed 2026-04-27 (`parseBatch` scoped to api-reference + index.md mention; `ParserValidator.parse()` / `.parseBatch()` heading style aligned with the project's `#`-means-private convention).
-- [ ] **`@lumenize/ts-runtime-parser-validator` published to npm** via `/release-workflow`. The deprecate message points at this package; it must exist on the registry before the message goes live.
-- [ ] **Release announcement (Phase 2a) is published** so the URL substituted into the deprecate message resolves.
+- [x] **`@lumenize/ts-runtime-parser-validator` published to npm** — v0.25.0 published 2026-05-02 alongside the rest of the `@lumenize/*` packages.
+- [x] **Release announcement (Phase 2a) is published** — `https://lumenize.com/blog/introducing-parse-validator/` live as of 2026-05-02 (alongside the facet-performance post).
 
-**Work**:
-- Run: `npm deprecate @lumenize/ts-runtime-validator "Use @lumenize/ts-runtime-parser-validator instead — see https://lumenize.com/blog/<release-post-slug>"` (substitute the actual blog URL once published)
-- Verify the deprecation banner appears on the npm package page
+**Work** (executed 2026-05-02):
+- [x] Updated `packages/ts-runtime-validator/README.md` with a deprecation banner pointing at the new package and the announcement post.
+- [x] Bumped `@lumenize/ts-runtime-validator` to **0.25.1** and published — needed to ship the updated README (npm tarballs are immutable; README updates require a new version).
+- [x] Ran `npm deprecate @lumenize/ts-runtime-validator "Deprecated. Use @lumenize/ts-runtime-parser-validator — https://lumenize.com/blog/introducing-parse-validator/"`. `npm deprecate` without a version range deprecates **all** versions, which is what we want — anyone on 0.23.x, 0.24.x, or any 0.25.x sees the banner.
+- [x] Verified via `https://registry.npmjs.org/@lumenize/ts-runtime-validator` — `latest: 0.25.1`, all 4 versions (0.23.0, 0.24.0, 0.25.0, 0.25.1) carry the deprecation message.
 
 `npm deprecate` is reversible (`npm deprecate <pkg> ""` clears the message), but the message is publicly visible, indexed, and cached by tooling — treat as an external-action gate per CLAUDE.md "Executing actions with care."
 
 **No migration guide** — per 5.2.4.1 Phase 7's decision, the new package is framed as a fresh package, not a successor. The blog post is the migration pointer.
 
 **Success Criteria**:
-- [ ] npm shows `@lumenize/ts-runtime-validator` as deprecated with the pointer message
-- [ ] Deprecation message links to the published release post
+- [x] npm shows `@lumenize/ts-runtime-validator` as deprecated with the pointer message
+- [x] Deprecation message links to the published release post
 
 ## Combined Success Criteria
 

@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/ts-runtime-validator",
-  "version": "0.25.0",
+  "version": "0.25.1",
   "description": "TypeScript-as-schema runtime validation — toTypeScript() serializes values to TS programs, validate() type-checks them with tsc",
   "type": "module",
   "main": "src/index.ts",

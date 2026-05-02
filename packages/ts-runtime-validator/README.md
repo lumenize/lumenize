@@ -1,5 +1,11 @@
 # @lumenize/ts-runtime-validator
 
+> ⚠️ **Deprecated.** This package has been superseded by [`@lumenize/ts-runtime-parser-validator`](https://www.npmjs.com/package/@lumenize/ts-runtime-parser-validator), which has the same TypeScript-as-schema model with parse-don't-just-validate semantics, recursive `@default` filling, and Cloudflare Durable Object facet hosting for same-isolate-RPC speed. See the announcement post: [https://lumenize.com/blog/introducing-parse-validator/](https://lumenize.com/blog/introducing-parse-validator/).
+>
+> No migration guide — the new package is framed as a fresh package, not a successor. See its [Getting Started](https://lumenize.com/docs/ts-runtime-parser-validator/getting-started) for setup.
+
+---
+
 TypeScript IS the schema — validate JavaScript values against TypeScript interfaces at runtime using the real tsc compiler.
 
 - **Zero DSL** — use your existing TypeScript interfaces as the validation schema
@@ -9,13 +15,15 @@ TypeScript IS the schema — validate JavaScript values against TypeScript inter
 
 ## Installation
 
+This package is deprecated. Install the replacement instead:
+
 ```bash
-npm install @lumenize/ts-runtime-validator
+npm install @lumenize/ts-runtime-parser-validator
 ```
 
 ## Documentation
 
-Full documentation at [lumenize.com/docs/ts-runtime-validator](https://lumenize.com/docs/ts-runtime-validator/).
+The original package's docs remain at [lumenize.com/docs/ts-runtime-validator](https://lumenize.com/docs/ts-runtime-validator/) for reference, but new development should use the [parse-validator docs](https://lumenize.com/docs/ts-runtime-parser-validator/).
 
 ## License
 
