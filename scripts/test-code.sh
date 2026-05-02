@@ -39,11 +39,21 @@ for pkg in "${PACKAGES[@]}"; do
 done
 echo ""
 
-# Build npm workspace args
-WORKSPACE_ARGS=""
+# Run tests one package at a time so a failure aborts cleanly and the
+# offending package is the last thing on the screen — no scroll-back to
+# hunt for which workspace failed.
 for pkg in "${PACKAGES[@]}"; do
-  WORKSPACE_ARGS="$WORKSPACE_ARGS -w $pkg"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "🧪 Testing $pkg..."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  if ! npm run test -w "$pkg"; then
+    echo ""
+    echo "❌ Tests failed in $pkg — aborting."
+    echo "   Re-run individually with:  npm run test -w $pkg"
+    exit 1
+  fi
 done
 
-# Run tests
-npm run test $WORKSPACE_ARGS
+echo ""
+echo "✅ All package tests passed"
