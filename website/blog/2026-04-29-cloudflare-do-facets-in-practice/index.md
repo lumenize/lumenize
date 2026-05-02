@@ -8,7 +8,7 @@ tags:
   - cloudflare
 description: Real numbers for hosting code as a Cloudflare Durable Object facet — cold-wake ~262 ms above DO baseline, warm boundary cost ~1.35 ms per call. Measured with a typia parse-validate fixture; the cost structure generalizes.
 ---
-Cloudflare's [Durable Object Facets](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/) shipped on April 13, 2026<sup>[2](/blog/cloudflare-do-facets-in-practice#fn-beta)</sup>. Cloudflare's framing is that they're "essentially free." That's accurate at the infrastructure layer — same V8 isolate as the parent DO, no extra billing line, no separate Worker. However, from the cold-wake and per-call latency perspectives, it's not zero, and I needed to know by how much.
+Cloudflare's [Durable Object Facets](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/) shipped on April 13, 2026[^beta]. Cloudflare's framing is that they're "essentially free." That's accurate at the infrastructure layer — same V8 isolate as the parent DO, no extra billing line, no separate Worker. However, from the cold-wake and per-call latency perspectives, it's not zero, and I needed to know by how much.
 
 While building [Nebula](/blog/introducing-lumenize-nebula), I wanted to host a per-tenant [typia parse-validator](/blog/introducing-parse-validator) close to each tenant's write DO. Facets were the obvious choice, but I wanted real numbers before committing. This post is what I measured: cold-wake contribution and warm RPC boundary cost. For the non-facets-related benchmarking results — throughput, gate semantics, and what I had to unlearn about Durable Objects under load — see the companion post: [What I got wrong about Durable Object throughput](/blog/what-i-got-wrong-about-do-throughput).
 
@@ -29,7 +29,7 @@ The hop is fast but measurable. For most workloads, other costs — cold-wake wh
 
 ## The fixture
 
-To measure the *facet boundary*, we needed a realistically sized workload running in the facet. Ours is a ~119 KB module that happens to be some real work we were doing for Nebula.<sup>[1](/blog/cloudflare-do-facets-in-practice#fn-fixture)</sup>
+To measure the *facet boundary*, we needed a realistically sized workload running in the facet. Ours is a ~119 KB module that happens to be some real work we were doing for Nebula.[^fixture]
 
 If your facet hosts something else of similar bundle size — a rules engine, a sandboxed transformer, an LLM agent's generated code à la [Cloudflare Code Mode](https://blog.cloudflare.com/code-mode/) — the boundary numbers (cold-wake, warm RPC) should land in the same neighborhood. What changes is the inner work cost (~50 µs per call in our workload).
 
@@ -57,6 +57,6 @@ If you find numbers significantly different from these for your own facet worklo
 
 ---
 
-<p><small id="fn-fixture"><sup>1</sup> Our workload: a typia-generated parse-validator hosted as a facet on each Nebula `Star` Durable Object (Nebula's per-tenant write DO). The validator is generated from a 30-type ontology — interfaces with primitives, optionals, unions, nested relationships (`T`, `T | null`, `T[]`, `Set<T>`, `Map<K, T>`), and the standard JSDoc tags (`@minimum`, `@format email`, `@default`, etc.). Source: [`benchmark-ontology-30.ts`](https://github.com/lmaccherone/lumenize/blob/main/packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts).</small></p>
+[^fixture]: Our workload: a typia-generated parse-validator hosted as a facet on each Nebula `Star` Durable Object (Nebula's per-tenant write DO). The validator is generated from a 30-type ontology — interfaces with primitives, optionals, unions, nested relationships (`T`, `T | null`, `T[]`, `Set<T>`, `Map<K, T>`), and the standard JSDoc tags (`@minimum`, `@format email`, `@default`, etc.). Source: [`benchmark-ontology-30.ts`](https://github.com/lmaccherone/lumenize/blob/main/packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts).
 
-<p><small id="fn-beta"><sup>2</sup> Facets are still in beta on the Workers Paid plan as of this writing. No GA timing announcement, no breaking-change entries in the [Durable Objects changelog](https://developers.cloudflare.com/changelog/product/durable-objects/) since launch. The adjacent Dynamic Worker API is receiving additive enhancements (custom limits, nullable bundle names) — evolving but compatible. We're using a stable beta of an evolving feature, not betting on shifting sand.</small></p>
+[^beta]: Facets are still in beta on the Workers Paid plan as of this writing. No GA timing announcement, no breaking-change entries in the [Durable Objects changelog](https://developers.cloudflare.com/changelog/product/durable-objects/) since launch. The adjacent Dynamic Worker API is receiving additive enhancements (custom limits, nullable bundle names) — evolving but compatible. We're using a stable beta of an evolving feature, not betting on shifting sand.
