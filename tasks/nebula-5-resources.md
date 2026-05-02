@@ -34,7 +34,7 @@ Quick reference for all decisions made during Phase 0 design:
 | **Plain RPC for guards** | Rejected | Would duplicate callContext propagation logic that `lmz.call()` already handles. |
 | **`transaction()` API** | `lmz.transaction([lmz.upsert(...), lmz.delete(...), ...])` | DWL call opens input gates, losing automatic transactional behavior. Single `transaction()` call with mixed ops minimizes RPC round-trips (billing) and enables manual transaction protocol. |
 | **Convenience functions** | `lmz.upsert(id, val)`, `lmz.upsert(id, val, eTag)`, `lmz.upsert(snapshot, val)` — same 3 patterns for `delete` | Pure functions returning operation descriptors. eTag resolved from local cache when not explicit. Snapshot overload extracts both resourceId and eTag. |
-| **Manual transaction protocol** | Read→eTag check→DWL guards→recheck eTags→write (in `transactionSync`) | Double eTag check: optimistic (pre-DWL, fail fast) + pessimistic (post-DWL, catch races). `transactionSync` for write phase ensures all-or-nothing. |
+| **Manual transaction protocol** | Read snapshots (for validFrom)→DWL guards→eTag check + write (in `transactionSync`) | Single pessimistic eTag check inside `transactionSync`. Originally designed with an optimistic pre-DWL fast-fail, but the implementation simplified to single-phase: the pre-check would only save the ~1.4 ms DWL call on stale writes, and conflicts are rare. `transactionSync` for the write phase ensures all-or-nothing. |
 | **Schema evolution** | User-provided migration functions in DWL, versioned in `ResourcesWorker` | DWL is perfect: migration code is user-provided logic needing sandboxing. TypeScript types are the schema — no DSL. |
 | **Runtime type validation** | Experiment: `tsgo`/Rust TS compiler in Cloudflare Container | TypeScript itself as runtime validator. `@lumenize/structured-clone` gains `toLiteralString()` mode. No schema DSL duplication. **[Phase 0 experiment]** |
 
@@ -318,11 +318,9 @@ this.lmz.delete(currentSnapshot)                     // extracts resourceId + eT
 **Transaction protocol for `transaction()`**:
 
 ```
-Phase 1: Optimistic pre-check (synchronous, inside gates)
-  - Read all current snapshots from storage for items in the batch
-  - Check eTags match for each item
-  - FAIL FAST if any eTag mismatch → return conflict response immediately
-  - No DWL call needed — saves billing on obvious conflicts
+Phase 1: Pre-DWL reads (synchronous, inside gates)
+  - Read all current snapshots from storage (for validFrom calculation)
+  - No eTag check yet — see "Why single-phase" below
 
 Phase 2: Guard dispatch (async, gates OPEN during this)
   - Single lmz.call() to ResourcesWorker with the full batch
@@ -331,19 +329,19 @@ Phase 2: Guard dispatch (async, gates OPEN during this)
     (e.g., "upsert 3 tasks + delete 1 setting" = one DWL round-trip)
   - If any guard throws → return rejected response
 
-Phase 3: Pessimistic recheck + write (synchronous, inside gates)
-  - Re-read all snapshots, re-check eTags
-  - If any eTag changed during Phase 2 → return conflict response
-  - Perform all writes inside ctx.storage.transactionSync()
+Phase 3: Pessimistic check + write (synchronous, inside gates)
+  - Re-read all snapshots inside ctx.storage.transactionSync()
+  - Permission check + eTag check (the only eTag check)
+  - On conflict → return conflict response (transaction rolls back)
+  - Otherwise perform all writes
   - All-or-nothing: if any write fails, all roll back
 ```
 
-**Why double eTag check?**
-- Phase 1 (optimistic): Avoid the DWL call entirely if we already know it'll fail. Saves billing and latency.
-- Phase 3 (pessimistic): Catch races from requests that interleaved during the Phase 2 `await`. Between Phases 1 and 3, other requests could have modified the same resources.
+**Why single-phase eTag check?**
+Originally designed with a Phase 1 optimistic pre-check followed by a Phase 3 pessimistic re-check. The implementation collapsed to single-phase: the optimistic pre-check would only fast-fail on stale writes, saving the ~1.4 ms DWL call. Since eTag conflicts are rare in practice and the pessimistic check inside `transactionSync` is sufficient for correctness, the single-phase pattern is simpler with negligible cost. See `apps/nebula/src/resources.ts` for the implementation.
 
 **Why `transactionSync()` in Phase 3?**
-Steps 3's recheck + write are synchronous (no `await`), so input gates are closed. But without `transactionSync()`, a thrown error mid-write-loop could leave some rows written and others not — individual SQL statements aren't automatically grouped into a transaction. `transactionSync()` gives the explicit rollback boundary: all writes succeed or none do.
+Phase 3's recheck + write are synchronous (no `await`), so input gates are closed. But without `transactionSync()`, a thrown error mid-write-loop could leave some rows written and others not — individual SQL statements aren't automatically grouped into a transaction. `transactionSync()` gives the explicit rollback boundary: all writes succeed or none do.
 
 **Guard batching on `ResourcesWorker`**:
 `runGuards()` accepts the full batch. Each item has its own `resourceType` and the base class routes to the appropriate guard array per item. One DWL round-trip covers guards for the entire transaction.
@@ -557,7 +555,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [x] `lmz.call()` DWL addressing decided: new `lmz.call(stub, continuation)` overload
 - [x] `transaction()` API decided: `lmz.transaction([lmz.upsert(...), lmz.delete(...)])` with convenience functions
 - [x] Convenience function overloads decided: `(id, val)`, `(id, val, eTag)`, `(snapshot, val)` — eTag from cache or explicit
-- [x] Manual transaction protocol decided: read→eTag check→DWL guards→recheck→transactionSync write
+- [x] Manual transaction protocol decided: read snapshots (for validFrom)→DWL guards→eTag check + write inside transactionSync (single-phase pessimistic check)
 - [x] **Runtime type validation** — tsc in DWL spike complete. 1ms median per-call. See `docs/adr/001-typescript-as-schema.md`
 - [ ] Design schema evolution and migration strategy
 - [ ] Finalize DO method surface (transaction, read, reads, subscribe, discover)
@@ -575,8 +573,8 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [ ] `lmz.upsert()` and `lmz.delete()` convenience functions with 3 overload patterns each
 - [ ] Local eTag cache — populated by read/subscribe, used by convenience functions
 - [ ] Snodgrass temporal storage with debounce and history modes
-- [ ] Optimistic concurrency via eTag (double-check protocol)
-- [ ] Manual transaction protocol: pre-check → DWL guards → recheck → `transactionSync` write
+- [ ] Optimistic concurrency via eTag (single-phase pessimistic check inside `transactionSync`)
+- [ ] Manual transaction protocol: pre-DWL reads → DWL guards → `transactionSync` (eTag check + permission check + write)
 - [ ] Snapshot response shape with meta
 - [ ] Transaction response protocol (success/conflict/rejected) — per-item results
 - [ ] Callable via `lmz.call()` from any Mesh node

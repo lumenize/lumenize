@@ -8,6 +8,11 @@ tags:
 description: You've been writing the same types four times — as TypeScript interfaces, Zod schemas, Prisma models, and SQL DDL. What if you just wrote them once?
 draft: false
 ---
+
+:::info Update — April 29, 2026
+The runtime validator referenced in this post now ships as [`@lumenize/ts-runtime-parser-validator`](/blog/introducing-parse-validator) — typia-powered, with `@default` filling and `parse()` semantics now live (the JSDoc annotations shown later in this post as roadmap have largely shipped). See the [new announcement](/blog/introducing-parse-validator) for what changed. The post below is preserved as written.
+:::
+
 You've been writing the same types four times.
 
 Once as a TypeScript interface. Once as a Zod schema for validation (or the other way around — Zod's `z.infer` can derive the type, but you're still writing Zod's DSL). Once as a Prisma model for your ORM. Once as SQL for your database. Multiple representations of the same thing, each in a different language.

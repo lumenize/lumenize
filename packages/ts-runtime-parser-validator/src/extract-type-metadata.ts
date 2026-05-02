@@ -27,7 +27,7 @@
  * from `src/index.ts`.
  */
 
-// @ts-expect-error — pre-bundled deps, no types; see scripts/bundle-dependencies.mjs
+// @ts-expect-error — pre-bundled deps, no types; see scripts/bundle-tsc.mjs
 import { ts } from '../dist/deps.bundle.mjs';
 
 // ---------------------------------------------------------------------------

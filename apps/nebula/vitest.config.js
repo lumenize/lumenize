@@ -95,14 +95,34 @@ export default defineConfig({
           },
         },
       },
-      // Bench project — same harness, *.bench.ts files only. Run via
-      // `npm run bench`, not part of `npm test`.
+      // Bench project — same harness, *.bench.ts files only. Uses vitest's
+      // bench() API; run via `npm run bench` (which invokes `vitest bench`).
+      // Excluded from `npm test` via positive project enumeration in the
+      // test script — bench() throws outside benchmark mode.
       {
         extends: true,
         plugins: [swcPlugin],
         test: {
           name: 'browser-bench',
           include: ['test/browser/**/*.bench.ts'],
+          globalSetup: ['./test/browser/global-setup.ts'],
+          testTimeout: 60000,
+          env: {
+            NODE_TLS_REJECT_UNAUTHORIZED: '0',
+          },
+        },
+      },
+      // Throughput project — *.benchmark.ts files. Uses standard it()/expect()
+      // (not bench()) because the harness ramps clients to find a saturation
+      // knee — useful as a soft-floor assertion if we ever add one. Produces
+      // numbers, no asserts today; run via `npm run test:throughput` rather
+      // than `npm test`.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'browser-throughput',
+          include: ['test/browser/**/*.benchmark.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
           testTimeout: 60000,
           env: {

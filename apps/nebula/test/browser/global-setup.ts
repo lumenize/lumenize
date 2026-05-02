@@ -105,8 +105,20 @@ function readTestToken(): string {
 }
 
 export default async function setup(project: TestProject) {
-  const port = await pickFreePort();
   const testToken = readTestToken();
+
+  // BENCH_BASE_URL override: point the bench at a deployed Worker instead of
+  // spawning wrangler-dev. Used to capture publishable numbers from real
+  // Cloudflare infrastructure. .dev.vars still supplies TEST_TOKEN for the
+  // email-test WebSocket; everything else lives on the deployed Worker.
+  const overrideBaseUrl = process.env.BENCH_BASE_URL;
+  if (overrideBaseUrl) {
+    project.provide('wranglerBaseUrl', overrideBaseUrl);
+    project.provide('emailTestToken', testToken);
+    return; // No wrangler-dev to tear down.
+  }
+
+  const port = await pickFreePort();
 
   wranglerProcess = spawn(
     'wrangler',

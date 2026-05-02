@@ -1,8 +1,37 @@
 # Parse-Validate: Release Coordination
 
-**Status**: Not started — split out of `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` on 2026-04-27 once the implementation phases (2, 3) had landed
+**Status (2026-04-30)**: Phase 1 complete + throughput task complete + Phase 2 drafted as a **three-post split** (was two). Headline: per-call warm latency ~52 ms, per-DO-instance peak throughput ~410 txn/s (21× the serial floor — the output-gate / group-commit insight is empirically confirmed). Latency numbers in [RESULTS.md](../apps/nebula/test/browser/RESULTS.md), throughput numbers in [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md).
+
+## Update 2026-04-30: three-post split + new staging
+
+During the Phase 2 drafting, the original 2b ("Facet performance in practice") was split into two posts because the throughput-finding earned its own post — and the DO-general gate-semantics insight has a wider audience than facet-specific cost analysis:
+
+- **2a** `website/blog/2026-04-29-introducing-parse-validator/` — release announcement (unchanged)
+- **2b** `website/blog/2026-04-29-what-i-got-wrong-about-do-throughput/` — DO throughput / gate-semantics insight (NEW; absorbs what was "future companion (i)" below)
+- **2c** `website/blog/2026-04-29-cloudflare-do-facets-in-practice/` — facet-specific cost deep-dive (was the original 2b)
+
+A fourth post (2d) is now in `tasks/backlog.md`: "When time stops: benchmarking Cloudflare Durable Objects from outside" — captures the WS-push-observer + ping-subtraction harness pattern. To be drafted in a separate session.
+
+**Revised staging** (was: 2a + 2b same-day, then deprecate; new: staged release):
+1. npm publish `@lumenize/ts-runtime-parser-validator` via `/release-workflow`
+2. **Day 0**: publish 2a + 2c (tightly coupled — announcement + how the package's hosting model performs)
+3. **Day +3–5**: publish 2b (broader DO-throughput audience)
+4. **Day +7–10**: publish 2d (drafted between days 0 and 7)
+5. `npm deprecate @lumenize/ts-runtime-validator` with message pointing at 2a's published URL
+
+The Phase 2 subsections below are kept for historical context. Where they describe "Phase 2b: Facet performance in practice" — that content is now 2c. Where they describe "Future companion post (i): the throughput-intuition trap with DOs" — that's now 2b. The "(ii) facets/DW/plain-Worker performance reference" remains a future companion.
+
 **Depends on**: 5.2.4.2 phases 2, 3 (and ideally 4) landed — the integrated stack must exist before we measure or announce it
 **Related**: Existing 5.2.4.1 task (archived) for the validator-package side; existing blog posts launching `@lumenize/ts-runtime-validator` set the conceptual frame this work inherits.
+
+## Why throughput came before publish (decision 2026-04-29, retained for context)
+
+The original plan was to ship 2a/2b on latency numbers alone, with `1/mean_latency` standing in as a "theoretical max throughput" proxy. **That proxy was wrong**:
+
+- **Output gates don't serialize the DO.** They hold *one* invocation's outputs until *its* writes commit; the input gate keeps opening on awaits, so concurrent invocations interleave and their writes batch into a shared commit (group-commit).
+- The pushback we got on the tsc engine was about throughput and latency. The typia engine fixes both; going out without a throughput number would have left the strongest objection unanswered, and going out with `1/mean × 1` would have invited a second round of "but what about throughput?" pushback.
+
+The throughput task ran 2026-04-29 and **vindicated the prediction loudly**: per-Star peak ~410 txn/s deployed at N=128 — 21× the serial single-client floor. See [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Phase 2 below now has both story arcs to tell.
 
 ## Objective
 
@@ -46,9 +75,9 @@ A previously considered "skip the bench, ship 2a/2b with bare-facet numbers + a 
 
 **Work remaining for Phase 1**:
 - **Use `smoke.test.ts` test #3 as the template**. That test does exactly one transaction end-to-end (bootstrap admin → construct NebulaClient → register ontology → fire `callStarTransaction` → assert success). The bench is "do many of those, measure latency" — same setup, replace the single transaction with a vitest `bench(...)` block that fires N transactions on a hot Star.
-- `bench.bench.ts` alongside `smoke.test.ts` — vitest bench mode. Two `bench()` blocks (warm + cold) — see "What 'cold' means" below.
+- `transactions.bench.ts` alongside `smoke.test.ts` — vitest bench mode. Three `bench()` blocks (warm + cold + ping) — see "What 'cold' means" and bench design notes below.
 - The full Nebula transaction path that gets benched: client → Gateway → Star Handler 1 (cache hit on warm, cache miss on cold) → [if cache miss: Galaxy `getLatestOntologyVersion()` → Star Handler 2] → load parser-validator facet → `parseBatch()` → write transaction → result delivered via mesh callback to the test client.
-- Compare integrated numbers vs the bare GalaxyDO+StarDO bench from 5.2.4.1 Phase 6 — call out integration overhead from mesh routing + auth + result callback.
+- Compare integrated numbers vs the bare facet bench from 5.2.4.1 Phase 6 (in `experiments/ts-runtime-parser-validator-spike/`) — call out integration overhead from mesh routing + auth + result callback.
 - Record numbers in `apps/nebula/test/browser/RESULTS.md`.
 
 **What "cold" means in this bench (decision 2026-04-29)**:
@@ -59,51 +88,74 @@ Concretely, each cold iteration must vary **only the tenant segment** of the Sta
 
 What is and isn't cold under this design:
 - **Cold per iteration**: the Star DO instance (fresh wake, no `_index` populated → cache miss on Handler 1 → mesh hop to Galaxy → `doTransaction` populates cache → first parse on this Star).
-- **Warm across iterations**: Galaxy DO (one tenant scope shares one Galaxy, ontology registered once in `beforeAll`); the parser-validator bundle in the Worker Loader cache (bundleId = `<universe.galaxy>/<version>` per [star.ts:57](apps/nebula/src/star.ts:57); since universe.galaxy is constant, the bundle is loaded once on the first cold iteration and cache-hits thereafter); the Worker isolate; the test-side WS connection and JWT.
+- **Warm across iterations**: Galaxy DO (one galaxy serves all tenants in this bench, ontology registered once in `beforeAll`); the parser-validator bundle in the Worker Loader cache (bundleId is `<universe.galaxy>/<version>` — see [star.ts:97](apps/nebula/src/star.ts:97), documented at [star.ts:50-58](apps/nebula/src/star.ts:50); since universe.galaxy is constant, the bundle is loaded once on the first cold iteration and cache-hits thereafter); the Worker isolate; the test-side WS connection and JWT.
 - **Decision rationale**: bare-bench cold was ~262 ms (5.2.4.1 Phase 6); we expect integrated cold-Star/warm-cluster to be in the same ballpark plus mesh-hop and result-callback overhead. If the integrated number grows past ~1 s we'd revisit the cold-everything case to understand why; otherwise the cold-Star/warm-cluster number is the headline.
-- **First iteration of the cold bench**: pays the one-time bundle load (~262 ms in the bare bench). Subsequent iterations don't. To avoid that one-time cost contaminating the cold percentile, fire one warmup iteration before the bench loop (separate from vi.bench's warmupIterations, which target the warm path) — or accept it as iteration 1's outlier and rely on p50.
 
-The warm bench reuses the same scope across iterations: hot Star (Handler 1 cache hit, no Galaxy hop), bundle already loaded, Galaxy untouched.
+The warm bench reuses the same Star scope across iterations: hot Star (Handler 1 cache hit, no Galaxy hop), bundle already loaded, Galaxy untouched.
+
+(Iteration-1 bundle-load cost is handled in bench design note 4 below — it's pre-warmed in `beforeAll`.)
 
 **Bench design notes (decided 2026-04-29)**:
 
 These pin the harness-side decisions before implementation. All four are required for the bench to produce trustworthy numbers; none of them is a "tweak later" item.
 
-1. **Result delivery: Promise wrapper, not polling.** The smoke template uses `vi.waitFor(() => client.callCompleted)` to observe completion. `vi.waitFor`'s default interval is 50 ms — much larger than the warm-path measurement target (~1.4 ms bare, expected single-digit-ms integrated). Polling would dominate the noise floor. The WebSocket push mechanism is *already* there: `handleTransactionResult` is a `@mesh()` handler that fires when the Star's mesh callback arrives over the existing WS. Wrap it with a Promise:
+1. **Result delivery: Promise wrapper, not polling.** The smoke template uses `vi.waitFor(() => client.callCompleted)` to observe completion. `vi.waitFor`'s default interval is 50 ms — much larger than the warm-path measurement target (~1.4 ms bare, expected single-digit-ms integrated). Polling would dominate the noise floor. The WebSocket push mechanism is *already* there: `handleTransactionResult` is a `@mesh()` handler that fires when the Star's mesh callback arrives over the existing WS. Wrap a single shared `#pending` slot so all result paths route through one Promise:
 
    ```ts
    class HarnessNebulaClient extends NebulaClient {
-     #pending?: { resolve: (r: TransactionResult) => void; reject: (e: Error) => void };
+     #pending?: { resolve: (v: any) => void; reject: (e: Error) => void };
 
-     @mesh()
-     override handleTransactionResult(result: TransactionResult | Error): void {
-       if (result instanceof Error) this.#pending?.reject(result);
-       else this.#pending?.resolve(result);
+     #settle(v: any): void {
+       if (v instanceof Error) this.#pending?.reject(v);
+       else this.#pending?.resolve(v);
        this.#pending = undefined;
      }
+
+     // Mesh callbacks the Star invokes directly over the existing WS.
+     @mesh() override handleTransactionResult(r: TransactionResult | Error) { this.#settle(r); }
+     @mesh() handlePingResult(r: number | Error) { this.#settle(r); }
+
+     // Plain handler for callers that explicitly forward via `(this.ctn() as any).handleResult(remote)` —
+     // Galaxy ontology registration uses this pattern (see smoke.test.ts).
+     handleResult(r: any) { this.#settle(r); }
 
      callStarTransaction(starName, ontologyVersion, ops): Promise<TransactionResult> {
        return new Promise((resolve, reject) => {
          this.#pending = { resolve, reject };
-         this.lmz.call('STAR', starName, this.ctn().transaction(ontologyVersion, ops));
+         this.lmz.call('STAR', starName, (this.ctn() as any).transaction(ontologyVersion, ops));
+       });
+     }
+
+     callStarPing(starName): Promise<number> {
+       return new Promise((resolve, reject) => {
+         this.#pending = { resolve, reject };
+         this.lmz.call('STAR', starName, (this.ctn() as any).ping());
+       });
+     }
+
+     callGalaxyAppendOntologyVersion(galaxyName, cfg): Promise<void> {
+       return new Promise((resolve, reject) => {
+         this.#pending = { resolve, reject };
+         const remote = (this.ctn() as any).appendOntologyVersion(cfg);
+         this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
        });
      }
    }
    ```
 
-   Bench iteration becomes `await client.callStarTransaction(...)` — measures actual WS round-trip with no polling noise. Single-slot `#pending` is fine here because vi.bench is sequential. The throughput task (`tasks/parse-validate-throughput.md`) needs a Map for concurrent in-flight calls; not our concern here.
+   Bench iteration becomes `await client.callStarTransaction(...)` — measures actual WS round-trip with no polling noise. Single-slot `#pending` is fine because vi.bench (and `beforeAll`) are sequential. The throughput task ([parse-validate-throughput.md](./parse-validate-throughput.md)) needs a Map for concurrent in-flight calls; not our concern here.
 
 2. **WS-leg baseline: ping bench.** Local round-trip to `wrangler dev` is negligible (~ms over loopback); deployed round-trip is material (tens to hundreds of ms depending on client/colo geography). To isolate in-Worker cost from network round-trip, run a ping bench alongside the transaction bench: same WS connection, server-side handler does no work, measure round-trip. Subtract from transaction latency to get the in-Worker contribution. Implementation outline:
-   - Add a no-op `ping()` mesh handler on the Star (or Gateway — Star is fine since the transaction path goes through Star anyway): bounces a `handlePingResult` back to the client via the same mesh-callback mechanism.
-   - Add `callStarPing()` to `HarnessNebulaClient`, Promise-wrapped same as transaction.
+   - Add a no-op `ping()` mesh handler to **`StarTest`** ([apps/nebula/test/test-apps/baseline/index.ts:38](apps/nebula/test/test-apps/baseline/index.ts:38)) — the existing test-only subclass that the browser harness already binds as the `STAR` class. This keeps the production `Star` class clean with no env gates and no new flags.
+   - The handler bounces a `handlePingResult` back to the client via the same mesh-callback mechanism.
+   - Add `callStarPing()` to `HarnessNebulaClient` (shown above).
    - Bench file gets a third `bench()` block: `ping`. Its number is the floor we subtract.
-   - **Caveat**: a `ping()` mesh handler on `Star` is test/bench-only. Either gate it on `env.NEBULA_AUTH_TEST_MODE` or move it to a test-only subclass — don't ship it to production. A short comment in `star.ts` is enough.
 
-3. **Setup: `beforeAll`, not per-iteration.** The bench measures *transaction* cost, not bootstrap cost. `beforeAll` does: magic-link admin bootstrap + cookie capture + NebulaClient construction + WS connect + Galaxy ontology registration. The bootstrap admin has Universe scope, so a single long-lived client can drive any Star scope at any depth without re-authenticating. Per-iteration the bench just calls `client.callStarTransaction(scope, version, ops)` with the appropriate scope (warm: same scope; cold: vary tenant segment).
+3. **Setup: `beforeAll`, not per-iteration.** The bench measures *transaction* cost, not bootstrap cost. `beforeAll` does: magic-link admin bootstrap + cookie capture + NebulaClient construction + WS connect + Galaxy ontology registration + cold-bundle pre-warm (see note 4). The client is constructed at **galaxy scope** (`authScope` and `activeScope` both `acme.app`) — `lmz.call('STAR', starName, ...)` targets specific Stars by binding+name, so one long-lived galaxy-scoped client drives every iteration regardless of tenant segment. No need to re-bootstrap or re-mint tokens per iteration. Per-iteration the bench just calls `client.callStarTransaction(starName, version, ops)` with the appropriate Star (warm: same Star; cold: vary tenant segment).
 
 4. **Warmup iterations.**
-   - **Warm bench**: use vi.bench's built-in `warmupIterations` (3–5 sufficient). First call against a freshly-spawned `wrangler dev` pays subprocess warm-up, TLS handshake, etc. — don't let that bleed into recorded iterations.
-   - **Cold bench**: pays the one-time bundle load (~262 ms in the bare bench) on the first iteration that varies the bundleId's universe.galaxy. Since our cold-Star/warm-cluster shape *keeps* universe.galaxy constant, the bundle is loaded once and cached — but iteration 1 still pays it. Fire one explicit warmup transaction in `beforeAll` (after ontology registration) so vi.bench's first recorded cold iteration sees a hot bundle. This warmup should target a *different* tenant scope than the bench's iterations to pre-populate caches without skewing iteration 1's "fresh Star" character.
+   - **Warm bench**: vi.bench's built-in `warmupIterations` (3–5 sufficient) covers wrangler-dev subprocess warm-up, TLS handshake, etc.
+   - **Cold bench**: cold-Star/warm-cluster keeps `universe.galaxy` constant, so the bundle is loaded once across the whole run. But iteration 1 of the bench would still pay that one-time ~262 ms load. **Fix**: in `beforeAll`, after ontology registration, fire one transaction against a *throwaway* tenant scope (e.g. `acme.app.tenant-warmup`). That populates the Worker Loader cache for the bundle and exercises the cold-Star path once before the recorded cold iterations begin. vi.bench's `warmupIterations` is **not** sufficient on its own — each cold-bench warmup iteration would itself be a fresh-Star path and skew toward measuring "second-fresh-Star," not the bundle pre-warm we actually need.
    - **Ping bench**: vi.bench's `warmupIterations` covers it.
 
 **Local-first, then deploy**:
@@ -123,24 +175,43 @@ Concretely:
 
 **Success Criteria**:
 - [x] Facet beta-status risks documented (one paragraph, fed back into 2b's post draft if material) — see Phase 0 findings above
-- [x] `apps/nebula/test/browser/` harness built; smoke test passes against auto-spawned `wrangler dev` — shipped 2026-04-28 with the harness task
-- [ ] `HarnessNebulaClient` exposes Promise-wrapped `callStarTransaction()` and `callStarPing()` (Promise-based completion off the existing mesh-callback handler — no `vi.waitFor` polling)
-- [ ] No-op `ping()` mesh handler on Star (test-mode-gated or test-only subclass), wired through to client `handlePingResult`
-- [ ] Bench file `apps/nebula/test/browser/bench.bench.ts` with three `bench()` blocks: `warm`, `cold`, `ping` — using `beforeAll` for one-time setup, vi.bench's `warmupIterations` for warm/ping, and an explicit pre-loop warmup transaction for cold
-- [ ] Local bench (`wrangler dev`) green and stable: all three blocks produce percentiles; ping number is single-digit ms
-- [ ] Deployed bench numbers recorded in `apps/nebula/test/browser/RESULTS.md` — both raw (transaction round-trip) and WS-leg-subtracted (in-Worker cost)
-- [ ] Local numbers also recorded in `RESULTS.md` for regression-diagnostic value
-- [ ] Integration overhead vs bare bench documented (one sentence per row)
+- [x] `apps/nebula/test/browser/` harness built; smoke test passes against auto-spawned `wrangler dev`
+- [x] `HarnessNebulaClient` exposes Promise-wrapped `callStarTransaction()`, `callStarPing()`, and `callGalaxyAppendOntologyVersion()` via a single shared `#pending` slot
+- [x] No-op `ping()` mesh handler on `StarTest`, wired through to client `handlePingResult` (production `Star` untouched)
+- [x] Bench file `apps/nebula/test/browser/transactions.bench.ts` with three `bench()` blocks: `warm`, `cold`, `ping`
+- [x] Local bench green and stable
+- [x] Deployed bench numbers recorded in `apps/nebula/test/browser/RESULTS.md` — both raw and WS-leg-subtracted
+- [x] Local numbers also recorded in `RESULTS.md` for regression-diagnostic value
+- [x] Integration overhead vs bare bench documented
 
 ## Phase 2: Paired blog posts
 
-Two posts written together, published together, cross-linked. 2a is the user-facing release announcement (Lumenize/Nebula audience); 2b is the technical deep-dive (Cloudflare community). Sequencing them as a pair means each can lean on the other rather than redundantly covering motivation + cost in both.
+Two posts written together, published together, cross-linked. 2a is the user-facing release announcement (Lumenize/Nebula audience); 2b is the technical deep-dive (Cloudflare community, parse-validate case study). Sequencing them as a pair means each can lean on the other rather than redundantly covering motivation + cost in both. **Both must publish before Phase 3 (`npm deprecate`) fires**, so the deprecate message can link to a live release post.
+
+### Future companion posts (drafted after the release; not blocking Phase 3)
+
+Two follow-on posts that draw on the parse-validate work but stand on their own as Cloudflare-community references. Both link back to 2a/2b as the source of the data; they are *not* a re-publishing of 2b.
+
+**(i) "The throughput-intuition trap with Durable Objects."** Single-insight piece on output-gate semantics.
+
+**Working tagline / title hook**: *"Input gates prevent races. Output gates prevent lies — without preventing throughput."* The parallel structure sets up the reveal — both gates are protective mechanisms, but the durability mechanism (output gates) doesn't cost what durability mechanisms usually cost. The body should unpack each half:
+- **Input gates prevent races** — they serialize JS execution within the DO so concurrent invocations don't see each other's intermediate state. Map this to ACID's *isolation* once for readers who want the formal term.
+- **Output gates prevent lies** — they hold outbound messages until storage writes commit, so the system never tells a caller "done" before it's actually durable. Map this to ACID's *durability*, with the qualifier "as observed by the caller."
+- **Without preventing throughput** — the per-invocation scoping of output gates plus group-commit batching is what keeps concurrency from collapsing back at the durability boundary. Throughput emerges from (a) input gates opening on awaits → concurrent invocations can run, (b) output gates per-invocation → durable acknowledgment without serializing outputs, (c) group-commit batching → amortized commit cost across concurrent writers.
+
+The hook: `1/mean_latency` reads like a system ceiling but is actually a floor. Empirical evidence in [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md): 21× scaling vs the serial floor. Honest framing: 4+ years of working with DOs and Larry hadn't internalized this distinction — strong "expert blind-spot" angle without contradicting any Cloudflare positioning.
+
+**(ii) "Hosting code on Cloudflare: facets vs plain Workers vs Dynamic Workers — a performance reference."** Evergreen decision-framework piece for Cloudflare devs. The hook: when you have code that should run in response to events from a DO, you have several hosting options (facet on the DO, plain Worker via Service Binding, Dynamic Worker via Worker Loader, or just inlined into the DO). Each has different latency/throughput/scaling characteristics. The post lays out the decision framework and uses our parse-validate work as the case study (links to 2b for numbers; this post generalizes the reasoning to other workloads). Differentiator from 2b: 2b is "what the parse-validate facet costs"; this post is "how to think about facet/DW/plain-Worker tradeoffs for *your* use case."
+
+**Note on the gate tagline**: keep the input/output-gate explanation in (ii) but bury it as one paragraph in the throughput section, not the headline. (i) owns the gate-semantics narrative; (ii) borrows it as supporting material to explain *why* one of its throughput observations holds. If (ii)'s headline foregrounds gates, it drifts toward being a re-tread of (i) when its job is broader.
+
+Both follow-ons are drafted post-release. They're captured here so we don't lose the thread; they don't gate the release. Sequencing: (i) is ready to draft now (numbers are in); (ii) is more design work and can wait until we've sat with the parse-validate numbers a bit longer to see what generalizes cleanly.
 
 ### Phase 2a: Release announcement (Lumenize/Nebula audience)
 
 The conceptual frame is already in place via two existing posts that launched `@lumenize/ts-runtime-validator`:
-- [index.md](./../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
-- [index.md](./../website/blog/2026-03-25-write-your-types-once/index.md) — the "you write types four times" pain pitch
+- [TypeScript is the schema](./../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
+- [Write your types once](./../website/blog/2026-03-25-write-your-types-once/index.md) — the "you write types four times" pain pitch
 
 The new announcement is a shorter follow-up that inherits the frame and announces what's new, not a fresh ground-up essay.
 

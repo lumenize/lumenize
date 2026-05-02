@@ -29,7 +29,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Patterns to benchmark**: fire-and-forget calls, request/response calls, broadcast fanout
   - **Consider**: Whether always using the two one-way call pattern (to avoid DO wall-clock billing) changes the latency tradeoff
   - **Related**: gateway.mdx documents that intra-datacenter hops are typically <10ms, but cross-region can be several hundred ms
-  - **Tooling**: Use `performance.now()` or Cloudflare analytics to measure; compare same-region and cross-region scenarios
+  - **Starting point — reuse the bench harness from the parse-validate release**: [`apps/nebula/test/browser/`](../apps/nebula/test/browser/) already implements the WS-push-observer + ping-subtraction pattern (Node-side test client → real WebSockets → deployed Worker, see `transactions.bench.ts` and `harness-client.ts`). The current ping baseline measures `client → Gateway → Star → Gateway → client` round-trip. To answer this question, add a parallel ping path that bypasses the Gateway (client → Star direct over WebSocket, if achievable, or client → Star via Workers RPC from a thin shim) and compare baselines. Reuse the same `Browser`-based harness, the existing `wrangler dev` autospawn, and the auth bootstrap. The cross-post-test methodology is also documented in `apps/nebula/test/browser/RESULTS.md`.
+  - **Tooling**: Use Node-side `performance.now()` (Cloudflare time-pinning makes in-Worker measurement unreliable — see the WS-push-observer pattern in the bench harness above); compare same-region and cross-region scenarios
 
 - [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)
   - **Reference**: `packages/mesh/test/for-docs/calls/document-do.ts` (`scheduleLocalTask`, `executePendingTask`) and `managing-context.mdx` Manual Persistence section
@@ -74,13 +75,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
   - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
 
-- [ ] Experiment: make all `lmz.call()` with response handlers automatically use two one-way pattern
-  - **Idea**: Instead of awaiting under the covers (which opens input gates and incurs wall-clock billing), `lmz.call()` with a response handler (4th param) would always fire-and-forget and have the callee call back with the result + handler continuation
-  - **Key question**: Does the second hop add meaningful latency, or is it microseconds within a Cloudflare colo?
-  - **If latency is negligible**: Developers never have to choose between patterns — every call is eviction-safe by default. The two one-way pattern becomes invisible infrastructure, not a design decision.
-  - **If latency is significant**: Keep current behavior as default, maybe offer opt-in flag
-  - **Experiment design**: Same operation measured both ways — current call-with-response vs automatic-two-one-way. Measure within same colo and cross-region.
-  - **Related**: Gateway latency experiment (above) is higher priority since it adds an extra hop by design
+- [ ] (Iceboxed 2026-04-30) Make `lmz.call()` with response handlers eviction-safe by default — see [`tasks/icebox/lmz-call-eviction-safe-by-default.md`](icebox/lmz-call-eviction-safe-by-default.md). Originally framed around throughput / billing benefits; the architectural deep-dive in the do-throughput-misread blog post showed those premises don't survive scrutiny because Handler 1 / Handler 2 already addresses them. Only eviction-safety remains, and even that's marginal in practice.
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
@@ -182,6 +177,23 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - With continuations, the "this happens later" part is structurally visible
   - You can still have race conditions, but you're not accidentally creating them
   - Could be a section in continuations.mdx or a standalone concurrency guide
+  - **Reframe per the do-throughput post**: race-prevention is a side-effect of the real value, which is making remote work *explicit* at points where pretending it's local would mislead you. The current framing somewhat over-emphasizes race-prevention; soften toward "explicit remote-work" as the headline benefit.
+
+- [ ] Soften "favor sync over async" emphasis across docs and assistant guidance
+  - **Why**: The DO concurrency model framing — "input gates make code passively correct so long as you don't await" — is elegant for simple workloads but insufficient at scale. Once a system has work crossing Workers RPC boundaries, sibling-DO coordination, or interleaved invocations to hit throughput, you need explicit mechanisms (eTags, two-phase commits, idempotency keys, version vectors). Current docs over-emphasize "no await, no race" as if it's the whole correctness story.
+  - **Where to audit**:
+    - `CLAUDE.md` ("Keep Methods Synchronous", related sections)
+    - `do-conventions` skill
+    - `packages/mesh/**/*.mdx` files that emphasize sync over async
+    - `MEMORY.md` and feedback memories (esp. update with the evolution context — input-gate correctness was a useful early learning that doesn't *replace* explicit-mechanism thinking, just sets the floor)
+  - **What softening looks like**: Don't drop the guidance — input gates ARE great for simple cases. Reframe as: "for simple workloads, input gates carry you a long way; for moderately complex distributed systems, you'll need explicit mechanisms (eTags, two-phase commits, version vectors) in addition." The Actor model inspiration still holds — it just has more in its toolbox than 'don't await.'
+  - **Discovered during**: writing the do-throughput-misread blog post.
+
+- [ ] Audit docs for over-emphasis on "wall-clock billing in the DO is the deciding factor"
+  - **Context**: We've already softened one instance (see `feedback_short_settimeout_billing.md` — short setTimeouts in DOs aren't worth fretting about). Likely others remain.
+  - **Where to audit**: `CLAUDE.md` ("Wall-Clock Billing" section), do-conventions skill, mesh docs, `lumenize-do.mdx`, etc.
+  - **What softening looks like**: Don't drop the guidance — wall-clock billing IS real. But avoid framing it as the SOLE deciding factor. Correctness, simplicity, throughput, and maintainability often outweigh wall-clock cost in moderately complex systems.
+  - **Discovered during**: writing the do-throughput-misread blog post.
 
 - [ ] Add optimistic concurrency example to calls.mdx or a new concurrency patterns doc
   - Show version/timestamp checking pattern
@@ -242,6 +254,18 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] See `tasks/github-actions-publishing.md` for automation plans
 
 ## Website, Blog, etc.
+
+- [ ] Draft blog post: "When time stops: benchmarking Cloudflare Durable Objects from outside" (working title)
+  - **Why**: The bench harness pattern we built for the parse-validate release is genuinely novel for the Cloudflare community. Most DO bench writeups use `vi.bench` inside the Workers test pool and quietly absorb the time-pinning problem. The WS-push-observer pattern with ping-subtraction is the right answer but not obvious — and it deserves to be documented as its own contribution.
+  - **What to cover**:
+    - The "time stops inside Cloudflare" problem (`Date.now()` pinned within an invocation, hibernation blurring elapsed-time observations)
+    - The WebSocket-push-to-Node-client architecture
+    - Two-bench design: latency (`transactions.bench.ts`) + throughput (`throughput.test.ts`) sharing a ping baseline
+    - Ping-subtraction methodology — and its limits (constant-subtraction is approximate at high N; ping itself has variance; not a joint distribution)
+    - `ThroughputHarnessClient` Map-keyed result dispatch
+    - When NOT to use this pattern (microbenchmarks where harness overhead dominates the work being measured)
+  - **Seed material**: design-notes section of [`apps/nebula/test/browser/RESULTS.md`](../apps/nebula/test/browser/RESULTS.md) ("WS-leg subtraction", "Cold-Star/warm-cluster", "Sample counts" sections), plus the THROUGHPUT-RESULTS.md "open question on ping under load" caveat. Bench source: [`apps/nebula/test/browser/`](../apps/nebula/test/browser/).
+  - **Part of**: parse-validate release thread (alongside introducing-parse-validator, what-i-got-wrong-about-do-throughput, and the to-be-extracted facet-performance post). Target: same-day publish with the others.
 
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.

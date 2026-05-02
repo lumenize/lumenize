@@ -67,6 +67,22 @@ export class StarTest extends Star {
     rowVersions.sort();
     return { index, rowVersions };
   }
+
+  /**
+   * Test-only: bench WS-leg baseline. Bounces a one-byte payload back to the
+   * client via the same mesh-callback mechanism as transaction(); the bench
+   * subtracts this round-trip from transaction latency to isolate in-Worker
+   * cost from network round-trip.
+   */
+  @mesh()
+  ping(): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('ping requires a client origin with instanceName in callChain[0]');
+    }
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+      (this.ctn() as any).handlePingResult(1));
+  }
 }
 
 // ============================================

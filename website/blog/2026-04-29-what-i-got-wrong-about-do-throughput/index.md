@@ -1,0 +1,96 @@
+---
+title: What I got wrong about Durable Object throughput (and what I had to unlearn)
+slug: what-i-got-wrong-about-do-throughput
+authors:
+  - larry
+tags:
+  - architecture
+  - cloudflare
+description: A real-load Cloudflare Durable Objects performance dive. Per-DO-instance throughput of ~410 txn/s — about 21× the naive 1/serial-latency floor — and what that taught me about input gates, output gates, and `transactionSync`.
+---
+I've spent four+ years building on Cloudflare Durable Objects. The mental model I leaned hard into — *input gates make your code passively correct as long as you don't await across critical sections* — works beautifully for simple workloads, and it served me well for years. As I started building [Nebula](/blog/introducing-lumenize-nebula), a moderately complex distributed system, that model was insufficient. This post is what I learned benching that system end-to-end: real numbers from a real workload (not a microbenchmark), and how I had to expand my mental model way beyond input gates = correctness.
+
+<!-- truncate -->
+
+## TL;DR
+
+Numbers below come from benching a real Nebula transaction end-to-end — Gateway DO + transactional storage write + a [typia parse-validator](/blog/introducing-parse-validator) hosted as a [Cloudflare DO Facet](/blog/cloudflare-do-facets-in-practice) — over real WebSockets to a deployed Worker:
+
+- **Per-DO-instance throughput: \~410 transactions/sec.** About **21× the naive 1/serial-latency single-threaded floor**. See below.
+- **Output-gate flush latency occurs after input gates open — even when the writes are in a `transactionSync`.** That mechanism is what lets throughput climb above the naive floor. (Integrated warm transaction: ~16 ms in-Worker, ~5–10 ms of which is the flush. See [Confirming a hopeful assumption](#confirming-a-hopeful-assumption).)
+
+For facet-specific costs (cold-wake, the ~1.35 ms boundary cost), see the [companion post](/blog/cloudflare-do-facets-in-practice).
+
+## The fixture
+
+To bench a real Nebula transaction end-to-end, we needed a real workload including the storage write. The breakdown below shows every layer the request passes through — exactly the kind of moderately complex distributed system this post's argument is about.
+
+**A warm transaction:**
+
+1. **Routing in** (counted in the ~40 ms ping baseline):
+    1. WebSocket internet hop: client → [Gateway DO](/docs/mesh/gateway)
+    2. Workers RPC: Gateway DO → parent DO
+2. **Pre-facet work in the parent DO** (storage reads, etc.) — ~1.5 ms
+3. [**Facet call**](/blog/cloudflare-do-facets-in-practice) — ~1.4 ms total:
+    1. Boundary overhead — ~1.35 ms (the cost of crossing the facet)
+    2. Inner work — ~50 µs (typia parse, in this fixture)
+4. **Post-facet work in the parent DO** (eTag check, permission check, storage write — all inside `transactionSync` for atomicity). ~6–11 ms, dominated by the output-gate flush waiting for storage durability. Includes ~1–2 ms of scheduler hops on the async chain.
+5. **Routing out** (also counted in the ~40 ms ping baseline):
+    1. Mesh callback: parent DO → Gateway DO
+    2. WebSocket internet hop: Gateway DO → client
+
+Total end-to-end: **\~52 ms warm round-trip** as the client sees it. Roughly what a classic 3-tier architecture pays just to reach its database — and we add routing, validation, and relationship-based access control on top of the storage write, in the same budget. Credit to Cloudflare's edge architecture.
+
+## Throughput (~410 txn/s per DO instance)
+
+For context, Cloudflare documents [a ~1,000 req/s soft limit per individual Durable Object](https://developers.cloudflare.com/durable-objects/platform/limits/) for simple operations, with throughput dropping as work-per-request grows. Our ~410 txn/s lands at ~41% of that ceiling — and given we've layered in a fuller mesh shape (Gateway hop + WebSocket round-trips), a transactional storage write, and a facet call on top of the bare DO operation, we were pleasantly reassured that we hadn't degraded further.
+
+## Confirming a hopeful assumption
+
+This is the number that confirmed a hopeful assumption I'd been making, and it's the reason I wrote this post.
+
+Full end-to-end over the internet, a request takes ~52 ms warm, the naive throughput ceiling is `1 / 0.052 ≈ 19 txn/s`. That's what a single client doing one in-flight call at a time can sustain.
+
+I ramped concurrency from 1 to 256 simulated clients. At 1 simulated client, throughput sits at ~16 txn/s — close to the ~19 implied by 1/52 ms. Peak is **\~410 txn/s** at 128 simulated clients — about **21× the serial floor** — and degrades past that. ([Full ramp data](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).)
+
+So, the question remains, how exactly does serial latency of ~50 ms produce 400+ ops/sec on one DO? The short answer is interleaving. The longer one is about input and output gates.
+
+The **input gate** serializes events so JavaScript code never runs concurrently with itself, but it opens whenever code awaits I/O. The **output gate** holds outbound messages until pending writes have been durably flushed, so the system never tells a caller "done" before replicas are written to disk on at least three additional machines in three different buildings. The key is that while invocation A waits for its write to durably flush, invocations B, C, …, N start their own work in parallel.
+
+Bottom-line: **Input gates help prevent races. Output gates prevent lies, without preventing interleaving, which benefits throughput.**
+
+:::warning How are responses kept in-order?
+The careful reader is wondering: if invocation B starts on the local primary's SQLite *before* A's writes are durably replicated, B sees A's not-yet-durable state. Doesn't that risk a consistency violation? No. Local SQLite acts as a *speculative* commit log: outside observers can't see anything until the output gate releases, and output gates appear to release in invocation-arrival order (can anyone confirm?), so a sequential client never sees B's response before A's. If replication fails, the entire DO instance dies and all in-flight invocations die with it — both A and B vanish from history. The client sees an error and retries.
+:::
+
+**I've long held this hopeful assumption that `transactionSync` didn't hold input gates closed while the output-gate flush was ongoing. The data proves that's not happening**. If it had, throughput would be 1 / ~15 ms ≈ 66 txn/s, not ~400.
+
+:::tip Sanity-check via Amdahl's Law
+The 21× multiplier matches [Amdahl's Law](https://en.wikipedia.org/wiki/Amdahl%27s_law) applied to single-thread pipelining (which is what's happening inside the parent DO's main thread, with input-gate awaits as the yield-points). Throughput is bounded by per-call **serial CPU work** in the parent DO (~2–3 ms — the non-yieldable fraction), not per-call latency (~52 ms). The ratio: 52 / 2.5 ≈ 21. Equivalently, Amdahl's `1 / (1 − P)` where the parallelizable fraction P ≈ 95%.
+
+Each invocation has two yield-points where the input gate opens: ~1.4 ms on the facet RPC and ~5–10 ms on the output-gate flush. Together, those awaits cover ~95% of each invocation's lifetime, leaving only ~5% as serial CPU work the parent DO's main thread can't yield from. The output-gate flush dominates the interleaving budget, but the facet-await contributes too.
+
+The facet itself is a singleton per parent DO ([per Cloudflare's facet model](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/)) — `facet.parseBatch(...)` calls queue at *its* input gate. But its 50 µs of work clears that queue at ~20,000 calls/sec, far above the parent DO's bottleneck, so the facet isn't the limiting stage.
+:::
+
+## What this means for system design
+
+For simple workloads, the gate-semantics model above is the whole correctness story. For moderately complex systems, it isn't. Once your system has work that crosses Workers RPC boundaries, coordinates state with sibling DOs, or interleaves invocations across awaits to hit throughput, "don't await and you're correct" stops being sufficient. You need explicit mechanisms — eTag-based optimistic concurrency, two-phase commits, idempotency keys, version vectors. None of that is exotic; it's standard distributed-systems hygiene.
+
+For Nebula we chose eTags. eTags for all resources in a transaction request tell the server what baseline state this transaction should go against. If the server state for any of the effected resources has been altered, the eTags don't match, and the transaction fails. The failure response includes the latest state/eTag for each resource. The client-side code can decide how to handle the conflict (revert, merge, ask the user to choose, etc.)
+
+I've often framed [Lumenize Continuations](/docs/mesh/continuations) as a race-prevention tool, but a more accurate framing is: **they make work that will be done in a different place or time explicit at points where pretending it's local would mislead you.** Race prevention is still up to you, but the mental model that Continuations cultivate makes it easier.
+
+## Reproducing this
+
+The fixture, benches, and harness are all in the [Lumenize repo](https://github.com/lmaccherone/lumenize):
+
+- 30-type ontology fixture: [`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`](https://github.com/lmaccherone/lumenize/blob/main/packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts)
+- Bare facet bench (per-call cost in isolation): [`experiments/ts-runtime-parser-validator-spike/`](https://github.com/lmaccherone/lumenize/tree/main/experiments/ts-runtime-parser-validator-spike)
+- Latency bench (single-call warm transaction round-trip): [`apps/nebula/test/browser/transactions.bench.ts`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/transactions.bench.ts)
+- Throughput bench (saturation ramp): [`apps/nebula/test/browser/throughput.test.ts`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/throughput.test.ts)
+- Raw numbers: [`RESULTS.md`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/RESULTS.md), [`THROUGHPUT-RESULTS.md`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md)
+
+Bench harness uses real WebSockets to a deployed Worker — no test-mode bypasses, no in-process mocks. The deployed Worker stays at `nebula-browser-test.transformation.workers.dev` for now; if you want to repro against your own account, the wrangler config and the secret bulk-upload pattern are documented in `RESULTS.md`.
+
+If you find numbers significantly different from these for your own DO workload — especially different throughput shapes — I'd be very interested. Reach out.

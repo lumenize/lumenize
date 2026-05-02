@@ -282,6 +282,13 @@ export class Resources {
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
 
+    // Note: single-phase eTag check by design — the authoritative check
+    // happens at Step 9 inside transactionSync. The originally-designed
+    // optimistic pre-facet check (see tasks/nebula-5-resources.md) was
+    // dropped: it would only fast-fail on stale writes, saving the ~1.4 ms
+    // facet call. eTag conflicts are rare in practice and the pessimistic
+    // check inside transactionSync is sufficient for correctness.
+
     // Step 5: Parse + validate via facet (one batch call). `parse()` fills
     // `@default` values into a fresh object per item; on success we write
     // `result.data` back so downstream Step 7+ sees the filled value.

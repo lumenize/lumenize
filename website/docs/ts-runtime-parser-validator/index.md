@@ -20,14 +20,15 @@ This package provides a few things beyond typia:
 
 - **Generate-once-and-reuse lifecycle.** One call at schema-registration time generates a self-contained JS module source string. Store it (KV, DO storage, R2, etc.) for repeat use whenever you need it.
 - **DO facet as the runtime entry.** The generated module exports a `ParserValidator` class extending `DurableObject`. Mount it once as a [DO facet](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/) — a Dynamic Worker that shares its parent DO's isolate, so `facet.parse()` is a same-isolate RPC with no network hop. Call `facet.parse(value, typeName)` per request, or `facet.parseBatch(items)` to validate many values in a single facet hop.
-- **Parse-don't-validate semantics** with first-class `@default` filling. Mirrors Zod's approach. Missing fields get filled before validation runs — recursively through named-interface sub-types, so nested defaults apply too.
+- **Parse-don't-validate semantics** with first-class `@default` filling. Mirrors Zod's approach. Missing fields get filled before validation runs — recursively through plain objects, named-interface refs, `Array<T>`, `Set<T>`, `Map<K, T>` (and `Readonly` variants), and discriminated unions, so nested defaults apply at every depth.
 - **Cycle and alias support.** Unmodified Typia will stack overflow when evaluating objects with cycles (the big problem) and reevaluate each alias (a sub-optimization). The rest of the Lumenize ecosystem (structured-clone, Mesh, Nebula, RPC, testing, etc.) not to mention native Workers RPC all support cycles and aliases over the wire. This upgrade means you have consistent type support across the entire ecosystem.
 
 ## Quick example
 
 Write your schema once, in a regular `.d.ts` file with full editor support:
 
-```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
+```typescript
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 // todo.d.ts
 interface Todo {
   title: string;
@@ -39,7 +40,8 @@ interface Todo {
 
 Valid input comes back with defaults filled in:
 
-```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
+```typescript
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 const ok = await parse({ title: 'Ship it', done: false }, 'Todo');
 expect(ok).toEqual({
   valid: true,
@@ -49,7 +51,8 @@ expect(ok).toEqual({
 
 Invalid input returns typia's structured error list:
 
-```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
+```typescript
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 const bad = await parse({ title: 42, done: 'not a boolean' }, 'Todo');
 expect(bad).toMatchObject({
   valid: false,
@@ -66,6 +69,10 @@ Wiring `parse()` into your Worker takes three steps — see [Getting Started](./
 - [Type Support](./type-support) — what's supported and what isn't
 - [Additional Constraints](./additional-constraints) — JSDoc annotations for range, format, length, pattern, etc.
 - [`@default`](./default) — fill semantics, required/optional rule, nested recursion
+
+## Performance
+
+~16 ms warm end-to-end through a DO + facet SQL transaction (storage-write output gate included), ~400 transactions per second per DO instance under realistic concurrent load. See [Cloudflare DO Facets in practice](/blog/cloudflare-do-facets-in-practice) for the cold-wake and boundary-cost breakdown, and [What I got wrong about DO throughput](/blog/what-i-got-wrong-about-do-throughput) for the gate-semantics insight behind the throughput number.
 
 ## When to reach for this package
 

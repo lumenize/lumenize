@@ -32,7 +32,7 @@ typia's generated validators have no visit tracking, so cycles stack-overflow an
 
 The four sub-directories are registered as local npm workspaces via the monorepo root `package.json`. npm creates symlinks from `node_modules/@typia/*` into these directories. No publishing, no submodule, no fork on GitHub.
 
-Consuming code (including [scripts/bundle-dependencies.mjs](../../scripts/bundle-dependencies.mjs)) imports `@typia/*` by bare specifier; workspace resolution routes to these directories. esbuild consumes the `.ts` source directly via each package's `main: "src/index.ts"` — no tsc step.
+Consuming code (including [scripts/bundle-tsc.mjs](../../scripts/bundle-tsc.mjs)) imports `@typia/*` by bare specifier; workspace resolution routes to these directories. esbuild consumes the `.ts` source directly via each package's `main: "src/index.ts"` — no tsc step.
 
 ## Testing the modifications
 

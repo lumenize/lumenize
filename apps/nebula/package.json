@@ -20,9 +20,10 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run",
-    "test:coverage": "vitest --coverage --run",
-    "coverage": "COVERAGE=true vitest --run --coverage",
+    "test": "vitest --run --project unit --project baseline --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project baseline --project browser",
+    "test:throughput": "vitest --run --project browser-throughput",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project baseline --project browser",
     "bench": "vitest bench --run --project browser-bench",
     "types": "wrangler types"
   },
