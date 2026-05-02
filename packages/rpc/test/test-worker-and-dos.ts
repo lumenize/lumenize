@@ -469,7 +469,6 @@ export { BroadcastDO };
 
 // Re-export MapSetTestDOWithRpc from the test file
 export { MapSetTestDOWithRpc } from './map-set-identity.test';
-export { DebugDOWithRpc } from './map-set-debug.test';
 
 /**
  * Worker fetch handler that uses routeDORequest to handle RPC requests

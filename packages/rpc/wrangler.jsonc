@@ -47,10 +47,6 @@
       {
         "name": "MAPSET_TEST_DO",
         "class_name": "MapSetTestDOWithRpc"
-      },
-      {
-        "name": "DEBUG_DO",
-        "class_name": "DebugDOWithRpc"
       }
     ]
   },
@@ -119,12 +115,6 @@
       "tag": "v11",
       "new_sqlite_classes": [
         "MapSetTestDOWithRpc"
-      ]
-    },
-    {
-      "tag": "v12",
-      "new_sqlite_classes": [
-        "DebugDOWithRpc"
       ]
     }
   ]
