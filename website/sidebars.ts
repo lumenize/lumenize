@@ -329,14 +329,22 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // TypeScript Runtime Validator
+    // TypeScript Runtime Parser-Validator (typia-based; supersedes
+    // @lumenize/ts-runtime-validator, which is deprecated as of v0.25.
+    // The old package's docs at /docs/ts-runtime-validator/* are kept on
+    // disk so direct URLs still resolve, but are no longer reachable via
+    // the sidebar. Once the deprecation lands cleanly, those files can
+    // be removed.)
     {
       type: 'category',
-      label: 'TS Runtime Validator',
+      label: 'TS Runtime Parser-Validator',
       items: [
-        'ts-runtime-validator/index',
-        'ts-runtime-validator/type-support',
-        'ts-runtime-validator/api-reference',
+        'ts-runtime-parser-validator/index',
+        'ts-runtime-parser-validator/getting-started',
+        'ts-runtime-parser-validator/type-support',
+        'ts-runtime-parser-validator/additional-constraints',
+        'ts-runtime-parser-validator/default',
+        'ts-runtime-parser-validator/api-reference',
       ],
     },
 
