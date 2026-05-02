@@ -12,12 +12,18 @@ During the Phase 2 drafting, the original 2b ("Facet performance in practice") w
 
 A fourth post (2d) is now in `tasks/backlog.md`: "When time stops: benchmarking Cloudflare Durable Objects from outside" — captures the WS-push-observer + ping-subtraction harness pattern. To be drafted in a separate session.
 
-**Revised staging** (was: 2a + 2b same-day, then deprecate; new: staged release):
-1. npm publish `@lumenize/ts-runtime-parser-validator` via `/release-workflow`
-2. **Day 0**: publish 2a + 2c (tightly coupled — announcement + how the package's hosting model performs)
-3. **Day +3–5**: publish 2b (broader DO-throughput audience)
-4. **Day +7–10**: publish 2d (drafted between days 0 and 7)
-5. `npm deprecate @lumenize/ts-runtime-validator` with message pointing at 2a's published URL
+**Revised staging** (was: 2a + 2b same-day, then deprecate; new: staged release).
+
+The "Day +X" cadence applies to **cross-posting on external channels** (Discord, Medium, Substack — see [reference_content_distribution.md](../.claude/projects/-Users-larry-Projects-mcp-lumenize/memory/reference_content_distribution.md)), not to the original publish on the Lumenize blog. All three posts can land on the Lumenize blog same-day if they're drafted; the staggered broadcast is what gives each post its own attention window with the cross-posting audience.
+
+1. ✅ **2026-05-02**: npm publish `@lumenize/ts-runtime-parser-validator` via `/release-workflow` — published at 0.25.0 alongside the rest of the `@lumenize/*` packages.
+2. ✅ **2026-05-02 (Day 0)**: publish 2a + 2c on the Lumenize blog — both live (`introducing-parse-validator` + `cloudflare-do-facets-in-practice`).
+3. ✅ **2026-05-02**: publish 2b on the Lumenize blog (`what-i-got-wrong-about-do-throughput`) — already live, pre-positioned ahead of the cross-post window.
+4. ⏳ **Day +3–5 (~2026-05-05)**: cross-post 2b to Discord + Medium. (Optional: 2a + 2c if not already broadcast.) Substack: pending channel setup; once active, include it in this cycle's broadcast.
+5. ⏳ **Day +7–10 (~2026-05-09)**: draft + publish 2d ("When time stops: benchmarking Cloudflare Durable Objects from outside"); cross-post on the same cadence.
+6. ✅ **2026-05-02**: `npm deprecate @lumenize/ts-runtime-validator` with message pointing at 2a's published URL — done in the same session as the npm publish.
+
+**Substack setup** is an open prerequisite — captured in `tasks/backlog.md`; once the channel exists, fold it into this cycle's cross-posts and update `reference_content_distribution.md`.
 
 The Phase 2 subsections below are kept for historical context. Where they describe "Phase 2b: Facet performance in practice" — that content is now 2c. Where they describe "Future companion post (i): the throughput-intuition trap with DOs" — that's now 2b. The "(ii) facets/DW/plain-Worker performance reference" remains a future companion.
 

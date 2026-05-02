@@ -4,6 +4,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] **Set up Substack** as a third cross-post channel (alongside Lumenize blog + Discord + Medium). Currently a gap in the post-2b/2c rollout for the parse-validator release — see `tasks/parse-validate-release.md` "Revised staging". Once active, update `reference_content_distribution.md` and the parse-validate-release task file to fold Substack into the Day +3–5 broadcast window.
+
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
 
