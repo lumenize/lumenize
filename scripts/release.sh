@@ -126,28 +126,18 @@ else
 fi
 echo ""
 
-# Check external dependency versions against npm registry
-echo "ℹ️  Checking external dependency versions..."
+# Check external dependency versions against npm registry (advisory only —
+# both checks exist to flag stale doc-test fixtures; doc-test infrastructure
+# is being sunset, so version drift here warns but does not block release.)
+echo "ℹ️  Checking external dependency versions (advisory)..."
 
 # Check Cap'n Web
 CAPNWEB_CURRENT=$(node -e "console.log(require('./node_modules/capnweb/package.json').version)" 2>/dev/null || echo "not installed")
 if [ "$CAPNWEB_CURRENT" != "not installed" ]; then
   CAPNWEB_LATEST=$(npm view capnweb version 2>/dev/null || echo "unknown")
-  echo "   Cap'n Web installed: v$CAPNWEB_CURRENT"
-  echo "   Cap'n Web latest:    v$CAPNWEB_LATEST"
-  
+  echo "   Cap'n Web: installed v$CAPNWEB_CURRENT, latest v$CAPNWEB_LATEST"
   if [ "$CAPNWEB_CURRENT" != "$CAPNWEB_LATEST" ] && [ "$CAPNWEB_LATEST" != "unknown" ]; then
-    echo ""
-    echo "⚠️  WARNING: A newer version of Cap'n Web is available!"
-    echo "   Consider upgrading and updating the performance comparison doc-test."
-    echo ""
-    read -p "Continue with release anyway? [y/N]: " -n 1 -r
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      echo "❌ Release cancelled"
-      ./scripts/restore-dev-mode.sh
-      exit 1
-    fi
+    echo "   ⚠ Newer version available — refresh the comparison doc-test once we finish migrating off doc-test."
   fi
 fi
 
@@ -155,22 +145,9 @@ fi
 ACTORS_CURRENT=$(node -e "console.log(require('./doc-test/actors/alarms/basic-usage/node_modules/@cloudflare/actors/package.json').version)" 2>/dev/null || echo "not installed")
 if [ "$ACTORS_CURRENT" != "not installed" ]; then
   ACTORS_LATEST=$(npm view @cloudflare/actors version 2>/dev/null || echo "unknown")
-  echo "   @cloudflare/actors installed: v$ACTORS_CURRENT"
-  echo "   @cloudflare/actors latest:    v$ACTORS_LATEST"
-  
+  echo "   @cloudflare/actors: installed v$ACTORS_CURRENT, latest v$ACTORS_LATEST"
   if [ "$ACTORS_CURRENT" != "$ACTORS_LATEST" ] && [ "$ACTORS_LATEST" != "unknown" ]; then
-    echo ""
-    echo "⚠️  WARNING: Lumenize is using @cloudflare/actors v$ACTORS_CURRENT,"
-    echo "   but the latest version on npm is v$ACTORS_LATEST."
-    echo "   Consider upgrading and updating the actors/alarms doc-test."
-    echo ""
-    read -p "Do you want to abort the release? [y/N]: " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "❌ Release cancelled"
-      ./scripts/restore-dev-mode.sh
-      exit 1
-    fi
+    echo "   ⚠ Newer version available — refresh the actors/alarms doc-test once we finish migrating off doc-test."
   fi
 fi
 echo ""
