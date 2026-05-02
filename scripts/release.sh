@@ -161,46 +161,69 @@ echo ""
 # Step 4: Version bump with Lerna
 echo "4️⃣  Bumping version with Lerna..."
 echo ""
-echo "Choose version bump type:"
-echo "  1) patch (0.8.0 → 0.8.1)"
-echo "  2) minor (0.8.0 → 0.9.0)"
-echo "  3) major (0.8.0 → 1.0.0)"
-echo "  4) custom version"
-echo ""
-read -p "Enter choice [1-4]: " version_choice
 
-case $version_choice in
-  1)
-    VERSION_ARG="patch"
-    ;;
-  2)
-    VERSION_ARG="minor"
-    ;;
-  3)
-    VERSION_ARG="major"
-    ;;
-  4)
-    read -p "Enter custom version: " custom_version
-    VERSION_ARG="$custom_version"
-    ;;
-  *)
-    echo "❌ Invalid choice"
-    ./scripts/restore-dev-mode.sh
-    exit 1
-    ;;
-esac
+# Detect "pre-bumped" state: a previous release attempt that failed mid-way
+# may have already advanced lerna.json + every public package.json beyond
+# what's on the registry. In that case running lerna version again would
+# pointlessly bump versions a second time (and re-trigger the brittle
+# `npm install --package-lock-only` step inside lerna version that has
+# historically been the cause of release-time failures). Offer to skip
+# straight to publish in that case.
+LERNA_VERSION=$(node -e "console.log(require('./lerna.json').version)")
+REGISTRY_VERSION=$(curl -sf https://registry.npmjs.org/@lumenize/debug 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync(0));console.log(d['dist-tags']?.latest||'')}catch{console.log('')}" 2>/dev/null || echo "")
+SKIP_LERNA_VERSION=0
+if [ -n "$REGISTRY_VERSION" ] && [ "$LERNA_VERSION" != "$REGISTRY_VERSION" ]; then
+  echo "ℹ️  lerna.json version: $LERNA_VERSION"
+  echo "ℹ️  npm registry latest: $REGISTRY_VERSION (from @lumenize/debug)"
+  echo ""
+  echo "Local versions are ahead of the registry — package.json files appear"
+  echo "pre-bumped, likely from a previous failed release attempt."
+  echo ""
+  read -p "Skip lerna version and go straight to publish at $LERNA_VERSION? [Y/n]: " skip_version
+  echo ""
+  if [[ ! "$skip_version" =~ ^[Nn]$ ]]; then
+    SKIP_LERNA_VERSION=1
+    echo "✅ Skipping version bump — will publish at $LERNA_VERSION"
+    echo ""
+  fi
+fi
 
-# --no-private skips bumping every workspace in the repo (apps/, doc-test/,
-# experiments/, examples/, the typia forks, etc.). Without this flag lerna
-# would bump the typia forks from 12.0.2-lumenize-fork down to 0.25.0,
-# rewrite ~25 private package.jsons, and run npm install --package-lock-only
-# across the whole workspace graph — which has historically tripped on
-# transitive peer-dep mismatches in unrelated experiments. With it, only
-# the public packages we actually publish get versioned.
-npx lerna version $VERSION_ARG --no-private --yes
-echo ""
-echo "✅ Version bumped"
-echo ""
+if [ "$SKIP_LERNA_VERSION" = "0" ]; then
+  echo "Choose version bump type:"
+  echo "  1) patch (0.8.0 → 0.8.1)"
+  echo "  2) minor (0.8.0 → 0.9.0)"
+  echo "  3) major (0.8.0 → 1.0.0)"
+  echo "  4) custom version"
+  echo ""
+  read -p "Enter choice [1-4]: " version_choice
+
+  case $version_choice in
+    1) VERSION_ARG="patch" ;;
+    2) VERSION_ARG="minor" ;;
+    3) VERSION_ARG="major" ;;
+    4)
+      read -p "Enter custom version: " custom_version
+      VERSION_ARG="$custom_version"
+      ;;
+    *)
+      echo "❌ Invalid choice"
+      ./scripts/restore-dev-mode.sh
+      exit 1
+      ;;
+  esac
+
+  # --no-private skips bumping every workspace in the repo (apps/, doc-test/,
+  # experiments/, examples/, the typia forks, etc.). Without this flag lerna
+  # would bump the typia forks from 12.0.2-lumenize-fork down to 0.25.0,
+  # rewrite ~25 private package.jsons, and run npm install --package-lock-only
+  # across the whole workspace graph — which has historically tripped on
+  # transitive peer-dep mismatches in unrelated experiments. With it, only
+  # the public packages we actually publish get versioned.
+  npx lerna version $VERSION_ARG --no-private --yes
+  echo ""
+  echo "✅ Version bumped"
+  echo ""
+fi
 
 # Step 5: Publish to npm
 echo "5️⃣  Publishing to npm..."
