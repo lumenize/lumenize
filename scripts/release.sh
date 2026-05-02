@@ -190,7 +190,14 @@ case $version_choice in
     ;;
 esac
 
-npx lerna version $VERSION_ARG --yes
+# --no-private skips bumping every workspace in the repo (apps/, doc-test/,
+# experiments/, examples/, the typia forks, etc.). Without this flag lerna
+# would bump the typia forks from 12.0.2-lumenize-fork down to 0.25.0,
+# rewrite ~25 private package.jsons, and run npm install --package-lock-only
+# across the whole workspace graph — which has historically tripped on
+# transitive peer-dep mismatches in unrelated experiments. With it, only
+# the public packages we actually publish get versioned.
+npx lerna version $VERSION_ARG --no-private --yes
 echo ""
 echo "✅ Version bumped"
 echo ""

@@ -11,7 +11,6 @@
     "tooling/*",
     "website",
     "doc-test/*/*",
-    "experiments/alarm-accuracy",
     "packages/ts-runtime-parser-validator/forks/typia/core",
     "packages/ts-runtime-parser-validator/forks/typia/transform",
     "packages/ts-runtime-parser-validator/forks/typia/interface",
