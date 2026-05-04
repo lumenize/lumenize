@@ -51,7 +51,7 @@ This is the number that confirmed a hopeful assumption I'd been making, and it's
 
 Full end-to-end over the internet, a request takes ~52 ms warm, the naive throughput ceiling is `1 / 0.052 ≈ 19 txn/s`. That's what a single client doing one in-flight call at a time can sustain.
 
-I ramped concurrency from 1 to 256 simulated clients. At 1 simulated client, throughput sits at ~16 txn/s — close to the ~19 implied by 1/52 ms. Peak is **\~410 txn/s** at 128 simulated clients — about **21× the serial floor** — and degrades past that. ([Full ramp data](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).)
+I ramped concurrency from 1 to 256 simulated clients. At 1 simulated client, throughput sits at ~16 txn/s — close to the ~19 implied by 1/52 ms. Peak is **\~410 txn/s** at 128 simulated clients — about **21× the serial floor** — and degrades past that. ([Full ramp data](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).)
 
 So, the question remains, how exactly does serial latency of ~50 ms produce 400+ ops/sec on one DO? The short answer is interleaving. The longer one is about input and output gates.
 
@@ -83,13 +83,12 @@ I've often framed [Lumenize Continuations](/docs/mesh/continuations) as a race-p
 
 ## Reproducing this
 
-The fixture, benches, and harness are all in the [Lumenize repo](https://github.com/lmaccherone/lumenize):
+The fixture, benches, and harness are all in the [Lumenize repo](https://github.com/lumenize/lumenize):
 
-- 30-type ontology fixture: [`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`](https://github.com/lmaccherone/lumenize/blob/main/packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts)
-- Bare facet bench (per-call cost in isolation): [`experiments/ts-runtime-parser-validator-spike/`](https://github.com/lmaccherone/lumenize/tree/main/experiments/ts-runtime-parser-validator-spike)
-- Latency bench (single-call warm transaction round-trip): [`apps/nebula/test/browser/transactions.bench.ts`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/transactions.bench.ts)
-- Throughput bench (saturation ramp): [`apps/nebula/test/browser/throughput.test.ts`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/throughput.test.ts)
-- Raw numbers: [`RESULTS.md`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/RESULTS.md), [`THROUGHPUT-RESULTS.md`](https://github.com/lmaccherone/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md)
+- 30-type ontology fixture: [`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`](https://github.com/lumenize/lumenize/blob/main/packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts)
+- Latency bench (single-call warm transaction round-trip): [`apps/nebula/test/browser/transactions.bench.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/transactions.bench.ts)
+- Throughput bench (saturation ramp): [`apps/nebula/test/browser/throughput.benchmark.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/throughput.benchmark.ts)
+- Raw numbers: [`RESULTS.md`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/RESULTS.md), [`THROUGHPUT-RESULTS.md`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md)
 
 Bench harness uses real WebSockets to a deployed Worker — no test-mode bypasses, no in-process mocks. The deployed Worker stays at `nebula-browser-test.transformation.workers.dev` for now; if you want to repro against your own account, the wrangler config and the secret bulk-upload pattern are documented in `RESULTS.md`.
 
