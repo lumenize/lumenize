@@ -6,7 +6,7 @@ authors:
 tags:
   - architecture
   - cloudflare
-description: A real-load Cloudflare Durable Objects performance dive. Per-DO-instance throughput of ~410 txn/s — about 21× the naive 1/serial-latency floor — and what that taught me about input gates, output gates, and `transactionSync`.
+description: A real-load Cloudflare Durable Objects performance dive. Per-DO-instance throughput of ~410 txn/s — about 23× the naive 1/serial-latency floor — and what that taught me about input gates, output gates, and `transactionSync`.
 ---
 I've spent four+ years building on Cloudflare Durable Objects. The mental model I leaned hard into — *input gates make your code passively correct as long as you don't await across critical sections* — works beautifully for simple workloads, and it served me well for years. As I started building [Nebula](/blog/introducing-lumenize-nebula), a moderately complex distributed system, that model was insufficient. This post is what I learned benching that system end-to-end: real numbers from a real workload (not a microbenchmark), and how I had to expand my mental model way beyond input gates = correctness.
 
@@ -16,7 +16,7 @@ I've spent four+ years building on Cloudflare Durable Objects. The mental model 
 
 Numbers below come from benching a real Nebula transaction end-to-end — Gateway DO + transactional storage write + a [typia parse-validator](/blog/introducing-parse-validator) hosted as a [Cloudflare DO Facet](/blog/cloudflare-do-facets-in-practice) — over real WebSockets to a deployed Worker:
 
-- **Per-DO-instance throughput: \~410 transactions/sec.** About **21× the naive 1/serial-latency single-threaded floor**. See below.
+- **Per-DO-instance throughput: \~410 transactions/sec.** About **23× the naive 1/serial-latency single-threaded floor**. See below.
 - **Output-gate flush latency occurs after input gates open — even when the writes are in a `transactionSync`.** That mechanism is what lets throughput climb above the naive floor. (Integrated warm transaction: ~16 ms in-Worker, ~5–10 ms of which is the flush. See [Confirming a hopeful assumption](#confirming-a-hopeful-assumption).)
 
 For facet-specific costs (cold-wake, the ~1.35 ms boundary cost), see the [companion post](/blog/cloudflare-do-facets-in-practice).
@@ -39,7 +39,7 @@ To bench a real Nebula transaction end-to-end, we needed a real workload includi
     1. Mesh callback: parent DO → Gateway DO
     2. WebSocket internet hop: Gateway DO → client
 
-Total end-to-end: **\~52 ms warm round-trip** as the client sees it. Roughly what a classic 3-tier architecture pays just to reach its database — and we add routing, validation, and relationship-based access control on top of the storage write, in the same budget. Credit to Cloudflare's edge architecture.
+Total end-to-end: **\~56 ms warm round-trip** as the client sees it. Roughly what a classic 3-tier architecture pays just to reach its database — and we add routing, validation, and relationship-based access control on top of the storage write, in the same budget. Credit to Cloudflare's edge architecture.
 
 ## Throughput (~410 txn/s per DO instance)
 
@@ -49,9 +49,9 @@ For context, Cloudflare documents [a ~1,000 req/s soft limit per individual Dura
 
 This is the number that confirmed a hopeful assumption I'd been making, and it's the reason I wrote this post.
 
-Full end-to-end over the internet, a request takes ~52 ms warm, the naive throughput ceiling is `1 / 0.052 ≈ 19 txn/s`. That's what a single client doing one in-flight call at a time can sustain.
+Full end-to-end over the internet, a request takes ~56 ms warm, the naive throughput ceiling is `1 / 0.056 ≈ 18 txn/s`. That's what a single client doing one in-flight call at a time can sustain.
 
-I ramped concurrency from 1 to 256 simulated clients. At 1 simulated client, throughput sits at ~16 txn/s — close to the ~19 implied by 1/52 ms. Peak is **\~410 txn/s** at 128 simulated clients — about **21× the serial floor** — and degrades past that. ([Full ramp data](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).)
+I ramped concurrency from 1 to 256 simulated clients. At 1 simulated client, throughput sits at ~16 txn/s — close to the ~18 implied by 1/56 ms. Peak is **\~410 txn/s** at 128 simulated clients — about **23× the serial floor** — and degrades past that. ([Full ramp data](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).)
 
 So, the question remains, how exactly does serial latency of ~50 ms produce 400+ ops/sec on one DO? The short answer is interleaving. The longer one is about input and output gates.
 
@@ -66,7 +66,7 @@ The careful reader is wondering: if invocation B starts on the local primary's S
 **I've long held this hopeful assumption that `transactionSync` didn't hold input gates closed while the output-gate flush was ongoing. The data proves that's not happening**. If it had, throughput would be 1 / ~15 ms ≈ 66 txn/s, not ~400.
 
 :::tip Sanity-check via Amdahl's Law
-The 21× multiplier matches [Amdahl's Law](https://en.wikipedia.org/wiki/Amdahl%27s_law) applied to single-thread pipelining (which is what's happening inside the parent DO's main thread, with input-gate awaits as the yield-points). Throughput is bounded by per-call **serial CPU work** in the parent DO (~2–3 ms — the non-yieldable fraction), not per-call latency (~52 ms). The ratio: 52 / 2.5 ≈ 21. Equivalently, Amdahl's `1 / (1 − P)` where the parallelizable fraction P ≈ 95%.
+The 23× multiplier matches [Amdahl's Law](https://en.wikipedia.org/wiki/Amdahl%27s_law) applied to single-thread pipelining (which is what's happening inside the parent DO's main thread, with input-gate awaits as the yield-points). Throughput is bounded by per-call **serial CPU work** in the parent DO (~2–3 ms — the non-yieldable fraction), not per-call latency (~56 ms). The ratio: 56 / 2.5 ≈ 22. Equivalently, Amdahl's `1 / (1 − P)` where the parallelizable fraction P ≈ 95%.
 
 Each invocation has two yield-points where the input gate opens: ~1.4 ms on the facet RPC and ~5–10 ms on the output-gate flush. Together, those awaits cover ~95% of each invocation's lifetime, leaving only ~5% as serial CPU work the parent DO's main thread can't yield from. The output-gate flush dominates the interleaving budget, but the facet-await contributes too.
 

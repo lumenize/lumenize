@@ -1,6 +1,6 @@
 # Parse-Validate: Throughput / Saturation Bench
 
-**Status (2026-04-29)**: **Phase 1 complete.** Numbers in [apps/nebula/test/browser/THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Headline: per-Star peak ~410 txn/s deployed at N=128, **21× the serial single-client floor** of ~19 txn/s. Empirically confirms the output-gate / group-commit insight — concurrent invocations interleave on awaits and writes batch through a shared commit, so `1/serial-mean` was a floor not a ceiling. **Phase 2 (load-gen credibility upgrade) did not trigger** — clear knee at N=64–128, well below Node's reliable load-gen ceiling. Phase 3 (gating into release posts) is about to fire — control returns to [parse-validate-release.md](./parse-validate-release.md) Phase 2.
+**Status (2026-04-29)**: **Phase 1 complete.** Numbers in [apps/nebula/test/browser/THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Headline: per-Star peak ~410 txn/s deployed at N=128, **23× the serial single-client floor** of ~18 txn/s. Empirically confirms the output-gate / group-commit insight — concurrent invocations interleave on awaits and writes batch through a shared commit, so `1/serial-mean` was a floor not a ceiling. **Phase 2 (load-gen credibility upgrade) did not trigger** — clear knee at N=64–128, well below Node's reliable load-gen ceiling. Phase 3 (gating into release posts) is about to fire — control returns to [parse-validate-release.md](./parse-validate-release.md) Phase 2.
 
 **Depends on**: The integrated browser bench from [parse-validate-release.md](./parse-validate-release.md) Phase 1 — reuses these shipped pieces:
 - Harness directory `apps/nebula/test/browser/` (auto-spawned `wrangler dev`, magic-link auth bootstrap)
@@ -127,7 +127,7 @@ Ping reuses `HarnessNebulaClient.callStarPing` sequentially before the ramp; no 
 
 A single Node process is reliable to ~256–512 concurrent WebSocket clients before Node's own event-loop / GC pauses contaminate measurements. Past that, you're measuring the load generator, not the system.
 
-**Phase 1's expected ceiling vs Node's load-gen ceiling**: deployed warm transaction is ~52 ms mean. At N=256 with Phase 1's setup (one client driving N concurrent calls), generated load ceiling is ~256/0.052 ≈ 4,900 txn/s — well above Cloudflare's documented ~1k req/s/instance. So Node should be sufficient unless N\* turns out higher than expected.
+**Phase 1's expected ceiling vs Node's load-gen ceiling**: deployed warm transaction is ~56 ms mean. At N=256 with Phase 1's setup (one client driving N concurrent calls), generated load ceiling is ~256/0.056 ≈ 4,600 txn/s — well above Cloudflare's documented ~1k req/s/instance. So Node should be sufficient unless N\* turns out higher than expected.
 
 **This phase fires only if Phase 1's curve hasn't kneed by N=256.** **Did not trigger (2026-04-29)** — Phase 1 found a clean knee at N=64 and peak at N=128, well below Node's reliable load-gen ceiling. No need to upgrade. The Node-based bench produced credible numbers; deployed run completed in ~6.5 min with <0.5% error rate at the headline operating points (N=64–128).
 
