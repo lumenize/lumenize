@@ -1,6 +1,8 @@
 # Typia Validator Engine (Dual-Engine Detour)
 
-**Status**: Archived — split into `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` (standalone) and `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` (Nebula integration)
+**Status (2026-05-05)**: **Superseded.** Typia adoption shipped via the typia-only `@lumenize/ts-runtime-parser-validator` package (release coordinated via `tasks/archive/parse-validate-release.md`). Remaining typia-related thread is the upstream PR work tracked in `tasks/typia-visit-tracking.md`.
+
+**Status (original archive)**: Archived — split into `tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md` (standalone) and `tasks/archive/nebula-5.2.4.2-validator-galaxy-integration.md` (Nebula integration)
 **Depends on**: 5.2.3 (ontology wiring complete), 5.2.4 (docs shipped)
 **Precedes**: 5.2.5 (multi-resource queries)
 **Package**: `packages/ts-runtime-validator/` + `apps/nebula/` (Galaxy)

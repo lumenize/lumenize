@@ -1,17 +1,19 @@
 # Parse-Validate: Throughput / Saturation Bench
 
-**Status (2026-04-29)**: **Phase 1 complete.** Numbers in [apps/nebula/test/browser/THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Headline: per-Star peak ~410 txn/s deployed at N=128, **far above the ~18 txn/s serial single-client floor**. Empirically confirms the output-gate / group-commit insight — concurrent invocations interleave on awaits and writes batch through a shared commit, so `1/serial-mean` was a floor not a ceiling. **Phase 2 (load-gen credibility upgrade) did not trigger** — clear knee at N=64–128, well below Node's reliable load-gen ceiling. Phase 3 (gating into release posts) is about to fire — control returns to [parse-validate-release.md](./parse-validate-release.md) Phase 2.
+**Status (2026-05-05)**: **Complete and archived.** Phase 1 throughput bench shipped 2026-04-29; Phase 2 (load-gen credibility upgrade) didn't trigger; Phase 3 (gating into release posts) handed off via the now-archived `parse-validate-release.md` and the numbers landed in 2b on 2026-05-02.
+
+**Status (2026-04-29)**: **Phase 1 complete.** Numbers in [apps/nebula/test/browser/THROUGHPUT-RESULTS.md](../../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Headline: per-Star peak ~410 txn/s deployed at N=128, **far above the ~18 txn/s serial single-client floor**. Empirically confirms the output-gate / group-commit insight — concurrent invocations interleave on awaits and writes batch through a shared commit, so `1/serial-mean` was a floor not a ceiling. **Phase 2 (load-gen credibility upgrade) did not trigger** — clear knee at N=64–128, well below Node's reliable load-gen ceiling. Phase 3 (gating into release posts) is about to fire — control returns to [parse-validate-release.md](./parse-validate-release.md) Phase 2.
 
 **Depends on**: The integrated browser bench from [parse-validate-release.md](./parse-validate-release.md) Phase 1 — reuses these shipped pieces:
 - Harness directory `apps/nebula/test/browser/` (auto-spawned `wrangler dev`, magic-link auth bootstrap)
-- `HarnessNebulaClient` ([harness-client.ts](../apps/nebula/test/browser/harness-client.ts)) — extend to a Map keyed by resourceId (see Implementation below)
+- `HarnessNebulaClient` ([harness-client.ts](../../apps/nebula/test/browser/harness-client.ts)) — extend to a Map keyed by resourceId (see Implementation below)
 - `ping()` mesh handler on `StarTest` — already shipped, used sequentially before the ramp for the WS-leg baseline
-- Deployed Worker `nebula-browser-test.transformation.workers.dev` + `BENCH_BASE_URL` override in [global-setup.ts](../apps/nebula/test/browser/global-setup.ts) — already configured for deployed runs
+- Deployed Worker `nebula-browser-test.transformation.workers.dev` + `BENCH_BASE_URL` override in [global-setup.ts](../../apps/nebula/test/browser/global-setup.ts) — already configured for deployed runs
 - Galaxy-scope bootstrap admin (one client drives any Star under that galaxy)
 
 **Related**:
 - [parse-validate-release.md](./parse-validate-release.md) — per-call latency bench (sequential `vi.bench`, sibling to this task)
-- [apps/nebula/test/browser/RESULTS.md](../apps/nebula/test/browser/RESULTS.md) — Phase 1 latency numbers; this task's THROUGHPUT-RESULTS.md should cross-link
+- [apps/nebula/test/browser/RESULTS.md](../../apps/nebula/test/browser/RESULTS.md) — Phase 1 latency numbers; this task's THROUGHPUT-RESULTS.md should cross-link
 - `feedback_cf_clock_traps.md` — wall-clock measurement cautions
 - `tasks/alarm-accuracy-experiment.md` (archived) — example of an external-observer measurement style
 
@@ -19,7 +21,7 @@
 
 **One question**: how many transactions per second can a single Star sustain, with a single client driving N concurrent in-flight calls? Where is N\*?
 
-This is a **per-Star** ceiling under realistic single-client conditions. It implicitly includes the Gateway DO's contribution (one client = one Gateway DO instance, [lumenize-client.ts:537](../packages/mesh/src/lumenize-client.ts:537)), which is fine — the release post wants the user-observable number, not a cost decomposition.
+This is a **per-Star** ceiling under realistic single-client conditions. It implicitly includes the Gateway DO's contribution (one client = one Gateway DO instance, [lumenize-client.ts:537](../../packages/mesh/src/lumenize-client.ts:537)), which is fine — the release post wants the user-observable number, not a cost decomposition.
 
 DO's documented practical cap is ~1000 req/s per instance. The Phase 1 latency bench gave us serial single-client throughput of ~19 txn/s deployed (16 ms in-Worker mean + ~40 ms WS round-trip), which is **not** the system ceiling — it's a floor.
 
@@ -50,7 +52,7 @@ The largest N before either signal trips is N\* — the optimal concurrency for 
 
 **Setup**:
 - Reuse `apps/nebula/test/browser/` harness from the latency bench
-- Galaxy-scope bootstrap admin (one client, one WS, one ontology version, drives one Star under the galaxy) — mirrors the latency bench's `setupClient()` shape in [transactions.bench.ts](../apps/nebula/test/browser/transactions.bench.ts)
+- Galaxy-scope bootstrap admin (one client, one WS, one ontology version, drives one Star under the galaxy) — mirrors the latency bench's `setupClient()` shape in [transactions.bench.ts](../../apps/nebula/test/browser/transactions.bench.ts)
 - `uniqueGalaxy()` per run so `.wrangler/state` (or deployed DO storage) doesn't carry resources across runs
 - Pre-warm: fire ~20 transactions sequentially before the ramp to ensure ontology cache, facet bundle, and target Star DO are all hot
 - Measure WS-leg round-trip via ~50 sequential `client.callStarPing(...)` calls before the ramp; record the mean as `pingMean` and use it as the WS-leg subtraction constant
@@ -110,7 +112,7 @@ Ping reuses `HarnessNebulaClient.callStarPing` sequentially before the ramp; no 
 
 **Output**:
 - Raw per-iteration data: `apps/nebula/test/browser/throughput-raw.json` (gitignored or kept small) — array of `{ N, start, end, latencyMs }` for offline analysis if needed.
-- Summary: `apps/nebula/test/browser/THROUGHPUT-RESULTS.md` written via `fs.writeFileSync` from inside the test, with sections mirroring [RESULTS.md](../apps/nebula/test/browser/RESULTS.md) (deployed table, local table, experiment-design notes, reconciliation with Phase 1 latency).
+- Summary: `apps/nebula/test/browser/THROUGHPUT-RESULTS.md` written via `fs.writeFileSync` from inside the test, with sections mirroring [RESULTS.md](../../apps/nebula/test/browser/RESULTS.md) (deployed table, local table, experiment-design notes, reconciliation with Phase 1 latency).
 - Console: headline N\* + throughput-at-N\* + comparison to serial floor.
 
 **Deployed run is required, not optional.** The release post relies on the deployed numbers. Local (`wrangler dev`) is for the implementation-correctness gate only — its numbers go in the diagnostic section of THROUGHPUT-RESULTS.md, not the headline.
@@ -120,7 +122,7 @@ Ping reuses `HarnessNebulaClient.callStarPing` sequentially before the ramp; no 
 - [x] Pre-ramp ping baseline captured (mean over ~50 sequential pings) — deployed mean 50.06 ms
 - [x] Ramp executed for N ∈ {1, 2, 4, 8, 16, 32, 64, 128, 256}; throughput + latency p50/p99 recorded per step
 - [x] N\* identified — peak throughput at N=128 (~410 txn/s), knee at N=64
-- [x] Deployed run captured; numbers in [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md) as the headline section
+- [x] Deployed run captured; numbers in [THROUGHPUT-RESULTS.md](../../apps/nebula/test/browser/THROUGHPUT-RESULTS.md) as the headline section
 - [x] Per-call timeouts (30 s) added during debugging — saturation produces some indefinite-queue calls; timeouts surface them as errors instead of hangs. Heartbeat logging on stderr added for visibility (vitest swallows test-mode stdout)
 
 ## Phase 2 (contingency): Load-generator credibility

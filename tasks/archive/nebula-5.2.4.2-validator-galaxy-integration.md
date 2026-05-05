@@ -1,6 +1,6 @@
 # Phase 5.2.4.2: Galaxy Validator Integration
 
-**Status**: Complete (landed 2026-04-27). Archived. Public-facing release coordination — integrated measurement, blog posts, npm deprecate of the predecessor — continues in [parse-validate-release.md](../parse-validate-release.md).
+**Status**: Complete (landed 2026-04-27). Archived. Public-facing release coordination — integrated measurement, blog posts, npm deprecate of the predecessor — continues in [parse-validate-release.md](./parse-validate-release.md).
 **Depends on**: 5.2.4.1 (parse-validate package)
 **Package**: `apps/nebula/` (Galaxy + Star) consuming `@lumenize/ts-runtime-parser-validator`
 **See also**: [parse-validate-release.md](./parse-validate-release.md) — release coordination (integrated measurement, the two blog posts, npm deprecate of the old package). Sequenced after this task, gated on the release announcement going live.

@@ -1,6 +1,8 @@
 # Parse-Validate: Release Coordination
 
-**Status (2026-04-30)**: Phase 1 complete + throughput task complete + Phase 2 drafted as a **three-post split** (was two). Headline: per-call warm latency ~56 ms, per-DO-instance peak throughput ~410 txn/s (far above the ~18 txn/s serial single-client floor — the output-gate / group-commit insight is empirically confirmed). Latency numbers in [RESULTS.md](../apps/nebula/test/browser/RESULTS.md), throughput numbers in [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md).
+**Status (2026-05-05)**: **Complete and archived.** Phase 1 (integrated bench) shipped 2026-04-29; Phase 2 blog posts 2a/2b/2c published 2026-05-02; Phase 3 (npm deprecate) done 2026-05-02. Only loose end was 2d ("Piercing the temporal haze" methodology post), now tracked in `tasks/gateway-hop-benchmark.md` Phase 4.
+
+**Status (2026-04-30)**: Phase 1 complete + throughput task complete + Phase 2 drafted as a **three-post split** (was two). Headline: per-call warm latency ~56 ms, per-DO-instance peak throughput ~410 txn/s (far above the ~18 txn/s serial single-client floor — the output-gate / group-commit insight is empirically confirmed). Latency numbers in [RESULTS.md](../../apps/nebula/test/browser/RESULTS.md), throughput numbers in [THROUGHPUT-RESULTS.md](../../apps/nebula/test/browser/THROUGHPUT-RESULTS.md).
 
 ## Update 2026-04-30: three-post split + new staging
 
@@ -14,7 +16,7 @@ A fourth post (2d) is now in `tasks/backlog.md`: "When time stops: benchmarking 
 
 **Revised staging** (was: 2a + 2b same-day, then deprecate; new: staged release).
 
-The "Day +X" cadence applies to **cross-posting on external channels** (Discord, Medium, Substack — see [reference_content_distribution.md](../.claude/projects/-Users-larry-Projects-mcp-lumenize/memory/reference_content_distribution.md)), not to the original publish on the Lumenize blog. All three posts can land on the Lumenize blog same-day if they're drafted; the staggered broadcast is what gives each post its own attention window with the cross-posting audience.
+The "Day +X" cadence applies to **cross-posting on external channels** (Discord, Medium, Substack — see [reference_content_distribution.md](../../.claude/projects/-Users-larry-Projects-mcp-lumenize/memory/reference_content_distribution.md)), not to the original publish on the Lumenize blog. All three posts can land on the Lumenize blog same-day if they're drafted; the staggered broadcast is what gives each post its own attention window with the cross-posting audience.
 
 1. ✅ **2026-05-02**: npm publish `@lumenize/ts-runtime-parser-validator` via `/release-workflow` — published at 0.25.0 alongside the rest of the `@lumenize/*` packages.
 2. ✅ **2026-05-02 (Day 0)**: publish 2a + 2c on the Lumenize blog — both live (`introducing-parse-validator` + `cloudflare-do-facets-in-practice`).
@@ -37,7 +39,7 @@ The original plan was to ship 2a/2b on latency numbers alone, with `1/mean_laten
 - **Output gates don't serialize the DO.** They hold *one* invocation's outputs until *its* writes commit; the input gate keeps opening on awaits, so concurrent invocations interleave and their writes batch into a shared commit (group-commit).
 - The pushback we got on the tsc engine was about throughput and latency. The typia engine fixes both; going out without a throughput number would have left the strongest objection unanswered, and going out with `1/mean × 1` would have invited a second round of "but what about throughput?" pushback.
 
-The throughput task ran 2026-04-29 and **vindicated the prediction loudly**: per-Star peak ~410 txn/s deployed at N=128 — far above the ~18 txn/s serial single-client floor. See [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Phase 2 below now has both story arcs to tell.
+The throughput task ran 2026-04-29 and **vindicated the prediction loudly**: per-Star peak ~410 txn/s deployed at N=128 — far above the ~18 txn/s serial single-client floor. See [THROUGHPUT-RESULTS.md](../../apps/nebula/test/browser/THROUGHPUT-RESULTS.md). Phase 2 below now has both story arcs to tell.
 
 ## Objective
 
@@ -205,7 +207,7 @@ Two follow-on posts that draw on the parse-validate work but stand on their own 
 - **Output gates prevent lies** — they hold outbound messages until storage writes commit, so the system never tells a caller "done" before it's actually durable. Map this to ACID's *durability*, with the qualifier "as observed by the caller."
 - **Without preventing throughput** — the per-invocation scoping of output gates plus group-commit batching is what keeps concurrency from collapsing back at the durability boundary. Throughput emerges from (a) input gates opening on awaits → concurrent invocations can run, (b) output gates per-invocation → durable acknowledgment without serializing outputs, (c) group-commit batching → amortized commit cost across concurrent writers.
 
-The hook: `1/mean_latency` reads like a system ceiling but is actually a floor. Empirical evidence in [THROUGHPUT-RESULTS.md](../apps/nebula/test/browser/THROUGHPUT-RESULTS.md): peak per-DO throughput far above the serial floor (different bottlenecks). Honest framing: 4+ years of working with DOs and Larry hadn't internalized this distinction — strong "expert blind-spot" angle without contradicting any Cloudflare positioning.
+The hook: `1/mean_latency` reads like a system ceiling but is actually a floor. Empirical evidence in [THROUGHPUT-RESULTS.md](../../apps/nebula/test/browser/THROUGHPUT-RESULTS.md): peak per-DO throughput far above the serial floor (different bottlenecks). Honest framing: 4+ years of working with DOs and Larry hadn't internalized this distinction — strong "expert blind-spot" angle without contradicting any Cloudflare positioning.
 
 **(ii) "Hosting code on Cloudflare: facets vs plain Workers vs Dynamic Workers — a performance reference."** Evergreen decision-framework piece for Cloudflare devs. The hook: when you have code that should run in response to events from a DO, you have several hosting options (facet on the DO, plain Worker via Service Binding, Dynamic Worker via Worker Loader, or just inlined into the DO). Each has different latency/throughput/scaling characteristics. The post lays out the decision framework and uses our parse-validate work as the case study (links to 2b for numbers; this post generalizes the reasoning to other workloads). Differentiator from 2b: 2b is "what the parse-validate facet costs"; this post is "how to think about facet/DW/plain-Worker tradeoffs for *your* use case."
 
@@ -216,8 +218,8 @@ Both follow-ons are drafted post-release. They're captured here so we don't lose
 ### Phase 2a: Release announcement (Lumenize/Nebula audience)
 
 The conceptual frame is already in place via two existing posts that launched `@lumenize/ts-runtime-validator`:
-- [TypeScript is the schema](./../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
-- [Write your types once](./../website/blog/2026-03-25-write-your-types-once/index.md) — the "you write types four times" pain pitch
+- [TypeScript is the schema](../../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
+- [Write your types once](../../website/blog/2026-03-25-write-your-types-once/index.md) — the "you write types four times" pain pitch
 
 The new announcement is a shorter follow-up that inherits the frame and announces what's new, not a fresh ground-up essay.
 
