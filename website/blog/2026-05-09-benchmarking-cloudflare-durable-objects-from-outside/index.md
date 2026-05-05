@@ -1,5 +1,5 @@
 ---
-title: "When time stops: benchmarking Cloudflare Durable Objects from outside"
+title: "Piercing the temporal haze: getting honest numbers from Cloudflare Durable Objects"
 slug: benchmarking-cloudflare-durable-objects-from-outside
 authors:
   - larry
@@ -19,7 +19,7 @@ Inside Cloudflare, **you can't trust `Date.now()` or `performance.now()`.** Two 
 
 The full extent of the haze — split documentation, undocumented edge cases, what `workerd` source does and doesn't tell you — is in [How thick is the temporal haze?](#how-thick-is-the-temporal-haze) at the end of this post.
 
-**A narrow, but useful, exception.** When an `await` of an I/O subrequest completes `Date.now()` advances by the actual elapsed time of that subrequest. The Workers RPC call to the facet is the one place in this benchmarking where we rely upon an inside-Cloudflare `Date.now()` delta. We overcome the lack of sub-ms granularity by taking an average over many runs to resolve on the 1.4 ms facet boundary latency measurement below. For everything else we measure from outside.
+**A narrow, but useful, exception.** We have observed that when an `await` of an I/O subrequest completes `Date.now()` advances by the actual elapsed time of that subrequest. The Workers RPC call to a DO dynamic worker facet is the one place in this benchmarking where we rely upon an inside-Cloudflare `Date.now()` delta. We overcome the lack of sub-ms granularity by taking an average over many runs to resolve on the 1.4 ms facet boundary latency measurement. For everything else we measure from outside.
 
 **Measuring from outside.** "Outside" means a Node process driving a real WebSocket into a deployed Worker, using Node-side `performance.now()` as the only honest, fine-grained clock. Results come back over the WebSocket as push frames (mesh callbacks). We then take the instrumentation message latency into account and average over many runs to bring the real numbers into focus.
 
@@ -27,12 +27,12 @@ The full extent of the haze — split documentation, undocumented edge cases, wh
 
 ## What this post covers
 
-- **Facet latency** *(sequence diagram)* — parent DO to same-isolate facet. Raw parent DO, no Nebula ceremony; measurement comes from inside the parent DO via await-boundary subtraction (the facet RPC call advances the parent's clock).
-- **Nebula transaction latency** — full client → GatewayDO → NebulaDO ("Star") → mesh-callback round-trip:
-  - End-to-end *(sequence diagram)* — `t1 − t0` on the Node side, single round-trip, single number.
-  - Ping baseline *(truncated sequence diagram)* — same path, `Star.ping()` does no work.
-  - Durability flush, derived *(prose)* — `e2e − ping − facet − (1–2 ms eTag, access control, etc.)`.
-- **Nebula throughput** *(same diagram as Nebula transaction latency, plus tables and prose)* — concurrent in-flight calls instead of one at a time; client-side dispatch uses a `Map` keyed by `resourceId` to correlate returning callbacks.
+- **Facet latency** — measured from inside the parent DO via await-boundary subtraction.
+- **Nebula transaction latency**, decomposed three ways:
+  - **End-to-end** — `t1 − t0` on the Node side, single round-trip
+  - **Ping baseline** — same path with `ping()` doing no work, leaving only routing in/out
+  - **Durability flush, derived** — what's left after subtracting the layers we *can* measure
+- **Nebula throughput** — concurrent in-flight calls; interpreting the high-N latencies that emerge under load.
 
 ## Facet latency
 
@@ -104,14 +104,23 @@ sequenceDiagram
 
 This **ping latency is 40 ms**. So, the **bare transaction latency is 16 ms** (e2e latency − ping latency = 56 ms − 40 ms = 16 ms).
 
+The ping baseline lumps routing in and routing out into a single number. For finer breakdown — separating the WS hops from the Workers RPC hops, or measuring routing in vs out separately — you'd add intermediate push frames back to the Node-side observer at each point you care about, and read `performance.now()` as each arrives. We didn't need that granularity for bare transaction latency, but it's the next rung up if you do.
+
 ### Durability flush, derived
 
-> Section pending. Math: `bare transaction latency (16 ms) − facet (~1.4 ms) − eTag / access control / etc. (~1–2 ms est) ≈ ~12–14 ms durability flush.`
+We can't measure the output-gate flush directly. From inside the parent DO, no clock reading happens *after* the gate releases — by the time the WS push frame is on the wire, the method has already returned. From outside, the response arrives but the gate can't be isolated from everything else on the inbound leg.
+
+So we derive it. Bare transaction is 16 ms inside the parent DO, including the wrapped facet call (e2e − ping). Subtract the facet call (~1.4 ms), pre-facet work (~1.5 ms est), and the eTag check / permission walk / SQL write inside `transactionSync` (~1.5 ms est) — full layer breakdown in [What I got wrong about DO throughput](/blog/what-i-got-wrong-about-do-throughput) — and the residual is **~10–13 ms for the output-gate flush itself.**
+
+Two methodology notes:
+
+- **Error bars stack.** The 16 ms carries a few percent of ping-subtraction error. The 1.4 ms facet number carries small batch-averaging error. The two ~1.5 ms terms are *estimated* — those layers aren't independently measured. Realistic uncertainty on the residual: about ±2 ms. Order of magnitude is solid; the third significant digit isn't.
+- **Subtraction works when the residual is much larger than the accumulated uncertainty.** ~10–13 ms ≫ ±2 ms — fine here. If the flush were ~2 ms, the error bars would swallow the answer. We're comfortably past that threshold; tighter bounds would need a probe that observes the gate directly, and we don't have one.
 
 
 ## Nebula throughput
 
-Same diagram as [End-to-end](#end-to-end) above, same Node-side `performance.now()` clock — but the harness keeps N transactions in flight at once instead of one. The *insight* this measures (one Star sustains ~410 txn/s at N=128, ~23× the serial floor, because output gates don't block input gates) lives in [What I got wrong about DO throughput](/blog/what-i-got-wrong-about-do-throughput). The methodology note worth carrying out of this post is the constant-subtraction caveat below.
+Same outside-Cloudflare clock pattern as the latency benches, scaled up to N concurrent in-flight transactions. The *insight* — one Star sustains ~410 txn/s at N=128, far above the single-client serial floor, because output gates don't block input gates — lives in [What I got wrong about DO throughput](/blog/what-i-got-wrong-about-do-throughput).
 
 ### Saturation curve (excerpt)
 
@@ -123,16 +132,11 @@ Same diagram as [End-to-end](#end-to-end) above, same Node-side `performance.now
 
 Full curve, reading guide, and operating-point recommendations: [`THROUGHPUT-RESULTS.md`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/THROUGHPUT-RESULTS.md).
 
-### Constant-subtraction caveat
+### Reading the high-N latencies
 
-The ping baseline (~50 ms WS round-trip) is measured *once*, pre-ramp, then subtracted from each step's mean to derive in-Worker latency. Clean at low N — at N≤16 the WS leg should be nearly identical to the pre-ramp baseline. At high N it might not be: browser-side socket buffering, Cloudflare's ingress queue, and network jitter could all push the actual WS leg above 50 ms when 128 calls are in flight at once.
+At N=128 the mean per-call latency is ~287 ms and p99 is ~880 ms — both far above the warm ~56 ms. That climb is Star-side queueing: 128 invocations waiting their turn through the parent DO's serial CPU.
 
-Two reasons we accept the caveat in this post:
-
-- In-Worker p99 at N=128 is ~830 ms, dominated by Star-side queueing far above any plausible WS-contention contribution.
-- The throughput curve is well-behaved up through saturation — a noisy WS leg would show up as throughput variance more than as systematic underestimation.
-
-If you needed to defend a specific number at high N, the fix is straightforward: insert ~5 pings *during* each step's steady-state window and recompute a per-step WS-leg estimate. The cost is bench complexity; the benefit is a tighter bound when you need one.
+A more rigorous measurement could sample pings *during* each step's steady-state window — that would catch any drift in the WS leg under load (browser socket buffering, Cloudflare ingress queue, network jitter) instead of leaning on a single pre-ramp baseline. In practice it doesn't matter here: WS-leg variance would have to be tens of ms to register against the ~880 ms p99 that Star-side queueing already dominates. The simpler constant-subtraction holds.
 
 ## How thick is the temporal haze?
 
@@ -150,9 +154,9 @@ The list is incomplete. We measure from outside precisely because we couldn't ma
 
 ## Reproducer
 
-Bench source: [`apps/nebula/test/browser/`](https://github.com/larrymaccherone/lumenize/tree/main/apps/nebula/test/browser/) — `transactions.bench.ts`, `throughput.benchmark.ts`, and `harness-client.ts`. Headline numbers from this harness:
+Bench source: [`apps/nebula/test/browser/`](https://github.com/lumenize/lumenize/tree/main/apps/nebula/test/browser/) — `transactions.bench.ts`, `throughput.benchmark.ts`, and `harness-client.ts`. Headline numbers from this harness:
 
 - Warm transaction: ~56 ms raw / ~16 ms in-Worker after ping subtraction
-- Per-DO-instance peak throughput: ~410 txn/s at N=128 simulated clients (23× the serial single-client floor)
+- Per-DO-instance peak throughput: ~410 txn/s at N=128 simulated clients (single-client serial throughput is ~18 txn/s — different bottlenecks)
 
 Both verified 2026-04-29 against `nebula-browser-test.transformation.workers.dev`. See [Cloudflare DO Facets in practice](/blog/cloudflare-do-facets-in-practice) and [What I got wrong about DO throughput](/blog/what-i-got-wrong-about-do-throughput) for what those numbers mean.

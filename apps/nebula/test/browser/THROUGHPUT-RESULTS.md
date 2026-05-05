@@ -2,7 +2,7 @@
 
 Per-Star saturation ramp under N concurrent in-flight transactions from one client (galaxy-scoped). See [parse-validate-throughput.md](../../../../tasks/parse-validate-throughput.md) for design.
 
-**Headline (deployed)**: a single Star sustains **~400 txn/s** at concurrency N=128 — **~23× the serial single-client floor** (1/serial-mean ≈ 18 txn/s, [RESULTS.md](RESULTS.md)). Latency stays in 60–80 ms p50 up through N=16, climbs through saturation by N=64, and degrades past N=128.
+**Headline (deployed)**: a single Star sustains **~400 txn/s** at concurrency N=128 — well above the **~18 txn/s serial single-client floor** (1/serial-mean, [RESULTS.md](RESULTS.md)). Latency stays in 60–80 ms p50 up through N=16, climbs through saturation by N=64, and degrades past N=128.
 
 The shape **empirically confirms the output-gate / group-commit insight**: concurrent invocations interleave on awaits and their writes batch through a shared commit, so per-Star throughput exceeds `1/mean × 1` by an order of magnitude. The latency bench's `1/mean ≈ 18 txn/s` was a single-client serial floor — never a system ceiling.
 
@@ -76,9 +76,9 @@ The latency bench [RESULTS.md](RESULTS.md) reported:
 - Deployed serial warm: 16 ms in-Worker mean, ~56 ms raw mean (one in-flight call at a time)
 - Implied serial throughput: ~19 txn/s
 
-This throughput bench reports **~410 txn/s peak deployed at N=128 — a 23× speedup over the serial number**. The mechanism: output gates only hold *one* invocation's outputs until *its* writes commit, but the input gate keeps opening on awaits. So while invocation A's output is gated waiting for its commit, invocations B, C, …, N start their own work. Their writes batch into a shared commit (group-commit), all output gates clear together.
+This throughput bench reports **~410 txn/s peak deployed at N=128 — far above the serial number**. The mechanism: output gates only hold *one* invocation's outputs until *its* writes commit, but the input gate keeps opening on awaits. So while invocation A's output is gated waiting for its commit, invocations B, C, …, N start their own work. Their writes batch into a shared commit (group-commit), all output gates clear together.
 
-If `1/mean_latency` were the system ceiling, this number would be ~18. It's 23× higher. **This is the load-bearing nuance the parse-validate release post needs**: the `1/mean ≈ 18` proxy is wrong; output-gate semantics let one Star sustain 400+ ops/sec.
+If `1/mean_latency` were the system ceiling, this number would be ~18. It's far higher than that. **This is the load-bearing nuance the parse-validate release post needs**: the `1/mean ≈ 18` proxy is wrong; output-gate semantics let one Star sustain 400+ ops/sec.
 
 ---
 
