@@ -1,9 +1,12 @@
 .claude/worktrees/
 
-# Bench artifacts (auto-regenerated; canonical THROUGHPUT-RESULTS.md is committed)
+# Bench artifacts (auto-regenerated; canonical RESULTS.md / THROUGHPUT-RESULTS.md are committed)
 apps/nebula/test/browser/throughput-raw-*.json
+apps/nebula/test/browser/transactions-raw-*.json
 apps/nebula/test/browser/THROUGHPUT-RESULTS-local.md
 apps/nebula/test/browser/THROUGHPUT-RESULTS-deployed.md
+apps/nebula/test/browser/RESULTS-local.md
+apps/nebula/test/browser/RESULTS-deployed.md
 
 # Logs
 logs

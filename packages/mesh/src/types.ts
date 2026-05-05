@@ -48,6 +48,14 @@ export interface CallContext {
 export interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
   state?: Record<string, unknown>; // Initial or merged state for the call
+  /**
+   * Called synchronously with the generated `callId` immediately before the
+   * call message is sent (or queued, when disconnected). Lets instrumentation
+   * correlate this call's outbound message with later inbound frames (e.g.,
+   * tracing markers, custom Gateway-emitted frames) without exposing the
+   * client's internal pending-call map. Fires once per call.
+   */
+  onSent?: (callId: string) => void;
 }
 
 // ============================================

@@ -152,10 +152,15 @@ export class LumenizeClientGateway extends DurableObject<any> {
    *
    * Called from `#handleClientCall` after building the base CallContext.
    * Return the (possibly enriched) CallContext.
+   *
+   * `callId` is the inbound CALL message's callId — useful for tracing /
+   * instrumentation that wants to correlate this hook firing with the
+   * original client request.
    */
   onBeforeCallToMesh(
     baseContext: CallContext,
-    connectionInfo: GatewayConnectionInfo
+    connectionInfo: GatewayConnectionInfo,
+    callId: string
   ): CallContext {
     return baseContext;
   }
@@ -525,7 +530,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       };
 
       // Let subclass enrich context (e.g., inject claims into state)
-      const callContext = this.onBeforeCallToMesh(baseContext, attachment);
+      const callContext = this.onBeforeCallToMesh(baseContext, attachment, callId);
 
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';

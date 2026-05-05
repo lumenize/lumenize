@@ -95,33 +95,26 @@ export default defineConfig({
           },
         },
       },
-      // Bench project — same harness, *.bench.ts files only. Uses vitest's
-      // bench() API; run via `npm run bench` (which invokes `vitest bench`).
+      // Bench project — *.benchmark.ts files using standard it()/expect()
+      // (not vi.bench). Why it()-based: the latency bench needs per-call
+      // hop decomposition (multiple metrics per iteration) and the
+      // throughput bench needs a manual saturation ramp; vi.bench's API
+      // measures one number per `bench()` block. it() also gives us
+      // expect() for regression-test gating later.
+      //
+      // Run subset with positional filter:
+      //   `npx vitest run --project browser-bench transactions`
+      //   `npx vitest run --project browser-bench throughput`
+      // or the full suite via `npm run bench:all`.
+      //
       // Excluded from `npm test` via positive project enumeration in the
-      // test script — bench() throws outside benchmark mode.
+      // test script — these can take a long time and hit deployed
+      // infrastructure.
       {
         extends: true,
         plugins: [swcPlugin],
         test: {
           name: 'browser-bench',
-          include: ['test/browser/**/*.bench.ts'],
-          globalSetup: ['./test/browser/global-setup.ts'],
-          testTimeout: 60000,
-          env: {
-            NODE_TLS_REJECT_UNAUTHORIZED: '0',
-          },
-        },
-      },
-      // Throughput project — *.benchmark.ts files. Uses standard it()/expect()
-      // (not bench()) because the harness ramps clients to find a saturation
-      // knee — useful as a soft-floor assertion if we ever add one. Produces
-      // numbers, no asserts today; run via `npm run test:throughput` rather
-      // than `npm test`.
-      {
-        extends: true,
-        plugins: [swcPlugin],
-        test: {
-          name: 'browser-throughput',
           include: ['test/browser/**/*.benchmark.ts'],
           globalSetup: ['./test/browser/global-setup.ts'],
           testTimeout: 60000,

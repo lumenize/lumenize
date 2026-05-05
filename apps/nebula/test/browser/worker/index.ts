@@ -12,12 +12,16 @@
  */
 
 export {
-  NebulaClientGateway,
   Universe,
   Galaxy,
   ResourceHistory,
   entrypoint as default,
 } from '@lumenize/nebula';
+
+// Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
+// re-exported under the `NebulaClientGateway` name so the wrangler.jsonc class
+// binding (and any prior migration history) stays unchanged.
+export { InstrumentedNebulaClientGateway as NebulaClientGateway } from './instrumented-nebula-client-gateway';
 
 export { NebulaAuth, NebulaAuthRegistry } from '@lumenize/nebula-auth';
 

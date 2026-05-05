@@ -22,9 +22,10 @@
   "scripts": {
     "test": "vitest --run --project unit --project baseline --project browser",
     "test:coverage": "vitest --coverage --run --project unit --project baseline --project browser",
-    "test:throughput": "vitest --run --project browser-throughput",
     "coverage": "COVERAGE=true vitest --run --coverage --project unit --project baseline --project browser",
-    "bench": "vitest bench --run --project browser-bench",
+    "bench": "vitest --run --project browser-bench transactions",
+    "bench:throughput": "vitest --run --project browser-bench throughput",
+    "bench:all": "vitest --run --project browser-bench",
     "types": "wrangler types"
   },
   "keywords": [

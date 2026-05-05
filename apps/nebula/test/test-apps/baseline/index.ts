@@ -83,6 +83,26 @@ export class StarTest extends Star {
     this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
       (this.ctn() as any).handlePingResult(1));
   }
+
+  /**
+   * Test-only: spike handler for the Phase-0 ws.send flush experiment in
+   * `tasks/gateway-hop-benchmark.md`. Forces a known-duration await on the
+   * Star side; the Gateway's invocation is paused at
+   * `await stub.__executeOperation(envelope)` for at least `delayMs`. The
+   * spike test pairs this with a `BENCH_MARKER` frame emitted from the
+   * Gateway's `onBeforeCallToMesh` hook (before that await) to measure
+   * whether the marker reaches the client mid-invocation (~delayMs ahead
+   * of the response) or coincident with it.
+   *
+   * Returns the delay value directly (rather than via mesh callback) so the
+   * response arrives via the normal CALL_RESPONSE path. Wall-clock billing
+   * is acceptable in this test-only handler.
+   */
+  @mesh()
+  async delay(delayMs: number): Promise<number> {
+    await new Promise((r) => setTimeout(r, delayMs));
+    return delayMs;
+  }
 }
 
 // ============================================

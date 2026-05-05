@@ -516,6 +516,19 @@ export abstract class LumenizeClient {
     }
   }
 
+  /**
+   * Called when a Gateway message arrives whose `type` is not in
+   * `GatewayMessageType`. Default: warn to console.
+   *
+   * Override in a subclass to handle application-specific frames sent by a
+   * Gateway subclass via `ws.send()`. The frame has already been
+   * `JSON.parse`d. Used (e.g.) by bench instrumentation to capture
+   * timing-marker frames emitted from Gateway hooks.
+   */
+  onUnknownMessage(message: any): void {
+    console.warn('Unknown Gateway message type:', message?.type);
+  }
+
   // ============================================
   // Private - Connection Management
   // ============================================
@@ -807,7 +820,7 @@ export abstract class LumenizeClient {
         break;
 
       default:
-        console.warn('Unknown Gateway message type:', (message as any).type);
+        this.onUnknownMessage(message);
     }
   }
 
@@ -986,6 +999,10 @@ export abstract class LumenizeClient {
     };
 
     const messageStr = JSON.stringify(message);
+
+    // Notify caller of the assigned callId before send/queue, so instrumentation
+    // can correlate this call with later inbound frames.
+    options?.onSent?.(callId);
 
     // Create promise for response
     return new Promise<any>((resolve, reject) => {
