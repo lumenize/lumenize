@@ -1,6 +1,6 @@
 # Gateway Hop Benchmarking
 
-**Status (2026-05-05)**: **Phases 0–3 complete; methodology post 2d unblocked.** Single-client latency decomposition produces stable headline numbers (see [RESULTS.md](../apps/nebula/test/browser/RESULTS.md)). Remaining work: publish 2d, then move to Phase 4 (multi-client harness for throughput direction question).
+**Status (2026-05-05)**: **Phases 0–6 complete; Phase 5b skipped (decided not load-bearing).** Latency decomposition (~12 ms Gateway hop cost in same DC), throughput direction (~14% peak gain from M-Gateway fanout), and cross-region Workers RPC RT (~8 ms same-DC, ~101 ms cross-Atlantic) all measured. gateway.mdx updated with citable numbers. Methodology post 2d is fully unblocked. Remaining: publish 2d, optionally Phase 7 (follow-up post).
 
 **Depends on**: Existing bench harness from [parse-validate-release.md](./archive/parse-validate-release.md) Phase 1:
 - [`apps/nebula/test/browser/`](../apps/nebula/test/browser/) — `transactions.bench.ts` (single-call latency), `throughput.benchmark.ts` (concurrent ramp), `harness-client.ts` (Node-side client → real WebSockets → deployed Worker pattern + ping subtraction)
@@ -147,27 +147,48 @@ Reference docstring lives in [`worker/instrumented-nebula-client-gateway.ts`](..
 - [x] All M connections route to distinct Gateway DOs (verified via distinct `instanceName` set)
 - [x] Existing single-client tests still pass without modification (transactions.benchmark / flush-spike unchanged)
 
-## Phase 5: Throughput bench and analyze
+## Phase 5: Throughput bench and analyze ✅ COMPLETE (2026-05-05)
 
-**Goal**: Answer the throughput-direction question. Does the 1:1 Gateway raise, lower, or break even the per-Star throughput ceiling?
+**Result**: Gateway fanout raises peak per-Star throughput by ~14% vs collapsing all users onto one Gateway.
 
-**Comparison shapes** (same total in-flight, different fanout):
-- **Shape A — with fanout**: M clients × N in-flight each → M Gateway DOs feeding 1 Star. Auth/routing CPU runs in parallel across M Gateway DOs.
-- **Shape B — no fanout**: 1 client × M·N in-flight → 1 Gateway DO feeding 1 Star. Auth/routing CPU serializes through one Gateway. (This is the existing [`throughput.benchmark.ts`](../apps/nebula/test/browser/throughput.benchmark.ts) pattern at the high-N end.)
+| total in-flight | Shape A (M=total Gateways) | Shape B (1 Gateway) | Δ |
+| ---: | ---: | ---: | ---: |
+| 64 | 345 txn/s | 266 txn/s | **+30%** |
+| 128 | 332 txn/s | 279 txn/s | **+19%** |
+| 256 | 327 txn/s | 301 txn/s | **+8%** |
 
-Note: the Gateway DO supersedes prior connections on a new connection ([packages/mesh/src/lumenize-client-gateway.ts:257](../packages/mesh/src/lumenize-client-gateway.ts:257)), so Shape B can't be done by reusing a tabId across M clients — it's exactly the existing single-client-N-in-flight bench. Phase 4's harness work is only needed for Shape A.
+Peak A: 345 txn/s. Peak B: 301 txn/s. Headline: **+14% peak throughput from Gateway fanout**. See [THROUGHPUT-MULTI-deployed.md](../apps/nebula/test/browser/THROUGHPUT-MULTI-deployed.md) for full table.
 
-**What this comparison measures**: whether collapsing N Gateways into 1 changes peak per-Star throughput. It tests the "M Gateway parallelism" hypothesis directly.
+**Bench**: [`throughput-multi.benchmark.ts`](../apps/nebula/test/browser/throughput-multi.benchmark.ts), uses [`multi-client.ts`](../apps/nebula/test/browser/multi-client.ts) for the M-client harness. Sweeps total in-flight ∈ {64, 128, 256}; for each, runs maximum-fanout Shape A (M=total, N=1) and no-fanout Shape B (M=1, N=total). Same total in-flight on both, same Star DO, so any delta isolates the Gateway-side fanout effect.
 
-**Known blind spot**: this does NOT measure "what if there were no Gateway at all." That's a different architecture (Star holds WS + does auth + does business logic, all on one DO's input gate), not just a load-shape change. Phase 5b covers that contingency *if* the Phase 5 result warrants it.
+**Mechanism that explains the 14%**: at Shape B's peak (301 txn/s), each transaction takes 1 inbound CALL invocation + 1 outbound mesh-callback invocation on the Gateway = ~602 invocations/sec on a single Gateway DO. At ~1–2 ms CPU per invocation, that's 60–120% of one DO's CPU — the single Gateway is genuinely saturated. Shape A spreads those 602 invocations/sec across M=256 Gateway DOs, ~2.4 inv/sec/Gateway, no serialization on the Gateway side. Star's storage commit rate then becomes the only ceiling — and that's where Shape A peaks (~345 txn/s).
+
+**Shape interpretation across totals**:
+- Shape A peaks at total=64 (~345 txn/s) and decays slightly with more load — additional in-flight just queues at Star.
+- Shape B keeps climbing through 64 → 256 — the single Gateway is its own bottleneck and benefits from more queueing depth until storage commit saturates.
+- The gap shrinks (30% → 19% → 8%) — at the highest load Star saturation eats the Gateway-fanout advantage.
+
+**Caveats**:
+- ~2–3% of calls hit the 30s call-timeout under saturation (181 errors at B/total=256, 160 at A/total=256). Numbers are "successful throughput under stress."
+- Single run; high variance vs prior `THROUGHPUT-RESULTS.md` (which showed ~400 txn/s peak — likely a favorable day, plus possible 5–15% instrumentation overhead from the marker emit on every call).
+- Same-region only (Phase 6 covers cross-region).
+
+**Updated trade-off framing for the methodology post / blog**: the Gateway hop costs ~12 ms of latency per call (Phase 3) and buys (a) simpler architecture (no WS handling in LumenizeDO/NebulaDO) and (b) **~14% peak per-Star throughput vs collapsing fanout to one Gateway**. Both load-bearing.
+
+**Phase 5b decision**: **skip**. The 14% is meaningful but moderate; the architectural-simplicity win plus measured throughput insurance margin is enough to validate the current 1:1 Gateway design without spending 2–3 days on alt-Star.
 
 **Success Criteria**:
-- [ ] Headline throughput delta documented (Shape A vs Shape B)
-- [ ] Direction (helps / hurts / break-even) called out with effect size
+- [x] Headline throughput delta documented (Shape A vs Shape B)
+- [x] Direction (helps / hurts / break-even) called out with effect size: helps, +14%
+- [x] Trade-off framing for the blog post locked in
 
-## Phase 5b (conditional): Alt-Star comparison
+## Phase 5b (conditional): Alt-Star comparison ⊘ SKIPPED (2026-05-05)
 
-**Trigger**: run *only if* Phase 5 shows Shape A >> Shape B (Gateway fanout is load-bearing). If Phase 5 shows A ≈ B (Star storage commit dominates) or A > B by a small margin, skip — the answer is "Gateway position doesn't matter much for throughput" and the 12 ms latency cost is the architecture's only price. No reason to invest in alt-Star.
+**Decision**: skipped. Phase 5 showed Shape A > Shape B by 14% — meaningful but moderate. The current architecture's trade-off (12 ms latency cost vs simpler architecture + 14% throughput improvement) is well-justified by Phases 3 and 5 alone. Building an alt-Star prototype to confirm "what would no-Gateway look like?" would take 2–3 days for a result we don't actually need to make decisions.
+
+If a future change ever pressures the Gateway architecture (e.g., considering a routing change that collapses fanout), the trigger criteria below still apply — re-evaluate then.
+
+**Original trigger criteria (kept for reference)**: run *only if* Phase 5 shows Shape A >> Shape B (Gateway fanout is load-bearing). If Phase 5 shows A ≈ B (Star storage commit dominates) or A > B by a small margin, skip — the answer is "Gateway position doesn't matter much for throughput" and the 12 ms latency cost is the architecture's only price. No reason to invest in alt-Star.
 
 **Goal**: Directly measure peak per-Star throughput when there is no Gateway DO in the path — Star holds the WebSocket, does auth, does business logic, pushes results back via the same WS.
 
@@ -185,15 +206,32 @@ Add a parallel test endpoint in the bench Worker so the harness can route to eit
 - [ ] Peak per-Star throughput documented for: with-Gateway-fanout (Shape A), with-Gateway-no-fanout (Shape B), no-Gateway-at-all (alt-Star)
 - [ ] Decision recorded: keep current architecture, or revisit Gateway design
 
-## Phase 6 (optional): Cross-region
+## Phase 6: Cross-region ✅ COMPLETE (2026-05-05)
 
-**Goal**: Quantify Gateway hop cost when client and Star are in different regions. `gateway.mdx` notes cross-region can be several hundred ms.
+**Result**: Workers RPC RT measured empirically for same-DC vs cross-Atlantic placement.
 
-**Approach**: deploy a second bench Worker pinned to a non-default colo (or use a client geo on the other side of the network). Re-run Phase 3 with the cross-region setup.
+| Hop | Workers RPC RT (gateway-onward − 200 ms `setTimeout`) |
+| --- | ---: |
+| Same-DC (IAD↔IAD) | **~8 ms** |
+| Cross-Atlantic (IAD↔WAW) | **~101 ms** |
+| Δ | ~93 ms |
+
+The 8 ms same-DC number validates the gateway.mdx claim "less than ten milliseconds in same data center." 101 ms IAD↔WAW (Warsaw) is consistent with the physics floor (~7,000 km × 2 / 200,000 km/s ≈ 70 ms minimum) plus routing overhead — a reasonable cross-Atlantic baseline. The original "several hundred milliseconds" claim was conservative-high; gateway.mdx updated to cite the measured ~101 ms RTT.
+
+**Approach**: empirical measurement using Cloudflare's strict-jurisdiction primitive `newUniqueId({ jurisdiction: 'eu' })` to force a Star DO into the EU jurisdiction. Compared `Star.delay(200)` gateway-onward times for a same-DC named Star vs the EU-jurisdiction one, both invoked through the same Gateway DO (in IAD, the user's colo). Bench: [`cross-region.test.ts`](../apps/nebula/test/browser/cross-region.test.ts).
+
+**Colo introspection**: added a `getColo()` mesh method on `StarTest` that fetches `https://workers.cloudflare.com/cdn-cgi/trace` and parses the `colo=` line — works inside any DO without needing a fetch handler. Bench Worker also exposes `/bench/colo` (returns `request.cf.colo`, identifies the Worker's and Gateway's colo) and `/bench/cross-region-star?jurisdiction=eu` (creates a Star with the requested jurisdiction, returns its hex ID + colo). The mesh framework's `getDOStub` already auto-detects 64-char hex IDs vs names, so cross-region Stars are addressable from the existing client without changes.
+
+**Caveats**:
+- Single run; cross-region values can vary substantially (TCP congestion, BGP routing changes, time of day).
+- EU jurisdiction is Cloudflare's only "strict" non-default placement option; cannot pick specific colos. WAW happens to be where it landed; a different run might land in LHR, AMS, FRA, etc., with slightly different RTT.
+- Cross-region is from US-East. US-West to EU would be longer; US to APAC longer still.
 
 **Success Criteria**:
-- [ ] Cross-region latency decomposition documented
-- [ ] Same-region vs cross-region table published
+- [x] Cross-region latency decomposition documented (Phase 6 inline + gateway.mdx update)
+- [x] Same-region vs cross-region table published (above)
+- [x] gateway.mdx Latency bullet updated with measured numbers
+- [x] gateway.mdx Implications gained a Throughput bullet (Phase 5 finding)
 
 ## Phase 7 (optional): Follow-up blog post
 

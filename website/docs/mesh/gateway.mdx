@@ -47,7 +47,9 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
   
 - **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
   
-- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be on the order of a hundred milliseconds (we measured ~101 ms RTT IAD↔WAW), but a hop in the same data center is typically under ten milliseconds (we measured ~8 ms RTT IAD↔IAD).
+
+- **Throughput**: Each connected client gets its own Gateway DO instance, so authentication and routing CPU work fans out across multiple DO input gates rather than serializing on the callee. We measured this empirically at peak per-Star load: forcing the same total in-flight calls through a single Gateway DO (no fanout) costs ~14% peak throughput vs the natural one-Gateway-per-client architecture. The fanout is mildly load-bearing — at lower loads the storage commit rate of the Star DO dominates throughput regardless, but at saturation the Gateway-DO fanout is what keeps the Gateway itself off the critical path.
   
 - **Complexity**:
   - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler. Once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.

@@ -2,9 +2,12 @@
 
 # Bench artifacts (auto-regenerated; canonical RESULTS.md / THROUGHPUT-RESULTS.md are committed)
 apps/nebula/test/browser/throughput-raw-*.json
+apps/nebula/test/browser/throughput-multi-raw-*.json
 apps/nebula/test/browser/transactions-raw-*.json
 apps/nebula/test/browser/THROUGHPUT-RESULTS-local.md
 apps/nebula/test/browser/THROUGHPUT-RESULTS-deployed.md
+apps/nebula/test/browser/THROUGHPUT-MULTI-local.md
+apps/nebula/test/browser/THROUGHPUT-MULTI-deployed.md
 apps/nebula/test/browser/RESULTS-local.md
 apps/nebula/test/browser/RESULTS-deployed.md
 

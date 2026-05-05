@@ -103,6 +103,28 @@ export class StarTest extends Star {
     await new Promise((r) => setTimeout(r, delayMs));
     return delayMs;
   }
+
+  /**
+   * Test-only: returns the Cloudflare colo this Star DO is running in,
+   * via the cdn-cgi/trace endpoint. Used by the cross-region bench
+   * (`tasks/gateway-hop-benchmark.md` Phase 6) to verify same-DC vs
+   * cross-region placement empirically.
+   *
+   * Each first call costs one outbound HTTP fetch (~5–50 ms wall-clock);
+   * subsequent calls return a cached value.
+   */
+  @mesh()
+  async getColo(): Promise<string> {
+    if (this.#cachedColo === undefined) {
+      const res = await fetch('https://workers.cloudflare.com/cdn-cgi/trace');
+      const text = await res.text();
+      const match = text.match(/^colo=(.+)$/m);
+      this.#cachedColo = match?.[1].trim() ?? 'unknown';
+    }
+    return this.#cachedColo;
+  }
+
+  #cachedColo?: string;
 }
 
 // ============================================

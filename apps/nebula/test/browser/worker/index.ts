@@ -1,21 +1,31 @@
 /**
  * Browser-test Worker entrypoint.
  *
- * Mirrors apps/nebula/test/test-apps/baseline/index.ts but skips the
- * `instrumentDOProject()` wrapping — the browser harness drives transactions
- * via NebulaClient (mesh), so the lumenize-rpc test instrumentation isn't
- * needed.
+ * Wraps the production Nebula entrypoint with bench-specific routes:
  *
- * `StarTest` is reused so server-side test affordances (`whoAmI()`,
- * `inspectOntologyKv()`) stay consistent with the existing test-app suite.
- * `NebulaClientTest` lives browser-side in tests, not as a DO binding.
+ *   - `/bench/colo` — returns the Worker's own colo via `request.cf.colo`.
+ *     The Gateway DO for this user's session is reliably in the same colo
+ *     (DOs follow first-access placement; user is consistent), so this
+ *     also identifies the Gateway colo.
+ *   - `/bench/cross-region-star?jurisdiction=eu` — creates a Star DO via
+ *     `newUniqueId({ jurisdiction })` and returns its hex ID. Used by
+ *     `cross-region.test.ts` to deliberately place a Star outside the
+ *     user's colo for cross-region Workers RPC measurement.
+ *
+ * Everything else passes through to the Nebula entrypoint unchanged.
+ *
+ * `StarTest` is reused from the baseline test app so server-side test
+ * affordances (`whoAmI()`, `inspectOntologyKv()`, `delay()`, `getColo()`)
+ * stay consistent.
  */
+
+import { entrypoint } from '@lumenize/nebula';
+import { env } from 'cloudflare:workers';
 
 export {
   Universe,
   Galaxy,
   ResourceHistory,
-  entrypoint as default,
 } from '@lumenize/nebula';
 
 // Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
@@ -51,3 +61,34 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
 export class TestNebulaEmailSender extends NebulaEmailSender {
   override from = 'test@lumenize.io';
 }
+
+export default {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // Bench-specific routes. Anything outside /bench/* falls through to
+    // the Nebula entrypoint.
+    if (url.pathname === '/bench/colo') {
+      const colo = (request as any).cf?.colo ?? 'unknown';
+      return Response.json({ workerColo: colo });
+    }
+
+    if (url.pathname === '/bench/cross-region-star') {
+      const jurisdiction = url.searchParams.get('jurisdiction');
+      if (jurisdiction !== 'eu' && jurisdiction !== 'fedramp') {
+        return new Response(
+          'Bad request: jurisdiction must be "eu" or "fedramp"',
+          { status: 400 },
+        );
+      }
+      const id = (env as any).STAR.newUniqueId({ jurisdiction });
+      const stub = (env as any).STAR.get(id);
+      // Force the DO to be created/woken so subsequent calls work. The
+      // first method call is what actually places the DO.
+      const colo = await stub.getColo();
+      return Response.json({ id: id.toString(), jurisdiction, colo });
+    }
+
+    return entrypoint.fetch(request);
+  },
+};
