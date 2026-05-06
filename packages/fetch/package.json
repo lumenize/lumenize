@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "@lumenize/test-endpoints": "*",
     "@vitest/coverage-istanbul": "4.1.4",
     "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
@@ -46,8 +47,7 @@
     "@lumenize/debug": "^0.25.0",
     "@lumenize/mesh": "^0.25.0",
     "@lumenize/routing": "^0.25.0",
-    "@lumenize/structured-clone": "^0.25.0",
-    "@lumenize/test-endpoints": "^0.24.0"
+    "@lumenize/structured-clone": "^0.25.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
