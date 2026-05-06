@@ -56,14 +56,14 @@ We don't measure single parses. The DO loops the facet call (sequential `await`s
 
 ### End-to-end
 
-This is a simplified sequence diagram for the full [Nebula](/blog/introducing-lumenize-nebula) transaction.
+This is a simplified sequence diagram for the full [Nebula](/blog/introducing-lumenize-nebula) transaction. **Star** is the application DO where the transaction work runs; **GatewayDO** routes WebSocket calls between the client and Star.
 
 ```mermaid
 sequenceDiagram
     participant N as NebulaClient (node.js)
     participant B as ← Outside Cloudflare<br/>Inside Cloudflare →
     participant G as GatewayDO
-    participant S as NebulaDO ("Star")
+    participant S as Star (a NebulaDO)
 
     Note over N: t0 = performance.now()
     N->>G: WS: transaction(...)
@@ -89,7 +89,7 @@ sequenceDiagram
     participant N as NebulaClient (node.js)
     participant B as ← Outside Cloudflare<br/>Inside Cloudflare →
     participant G as GatewayDO
-    participant S as NebulaDO ("Star")
+    participant S as Star (a NebulaDO)
 
     Note over N: t0 = performance.now()
     N->>G: WS: ping()
@@ -104,7 +104,22 @@ sequenceDiagram
 
 This **ping latency is 40 ms**. So, the **bare transaction latency is 16 ms** (e2e latency − ping latency = 56 ms − 40 ms = 16 ms).
 
-The ping baseline lumps routing in and routing out into a single number. For finer breakdown — separating the WS hops from the Workers RPC hops, or measuring routing in vs out separately — you'd add intermediate push frames back to the Node-side observer at each point you care about, and read `performance.now()` as each arrives. We didn't need that granularity for bare transaction latency, but it's the next rung up if you do.
+### The next rung up: hop decomposition
+
+To break the ping baseline into its WS leg and its Workers RPC leg, we extended the WS-push-observer pattern with a second `ws.send()` inside the Gateway DO which the Node observer timestamps on arrival. Subtracting two arrival times measured over the same WS connection cancels the Gateway-to-client one-way common to both, leaving the Cloudflare-side time between the two send sites. We confirmed `ws.send` flushes mid-invocation rather than buffering until invocation end, and we use the median across many iterations to compensate for occasional TCP-level batching of the marker and response frames.
+
+The decomposition for our Nebula warm transaction:
+
+| leg | ~time |
+| --- | ---: |
+| WS hop client↔Gateway (round trip) | ~28 ms |
+| Workers RPC Gateway↔Star (round trip, same colo) | ~8 ms |
+| Star-side transaction work (parse + access + storage write + result construction) | ~18 ms |
+| end-to-end | ~58 ms |
+
+**Cross-region** adds the obvious physical cost: a Star deliberately placed in EU (landed in Warsaw) made the Workers RPC RT IAD↔WAW ~101 ms instead of ~8 ms — consistent with the physics floor (~70 ms light-in-fiber for the round trip) plus routing overhead.
+
+Full decomposition, reading guide, and reproducer: [`RESULTS.md`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/test/browser/RESULTS.md). Architecture implications of these numbers — what the Gateway hop costs and buys — in the [Mesh Gateway docs](/docs/mesh/gateway).
 
 ### Durability flush, derived
 
@@ -144,7 +159,7 @@ A more rigorous measurement could sample pings *during* each step's steady-state
 
 **Why coarsen at all? Spectre.** High-resolution timers leak speculative-execution side-channel signals; coarsening to invocation-entry time (advancing only at I/O completions) defeats that whole class of attack. If `Date.now()` were coarsened but `performance.now()` weren't, attackers would just use the higher-resolution one — so Cloudflare blurs both clocks.
 
-**What counts as "I/O" that advances the clock?** Officially undocumented. Empirically, fetch subrequests, Workers RPC subrequests, and storage I/O all qualify (and that's what makes the facet bench's await-boundary measurement work). What *doesn't* count: incoming WebSocket frames. `workerd`'s hibernation manager has a comment confirming this — in the [auto-response read loop](https://github.com/cloudflare/workerd/blob/e612e24bd0accaed23d2066ce7d9bb7425292e71/src/workerd/io/hibernation-manager.c%2B%2B#L287-L295) the code calls `syncTime()` manually with: *"This should count as a new IO event, hence we should call syncTime otherwise the autoResponseTimestamp wouldn't be accurate."* A Cloudflare engineer had to add a manual sync because incoming WS frames don't trigger one automatically. So WebSocket-handler invocations and fetch-handler invocations are asymmetric in their clock-advance behavior — and this asymmetry is acknowledged only in runtime source, not in developer-facing docs.
+**What counts as "I/O" that advances the clock?** Officially undocumented. Empirically, fetch subrequests, Workers RPC subrequests, and storage I/O all qualify (and that's what makes the facet bench's await-boundary measurement work). What *doesn't* count: incoming WebSocket frames. `workerd`'s hibernation manager has a comment confirming this — in the [auto-response read loop](https://github.com/cloudflare/workerd/blob/e612e24bd0accaed23d2066ce7d9bb7425292e71/src/workerd/io/hibernation-manager.c%2B%2B#L287-L295) the code calls `syncTime()` manually with: *"This should count as a new IO event, hence we should call syncTime otherwise the autoResponseTimestamp wouldn't be accurate."* A Cloudflare engineer had to add a manual sync because incoming WS frames don't trigger one automatically. So **WebSocket message handler invocations and fetch handler invocations have different clock-advance behavior**. This asymmetry is acknowledged only in runtime source, not in developer-facing docs.
 
 **Open-source `workerd` ships only the interface, not the clamp.** The `TimerChannel::syncTime()` method in `workerd`'s open source is implemented as `void syncTime() override { /* Nothing to do */ }` — the actual Spectre coarsening happens in Cloudflare's closed-source production runtime. Reading `workerd` source tells you *when* the clock might re-sync; it doesn't tell you *what value* the clock will be re-synced to.
 
