@@ -3,7 +3,6 @@ import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 
 export default defineConfig({
   test: {
-    dangerouslyIgnoreUnhandledErrors: true,
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov', 'json-summary'],
