@@ -1,0 +1,8 @@
+{
+  "name": "lumenize-debug-tests",
+  "main": "test/placeholder.test.ts",
+  "compatibility_date": "2026-03-12",
+  "vars": {
+    "DEBUG": "lmz.test*,-lmz.test.silenced"
+  }
+}

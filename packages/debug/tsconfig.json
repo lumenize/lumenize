@@ -3,8 +3,15 @@
   "compilerOptions": {
     "declaration": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "types": [
+      "vitest/globals",
+      "@cloudflare/vitest-pool-workers"
+    ]
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"],
+  "files": [
+    "worker-configuration.d.ts",
+    "cloudflare-test-env.d.ts"
+  ]
 }

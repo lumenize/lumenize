@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { debug } from '../src/index';
 
+// Avoid pulling in @types/node just for these Node-only tests
+declare const process: { env: Record<string, string | undefined> };
+
 describe('@lumenize/debug', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 

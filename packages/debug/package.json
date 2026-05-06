@@ -22,6 +22,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "@cloudflare/workers-types": "^4.20250110.0",
     "@vitest/coverage-istanbul": "4.1.4",
     "vitest": "4.1.4"
   },
