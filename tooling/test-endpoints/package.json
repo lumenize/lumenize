@@ -29,8 +29,8 @@
     "src/**/*"
   ],
   "dependencies": {
-    "@lumenize/routing": "^0.24.0",
-    "@lumenize/testing": "^0.24.0"
+    "@lumenize/routing": "*",
+    "@lumenize/testing": "*"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "*",

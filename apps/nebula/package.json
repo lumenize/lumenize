@@ -40,7 +40,7 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
-    "@lumenize/testing": "^0.24.0",
+    "@lumenize/testing": "*",
     "@vitest/coverage-istanbul": "4.1.4",
     "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
@@ -48,13 +48,13 @@
     "wrangler": "^4.86.0"
   },
   "dependencies": {
-    "@lumenize/auth": "^0.24.0",
-    "@lumenize/debug": "^0.24.0",
-    "@lumenize/mesh": "^0.24.0",
-    "@lumenize/nebula-auth": "^0.24.0",
-    "@lumenize/routing": "^0.24.0",
-    "@lumenize/structured-clone": "^0.24.0",
-    "@lumenize/ts-runtime-parser-validator": "^0.24.0"
+    "@lumenize/auth": "*",
+    "@lumenize/debug": "*",
+    "@lumenize/mesh": "*",
+    "@lumenize/nebula-auth": "*",
+    "@lumenize/routing": "*",
+    "@lumenize/structured-clone": "*",
+    "@lumenize/ts-runtime-parser-validator": "*"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
