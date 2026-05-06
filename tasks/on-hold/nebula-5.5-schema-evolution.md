@@ -1,6 +1,8 @@
-# Phase 5.5: Schema Evolution
+# Phase 5.5: Schema Evolution (production polish — ON HOLD)
 
-**Status**: Design pending — refreshed 2026-04-27 against the per-row + DO-facet model from 5.2.4.2 (was previously written against the now-obsolete whole-array `Ontology` class).
+> **Status note (demo focus)**: The dev-mode subset has been extracted to [`tasks/nebula-5.5-dev-mode-migrations.md`](../nebula-5.5-dev-mode-migrations.md) as the active critical-path file. This file holds the production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Content preserved as the reference for when this work resumes.
+
+**Status**: ON HOLD — see note above
 **Depends on**: 5.2.4.2 (parse-validate via DO facet, per-version row storage, Galaxy `_index` mirrored to Star)
 **Parent**: `tasks/nebula.md`
 

@@ -229,6 +229,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
+- [ ] **Working document-editor example** (browser ↔ Gateway ↔ DO). Complete, deployable system that developers can clone and run. UI framework decision documented. "Deploy to Cloudflare" button or clear deploy instructions. Linked from mesh docs. Originally Phase 4 of `mesh-post-release-part-2.md`; pulled into backlog when that file was archived during the demo-focus refactor.
+
+- [ ] **Working agent example** showing Mesh + Cloudflare's Agent pattern. At least one working example with `@lumenize/testing` AgentClient that demonstrates a practical use case (not just echo). Linked from mesh docs. Originally Phase 5 of `mesh-post-release-part-2.md`.
+
 - [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
 
 - [ ] Research adding `ctnBatch()` API to `this.lmz.call` for atomic multi-operation execution
