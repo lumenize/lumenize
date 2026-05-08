@@ -48,13 +48,15 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
 Investor demo is the near-term focus. The phase table below marks held items as **On Hold — demo focus** with a path under `tasks/on-hold/`. Critical path through the demo:
 
 1. Resources fundamentals (5.1 done; 5.2 in progress; 5.3 single-resource subscribe).
-2. Dev-mode lazy / copy-on-read migrations (5.5 dev-mode subset).
-3. Dev-mode branching — single Star, in-place.
-4. NebulaClient subscribe wrappers (Phase 7 — single-resource only).
-5. `@lumenize/ui` (Phase 8) — JurisJS-derived MIT package.
-6. Studio (Phase 9, renamed from "Vibe Coding IDE").
+2. Branch-local lazy / copy-on-read migrations (5.5 branch-local subset).
+3. **Branches as first-class** — `{u}.{g}.{s}.{branch}` URL model; `.main` and `.dev` auto-created on Star birth; Galaxy gets `createBranch` + `listBranches` day one. Cross-branch data copy (origin) deferred.
+4. **Resource metadata** (`@title`, `@description`, `@inverse`) — annotation conventions plus exposing the raw `.d.ts` source through Galaxy so Studio's AI has what it needs to generate UIs.
+5. NebulaClient subscribe wrappers (Phase 7 — single-resource only).
+6. **`@lumenize/state`** (definitely) — JurisJS-derived MIT package, ~340 LOC: StateManager + path helpers. NebulaClient's local store (no shadow cache). Ports first, risk-free. **`@lumenize/ui`** (conditionally) — DOMRenderer + ObjectDOM on top of `@lumenize/state`; ports only if the LLM-generation spike picks ObjectDOM over vanilla HTML+JS.
+7. **Pre-Studio milestone**: Claude Code drives the generation loop directly against the live platform. Validates code-generation viability before Studio's chat UI is built. The early phase of this milestone IS the LLM-generation spike that decides the `@lumenize/ui` port. Demo-able on its own as a fallback.
+8. Studio (Phase 9, renamed from "Vibe Coding IDE") — wraps the proven generation pattern in chat UI + tool orchestration.
 
-See `tasks/nebula-task-files-refactor.md` for the full plan, the on-hold list, and the spikes (Studio cold-start, hosting choice, `@lumenize/ui` inventory, preview-URL auto-refresh).
+Outstanding spikes (hosting choice, preview-URL auto-refresh) are documented in `tasks/nebula-studio.md`. The on-hold task files live under `tasks/on-hold/`. Historical context for the demo-focus refactor (file moves, Phase 9 → Studio rename, etc.) is in `tasks/archive/nebula-task-files-refactor.md`.
 
 ## Phases
 
@@ -77,19 +79,20 @@ Each phase produces testable, working code that only depends on prior phases. De
 | 4.1 | TypeScript as Schema Research | **Complete** | `tasks/archive/nebula-ts-as-schema-research.md` |
 | 5 | Resources | In Progress | `tasks/nebula-5-resources.md` (design) |
 | 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
-| 5.2 | TypeScript Validation & Ontology | In Progress | `tasks/nebula-5.2-tsc-validation.md` (overview) |
+| 5.2 | TypeScript Validation & Ontology | **Complete** | `tasks/archive/nebula-5.2-tsc-validation.md` (overview); ORM-flavored follow-on (M:N relationships, `query()`, JSDoc constraints) extracted to `tasks/on-hold/nebula-orm-and-queries.md` |
 | 5.3 | Subscriptions & Fanout | Active — demo critical path (single-resource only) | `tasks/nebula-5.3-subscriptions.md` |
 | 5.4 | Capability Tickets | **On Hold — demo focus** | `tasks/on-hold/nebula-5.4-capability-tickets.md` |
-| 5.5 (dev-mode) | In-Place Lazy Migrations | Active — demo critical path | `tasks/nebula-5.5-dev-mode-migrations.md` |
+| 5.5 (branch-local) | In-Place Lazy Migrations | Active — demo critical path | `tasks/nebula-5.5-branch-migrations.md` |
 | 5.5 (production polish) | Schema Evolution | **On Hold — demo focus** | `tasks/on-hold/nebula-5.5-schema-evolution.md` |
 | 5.6 | HTTP Transport | **On Hold — demo focus** | `tasks/on-hold/nebula-5.6-http-transport.md` |
 | 5.7 | Documentation & Coverage | **On Hold — demo focus** | `tasks/on-hold/nebula-5.7-docs-coverage.md` |
 | 7 | Nebula Client | Active — demo critical path | `tasks/nebula-7-client.md` |
-| 8 | Nebula UI (`@lumenize/ui`) | Active — demo critical path | `tasks/lumenize-ui.md` |
+| 8 | Nebula UI (`@lumenize/state` + conditional `@lumenize/ui`) | Active — demo critical path; `@lumenize/state` ports first | `tasks/lumenize-ui.md` |
 | 9 | Nebula Studio | Active — demo end-of-line goal | `tasks/nebula-studio.md` |
-| — | Dev-Mode Branching (single Star, in-place) | Active — demo critical path | `tasks/dev-mode-branching.md` |
+| — | Branches (URL-level, `.main` + `.dev` auto-created) | Active — demo critical path | `tasks/nebula-branches.md` |
+| — | Resource metadata (`@title`, `@description`, `@inverse`; raw `.d.ts` to AI) | Active — demo critical path | `tasks/nebula-resource-metadata.md` |
 
-5.2 sub-phases are tracked in `tasks/nebula-5.2-tsc-validation.md`.
+5.2 sub-phases are tracked in the archived overview at `tasks/archive/nebula-5.2-tsc-validation.md`.
 
 ### Phase 3: DAG Tree Access Control
 
@@ -99,17 +102,21 @@ DAG tree inside each Star for organizing resources and controlling access. Phase
 
 Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, validation, schema evolution, and migrations. Inverted DWL architecture — DO calls out to DWL for guard decisions, resource config, and validation. Key APIs: `transaction()`, `subscribe()`, `read()`/`reads()`. Full design in `tasks/nebula-5-resources.md`.
 
-### Phases 5.3, 5.5 (dev-mode subset) — demo critical path
+### Phases 5.3, 5.5 (branch-local subset) — demo critical path
 
-5.3 single-resource subscriptions and 5.5's dev-mode in-place lazy migration runner are active. Production polish on 5.4, 5.5 (full), 5.6, 5.7 is on hold (see Demo Roadmap).
+5.3 single-resource subscriptions and 5.5's branch-local in-place lazy migration runner are active. Production polish on 5.4, 5.5 (full), 5.6, 5.7 is on hold (see Demo Roadmap).
 
 ### Phase 7: Nebula Client
 
 Discovery-first login, proactive token refresh, WebSocket keepalive, subscription management, scope switching. Builds on Phase 2 foundation. Design in `tasks/nebula-7-client.md`.
 
-### Phase 8: Nebula UI (`@lumenize/ui`)
+### Phase 8: Nebula UI (`@lumenize/state` + conditional `@lumenize/ui`)
 
-JurisJS-derived MIT package. Local state management mirrors remote — synced and local state look the same in component code. Design in `tasks/lumenize-ui.md`.
+JurisJS-derived MIT packages, split for risk management:
+- `@lumenize/state` ports first — StateManager + helpers (~340 LOC). NebulaClient's local store; no shadow cache. Risk-free regardless of how the renderer question resolves.
+- `@lumenize/ui` ports conditionally — DOMRenderer + ObjectDOM templates on top. Port only if the LLM-generation spike (part of the pre-Studio milestone) shows ObjectDOM is the right shape for generated UIs. The fallback is vanilla HTML+JS that talks directly to `@lumenize/state`.
+
+Design in `tasks/lumenize-ui.md`.
 
 ### Phase 9: Nebula Studio
 

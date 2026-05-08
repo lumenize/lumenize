@@ -109,7 +109,7 @@ Fixed. `validate()` now extracts Map/Set generic type parameters from the type d
 
 ### Value Constraints via JSDoc Annotations
 
-Moved to `tasks/nebula-5.2.4.5-annotation-experiments.md`. Includes JSDoc constraints (`@min`, `@max`, `@format`, `@default`) and M:N relationship design with join tables. Query-time filtering (bounded hydration) belongs in `tasks/nebula-5.2.5-multi-resource-queries.md`.
+Moved to `tasks/on-hold/nebula-orm-and-queries.md` (post-demo). Includes JSDoc constraints (`@min`, `@max`, `@format`) as Part A, M:N relationship design with join tables as Part B, and query-time filtering / bounded hydration in the multi-resource `query()` work as Part C. (`@default` is now handled by the parse-validate package, not this work.)
 
 ### `@lumenize/ts-runtime-validate` Package Extraction
 
@@ -129,7 +129,24 @@ Old-school npm `lumenize` aggregations over temporal data. The star DO will keep
 - Training pipeline for Nebula-specialized small language model
 - Prompt engineering library (system prompts, few-shot examples, output validation)
 - Code validation pipeline (generated code → `tsc` check → DWL deploy → integration test)
-- Version control for vibe-coded applications (diff, rollback, branching)
+- Version control for vibe-coded applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
+
+  **Three timelines exist in the platform; git would address the missing one.**
+  - **Source authoring** (every AI iteration of ontology + UI code) — *not currently addressed; this is what git would cover*.
+  - **Schema deployment** (every promoted ontology version) — already addressed by immutable append-only `OntologyVersionRow`.
+  - **Data history** (every resource write) — already addressed by Snodgrass temporal storage.
+
+  **The seam**: git lives entirely on the dev side. Every `deploy_to_dev` is a commit on the `.dev` branch's iteration history. `deploy_to_main` squashes + creates a new immutable `OntologyVersionRow`, leaving git behind. Production evolution stays simple and append-only — git complements rather than replaces.
+
+  **Why it's compelling**: the AI is exceptionally good at reasoning about git directly. "Show me what changed since the last working version" is a `git diff` the AI can issue itself, not a custom API we have to design. Diff/blame/log/revert/cherry-pick all come for free once the WASM is loaded.
+
+  **Caveats to design through when this unfreezes**:
+  - **Branch-name collision** with the URL-level branches we just made first-class (`.main` / `.dev`). Different concepts (URL branches are runtime routing; git branches are authoring-time exploration), but the term overlap will confuse readers. Probably present them in the Studio UI as "iterations" or "checkpoints" to avoid saying "branch" twice.
+  - **Where the git store lives.** wasm-git's storage layer is pluggable; the choice is ours (Galaxy SQLite, dedicated DO, R2-backed).
+  - **Storage growth.** Each iteration is a commit; popular projects could accumulate gigabytes. Need a squash-after-N or GC-old story.
+  - **AI-as-git-client surface.** Letting the AI issue git commands against its iteration history is powerful but a real surface to design — what subset is exposed, how it composes with `deploy_to_dev`, etc.
+
+  **Why we're not doing this for the demo**: "the AI's working memory IS the history" works fine for a 5-minute demo. Git becomes valuable when iteration spans days/weeks across sessions. Captured here so the idea isn't lost.
 - Collaboration features (multiple vibe coders on the same application)
 - Marketplace / templates (pre-built application patterns)
 

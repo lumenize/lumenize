@@ -1,6 +1,8 @@
-# Phase 5.2: TypeScript Validation & Ontology
+# Phase 5.2: TypeScript Validation & Ontology (ARCHIVED)
 
-**Status**: In Progress (5.2.1–5.2.4 complete; detour to typia validator engine before 5.2.5)
+> **Archived 2026-05-06.** All shipped sub-phases (5.2.1.1, 5.2.1, 5.2.2, 5.2.3, 5.2.4, 5.2.4.1, 5.2.4.2) are complete. Remaining ORM-flavored follow-on work (M:N relationships, `query()`, JSDoc validation constraints — was 5.2.4.5 + 5.2.5) merged into [`tasks/on-hold/nebula-orm-and-queries.md`](../on-hold/nebula-orm-and-queries.md). The "switch validate to plain worker" idea (was 5.2.6) iceboxed at [`tasks/icebox/nebula-5.2.6-switch-validate-to-plain-worker.md`](../icebox/nebula-5.2.6-switch-validate-to-plain-worker.md) — superseded by the DO-facet hosting model from 5.2.4.2.
+
+**Status**: Complete (overview only — kept for historical record of what shipped within the 5.2 banner)
 **Depends on**: Phase 5.1 (Storage Engine)
 
 ## Overview
@@ -19,9 +21,9 @@ This phase is broken into sub-phases that build on each other:
 | 5.2.4 | Documentation | **Complete** | `tasks/archive/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` |
 | 5.2.4.1 | Parse-Validate Package | **Complete** | `tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md` | New `@lumenize/ts-runtime-parser-validator` — typia-based parse-don't-validate; deprecates tsc engine |
 | 5.2.4.2 | Galaxy Validator Integration | **Complete** | `tasks/archive/nebula-5.2.4.2-validator-galaxy-integration.md` | Per-version Galaxy registry, Star DO-facet parse pipeline, `{ row, history }` atomic fetch (Star's local index drives 5.5 chain-walking). Release coordination — measurement, blog posts, `npm deprecate` — in `tasks/parse-validate-release.md` |
-| 5.2.4.5 | Annotation Experiments | Future | `tasks/nebula-5.2.4.5-annotation-experiments.md` | JSDoc annotation research for constraints, defaults, M:N |
-| 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` | `query()` with ontology-driven relationship resolution |
-| 5.2.6 | Validation in Plain Worker | Not started | `tasks/nebula-5.2.6-switch-validate-to-plain-worker.md` | Move validation from in-process to Service Binding Worker |
+| ~~5.2.4.5~~ | ~~Annotation Experiments~~ | Merged into ORM/queries follow-on | `tasks/on-hold/nebula-orm-and-queries.md` | JSDoc constraints carried forward as Part A of the merged file |
+| ~~5.2.5~~ | ~~Multi-Resource Queries~~ | Merged into ORM/queries follow-on | `tasks/on-hold/nebula-orm-and-queries.md` | `query()` carried forward as Part C of the merged file |
+| ~~5.2.6~~ | ~~Validation in Plain Worker~~ | **Iceboxed** — superseded by 5.2.4.2's DO-facet hosting | `tasks/icebox/nebula-5.2.6-switch-validate-to-plain-worker.md` | Spike data preserved as historical reference |
 
 ## Scratchpad
 

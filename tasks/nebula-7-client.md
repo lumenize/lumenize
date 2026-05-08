@@ -1,106 +1,63 @@
 # Nebula Client
 
 **Phase**: 7
-**Status**: Pending
+**Status**: Active — most demo-critical work has shipped via back-end testing; remaining items are subscriptions + UI event wiring (see `nebula-5.3-subscriptions.md`)
 **App**: `apps/nebula/` (NebulaClient lives in the nebula app)
-**Depends on**: Phase 5 (Resources + Subscriptions)
+**Depends on**: Phase 5 (Resources + single-resource subscriptions)
 **Master task file**: `tasks/nebula.md`
 **Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
 
 > **Walled garden.** Nebula is a product, not a framework. NebulaClient is the only way to connect — there are no alternative routing setups, no "bring your own auth," no escape hatches. See `tasks/nebula.md` § Walled Garden for context.
 
-## Already Done (Phase 2)
+## Already shipped (via back-end testing)
 
-The following are implemented in Phase 2 (`tasks/archive/nebula-baseline-access-control.md`) and tested in `test/test-apps/baseline/`:
+These items got built incrementally as the back-end work needed them:
 
-- **Two-scope model**: Auth scope (determines refresh cookie path) vs active scope (baked into JWT `aud`). Switching active scope requires a refresh call with a different `activeScope`.
-- **Access token management**: In-memory per-tab storage, refresh against the auth scope's endpoint.
-- **Admin scope switching**: Universe admin gets wildcard JWT, switches active scope via refresh with new `activeScope`.
+- **Two-scope model**: `authScope` (refresh cookie path) + `activeScope` (JWT `aud`). Switching active scope requires a refresh call with a different `activeScope`. See `apps/nebula/src/nebula-client.ts`. **Note (2026-05-07)**: with branches as first-class (see `tasks/nebula-branches.md`), `activeScope` becomes 4-tuple (`{u}.{g}.{s}.{branch}`) while `authScope` stays 3-tuple (`{u}.{g}.{s}`). Asymmetric by design — auth scope is identity/permission, active scope is runtime branch routing. The existing scope-switching mechanism handles branch-switching unchanged.
+- **Refresh path routing**: `NebulaClient.refresh` POSTs to `${baseUrl}/auth/${authScope}/refresh-token` with `{ activeScope }` body. Cookie-driven; rotation handled server-side.
+- **NebulaClientGateway active-scope verification**: `onBeforeCallToClient` checks that mesh→client `aud` matches the connected client's `aud`. See `apps/nebula/src/nebula-client-gateway.ts`.
+- **Handler 1 / Handler 2 dispatch from Star**: `transaction()` and `read()` on Star call back to NebulaClient via `lmz.call('NEBULA_CLIENT_GATEWAY', clientId, this.ctn<NebulaClient>().handleTransactionResult(result))`. The fan-out plumbing is in place — only the handlers themselves are stubs.
 - **Server-side auth flow**: All endpoints (discover, magic-link, refresh-token, invite, approve, delegation) — see `tasks/archive/nebula-auth.md`.
+- **LumenizeClient base**: auto-reconnect on `onclose` with 5-second grace + exponential backoff. NebulaClient inherits this for free.
 
----
+## What's actually left
 
-## Remaining Work (Phase 7)
+### Subscribe + UI event wiring (demo critical path — moved to `nebula-5.3-subscriptions.md`)
 
-### Discovery-First Login Flow (Client-Side Orchestration)
+**This is the remaining demo-blocking work.** The client-side surface is:
 
-The server endpoints exist; this is the client-side flow that wires them together. See `website/docs/nebula/auth-flows.mdx` for sequence diagrams.
+- `handleTransactionResult` and `handleReadResult` — currently stubs in `nebula-client.ts` that just `console.warn`. Need to: update an internal eTag cache, push the new value into `@lumenize/ui` via `setState`, and surface conflict responses for caller handling.
+- `subscribe(resourceType, resourceId)` — NebulaClient method that asks Star to register a subscriber and routes incoming pushes to the same `setState` path.
+- Auto-resubscribe on reconnect — when LumenizeClient's auto-reconnect succeeds, walk the local subscription registry and re-subscribe each.
 
-1. **Enter email** — Single login entry point. Turnstile loads invisibly in background.
-2. **Discover** — POST `{prefix}/discover { email }` → Registry returns scopes: `[{ instanceName, isAdmin }, ...]`
-3. **Pick scope** — User selects from list (auto-select if only one?)
-4. **Try refresh** — POST `{prefix}/{chosen-id}/refresh-token` — browser sends path-scoped cookie if it exists
-5. **If refresh succeeds** → access token in memory, enter app
-6. **If refresh fails** → POST `{prefix}/{chosen-id}/email-magic-link { email, turnstile }` → "Check your email"
-7. **Click magic link** → server validates, issues refresh cookie, redirects to app
+**Boundary decision (pinned)**: The integration point is `@lumenize/state`'s `getState`/`setState` (separate package from `@lumenize/ui` — see `tasks/lumenize-ui.md` § Package split), NOT a generic event emitter on NebulaClient. NebulaClient binds to a StateManager instance at construction and writes through. Subscribe pushes flow through a middleware in `@lumenize/state` that updates state by path. The UI (whether ObjectDOM via `@lumenize/ui` or vanilla HTML+JS) reads from / writes to that store; NebulaClient stays invisible to the UI layer. Keeps transport/auth concerns from leaking into UI integrations and funnels everyone through one reactivity model.
 
-**Edge cases**: No scopes returned (offer self-signup). Bookmarked scope URL (skip discovery, try refresh directly).
+Full design and phases live in `tasks/nebula-5.3-subscriptions.md`.
 
-### WebSocket Keepalive
+## Deferred to post-demo
 
-NebulaClient sends pings every 25 seconds. Server-side `setWebSocketAutoResponse` handles pongs during hibernation — zero billing cost.
+Each of these is a polish/production item, not a demo blocker. Studio works around them.
 
-**Why needed**: LumenizeClient already auto-reconnects on `onclose`, but some intermediaries (NAT tables, mobile carriers) silently drop idle connections without a close frame. Pings detect this: no pong → client reconnects.
+- **Discovery-first login flow** (client-side orchestration): tests bypass with `?_test=true` magic-link; Studio's login UI can hand-craft the flow against the same endpoints. The full discover → pick scope → refresh-or-magic-link sequence becomes important when there are multiple scopes or anonymous users hitting `/auth`. See sequence diagrams at `website/docs/nebula/auth-flows.mdx`.
+- **WebSocket keepalive (25-second pings + `setWebSocketAutoResponse`)**: matters when intermediaries (NAT tables, mobile carriers) silently drop idle connections. LumenizeClient's reactive reconnect handles the case where a close frame arrives; pings handle the case where it doesn't. Worst case without keepalive is ~25 seconds of stale display before active sends trigger TCP timeouts and `onSubscriptionRequired` fires. Acceptable for demo.
+- **Proactive token refresh**: access token TTL is ~15 minutes. Today the client refreshes reactively on 4401. Proactive timer or intercept-on-next-request avoids a flicker right at the boundary. Polish, not demo-blocking.
+- **Scope switching tests** (admin wildcard JWT switching `aud` mid-session). Admin scope switching is supported server-side; the client-side UX for it is post-demo.
 
-**Grace period tradeoff**: 25-second ping > Gateway's 5-second grace period, so a silent drop means grace expires before detection. Acceptable: active sends trigger TCP timeouts → `onclose` within seconds (inside grace). Worst case is ~25 seconds of stale display, then `onSubscriptionRequired` fires.
+## Validation Plan (deferred sub-pieces)
 
-### Subscription Management (Depends on Phase 5)
+The two existing test designs ("Coach Carol Multi-Tab with Dual Scopes" and "Admin Scope Switching") remain valuable but cover deferred items. Re-prioritize when those items unfreeze.
 
-- `onSubscriptionRequired` callback — fires on connect/reconnect, client fetches current state
-- Value caching — client holds local `DagTreeState` copy, re-runs computations on push updates
-- Push updates from Star → Gateway → Client via `lmz.call()` fan-out
-- See `tasks/nebula-scratchpad.md` § Star Subscription Design for detailed design
+## Open Questions (deferred along with the items they touch)
 
-### Resource State Management (from Phase 5.1)
-
-NebulaClient wrapper methods for `resources().transaction()` and `resources().read()` — unify internal resource state management (eTag caching, local value updates) and UI update events based on return results. Phase 5.1 tests use raw `callStarResourcesTransaction` / `callStarResourcesRead` fire-and-forget calls; this phase wraps them into ergonomic local methods that:
-- Cache eTags per-resource in memory
-- Update local values on success
-- Fire UI update callbacks on state changes
-- Handle conflict responses (retry with merge?)
-
-### Proactive Token Refresh
-
-Access token TTL is ~15 minutes. Client refreshes proactively before expiry (timer or intercept on next request).
-
----
-
-## Validation Plan
-
-### Test: Coach Carol Multi-Tab with Dual Scopes
-
-Using `browser.context(origin)` to simulate separate tabs:
-
-1. **Tab 1** — NebulaClient connected to `acme.crm.acme-corp`
-2. **Tab 2** — same origin (shared cookie jar), NebulaClient connected to `bigco.hr.bigco-hq`
-3. Verify path-scoped refresh cookies coexist, each tab refreshes against its own scope
-4. Verify access tokens are independent per tab (in-memory)
-5. Verify each WebSocket connects to the correct DO instance
-6. Verify downstream updates arrive only on the correct connection
-
-### Test: Admin Scope Switching
-
-Single tab, universe admin switching between stars via full re-login:
-
-1. Login → wildcard JWT with `aud: "george-solopreneur.app.tenant-a"`
-2. Connect → verify `onSubscriptionRequired` fires
-3. Switch: refresh with `activeScope: "george-solopreneur.app.tenant-b"` → new JWT
-4. Old client destroyed, new client connects → `onSubscriptionRequired` fires again
-5. Verify different `aud` claims across the two sessions
-
----
-
-## Open Questions
-
-- **Auto-select single scope** — Auto-select if discovery returns one scope? Leaning yes, with a brief flash showing the scope name.
-- **Turnstile pre-solving** — Tokens valid 300 seconds (5 min), should cover discover → pick → refresh-fail → magic-link.
-- **Redirect after magic link** — Currently hardcodes `/app`. Real URL structure emerges during Phase 8 (Nebula UI).
-
----
+- Auto-select single scope on discovery? Confirm during Studio login UI work.
+- Turnstile pre-solving — covered by 5-minute token validity, fine as-is.
+- Redirect after magic link — currently hardcodes `/app`; real URL structure emerges during Studio.
 
 ## Related
 
-- `tasks/archive/nebula-auth.md` — Server-side auth (endpoints, DOs, registry)
+- `tasks/nebula-5.3-subscriptions.md` — subscribe + UI wiring (THE remaining demo work for the client)
+- `tasks/lumenize-ui.md` — `@lumenize/state` (definitely) and `@lumenize/ui` (conditionally) — the integration point
+- `tasks/archive/nebula-auth.md` — server-side auth (endpoints, DOs, registry)
 - `tasks/archive/nebula-baseline-access-control.md` — Phase 2 (two-scope model, admin switching)
-- `tasks/nebula-scratchpad.md` § Star Subscription Design — Subscription fan-out design
-- `tasks/nebula.md` — Overall Nebula platform architecture
+- `tasks/nebula-scratchpad.md` § Star Subscription Design — subscriber tracking notes carried into 5.3
+- `tasks/nebula.md` — overall Nebula platform architecture
