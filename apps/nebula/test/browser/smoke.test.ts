@@ -151,6 +151,7 @@ describe('browser harness', () => {
       baseUrl,
       authScope: scope,
       activeScope: scope,
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

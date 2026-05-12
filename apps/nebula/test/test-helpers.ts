@@ -125,6 +125,11 @@ export async function browserLogin(
 /**
  * Create an authenticated NebulaClient subclass and wait for it to connect.
  * Each test-app passes its own client class (e.g., NebulaClientTest).
+ *
+ * `ontologyVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
+ * `star-resources.test.ts` and similar). Tests that bind to a different
+ * ontology pass their own value. Tests that don't use `client.resources.*`
+ * at all are unaffected by the default — only the auto-attach paths use it.
  */
 export async function createAuthenticatedClient<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
@@ -132,6 +137,7 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   authScope: string,
   activeScope: string,
   email: string,
+  ontologyVersion: string = 'v1',
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   // Login and get access token
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
@@ -144,16 +150,19 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
     baseUrl: ORIGIN,
     authScope,
     activeScope,
+    ontologyVersion,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
   });
 
-  // Wait for connection
+  // Wait for connection. Explicit 5s timeout (vs. vi.waitFor's 1s default)
+  // because parallel test execution can push connection-wait past the default
+  // under contention.
   await vi.waitFor(() => {
     expect(client.connectionState).toBe('connected');
-  });
+  }, { timeout: 5000 });
 
   return { client, payload, accessToken };
 }

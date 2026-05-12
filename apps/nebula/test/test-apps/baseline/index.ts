@@ -401,6 +401,11 @@ export class NebulaClientTest extends NebulaClient {
 
   @mesh()
   override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+    // Delegate to base for Promise correlation + state write-through (5.3.3a).
+    // The base no-ops state write when no StateManager is bound, so tests that
+    // don't call bindToState still work.
+    super.handleResourceUpdate(resourceType, resourceId, result);
+
     this.resourceUpdateCount++;
     if (result instanceof Error) {
       this.lastError = result.message;

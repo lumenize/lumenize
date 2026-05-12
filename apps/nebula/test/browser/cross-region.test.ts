@@ -115,6 +115,7 @@ describe('Phase 6 cross-region: same-DC vs EU Workers RPC', () => {
       baseUrl,
       authScope: galaxyScope,
       activeScope: galaxyScope,
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

@@ -94,9 +94,9 @@ Already shipped via earlier auth work (`tasks/archive/nebula-auth.md`, `tasks/ar
 | **Reserved state-path prefixes** | Two top-level prefixes are framework-reserved: `resources.*` (synced resource snapshots — `resources.{rt}.{rid}.value` and `.meta`) and `lmz.*` (everything else framework-owned — connection state, future things). All other top-level segments (`ui.*`, `app.*`, etc.) are app-owned. Framework only touches `resources.*` and `lmz.*`. | Two prefixes, not one. `lmz.resources.*` would be strictly consistent but adds a segment to every directive in every UI — significant ongoing ergonomic cost. `resources.` is short and distinctive enough on its own; `lmz.` covers the rare framework-meta cases. App authors get the rest of the namespace. |
 | **`lmz.connection.*` connection-state surfacing** | NebulaClient writes LumenizeClient's connection state to `lmz.connection.*` paths so the UI can bind declaratively. Paths: `lmz.connection.state` (`'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'`); `lmz.connection.connected` (boolean — true iff `state === 'connected'`); `lmz.connection.lastConnectedAt` (timestamp ms, set on each `'connected'` transition). Updated by `bindToState`'s setup — subscribes to LumenizeClient's connection events, writes through on each transition. | Real-time-sync demos need a visible connection-state indicator (part of the wow factor; also tells users when their edits aren't reaching the server). Surfacing as state paths makes it declarative: `<div x-show="!lmz.connection.connected">Reconnecting…</div>` works without event listeners in user code. Three paths cover common cases (state string for fine-grained display, boolean for show/hide, timestamp for "last synced X ago" UX). |
 | **Idempotency mechanism** | Client generates the *new* eTag (`newETag`) for each transaction; server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns idempotent success. | Cleaner than separate `txnId` — no server-side dedupe table, idempotency implicit in the eTag itself. Auto-retry safe across network drops. |
-| **Transaction queue** | Serial — at most one transaction in flight per client; subsequent calls queue. 5–10 s timeout then reject (queue unblocks). Caller-decided retry. Queue blocks transactions on *all* resources/fields, not just the in-flight one. Optimistic local state still paints immediately on `setState` (the middleware does `setState` first, then enqueues) — so the user sees their typing land regardless of queue state. Queue is in-memory only; refresh clears it. | Matches human editing speeds; avoids partial-application reasoning. Timeout collapses all "I don't know what happened" failure modes to one signal. Optimistic-paint-then-enqueue means visual responsiveness is unaffected by queue depth. |
+| **Transaction queue** | Serial — at most one transaction in flight per client; subsequent calls queue. 5–10 s timeout then resolve the in-flight Promise with `{ resolution: 'timeout' }` (queue unblocks). Caller-decided retry. Queue blocks transactions on *all* resources/fields, not just the in-flight one. Optimistic local state still paints immediately on `setState` (the middleware does `setState` first, then enqueues) — so the user sees their typing land regardless of queue state. Queue is in-memory only; refresh clears it. | Matches human editing speeds; avoids partial-application reasoning. Timeout collapses all "I don't know what happened" failure modes to one signal. Optimistic-paint-then-enqueue means visual responsiveness is unaffected by queue depth. |
 | **Resolver execution suspends queue timeout** | When `handleTransactionResult` invokes an async resolver (returns a Promise), the 5–10 s timeout is suspended until the resolver settles. When the framework submits the new transaction post-resolver, a fresh timeout starts for that submission. No max-duration enforced on the resolver itself — a modal can sit open for minutes if the user gets distracted. | The 5–10 s timeout is for "I don't know what happened to this call" cases. During resolver execution, the framework knows exactly what's happening — the user has the modal. App-level timeouts on the resolver (e.g., "auto-cancel after 30s") are the caller's responsibility via `Promise.race`. |
-| **Conflict resolver (per resource type)** | Registered via `client.resources.onETagConflict(resourceType, resolver, options?)`. Per-call override via `options.onETagConflict` on `transaction()`. Framework default = `() => ({ resolution: 'use-server' })`. Resolver returns `ConflictResolution` discriminated union (`'use-server'` / `'use-this'` / `'human-in-the-loop'`). Receives third `context: { bindings: Map<path, HTMLElement[]> }` for custom UX. | Conflict strategy is resource-shape-specific; per-type is the right grain. Discriminated union makes intent unambiguous. `'use-this'` triggers recursive new transaction (bounded by `maxRetries`, default 5, then `'conflict-retries-exhausted'`). `'human-in-the-loop'` rejects with `'conflict-handoff'`; optimistic state stays painted; app re-submits. |
+| **Conflict resolver (per resource type)** | Registered via `client.resources.onETagConflict(resourceType, resolver, options?)`. Per-call override via `options.onETagConflict` on `transaction()`. Framework default = `() => ({ resolution: 'use-server' })`. Resolver returns `ConflictResolution` discriminated union (`'use-server'` / `'use-this'` / `'human-in-the-loop'`). Receives third `context: { bindings: Map<path, HTMLElement[]> }` for custom UX. | Conflict strategy is resource-shape-specific; per-type is the right grain. Discriminated union makes intent unambiguous. `'use-this'` triggers recursive new transaction (bounded by `maxRetries`, default 5, then transaction resolves with `{ resolution: 'retries-exhausted' }`). `'human-in-the-loop'` causes transaction to resolve with `{ resolution: 'human-in-the-loop' }`; optimistic state stays painted; app re-submits. `'use-server'` causes transaction to resolve with `{ resolution: 'use-server' }`; framework writes `server.value` through state. All terminal states are normal Promise resolutions (always-resolve contract) — see `TransactionResolution` type. |
 | **Conflict flash class** | After resolution, framework compares resolved value to `local.value` field-by-field; for diff fields, adds `flashClass` to bound elements for `flashDuration` ms. Default class `lumenize-conflict-revert`, duration 1000 ms. Configurable per type via `onETagConflict('rt', resolver, { flashClass, flashDuration })`; `flashClass: null` disables. | Default visual signal that user input was changed by a conflict, without explicit UX code. Field-diff inference means only actually-affected fields flash. |
 | **`ontologyVersion` on every operation** | NebulaClient constructor argument (Studio's bootstrap fills in at build time). Auto-attached to every `client.resources.*` call. `options.ontologyVersion` per-op override for admin scripts. | Lock-step UI/ontology. Star already takes it for Handler 1/2 dispatch. |
 | **Staleness signal + `onShouldRefreshUI` hook** | Star's cache-miss-with-mismatch path returns `{ kind: 'ontology-stale', clientVersion, currentVersion }`. NebulaClient dispatches to registered `onShouldRefreshUI` constructor hook (no default — undefined = opted-out). Originating Promise also settles. | Centralized hook for an orthogonal signal that multiple call sites would otherwise each need to inspect. Distinct from earlier-rejected `onStaleVersion` (which was tied to one error path). |
@@ -111,7 +111,7 @@ Transaction responses, subscription pushes, and ad-hoc reads have fundamentally 
 
 | Path | Public surface | Caller-Promise resolution | State write-through |
 | --- | --- | --- | --- |
-| `handleTransactionResult` (`@mesh` on NebulaClient) | settles Promise from `client.resources.transaction()` | success: yes; `'use-server'`: rejects `'conflict-lost'`; `'use-this'`: stays pending across recursive chain until terminal (success or `'conflict-retries-exhausted'`); `'human-in-the-loop'`: rejects `'conflict-handoff'`; validation: rejects `'validation-failed'`; permission: rejects `'permission-denied'` | success: yes (write authoritative value + new eTag); `'use-server'`: yes (write `server.value`); `'use-this'`: yes (optimistic write `value`, then submit); `'human-in-the-loop'`: no; `'validation-failed'`: rollback to last-confirmed; `'permission-denied'`: rollback to last-confirmed |
+| `handleTransactionResult` (`@mesh` on NebulaClient) | settles Promise from `client.resources.transaction()` (always-resolves with `TransactionResolution`) | `committed`: resolve; `'use-server'`: resolve; `'use-this'`: stays pending across recursive chain until terminal (`committed` or `'retries-exhausted'`); `'human-in-the-loop'`: resolve; `'validation-failed'`: resolve; `'permission-denied'`: resolve; `'ontology-stale'`: resolve (also dispatches to `onShouldRefreshUI`); `'timeout'`: resolve (queue-timer driven, no server response received) | `committed`: yes (write authoritative value + new eTag); `'use-server'`: yes (write `server.value`); `'use-this'`: yes (optimistic write `value`, then submit); `'human-in-the-loop'`: no (optimistic stays painted); `'validation-failed'`: rollback to last-confirmed; `'permission-denied'`: rollback to last-confirmed; `'ontology-stale'`: rollback; `'timeout'`: rollback |
 | `handleResourceUpdate` (`@mesh` on NebulaClient) | resolves initial-snapshot Promise from `client.resources.subscribe()`; thereafter, fire-and-forget pushes | only first call settles a Promise; subsequent calls are pure side-effect | yes, unconditional — every push writes `value` to `{statePath}.value` and `meta` to `{statePath}.meta` |
 | `client.resources.read(rt, rid)` | returns `Promise<Snapshot \| null>` | yes — caller `await`s the Snapshot | **none** — caller decides |
 
@@ -225,7 +225,7 @@ client.resources = {
   transaction(
     ops: OperationDescriptor[] | TxnEntries,
     options?: { ontologyVersion?: string; onETagConflict?: ConflictResolver; maxRetries?: number },
-  ): Promise<TransactionResult>;
+  ): Promise<TransactionResolution>;  // ALWAYS resolves — switch on outcome.resolution
 
   /**
    * Register a per-resource-type conflict resolver. Per-call override
@@ -294,6 +294,36 @@ type ConflictResolution =
   | { resolution: 'use-server' }
   | { resolution: 'use-this'; value: unknown }
   | { resolution: 'human-in-the-loop' };
+
+/**
+ * `client.resources.transaction()` returns `Promise<TransactionResolution>`
+ * and **always resolves** — never rejects (except for infrastructure failures
+ * which still throw `Error`). Rust-`Result<T, E>`-style: callers switch on
+ * `outcome.resolution` to handle every terminal state.
+ *
+ * The discriminant key (`resolution`) intentionally matches
+ * `ConflictResolution`'s discriminant so the resolver's verdict and the
+ * resulting transaction state share vocabulary: a resolver returning
+ * `{ resolution: 'use-server' }` produces a transaction outcome with
+ * `{ resolution: 'use-server', ... }`. The `'use-this'` verdict is NOT a
+ * terminal state — it triggers a recursive re-submission with the server's
+ * new eTag; the terminal of the `'use-this'` loop is `'retries-exhausted'`
+ * after `maxRetries` (default 5) consecutive losses.
+ *
+ * Rationale for always-resolve over reject-on-failure: Studio-generated UIs
+ * are LLM-authored. A discriminated-union switch forces handling every
+ * variant explicitly, which produces better code-gen than relying on
+ * `try/catch` hygiene (a bare `catch` would swallow the discrimination).
+ */
+type TransactionResolution =
+  | { resolution: 'committed'; eTags: Record<string, string> }
+  | { resolution: 'use-server'; resources: Record<string, Snapshot> }
+  | { resolution: 'retries-exhausted'; resources: Record<string, Snapshot>; attempts: number }
+  | { resolution: 'human-in-the-loop'; resources: Record<string, Snapshot> }
+  | { resolution: 'validation-failed'; errors: Record<string, ValidationError[]> }
+  | { resolution: 'permission-denied'; resources: string[] }
+  | { resolution: 'ontology-stale'; clientVersion: string; currentVersion: string }
+  | { resolution: 'timeout' };
 ```
 
 ## Implementation Phases
@@ -355,22 +385,43 @@ Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/
 
 ### Phase 5.3.3 — NebulaClient handlers + `client.resources.*` API
 
-- [ ] Replace `handleTransactionResult` / `handleReadResult` stubs (drop `handleReadResult` entirely — `read` is a method, not a handler)
-- [ ] `handleResourceUpdate` writes through to bound StateManager — no internal value cache. `value` and `meta` at sibling paths.
-- [ ] `handleTransactionResult` advances in-flight transaction queue; dispatches conflicts through registered resolver
-- [ ] StateManager registered with NebulaClient at construction
-- [ ] Local subscription registry (`Map<resourceKey, { statePath }>`)
-- [ ] Constructor: `ontologyVersion: string` (auto-attached); `onShouldRefreshUI?` hook
-- [ ] `client.resources.{subscribe, read, transaction, onETagConflict}` per Surface signatures
-- [ ] Per-call override via `options.onETagConflict` on `transaction()`. Precedence: per-call > per-type > framework default (`'use-server'`)
-- [ ] `ConflictResolution` discriminated union with recursive `'use-this'` (bounded by `maxRetries`, default 5, then `'conflict-retries-exhausted'`)
-- [ ] Resolver receives `context.bindings: Map<path, HTMLElement[]>`
-- [ ] Field-diff flash: compare resolved value to `local.value`, flash bound elements at diff paths with `flashClass` for `flashDuration` ms
-- [ ] Bindings registry: extend `bindDom`'s path-subscriber map to track `HTMLElement` per subscriber (`Map<path, Set<HTMLElement>>`)
-- [ ] Star mismatch path ([star.ts:203-206, 270-273](apps/nebula/src/star.ts:203)) returns structured `{ kind: 'ontology-stale', clientVersion, currentVersion }`
-- [ ] NebulaClient inspects responses for staleness signal; dispatches to `onShouldRefreshUI`; settles originating Promise
-- [ ] `client.resources.read(rt, rid)` returns Promise resolving with `Snapshot | null`; no state side-effect. Mesh-framework Promise correlation strategy (callId, hidden plumbing handler, or extending mesh return-value path) — resolve during implementation.
-- [ ] `client.resources.transaction()` generates `newETag(s)`, queues if in-flight, 5–10 s timeout-and-reject
+Split into four sub-phases (a/b/c/d) decided 2026-05-12 so each lands testable on its own. Drop the no-longer-applicable `client.resources.subscribe(rt, rid, statePath?)` override — entire-resource-at-a-time addressing only.
+
+#### Phase 5.3.3a — Foundation (subscribe + StateManager write-through)
+
+- [ ] Constructor gains `ontologyVersion: string` (auto-attached to every `client.resources.*` call) and `onShouldRefreshUI?: (info) => void` (no default — undefined = opted-out)
+- [ ] `registerStateStore(state: StateManager): void` — minimal binding to a StateManager so `handleResourceUpdate` knows where to write. Full `bindToState` (refcount + middleware + grace-period) is Phase 5.3.6; this is the load-bearing slice.
+- [ ] Local subscription registry: `Map<resourceKey, { /* future: statePath, refcount, etc. */ }>` keyed by `${rt}:${rid}`. First-pass content can be minimal — used by 5.3.4's auto-resubscribe and 5.3.6's refcount.
+- [ ] `client.resources.subscribe(rt, rid): Promise<Snapshot | null>` per the (now-finalized) signature. The Promise settles on first `handleResourceUpdate` for `(rt, rid)`.
+- [ ] `handleResourceUpdate(rt, rid, snapshot)` writes through to bound StateManager: **single atomic `setState('resources.{rt}.{rid}.value', snapshot.value)` + `setState('resources.{rt}.{rid}.meta', snapshot.meta)`**. JurisJS's hierarchical-notify-with-deepEquals (5.3.0 port) gates redundant deep-binding fires. No per-field diffing on the client.
+- [ ] Tests in baseline: client A subscribes → client B mutates → A's bound StateManager has the new value at `resources.{rt}.{rid}.value.*`; verify path-level reactivity (subscribe to `.title` only fires when title actually changes despite whole-value writes).
+
+#### Phase 5.3.3b — Read + Transaction (happy path + queue + timeout)
+
+- [ ] **`client.resources.read(rt, rid): Promise<Snapshot | null>`** — generates `requestId = crypto.randomUUID()`, calls `Star.read(ontologyVersion, rt, rid, requestId)`, registers `{resolve, reject}` in `Map<requestId, ...>`. New internal mesh handler **`@mesh() handleReadResponse(requestId, result: Snapshot | null | Error): void`** on NebulaClient settles the Promise. Drops the old `handleReadResult` entirely.
+- [ ] Star-side: add `requestId` param to `Star.read` Handler 1/2, thread through `doRead`'s callback. Update `apps/nebula/src/star.ts` and the `NebulaClientTest` test helpers.
+- [ ] **`client.resources.transaction(ops, options?): Promise<TransactionResolution>`** — **always resolves**, never rejects (infrastructure failures still throw `Error`). See `TransactionResolution` type in § Types. Caller switches on `outcome.resolution`.
+- [ ] **Hoist `newETag` to the transaction level**: client generates ONE `newETag = crypto.randomUUID()` per `transaction()` call. `Star.transaction(ontologyVersion, newETag, ops)` accepts it as a top-level arg. The server uses it for every resource's write. Per-resource `eTag` (old) stays on each `OperationDescriptor`. This matches what `resources.ts:280` already does internally (one eTag per transaction) — just lifts it to the API surface and to client-side generation per the idempotency requirement.
+- [ ] Serial in-flight transaction queue: at most one in flight; subsequent calls queue. Correlation = serial-queue-by-construction (no requestId needed for transactions, only for reads). 5–10 s timeout from submission → resolve in-flight Promise with `{ resolution: 'timeout' }`, dequeue next.
+- [ ] Server-side: widen `TransactionError` to include `{ type: 'permission'; requiredTier: PermissionTier; nodeId: number }` — currently permission failures throw and become generic `Error` at the client. Catch `requirePermission` throws inside the per-resource permission-check loop in `resources.ts`; convert to typed `TransactionError`. NebulaClient maps to `{ resolution: 'permission-denied', resources }`.
+- [ ] Idempotency: server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns a `committed` result. Add this short-circuit in `resources.ts`'s transactionSync block.
+- [ ] Tests: happy-path transaction (`committed`), sequential transactions queued and applied in order, timeout (no server response in 5–10s → `'timeout'`), idempotency probe (drop response client-side, retry with same `newETag` → idempotent `committed`).
+
+#### Phase 5.3.3c — Conflict-resolver machinery
+
+- [ ] `client.resources.onETagConflict(resourceType, resolver, options?)` per-type registration; per-call override via `options.onETagConflict` on `transaction()`. Precedence: per-call > per-type > framework default (`{ resolution: 'use-server' }`).
+- [ ] `ConflictResolution` discriminated union with recursive `'use-this'` bounded by `maxRetries` (default 5). On cap, transaction resolves with `{ resolution: 'retries-exhausted', attempts }`.
+- [ ] `'use-server'` resolver verdict → write `server.value` to bound state, transaction resolves with `{ resolution: 'use-server', resources }`.
+- [ ] `'human-in-the-loop'` resolver verdict → transaction resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted.
+- [ ] Resolver execution suspends queue timeout; fresh timeout starts on each post-resolver re-submission.
+- [ ] **Deferred to 5.3.6**: `context.bindings: Map<path, HTMLElement[]>` argument to resolver; field-diff flash class on bound elements; bindings registry sourced from `bindDom`. The conflict-resolver-machinery itself works without these — the resolver just receives `context: {}` or `context: { bindings: new Map() }` (empty) until 5.3.6 lands.
+- [ ] Tests: each of `'use-server'` / `'use-this'` (single retry success) / `'use-this'` (retries-exhausted) / `'human-in-the-loop'` / per-call override / per-type registration / async resolver (verify queue timeout is suspended during await).
+
+#### Phase 5.3.3d — Ontology-staleness signal
+
+- [ ] **Star-side**: widen the mismatch path ([star.ts:203-206, 270-273](apps/nebula/src/star.ts:203)) and the corresponding paths in `doSubscribe`. Today they return `new Error('Ontology version mismatch: ...')`. Replace with a structured signal: a typed error subclass or a plain object `{ kind: 'ontology-stale', clientVersion, currentVersion }` delivered via the same handler call.
+- [ ] **NebulaClient-side**: inspect responses for the staleness signal; dispatch to `onShouldRefreshUI({ clientVersion, currentVersion, reason: 'ontology-stale' })`; settle originating Promise with `{ resolution: 'ontology-stale', clientVersion, currentVersion }`.
+- [ ] Tests: client constructed with `'v1'`, server now `'v2'` → transaction resolves `{ resolution: 'ontology-stale', ... }` AND `onShouldRefreshUI` fires with matching info.
 
 ### Phase 5.3.4 — Reconnect + refresh-cycle ontology-staleness detection
 
@@ -533,6 +584,44 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    **Triage**: think before designing. The 2 s grace period + refcount semantics in 5.3.6 already give us *internal* mount/unmount events; question is which to expose. Minimum-viable surface for the demo is probably: `x-on:mount` + `x-on:unmount` on elements, and component-level `onMount` / `onUnmount` for per-instance setup (especially for `$local` initialization, which is currently underspecified). Defer auth/scope hooks, per-transaction granularity, and `onReady` unless a Studio template genuinely needs them.
 
    **Outcome destination**: resolve in this file before Phase 5.3.6 design-finalizes; the answer affects `bindDom`'s option surface and the `x-component` directive grammar in `coding-your-ui.md`. If the design space turns out larger than expected, split into its own task file (`tasks/lumenize-ui-lifecycle.md`).
+
+7. **DAG-tree-as-special-resource (reactive DAG binding).** The DAG tree is conceptually a resource — clients eventually want to bind UI to it (`x-text="resources.lmz.dag.value.nodes['42'].label"`, tree-view directives, reactive permission badges). The cleanest design **reuses the resource-subscribe plumbing** rather than building parallel `client.dag.subscribe()` / `handleDagUpdate()` / a separate `DagSubscribers` table — the whole consolidation work in 5.3.1 (one Subscribers schema, one fanout path) was about not making exactly that mistake.
+
+   **Framing**: reserve a fixed framework resourceId — likely `('lmz', 'dag')` under the `lmz.*` reserved prefix — so the DAG appears at `resources.lmz.dag.value` in client state and uses the same `client.resources.subscribe('lmz', 'dag')` API.
+
+   **What lines up for free**:
+   - `Subscribers` table is `(resourceId, clientId)` — agnostic to resource shape.
+   - `DagTree.#onChanged` already fires on every mutation (today routed to `Star.#onDagChanged()`, a no-op). Repoint it at `Star.#fanout` with a synthesized `Snapshot` and DAG fanout works.
+   - Path-based reactivity, refcount auto-(un)subscribe, MutationObserver lifecycle, conflict-resolver semantics, all the integration-layer plumbing — no changes needed.
+   - **Permission check at subscribe time goes away**: per project decision, *everyone sees the whole DAG* (restricting visibility would block workflows like "request permission to see resources attached to this node"). So the synthetic DAG resourceId can skip the `Resources.read(resourceId)` perm check entirely — no need for `ROOT_NODE_ID`-proxy or "DAG-tree-level read assumed" gymnastics.
+
+   **What needs synthesis** (~20–30 LOC, contained):
+   - **`Snapshot` shape for DAG**: `value = dagTree.getState()`, `meta.eTag = crypto.randomUUID()` per mutation (or monotonic counter), `meta.typeName = 'DagTree'`, `meta.validFrom = new Date().toISOString()`, `meta.deleted = false`. The type-mismatch guard in `Subscriptions.subscribe` needs either a special-case skip for framework-reserved resourceIds (`lmz.*`) or `'DagTree'` registered as a real ontology type. Special-case skip is the cleaner choice — keeps ontology storage focused on application resources.
+   - **`#onChanged` rewire**: `() => this.#fanout(new Map([['dag', synthesizedDagSnapshot]]), originatorClientId)`. The originator's `clientId` is available from `this.lmz.callContext.callChain[0]?.instanceName` at the mutation site, same plumbing as `Resources.transaction`'s onMutations callback.
+
+   **What needs design at scale** (the actually-load-bearing concern):
+
+   Payload size on every DAG mutation is the dimension to optimize. Demo-scale (hundreds of nodes, ~10 subscribers): full-tree-per-mutation is fine. Production-scale (thousands of nodes, hundreds of concurrent users on a Star): full-payload fanout becomes expensive — each mutation broadcasts the whole tree to everyone. Four alternatives, ordered from least to most ambitious:
+
+   **Option 0 — Full-snapshot fanout (demo default).** Every mutation fanouts the entire `DagTreeState` to every subscriber. Cost scales as O(nodes × subscribers) per mutation. Acceptable for ≤ ~1k nodes × ~50 subscribers. No additional plumbing.
+
+   **Option A — eTag-bump-and-pull (simplest scale-out).** Fanout sends only `{ meta: { eTag: 'new-uuid', typeName: 'DagTree', ... } }` with no `value`. Clients see the eTag changed via state-write-through, call `client.resources.read('lmz', 'dag')`, get current full state, write-through to bound state. **Costs**: cheap fanout (M × eTag_size); on-demand read on each subscriber that cares (M × N, but only for clients that pull). **Wins regime**: when most subscribers re-read anyway, similar to Option 0; when many don't care about every mutation, much cheaper. **API impact**: none — clients see the same `handleResourceUpdate`. Ship-when-needed.
+
+   **Option B — Op-broadcast (DAG-specific, wire-efficient).** DAG mutations are well-defined ops (`createNode`, `addEdge`, `reparentNode`, `setPermission`, etc.). Server applies the op and broadcasts the *op itself* (not resulting state). Each client applies the same op to its local DAG copy. The key enabler: `dag-ops.ts` is already a pure functional core with no Cloudflare imports — runs unchanged in the browser. **Cost**: tiny wire payload (one op = a few fields × M subscribers) regardless of DAG size. **Subtleties**:
+   - **Trust-server vs trust-client perms**. Fanout from server → trust server (it already perm-checked before broadcasting). Local origin (this client's own mutation) → run perm check locally as fail-fast UX so the user doesn't attempt a doomed op.
+   - **Optimistic vs confirmed apply**. Resources use optimistic apply with rollback on conflict. DAG could be either. **Lean toward confirmed-apply for v1**: DAG mutations are infrequent (vs. text-field typing), responsiveness gain is small, rollback complexity gain is meaningful. Per-mutation re-decision later if needed.
+   - **Bootstrap ordering**. Subscribe-init delivers full state with a monotonic seq number; fanout ops carry `seq = N+1`. Client verifies no gap; on gap, triggers full-state re-pull (same recovery mechanic as Option A). The op stream is *append-only* — gaps mean missed messages.
+   - **API impact**: meaningful. Either `client.resources.subscribe('lmz', 'dag')` returns a polymorphic payload (snapshot OR op-stream — discriminated union widening of `handleResourceUpdate`), or a sibling `client.dag.subscribe()` is added. The latter brings back the "two reactive systems" failure mode 5.3.1 consolidated against — so the polymorphic-payload path is preferred if we go here.
+
+   **Option C — Generic snapshot-diff (broad resources feature, most ambitious).** Compute a structural patch between previous and new snapshot; send the patch. **Cost**: small wire payload (M × diff_size); server must track prev snapshot for diff computation; client must apply patches. **Generality blocker**: DAG state uses `Map<number, ...>` and `Map<number, Map<string, ...>>` — verified at `dag-ops.ts:13`, `dag-tree.ts:87-88`. JSON-Patch (RFC 6902, well-supported, ~150 LOC libs) only covers plain JSON. A full structuredClone-aware patch operator (Maps, Sets, Dates, cycles, aliases) is ~500–1500 LOC plus careful test coverage of all type edges. **When this earns its keep**: only if we *also* pursue field-level transactions (clients send patch instead of full `put`) and patch-based read-sync (clients sync from baseline eTag instead of full re-pull). For DAG-only optimization, it's expensive plumbing for narrow gain — Option B is the better DAG-specific answer. Possibly Phase 7+ scope when transaction-side patch semantics make the cost amortize.
+
+   **Workaround if we ever want Option C just for DAG**: change `DagTreeState` from `Map<number, ...>` to `Record<string, ...>` at the boundary (Map only used internally during traversal). The cached state then becomes plain JSON, and JSON-Patch suffices. But that's an internal DagTree refactor with downstream effects — only worth doing if Option C is the chosen path.
+
+   **Option D — Diff after structured-clone preprocess (revisited from earlier discussion).** A variant of Option C that sidesteps the structuredClone-aware-patch-operator problem by *first* preprocessing the snapshot to pure JSON via `@lumenize/structured-clone`, *then* running JSON-Patch on the preprocessed form. The catch: the preprocessor uses **tuple format** for things like Map entries — `[key, value]` arrays — and standard JSON-Patch treats arrays positionally. A `set('x', 1)` becoming a `set('y', 2)` then a `set('x', 1)` again would diff as full array reorderings rather than meaningful per-entry mutations. To make patches semantically useful we'd have to convert tuple-arrays-as-Map-entries into objects with the keys as object keys (e.g. `{"x": 1, "y": 2}` instead of `[["x", 1], ["y", 2]]`) — losing the ability to round-trip Map's non-string keys cleanly. **Verdict**: cheaper than Option C in pure LOC (reuse existing JSON-Patch lib) but introduces lossiness on Map-with-non-string-keys and requires a custom JSON-shape just for diff purposes. Not obviously better than B (op-broadcast) for DAG, and not obviously better than C (structuredClone-aware diff) as a general feature. Captured here as part of the design space; not currently preferred over A or B for DAG, or over C as a generic capability.
+
+   **Pick-an-option triage**: ship demo with **Option 0**. When (if) a real workload exposes the scale concern, the cheapest follow-up is **Option A** (eTag-bump-and-pull) — minimal new plumbing, no API change. **Option B** is the wire-efficient ceiling and worth a serious look if op-streaming has UX value beyond just size (e.g., showing other users' edits as they happen, animated). **Option C** is the right answer if generic-diff semantics become a broader Lumenize capability — not a DAG-only justification.
+
+   **Phase triage**: don't implement DAG-binding yet. Wait until the Studio demo (or a real app) actually wants a reactive DAG view — at that point Option 0 is small (~30 LOC + one type-check special case in `Subscriptions.subscribe` + the `#onChanged` rewire), and the scale-out decision (A vs B vs C) can be made with concrete UI requirements in hand instead of speculatively. **Outcome destination**: own subsection under Phase 5.3.x when the trigger lands; or fold into a `tasks/nebula-dag-binding.md` if the design grows beyond what fits here.
 
 ## Pre-port JurisJS inventory (archive reference)
 
