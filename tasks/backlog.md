@@ -302,6 +302,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Dependency**: Much of this rides on the OAuth 2.1 AS work above (discovery, `/authorize`, `/token`, consent). Natural follow-on, not independent.
   - **References**: [OIDC Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html), [OIDC Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
 
+## Nebula
+
+- [ ] Refactor `dag-tree.ts` `requirePermission` to throw typed errors (`PermissionDeniedError`, `NodeNotFoundError`, `AuthenticationRequiredError`)
+  - **Why**: Currently throws plain `Error` for three distinct conditions with different downstream handling needs. `Resources.transaction`'s permission-check refactor (Phase 5.3.3b) needed to distinguish "permission denied" (→ typed `TransactionError`) from "node not found" / "auth required" (→ propagate as Error). Fix is currently a fragile message-string match at [apps/nebula/src/resources.ts:368-377](apps/nebula/src/resources.ts:368) — `e.message.includes('permission required')`. Replace with `e instanceof PermissionDeniedError` checks.
+  - **Pattern to follow**: `apps/nebula/src/errors.ts`'s `OntologyStaleError` + `isOntologyStaleError` (typed Error subclass with `name` override + type-guard for cross-boundary use). Same shape works for these — they stay server-side so `instanceof` works fine.
+  - **Scope**: small. dag-tree.ts changes ~10 LOC; resources.ts catch block ~5 LOC; backlog because not urgent but worth doing before the next major change to either file.
+  - **Discovered during**: Phase 5.3.3b retro (typed-error fragility in the permission refactor).
+
 ## Nebula Auth
 
 - [ ] Integrate Cloudflare Account Abuse Protection for disposable email and email risk detection

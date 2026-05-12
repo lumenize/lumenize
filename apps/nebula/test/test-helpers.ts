@@ -138,6 +138,9 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   activeScope: string,
   email: string,
   ontologyVersion: string = 'v1',
+  /** Optional extra config to pass through to the client constructor —
+   *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
+  extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   // Login and get access token
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
@@ -155,6 +158,7 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
+    ...extraConfig,
   });
 
   // Wait for connection. Baseline-project setup file bumps vi.waitFor's

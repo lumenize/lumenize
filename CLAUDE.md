@@ -127,6 +127,14 @@ Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async
 
 **Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
 
+### Cross-Boundary Typed Errors
+
+Errors crossing DO ↔ Client (or DO ↔ DO via mesh) get preprocessed/postprocessed by `@lumenize/structured-clone`. The pipeline preserves `name`, `message`, `stack`, `cause`, and all custom own properties — but **`instanceof` doesn't survive cross-boundary**, because postprocess reconstructs via `(globalThis as any)[name] || Error` and non-built-in subclasses aren't on `globalThis`.
+
+For structured signals across mesh boundaries: detect via `err.name === 'MyTypedError'` + property-presence check, not `err instanceof MyTypedError`. Canonical example: `apps/nebula/src/errors.ts` (`OntologyStaleError` + `isOntologyStaleError`). Full mechanics + registration-for-`instanceof` workaround in [website/docs/structured-clone/index.mdx](website/docs/structured-clone/index.mdx) § "Custom Error Classes".
+
+**Refactoring throws → typed errors**: when consolidating a throw-based error path, enumerate *every* case the inner code can throw, not just the one you're typing. A catch that's too broad silently swallows unrelated failure modes — caught here during 5.3.3b when a Resources.transaction permission refactor accidentally swallowed `"Node X not found"` (a malformed-request error) as a permission failure. Either define one typed Error per case, or string-match the message and mark the site with a TODO.
+
 ### Fire-and-Forget Error Delivery
 When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
@@ -261,6 +269,26 @@ await vi.waitFor(async () => {
   expect(status).toBe('complete');
 });
 ```
+
+### `vi.waitFor` timeout defaults
+
+`vi.waitFor`'s default timeout is 1000 ms. Under parallel-test contention this is fragile — tests that pass in isolation flake when run alongside heavier files (the "isolation flips the result" signature). For test-app suites with auth/WebSocket setup, install a project-wide default via `setupFiles`:
+
+```typescript
+// test/setup.ts
+import { vi } from 'vitest';
+const orig = vi.waitFor;
+vi.waitFor = ((fn, opts) =>
+  orig(fn, { timeout: 5000, interval: 50, ...(opts ?? {}) })
+) as typeof vi.waitFor;
+```
+
+```javascript
+// vitest.config.js (within the project)
+test: { setupFiles: ['./test/setup.ts'] }
+```
+
+Per-test `{ timeout }` overrides take precedence as expected. Canonical example: [apps/nebula/test/test-apps/baseline/test/setup.ts](apps/nebula/test/test-apps/baseline/test/setup.ts).
 
 ### App Test Pattern
 For apps in `apps/`, use `test/test-apps/{name}/` with `instrumentDOProject`. See `apps/nebula/test/test-apps/README.md` for the checklist.

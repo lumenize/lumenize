@@ -15,6 +15,7 @@
 import { LumenizeClient, mesh } from '@lumenize/mesh/client';
 import type { LumenizeClientConfig } from '@lumenize/mesh/client';
 import type { StateManager } from '@lumenize/state';
+import { isOntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot, TransactionError } from './resources';
 import type { Star } from './star';
 
@@ -470,6 +471,20 @@ export class NebulaClient extends LumenizeClient {
   }
 
   /**
+   * Fire the `onShouldRefreshUI` constructor hook (if registered) with the
+   * staleness info. Swallows user-callback throws so an erroring hook can't
+   * take the framework down.
+   */
+  #dispatchOntologyStale(clientVersion: string, currentVersion: string): void {
+    if (!this.#onShouldRefreshUI) return;
+    try {
+      this.#onShouldRefreshUI({ reason: 'ontology-stale', clientVersion, currentVersion });
+    } catch {
+      // swallow
+    }
+  }
+
+  /**
    * Synchronous outcome mapping for committed / validation-failed /
    * permission-denied / ontology-stale / infrastructure-error paths.
    * Conflicts route through `#handleConflict` instead.
@@ -479,15 +494,13 @@ export class NebulaClient extends LumenizeClient {
     result: TransactionResult | Error,
   ): TransactionResolution {
     if (result instanceof Error) {
-      // Detect ontology-stale via message pattern. Phase 5.3.3d will
-      // replace this with a structured signal at the Star → Client boundary.
-      const m = result.message.match(/Ontology version mismatch: client sent '([^']+)' but latest is '([^']+)'/);
-      if (m) {
-        const info = { reason: 'ontology-stale' as const, clientVersion: m[1], currentVersion: m[2] };
-        if (this.#onShouldRefreshUI) {
-          try { this.#onShouldRefreshUI(info); } catch { /* swallow user-callback throws */ }
-        }
-        return { resolution: 'ontology-stale', clientVersion: m[1], currentVersion: m[2] };
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+        return {
+          resolution: 'ontology-stale',
+          clientVersion: result.clientVersion,
+          currentVersion: result.currentVersion,
+        };
       }
       void inFlight;
       return { resolution: 'timeout' };
@@ -655,6 +668,9 @@ export class NebulaClient extends LumenizeClient {
   /**
    * Receive a read response from Star. Settles the matching `requestId`'s
    * pending Promise; concurrent reads are independently correlated.
+   *
+   * Ontology-stale errors also fire the `onShouldRefreshUI` hook before the
+   * Promise rejects — same staleness signal as the transaction path.
    */
   @mesh()
   handleReadResponse(requestId: string, result: Snapshot | null | Error): void {
@@ -662,6 +678,9 @@ export class NebulaClient extends LumenizeClient {
     if (!pending) return;
     this.#pendingReads.delete(requestId);
     if (result instanceof Error) {
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+      }
       pending.reject(result);
     } else {
       pending.resolve(result);
@@ -690,6 +709,12 @@ export class NebulaClient extends LumenizeClient {
     const pending = this.#pendingSubscribes.get(key);
 
     if (result instanceof Error) {
+      // Ontology-stale path: fire the constructor hook so the UI can reload
+      // even though there's no Promise outcome variant for subscribe (it
+      // rejects on error). Same staleness signal as transaction / read.
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+      }
       // Error path: reject pending Promise (if any) and drop the registry entry.
       // No state write-through on error.
       if (pending) {

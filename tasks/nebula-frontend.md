@@ -623,6 +623,14 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
 
    **Phase triage**: don't implement DAG-binding yet. Wait until the Studio demo (or a real app) actually wants a reactive DAG view — at that point Option 0 is small (~30 LOC + one type-check special case in `Subscriptions.subscribe` + the `#onChanged` rewire), and the scale-out decision (A vs B vs C) can be made with concrete UI requirements in hand instead of speculatively. **Outcome destination**: own subsection under Phase 5.3.x when the trigger lands; or fold into a `tasks/nebula-dag-binding.md` if the design grows beyond what fits here.
 
+8. **Multi-resource conflict-resolver semantics (captured 2026-05-12 from Phase 5.3.3c retro).** The Phase 5.3.3c conflict-resolver flow passes the FIRST conflicting resource to the resolver and applies the verdict uniformly. For multi-resource transactions where multiple resources conflict (and especially where they're different types with different registered resolvers), the current behavior is a simplification: only the first-conflict's type-specific resolver fires, and the verdict's `value` (for `'use-this'`) only replaces that one resource.
+
+   **Why deferred**: Studio-generated UIs typically transact one resource at a time (form save → one resource). The per-call `options.onETagConflict` override gives users an escape hatch for explicitly-multi-resource transactions where they want one resolver to cover all. Real-world multi-resource-multi-type-conflict cases haven't surfaced yet.
+
+   **When to revisit**: if a Studio app exposes the friction. Likely shape: collect all conflicting resources by type, invoke each type's resolver once with that type's conflicting set, merge the verdicts. `'use-this'` verdict's `value` would need a per-resource shape (`Record<resourceId, value>`). `'human-in-the-loop'` covering multiple resources is its own UX question (one modal for all? one per resource?). For demo, leave it as a known limitation.
+
+   **Outcome destination**: design pass when a real workload requires it; until then, this Phase -1 entry is the record.
+
 ## Pre-port JurisJS inventory (archive reference)
 
 > **⚠ Superseded by 2026-05-09 direction-pinning.** Inventory remains as historical reference. Port scope is now narrower: only `StateManager` + top-level helpers (~340 LOC) port to `@lumenize/state`. `DOMRenderer`, `ComponentManager`, the `Juris` orchestrator, async-prop machinery, and JurisJS router/url-state-sync are **not** being ported.

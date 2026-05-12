@@ -19,6 +19,7 @@ import { NebulaDO, requireAdmin } from './nebula-do';
 import { DagTree } from './dag-tree';
 import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
+import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
@@ -220,7 +221,7 @@ export class Star extends NebulaDO {
         if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleTransactionResult(
-              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
+              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);
@@ -289,7 +290,7 @@ export class Star extends NebulaDO {
         if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleReadResponse(requestId,
-              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
+              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);
@@ -362,7 +363,7 @@ export class Star extends NebulaDO {
         if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
+              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);

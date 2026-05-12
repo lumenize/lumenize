@@ -20,6 +20,9 @@ export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult, Tr
 export { Subscriptions } from './subscriptions';
 export type { SubscriberRow } from './subscriptions';
 
+// Errors
+export { OntologyStaleError, isOntologyStaleError } from './errors';
+
 // DAG tree
 export { DagTree } from './dag-tree';
 export type { PermissionTier, DagTreeState } from './dag-ops';
