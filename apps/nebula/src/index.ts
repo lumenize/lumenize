@@ -39,7 +39,16 @@ export { NebulaClientGateway } from './nebula-client-gateway';
 
 // Client
 export { NebulaClient } from './nebula-client';
-export type { NebulaClientConfig } from './nebula-client';
+export type {
+  NebulaClientConfig,
+  OntologyStaleInfo,
+  TransactionResolution,
+  TransactionOptions,
+  ReadOptions,
+  ConflictResolver,
+  ConflictResolution,
+  ETagConflictOptions,
+} from './nebula-client';
 
 // Entrypoint
 export { default as entrypoint } from './entrypoint';

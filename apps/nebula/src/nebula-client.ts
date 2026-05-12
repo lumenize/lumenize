@@ -38,6 +38,8 @@ export interface OntologyStaleInfo {
 export type TransactionResolution =
   | { resolution: 'committed'; eTag: string }
   | { resolution: 'use-server'; resources: Record<string, Snapshot> }
+  | { resolution: 'human-in-the-loop'; resources: Record<string, Snapshot> }
+  | { resolution: 'retries-exhausted'; resources: Record<string, Snapshot>; attempts: number }
   | { resolution: 'validation-failed'; errors: Record<string, unknown> }
   | { resolution: 'permission-denied'; resources: string[] }
   | { resolution: 'ontology-stale'; clientVersion: string; currentVersion: string }
@@ -49,7 +51,76 @@ export interface TransactionOptions {
   ontologyVersion?: string;
   /** Override the auto-generated `newETag` (idempotency-probe / retry scenarios). */
   newETag?: string;
+  /**
+   * Per-call conflict resolver. Overrides any per-type registered resolver
+   * for this transaction. Precedence: per-call > per-type > framework default
+   * (`() => ({ resolution: 'use-server' })`).
+   */
+  onETagConflict?: ConflictResolver;
+  /**
+   * Per-call override for max recursive `'use-this'` retries before resolving
+   * with `'retries-exhausted'`. Falls back to the per-type registered value,
+   * then the framework default (5).
+   */
+  maxRetries?: number;
 }
+
+/**
+ * Resolver verdict returned from `ConflictResolver`. Discriminant `resolution`
+ * intentionally matches `TransactionResolution`'s discriminant so the
+ * vocabulary is consistent end-to-end.
+ *
+ * - `'use-server'`: accept the server's value, abandon local changes.
+ * - `'use-this'`: re-submit with `value` and the server's new eTag. Bounded
+ *   by `maxRetries` — on cap, the transaction resolves with `'retries-exhausted'`.
+ * - `'human-in-the-loop'`: defer to user. Optimistic state stays painted.
+ *   Caller is responsible for any follow-up `transaction()` call.
+ */
+export type ConflictResolution =
+  | { resolution: 'use-server' }
+  | { resolution: 'use-this'; value: unknown }
+  | { resolution: 'human-in-the-loop' };
+
+/**
+ * Per-type conflict resolver. Invoked when the server returns an eTag conflict
+ * on a `put` op. Receives the local (attempted) value, the server's current
+ * snapshot, and a context object (Phase 5.3.6 will populate `context.bindings`
+ * with the path → HTMLElement[] map from `bindDom`; 5.3.3c passes an empty Map).
+ *
+ * Can be sync or async. The in-flight queue's 5–10 s timeout is **suspended**
+ * during resolver execution — a modal can sit open for minutes without
+ * triggering `'timeout'`.
+ */
+export type ConflictResolver = (
+  local: { value: unknown; eTag: string },
+  server: Snapshot,
+  context: { bindings: Map<string, HTMLElement[]> },
+) => ConflictResolution | Promise<ConflictResolution>;
+
+/** Options for `client.resources.onETagConflict(rt, resolver, options?)`. */
+export interface ETagConflictOptions {
+  /** Max recursive `'use-this'` retries before `'retries-exhausted'`. Default 5. */
+  maxRetries?: number;
+  /**
+   * CSS class to flash on bound elements at fields where the resolved value
+   * differs from `local.value`. Phase 5.3.6 wires this through `bindDom`.
+   * Stored on the registration here so 5.3.6 can read it.
+   */
+  flashClass?: string | null;
+  /** Flash duration in ms. Phase 5.3.6 reads this. Default 1000. */
+  flashDuration?: number;
+}
+
+interface RegisteredResolver {
+  resolver: ConflictResolver;
+  options: Required<Omit<ETagConflictOptions, 'flashClass'>> & { flashClass: string | null };
+}
+
+/** Framework default — server-wins. */
+const DEFAULT_RESOLVER: ConflictResolver = () => ({ resolution: 'use-server' });
+const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_FLASH_CLASS = 'lumenize-conflict-revert';
+const DEFAULT_FLASH_DURATION_MS = 1000;
 
 /** Per-call options for `client.resources.read()`. */
 export interface ReadOptions {
@@ -93,6 +164,16 @@ interface QueuedTransaction {
   ops: Record<string, OperationDescriptor>;
   newETag: string;
   ontologyVersion: string;
+  /** Caller's resolver override (highest precedence). */
+  onETagConflict?: ConflictResolver;
+  /** Caller's maxRetries override; per-type or default if unset. */
+  maxRetries?: number;
+  /**
+   * Attempt counter — 1 on initial submission, incremented on each
+   * `'use-this'` resubmit. Compared against the resolved `maxRetries` value
+   * to decide between recursive retry and `'retries-exhausted'`.
+   */
+  attempt: number;
   resolve: (outcome: TransactionResolution) => void;
 }
 
@@ -140,6 +221,9 @@ export class NebulaClient extends LumenizeClient {
   #txnQueue: QueuedTransaction[] = [];
   #inFlightTxn: QueuedTransaction | null = null;
   #inFlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Per-type conflict resolvers registered via `onETagConflict`. */
+  #perTypeResolvers = new Map<string, RegisteredResolver>();
 
   constructor(config: NebulaClientConfig) {
     const { authScope, activeScope, ontologyVersion, onShouldRefreshUI, ...baseConfig } = config;
@@ -228,6 +312,30 @@ export class NebulaClient extends LumenizeClient {
     ): Promise<TransactionResolution> => {
       return this.#submitTransaction(ops, options);
     },
+
+    /**
+     * Register a conflict resolver for `resourceType`. Returns `void`; later
+     * registrations replace earlier ones (per-type, single resolver).
+     *
+     * Precedence at conflict time: per-call `options.onETagConflict` >
+     * per-type registered > framework default (`'use-server'`).
+     */
+    onETagConflict: (
+      resourceType: string,
+      resolver: ConflictResolver,
+      options?: ETagConflictOptions,
+    ): void => {
+      this.#perTypeResolvers.set(resourceType, {
+        resolver,
+        options: {
+          maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
+          flashClass: options?.flashClass === null
+            ? null
+            : (options?.flashClass ?? DEFAULT_FLASH_CLASS),
+          flashDuration: options?.flashDuration ?? DEFAULT_FLASH_DURATION_MS,
+        },
+      });
+    },
   };
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -284,6 +392,9 @@ export class NebulaClient extends LumenizeClient {
         ops,
         newETag: options?.newETag ?? crypto.randomUUID(),
         ontologyVersion: options?.ontologyVersion ?? this.#ontologyVersion,
+        onETagConflict: options?.onETagConflict,
+        maxRetries: options?.maxRetries,
+        attempt: 1,
         resolve,
       };
       this.#txnQueue.push(queued);
@@ -313,14 +424,57 @@ export class NebulaClient extends LumenizeClient {
   }
 
   /**
-   * Map a server-side `TransactionResult` (or `Error` for ontology-stale /
-   * infrastructure paths) into the client-facing `TransactionResolution`.
-   *
-   * Phase 5.3.3b: conflict → default `'use-server'` (write server.value,
-   * resolve with that outcome). Phase 5.3.3c will route conflicts through
-   * the registered resolver instead.
+   * Receive transaction result from Star. Routes synchronous outcomes
+   * through `#finalize` and asynchronous conflict-resolver outcomes through
+   * `#handleConflict`. The in-flight queue's timeout is cleared on arrival;
+   * during resolver execution the queue stays blocked (we know what's
+   * happening — the user has a modal — so no timeout is enforced).
    */
-  #mapTransactionOutcome(
+  @mesh()
+  handleTransactionResult(result: TransactionResult | Error): void {
+    const inFlight = this.#inFlightTxn;
+    if (!inFlight) return; // late arrival after timeout — drop
+    if (this.#inFlightTimer !== null) {
+      clearTimeout(this.#inFlightTimer);
+      this.#inFlightTimer = null;
+    }
+
+    // Conflict-only path: route through async resolver. Other outcomes
+    // (committed, validation-failed, permission-denied, ontology-stale,
+    // infrastructure error) are synchronous.
+    if (!(result instanceof Error) && !result.ok) {
+      const types = new Set(Object.values(result.errors).map((e) => e.type));
+      if (types.has('conflict') && !types.has('validation') && !types.has('permission')) {
+        // Fire-and-forget — handler advances queue after resolver settles.
+        this.#handleConflict(inFlight, result).catch(() => {
+          // Resolver / framework error during conflict handling — fall back
+          // to use-server with whatever conflicts we have visible.
+          this.#finalize(inFlight, this.#useServerOutcome(result));
+        });
+        return;
+      }
+    }
+
+    this.#finalize(inFlight, this.#mapSynchronousOutcome(inFlight, result));
+  }
+
+  /**
+   * Settle the in-flight transaction with `outcome` and pump the queue.
+   * Single source of truth for "I'm done with this transaction"; conflict
+   * paths converge here after the resolver verdict has been processed.
+   */
+  #finalize(inFlight: QueuedTransaction, outcome: TransactionResolution): void {
+    this.#inFlightTxn = null;
+    inFlight.resolve(outcome);
+    this.#pumpTxnQueue();
+  }
+
+  /**
+   * Synchronous outcome mapping for committed / validation-failed /
+   * permission-denied / ontology-stale / infrastructure-error paths.
+   * Conflicts route through `#handleConflict` instead.
+   */
+  #mapSynchronousOutcome(
     inFlight: QueuedTransaction,
     result: TransactionResult | Error,
   ): TransactionResolution {
@@ -335,23 +489,14 @@ export class NebulaClient extends LumenizeClient {
         }
         return { resolution: 'ontology-stale', clientVersion: m[1], currentVersion: m[2] };
       }
-      // Other infrastructure-shaped errors: surface as a thrown Error rather
-      // than a resolution variant. We can't throw here (caller awaits the
-      // Promise that always resolves), so we synthesize a timeout-like
-      // outcome — better signaling lands when the structured signal arrives.
-      // For now route to 'timeout' to indicate "we don't know what happened."
       void inFlight;
       return { resolution: 'timeout' };
     }
 
     if (result.ok) {
-      // All resources share the per-transaction newETag.
       return { resolution: 'committed', eTag: inFlight.newETag };
     }
 
-    // Inspect the first error to classify the resolution. Permission and
-    // validation errors are server-determined; conflicts route through the
-    // resolver (5.3.3c) but default to 'use-server' for 5.3.3b.
     const errors = result.errors;
     const errorTypes = new Set(Object.values(errors).map((e) => e.type));
 
@@ -370,44 +515,141 @@ export class NebulaClient extends LumenizeClient {
       return { resolution: 'permission-denied', resources };
     }
 
-    if (errorTypes.has('conflict')) {
-      // Phase 5.3.3b: default to 'use-server'. Phase 5.3.3c routes through
-      // the registered resolver.
-      const serverResources: Record<string, Snapshot> = {};
-      for (const [rid, err] of Object.entries(errors)) {
-        if (err.type === 'conflict') serverResources[rid] = err.currentSnapshot;
-      }
-      // Write through server.value to bound state so the UI converges.
-      if (this.#state) {
-        for (const [rid, snap] of Object.entries(serverResources)) {
-          const basePath = `resources.${snap.meta.typeName}.${rid}`;
-          this.#state.setState(`${basePath}.value`, snap.value);
-          this.#state.setState(`${basePath}.meta`, snap.meta);
-        }
-      }
-      return { resolution: 'use-server', resources: serverResources };
-    }
-
-    // Shouldn't reach — but fail closed to timeout if we somehow do.
-    return { resolution: 'timeout' };
+    // Mixed errors (conflict + validation, etc.) shouldn't reach here —
+    // handleTransactionResult's branch checks for conflict-ONLY before
+    // dispatching to async path. Defensive fall-through to use-server.
+    return this.#useServerOutcome(result);
   }
 
   /**
-   * Receive transaction result from Star. Settles the in-flight transaction
-   * Promise with a `TransactionResolution` and drains the queue.
+   * Build a `use-server` outcome from a conflict-bearing result. Writes
+   * server snapshots through to bound state. Used by the framework-default
+   * resolver path AND as a fallback when async resolver flow errors out.
    */
-  @mesh()
-  handleTransactionResult(result: TransactionResult | Error): void {
-    const inFlight = this.#inFlightTxn;
-    if (!inFlight) return; // late arrival after timeout — drop
-    this.#inFlightTxn = null;
-    if (this.#inFlightTimer !== null) {
-      clearTimeout(this.#inFlightTimer);
-      this.#inFlightTimer = null;
+  #useServerOutcome(result: { ok: false; errors: Record<string, TransactionError> }): TransactionResolution {
+    const serverResources: Record<string, Snapshot> = {};
+    for (const [rid, err] of Object.entries(result.errors)) {
+      if (err.type === 'conflict') serverResources[rid] = err.currentSnapshot;
     }
-    const outcome = this.#mapTransactionOutcome(inFlight, result);
-    inFlight.resolve(outcome);
-    this.#pumpTxnQueue();
+    if (this.#state) {
+      for (const [rid, snap] of Object.entries(serverResources)) {
+        const basePath = `resources.${snap.meta.typeName}.${rid}`;
+        this.#state.setState(`${basePath}.value`, snap.value);
+        this.#state.setState(`${basePath}.meta`, snap.meta);
+      }
+    }
+    return { resolution: 'use-server', resources: serverResources };
+  }
+
+  /**
+   * Async conflict-resolver flow. Picks the resolver per precedence
+   * (per-call > per-type > framework default), invokes it (sync or async),
+   * and acts on the returned `ConflictResolution`:
+   *
+   * - `'use-server'`: write server.value through bound state, resolve
+   *   transaction with `'use-server'`.
+   * - `'use-this'`: build a new ops batch using server's new eTag for
+   *   conflicted resources + resolver's value; re-submit (recursive,
+   *   bounded by `maxRetries`).
+   * - `'human-in-the-loop'`: resolve transaction with the handoff outcome;
+   *   optimistic state stays painted (no write-through here).
+   *
+   * Resolver receives info about the FIRST conflicting resource. For
+   * single-resource transactions (typical UI case) this is unambiguous;
+   * for multi-resource transactions with mixed types, the per-call override
+   * is the right tool (one resolver covers all).
+   */
+  async #handleConflict(
+    inFlight: QueuedTransaction,
+    result: { ok: false; errors: Record<string, TransactionError> },
+  ): Promise<void> {
+    const conflictResources: Record<string, Snapshot> = {};
+    for (const [rid, err] of Object.entries(result.errors)) {
+      if (err.type === 'conflict') conflictResources[rid] = err.currentSnapshot;
+    }
+    const firstConflictRid = Object.keys(conflictResources)[0];
+    const firstServer = conflictResources[firstConflictRid];
+    const firstType = firstServer.meta.typeName;
+
+    // Resolve precedence: per-call > per-type > default
+    const registered = this.#perTypeResolvers.get(firstType);
+    const resolver: ConflictResolver = inFlight.onETagConflict
+      ?? registered?.resolver
+      ?? DEFAULT_RESOLVER;
+    const maxRetries = inFlight.maxRetries
+      ?? registered?.options.maxRetries
+      ?? DEFAULT_MAX_RETRIES;
+
+    // Build `local` from the original op (only `put` carries a value; for
+    // non-put conflicts we still call the resolver with `value: undefined`
+    // and the op's eTag).
+    const originalOp = inFlight.ops[firstConflictRid];
+    const localValue: unknown = (originalOp && (originalOp.op === 'put' || originalOp.op === 'create'))
+      ? originalOp.value
+      : undefined;
+    const localETag: string = (originalOp && 'eTag' in originalOp) ? originalOp.eTag : '';
+
+    let verdict: ConflictResolution;
+    try {
+      verdict = await resolver(
+        { value: localValue, eTag: localETag },
+        firstServer,
+        { bindings: new Map() }, // Phase 5.3.6 will populate from bindDom
+      );
+    } catch {
+      // Resolver itself errored — default to use-server.
+      this.#finalize(inFlight, this.#useServerOutcome(result));
+      return;
+    }
+
+    switch (verdict.resolution) {
+      case 'use-server':
+        this.#finalize(inFlight, this.#useServerOutcome(result));
+        return;
+
+      case 'human-in-the-loop':
+        // Optimistic state stays painted — do NOT write server.value through.
+        this.#finalize(inFlight, { resolution: 'human-in-the-loop', resources: conflictResources });
+        return;
+
+      case 'use-this': {
+        // Bounded recursion: increment attempt; cap → retries-exhausted.
+        const nextAttempt = inFlight.attempt + 1;
+        if (nextAttempt > maxRetries) {
+          this.#finalize(inFlight, {
+            resolution: 'retries-exhausted',
+            resources: conflictResources,
+            attempts: inFlight.attempt,
+          });
+          return;
+        }
+        // Rebuild ops: replace the conflicted resource's op with a put using
+        // server's new eTag + resolver's value. Other ops in the batch keep
+        // their original eTags (if they also conflicted they'll re-route
+        // through the resolver on the next round-trip).
+        const newOps: Record<string, OperationDescriptor> = { ...inFlight.ops };
+        newOps[firstConflictRid] = {
+          op: 'put',
+          eTag: firstServer.meta.eTag,
+          value: verdict.value,
+        };
+        // Fresh newETag for the retry (idempotency key is per-attempt).
+        inFlight.ops = newOps;
+        inFlight.newETag = crypto.randomUUID();
+        inFlight.attempt = nextAttempt;
+        // Re-submit. Restart the timeout; the queue stays blocked.
+        this.#inFlightTimer = setTimeout(() => {
+          const stuck = this.#inFlightTxn;
+          this.#inFlightTxn = null;
+          this.#inFlightTimer = null;
+          if (stuck) stuck.resolve({ resolution: 'timeout' });
+          this.#pumpTxnQueue();
+        }, TRANSACTION_TIMEOUT_MS);
+        this.lmz.call('STAR', this.#activeScope,
+          this.ctn<Star>().transaction(inFlight.ontologyVersion, inFlight.newETag, inFlight.ops));
+        return;
+      }
+    }
   }
 
   /**

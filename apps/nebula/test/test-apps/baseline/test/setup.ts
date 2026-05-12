@@ -15,7 +15,9 @@
 import { vi } from 'vitest';
 
 const originalWaitFor = vi.waitFor;
-const patchedWaitFor = ((fn: Parameters<typeof vi.waitFor>[0], options?: Parameters<typeof vi.waitFor>[1]) => {
-  return originalWaitFor(fn, { timeout: 5000, interval: 50, ...options });
+const patchedWaitFor = ((fn: never, options?: never) => {
+  const baseDefaults = { timeout: 5000, interval: 50 };
+  const opts = options ? { ...baseDefaults, ...(options as object) } : baseDefaults;
+  return originalWaitFor(fn, opts as never);
 }) as typeof vi.waitFor;
 vi.waitFor = patchedWaitFor;
