@@ -128,6 +128,22 @@ export class Subscriptions {
   }
 
   /**
+   * Drop a single subscriber row. Called by `Star.#onFanoutDelivered` when a
+   * fanout `lmz.call` returns a `ClientDisconnectedError` — the Gateway has
+   * confirmed the client is gone past its grace period, so the row's a leak.
+   * This is the **reactive** half of the "user closed the tab" cleanup story
+   * (Phase 5.3.5); push-on-clear (5.3.4b) catches the rest on next deploy.
+   *
+   * PK-targeted delete — single billed write, no index gymnastics needed.
+   */
+  removeSubscriber(resourceId: string, clientId: string): void {
+    this.#ctx.storage.sql.exec(
+      `DELETE FROM Subscribers WHERE resourceId = ? AND clientId = ?`,
+      resourceId, clientId,
+    );
+  }
+
+  /**
    * Return all subscriber rows for a given resource. Used by Phase 5.3.2
    * fanout to dispatch updates after a mutation. PK-prefix scan — no
    * secondary index needed.

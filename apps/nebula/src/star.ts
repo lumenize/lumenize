@@ -427,16 +427,44 @@ export class Star extends NebulaDO {
    * Per the pinned subscribe-time-only guard semantics, we do NOT re-check
    * DAG read permission per subscriber per push. Permission revocation
    * mid-subscription is accepted for demo (Phase -1 Open Q2).
+   *
+   * **Drop-on-failed-fanout (Phase 5.3.5)**: each `lmz.call` is paired with a
+   * `#onFanoutDelivered` handler that fires when the call settles. If the
+   * client's Gateway returned `ClientDisconnectedError` (post-grace-period),
+   * we delete the leaked subscriber row inline. This is the "user closed the
+   * tab" cleanup path — reactive (next mutation triggers it), simpler than
+   * an alarm-driven proactive scheme. Quiet resources leak rows until the
+   * next deploy's `Subscriptions.clear()` + push-on-clear catches them.
    */
   #fanout(mutations: Map<string, Snapshot>, originatorClientId: string) {
     for (const [resourceId, snapshot] of mutations) {
       const subscribers = this.#subscriptions.forResource(resourceId);
       for (const sub of subscribers) {
         if (sub.clientId === originatorClientId) continue;
-        this.lmz.call(sub.subscriberBinding, sub.clientId,
-          this.ctn<NebulaClient>().handleResourceUpdate(
-            snapshot.meta.typeName, resourceId, snapshot));
+        const remote = this.ctn<NebulaClient>().handleResourceUpdate(
+          snapshot.meta.typeName, resourceId, snapshot);
+        this.lmz.call(sub.subscriberBinding, sub.clientId, remote,
+          this.ctn().onFanoutDelivered(resourceId, sub.clientId, remote));
       }
     }
+  }
+
+  /**
+   * Fanout-delivery handler. Fires when the `#fanout`'s `lmz.call` settles —
+   * either with success (the client received the snapshot) or with an error
+   * (most often `ClientDisconnectedError` if the client's Gateway is post-
+   * grace-period). On `ClientDisconnectedError`, drop the leaked subscriber
+   * row inline. Other errors (transient network, Gateway misbehavior) are
+   * logged but the row stays — over-eager deletion would over-cleanup.
+   *
+   * Public visibility because mesh handler-continuations resolve by name on
+   * the local DO; `@mesh()` not required since this is a local execution,
+   * not a remote call surface.
+   */
+  onFanoutDelivered(resourceId: string, clientId: string, result: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      this.#subscriptions.removeSubscriber(resourceId, clientId);
+    }
+    // Success path or non-disconnect error: nothing to do here.
   }
 }

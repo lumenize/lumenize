@@ -59,6 +59,11 @@ export default defineConfig({
               NEBULA_AUTH_TEST_MODE: 'true',
               NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'nebula',
+              // Phase 5.3.5: shorten the Gateway grace period so
+              // drop-on-failed-fanout tests can observe ClientDisconnectedError
+              // settle in well under a second. Production-safe (binding only
+              // set here in test config).
+              LUMENIZE_MESH_GRACE_PERIOD_MS: '100',
             },
           },
         })],
