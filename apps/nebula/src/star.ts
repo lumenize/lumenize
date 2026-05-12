@@ -37,13 +37,12 @@ export class Star extends NebulaDO {
     this.#dagTree = new DagTree(
       this.ctx,
       () => this.lmz.callContext,
-      () => this.#onChanged(),
+      () => this.#onDagChanged(),
     )
     this.#resources = new Resources(
       this.ctx,
       () => this.lmz.callContext,
       this.#dagTree,
-      () => this.#onChanged(),
     )
     this.#subscriptions = new Subscriptions(
       this.ctx,
@@ -120,11 +119,20 @@ export class Star extends NebulaDO {
     this.ctx.storage.transactionSync(() => {
       const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
       const prevLatest = prevIndex[prevIndex.length - 1];
-      if (prevLatest && prevLatest !== row.version) {
+      const isNewVersion = prevLatest !== row.version;
+      if (prevLatest && isNewVersion) {
         this.ctx.storage.kv.delete(rowKey(prevLatest));
       }
       this.ctx.storage.kv.put(rowKey(row.version), row);
       this.ctx.storage.kv.put(INDEX_KEY, history);
+      // Deploy-driven subscriber cleanup (Phase 5.3.2). Only clear when we're
+      // actually installing a *different* version — the first install on a
+      // fresh Star has no prior subscribers to drop, and re-installing the
+      // same version (defensive: shouldn't happen given #isCachedVersion
+      // guards upstream) shouldn't churn existing subscriptions.
+      if (isNewVersion && prevLatest) {
+        this.#subscriptions.clear();
+      }
     });
     this.#row = row;
     this.#facet = getParserValidatorFacet(
@@ -225,7 +233,8 @@ export class Star extends NebulaDO {
       // null + matching cache entry = cache hit; fall through
 
       const { row, facet } = this.#ensureFacet();
-      const result = await this.#resources.transaction(ops, row.version, facet);
+      const result = await this.#resources.transaction(ops, row.version, facet,
+        (mutations) => this.#fanout(mutations, clientId));
 
       // Deliver result to client
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -375,9 +384,37 @@ export class Star extends NebulaDO {
 
   // ─── Internal ──────────────────────────────────────────────────────
 
-  #onChanged() {
-    // Phase 3.1: placeholder — tests verify this callback fires on mutations
-    // Phase 5.3.2: subscription fan-out via lmz.call() through NebulaClientGateway
-    // (Subscriptions.forResource(resourceId) provides the lookup primitive)
+  /**
+   * DAG mutations don't fan out today. Per the design (Phase 5.3.2):
+   *   "Fanout triggers are upsert and delete only — migration does NOT fan out
+   *    (deploys + lazy ontology model + onShouldRefreshUI handle cross-version
+   *    transitions)"
+   * Kept as a hook so future DAG-mutation-aware logic has a landing spot.
+   */
+  #onDagChanged() {
+    // intentionally empty
+  }
+
+  /**
+   * Resource-mutation fanout (Phase 5.3.2). Called from
+   * `Resources.transaction` via the `onMutations` callback after a successful
+   * commit. For each mutated resource, look up subscribers and dispatch
+   * `handleResourceUpdate` to each — excluding the originator (they already
+   * receive the authoritative result via `handleTransactionResult`).
+   *
+   * Per the pinned subscribe-time-only guard semantics, we do NOT re-check
+   * DAG read permission per subscriber per push. Permission revocation
+   * mid-subscription is accepted for demo (Phase -1 Open Q2).
+   */
+  #fanout(mutations: Map<string, Snapshot>, originatorClientId: string) {
+    for (const [resourceId, snapshot] of mutations) {
+      const subscribers = this.#subscriptions.forResource(resourceId);
+      for (const sub of subscribers) {
+        if (sub.clientId === originatorClientId) continue;
+        this.lmz.call(sub.subscriberBinding, sub.clientId,
+          this.ctn<NebulaClient>().handleResourceUpdate(
+            snapshot.meta.typeName, resourceId, snapshot));
+      }
+    }
   }
 }

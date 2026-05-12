@@ -75,4 +75,22 @@ export class NebulaClient extends LumenizeClient {
   handleResourceUpdate(_resourceType: string, _resourceId: string, _result: Snapshot | null | Error): void {
     console.warn('handleResourceUpdate not yet implemented — see Phase 5.3');
   }
+
+  /**
+   * Accept calls relayed through Star (fanout, transaction-result, read-result).
+   *
+   * The default `LumenizeClient.onBeforeCall` rejects calls where `callChain[0]`
+   * is another `LumenizeClient` instance (its peer-to-peer guard). Nebula's
+   * fanout pattern is **Star-mediated**, not peer-to-peer: client A mutates →
+   * Star fans out → client B receives `handleResourceUpdate`. The default's
+   * `callChain[0] === otherClient` view of this is too strict.
+   *
+   * The actual security boundary is `NebulaClientGateway.onBeforeCallToClient`,
+   * which verifies the call's `originAuth.claims.aud` matches the connected
+   * client's aud at the Gateway. Once a call has cleared that check, it has
+   * a legitimate Nebula-scope and can be dispatched on the client.
+   */
+  override onBeforeCall(): void {
+    // intentionally permissive — Gateway aud check is the boundary
+  }
 }

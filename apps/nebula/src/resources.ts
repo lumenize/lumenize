@@ -59,18 +59,15 @@ export class Resources {
   #ctx: DurableObjectState;
   #getCallContext: () => CallContext;
   #dagTree: DagTree;
-  #onChanged: () => void;
 
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     dagTree: DagTree,
-    onChanged: () => void,
   ) {
     this.#ctx = ctx;
     this.#getCallContext = getCallContext;
     this.#dagTree = dagTree;
-    this.#onChanged = onChanged;
     this.#createSchema();
     this.#bootstrapConfig();
   }
@@ -257,6 +254,7 @@ export class Resources {
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,
     facet: ParserValidator,
+    onMutations?: (mutations: Map<string, Snapshot>) => void,
   ): Promise<TransactionResult> {
     // Empty ops — no-op
     const entries = Object.entries(ops);
@@ -327,6 +325,7 @@ export class Resources {
 
     // Steps 6–10: Atomic transaction
     let result: TransactionResult = { ok: true, eTags: {} };
+    const writtenSnapshots = new Map<string, Snapshot>();
 
     this.#ctx.storage.transactionSync(() => {
       // Step 6: Re-read inside transaction (authoritative for eTag checking)
@@ -395,7 +394,7 @@ export class Resources {
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
 
-        // Move to same node — idempotent no-op
+        // Move to same node — idempotent no-op (no write, no fanout)
         if (op.op === 'move' && current && op.nodeId === current.meta.nodeId) {
           eTags[resourceId] = current.meta.eTag;
           continue;
@@ -406,13 +405,20 @@ export class Resources {
           : authoritative.get(resourceId)!.meta.typeName;
         this.#writeSnapshot(resourceId, current, op, validFrom, eTag, changedBy, typeName, ontologyVersion);
         eTags[resourceId] = eTag;
+
+        // Capture the post-write snapshot for fanout. Re-read inside the
+        // transactionSync so the captured value matches what was actually
+        // committed. Soft-delete carries `meta.deleted: true` — we pass the
+        // real Snapshot, never null, per the user-facing decision in 5.3.1.
+        const written = this.#getCurrentSnapshot(resourceId);
+        if (written) writtenSnapshots.set(resourceId, written);
       }
 
       result = { ok: true, eTags };
     });
 
-    if (result.ok) {
-      this.#onChanged();
+    if (result.ok && writtenSnapshots.size > 0 && onMutations) {
+      onMutations(writtenSnapshots);
     }
 
     return result;

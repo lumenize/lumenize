@@ -55,6 +55,24 @@ export class Subscriptions {
   }
 
   /**
+   * Drop all subscriber rows. Called by `Star.#installState` when a new
+   * ontology version is installed — every existing row is by definition
+   * registered by a stale-version client (the row carries no version itself,
+   * but the deploy-driven cleanup model says: deploys are the cleanup event).
+   *
+   * `DROP TABLE + CREATE TABLE` is billed as a single write per CLAUDE.md's
+   * storage cost model. `DELETE FROM Subscribers` would be billed per row,
+   * which dominates at any non-trivial scale.
+   *
+   * The constructor's `CREATE TABLE IF NOT EXISTS` only runs at `onStart()`
+   * — mid-operation drop+recreate has to happen inline here.
+   */
+  clear() {
+    this.#ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
+    this.#createSchema();
+  }
+
+  /**
    * Subscribe a client to a resource.
    *
    * Performs (in order):
