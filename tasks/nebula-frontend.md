@@ -165,18 +165,28 @@ doSubscribe(
 
 ```sql
 CREATE TABLE Subscribers (
-  sub TEXT NOT NULL,
-  clientId TEXT NOT NULL,
-  gatewayBinding TEXT NOT NULL,
-  resourceType TEXT NOT NULL,
   resourceId TEXT NOT NULL,
-  PRIMARY KEY (clientId, resourceType, resourceId)
+  clientId TEXT NOT NULL,
+  sub TEXT NOT NULL,
+  subscriberBinding TEXT NOT NULL,
+  subscribedAt TEXT NOT NULL,
+  PRIMARY KEY (resourceId, clientId)
 ) WITHOUT ROWID;
-
-CREATE INDEX idx_Subscribers_resource ON Subscribers (resourceType, resourceId);
 ```
 
-Per CLAUDE.md SQL conventions: PascalCase table, camelCase columns, `WITHOUT ROWID` for compound PK, index on fanout-lookup column.
+Per CLAUDE.md SQL conventions: PascalCase table, camelCase columns, `WITHOUT ROWID` for compound PK.
+
+**Why this PK shape (revised 2026-05-12):** every subscribe / unsubscribe event specifies both `(resourceId, clientId)` (full-PK point lookup) and every fanout event uses only `resourceId` (PK-prefix scan). No secondary index needed. The earlier `(clientId, resourceType, resourceId)` PK plus `idx_Subscribers_resource` was inverted — fanout was the hot path and needed an extra index.
+
+**Why no secondary index on `clientId`:** disconnect cleanup (Phase 5.3.5 — `DELETE WHERE clientId = ?`) becomes a full table scan without it. Per CLAUDE.md, writes are 1,000× more expensive than reads and every index adds a write per row, so the index would tax the hot path (subscribes — ~10–100 per user session) to optimize a cold one (cleanup — ~1 per session). Crossover where the index pays off is roughly N ≈ 10k–100k rows per Star (single Star with thousands of concurrent clients × tens of subs each). **Add the index then, not before.**
+
+**Why `resourceType` is not stored:** `meta.typeName` on the snapshot gives the type at fanout time, including for `deleted: true` snapshots (which we keep, not null out). Subscribe-time type-mismatch check reads the snapshot's `typeName` directly. Storing the type in the Subscribers row would duplicate truth.
+
+**Why `subscribedAt` is stored (and what it is NOT):** forensic / debug metadata — "when did this subscription row originate?" Useful when triaging a misbehaving subscriber by grep through DO storage logs. Storing it is essentially free (DO storage bills per row, not per column).
+
+It is **NOT a staleness signal.** With auto-reconnecting WebSockets, a row from yesterday can be perfectly valid as long as the underlying session is alive — `subscribedAt` is row birthday, not last-proven-alive. Earlier sketches treated it as a TTL signal for an alarm-based sweep; that approach was rejected. See Phase -1 § 5 for the full rejection record and the three-mechanism cleanup model (active-WS-close + ontology-install-clear + optional drop-on-failed-fanout) that replaces it.
+
+**Why `subscriberBinding` (not `gatewayBinding`):** named to support future DO-to-DO subscribers — `lmz.call(subscriberBinding, instanceName, ...)` at fanout time doesn't care whether the binding is `NEBULA_CLIENT_GATEWAY` (today) or another DO class (e.g. a Star subscribing to another Star). The column value is taken from `callContext.callChain.at(-1)?.bindingName` at subscribe time. Note: a DO-to-DO subscriber wouldn't carry `originAuth.sub` (DOs don't have user identities) — the `sub` column may need to become nullable when that case lands, but it's not a 5.3 concern.
 
 ### NebulaClient handlers + `client.resources.*` (`apps/nebula/src/nebula-client.ts`)
 
@@ -322,19 +332,26 @@ Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/
 
 ### Phase 5.3.1 — Star subscribe machinery
 
-- [ ] `Subscribers` table created via `CREATE TABLE IF NOT EXISTS` in Star constructor
-- [ ] `@mesh()` `subscribe` method with Handler 1 / Handler 2 pattern
-- [ ] DAG read-permission check at subscribe time
-- [ ] Initial snapshot delivered via `handleResourceUpdate` (same path as ongoing fanout)
-- [ ] Subscriber row inserted on success; idempotent on re-subscribe with same `(clientId, resourceType, resourceId)`
+- [ ] New file `apps/nebula/src/subscriptions.ts` — `Subscriptions` class mirroring DagTree/Resources injection pattern (constructor: `ctx`, `getCallContext`, `dagTree`, `resources`). Owns its own SQL schema. Star instantiates in `onStart()` alongside the others.
+- [ ] `Subscribers` table created via `CREATE TABLE IF NOT EXISTS` in Subscriptions constructor (revised PK + columns per Subscriber storage section above)
+- [ ] `@mesh()` `subscribe(ontologyVersion, resourceType, resourceId)` method on `Star` with Handler 1 / Handler 2 pattern (mirrors `transaction` / `read`)
+- [ ] Handler 2 (`doSubscribe`): ontology version check → call `Subscriptions.subscribe(rt, rid, clientId, subscriberBinding)` → push initial snapshot via `handleResourceUpdate`
+- [ ] `Subscriptions.subscribe()` performs: DAG read-permission check via `Resources.read()`, resource-existence check (error if not found — `subscribe-before-create` deferred per Phase -1 § 5 → revisit if a use case emerges), resource-type-mismatch check (error if `snapshot.meta.typeName !== resourceType`), `INSERT OR REPLACE` row (idempotent on `(resourceId, clientId)`)
+- [ ] `Subscriptions.forResource(resourceId)` returns all subscriber rows for a resource (used in Phase 5.3.2 fanout — set up the lookup primitive now)
+- [ ] `handleResourceUpdate(resourceType, resourceId, snapshot: Snapshot | null | Error)` stub added to `NebulaClient` (matches `handleTransactionResult` / `handleReadResult` stubs — replaced fully in Phase 5.3.3). Errors delivered via the third arg, not via throws — Handler 1/2 is fire-and-forget so explicit error-as-data through the same callback is the correlation mechanism. Snapshot passes through with `meta.deleted` intact when applicable; null-mapping decision deferred to Phase 5.3.3.
+- [ ] `subscriberBinding` stored from `callContext.callChain.at(-1)?.bindingName` (not hardcoded — the column exists exactly for routing flexibility, including future DO-to-DO subscribers, not just gateway-fronted clients)
+- [ ] Test-app additions in `apps/nebula/test/test-apps/baseline/`: `callStarSubscribe(starName, ontologyVersion, rt, rid)` initiator on `NebulaClientTest`; `handleResourceUpdate` override that captures `(rt, rid, result)` for assertions.
+- [ ] Tests in `apps/nebula/test/test-apps/baseline/star-subscribe.test.ts`: subscribe to existing resource → initial snapshot delivered; subscribe to non-existent → error; subscribe with stale `ontologyVersion` → ontology-mismatch error; subscribe without read permission → permission error; re-subscribe `(clientId, rt, rid)` is idempotent (single row); subscribe with mismatched `resourceType` → error.
 
-### Phase 5.3.2 — Fanout on mutation
+### Phase 5.3.2 — Fanout on mutation + deploy-driven subscriber clear
 
 - [ ] `#onChanged` replaced with subscriber lookup + per-subscriber `lmz.call` to NEBULA_CLIENT_GATEWAY
 - [ ] BroadcastChannel semantics: originator's `clientId` excluded
 - [ ] Snapshot deletion pushes `null` to subscribers
 - [ ] Fanout triggers are upsert and delete only — migration does NOT fan out (deploys + lazy ontology model + `onShouldRefreshUI` handle cross-version transitions)
 - [ ] Branch-aware subscription routing: subscriptions are branch-local (each branch = independent Star instance per `tasks/nebula-branches.md`); verify the wiring doesn't assume single Star per `{u}.{g}.{s}`
+- [ ] `Subscriptions.clear()` method — `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …` in sequence (the latter is identical to the constructor's schema). Drop-then-recreate is a single billed write per CLAUDE.md's storage cost model; `DELETE FROM Subscribers` would be billed per-row plus per-index. The constructor's `CREATE TABLE IF NOT EXISTS` won't auto-recreate the table mid-operation, so the recreate happens inline.
+- [ ] `Star.#installState()` calls `this.#subscriptions.clear()` after writing the new ontology row. Any pre-existing subscription was registered by a stale-version client; dropping is unambiguous. This is the **primary tidy-up mechanism** — Phase -1 § 5 collapses the alarm-sweep / `subscribedAt`-TTL ideas into this single deploy-driven event.
 
 ### Phase 5.3.3 — NebulaClient handlers + `client.resources.*` API
 
@@ -355,11 +372,20 @@ Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/
 - [ ] `client.resources.read(rt, rid)` returns Promise resolving with `Snapshot | null`; no state side-effect. Mesh-framework Promise correlation strategy (callId, hidden plumbing handler, or extending mesh return-value path) — resolve during implementation.
 - [ ] `client.resources.transaction()` generates `newETag(s)`, queues if in-flight, 5–10 s timeout-and-reject
 
-### Phase 5.3.4 — Auto-resubscribe on reconnect
+### Phase 5.3.4 — Reconnect + refresh-cycle ontology-staleness detection
+
+**WebSocket reconnect → re-subscribe** (network-blip recovery):
 
 - [ ] Hook LumenizeClient's connection-state transitions; identify event for "reconnect succeeded"
 - [ ] Walk subscription registry on transition; re-call `Star.subscribe` for each
 - [ ] In-flight transactions during disconnect — out of scope?
+
+**Refresh-cycle ontology check** (15-min access-token cadence — covers listen-only clients that never trigger Handler-1 lazy detection):
+
+- [ ] `NebulaAuth.refresh-token` response body includes `currentOntologyVersion: string` alongside `access_token` and `sub`. NebulaAuth fetches this from Galaxy with a short-TTL cache (1–5 min) so the marginal Galaxy round-trip is amortized across all of that auth's users' refreshes.
+- [ ] `NebulaClient`'s refresh handler ([nebula-client.ts:34-48](apps/nebula/src/nebula-client.ts:34)) compares the response's `currentOntologyVersion` against its constructor-time `ontologyVersion`; mismatch dispatches to `onShouldRefreshUI` with `{ clientVersion, currentVersion, reason: 'ontology-stale' }` — same hook the Star-mismatch path uses, so app code handles them identically.
+- [ ] With the 15-min access-token TTL ([packages/nebula-auth/src/types.ts:148](packages/nebula-auth/src/types.ts:148)) listen-only dashboards detect deploys within one refresh cycle. The 30-day refresh-token TTL is the absolute upper bound on staleness for any client (after which forced re-auth = fresh page load anyway).
+- [ ] Document: this is the **second of two** ontology-staleness detection paths. The first is Handler-1 lazy detection on `transaction` / `read` / `subscribe`, which only fires when the client makes an op. Together they cover both active and listen-only cases without needing Galaxy-broadcast plumbing (which Phase -1 § 5 documents as deferred for the thundering-herd reason).
 
 ### Phase 5.3.5 — Subscriber cleanup on disconnect
 
@@ -439,7 +465,7 @@ All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace period
 1. **Subscriber cleanup on disconnect** — exact mechanism. Options: (a) Gateway hooks WS close → "drop subscribers for clientId" → Star; (b) periodic Star sweep based on last-heartbeat; (c) accept leak for demo. (a) is right but needs Gateway plumbing.
 2. **Permission revocation mid-subscription** — if admin revokes read permission on a node while subscribed, existing subscribers still fanout. Acceptable for demo; DAG-mutation path needs to invalidate subscribers for production.
 3. **`getEffectivePermission` per-subscriber on notification?** Probably no for demo; revisit for production.
-4. **Subscribe-time-then-no-recheck vs subscribe-time-and-on-deploy** — when Studio deploy changes guards/ontology, do existing subscribers get re-evaluated? Leans "all invalidated; clients re-subscribe" since deploy is already disruptive.
+4. **Subscribe-time-then-no-recheck vs subscribe-time-and-on-deploy** — when Studio deploy changes guards/ontology, do existing subscribers get re-evaluated? **Resolved 2026-05-12**: all invalidated on deploy. `Star.#installState()` clears the `Subscribers` table via `DROP TABLE + CREATE TABLE` (one billed write). Clients re-subscribe naturally on the post-deploy page reload. Details in Phase -1 § 5 and Phase 5.3.2 / 5.3.4 checklists.
 5. **Subscription identifier** — does `(clientId, resourceType, resourceId)` uniquely identify a subscription, or need generated `subId` for multi-tab same-client? `instanceName` of the Gateway should already disambiguate.
 6. **Mesh-framework Promise correlation for `client.resources.read()`** — implementation detail. Options: (a) existing `callId` machinery, (b) hidden plumbing handler, (c) extend mesh return-value path. Resolve during 5.3.3.
 7. **Query language** — for "give me all todos where status='open'" with result-set subscription. Deferred to own phase. Design space includes query shape, server-side execution model, result-set subscription semantics, pagination, cursor stability across schema migrations.
@@ -464,6 +490,49 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    - **Coupled to "where does Studio-generated UI code itself live"** — open per `tasks/nebula-studio.md` § "Studio UI hosting (open — needs spike)". Decisions there inform the validator-delivery design (likely the same Worker handles both, on the same origin).
 
    **Triage**: defer to its own design pass. Rejection-on-submit (`'validation-failed'`) covers the data-integrity case for demo; only the UX delight of "instant feedback while typing" is missing. **Outcome destination**: spike task file when post-demo, tied to the Studio-UI-hosting decision.
+
+5. **Subscriber tidy-up + deploy-driven re-subscribe (resolved 2026-05-12).** This was originally drafted as "stale-subscriber tidy-up (leaked rows in `Subscribers`)" with an alarm-sweep sketch. The thinking evolved into a tighter design that collapses tidy-up with Open Question 4 ("subscribe-time-then-no-recheck vs subscribe-time-and-on-deploy") — **deploys ARE the cleanup event**.
+
+   **Three-mechanism cleanup model:**
+
+   1. **Active WebSocket close** (Phase 5.3.5) — Gateway sees WS close, notifies Star, drops that `clientId`'s rows. Handles ~99% of cases cleanly.
+   2. **Ontology-install clear** (Phase 5.3.2 — primary) — `Star.#installState()` calls `Subscriptions.clear()` which does `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …`. Single billed write (vs `DELETE FROM Subscribers` which is billed per row + per index). Every Studio deploy thus wipes the registry; clients re-subscribe naturally on the post-deploy page reload that `onShouldRefreshUI` triggers.
+   3. **Drop-on-failed-fanout (deferred — may never be needed)** — Star catches "client unknown" errors from `lmz.call(subscriberBinding, clientId, …)` during fanout and inline-deletes the row. Reactive cleanup for the rare edge case where (1) and (2) both miss. Probably unnecessary given (1) + (2) coverage and the storage cost of leaked rows is trivial; revisit only if a production deployment exposes a path that escapes both.
+
+   **Listen-only client detection** (Phase 5.3.4): refresh-token response includes `currentOntologyVersion`; NebulaClient fires `onShouldRefreshUI` on mismatch. Bounds detection latency at 15 min (access-token TTL) for clients that never trigger Handler-1 lazy detection via active operations.
+
+   **What was rejected and why:**
+   - **`subscribedAt`-based alarm sweep**: rejected. Auto-reconnecting WebSockets mean a row created hours/days ago can still be perfectly valid as long as the underlying client session is alive — `subscribedAt` is "row birthday," not "last-proven-alive." The earlier "5 days + quiet resource" heuristic had the same flaw.
+   - **`validFrom > N days` on the resource**: rejected. Quiet doesn't mean unwatched; a TV-mounted dashboard listening to a rarely-changing config resource is the canonical counterexample.
+   - **`snapshot.meta.deleted`**: rejected. Subscribing to deleted resources is legitimate (history view, undo-redo UX, audit-trail UIs).
+   - **Galaxy WebSocket broadcast on version bump** (sub-second detection): rejected for demo and likely post-demo too. Two reasons: (a) substantial plumbing — Galaxy needs a registry of all connected Gateways, a push frame protocol, mesh fanout machinery; (b) **thundering herd** — every connected client across every Gateway re-subscribes simultaneously the instant the broadcast lands. The 15-min refresh-cycle approach naturally spreads re-subscription over a window. Sub-second detection isn't worth either cost.
+
+   **`subscribedAt` column reframed**: kept in the schema as forensic/debug metadata ("when did this subscription start?"), explicitly NOT a staleness signal. Cheap to store (DO storage bills per row, not per column) and worth keeping for debugging until a real reason to drop it emerges.
+
+   **Caveat to monitor**: dropping all subs on every ontology install means clients re-pay subscribe RTT after every deploy. With small fanout and Studio-cadence deploys (probably hours-to-days apart), the cost is negligible. If rapid-iteration Studio workflows ever push deploys into the minutes-per-deploy range, the re-subscribe churn could become visible to users. Add a re-subscribe-batch-debounce at that point.
+
+   **Status**: tidy-up + Open Q4 both resolved into Phase 5.3.2 (server-side install-time clear) + Phase 5.3.4 (client-side refresh-cycle detection). Remaining: implementation in those phases. Drop-on-failed-fanout stays as a Phase -1 idea, not on any checklist.
+
+6. **Lifecycle hooks — surface area to be designed.** The framework already has *internal* lifecycle events: MutationObserver-driven binding registration/unregistration, refcount-based auto-subscribe / unsubscribe-with-grace, connection-state transitions surfaced at `lmz.connection.*`, conflict-resolver invocation, deploy/staleness signal. None of these are currently exposed as *user-facing hooks* an app developer (or a Studio-generated component) can register a callback against. Worth a triage pass before Phase 5.3.6 ships, since `bindDom` is the natural attachment point.
+
+   Candidate hook points to consider:
+   - **Per-element / per-binding**: `x-on:mount` / `x-on:unmount` — fires when a directive-bearing element enters/leaves the DOM tree the crawler is observing. Distinct from `x-on:click` etc., which are real DOM events. Useful for: starting a timer when a card mounts, releasing a resource handle when it unmounts, focusing an input on appearance.
+   - **Per-component-instance** (depends on `x-component` shape from 2026-05-12 work): `onMount(scope)` / `onUnmount(scope)` lifecycle declared inside the component definition, receiving the same `{ $local, $node, $trail, ... }` scope handlers get. Pairs naturally with `$local` initialization — today there's no clear answer for "set `$local.expanded = false` exactly once on first mount."
+   - **Per-resource-subscription**: `onSubscribed(rt, rid, snapshot)` / `onUnsubscribed(rt, rid)` callbacks the integration layer fires when refcount transitions through 0↔1 (and the actual server round-trip completes/cancels). Today these are silent.
+   - **Per-transaction**: `onSubmitted` / `onCommitted` / `onConflicted` / `onRolledBack` — granular hooks beyond the existing single Promise resolution. Probably overkill; most apps don't need this granularity, and the Promise + per-type `onETagConflict` already covers the conflict path.
+   - **Auth / scope transitions**: `onScopeChange(prev, next)` — fires when `activeScope` changes (branch switch, tenant switch). Today `bindToState` writes connection state to `lmz.connection.*`, but scope transitions are silent.
+   - **Whole-`bindDom` lifecycle**: `onReady` (initial subtree walk + initial subscribe RTTs all resolved — useful for a splash-screen `x-if`), `onError` (unhandled framework error).
+
+   Cross-cutting concerns:
+   - **Where do they live?** Element-scoped → `@lumenize/ui` (`x-on:mount` etc., plus component-definition syntax). Resource/transaction → integration layer (`bindToState` options or `client.resources.on*` methods). Auth → `NebulaClient` constructor options or event emitter.
+   - **Sync vs async**: most hooks should be best-effort sync callbacks. `onUnmount` specifically must complete *before* the binding refcount decrements (otherwise unsubscribe races with cleanup that needs the subscription).
+   - **Error containment**: hook throws should `console.error` and continue, mirroring middleware / subscriber-throw isolation already in `@lumenize/state`. Never let a user-supplied hook take down the framework.
+   - **Composability with `x-for`**: each iteration's clone is its own "mount" — does `x-on:mount` on a `<template x-for>`-hosted element fire per-iteration? (Probably yes — that's the useful semantic.)
+   - **MutationObserver grace-period interaction**: if an element is "moved" (removed + re-added in same task), the microtask-deferred unregister logic skips the unmount. `x-on:unmount` should match — fire only on *actual* removal, not on moves.
+
+   **Triage**: think before designing. The 2 s grace period + refcount semantics in 5.3.6 already give us *internal* mount/unmount events; question is which to expose. Minimum-viable surface for the demo is probably: `x-on:mount` + `x-on:unmount` on elements, and component-level `onMount` / `onUnmount` for per-instance setup (especially for `$local` initialization, which is currently underspecified). Defer auth/scope hooks, per-transaction granularity, and `onReady` unless a Studio template genuinely needs them.
+
+   **Outcome destination**: resolve in this file before Phase 5.3.6 design-finalizes; the answer affects `bindDom`'s option surface and the `x-component` directive grammar in `coding-your-ui.md`. If the design space turns out larger than expected, split into its own task file (`tasks/lumenize-ui-lifecycle.md`).
 
 ## Pre-port JurisJS inventory (archive reference)
 

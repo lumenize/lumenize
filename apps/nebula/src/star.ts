@@ -18,6 +18,7 @@ import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { DagTree } from './dag-tree';
 import { Resources } from './resources';
+import { Subscriptions } from './subscriptions';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
@@ -28,6 +29,7 @@ const rowKey = (version: string) => `ontology:${version}`;
 export class Star extends NebulaDO {
   #dagTree!: DagTree
   #resources!: Resources
+  #subscriptions!: Subscriptions
   #row: OntologyVersionRow | null = null
   #facet: ParserValidator | null = null
 
@@ -42,6 +44,12 @@ export class Star extends NebulaDO {
       () => this.lmz.callContext,
       this.#dagTree,
       () => this.#onChanged(),
+    )
+    this.#subscriptions = new Subscriptions(
+      this.ctx,
+      () => this.lmz.callContext,
+      this.#dagTree,
+      this.#resources,
     )
   }
 
@@ -292,10 +300,84 @@ export class Star extends NebulaDO {
     }
   }
 
+  // ─── Subscribe (Handler 1 / Handler 2) ─────────────────────────────
+
+  /** Handler 1: Check cache, dispatch to Handler 2 */
+  @mesh()
+  subscribe(ontologyVersion: string, resourceType: string, resourceId: string) {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribe requires a gateway in callChain.at(-1)');
+    }
+
+    if (this.#isCachedVersion(ontologyVersion)) {
+      this.doSubscribe(null, ontologyVersion, resourceType, resourceId, clientId, subscriberBinding);
+    } else {
+      this.lmz.call(
+        'GALAXY', this.#galaxyId,
+        this.ctn<Galaxy>().getLatestOntologyVersion(),
+        this.ctn().doSubscribe(
+          this.ctn().$result, ontologyVersion, resourceType, resourceId, clientId, subscriberBinding
+        )
+      );
+    }
+  }
+
+  /**
+   * Handler 2: Validate ontology, register subscriber, push initial snapshot.
+   * Errors travel through `handleResourceUpdate(rt, rid, error)` — fire-and-forget
+   * + callback correlation, same pattern as `transaction()` / `read()`.
+   */
+  doSubscribe(
+    fetchedState: OntologyState | null | Error,
+    ontologyVersion: string,
+    resourceType: string,
+    resourceId: string,
+    clientId: string,
+    subscriberBinding: string,
+  ) {
+    try {
+      if (fetchedState instanceof Error) {
+        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+          this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, fetchedState));
+        return;
+      }
+
+      if (fetchedState !== null) {
+        if (fetchedState.row.version !== ontologyVersion) {
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
+              new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
+          return;
+        }
+        this.#installState(fetchedState);
+      } else if (!this.#isCachedVersion(ontologyVersion)) {
+        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+          this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
+            new Error(`Ontology version '${ontologyVersion}' not found`)));
+        return;
+      }
+
+      const snapshot = this.#subscriptions.subscribe(resourceType, resourceId, clientId, subscriberBinding);
+
+      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, snapshot));
+    } catch (err) {
+      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
+          err instanceof Error ? err : new Error(String(err))));
+    }
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────
 
   #onChanged() {
     // Phase 3.1: placeholder — tests verify this callback fires on mutations
-    // Phase 5: subscription fan-out via lmz.call() through NebulaClientGateway
+    // Phase 5.3.2: subscription fan-out via lmz.call() through NebulaClientGateway
+    // (Subscriptions.forResource(resourceId) provides the lookup primitive)
   }
 }

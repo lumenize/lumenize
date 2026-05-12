@@ -16,6 +16,10 @@ export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from '.
 export { Resources, END_OF_TIME } from './resources';
 export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult, TransactionError } from './resources';
 
+// Subscriptions
+export { Subscriptions } from './subscriptions';
+export type { SubscriberRow } from './subscriptions';
+
 // DAG tree
 export { DagTree } from './dag-tree';
 export type { PermissionTier, DagTreeState } from './dag-ops';

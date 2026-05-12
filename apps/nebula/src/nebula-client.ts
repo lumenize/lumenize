@@ -63,4 +63,16 @@ export class NebulaClient extends LumenizeClient {
   handleReadResult(_result: Snapshot | null | Error): void {
     console.warn('handleReadResult not yet implemented — see Phase 5.3');
   }
+
+  /**
+   * Receive resource snapshot push from Star — initial value after subscribe,
+   * ongoing fanout after mutations (Phase 5.3.2), or an Error if subscribe
+   * itself failed (resource not found / permission denied / ontology mismatch).
+   *
+   * Stub until Phase 5.3.3 — real implementation writes through to bound state.
+   */
+  @mesh()
+  handleResourceUpdate(_resourceType: string, _resourceId: string, _result: Snapshot | null | Error): void {
+    console.warn('handleResourceUpdate not yet implemented — see Phase 5.3');
+  }
 }
