@@ -3,7 +3,7 @@
 **Phase**: 9
 **Status**: Active — end-of-line goal for the demo
 **App**: `apps/nebula/` (Studio is the authoring experience for vibe coders)
-**Depends on**: Phase 5 (Resources + branch-local lazy migrations), `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`), Phase 7 (Nebula Client subscribe), `@lumenize/state` and conditionally `@lumenize/ui` (Phase 8 — see `tasks/lumenize-ui.md` § Package split)
+**Depends on**: Phase 5 (Resources + branch-local lazy migrations), `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`), the Nebula frontend stack (Phase 5.3 + 7 + 8, consolidated in `tasks/nebula-frontend.md`). Vibe-coder-facing API surface lives in `website/docs/nebula/coding-your-ui.md`.
 **Master task file**: `tasks/nebula.md`
 
 > Was previously titled "Nebula Vibe Coding IDE." Renamed during the demo-focus refactor (historical context in `tasks/archive/nebula-task-files-refactor.md`). Drop the "vibe coding IDE" wording — it's just **Studio** now.
@@ -65,8 +65,8 @@ HTTP from a DO has to go through a Worker-hosted fetch router; that's fine — w
 ## Code Generation
 
 - Language model generates `ResourcesWorker` subclasses (resource config, guards, validation, migrations).
-- Language model generates UI artifacts. Shape depends on the LLM-generation spike outcome (see `tasks/lumenize-ui.md` § Recommended sequence): either ObjectDOM templates targeting `@lumenize/ui`, or vanilla HTML+JS targeting `@lumenize/state` directly. Either way, NebulaClient stays out of the UI layer.
-- **Styling: DaisyUI** (Tailwind component library, MIT). Pinned regardless of the renderer decision — pure CSS, renderer-agnostic. Strong LLM training coverage; stable; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo. See `tasks/lumenize-ui.md` § Styling: DaisyUI.
+- Language model generates UI artifacts as plain HTML + Alpine-flavored `x-*` directives bound to `@lumenize/state` paths. No ObjectDOM port (decision pinned 2026-05-09; LLM training-data alignment favored Alpine syntax). NebulaClient stays out of the UI layer — bindings target the StateManager. Generation patterns documented in `website/docs/nebula/coding-your-ui.md`.
+- **Styling: DaisyUI** (Tailwind component library, MIT). Pure CSS, framework-free. Strong LLM training coverage; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo.
 - Generated code is TypeScript strings deployed to DWL isolates.
 - Schema validation via tsc-in-DWL (already shipped as `@lumenize/ts-runtime-parser-validator`).
 

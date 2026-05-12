@@ -1,38 +1,126 @@
-# Lumenize UI Packages — `@lumenize/state` + `@lumenize/ui`
+# Lumenize UI Packages — `@lumenize/state` + `@lumenize/ui` + `@lumenize/router`
 
-**Status**: Active — critical path for the demo. `@lumenize/state` ports first (risk-free); `@lumenize/ui` is conditional on the LLM-generation spike.
-**License**: MIT for both — standalone, dual-licensed-friendly
-**Source material**: JurisJS — port the reactive subset, drop framework-integration glue
+**Status**: Active — critical path for the demo. Direction pinned 2026-05-09 (see below).
+**License**: MIT for all three — standalone, dual-licensed-friendly
+**Source material**: JurisJS for `@lumenize/state` (port); `@lumenize/ui` and `@lumenize/router` written from scratch with Alpine.js as ergonomic inspiration
 **Depends on**: Phase 5.3 (single-resource subscriptions), Phase 7 (NebulaClient subscribe wrappers)
 
-## Package split
+## Direction pinned (2026-05-09)
 
-The JurisJS port lands as **two packages**, not one:
+After review, the renderer question resolved without needing the LLM-generation spike. The shape:
 
-- **`@lumenize/state`** — `StateManager` + path helpers (`isValidPath`, `getPathParts`, `deepEquals`). Roughly 340 LOC. A path-based reactive store comparable to Zustand or `@preact/signals`, but with the dotted-path semantics that match Nebula's resource model. **NebulaClient binds to this** as its local store (no shadow cache — see Phase 5.3). Useful standalone too — any reactive-store consumer can pull it in.
-- **`@lumenize/ui`** — `DOMRenderer` + `ComponentManager` + `Juris` orchestrator on top of `@lumenize/state`. ObjectDOM templates with the function-vs-value reactive pattern. **Port is conditional on the LLM-generation spike** (see "Recommended sequence" below).
+- **HTML + Alpine-flavored attribute directives**, not ObjectDOM. The training-data argument is dispositive: every LLM has seen `x-text` / `x-bind` / `x-on:click` thousands of times; ObjectDOM is JurisJS-docs-only. Studio-generated UIs cost less to produce and are easier to inspect/debug.
+- **Path-based reactivity stays.** It's load-bearing: synced-state middleware (path → transaction), eTag-stored-at-sibling-path (`{statePath}.value`, `{statePath}.meta`), per-path subscribe semantics — all naturally path-keyed. Alpine-the-framework uses Proxy-based property reactivity, which would invert our model. So we keep the JurisJS-port `StateManager`; Alpine is *not* taken as a dependency.
+- **Three packages, not two**: `@lumenize/state` (port from JurisJS), `@lumenize/ui` (new, ~200 LOC DOM-crawl helper using Alpine-flavored directives backed by `@lumenize/state` paths), `@lumenize/router` (new, ~200 LOC URL ↔ state-path sync, written on top of `@lumenize/state` rather than porting the ~700-LOC JurisJS modules).
+- **No ObjectDOM port.** `DOMRenderer`, `ComponentManager`, and the `Juris` orchestrator from the inventory are *not* ported. The ~1,400–1,600 LOC saved on porting/maintenance is a meaningful win.
+- **No LLM-generation spike.** The spike was always going to be a delta against this same answer; we save the time.
 
-Why split:
+## Three layers, clean boundaries
 
-1. **De-risks the framework decision.** `@lumenize/state` is clearly correct work — NebulaClient needs the store regardless of how UI is rendered. Committing to it now is risk-free; committing to the renderer is gated on whether ObjectDOM is the right shape for LLM-generated UIs.
-2. **Headless mode falls out naturally.** NebulaClient in a Node test or script needs a store but no renderer. With the split, headless mode is "depend on `@lumenize/state` only." Without the split, it's a tree-shaking question or worse.
+A "should we reverse the package split?" question came up 2026-05-11 after a stretch of integration-heavy design work. Answer was **no**, with the following framing pinned to make the layer boundaries explicit:
 
-## Recommended sequence
+| Layer | Where the code lives | Knows about |
+| --- | --- | --- |
+| **`@lumenize/state`** | `packages/state/` (to be ported from JurisJS) | Itself only. Pure path-based reactive store. No DOM. No NebulaClient. |
+| **`@lumenize/ui`** | `packages/ui/` (to be written from scratch) | `@lumenize/state` only. DOM crawler, `x-*` directives, MutationObserver lifecycle, per-element `WeakMap` registry. No NebulaClient, no `resources.*` prefix, no Nebula wire protocol. |
+| **Integration (`client.bindToState`)** | `apps/nebula/src/nebula-client.ts` | All three layers, plus Nebula's wire protocol, resources schema, ontology versioning, conflict semantics, ID lifecycle. *This* is where the Nebula-specific knowledge lives. |
 
-1. **Port `StateManager` + helpers → publish as `@lumenize/state`.** ~340 LOC of must-keep code. Risk-free; useful regardless of how the framework question resolves.
-2. **Wire NebulaClient to `@lumenize/state`.** Phase 5.3.3 handlers write through to the bound StateManager. Test in headless mode (no DOM).
-3. **Run the LLM-generation spike.** Hand Claude an ontology + StateManager docs + 2–3 example components in *both* shapes (ObjectDOM and vanilla HTML+JS-against-StateManager). See which Claude produces more reliably.
-4. **If ObjectDOM wins**: port the renderer + components into `@lumenize/ui`. Studio generates ObjectDOM templates.
-5. **If vanilla wins**: skip the renderer port entirely. Studio generates HTML+JS that subscribes to StateManager directly. `@lumenize/ui` may not need to exist as a separate package at all (or becomes a thin "starter kit + utilities" thing).
+The integration layer hooks into the generic packages through two extension points the packages already expose:
 
-The store is the same either way. The renderer is the only thing under question.
+- **`setState` middleware** on `@lumenize/state` — `bindToState` installs middleware that watches for writes to `resources.{rt}.{rid}.*` paths and emits transactions.
+- **Subscriber-registration event** on `@lumenize/state` — `bindToState` listens for new path-subscribers under `resources.*` and reference-counts them for auto-subscribe.
+
+Both extension points are generic; any consumer can use them for any prefix convention. A non-Nebula consumer could do `state.setState('user.name', 'Alice')` and have a working reactive vanilla-DOM app with no Nebula anywhere. Likewise, the directives (`x-text`, `x-for`, `x-if`, `x-input`, etc.) are generic — they work on any state path, not just `resources.*`.
+
+**Why design discussions feel integration-heavy:** because they are. The pure primitives (state manager, DOM crawler) are conceptually simple and got designed quickly. The integration is where most domain decisions live (conflict resolution, refcount-with-grace, flash class, eTag-as-idempotency, `onShouldRefreshUI`, etc.) — that work would have happened regardless of where the code physically lives. Recognizing the integration as its own layer keeps the lower layers from accumulating Nebula-specific knowledge they shouldn't have.
+
+## Package picture
+
+| Package | Source | Scope | LOC | Status |
+| --- | --- | --- | --- | --- |
+| `@lumenize/state` | Port from JurisJS `src/juris.js` | StateManager + path helpers (`isValidPath`, `getPathParts`, `deepEquals`). Path-based reactive store comparable to Zustand or `@preact/signals`, with dotted-path semantics that match Nebula's resource model. **NebulaClient binds to this** as its local store (no shadow cache — see Phase 5.3). Useful standalone too. | ~340 | Phase 5.3.0 (prerequisite) |
+| `@lumenize/ui` | Written from scratch | `bindDom(root, state)` DOM-crawl helper. Walks the tree, finds `x-text` / `x-html` / `x-bind:attr` / `x-show` / `x-class:name` / `x-on:event` / `x-input` attributes, wires them to `state.subscribe` and `setState`. MutationObserver handles dynamic content. | ~200 | Built alongside Studio demo work |
+| `@lumenize/router` | Written from scratch | URL ↔ state-path two-way sync. `state.setState('view.activeTab', 'overview')` updates the URL; navigation back updates state. The "copy URL, send to coworker, they get the same view" invariant. | ~200 | Studio-blocking; built when first Studio app needs routing |
+
+Why this split:
+
+1. **`@lumenize/state` is rendering-agnostic.** Anything that wants a path-based reactive store can pull it in — Node scripts, browser apps, third-party tools. It also runs headless natively.
+2. **`@lumenize/ui` is transport-agnostic.** The crawler doesn't know NebulaClient or Star exist; it only ever calls `state.subscribe` / `state.setState`. Useful standalone for any path-based-store consumer that wants Alpine-flavored DOM bindings.
+3. **`@lumenize/router` is independent.** Renderer-agnostic; usable with or without `@lumenize/ui`. The URL-as-view-state pattern lives at this layer.
+
+## Why we didn't take Alpine as a dependency
+
+Considered seriously and ruled out for two reasons:
+
+- **Path-based vs Proxy-based reactivity is a model mismatch.** Alpine uses Vue's `@vue/reactivity` under the hood — state is property-keyed and tracked through Proxy access. Our model is path-keyed and explicit. Gluing them would mean two reactive systems trying to mirror each other, which is the bad kind of complexity.
+- **We get Alpine's main win without the dep.** Studio-generated UIs use Alpine-flavored directive *syntax* (`x-text`, `x-bind`, etc.), which is the part LLMs have heavy training-data exposure to. We implement the subset we need against `@lumenize/state` — about 200 LOC vs Alpine's ~30 KB minified.
+
+Headless mode (NebulaClient in Node tests) was a secondary argument; it can be solved with vitest-playwright or `@vitest/browser-mode`, so it didn't drive the decision. The path-based-reactivity argument did.
+
+## Directive set (the `bindDom` crawler subset)
+
+The `@lumenize/ui` crawler implements a small, fixed subset of Alpine-flavored directives. Values are *paths only*, not expressions — no `x-data`, no `$el`/`$store`/`$dispatch`, no JS evaluation in attributes. Computed values go in `@lumenize/state` as derived paths via middleware, not in the markup.
+
+| Directive | Wires to | Direction | Notes |
+| --- | --- | --- | --- |
+| `x-text="path"` | `el.textContent` | one-way (state → DOM) | Most common. |
+| `x-html="path"` | `el.innerHTML` | one-way (state → DOM) | Sanitized; expects vetted HTML strings. Use sparingly. |
+| `x-bind:attr="path"` | `el.setAttribute(attr, value)` | one-way (state → DOM) | Generic attribute binding (e.g. `x-bind:href`, `x-bind:disabled`, `x-bind:aria-label`). |
+| `x-show="path"` | `el.style.display` | one-way (state → DOM) | Truthy → visible, falsy → `display: none`. |
+| `x-class:name="path"` | `el.classList.toggle(name, ...)` | one-way (state → DOM) | Toggle a single class based on path's truthiness. Multiple `x-class:*` allowed per element. |
+| `x-on:event="handler()"` | `el.addEventListener(event, ...)` | DOM → handler | `handler` is a registered function on the bound state context, not an expression. |
+| `x-input="path"` | input/textarea/select two-way | two-way (state ↔ DOM) | On mount: `state.subscribe(path, v => el.value = v)`. Plus: `el.addEventListener('input', e => state.setState(path, e.target.value))`. Named for the DOM `input` event it listens to; intentionally *not* called `x-model` to avoid introducing "model" into our vocabulary. |
+
+**Notes:**
+
+- LLMs trained on Alpine will occasionally generate `x-model` instead of `x-input`. The crawler logs a clear warning ("`x-model` is not supported; use `x-input`") so the failure is loud during preview rather than silent.
+- Unrecognized `x-*` attributes warn similarly — the supported subset is the spec.
+- Studio's system prompt enumerates the subset and forbids the rest. Documentation cites Alpine as inspiration but pins our subset as authoritative.
+- `MutationObserver` re-crawls when nodes are added; element removal triggers `state.subscribe` cleanup so reactive bindings don't leak.
+
+## Path conventions & resource addressing
+
+State paths, DOM-directive paths, REST URL templates, and storage `resourceId`s all relate. Pinned 2026-05-10:
+
+**Encodings** (isomorphic — same segments, different delimiters per context):
+
+| Surface | Form | Example |
+| --- | --- | --- |
+| StateManager state path | period-delimited | `resources.todo.task-42.value.title` |
+| DOM directive value | same as state path (verbatim) | `x-text="resources.todo.task-42.value.title"` |
+| REST URL | slash-delimited | `/api/resources/todo/task-42` |
+| Programmatic API | tuple | `client.resources.subscribe('todo', 'task-42')` |
+
+**ID character constraint:** `resourceType` and `resourceId` are restricted to `[A-Za-z0-9_-]`. No periods (would break state-path parsing). No slashes (would break URL parsing). No spaces, query chars, or anything else that needs URL-encoding. This is enforced at resource-creation time (transaction op validation), at subscribe/read time as a defense-in-depth check, and in the typia-generated schema constraints for type names. ULIDs, UUIDs, and conventional slugs all fit naturally.
+
+**Default `statePath` for a resource subscription:** `resources.{resourceType}.{resourceId}`. The `resources.` prefix is a visual marker that "this subtree is server-synced." Local-only state lives elsewhere by convention (`ui.activeTab`, `app.draftFilter`, etc.) — no special character needed to distinguish synced vs local; the path-prefix convention carries the signal. Callers can override `statePath` to bind a resource to any path they want, but the default is what Studio-generated UIs use unless something specific demands otherwise.
+
+**Hierarchical reactivity (load-bearing for the directive set to be ergonomic):** When `handleResourceUpdate` writes a whole snapshot at a parent path, StateManager walks descendant subscribers and uses `deepEquals` to fire only the ones whose specific value actually changed. This means:
+
+- `state.setState('resources.todo.task-42.value', snapshot.value)` — a binding at `resources.todo.task-42.value.title` fires *only if title differs*; a binding at `…value.description` doesn't fire if description didn't change.
+- No spurious re-renders on bulk pushes.
+- `bindDom` can subscribe at any depth and just work.
+
+This is JurisJS StateManager's existing behavior — `deepEquals` is one of the helpers in the keep-list ([lumenize-ui.md "Definitely keeping"](#1-definitely-keeping)). **Verification probe during the `@lumenize/state` port:** setState at parent with one field changed; confirm only that field's subscriber fires. If hierarchical-notify-with-deepEquals doesn't behave this way, the directive ergonomic breaks; this is the canary test.
+
+**Why this combination works:**
+
+- Period-delimited state paths come for free from JurisJS.
+- The ID character constraint makes the period-delimited and slash-delimited forms unambiguous and mechanically interconvertible.
+- Hierarchical reactivity means directives can address arbitrarily deep into a resource without the framework having to know "this whole subtree is a single resource" — every path segment is just a state path.
+- `resources.` prefix gives synced-vs-local visibility without inventing a special character.
+
+**Open / deferred:**
+
+- Whether `x-text="resources.todo.task-42.value.title"` (six segments) feels too verbose in real Studio markup, or whether per-element scoping (Alpine-style `x-data`-like directive that establishes a scope, with shorter inner paths) is worth adding. Defer until first real Studio HTML.
+- Exact REST URL template shape (versioning prefix, auth path, branch encoding) — out of scope until the REST layer starts.
 
 ## Styling: DaisyUI
 
-**Pinned**: Studio-generated UIs use DaisyUI (Tailwind component library, MIT). Cleanly orthogonal to the ObjectDOM-vs-vanilla decision — pure CSS, framework-free, works identically with `className: 'btn btn-primary'` (ObjectDOM) and `class="btn btn-primary"` (vanilla HTML).
+**Pinned**: Studio-generated UIs use DaisyUI (Tailwind component library, MIT). Pure CSS, framework-free — works identically with the directive-driven HTML pattern pinned above (`class="btn btn-primary"`).
 
 Why DaisyUI:
-- **Renderer-agnostic.** Removes one variable from the LLM-generation spike: Claude picking reasonable classes isn't conflated with "did ObjectDOM work."
+- **Renderer-agnostic.** No coupling to our reactivity model — DaisyUI is just CSS classes on HTML elements that the `bindDom` crawler also happens to be reading attributes from.
 - **LLM training quality.** Tailwind + DaisyUI is heavily represented in training data; LLMs produce clean DaisyUI code with minimal prompting.
 - **Theme system.** CSS variables → maps naturally onto Nebula's per-tenant branding direction.
 - **Mature and MIT-licensed.** Stable since 2020+; no maintenance hand-wringing.
@@ -56,39 +144,54 @@ This sharpens the case for the package split: with DaisyUI carrying the visual l
 
 **The UI talks to StateManager, not to NebulaClient.** NebulaClient is the plumbing behind a bound StateManager (transport, auth, eTag, conflict handling). UI code reads from / writes to a path; NebulaClient invisibly syncs paths configured as synced.
 
-In ObjectDOM (if `@lumenize/ui` ports):
+A todo-card in the pinned shape:
 
-```js
-{ input: { value: () => state.getState('task.value.title'),
-           oninput: (e) => state.setState('task.value.title', e.target.value) } }
+```html
+<div class="card bg-base-100 shadow-md">
+  <h2 class="card-title" x-text="task.value.title">Loading...</h2>
+  <p x-text="task.value.description">Loading...</p>
+  <input class="input input-bordered" x-input="task.value.title" />
+  <button class="btn btn-primary" x-on:click="save">Save</button>
+</div>
 ```
 
-In vanilla DOM (the fallback):
-
 ```js
-state.subscribe('task.value.title', t => titleEl.textContent = t);
-inputEl.addEventListener('input', e => state.setState('task.value.title', e.target.value));
+import { state, bindDom } from '@lumenize/ui';
+import { client } from './nebula-client.js';
+
+bindDom(document.body, state);                                  // local DOM ↔ state
+await client.resources.subscribe('todo', 'task-42', 'task');    // server data → state
 ```
 
-Either shape, NebulaClient stays out of the UI layer entirely.
+NebulaClient stays out of the UI layer entirely. The crawler doesn't know NebulaClient or Star exist; it only ever calls `state.subscribe` and `state.setState`. Data flows in via `client.resources.subscribe`, which writes through `handleResourceUpdate` to `state.setState`, which fires the crawler's bindings.
+
+(See `tasks/nebula-5.3-subscriptions.md` § "Two `subscribe`s — different things" for the full chain.)
 
 ## Must-keep (decision pinned)
 
-These are the JurisJS primitives we definitely want; the inventory below maps them to packages.
+The JurisJS primitives we're keeping, mapped to packages:
 
-- **`getState()` / `setState()` / `subscribe()`** — the imperative state primitives. → `@lumenize/state`
-- **The "object DOM" / template pattern** where:
-  - A function-valued slot is **reactive** — re-evaluated when its dependencies change.
-  - A value-valued slot is **evaluated once** at render time.
-  - This is the central ergonomic that makes synced and local state interchangeable in component code. → `@lumenize/ui` (conditional on the spike)
+- **`getState()` / `setState()` / `subscribe()` / `executeBatch()`** — the imperative state primitives. → `@lumenize/state`
+- **`track()` + dep-set machinery** — auto-dependency-detection used internally by middleware/derived-paths. → `@lumenize/state`
+- **Middleware list** — runs on every `setState`, the natural hook for synced-state wiring. → `@lumenize/state`
+- **Hierarchical subscribe semantics** — subscribers to `task.value` fire when `task.value.title` changes. Load-bearing for our snapshot-push pattern. → `@lumenize/state`
+
+What we're *not* porting from JurisJS (despite earlier inventory):
+
+- **`DOMRenderer`** (~910 LOC), **`ComponentManager`** (~485 LOC), **`Juris` orchestrator** (~250 LOC), and the function-vs-value reactive-template pattern. The Alpine-flavored DOM-crawler in `@lumenize/ui` replaces these.
+- **Async-prop / promise placeholder machinery** (~250 LOC). Bindings are path-keyed and synchronous; async fetches are caller responsibility (a `state.subscribe` callback can `await` and then `setState` if needed).
+- **`url-state-sync.js`** / **`juris-router.js`** (~700 LOC each). `@lumenize/router` is written from scratch on top of `@lumenize/state` rather than ported.
+
+The pre-port inventory below is preserved as historical reference for what was considered. Most of the "Definitely keeping" items beyond `StateManager` + helpers are now scratched.
 
 ## On the cutting room floor
 
 - **Registration / integration glue for non-JurisJS frameworks** (React, Svelte, Vue, etc.). Nebula doesn't need them and we don't want to maintain them.
+- **All the renderer / component-manager / orchestrator code** — see "Must-keep" above. Replaced by the `@lumenize/ui` crawler.
 
 ## Pre-port inventory (filled in 2026-05-06)
 
-> **Package mapping**: under the split above, items in the "Definitely keeping → Top-level helpers + StateManager" group below belong to `@lumenize/state`; everything else (DOMRenderer, ComponentManager, Juris orchestrator) belongs to `@lumenize/ui` and ports only if the LLM-generation spike picks ObjectDOM.
+> **⚠ Superseded by the 2026-05-09 direction-pinning above.** The inventory remains as historical reference for what was considered. The actual port scope is now narrower: only `StateManager` + top-level helpers (~340 LOC) port to `@lumenize/state`. `DOMRenderer`, `ComponentManager`, the `Juris` orchestrator, async-prop machinery, and the JurisJS router/url-state-sync modules are **not** being ported. The directive-driven crawler in `@lumenize/ui` and the from-scratch `@lumenize/router` replace them. Sections below labeled "Definitely keeping" beyond `StateManager` should be read as "considered keeping, now scratched."
 
 **Source read**: cloned `https://github.com/jurisjs/juris.git` to `/tmp/juris-source` (HEAD of default branch, source comment marks v0.91.0; `package.json` says 0.88.2 monorepo / 0.9.2 published). MIT licensed. The framework is essentially one file (`src/juris.js`, ~2,227 LOC) plus a handful of independent feature modules.
 
@@ -117,7 +220,9 @@ We won't keep the upstream docs verbatim — they're MIT-licensed but they descr
 
 ### 1. Definitely keeping
 
-These are load-bearing for `getState`/`setState`, the function-vs-value reactive-template pattern, or the subscribe-as-state wiring. All from `src/juris.js`.
+> **⚠ Scope narrowed (2026-05-09)**: Only the `StateManager` + top-level helpers items below are still in scope. The `DOMRenderer`, `ComponentManager`, and `Juris` orchestrator items are **not** being ported — replaced by the from-scratch `@lumenize/ui` crawler. Kept here as inventory reference for what was considered.
+
+These were load-bearing for `getState`/`setState`, the function-vs-value reactive-template pattern, or the subscribe-as-state wiring. All from `src/juris.js`.
 
 - **Top-level helpers** — `isValidPath`, `getPathParts`, `deepEquals` (~30 LOC, lines 68–80). `getState`/`setState` use dotted paths; `deepEquals` is what suppresses no-op updates and avoids flicker (Phase 5.3 reconnection replay).
 - **`StateManager`** (lines 138–445, ~310 LOC) in nearly its entirety:
@@ -170,6 +275,8 @@ These are load-bearing for `getState`/`setState`, the function-vs-value reactive
 
 ### 3. Keep just in case
 
+> **⚠ Mostly resolved (2026-05-09)**: The async/promise machinery, router, and lifecycle-hook items below were "keep if `@lumenize/ui` ports the renderer." Since the renderer isn't being ported, most of these are now decided "skip," with `@lumenize/router` written from scratch instead of porting `url-state-sync.js` / `juris-router.js`. Kept here as historical reference.
+
 For each: rough size and rationale, so a future trim pass can reassess.
 
 - **Async/promise prop support** — `#handleAsync`, `#isPromiseLike`, async-component placeholders, `_hasAsyncProps`, `#createWithAsyncProps`, `#resolveAsyncProps`, `#handleAsyncComponent`, plus `createPromisify` helpers (~250 LOC across `DOMRenderer` and `ComponentManager`). Studio-generated UIs will commonly do `text: () => fetchUserName(id)`. Cost to carry is high, but extraction is hard (intertwined with `applyProp` and the reactive handlers) — easier to keep than to reintroduce later. *Effectively keep*: the must-keep set forces it. Listed here so we know it's a substantial chunk.
@@ -200,11 +307,13 @@ This list is the *port's scope*, not the v1 surface area. Public API design (wha
 
 ## Subscribe wiring (the headline integration)
 
-This wiring lives at the NebulaClient ↔ `@lumenize/state` boundary, NOT at the UI layer. It works the same whether the UI is ObjectDOM or vanilla HTML+JS.
+This wiring lives at the NebulaClient ↔ `@lumenize/state` boundary, NOT at the UI layer. The `@lumenize/ui` crawler is unaware of it.
 
 - A piece of state declared synced (via a config flag or path convention — TBD during 5.3.6) wires up automatically to a NebulaClient subscription on the named resource.
 - Reads (`getState`) return the latest known value. Writes (`setState`) optimistically update the local store, push via NebulaClient, then reconcile on the server's eTag-confirmed snapshot.
 - BroadcastChannel semantics from Phase 5.3 (own messages not echoed) flow through to subscribers naturally.
+
+See `tasks/nebula-5.3-subscriptions.md` § "Two `subscribe`s — different things" for the precise distinction between `client.resources.subscribe` (network/server fanout) and `state.subscribe` (local in-memory reactivity), and the full sequence on a single update.
 
 ## Avoiding UI Flicker on Resource Updates
 
@@ -225,6 +334,6 @@ Either prevents flicker when a subscribe handler fires but the value is unchange
 
 ## Notes
 
-- Both `@lumenize/state` and `@lumenize/ui` are MIT-licensed and live in the Lumenize monorepo alongside the other MIT packages.
+- All three packages (`@lumenize/state`, `@lumenize/ui`, `@lumenize/router`) are MIT-licensed and live in the Lumenize monorepo alongside the other MIT packages.
 - Auto-refresh-on-version-change is a Studio concern (`tasks/nebula-studio.md`); the hook for it can live in `@lumenize/state` as a middleware. Defer the surface design until the Studio preview mechanism is sketched.
-- This file covers both packages — there's no separate `lumenize-state.md`. If/when the renderer port begins, we may split this file too; for now, keeping them together emphasizes that they're one coordinated decision.
+- This file covers all three packages. Kept together because they're one coordinated decision; consider splitting once any one of them grows enough to warrant its own task file.

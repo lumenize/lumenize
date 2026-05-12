@@ -24,4 +24,4 @@ Switching active scope means creating a new `NebulaClient` with a different `act
 
 `NebulaClient` subclasses can have `@mesh()` methods that DOs call through the Gateway. The `@mesh()` decorator is pure metadata — it marks the method as remotely callable but does not wrap it. Calling a `@mesh()` method directly from surrounding JavaScript (e.g., `client.echo('hello')`) executes the method normally with no interception and no guard check. Guards only run when the call arrives via the mesh.
 
-See [Auth Flows](./auth-flows.mdx) for the full login, returning user, and scope-switching sequences.
+See [Auth Flows](./auth-flows.md) for the full login, returning user, and scope-switching sequences.

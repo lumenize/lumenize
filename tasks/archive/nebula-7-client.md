@@ -5,7 +5,7 @@
 **App**: `apps/nebula/` (NebulaClient lives in the nebula app)
 **Depends on**: Phase 5 (Resources + single-resource subscriptions)
 **Master task file**: `tasks/nebula.md`
-**Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
+**Sequence diagrams**: `website/docs/nebula/auth-flows.md`
 
 > **Walled garden.** Nebula is a product, not a framework. NebulaClient is the only way to connect — there are no alternative routing setups, no "bring your own auth," no escape hatches. See `tasks/nebula.md` § Walled Garden for context.
 
@@ -38,7 +38,7 @@ Full design and phases live in `tasks/nebula-5.3-subscriptions.md`.
 
 Each of these is a polish/production item, not a demo blocker. Studio works around them.
 
-- **Discovery-first login flow** (client-side orchestration): tests bypass with `?_test=true` magic-link; Studio's login UI can hand-craft the flow against the same endpoints. The full discover → pick scope → refresh-or-magic-link sequence becomes important when there are multiple scopes or anonymous users hitting `/auth`. See sequence diagrams at `website/docs/nebula/auth-flows.mdx`.
+- **Discovery-first login flow** (client-side orchestration): tests bypass with `?_test=true` magic-link; Studio's login UI can hand-craft the flow against the same endpoints. The full discover → pick scope → refresh-or-magic-link sequence becomes important when there are multiple scopes or anonymous users hitting `/auth`. See sequence diagrams at `website/docs/nebula/auth-flows.md`.
 - **WebSocket keepalive (25-second pings + `setWebSocketAutoResponse`)**: matters when intermediaries (NAT tables, mobile carriers) silently drop idle connections. LumenizeClient's reactive reconnect handles the case where a close frame arrives; pings handle the case where it doesn't. Worst case without keepalive is ~25 seconds of stale display before active sends trigger TCP timeouts and `onSubscriptionRequired` fires. Acceptable for demo.
 - **Proactive token refresh**: access token TTL is ~15 minutes. Today the client refreshes reactively on 4401. Proactive timer or intercept-on-next-request avoids a flicker right at the boundary. Polish, not demo-blocking.
 - **Scope switching tests** (admin wildcard JWT switching `aud` mid-session). Admin scope switching is supported server-side; the client-side UX for it is post-demo.
