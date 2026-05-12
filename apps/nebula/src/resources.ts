@@ -16,6 +16,7 @@ import type {
 } from '@lumenize/ts-runtime-parser-validator';
 import { stringify, parse } from '@lumenize/structured-clone';
 import type { DagTree } from './dag-tree';
+import type { PermissionTier } from './dag-ops';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -47,7 +48,8 @@ export type OperationDescriptor =
 
 export type TransactionError =
   | { type: 'conflict'; currentSnapshot: Snapshot }
-  | { type: 'validation'; errors: ValidationError[] };
+  | { type: 'validation'; errors: ValidationError[] }
+  | { type: 'permission'; requiredTier: PermissionTier; nodeId: number };
 
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
@@ -253,6 +255,7 @@ export class Resources {
   async transaction(
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,
+    newETag: string,
     facet: ParserValidator,
     onMutations?: (mutations: Map<string, Snapshot>) => void,
   ): Promise<TransactionResult> {
@@ -274,8 +277,12 @@ export class Resources {
     // Step 2: Calculate single validFrom
     const validFrom = this.#calculateValidFrom(currentSnapshots);
 
-    // Step 3: Generate single eTag
-    const eTag = crypto.randomUUID();
+    // Step 3: Use the caller-supplied per-transaction eTag (one for the whole
+    // batch). The client generates this so it can also serve as the
+    // idempotency key — if a retry lands and every resource is already at
+    // this eTag, Step 9 short-circuits to a `committed` result without
+    // writing again.
+    const eTag = newETag;
 
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
@@ -356,25 +363,68 @@ export class Resources {
         }
       }
 
-      // Step 8: Permission checks
+      // Step 8: Permission checks. Collect all failures into a typed
+      // `TransactionError` rather than throwing on the first denial — the
+      // client wants to know about every affected resource, not just the
+      // first one it happened to ask about.
+      const permErrors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
-        switch (op.op) {
-          case 'create':
-            this.#dagTree.requirePermission(op.nodeId, 'write');
-            break;
-          case 'put':
-          case 'delete':
-            this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
-            break;
-          case 'move':
-            this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
-            this.#dagTree.requirePermission(op.nodeId, 'write');
-            break;
+        try {
+          switch (op.op) {
+            case 'create':
+              this.#dagTree.requirePermission(op.nodeId, 'write');
+              break;
+            case 'put':
+            case 'delete':
+              this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
+              break;
+            case 'move':
+              this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
+              this.#dagTree.requirePermission(op.nodeId, 'write');
+              break;
+          }
+        } catch (e) {
+          // Distinguish permission-denial (typed `TransactionError`) from
+          // other `requirePermission` throws like "Node X not found" or
+          // "Authentication required" — those signal client misuse and stay
+          // as thrown `Error`. Fragile string-match for now; TODO: have
+          // `dag-tree.ts` throw typed `PermissionDeniedError` so this match
+          // can be `e instanceof PermissionDeniedError`.
+          if (!(e instanceof Error) || !e.message.includes('permission required')) {
+            throw e;
+          }
+          // For 'move' both the source and destination are checked — record
+          // the first failing nodeId (source checked first); good enough
+          // for demo, refine if mover-targets need disambiguation.
+          const nodeId = op.op === 'create' || op.op === 'move'
+            ? (current?.meta.nodeId ?? op.nodeId)
+            : current!.meta.nodeId;
+          permErrors[resourceId] = { type: 'permission', requiredTier: 'write', nodeId };
         }
       }
 
-      // Step 9: Check eTags — conflicts produce { ok: false }
+      if (Object.keys(permErrors).length > 0) {
+        result = { ok: false, errors: permErrors };
+        return;
+      }
+
+      // Step 9a: Idempotency short-circuit. If every existing resource is
+      // already at `newETag` (and creates are no-ops via "current exists
+      // with newETag"), the client's previous attempt landed — return as
+      // committed without writing again.
+      const allAtNewETag = entries.every(([resourceId, op]) => {
+        const current = authoritative.get(resourceId);
+        return current?.meta.eTag === newETag;
+      });
+      if (allAtNewETag) {
+        const eTags: Record<string, string> = {};
+        for (const [resourceId] of entries) eTags[resourceId] = newETag;
+        result = { ok: true, eTags };
+        return;
+      }
+
+      // Step 9b: Check eTags — conflicts produce { ok: false }
       const errors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         if (op.op === 'create') continue;

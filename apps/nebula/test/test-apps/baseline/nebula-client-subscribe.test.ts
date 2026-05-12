@@ -48,7 +48,7 @@ async function twoAdminClients(star: string) {
 async function waitForResult(client: NebulaClientTest) {
   await vi.waitFor(() => {
     expect(client.callCompleted).toBe(true);
-  }, { timeout: 5000 });
+  });
 }
 
 async function waitForSuccess(client: NebulaClientTest) {

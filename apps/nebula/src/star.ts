@@ -174,7 +174,7 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  transaction(ontologyVersion: string, ops: Record<string, OperationDescriptor>) {
+  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
@@ -182,14 +182,14 @@ export class Star extends NebulaDO {
 
     if (this.#isCachedVersion(ontologyVersion)) {
       // Cache hit — execute directly, skip Galaxy entirely
-      this.doTransaction(null, ontologyVersion, ops, clientId);
+      this.doTransaction(null, ontologyVersion, newETag, ops, clientId);
     } else {
       // Cache miss — ask Galaxy, carry context in the response handler
       this.lmz.call(
         'GALAXY', this.#galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doTransaction(
-          this.ctn().$result, ontologyVersion, ops, clientId
+          this.ctn().$result, ontologyVersion, newETag, ops, clientId
         )
       );
     }
@@ -203,6 +203,7 @@ export class Star extends NebulaDO {
   async doTransaction(
     fetchedState: OntologyState | null | Error,
     ontologyVersion: string,
+    newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
   ) {
@@ -233,7 +234,7 @@ export class Star extends NebulaDO {
       // null + matching cache entry = cache hit; fall through
 
       const { row, facet } = this.#ensureFacet();
-      const result = await this.#resources.transaction(ops, row.version, facet,
+      const result = await this.#resources.transaction(ops, row.version, newETag, facet,
         (mutations) => this.#fanout(mutations, clientId));
 
       // Deliver result to client
@@ -250,50 +251,51 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  read(ontologyVersion: string, resourceId: string) {
+  read(ontologyVersion: string, resourceId: string, requestId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('read requires a client origin with instanceName in callChain[0]');
     }
 
     if (this.#isCachedVersion(ontologyVersion)) {
-      this.doRead(null, ontologyVersion, resourceId, clientId);
+      this.doRead(null, ontologyVersion, resourceId, requestId, clientId);
     } else {
       this.lmz.call(
         'GALAXY', this.#galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doRead(
-          this.ctn().$result, ontologyVersion, resourceId, clientId
+          this.ctn().$result, ontologyVersion, resourceId, requestId, clientId
         )
       );
     }
   }
 
-  /** Handler 2: Execute read + deliver result to client */
+  /** Handler 2: Execute read + deliver result to client via handleReadResponse */
   doRead(
     fetchedState: OntologyState | null | Error,
     ontologyVersion: string,
     resourceId: string,
+    requestId: string,
     clientId: string,
   ) {
     try {
       if (fetchedState instanceof Error) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleReadResult(fetchedState));
+          this.ctn<NebulaClient>().handleReadResponse(requestId, fetchedState));
         return;
       }
 
       if (fetchedState !== null) {
         if (fetchedState.row.version !== ontologyVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleReadResult(
+            this.ctn<NebulaClient>().handleReadResponse(requestId,
               new Error(`Ontology version mismatch: client sent '${ontologyVersion}' but latest is '${fetchedState.row.version}'. Refresh your schema.`)));
           return;
         }
         this.#installState(fetchedState);
       } else if (!this.#isCachedVersion(ontologyVersion)) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleReadResult(
+          this.ctn<NebulaClient>().handleReadResponse(requestId,
             new Error(`Ontology version '${ontologyVersion}' not found`)));
         return;
       }
@@ -301,10 +303,10 @@ export class Star extends NebulaDO {
       const snapshot = this.#resources.read(resourceId);
 
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleReadResult(snapshot));
+        this.ctn<NebulaClient>().handleReadResponse(requestId, snapshot));
     } catch (err) {
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleReadResult(
+        this.ctn<NebulaClient>().handleReadResponse(requestId,
           err instanceof Error ? err : new Error(String(err))));
     }
   }

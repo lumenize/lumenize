@@ -65,6 +65,7 @@ export default defineConfig({
         test: {
           name: 'baseline',
           include: ['test/test-apps/baseline/**/*.test.ts'],
+          setupFiles: ['./test/test-apps/baseline/test/setup.ts'],
         },
       },
       // Browser project — Node-side vitest tests using @lumenize/testing's

@@ -157,12 +157,11 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
     BroadcastChannel: ctx.BroadcastChannel,
   });
 
-  // Wait for connection. Explicit 5s timeout (vs. vi.waitFor's 1s default)
-  // because parallel test execution can push connection-wait past the default
-  // under contention.
+  // Wait for connection. Baseline-project setup file bumps vi.waitFor's
+  // default timeout to 5s (apps/nebula/test/test-apps/baseline/test/setup.ts).
   await vi.waitFor(() => {
     expect(client.connectionState).toBe('connected');
-  }, { timeout: 5000 });
+  });
 
   return { client, payload, accessToken };
 }

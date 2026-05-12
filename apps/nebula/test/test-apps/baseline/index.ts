@@ -349,16 +349,28 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
 
-  callStarTransaction(starName: string, ontologyVersion: string, ops: Record<string, OperationDescriptor>): void {
+  callStarTransaction(
+    starName: string,
+    ontologyVersion: string,
+    ops: Record<string, OperationDescriptor>,
+    newETag?: string,
+  ): void {
     this.resetResults();
+    const txnETag = newETag ?? crypto.randomUUID();
+    this.lastTxnETag = txnETag;
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().transaction(ontologyVersion, ops));
+      this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
   }
+
+  /** Last newETag used by `callStarTransaction` — useful for tests that
+   *  need to retry with the same eTag (idempotency probe). */
+  lastTxnETag: string | undefined = undefined;
 
   callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
     this.resetResults();
+    const requestId = crypto.randomUUID();
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().read(ontologyVersion, resourceId));
+      this.ctn<Star>().read(ontologyVersion, resourceId, requestId));
   }
 
   callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
@@ -377,6 +389,15 @@ export class NebulaClientTest extends NebulaClient {
 
   @mesh()
   override handleTransactionResult(result: TransactionResult | Error): void {
+    // Delegate to base so the in-flight transaction queue settles for any
+    // test using `client.resources.transaction()`. The legacy
+    // `callStarTransaction` test initiator doesn't enqueue a transaction
+    // (it's just an lmz.call), so the base's `#inFlightTxn` is null and the
+    // delegation is a no-op for that path. After delegation, capture for
+    // assertion: legacy tests read `lastResult` / `lastError` /
+    // `callCompleted`.
+    super.handleTransactionResult(result);
+
     if (result instanceof Error) {
       this.lastError = result.message;
       this.lastResult = undefined;
@@ -388,7 +409,14 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   @mesh()
-  override handleReadResult(result: Snapshot | null | Error): void {
+  override handleReadResponse(_requestId: string, result: Snapshot | null | Error): void {
+    // Delegate to base for Promise correlation on the new
+    // client.resources.read() path. The base settles the pending entry in
+    // its requestId map. Then capture for assertion on the legacy
+    // `callStarRead` test initiator (which doesn't go through the Promise
+    // path — it sets `lastResult` / `lastError` and `callCompleted`).
+    super.handleReadResponse(_requestId, result);
+
     if (result instanceof Error) {
       this.lastError = result.message;
       this.lastResult = undefined;
