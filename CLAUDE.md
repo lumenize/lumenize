@@ -184,6 +184,34 @@ constructor(config: NebulaClientConfig) {
 
 Methods on the prototype (including `#`-prefixed ones) ARE accessible during super() — but they must not touch class fields, which init later. Canonical example: `apps/nebula/src/nebula-client.ts` constructor.
 
+### `LumenizeClientGateway` is NOT a mesh participant
+
+It extends `DurableObject` directly (not `LumenizeDO`) to maintain the "zero storage" design noted in its class comment. So `this.lmz.call(...)` is unavailable. Subclasses (`NebulaClientGateway`, etc.) inherit this constraint. Outbound calls from a Gateway must either build mesh envelopes manually and call `stub.__executeOperation(envelope)` (the pattern at `packages/mesh/src/lumenize-client-gateway.ts` `#handleClientCall`), or use direct Workers RPC via `env.X.get(env.X.idFromName(name)).method(args)` — bypassing mesh entirely.
+
+For Gateway-originated cleanup, prefer **reactive patterns** (e.g., drop-on-failed-fanout using the result-handler form below) over **proactive ones** (alarm-driven calls into the mesh). The former is much simpler given the constraint. Canonical example: `Star.#fanout` in `apps/nebula/src/star.ts` — the cleanup runs on Star's side, not the Gateway's, even though "user closed the tab" is fundamentally a Gateway-observed event.
+
+### `lmz.call` with a result handler (4-arg form)
+
+`lmz.call` has two forms. The 3-arg form is true fire-and-forget: `lmz.call(binding, instance, remote)` — the call leaves the DO and the caller has no local awareness of whether it succeeded. The 4-arg form pairs the call with a **local** result handler: `lmz.call(binding, instance, remote, this.ctn().onDelivered(remote))`. When the remote call settles, the framework invokes `onDelivered(result)` on this DO — with the success value on success, or with the Error object on failure (including structured errors like `ClientDisconnectedError` from disconnected client Gateways).
+
+Useful for reactive cleanup, retry logic, observability hooks — anything that wants to react to "did the call actually land?" without `await`ing a Promise.
+
+```typescript
+// In Star.#fanout — react to a disconnected subscriber by dropping its row.
+const remote = this.ctn<NebulaClient>().handleResourceUpdate(rt, rid, snapshot);
+this.lmz.call(sub.subscriberBinding, sub.clientId, remote,
+  this.ctn().onFanoutDelivered(resourceId, sub.clientId, remote));
+
+// Handler — local method, no `@mesh()` needed; result is { $result | Error }.
+onFanoutDelivered(resourceId: string, clientId: string, result: unknown): void {
+  if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+    this.#subscriptions.removeSubscriber(resourceId, clientId);
+  }
+}
+```
+
+The result handler executes locally on the same DO that initiated the call — it does NOT need `@mesh()` (it's not a remote call surface). Canonical example: `Star.#fanout` + `Star.onFanoutDelivered` in `apps/nebula/src/star.ts`.
+
 ---
 
 ## Package Structure
