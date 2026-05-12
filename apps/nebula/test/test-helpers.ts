@@ -11,7 +11,7 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
-const ORIGIN = 'http://localhost';
+export const ORIGIN = 'http://localhost';
 
 function authUrl(path: string): string {
   return `${ORIGIN}${PREFIX}/${path}`;

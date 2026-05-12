@@ -1,6 +1,7 @@
 # Nebula Frontend
 
 **Status**: Active — demo critical path
+**Progress**: Phases 5.3.0 – 5.3.4 shipped (2026-05-12). Next: Phase 5.3.5 (disconnect-driven subscriber cleanup).
 **Depends on**: Phase 5.1 (Storage Engine — shipped), Phase 5.2 (Validation/Ontology — shipped)
 **Companion docs** (canonical surface; defer to these for API + examples):
 
@@ -17,6 +18,9 @@
 > - 2026-05-11 — flash class behavior, `maxRetries`, `context.bindings` resolver third-arg, dynamic-DOM lifecycle (MutationObserver, 2 s unsubscribe grace, microtask-deferred removal), `x-for` / `x-if` directives with `<template>`-as-host + `$loopVar` substitution, `!path` negation, `state.computed()`, three-layers framing, consolidation into this file
 > - 2026-05-12 — components & recursion added: `x-component` / `x-render` / `x-prop:*` / `$local` / `x-key-from` / `$trail` / handler scope-injection. Concluded `tasks/ui-renderer-spike.md` without running the LLM-generation experiment — empirical recursion finding in Juris ObjectDOM (componentStack guard blocks initial-render trees with pre-populated data) plus path-string-vs-live-object reactivity gap moved the decision toward extending the Alpine-flavored grammar rather than porting Juris's renderer. `@lumenize/ui` LOC estimate raised from ~200 to ~510. See `coding-your-ui.md` "Components and recursion" + "Worked example: DAG tree with virtual branches" for the canonical surface.
 > - 2026-05-12 — Phase 5.3.0 port scope pinned ahead of implementation: public `subscribe()` extended to fire on exact + ancestor + descendant writes (deliberate divergence from JurisJS external-subscribe, which only fires exact + descendant); class + `createState()` factory exports, no default singleton; `state.use()` for post-construction middleware install/remove; `computed()` error model pinned (self-ref → throw at registration, runtime fn-throw → `console.error` and retain prior value); dropped `subscribeExact`, `subscribeInternal`, `reset()`, and `createPromisify` from the port.
+> - 2026-05-12 — Phases 5.3.0 – 5.3.3d shipped. Key landings: `@lumenize/state` package; `Subscriptions` class + `Subscribers` SQL; resource-mutation fanout with originator exclusion; `client.resources.{subscribe, read, transaction, onETagConflict}` API; `TransactionResolution` always-resolve discriminated union; serial transaction queue + 10 s timeout; client-generated per-transaction `newETag` (idempotency); server-side idempotency short-circuit; widened `TransactionError` with `permission` variant; conflict-resolver verdict handling (`use-server` / `use-this` / `human-in-the-loop`) with bounded recursive retries; structured `OntologyStaleError` + `onShouldRefreshUI` hook on transaction/read/subscribe paths. Baseline test-app: 153/153 passing across 3 consecutive runs. Mid-implementation discoveries captured in CLAUDE.md (vi.waitFor defaults, cross-boundary typed-error pattern, over-broad-catch warning) and in [tasks/backlog.md](backlog.md) "Nebula" section (dag-tree typed-error refactor).
+> - 2026-05-12 — 5.3.4 redesigned ahead of implementation. Original plan was "reconnect + refresh-cycle ontology check" where every refresh-token RPC carried a `currentOntologyVersion` populated from a TTL-cached Galaxy hop in NebulaAuth. Replaced with "reconnect + push-on-clear": the moment `Star.#installState()` upgrades the cached ontology, it notifies each connected subscriber via the existing fanout plumbing (grouped by `(subscriberBinding, clientId)` so one push per client) before dropping the `Subscribers` table. Eliminates the NebulaAuth → Galaxy hop, the cache, and the response-body field — push-on-clear + 5.3.4a reconnect + Handler-1 lazy detection cover the practical cases. Thundering-herd mitigation (jittered `refreshWithinMs`) sketched but deferred post-demo.
+> - 2026-05-12 — Phase 5.3.4 shipped. 5.3.4a: `onConnectionStateChange` wired through NebulaClient's constructor (closure variable for prev-state tracking — class fields not yet initialized during `super().connect()`); on `reconnecting → connected`, `#resubscribeAll()` re-issues `Star.subscribe()` for every registry entry via direct `lmz.call` (NOT via `#subscribeResource`, which would coalesce-into-pending instead of issuing a fresh RTT — important for the case where a subscribe was sent before WS drop and the snapshot response was lost). User-supplied `onConnectionStateChange` chained. 5.3.4b: `Subscriptions.clear()` returns the distinct `(subscriberBinding, clientId)` pairs that were dropped; `Star.#installState` fires one `handleResourceUpdate('', '', OntologyStaleError)` per pair via the existing fanout plumbing. Client substitutes its own pinned `ontologyVersion` for the wire's empty `clientVersion` field inside `#dispatchOntologyStale`. Baseline test-app: 156/156 across 3 consecutive runs. Test-only hooks added: `NebulaClient._resubscribeAllForTest()` (`@internal`-marked direct invocation of the walk; the integration smoke test exercises the real supersede-driven state-machine path) and `StarTest.clearSubscribersForTest` (drops the Subscribers table without going through the production push-on-clear path — used by the reconnect test to make the absence of resubscribe observable, since Phase 5.3.5 isn't shipped yet).
 
 ## Three layers, clean boundaries
 
@@ -62,7 +66,7 @@ Already implemented in `apps/nebula/src/star.ts` (canonical). Pulled forward her
 - **Cache hit** ([star.ts:167](apps/nebula/src/star.ts:167)): client's `ontologyVersion` matches cached latest → execute directly. Warm steady-state path.
 - **Cache miss** ([star.ts:170-178](apps/nebula/src/star.ts:170)): Star calls `Galaxy.getLatestOntologyVersion()`. Two outcomes:
   - Galaxy's latest matches client's version → `#installState` updates Star's cache; execute.
-  - Galaxy's latest does *not* match → mismatch returned. **This is the staleness signal.** Today a generic `Error`; Phase 5.3.3 converts to structured `{ kind: 'ontology-stale', clientVersion, currentVersion }` dispatched to `onShouldRefreshUI`.
+  - Galaxy's latest does *not* match → mismatch returned. **This is the staleness signal.** Now a structured `OntologyStaleError` (5.3.3d) — typed Error with `name: 'OntologyStaleError'` + `clientVersion` / `currentVersion` fields. NebulaClient detects via `isOntologyStaleError(err)` and dispatches to `onShouldRefreshUI`.
 - **First-vN+1 client unblocks all later vN clients.** Fresh page load with new bundle hits Star with vN+1 → Star caches vN+1 → subsequent vN ops cache-miss → mismatch detected.
 
 ## NebulaClient — two-scope model (shipped)
@@ -90,7 +94,7 @@ Already shipped via earlier auth work (`tasks/archive/nebula-auth.md`, `tasks/ar
 | **BroadcastChannel semantics** | Own messages NOT echoed back to the originating subscriber. | Prevents double-render when originator already updated optimistically. |
 | **Guard placement** | DAG read-permission check once at subscribe time, not on each fanout. | Resource-level access doesn't change mid-subscription except via DAG mutation (separate concern). |
 | **Auto-resubscribe on reconnect** | Client maintains local subscription registry; on LumenizeClient `connected` event after `reconnecting`, re-subscribe each entry. | LumenizeClient already auto-reconnects; only need to re-register. |
-| **Resource ID character constraint** | `resourceType` and `resourceId` restricted to `[A-Za-z0-9_-]`. Default `statePath` = `resources.{resourceType}.{resourceId}`. | Period-delimited state paths and slash-delimited URLs must be unambiguously interconvertible. Hierarchical-notify-with-deepEquals in StateManager makes deep directive bindings reactive to bulk-snapshot pushes without spurious re-renders. |
+| **Resource ID character constraint** | `resourceType` and `resourceId` restricted to `[A-Za-z0-9_-]`. State path is fixed at `resources.{resourceType}.{resourceId}` (the `statePath?` override on subscribe was dropped in 5.3.3a — entire-resource-at-a-time addressing only). | Period-delimited state paths and slash-delimited URLs must be unambiguously interconvertible. Hierarchical-notify-with-deepEquals in StateManager makes deep directive bindings reactive to bulk-snapshot pushes without spurious re-renders. |
 | **Reserved state-path prefixes** | Two top-level prefixes are framework-reserved: `resources.*` (synced resource snapshots — `resources.{rt}.{rid}.value` and `.meta`) and `lmz.*` (everything else framework-owned — connection state, future things). All other top-level segments (`ui.*`, `app.*`, etc.) are app-owned. Framework only touches `resources.*` and `lmz.*`. | Two prefixes, not one. `lmz.resources.*` would be strictly consistent but adds a segment to every directive in every UI — significant ongoing ergonomic cost. `resources.` is short and distinctive enough on its own; `lmz.` covers the rare framework-meta cases. App authors get the rest of the namespace. |
 | **`lmz.connection.*` connection-state surfacing** | NebulaClient writes LumenizeClient's connection state to `lmz.connection.*` paths so the UI can bind declaratively. Paths: `lmz.connection.state` (`'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'`); `lmz.connection.connected` (boolean — true iff `state === 'connected'`); `lmz.connection.lastConnectedAt` (timestamp ms, set on each `'connected'` transition). Updated by `bindToState`'s setup — subscribes to LumenizeClient's connection events, writes through on each transition. | Real-time-sync demos need a visible connection-state indicator (part of the wow factor; also tells users when their edits aren't reaching the server). Surfacing as state paths makes it declarative: `<div x-show="!lmz.connection.connected">Reconnecting…</div>` works without event listeners in user code. Three paths cover common cases (state string for fine-grained display, boolean for show/hide, timestamp for "last synced X ago" UX). |
 | **Idempotency mechanism** | Client generates the *new* eTag (`newETag`) for each transaction; server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns idempotent success. | Cleaner than separate `txnId` — no server-side dedupe table, idempotency implicit in the eTag itself. Auto-retry safe across network drops. |
@@ -112,10 +116,10 @@ Transaction responses, subscription pushes, and ad-hoc reads have fundamentally 
 | Path | Public surface | Caller-Promise resolution | State write-through |
 | --- | --- | --- | --- |
 | `handleTransactionResult` (`@mesh` on NebulaClient) | settles Promise from `client.resources.transaction()` (always-resolves with `TransactionResolution`) | `committed`: resolve; `'use-server'`: resolve; `'use-this'`: stays pending across recursive chain until terminal (`committed` or `'retries-exhausted'`); `'human-in-the-loop'`: resolve; `'validation-failed'`: resolve; `'permission-denied'`: resolve; `'ontology-stale'`: resolve (also dispatches to `onShouldRefreshUI`); `'timeout'`: resolve (queue-timer driven, no server response received) | `committed`: yes (write authoritative value + new eTag); `'use-server'`: yes (write `server.value`); `'use-this'`: yes (optimistic write `value`, then submit); `'human-in-the-loop'`: no (optimistic stays painted); `'validation-failed'`: rollback to last-confirmed; `'permission-denied'`: rollback to last-confirmed; `'ontology-stale'`: rollback; `'timeout'`: rollback |
-| `handleResourceUpdate` (`@mesh` on NebulaClient) | resolves initial-snapshot Promise from `client.resources.subscribe()`; thereafter, fire-and-forget pushes | only first call settles a Promise; subsequent calls are pure side-effect | yes, unconditional — every push writes `value` to `{statePath}.value` and `meta` to `{statePath}.meta` |
+| `handleResourceUpdate` (`@mesh` on NebulaClient) | resolves initial-snapshot Promise from `client.resources.subscribe()`; thereafter, fanout pushes from `Star.#fanout` | only first call settles a Promise; subsequent calls are pure side-effect | yes, unconditional — every push writes `value` to `resources.{rt}.{rid}.value` and `meta` to `resources.{rt}.{rid}.meta` |
 | `client.resources.read(rt, rid)` | returns `Promise<Snapshot \| null>` | yes — caller `await`s the Snapshot | **none** — caller decides |
 
-The first two are necessarily `@mesh` handlers because Star calls them. The third is a method; how its Promise gets resolved (callId correlation, hidden plumbing handler, or extending mesh return-value path) is a mesh-framework implementation detail to resolve during 5.3.3.
+The first two are necessarily `@mesh` handlers because Star calls them. The third is a method; its Promise is settled by a hidden plumbing handler (`handleReadResponse(requestId, result)`) keyed on a client-generated `requestId` — see Open Question 6 (resolved 2026-05-12).
 
 UI flow uses `subscribe` for reactive reads. `read` is the explicit-intent escape hatch for ad-hoc / scripting.
 
@@ -125,7 +129,7 @@ The word "subscribe" appears at two layers, doing two different jobs.
 
 | Call | Layer | Network? | Purpose |
 | --- | --- | --- | --- |
-| `client.resources.subscribe(rt, rid, statePath?)` | NebulaClient | yes — WS round-trip to Star | Tells Star to push snapshots on every change. Inserts row in Star's `Subscribers` table. |
+| `client.resources.subscribe(rt, rid)` | NebulaClient | yes — WS round-trip to Star | Tells Star to push snapshots on every change. Inserts row in Star's `Subscribers` table. |
 | `state.subscribe(path, cb)` | `@lumenize/state` StateManager | no — purely in-memory | Registers a callback that fires whenever `setState` writes to this path *in this browser tab*. |
 
 `client.resources.subscribe` gets data flowing *into* the local store from server. `state.subscribe` binds anything (DOM elements, computed paths, anything else) *to* that store. The DOM-binding crawler in `@lumenize/ui` only uses `state.subscribe` — it has no idea NebulaClient or Star exist.
@@ -202,17 +206,19 @@ handleTransactionResult(result: TransactionResult | Error): void {
 }
 
 @mesh()
-handleResourceUpdate(resourceType: string, resourceId: string, snapshot: Snapshot | null): void {
-  // Unconditional state write-through to {statePath}.value and {statePath}.meta
+handleResourceUpdate(resourceType: string, resourceId: string, snapshot: Snapshot | null | Error): void {
+  // Unconditional state write-through to resources.{rt}.{rid}.value and .meta
   // If subscribe() Promise is pending for this (rt, rid), resolve it
-  // snapshot === null = deleted; UI sees value undefined
+  // Error path (e.g., OntologyStaleError) → reject pending Promise, dispatch
+  //   onShouldRefreshUI if stale; no state write-through
+  // snapshot === null reserved for "row legitimately absent" (subscribe-before-create);
+  //   soft-deleted resources arrive as Snapshot with meta.deleted: true
 }
 
 client.resources = {
   subscribe(
     resourceType: string,
     resourceId: string,
-    statePath?: string,
     options?: { ontologyVersion?: string },
   ): Promise<Snapshot | null>;
 
@@ -236,7 +242,7 @@ client.resources = {
     resourceType: string,
     resolver: ConflictResolver,
     options?: {
-      maxRetries?: number;        // default 5; on cap, reject with 'conflict-retries-exhausted'
+      maxRetries?: number;        // default 5; on cap, transaction resolves with { resolution: 'retries-exhausted' }
       flashClass?: string | null; // default 'lumenize-conflict-revert'; null disables
       flashDuration?: number;     // default 1000 (ms)
     },
@@ -259,7 +265,7 @@ client.bindToState(state: StateManager, options?: {
 
 Responsibilities:
 
-1. **Local writes → remote transactions.** `setState` middleware on `state` watches writes to `resources.{rt}.{rid}.*`. Reads cached `eTag` from `getState('{statePath}.meta.eTag')`, generates `newETag`, constructs op, calls `client.resources.transaction(...)`. User's `setState` is also the optimistic local write.
+1. **Local writes → remote transactions.** `setState` middleware on `state` watches writes to `resources.{rt}.{rid}.*`. Reads cached `eTag` from `getState('resources.{rt}.{rid}.meta.eTag')`, generates `newETag`, constructs op, calls `client.resources.transaction(...)`. User's `setState` is also the optimistic local write.
 2. **Auto-subscribe via reference counting.** `Map<resourceKey, count>` keyed by `${rt}:${rid}`. Each new binding (initial walk + observer-detected additions) increments. 0→1 triggers `client.resources.subscribe(rt, rid)`. Count→0 schedules `unsubscribe` after `unsubscribeGraceMs`; new binding during grace cancels.
 3. **Remote-pushes direction.** `handleResourceUpdate` writes through directly to `state.setState`; middleware does NOT intercept (would create a loop).
 4. **Connection-state surfacing.** Subscribe to LumenizeClient's connection events; on each transition write to `lmz.connection.state` (string), `lmz.connection.connected` (boolean), and (on each `'connected'` transition) `lmz.connection.lastConnectedAt` (timestamp ms).
@@ -316,11 +322,11 @@ type ConflictResolution =
  * `try/catch` hygiene (a bare `catch` would swallow the discrimination).
  */
 type TransactionResolution =
-  | { resolution: 'committed'; eTags: Record<string, string> }
+  | { resolution: 'committed'; eTag: string }
   | { resolution: 'use-server'; resources: Record<string, Snapshot> }
   | { resolution: 'retries-exhausted'; resources: Record<string, Snapshot>; attempts: number }
   | { resolution: 'human-in-the-loop'; resources: Record<string, Snapshot> }
-  | { resolution: 'validation-failed'; errors: Record<string, ValidationError[]> }
+  | { resolution: 'validation-failed'; errors: Record<string, unknown> }
   | { resolution: 'permission-denied'; resources: string[] }
   | { resolution: 'ontology-stale'; clientVersion: string; currentVersion: string }
   | { resolution: 'timeout' };
@@ -328,31 +334,39 @@ type TransactionResolution =
 
 ## Implementation Phases
 
-### Already shipped (from earlier auth work)
+### Already shipped
 
+**From earlier auth work**:
 - Two-scope model (`authScope` / `activeScope`)
 - Refresh path routing
 - NebulaClientGateway active-scope verification
-- Star Handler 1 / Handler 2 dispatch for `transaction()` and `read()`
 - Server-side auth flows
 - LumenizeClient base (auto-reconnect)
-- `handleTransactionResult` / `handleReadResult` stubs in `nebula-client.ts` (replace stubs in 5.3.3)
 
-### Phase 5.3.0 — Port `@lumenize/state` (prerequisite)
+**From this task, Phases 5.3.0 – 5.3.3d (2026-05-12)**:
+- 5.3.0 — `@lumenize/state` package ported from JurisJS (StateManager + helpers + `computed` + `state.use()`; extended `subscribe` semantics: fires on exact + ancestor + descendant writes)
+- 5.3.1 — Star subscribe machinery (`Subscriptions` class + table at `apps/nebula/src/subscriptions.ts`, `@mesh subscribe`, Handler 1/2 + idempotent inserts; `subscriberBinding` column derived from `callChain.at(-1)?.bindingName`)
+- 5.3.2 — Resource-mutation fanout (`Star.#fanout` via `Subscriptions.forResource`, originator exclusion via `clientId`); `Subscriptions.clear()` via `DROP TABLE + CREATE TABLE` wired into `Star.#installState` for deploy-driven subscriber tidy-up; `NebulaClient.onBeforeCall` override to accept Star-mediated fanout
+- 5.3.3a — NebulaClient foundation: constructor `ontologyVersion` + `onShouldRefreshUI`, `bindToState(state)` minimal-binding form, `client.resources.subscribe(rt, rid)`, `handleResourceUpdate` writes through to bound state at `resources.{rt}.{rid}.{value, meta}`, subscribe-call coalescing
+- 5.3.3b — `client.resources.read(rt, rid)` (requestId correlation + new `handleReadResponse` mesh handler, replacing the removed `handleReadResult`); `client.resources.transaction(ops, options?)` always-resolves with `TransactionResolution`; serial in-flight queue + 10 s timeout; lifted `newETag` to API surface; server-side idempotency short-circuit; widened `TransactionError` with `'permission'` variant; restructured `Resources.transaction` permission checks to collect-not-throw
+- 5.3.3c — Conflict-resolver machinery: `client.resources.onETagConflict(rt, resolver, options?)`, per-call override, `ConflictResolution` discriminated union (`'use-server'` / `'use-this'` / `'human-in-the-loop'`), recursive `'use-this'` bounded by `maxRetries`, async resolver execution suspends queue timeout
+- 5.3.3d — Structured ontology-staleness signal (`OntologyStaleError` + `isOntologyStaleError` in `apps/nebula/src/errors.ts`) replaces the prior message-string-pattern detection; `onShouldRefreshUI` fires on transaction, read, and subscribe paths
+
+### Phase 5.3.0 — Port `@lumenize/state` (prerequisite) ✅ shipped 2026-05-12
 
 Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/juris.js), lines 138–446 (`StateManager` class) + helpers near the top of the file. The port preserves the JurisJS internal model but with **one deliberate divergence**: the public `subscribe()` semantics are extended to fire on exact + ancestor + descendant writes (see Gotchas). The rest is mechanical — normalize style to Lumenize conventions.
 
-- [ ] New package `packages/state/` (MIT) — `@lumenize/state`
-- [ ] Exports: `StateManager` class + `createState(initialState?, middleware?)` factory. **No default singleton** — preserves the option of multiple instances (mirrors NebulaClient's "one per page but two-instances has use cases" stance), and avoids cross-test pollution. Studio bootstrap constructs at module top-level.
-- [ ] Port `StateManager` (~310 LOC) — `getState`, `setState`, `subscribe` (extended — see Gotchas), `track` + `deps`, `executeBatch` (keep Promise-callback support — adds ~10 LOC, useful when integration-layer optimistic writes touch multiple paths atomically), middleware list, `#hasCircularUpdate`, `#notifySubscribers`, `#triggerPathSubscribers`
-- [ ] Port top-level helpers (~30 LOC) — `isValidPath`, `getPathParts`, `deepEquals`
-- [ ] **Drop from the port:** `subscribeExact` (no current caller), `subscribeInternal` (its descendant-fire behavior folded into the single public `subscribe`), `reset()` (tests get a clean slate via a fresh `createState()` — add back with `structuredClone` if any Juris internals we ported call into it), `createPromisify` (async-prop machinery out of scope per the inventory)
-- [ ] Add `state.use(middleware): () => void` for post-construction middleware install/remove (returns the remove fn). Constructor still accepts an initial middleware array for symmetry. Required because `bindToState` installs its middleware after `StateManager` construction.
-- [ ] Add `state.computed(targetPath, fn): () => void` — user-facing derived-state API. Uses `track()` internally; subscribes to collected deps; re-runs and re-tracks on dep change. Returns dispose function. **Error model**: at registration, walk deps once and if `targetPath` appears among them, throw a `ComputedSelfReferenceError` immediately. Runtime throws inside `fn` → `console.error` and retain prior value (don't break the computed; the next dep-change re-runs `fn` and may recover).
-- [ ] Types: `getState`/`setState` typed with `unknown` values; call sites cast. The store has no schema — typing values stronger would lie.
-- [ ] Replace `createLogger` calls with `@lumenize/debug`
-- [ ] Normalize `_underscore` privates to `#hash` per CLAUDE.md, except where cross-class access requires public
-- [ ] Tests in `packages/state/test/` — vanilla vitest in Node mode (pure-JS package, no Workers pool needed). Cover `getState`/`setState`/`subscribe` (all three fire directions — exact, ancestor write, descendant write — per Gotchas)/`executeBatch` (sync + Promise callback)/`use` (add + remove)/`computed` (happy path, self-ref-at-registration throws, runtime fn-throw retains prior value)
+- [x] New package `packages/state/` (MIT) — `@lumenize/state`
+- [x] Exports: `StateManager` class + `createState(initialState?, middleware?)` factory. **No default singleton** — preserves the option of multiple instances (mirrors NebulaClient's "one per page but two-instances has use cases" stance), and avoids cross-test pollution. Studio bootstrap constructs at module top-level.
+- [x] Port `StateManager` (~310 LOC) — `getState`, `setState`, `subscribe` (extended — see Gotchas), `track` + `deps`, `executeBatch` (keep Promise-callback support — adds ~10 LOC, useful when integration-layer optimistic writes touch multiple paths atomically), middleware list, `#hasCircularUpdate`, `#notifySubscribers`, `#triggerPathSubscribers`
+- [x] Port top-level helpers (~30 LOC) — `isValidPath`, `getPathParts`, `deepEquals`
+- [x] **Drop from the port:** `subscribeExact` (no current caller), `subscribeInternal` (its descendant-fire behavior folded into the single public `subscribe`), `reset()` (tests get a clean slate via a fresh `createState()` — add back with `structuredClone` if any Juris internals we ported call into it), `createPromisify` (async-prop machinery out of scope per the inventory)
+- [x] Add `state.use(middleware): () => void` for post-construction middleware install/remove (returns the remove fn). Constructor still accepts an initial middleware array for symmetry. Required because `bindToState` installs its middleware after `StateManager` construction.
+- [x] Add `state.computed(targetPath, fn): () => void` — user-facing derived-state API. Uses `track()` internally; subscribes to collected deps; re-runs and re-tracks on dep change. Returns dispose function. **Error model**: at registration, walk deps once and if `targetPath` appears among them, throw a `ComputedSelfReferenceError` immediately. Runtime throws inside `fn` → `console.error` and retain prior value (don't break the computed; the next dep-change re-runs `fn` and may recover).
+- [x] Types: `getState`/`setState` typed with `unknown` values; call sites cast. The store has no schema — typing values stronger would lie.
+- [x] Replace `createLogger` calls with `@lumenize/debug`
+- [x] Normalize `_underscore` privates to `#hash` per CLAUDE.md, except where cross-class access requires public
+- [x] Tests in `packages/state/test/` — vanilla vitest in Node mode (pure-JS package, no Workers pool needed). Cover `getState`/`setState`/`subscribe` (all three fire directions — exact, ancestor write, descendant write — per Gotchas)/`executeBatch` (sync + Promise callback)/`use` (add + remove)/`computed` (happy path, self-ref-at-registration throws, runtime fn-throw retains prior value)
 
 **Gotchas — easy to lose if you only port the obvious-looking API:**
 
@@ -360,98 +374,122 @@ Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/
 - **Deep-equals dedup inside notify.** Without it, every parent-level write would re-fire every descendant subscriber. The JurisJS implementation deep-equals-compares each descendant subscriber's tracked value against the previous one and skips no-op fires. Preserve this — without it, bulk snapshots would cause storms of redundant subscriber callbacks. Verification: write a parent path with one field changed; assert only that field's subscriber fires.
 - **`track()` collects deps as a side effect.** Inside `getState(path, default, track = true)`, the third parameter defaults to `true` and pushes `path` into the currently-active `deps` set on `this`. `track(fn)` is what installs that set. Reactive update mechanisms (and `computed`) all rely on this implicit collection. Preserve the side-effect semantics; don't refactor to explicit dep declarations.
 
-### Phase 5.3.1 — Star subscribe machinery
+### Phase 5.3.1 — Star subscribe machinery ✅ shipped 2026-05-12
 
-- [ ] New file `apps/nebula/src/subscriptions.ts` — `Subscriptions` class mirroring DagTree/Resources injection pattern (constructor: `ctx`, `getCallContext`, `dagTree`, `resources`). Owns its own SQL schema. Star instantiates in `onStart()` alongside the others.
-- [ ] `Subscribers` table created via `CREATE TABLE IF NOT EXISTS` in Subscriptions constructor (revised PK + columns per Subscriber storage section above)
-- [ ] `@mesh()` `subscribe(ontologyVersion, resourceType, resourceId)` method on `Star` with Handler 1 / Handler 2 pattern (mirrors `transaction` / `read`)
-- [ ] Handler 2 (`doSubscribe`): ontology version check → call `Subscriptions.subscribe(rt, rid, clientId, subscriberBinding)` → push initial snapshot via `handleResourceUpdate`
-- [ ] `Subscriptions.subscribe()` performs: DAG read-permission check via `Resources.read()`, resource-existence check (error if not found — `subscribe-before-create` deferred per Phase -1 § 5 → revisit if a use case emerges), resource-type-mismatch check (error if `snapshot.meta.typeName !== resourceType`), `INSERT OR REPLACE` row (idempotent on `(resourceId, clientId)`)
-- [ ] `Subscriptions.forResource(resourceId)` returns all subscriber rows for a resource (used in Phase 5.3.2 fanout — set up the lookup primitive now)
-- [ ] `handleResourceUpdate(resourceType, resourceId, snapshot: Snapshot | null | Error)` stub added to `NebulaClient` (matches `handleTransactionResult` / `handleReadResult` stubs — replaced fully in Phase 5.3.3). Errors delivered via the third arg, not via throws — Handler 1/2 is fire-and-forget so explicit error-as-data through the same callback is the correlation mechanism. Snapshot passes through with `meta.deleted` intact when applicable; null-mapping decision deferred to Phase 5.3.3.
-- [ ] `subscriberBinding` stored from `callContext.callChain.at(-1)?.bindingName` (not hardcoded — the column exists exactly for routing flexibility, including future DO-to-DO subscribers, not just gateway-fronted clients)
-- [ ] Test-app additions in `apps/nebula/test/test-apps/baseline/`: `callStarSubscribe(starName, ontologyVersion, rt, rid)` initiator on `NebulaClientTest`; `handleResourceUpdate` override that captures `(rt, rid, result)` for assertions.
-- [ ] Tests in `apps/nebula/test/test-apps/baseline/star-subscribe.test.ts`: subscribe to existing resource → initial snapshot delivered; subscribe to non-existent → error; subscribe with stale `ontologyVersion` → ontology-mismatch error; subscribe without read permission → permission error; re-subscribe `(clientId, rt, rid)` is idempotent (single row); subscribe with mismatched `resourceType` → error.
+- [x] New file `apps/nebula/src/subscriptions.ts` — `Subscriptions` class mirroring DagTree/Resources injection pattern (constructor: `ctx`, `getCallContext`, `dagTree`, `resources`). Owns its own SQL schema. Star instantiates in `onStart()` alongside the others.
+- [x] `Subscribers` table created via `CREATE TABLE IF NOT EXISTS` in Subscriptions constructor (revised PK + columns per Subscriber storage section above)
+- [x] `@mesh()` `subscribe(ontologyVersion, resourceType, resourceId)` method on `Star` with Handler 1 / Handler 2 pattern (mirrors `transaction` / `read`)
+- [x] Handler 2 (`doSubscribe`): ontology version check → call `Subscriptions.subscribe(rt, rid, clientId, subscriberBinding)` → push initial snapshot via `handleResourceUpdate`
+- [x] `Subscriptions.subscribe()` performs: DAG read-permission check via `Resources.read()`, resource-existence check (error if not found — `subscribe-before-create` deferred per Phase -1 § 5 → revisit if a use case emerges), resource-type-mismatch check (error if `snapshot.meta.typeName !== resourceType`), `INSERT OR REPLACE` row (idempotent on `(resourceId, clientId)`)
+- [x] `Subscriptions.forResource(resourceId)` returns all subscriber rows for a resource (used in Phase 5.3.2 fanout — set up the lookup primitive now)
+- [x] `handleResourceUpdate(resourceType, resourceId, snapshot: Snapshot | null | Error)` stub added to `NebulaClient` (later replaced in Phase 5.3.3a with the real write-through-to-bound-state implementation). Errors delivered via the third arg, not via throws — Handler 1/2 is **non-awaited round-trip RPC** (mesh's `lmz.call` shape — see CLAUDE.md), so explicit error-as-data through the same callback is the correlation mechanism. Snapshot passes through with `meta.deleted` intact when applicable.
+- [x] `subscriberBinding` stored from `callContext.callChain.at(-1)?.bindingName` (not hardcoded — the column exists exactly for routing flexibility, including future DO-to-DO subscribers, not just gateway-fronted clients)
+- [x] Test-app additions in `apps/nebula/test/test-apps/baseline/`: `callStarSubscribe(starName, ontologyVersion, rt, rid)` initiator on `NebulaClientTest`; `handleResourceUpdate` override that captures `(rt, rid, result)` for assertions.
+- [x] Tests in `apps/nebula/test/test-apps/baseline/star-subscribe.test.ts`: subscribe to existing resource → initial snapshot delivered; subscribe to non-existent → error; subscribe with stale `ontologyVersion` → ontology-mismatch error; subscribe without read permission → permission error; re-subscribe `(clientId, rt, rid)` is idempotent (single row); subscribe with mismatched `resourceType` → error.
 
-### Phase 5.3.2 — Fanout on mutation + deploy-driven subscriber clear
+### Phase 5.3.2 — Fanout on mutation + deploy-driven subscriber clear ✅ shipped 2026-05-12
 
-- [ ] `#onChanged` replaced with subscriber lookup + per-subscriber `lmz.call` to NEBULA_CLIENT_GATEWAY
-- [ ] BroadcastChannel semantics: originator's `clientId` excluded
-- [ ] Snapshot deletion pushes the post-delete `Snapshot` with `meta.deleted: true` (not `null`) — per the Phase 5.3.1 Q3 decision: deletions are soft and the snapshot remains the source of truth; clients inspect `meta.deleted` rather than receiving a sentinel
-- [ ] Fanout triggers are upsert and delete only — migration does NOT fan out (deploys + lazy ontology model + `onShouldRefreshUI` handle cross-version transitions)
-- [ ] Branch-aware subscription routing: subscriptions are branch-local (each branch = independent Star instance per `tasks/nebula-branches.md`); verify the wiring doesn't assume single Star per `{u}.{g}.{s}`
-- [ ] `Subscriptions.clear()` method — `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …` in sequence (the latter is identical to the constructor's schema). Drop-then-recreate is a single billed write per CLAUDE.md's storage cost model; `DELETE FROM Subscribers` would be billed per-row plus per-index. The constructor's `CREATE TABLE IF NOT EXISTS` won't auto-recreate the table mid-operation, so the recreate happens inline.
-- [ ] `Star.#installState()` calls `this.#subscriptions.clear()` after writing the new ontology row. Any pre-existing subscription was registered by a stale-version client; dropping is unambiguous. This is the **primary tidy-up mechanism** — Phase -1 § 5 collapses the alarm-sweep / `subscribedAt`-TTL ideas into this single deploy-driven event.
+- [x] `#onChanged` replaced with subscriber lookup + per-subscriber `lmz.call` to NEBULA_CLIENT_GATEWAY
+- [x] BroadcastChannel semantics: originator's `clientId` excluded
+- [x] Snapshot deletion pushes the post-delete `Snapshot` with `meta.deleted: true` (not `null`) — per the Phase 5.3.1 Q3 decision: deletions are soft and the snapshot remains the source of truth; clients inspect `meta.deleted` rather than receiving a sentinel
+- [x] Fanout triggers are upsert and delete only — migration does NOT fan out (deploys + lazy ontology model + `onShouldRefreshUI` handle cross-version transitions)
+- [x] Branch-aware subscription routing: subscriptions are branch-local (each branch = independent Star instance per `tasks/nebula-branches.md`); verify the wiring doesn't assume single Star per `{u}.{g}.{s}`
+- [x] `Subscriptions.clear()` method — `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …` in sequence (the latter is identical to the constructor's schema). Drop-then-recreate is a single billed write per CLAUDE.md's storage cost model; `DELETE FROM Subscribers` would be billed per-row plus per-index. The constructor's `CREATE TABLE IF NOT EXISTS` won't auto-recreate the table mid-operation, so the recreate happens inline.
+- [x] `Star.#installState()` calls `this.#subscriptions.clear()` after writing the new ontology row. Any pre-existing subscription was registered by a stale-version client; dropping is unambiguous. This is the **primary tidy-up mechanism** — Phase -1 § 5 collapses the alarm-sweep / `subscribedAt`-TTL ideas into this single deploy-driven event.
 
-### Phase 5.3.3 — NebulaClient handlers + `client.resources.*` API
+### Phase 5.3.3 — NebulaClient handlers + `client.resources.*` API ✅ all sub-phases shipped 2026-05-12
 
 Split into four sub-phases (a/b/c/d) decided 2026-05-12 so each lands testable on its own. Drop the no-longer-applicable `client.resources.subscribe(rt, rid, statePath?)` override — entire-resource-at-a-time addressing only.
 
-#### Phase 5.3.3a — Foundation (subscribe + StateManager write-through)
+#### Phase 5.3.3a — Foundation (subscribe + StateManager write-through) ✅
 
-- [ ] Constructor gains `ontologyVersion: string` (auto-attached to every `client.resources.*` call) and `onShouldRefreshUI?: (info) => void` (no default — undefined = opted-out)
-- [ ] `registerStateStore(state: StateManager): void` — minimal binding to a StateManager so `handleResourceUpdate` knows where to write. Full `bindToState` (refcount + middleware + grace-period) is Phase 5.3.6; this is the load-bearing slice.
-- [ ] Local subscription registry: `Map<resourceKey, { /* future: statePath, refcount, etc. */ }>` keyed by `${rt}:${rid}`. First-pass content can be minimal — used by 5.3.4's auto-resubscribe and 5.3.6's refcount.
-- [ ] `client.resources.subscribe(rt, rid): Promise<Snapshot | null>` per the (now-finalized) signature. The Promise settles on first `handleResourceUpdate` for `(rt, rid)`.
-- [ ] `handleResourceUpdate(rt, rid, snapshot)` writes through to bound StateManager: **single atomic `setState('resources.{rt}.{rid}.value', snapshot.value)` + `setState('resources.{rt}.{rid}.meta', snapshot.meta)`**. JurisJS's hierarchical-notify-with-deepEquals (5.3.0 port) gates redundant deep-binding fires. No per-field diffing on the client.
-- [ ] Tests in baseline: client A subscribes → client B mutates → A's bound StateManager has the new value at `resources.{rt}.{rid}.value.*`; verify path-level reactivity (subscribe to `.title` only fires when title actually changes despite whole-value writes).
+- [x] Constructor gains `ontologyVersion: string` (auto-attached to every `client.resources.*` call) and `onShouldRefreshUI?: (info) => void` (no default — undefined = opted-out)
+- [x] `registerStateStore(state: StateManager): void` — minimal binding to a StateManager so `handleResourceUpdate` knows where to write. Full `bindToState` (refcount + middleware + grace-period) is Phase 5.3.6; this is the load-bearing slice.
+- [x] Local subscription registry: `Map<resourceKey, { /* future: statePath, refcount, etc. */ }>` keyed by `${rt}:${rid}`. First-pass content can be minimal — used by 5.3.4's auto-resubscribe and 5.3.6's refcount.
+- [x] `client.resources.subscribe(rt, rid): Promise<Snapshot | null>` per the (now-finalized) signature. The Promise settles on first `handleResourceUpdate` for `(rt, rid)`.
+- [x] `handleResourceUpdate(rt, rid, snapshot)` writes through to bound StateManager: **single atomic `setState('resources.{rt}.{rid}.value', snapshot.value)` + `setState('resources.{rt}.{rid}.meta', snapshot.meta)`**. JurisJS's hierarchical-notify-with-deepEquals (5.3.0 port) gates redundant deep-binding fires. No per-field diffing on the client.
+- [x] Tests in baseline: client A subscribes → client B mutates → A's bound StateManager has the new value at `resources.{rt}.{rid}.value.*`; verify path-level reactivity (subscribe to `.title` only fires when title actually changes despite whole-value writes).
 
-#### Phase 5.3.3b — Read + Transaction (happy path + queue + timeout)
+#### Phase 5.3.3b — Read + Transaction (happy path + queue + timeout) ✅
 
-- [ ] **`client.resources.read(rt, rid): Promise<Snapshot | null>`** — generates `requestId = crypto.randomUUID()`, calls `Star.read(ontologyVersion, rt, rid, requestId)`, registers `{resolve, reject}` in `Map<requestId, ...>`. New internal mesh handler **`@mesh() handleReadResponse(requestId, result: Snapshot | null | Error): void`** on NebulaClient settles the Promise. Drops the old `handleReadResult` entirely.
-- [ ] Star-side: add `requestId` param to `Star.read` Handler 1/2, thread through `doRead`'s callback. Update `apps/nebula/src/star.ts` and the `NebulaClientTest` test helpers.
-- [ ] **`client.resources.transaction(ops, options?): Promise<TransactionResolution>`** — **always resolves**, never rejects (infrastructure failures still throw `Error`). See `TransactionResolution` type in § Types. Caller switches on `outcome.resolution`.
-- [ ] **Hoist `newETag` to the transaction level**: client generates ONE `newETag = crypto.randomUUID()` per `transaction()` call. `Star.transaction(ontologyVersion, newETag, ops)` accepts it as a top-level arg. The server uses it for every resource's write. Per-resource `eTag` (old) stays on each `OperationDescriptor`. This matches what `resources.ts:280` already does internally (one eTag per transaction) — just lifts it to the API surface and to client-side generation per the idempotency requirement.
-- [ ] Serial in-flight transaction queue: at most one in flight; subsequent calls queue. Correlation = serial-queue-by-construction (no requestId needed for transactions, only for reads). 5–10 s timeout from submission → resolve in-flight Promise with `{ resolution: 'timeout' }`, dequeue next.
-- [ ] Server-side: widen `TransactionError` to include `{ type: 'permission'; requiredTier: PermissionTier; nodeId: number }` — currently permission failures throw and become generic `Error` at the client. Catch `requirePermission` throws inside the per-resource permission-check loop in `resources.ts`; convert to typed `TransactionError`. NebulaClient maps to `{ resolution: 'permission-denied', resources }`.
-- [ ] Idempotency: server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns a `committed` result. Add this short-circuit in `resources.ts`'s transactionSync block.
-- [ ] Tests: happy-path transaction (`committed`), sequential transactions queued and applied in order, timeout (no server response in 5–10s → `'timeout'`), idempotency probe (drop response client-side, retry with same `newETag` → idempotent `committed`).
+- [x] **`client.resources.read(rt, rid): Promise<Snapshot | null>`** — generates `requestId = crypto.randomUUID()`, calls `Star.read(ontologyVersion, rt, rid, requestId)`, registers `{resolve, reject}` in `Map<requestId, ...>`. New internal mesh handler **`@mesh() handleReadResponse(requestId, result: Snapshot | null | Error): void`** on NebulaClient settles the Promise. Drops the old `handleReadResult` entirely.
+- [x] Star-side: add `requestId` param to `Star.read` Handler 1/2, thread through `doRead`'s callback. Update `apps/nebula/src/star.ts` and the `NebulaClientTest` test helpers.
+- [x] **`client.resources.transaction(ops, options?): Promise<TransactionResolution>`** — **always resolves**, never rejects (infrastructure failures still throw `Error`). See `TransactionResolution` type in § Types. Caller switches on `outcome.resolution`.
+- [x] **Hoist `newETag` to the transaction level**: client generates ONE `newETag = crypto.randomUUID()` per `transaction()` call. `Star.transaction(ontologyVersion, newETag, ops)` accepts it as a top-level arg. The server uses it for every resource's write. Per-resource `eTag` (old) stays on each `OperationDescriptor`. This matches what `resources.ts:280` already does internally (one eTag per transaction) — just lifts it to the API surface and to client-side generation per the idempotency requirement.
+- [x] Serial in-flight transaction queue: at most one in flight; subsequent calls queue. Correlation = serial-queue-by-construction (no requestId needed for transactions, only for reads). 5–10 s timeout from submission → resolve in-flight Promise with `{ resolution: 'timeout' }`, dequeue next.
+- [x] Server-side: widen `TransactionError` to include `{ type: 'permission'; requiredTier: PermissionTier; nodeId: number }` — currently permission failures throw and become generic `Error` at the client. Catch `requirePermission` throws inside the per-resource permission-check loop in `resources.ts`; convert to typed `TransactionError`. NebulaClient maps to `{ resolution: 'permission-denied', resources }`.
+- [x] Idempotency: server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns a `committed` result. Add this short-circuit in `resources.ts`'s transactionSync block.
+- [x] Tests: happy-path transaction (`committed`), sequential transactions queued and applied in order, timeout (no server response in 5–10s → `'timeout'`), idempotency probe (drop response client-side, retry with same `newETag` → idempotent `committed`).
 
-#### Phase 5.3.3c — Conflict-resolver machinery
+#### Phase 5.3.3c — Conflict-resolver machinery ✅
 
-- [ ] `client.resources.onETagConflict(resourceType, resolver, options?)` per-type registration; per-call override via `options.onETagConflict` on `transaction()`. Precedence: per-call > per-type > framework default (`{ resolution: 'use-server' }`).
-- [ ] `ConflictResolution` discriminated union with recursive `'use-this'` bounded by `maxRetries` (default 5). On cap, transaction resolves with `{ resolution: 'retries-exhausted', attempts }`.
-- [ ] `'use-server'` resolver verdict → write `server.value` to bound state, transaction resolves with `{ resolution: 'use-server', resources }`.
-- [ ] `'human-in-the-loop'` resolver verdict → transaction resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted.
-- [ ] Resolver execution suspends queue timeout; fresh timeout starts on each post-resolver re-submission.
-- [ ] **Deferred to 5.3.6**: `context.bindings: Map<path, HTMLElement[]>` argument to resolver; field-diff flash class on bound elements; bindings registry sourced from `bindDom`. The conflict-resolver-machinery itself works without these — the resolver just receives `context: {}` or `context: { bindings: new Map() }` (empty) until 5.3.6 lands.
-- [ ] Tests: each of `'use-server'` / `'use-this'` (single retry success) / `'use-this'` (retries-exhausted) / `'human-in-the-loop'` / per-call override / per-type registration / async resolver (verify queue timeout is suspended during await).
+- [x] `client.resources.onETagConflict(resourceType, resolver, options?)` per-type registration; per-call override via `options.onETagConflict` on `transaction()`. Precedence: per-call > per-type > framework default (`{ resolution: 'use-server' }`).
+- [x] `ConflictResolution` discriminated union with recursive `'use-this'` bounded by `maxRetries` (default 5). On cap, transaction resolves with `{ resolution: 'retries-exhausted', attempts }`.
+- [x] `'use-server'` resolver verdict → write `server.value` to bound state, transaction resolves with `{ resolution: 'use-server', resources }`.
+- [x] `'human-in-the-loop'` resolver verdict → transaction resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted.
+- [x] Resolver execution suspends queue timeout; fresh timeout starts on each post-resolver re-submission.
+- [x] **Deferred to 5.3.6**: `context.bindings: Map<path, HTMLElement[]>` argument to resolver; field-diff flash class on bound elements; bindings registry sourced from `bindDom`. The conflict-resolver-machinery itself works without these — the resolver just receives `context: {}` or `context: { bindings: new Map() }` (empty) until 5.3.6 lands.
+- [x] Tests: each of `'use-server'` / `'use-this'` (single retry success) / `'use-this'` (retries-exhausted) / `'human-in-the-loop'` / per-call override / per-type registration / async resolver (verify queue timeout is suspended during await).
 
-#### Phase 5.3.3d — Ontology-staleness signal
+#### Phase 5.3.3d — Ontology-staleness signal ✅
 
-- [ ] **Star-side**: widen the mismatch path ([star.ts:203-206, 270-273](apps/nebula/src/star.ts:203)) and the corresponding paths in `doSubscribe`. Today they return `new Error('Ontology version mismatch: ...')`. Replace with a structured signal: a typed error subclass or a plain object `{ kind: 'ontology-stale', clientVersion, currentVersion }` delivered via the same handler call.
-- [ ] **NebulaClient-side**: inspect responses for the staleness signal; dispatch to `onShouldRefreshUI({ clientVersion, currentVersion, reason: 'ontology-stale' })`; settle originating Promise with `{ resolution: 'ontology-stale', clientVersion, currentVersion }`.
-- [ ] Tests: client constructed with `'v1'`, server now `'v2'` → transaction resolves `{ resolution: 'ontology-stale', ... }` AND `onShouldRefreshUI` fires with matching info.
+- [x] **Star-side**: widen the mismatch path ([star.ts:203-206, 270-273](apps/nebula/src/star.ts:203)) and the corresponding paths in `doSubscribe`. Today they return `new Error('Ontology version mismatch: ...')`. Replace with a structured signal: a typed error subclass or a plain object `{ kind: 'ontology-stale', clientVersion, currentVersion }` delivered via the same handler call.
+- [x] **NebulaClient-side**: inspect responses for the staleness signal; dispatch to `onShouldRefreshUI({ clientVersion, currentVersion, reason: 'ontology-stale' })`; settle originating Promise with `{ resolution: 'ontology-stale', clientVersion, currentVersion }`.
+- [x] Tests: client constructed with `'v1'`, server now `'v2'` → transaction resolves `{ resolution: 'ontology-stale', ... }` AND `onShouldRefreshUI` fires with matching info.
 
-### Phase 5.3.4 — Reconnect + refresh-cycle ontology-staleness detection
+### Phase 5.3.4 — Reconnect + push-on-clear ontology-staleness detection ✅ shipped 2026-05-12
 
-**WebSocket reconnect → re-subscribe** (network-blip recovery):
+Two complementary mechanisms cover the cases that Handler-1 lazy detection (5.3.3d) doesn't reach. Handler-1 catches any active client making an op (transaction / read / subscribe). 5.3.4a catches clients that reconnect after a WS drop. 5.3.4b catches connected subscribers at the moment they go stale — without needing a Galaxy-broadcast or per-refresh Galaxy hop. Together, the three mechanisms cover every case except the narrow sliver where (a) a `Subscriptions.clear()` notification is lost in flight AND (b) the client never reconnects AND (c) the client never makes another op. If that sliver becomes a real problem, add the refresh-token-response ontology check as a fourth backstop (deferred — see Phase -1 § 5).
 
-- [ ] Hook LumenizeClient's connection-state transitions; identify event for "reconnect succeeded"
-- [ ] Walk subscription registry on transition; re-call `Star.subscribe` for each
-- [ ] In-flight transactions during disconnect — out of scope?
+#### Phase 5.3.4a — Reconnect → re-subscribe (network-blip recovery) ✅
 
-**Refresh-cycle ontology check** (15-min access-token cadence — covers listen-only clients that never trigger Handler-1 lazy detection):
+- [x] Pass an `onConnectionStateChange` callback to the `LumenizeClient` base from `NebulaClient`'s constructor. Track previous state via a closure variable (not an instance field — `super().connect()` fires the callback synchronously with `'connecting'` before class fields initialize); detect the `reconnecting → connected` transition. User-supplied `onConnectionStateChange` chained.
+- [x] On that transition, `#resubscribeAll()` walks `#subscriptionRegistry` and re-calls `Star.subscribe(rt, rid)` for each entry via direct `this.lmz.call(...)` (NOT via `#subscribeResource`, whose coalesce-into-pending path would skip the fresh RTT). Star's `INSERT OR REPLACE` (5.3.1) makes re-subscribe idempotent; `handleResourceUpdate`'s deep-equals dedup makes the redundant initial-snapshot push a no-op for unchanged state.
+- [x] **Dedupe-on-pending dropped during implementation** — the original plan was to skip keys with a pending Promise (trust the queued message in `LumenizeClient.#messageQueue` to deliver). Rejected for State C correctness: when a subscribe was sent before the WS drop but the snapshot response was lost in flight, LumenizeClient does NOT re-send already-sent fire-and-forget messages on reconnect, so the pending Promise would hang forever without a fresh subscribe RTT. State B's redundant RTT is acceptable cost for the safety in State C.
+- [x] In-flight transactions during disconnect — left as-is (10s timeout resolves with `'timeout'`; app retries via the always-resolve discriminated union; server idempotency short-circuits on `newETag`). Pausing the timer while disconnected is premature optimization.
 
-- [ ] `NebulaAuth.refresh-token` response body includes `currentOntologyVersion: string` alongside `access_token` and `sub`. NebulaAuth fetches this from Galaxy with a short-TTL cache (1–5 min) so the marginal Galaxy round-trip is amortized across all of that auth's users' refreshes.
-- [ ] `NebulaClient`'s refresh handler ([nebula-client.ts:34-48](apps/nebula/src/nebula-client.ts:34)) compares the response's `currentOntologyVersion` against its constructor-time `ontologyVersion`; mismatch dispatches to `onShouldRefreshUI` with `{ clientVersion, currentVersion, reason: 'ontology-stale' }` — same hook the Star-mismatch path uses, so app code handles them identically.
-- [ ] With the 15-min access-token TTL ([packages/nebula-auth/src/types.ts:148](packages/nebula-auth/src/types.ts:148)) listen-only dashboards detect deploys within one refresh cycle. The 30-day refresh-token TTL is the absolute upper bound on staleness for any client (after which forced re-auth = fresh page load anyway).
-- [ ] Document: this is the **second of two** ontology-staleness detection paths. The first is Handler-1 lazy detection on `transaction` / `read` / `subscribe`, which only fires when the client makes an op. Together they cover both active and listen-only cases without needing Galaxy-broadcast plumbing (which Phase -1 § 5 documents as deferred for the thundering-herd reason).
+#### Phase 5.3.4b — Push-on-clear in `Subscriptions.clear()` ✅
+
+The leverage point: when `Star.#installState()` upgrades the cached ontology, it calls `Subscriptions.clear()` which drops the `Subscribers` table. Pre-clear, the rows identify exactly which subscribers go stale at this instant. Send each connected subscriber a direct `OntologyStaleError` push via the existing fanout plumbing, then drop the table.
+
+- [x] `Subscriptions.clear()` returns the distinct `(subscriberBinding, clientId)` pairs that were dropped. Grouping at the SQL layer (`SELECT DISTINCT`) means a client subscribed to N resources counts once, not N times.
+- [x] `Star.#installState` iterates the returned pairs after the `transactionSync` block exits, sending one `lmz.call(subscriberBinding, clientId, ctn<NebulaClient>().handleResourceUpdate('', '', new OntologyStaleError('', row.version)))` per pair. Sentinel rt='' / rid='' is harmless — the client's error branch routes `OntologyStaleError` into `#dispatchOntologyStale` regardless of which `(rt, rid)` carried it, and no real pending subscribe is keyed at `':'`. Fire-and-forget; failed sends are tolerable (5.3.4a or Handler-1 will catch them).
+- [x] Server-side `clientVersion` is empty (the `Subscribers` row doesn't carry it). Client-side `#dispatchOntologyStale` substitutes `this.#ontologyVersion` when the inbound error's `clientVersion` is falsy — single substitution point covers push-on-clear; the three Handler-1 paths (transaction / read / subscribe) always carry a real client version, so the substitution is a no-op for them. User-facing `OntologyStaleInfo` shape unchanged.
+- [x] Triggered exactly once per `#installState` call (the guard `isNewVersion && prevLatest` already in place from 5.3.2 prevents fire on the very first ontology install).
+- [ ] Thundering-herd mitigation **not** implemented for demo. Post-demo lever: extend `OntologyStaleInfo` with `refreshWithinMs` and have the framework wrap user `onShouldRefreshUI` in `setTimeout(handler, Math.random() * refreshWithinMs)`. Star sets the jitter window based on subscriber count.
+
+#### Tests (in `apps/nebula/test/test-apps/baseline/`) ✅
+
+- [x] **5.3.4a — `_resubscribeAllForTest`**: client A subscribes via the public API → `#subscriptionRegistry` populated; clear Star's `Subscribers` table via test-only `StarTest.clearSubscribersForTest`; invoke `a.client._resubscribeAllForTest()`; assert (a) `resourceUpdateCount` increments (Star pushed initial snapshot back) and (b) A's row reappears in `Subscribers` with a fresh `subscribedAt`. ([nebula-client-reconnect.test.ts](apps/nebula/test/test-apps/baseline/nebula-client-reconnect.test.ts))
+- [x] **5.3.4a — supersede-triggered reconnect smoke**: construct a second client B with A's `instanceName` + `accessToken`; Gateway closes A's socket with `WS_CLOSE_SUPERSEDED` (4409) → A enters `'reconnecting'`; immediately `b.disconnect()` to avoid ping-pong; wait for A to return to `'connected'` and `resourceUpdateCount` to increment (proves the constructor-level state-machine wiring fires the walk). ([nebula-client-reconnect.test.ts](apps/nebula/test/test-apps/baseline/nebula-client-reconnect.test.ts))
+- [x] **5.3.4b — grouping + version substitution**: A subscribed to 3 resources at v1; admin appends v2 to Galaxy; A reads with `options.ontologyVersion: 'v2'` to force `Star.#installState`; assert `onShouldRefreshUI` fires exactly once (not 3 times) with `{ clientVersion: 'v1', currentVersion: 'v2', reason: 'ontology-stale' }`; assert `Subscribers` is empty. ([nebula-client-push-on-clear.test.ts](apps/nebula/test/test-apps/baseline/nebula-client-push-on-clear.test.ts))
 
 ### Phase 5.3.5 — Subscriber cleanup on disconnect
 
-- [ ] NebulaClientGateway hook: detect WebSocket close, notify Star to remove that `clientId`'s subscriber rows
-- [ ] Confirm cleanup doesn't create thundering-herd during deploys
+Scope narrowed after 5.3.4b push-on-clear shipped: the deploy-driven path is fully handled by `Subscriptions.clear()` + push-on-clear. 5.3.5 is purely for the **"user closes the tab"** case — clean up that `clientId`'s rows so they don't leak across the long tail of session-end events that aren't deploys.
+
+The Gateway base ([packages/mesh/src/lumenize-client-gateway.ts:347-390](packages/mesh/src/lumenize-client-gateway.ts:347)) already has the grace-period alarm in place: `webSocketClose` sets a 5-second alarm (skipped on `WS_CLOSE_SUPERSEDED`), `alarm()` fires when the period expires without a reconnect, and reconnects within the window clear the alarm. **So 5.3.5 is purely "extend `alarm()` to notify Star"** — no new close detection needed.
+
+- [ ] **Override `alarm()` in `NebulaClientGateway`** ([apps/nebula/src/nebula-client-gateway.ts](apps/nebula/src/nebula-client-gateway.ts)). Read the connection's `instanceName` (the clientId, attached via `serializeAttachment` on accept) and the target Star instanceName (from `connectionInfo.claims.aud` per the two-scope model). Fire `lmz.call('STAR', aud, ctn<Star>().cleanupSubscriber(clientId))` before calling `super.alarm()`.
+- [ ] **Add `Subscriptions.clearForClient(clientId)`** ([apps/nebula/src/subscriptions.ts](apps/nebula/src/subscriptions.ts)) — `DELETE FROM Subscribers WHERE clientId = ?`. No secondary index on `clientId` today (per CLAUDE.md SQL guidance — writes are 1000× reads, the index would tax the hot subscribe path to optimize a cold cleanup path). Full table scan acceptable for demo subscriber counts (low hundreds at most per Star). Revisit if a production deployment exposes ~10k+ rows per Star (the crossover noted in the 5.3.1 storage section).
+- [ ] **Add `@mesh() cleanupSubscriber(clientId: string)` on `Star`** ([apps/nebula/src/star.ts](apps/nebula/src/star.ts)). Guard: verify `this.lmz.callContext.callChain[0]?.bindingName === 'NEBULA_CLIENT_GATEWAY'` — only Gateways can fire this. Without the guard, any party holding a valid JWT could trigger cleanup for someone else's `clientId`. Implementation: call `this.#subscriptions.clearForClient(clientId)`. No fanout or push-on-clear semantics — this is silent cleanup.
+- [ ] **Test grace-period override via env binding** `LUMENIZE_MESH_GRACE_PERIOD_MS`. Add to `LumenizeClientGateway`'s `#gracePeriodMs` getter ([packages/mesh/src/lumenize-client-gateway.ts:112](packages/mesh/src/lumenize-client-gateway.ts:112)): when env binding is set, use that value (parsed as number); otherwise fall back to the existing 5000 / 60000 (test-mode) defaults. Set via miniflare's `bindings` block in `vitest.config.js` to e.g. 200 ms for the baseline test project, so close → wait → cleanup completes in well under a second. Production-safe by default (env not set).
+
+#### Tests (in `apps/nebula/test/test-apps/baseline/`)
+
+- [ ] **Cleanup fires after grace period**: client A subscribes; close A's WebSocket (use the same supersede-via-second-client technique from 5.3.4a, or `client.disconnect()`); wait > grace period; assert A's row is gone from `Subscribers` (via `callStarInspectSubscribers`).
+- [ ] **Grace period preserves rows on reconnect**: client A subscribes; close A's WebSocket; reconnect within the grace window (1 second is plenty if grace = 200 ms in test config — wait, actually we want to test the *opposite*: reconnect well before the alarm fires). Use a longer grace value for this test (override the env in a single-test setup, or accept that the env-binding approach is suite-global and just rely on the existing 5.3.4a tests which already exercise close→reconnect without expecting cleanup).
+- [ ] **Cross-client guard**: try calling `Star.cleanupSubscriber('some-other-client')` from a non-Gateway origin (use a Star-side test method that calls it directly, bypassing the Gateway). Assert it throws or no-ops without affecting any rows.
 
 ### Phase 5.3.6 — `client.bindToState(state)` integration + `@lumenize/ui` bindDom
 
 #### bindToState (NebulaClient)
 
 - [ ] `client.bindToState(state, options?)` registers `setState` middleware on `state` watching `resources.{rt}.{rid}.*`
-- [ ] Optimistic-write flow: middleware reads `eTag` via `state.getState('{statePath}.meta.eTag')`, packages with fresh `newETag`, submits via `client.resources.transaction()`
+- [ ] Optimistic-write flow: middleware reads `eTag` via `state.getState('resources.{rt}.{rid}.meta.eTag')`, packages with fresh `newETag`, submits via `client.resources.transaction()`
 - [ ] Auto-subscribe reference counting (`Map<resourceKey, count>`): 0→1 → `subscribe`; count→0 → schedule `unsubscribe` after `unsubscribeGraceMs` (default 2000); new binding during grace cancels
-- [ ] Connection-state surfacing: subscribe to LumenizeClient connection events; write `lmz.connection.state` (string) and `lmz.connection.connected` (boolean) on every transition; write `lmz.connection.lastConnectedAt` (timestamp ms) on each `'connected'` transition
-- [ ] Server returns `'permission-denied'` error path for write attempts the user isn't authorized for; NebulaClient rejects original Promise with `'permission-denied'` reason and rolls back optimistic state to last-confirmed (same handling as `'validation-failed'`)
+- [ ] Connection-state surfacing: write `lmz.connection.state` (string) and `lmz.connection.connected` (boolean) on every transition; write `lmz.connection.lastConnectedAt` (timestamp ms) on each `'connected'` transition. **Wiring point already exists from 5.3.4a**: NebulaClient's constructor passes a wrapping `onConnectionStateChange` to LumenizeClient that already runs internal logic (reconnect re-subscribe) before chaining to the user-supplied callback. 5.3.6 inserts a third layer between those two that writes through to `state` via the bound StateManager.
+- [ ] Optimistic-write rollback on terminal failure: `bindToState` consumes the `TransactionResolution` and on `'validation-failed'` / `'permission-denied'` / `'ontology-stale'` / `'timeout'` rolls back the optimistic state at affected paths to last-confirmed. (`'use-server'` writes the server's value via the existing handleResourceUpdate path; `'committed'` updates eTag in `.meta`; `'human-in-the-loop'` keeps optimistic painted; `'retries-exhausted'` rollback policy is a UX choice — default to rollback.)
 
 #### bindDom + directives (`@lumenize/ui`)
 
@@ -477,16 +515,16 @@ All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace period
 
 - [ ] Two clients subscribe to same resource; client A transactions; client B's bound StateManager path updates via `handleResourceUpdate`
 - [ ] BroadcastChannel: client A doesn't receive own update via fanout; instead reflects authoritative value via `handleTransactionResult`'s success path
-- [ ] `'use-server'` resolution: loser's resolver returns `{ resolution: 'use-server' }`; framework `setState`s server value; Promise rejects `'conflict-lost'`
-- [ ] `'use-this'` resolution: loser returns `{ resolution: 'use-this', value }`; framework submits new transaction with `eTag = server.meta.eTag`. Verify recursion: second submission also conflicts → resolver fires again → eventually succeeds.
-- [ ] `maxRetries` exhaustion: resolver always returns `'use-this'`, every submission conflicts; after default 5 attempts, original Promise rejects `'conflict-retries-exhausted'`
-- [ ] `'human-in-the-loop'`: resolver returns the handoff; Promise rejects `'conflict-handoff'`; optimistic state stays painted (NOT overwritten); no new transaction; test then manually submits follow-up
+- [ ] `'use-server'` resolution: loser's resolver returns `{ resolution: 'use-server' }`; framework `setState`s server value; transaction Promise resolves with `{ resolution: 'use-server', resources }`
+- [ ] `'use-this'` resolution: loser returns `{ resolution: 'use-this', value }`; framework submits new transaction with `eTag = server.meta.eTag`. Verify recursion: second submission also conflicts → resolver fires again → eventually succeeds (Promise resolves with `{ resolution: 'committed', eTag }`).
+- [ ] `maxRetries` exhaustion: resolver always returns `'use-this'`, every submission conflicts; after default 5 attempts, transaction Promise resolves with `{ resolution: 'retries-exhausted', attempts: 5, resources }`
+- [ ] `'human-in-the-loop'`: resolver returns the handoff; transaction Promise resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted (NOT overwritten); no new transaction; test then manually submits follow-up
 - [ ] Per-call override: `transaction(ops, { onETagConflict: customResolver })` overrides per-type registered resolver for that call only
 - [ ] Idempotency probe: drop a transaction response (test-only); client retries with same `newETag`; server returns idempotent success without duplicate
 - [ ] `client.resources.read(rt, rid)` returns current snapshot without writing to bound state
 - [ ] Staleness probe: client constructed with `'v1'`, server now `'v2'`; transaction → `onShouldRefreshUI` fires with `{ clientVersion: 'v1', currentVersion: 'v2', reason: 'ontology-stale' }`
 - [ ] Connection-state probe: trigger LumenizeClient connection events programmatically; assert `lmz.connection.state` / `lmz.connection.connected` / `lmz.connection.lastConnectedAt` paths update correctly on each transition
-- [ ] Permission-denied probe: attempt a write the user isn't authorized for; original Promise rejects with `'permission-denied'`; optimistic state rolls back to last-confirmed
+- [ ] Permission-denied probe: attempt a write the user isn't authorized for; transaction Promise resolves with `{ resolution: 'permission-denied', resources }`; optimistic state rolls back to last-confirmed
 - [ ] Flash class: after `'use-server'` where local differed from server, framework adds `flashClass` to bound elements at diff fields; removed after `flashDuration` ms. Test both default class and custom; verify `flashClass: null` disables.
 - [ ] Resolver bindings: `context.bindings` contains exactly elements bound to paths under conflicting resource
 - [ ] Auto-subscribe probe: HTML with `x-text` binding to `resources.{rt}.{rid}.*` triggers `client.resources.subscribe` automatically
@@ -518,7 +556,7 @@ All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace period
 3. **`getEffectivePermission` per-subscriber on notification?** Probably no for demo; revisit for production.
 4. **Subscribe-time-then-no-recheck vs subscribe-time-and-on-deploy** — when Studio deploy changes guards/ontology, do existing subscribers get re-evaluated? **Resolved 2026-05-12**: all invalidated on deploy. `Star.#installState()` clears the `Subscribers` table via `DROP TABLE + CREATE TABLE` (one billed write). Clients re-subscribe naturally on the post-deploy page reload. Details in Phase -1 § 5 and Phase 5.3.2 / 5.3.4 checklists.
 5. **Subscription identifier** — does `(clientId, resourceType, resourceId)` uniquely identify a subscription, or need generated `subId` for multi-tab same-client? `instanceName` of the Gateway should already disambiguate.
-6. **Mesh-framework Promise correlation for `client.resources.read()`** — implementation detail. Options: (a) existing `callId` machinery, (b) hidden plumbing handler, (c) extend mesh return-value path. Resolve during 5.3.3.
+6. **Mesh-framework Promise correlation for `client.resources.read()`** — **Resolved 2026-05-12 in Phase 5.3.3b** via option (b) "hidden plumbing handler": client generates `requestId = crypto.randomUUID()` per call, threads through `Star.read(ontologyVersion, rt, rid, requestId)`, server delivers via new internal `@mesh() handleReadResponse(requestId, result)` on NebulaClient, which settles a `Map<requestId, {resolve, reject}>` entry. The earlier `handleReadResult` was removed entirely. Transactions don't need correlation thanks to the serial in-flight queue (5.3.3b).
 7. **Query language** — for "give me all todos where status='open'" with result-set subscription. Deferred to own phase. Design space includes query shape, server-side execution model, result-set subscription semantics, pagination, cursor stability across schema migrations.
 
 ## Phase -1: Captured Ideas
@@ -547,10 +585,12 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    **Three-mechanism cleanup model:**
 
    1. **Active WebSocket close** (Phase 5.3.5) — Gateway sees WS close, notifies Star, drops that `clientId`'s rows. Handles ~99% of cases cleanly.
-   2. **Ontology-install clear** (Phase 5.3.2 — primary) — `Star.#installState()` calls `Subscriptions.clear()` which does `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …`. Single billed write (vs `DELETE FROM Subscribers` which is billed per row + per index). Every Studio deploy thus wipes the registry; clients re-subscribe naturally on the post-deploy page reload that `onShouldRefreshUI` triggers.
+   2. **Ontology-install clear** (Phase 5.3.2 — primary) — `Star.#installState()` calls `Subscriptions.clear()` which does `DROP TABLE IF EXISTS Subscribers; CREATE TABLE …`. Single billed write (vs `DELETE FROM Subscribers` which is billed per row + per index). Every Studio deploy thus wipes the registry; connected subscribers also receive an in-band `OntologyStaleError` push via push-on-clear (5.3.4b) before the rows drop, so a refresh happens promptly without waiting for the next op.
    3. **Drop-on-failed-fanout (deferred — may never be needed)** — Star catches "client unknown" errors from `lmz.call(subscriberBinding, clientId, …)` during fanout and inline-deletes the row. Reactive cleanup for the rare edge case where (1) and (2) both miss. Probably unnecessary given (1) + (2) coverage and the storage cost of leaked rows is trivial; revisit only if a production deployment exposes a path that escapes both.
 
-   **Listen-only client detection** (Phase 5.3.4): refresh-token response includes `currentOntologyVersion`; NebulaClient fires `onShouldRefreshUI` on mismatch. Bounds detection latency at 15 min (access-token TTL) for clients that never trigger Handler-1 lazy detection via active operations.
+   **Passive-subscriber detection** (Phase 5.3.4b — push-on-clear, **replaces the original refresh-token-response design**): before `Subscriptions.clear()` drops the rows, iterate distinct `(subscriberBinding, clientId)` and send each connected subscriber a single `OntologyStaleError` via the existing fanout plumbing. NebulaClient routes that into `onShouldRefreshUI`. Detection latency is **immediate** for connected subscribers — no Galaxy hop, no TTL cache, no per-refresh ontology check needed.
+
+   **Original "refresh-cycle ontology check" design retired** — the NebulaAuth → Galaxy hop, response-body `currentOntologyVersion` field, and TTL cache were the answer to a problem we can solve more cheaply at the source. Push-on-clear + 5.3.4a reconnect + Handler-1 lazy detection cover the practical cases. If a real workload ever exposes the narrow sliver where (a) the push-on-clear notification is lost in flight AND (b) the client never reconnects AND (c) the client never makes another op, revisit the refresh-cycle backstop.
 
    **What was rejected and why:**
    - **`subscribedAt`-based alarm sweep**: rejected. Auto-reconnecting WebSockets mean a row created hours/days ago can still be perfectly valid as long as the underlying client session is alive — `subscribedAt` is "row birthday," not "last-proven-alive." The earlier "5 days + quiet resource" heuristic had the same flaw.

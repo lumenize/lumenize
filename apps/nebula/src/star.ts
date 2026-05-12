@@ -117,6 +117,7 @@ export class Star extends NebulaDO {
    */
   #installState(state: OntologyState): void {
     const { row, history } = state;
+    let droppedSubscribers: Array<{ subscriberBinding: string; clientId: string }> = [];
     this.ctx.storage.transactionSync(() => {
       const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
       const prevLatest = prevIndex[prevIndex.length - 1];
@@ -132,7 +133,7 @@ export class Star extends NebulaDO {
       // same version (defensive: shouldn't happen given #isCachedVersion
       // guards upstream) shouldn't churn existing subscriptions.
       if (isNewVersion && prevLatest) {
-        this.#subscriptions.clear();
+        droppedSubscribers = this.#subscriptions.clear();
       }
     });
     this.#row = row;
@@ -142,6 +143,24 @@ export class Star extends NebulaDO {
       `${this.#galaxyId}/${row.version}`,
       () => row.validatorBundle,
     );
+
+    // Push-on-clear (Phase 5.3.4b): notify each dropped subscriber once via the
+    // existing fanout plumbing. Sentinel rt='' / rid='' on `handleResourceUpdate`
+    // is harmless — the client's error branch routes `OntologyStaleError` into
+    // its `onShouldRefreshUI` hook regardless of which (rt, rid) pair carried
+    // the signal, and there is no pending subscribe Promise keyed at ':'. We
+    // can't fill in `clientVersion` server-side — the Subscribers row doesn't
+    // carry it — so the client substitutes its own pinned version when it sees
+    // an empty value (see NebulaClient.#dispatchOntologyStale). Fire-and-forget;
+    // a failed send is tolerable — 5.3.4a reconnect + Handler-1 lazy detection
+    // are the backstops.
+    if (droppedSubscribers.length > 0) {
+      const staleError = new OntologyStaleError('', row.version);
+      for (const { subscriberBinding, clientId } of droppedSubscribers) {
+        this.lmz.call(subscriberBinding, clientId,
+          this.ctn<NebulaClient>().handleResourceUpdate('', '', staleError));
+      }
+    }
   }
 
   // ─── DagTree ───────────────────────────────────────────────────────

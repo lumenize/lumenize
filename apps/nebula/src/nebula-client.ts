@@ -13,7 +13,7 @@
 // fails outside Workers. The same applies to types: import only from
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh } from '@lumenize/mesh/client';
-import type { LumenizeClientConfig } from '@lumenize/mesh/client';
+import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
 import type { StateManager } from '@lumenize/state';
 import { isOntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot, TransactionError } from './resources';
@@ -227,7 +227,20 @@ export class NebulaClient extends LumenizeClient {
   #perTypeResolvers = new Map<string, RegisteredResolver>();
 
   constructor(config: NebulaClientConfig) {
-    const { authScope, activeScope, ontologyVersion, onShouldRefreshUI, ...baseConfig } = config;
+    const {
+      authScope,
+      activeScope,
+      ontologyVersion,
+      onShouldRefreshUI,
+      onConnectionStateChange: userOnConnectionStateChange,
+      ...baseConfig
+    } = config;
+
+    // Closure variable rather than an instance field: LumenizeClient's
+    // constructor calls `connect()` synchronously, which fires
+    // onConnectionStateChange('connecting') before our class fields finish
+    // initializing. A closure captures cleanly without `this.#field` access.
+    let prevConnectionState: ConnectionState | null = null;
 
     super({
       ...baseConfig,
@@ -247,6 +260,20 @@ export class NebulaClient extends LumenizeClient {
         const data = await res.json() as { access_token: string; sub: string };
         return { access_token: data.access_token, sub: data.sub };
       },
+      onConnectionStateChange: (state) => {
+        // Phase 5.3.4a: re-subscribe everything on reconnect. The
+        // `reconnecting → connected` transition is the precise signal that
+        // a network-blip recovery just completed (LumenizeClient stays in
+        // `reconnecting` across retry attempts and only flips to `connected`
+        // when the WS is back up). The initial-connect transition is
+        // `disconnected → connecting → connected`, which we don't treat as
+        // a reconnect (registry is empty anyway).
+        if (prevConnectionState === 'reconnecting' && state === 'connected') {
+          this.#resubscribeAll();
+        }
+        prevConnectionState = state;
+        userOnConnectionStateChange?.(state);
+      },
     });
 
     this.#authScope = authScope;
@@ -254,6 +281,42 @@ export class NebulaClient extends LumenizeClient {
     this.#ontologyVersion = ontologyVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
   }
+
+  /**
+   * Re-issue `Star.subscribe()` for every entry in `#subscriptionRegistry`.
+   * Fired from the `reconnecting → connected` transition in the constructor's
+   * connection-state callback.
+   *
+   * We unconditionally re-issue (no dedupe-on-pending) for correctness: if a
+   * subscribe was sent before the WS dropped but the initial-snapshot response
+   * was lost in flight, LumenizeClient does NOT re-send already-sent
+   * fire-and-forget messages on reconnect, so the pending Promise would hang
+   * forever without a fresh subscribe RTT here. The cost of being safe: a
+   * subscribe issued while the WS was already down (in LumenizeClient's
+   * #messageQueue) will both flush from the queue AND get re-issued — server's
+   * `INSERT OR REPLACE` makes both arrivals idempotent and the second
+   * initial-snapshot push deep-equals-dedups in `handleResourceUpdate`.
+   *
+   * We bypass `#subscribeResource` (rather than calling it for each entry)
+   * because its coalesce path piggybacks on existing pending entries without
+   * issuing a fresh RTT — which is exactly the trap above.
+   */
+  #resubscribeAll(): void {
+    for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
+      this.lmz.call('STAR', this.#activeScope,
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+    }
+  }
+
+  /**
+   * @internal Test-only — invokes the same resubscribe walk that fires on a
+   * `reconnecting → connected` transition. Provided because forcing an
+   * unsolicited WS close from outside the client is awkward in the
+   * vitest-pool-workers harness. The state-machine wiring that calls this
+   * in production is covered by mesh-level tests + a smoke test that
+   * exercises the real supersede path.
+   */
+  _resubscribeAllForTest(): void { this.#resubscribeAll(); }
 
   /**
    * Bind a `StateManager` so resource updates write through to
@@ -474,11 +537,22 @@ export class NebulaClient extends LumenizeClient {
    * Fire the `onShouldRefreshUI` constructor hook (if registered) with the
    * staleness info. Swallows user-callback throws so an erroring hook can't
    * take the framework down.
+   *
+   * When the inbound error's `clientVersion` is empty, substitute the client's
+   * own pinned version. This is load-bearing for the Phase 5.3.4b push-on-clear
+   * path: Star doesn't store per-subscriber `clientVersion` on the Subscribers
+   * row, so the `OntologyStaleError` it sends carries an empty `clientVersion`.
+   * The Handler-1 mismatch paths (transaction / read / subscribe) always carry
+   * a real client version, so the substitution is a no-op for those.
    */
   #dispatchOntologyStale(clientVersion: string, currentVersion: string): void {
     if (!this.#onShouldRefreshUI) return;
     try {
-      this.#onShouldRefreshUI({ reason: 'ontology-stale', clientVersion, currentVersion });
+      this.#onShouldRefreshUI({
+        reason: 'ontology-stale',
+        clientVersion: clientVersion || this.#ontologyVersion,
+        currentVersion,
+      });
     } catch {
       // swallow
     }

@@ -83,6 +83,28 @@ export class StarTest extends Star {
   }
 
   /**
+   * Test-only: drop and recreate the Subscribers table. Used by 5.3.4a
+   * reconnect tests to verify that the client's resubscribe walk actually
+   * re-inserts rows. Without this hook, the absence of Phase 5.3.5
+   * (disconnect cleanup) means subscriber rows persist across WS close, so
+   * a missing resubscribe wouldn't be visible. Admin-gated.
+   */
+  @mesh(requireAdmin)
+  clearSubscribersForTest(): void {
+    this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS Subscribers (
+        resourceId TEXT NOT NULL,
+        clientId TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        subscriberBinding TEXT NOT NULL,
+        subscribedAt TEXT NOT NULL,
+        PRIMARY KEY (resourceId, clientId)
+      ) WITHOUT ROWID;
+    `);
+  }
+
+  /**
    * Test-only: bench WS-leg baseline. Bounces a one-byte payload back to the
    * client via the same mesh-callback mechanism as transaction(); the bench
    * subtracts this round-trip from transaction latency to isolate in-Worker
@@ -382,6 +404,12 @@ export class NebulaClientTest extends NebulaClient {
   callStarInspectSubscribers(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectSubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarClearSubscribersForTest(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().clearSubscribersForTest();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 

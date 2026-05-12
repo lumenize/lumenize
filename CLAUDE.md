@@ -159,6 +159,31 @@ subscribe(id: string) {
 }
 ```
 
+### LumenizeClient subclasses: callbacks fire during super()
+
+`LumenizeClient`'s constructor calls `this.connect()` synchronously, which fires `onConnectionStateChange('connecting')` **before** the subclass's class-field declarations have run. A subclass tracking state across that callback can't use a `#` instance field — writing to one before its initializer runs throws "Cannot write to private field that has not been initialized." Use a **closure variable in the constructor** instead:
+
+```typescript
+constructor(config: NebulaClientConfig) {
+  const { onConnectionStateChange: userCallback, ...baseConfig } = config;
+  // Closure variable — captures cleanly across the synchronous super() callback.
+  let prevConnectionState: ConnectionState | null = null;
+
+  super({
+    ...baseConfig,
+    onConnectionStateChange: (state) => {
+      if (prevConnectionState === 'reconnecting' && state === 'connected') {
+        this.#onReconnect();  // method access via prototype — safe even during super()
+      }
+      prevConnectionState = state;
+      userCallback?.(state);  // chain to any user-supplied callback
+    },
+  });
+}
+```
+
+Methods on the prototype (including `#`-prefixed ones) ARE accessible during super() — but they must not touch class fields, which init later. Canonical example: `apps/nebula/src/nebula-client.ts` constructor.
+
 ---
 
 ## Package Structure
@@ -289,6 +314,14 @@ test: { setupFiles: ['./test/setup.ts'] }
 ```
 
 Per-test `{ timeout }` overrides take precedence as expected. Canonical example: [apps/nebula/test/test-apps/baseline/test/setup.ts](apps/nebula/test/test-apps/baseline/test/setup.ts).
+
+### Test initiators vs the public API
+
+Test subclasses (e.g., `NebulaClientTest`) add `callXxx(...)` initiator methods that issue direct `this.lmz.call(...)`s from the client to a DO. These initiators **bypass the public API** — they don't populate client-side state like `#subscriptionRegistry`, `#pendingSubscribes`, or `#perTypeResolvers`. They're for testing the **server-side** path (Star, Galaxy, etc.) where the client is just a call source.
+
+When the unit under test is **client-side state** (auto-resubscribe registry walks, pending-Promise correlation, resolver precedence, optimistic-state rollback, etc.), use the public API (`client.resources.subscribe(...)`, `client.resources.transaction(...)`, etc.) so client-side state is actually populated. Mixing the two in a single test produces "the subscribe ran on Star but the client doesn't know about it" failures that look like production bugs but are test-code bugs.
+
+Also note: test-initiator methods on `NebulaClientTest` call `resetResults()` which **zeroes** capture fields including `resourceUpdateCount`, `lastResourceUpdate`, `lastResult`, etc. When asserting "did the count go up?", capture the baseline immediately before the action under test — not before the setup helpers that call test initiators run.
 
 ### App Test Pattern
 For apps in `apps/`, use `test/test-apps/{name}/` with `instrumentDOProject`. See `apps/nebula/test/test-apps/README.md` for the checklist.

@@ -66,10 +66,22 @@ export class Subscriptions {
    *
    * The constructor's `CREATE TABLE IF NOT EXISTS` only runs at `onStart()`
    * — mid-operation drop+recreate has to happen inline here.
+   *
+   * Returns the distinct `(subscriberBinding, clientId)` pairs that were
+   * dropped. The caller (Star.#installState) uses this to push-on-clear:
+   * one `OntologyStaleError` to each connected subscriber via fanout, so
+   * passive clients get an immediate refresh signal instead of having to
+   * wait for their next op or reconnect. Grouping by `(binding, clientId)`
+   * — not by row — means a client subscribed to N resources receives
+   * exactly one notification, not N.
    */
-  clear() {
+  clear(): Array<{ subscriberBinding: string; clientId: string }> {
+    const dropped = this.#ctx.storage.sql.exec(
+      `SELECT DISTINCT subscriberBinding, clientId FROM Subscribers`,
+    ).toArray() as Array<{ subscriberBinding: string; clientId: string }>;
     this.#ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
     this.#createSchema();
+    return dropped;
   }
 
   /**
