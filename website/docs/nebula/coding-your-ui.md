@@ -731,6 +731,286 @@ For loops with conditional dependence on the loop variable, `$loopVar` substitut
 </template>
 ```
 
+## Components and recursion
+
+The directives so far cover read, write, iterate, and branch — all that flat-list UIs need. Three things they don't cover:
+
+- **Parameterized reuse.** "Render this same shape 100 times with different inputs," where the shape is bigger than one element.
+- **Recursion.** A tree where each node renders the same shape and its own children.
+- **Per-instance UI state.** Each of 100 cards has its own "expanded/collapsed" toggle, independent of the others.
+
+Components handle all three. A component is a `<template>` tagged with `x-component="name"` that lives in the DOM but doesn't render itself. You render it elsewhere with `x-render="name"`, passing scoped values via `x-prop:{name}="value"`.
+
+### Defining a component with `x-component`
+
+```html @skip-check
+<template x-component="stat-card" x-key-from="$label">
+  <div class="card bg-base-100 shadow">
+    <div class="card-body">
+      <h2 class="card-title" x-text="$label"></h2>
+      <p class="text-3xl font-bold" x-text="$value"></p>
+      <button x-on:click="toggleDetail" class="btn btn-sm">
+        <span x-text="$local.expanded ? 'Hide' : 'Show'"></span> detail
+      </button>
+      <template x-if="$local.expanded">
+        <p class="text-sm opacity-70" x-text="$detail"></p>
+      </template>
+    </div>
+  </div>
+</template>
+```
+
+- **Host element**: `<template>` (same as `x-for` / `x-if`). The template doesn't render itself; clones are made wherever `x-render` instantiates it.
+- **`x-component="name"`**: the registration name. Names use `kebab-case` to mirror HTML custom-element conventions and to be visually distinct from native elements when read.
+- **Inside the template**: scoped values from props (`$label`, `$value`, `$detail`) and per-instance state (`$local`) are available everywhere a state path would be, plus a few extra slots in directive values that the next subsections explain.
+- **`x-key-from`**: explained under per-instance state below. Required when a component holds local state; optional otherwise.
+
+### Rendering a component with `x-render` and `x-prop:*`
+
+```html @skip-check
+<div class="grid grid-cols-3 gap-4">
+  <template x-render="stat-card"
+            x-prop:label="'Active users'"
+            x-prop:value="resources.metrics.daily.value.activeUsers"
+            x-prop:detail="resources.metrics.daily.value.activeUsersDetail"></template>
+
+  <template x-render="stat-card"
+            x-prop:label="'Revenue'"
+            x-prop:value="resources.metrics.daily.value.revenue"
+            x-prop:detail="resources.metrics.daily.value.revenueDetail"></template>
+
+  <template x-render="stat-card"
+            x-prop:label="'Errors'"
+            x-prop:value="resources.metrics.daily.value.errors"
+            x-prop:detail="resources.metrics.daily.value.errorsDetail"></template>
+</div>
+```
+
+- **Host element**: `<template>`. Like `x-for`, the template element doesn't render; the rendered clone goes in its parent.
+- **`x-render="name"`** locates the registered component template.
+- **`x-prop:{name}="value"`** passes a scoped value as a prop. Inside the component, the prop is accessible as `${name}` (e.g., `x-prop:label="..."` becomes `$label`).
+- **Prop values follow the same path-or-string rules as other directives**: bare paths resolve to state, single-quoted literals are strings, and loop variables (e.g., `$node`, see below) are scoped values. No expressions or function calls.
+
+### Per-instance state with `$local`
+
+`$local` is a per-component-instance state proxy. Reading from it returns the value at the framework-managed path `ui.{componentName}.{instanceKey}.*`; writing to it does the equivalent `setState`. Each component instance has its own `instanceKey`, so 100 stat-cards have 100 independent `$local.expanded` flags.
+
+```html @skip-check
+<template x-component="stat-card" x-key-from="$label">
+  <!-- ... -->
+  <button x-on:click="toggleDetail">
+    <span x-text="$local.expanded ? 'Hide' : 'Show'"></span> detail
+  </button>
+</template>
+```
+
+```js @skip-check
+bindDom(document.body, state, {
+  handlers: {
+    toggleDetail: (event, { $local }) => {
+      $local.set('expanded', !$local.get('expanded'));
+    },
+  },
+});
+```
+
+**`x-key-from="..."`** tells the framework how to derive each instance's `instanceKey`. The value is a scoped path resolving to a stable, unique-per-instance string or number — most often a prop like `$label` or a loop variable's `.id`. Required on any component that uses `$local`; optional otherwise.
+
+If you want shared state across all instances (rare), bind to an explicit `ui.*` path directly instead of using `$local`.
+
+### Handler scope injection
+
+When a handler is invoked from inside a component or an `x-for` body, it receives the current scope as its second argument:
+
+```js @skip-check
+bindDom(document.body, state, {
+  handlers: {
+    saveCard: (event, { $node, $local, $trail }) => {
+      // $node — the current scoped value (loop var or component prop)
+      // $local — per-instance state proxy (get / set)
+      // $trail — read-only array of ancestor scoped values (see below)
+    },
+  },
+});
+```
+
+The framework destructures whichever slots the handler asks for. Handlers at the root scope (outside any component or loop) receive an empty scope object — `(event, {})` — so you can write handlers that don't care about scope without conditional handling.
+
+### The `$trail` — knowing where you are in a nested structure
+
+`$trail` is a read-only array of the scoped values of all ancestor scopes from the document root down to (but not including) the current scope. Use it for breadcrumb-style UIs or for handlers that need to know the rendering path.
+
+```js @skip-check
+bindDom(document.body, state, {
+  handlers: {
+    chooseNode: (event, { $node, $trail }) => {
+      // $trail is, e.g., [rootNode, departmentNode, teamNode]
+      // $node is the leaf the user clicked.
+      const breadcrumbs = [...$trail, $node];
+      state.setState('app.chosenBreadcrumbs', breadcrumbs);
+    },
+  },
+});
+```
+
+The framework also uses `$trail` internally to disambiguate `instanceKey` for `$local` when a component renders at multiple positions in the same tree — so the same logical node has independent state at each rendering position. You rarely need to think about this; just know that `$local.expanded` won't accidentally bleed across two different occurrences of the same component.
+
+### Recursion: the canonical pattern
+
+A component can render itself by name — there's no special syntax for recursion beyond `x-render="own-name"` inside the component's own template. Each level passes a different scoped value (typically a child of the current node) so recursion is finite.
+
+```html @skip-check
+<template x-component="tree-item" x-key-from="$node.id">
+  <li>
+    <span x-text="$node.label"></span>
+    <template x-if="$local.isOpen">
+      <ul>
+        <template x-for="child in $node.children" x-key="child.id">
+          <template x-render="tree-item" x-prop:node="child"></template>
+        </template>
+      </ul>
+    </template>
+  </li>
+</template>
+```
+
+The framework auto-builds each instance's `$trail` from the chain of `x-key` and `x-key-from` values encountered while descending. A node rendering at two different positions in the tree gets two distinct `instanceKey`s — its expand/collapse state at one occurrence doesn't affect the other.
+
+There's no hard recursion limit; depth is bounded only by the JS call stack (effectively thousands of levels). Trees in practice are tens of levels deep, well within budget.
+
+## Worked example: DAG tree with virtual branches
+
+A full Nebula DAG tree component — multi-parent rendering, virtual "Deleted" / "Orphaned" branches, search with match highlighting and auto-expand of ancestors of matches. Pulls all the pieces together.
+
+### State layout
+
+```
+resources.dagNode.{nodeId}.value         — one synced resource per row
+  { slug, label, deleted, parentIds[], childIds[] }
+
+app.tree.root                             — derived, hydrated tree
+  TreeNode = { id, label, labelRuns?, deleted, children: TreeNode[] }
+  Root's children include virtual __deleted__ and __orphaned__
+  branches (if non-empty).
+
+ui.search.query                           — search-input value
+ui.tree-item.{instanceKey}.isOpen         — per-instance expand state
+```
+
+The server (Star DO) holds one row per node in SQLite and exposes each row as a synced resource. The client derives `app.tree.root` via a single `state.computed` that walks the node map from the mirror root (`nodeId = 1`).
+
+### Derivation
+
+```js @skip-check
+state.computed('app.tree.root', () => {
+  const nodes = state.getState('resources.dagNode') ?? {};
+  const query = (state.getState('ui.search.query') ?? '').toLowerCase();
+  return deriveTreeWithVirtuals(nodes, query);
+});
+
+function deriveTreeWithVirtuals(nodesByResourceId, query) {
+  // ... walks from root (nodeId='1'), rendering a node under each of its parents.
+  //   Skips deleted nodes during the main walk; collects them into a __deleted__
+  //   subtree. Computes orphaned (nodes not reachable from root via undeleted
+  //   edges) into __orphaned__. When query is non-empty, splits each label
+  //   into labelRuns = [{text, match: boolean}, ...] so the template can render
+  //   match highlighting safely without x-html.
+}
+```
+
+Two design notes:
+
+- **Multi-parent rendering** is intentional. A node with parents `[A, B]` renders once under `A` and once under `B`. Per-instance state (`$local.isOpen`) stays independent at each position because `$trail` differs.
+- **Virtual branches** use `__deleted__` and `__orphaned__` as IDs. The slug regex (`^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`) rejects underscores, so these IDs are structurally un-collide-able with anything a user could create as a node slug. Labels in the UI are `'Deleted'` / `'Orphaned'`.
+
+### Template
+
+```html @skip-check
+<input type="text" x-input="ui.search.query" placeholder="Search…" class="input">
+
+<template x-component="tree-item" x-key-from="$node.id">
+  <li class="menu-item">
+    <div class="flex items-center gap-2">
+      <button
+        x-on:click="toggleOpen"
+        x-show="$node.children.length"
+        class="btn btn-ghost btn-xs"
+      >
+        <span x-text="$local.isOpen ? '▼' : '▶'"></span>
+      </button>
+
+      <template x-if="!$node.labelRuns">
+        <span x-text="$node.label"></span>
+      </template>
+      <template x-if="$node.labelRuns">
+        <span>
+          <template x-for="run in $node.labelRuns" x-key="run.text">
+            <span
+              x-text="run.text"
+              x-class:bg-warning="run.match"
+            ></span>
+          </template>
+        </span>
+      </template>
+    </div>
+
+    <template x-if="$local.isOpen">
+      <ul class="menu menu-dropdown menu-dropdown-show ml-4">
+        <template x-for="child in $node.children" x-key="child.id">
+          <template x-render="tree-item" x-prop:node="child"></template>
+        </template>
+      </ul>
+    </template>
+  </li>
+</template>
+
+<ul class="menu menu-md bg-base-200 rounded-box">
+  <template x-render="tree-item" x-prop:node="app.tree.root"></template>
+</ul>
+```
+
+### Handlers
+
+```js @skip-check
+bindDom(document.body, state, {
+  handlers: {
+    toggleOpen: (event, { $local }) => {
+      $local.set('isOpen', !$local.get('isOpen'));
+    },
+  },
+});
+```
+
+That's the entire handler payload. No node-ID extraction, no path construction — `$local` resolves to the correct `ui.tree-item.{instanceKey}.isOpen` automatically.
+
+### Auto-expanding ancestors of search matches
+
+When the search query is non-empty, ancestors of every matching node need to flip to `isOpen: true` automatically so matches are visible. A separate `state.computed` handles this as a side effect:
+
+```js @skip-check
+state.computed('app.tree.searchAncestorsExpanded', () => {
+  const tree = state.getState('app.tree.root');
+  const query = state.getState('ui.search.query');
+  if (!query || !tree) return null;
+  walkAndExpandAncestorsOfMatches(tree);
+  return Date.now(); // dummy value; the side effect is the point
+});
+
+function walkAndExpandAncestorsOfMatches(node, trail = []) {
+  if (node.labelRuns?.some(r => r.match)) {
+    for (const ancestor of trail) {
+      const instanceKey = ancestorInstanceKey(ancestor, trail);
+      state.setState(`ui.tree-item.${instanceKey}.isOpen`, true);
+    }
+  }
+  for (const child of node.children ?? []) {
+    walkAndExpandAncestorsOfMatches(child, [...trail, node]);
+  }
+}
+```
+
+Keeping the expand-ancestors logic in its own computed (rather than folding it into the derivation) leaves `deriveTreeWithVirtuals` pure: same inputs always produce the same tree structure regardless of any UI state mutations triggered as a side effect.
+
 ## Read-only and editable views of the same field
 
 The same path can appear with both `x-text` (display) and `x-input` (edit) in different places — they stay in sync automatically because they both subscribe to the same state path. Three common patterns:
