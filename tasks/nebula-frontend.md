@@ -1,7 +1,7 @@
 # Nebula Frontend
 
 **Status**: Active — demo critical path
-**Progress**: Phases 5.3.0 – 5.3.5 shipped (2026-05-12). Next: Phase 5.3.6 (`client.bindToState` integration + `@lumenize/ui` bindDom).
+**Progress**: Phases 5.3.0 – 5.3.5 shipped (2026-05-12). Next: Phase 5.3.6.0 (StateManager subscriber-registration hooks prereq), then 5.3.6 (`client.bindToState` integration, headless) and 5.3.7 (`@lumenize/nebula-frontend` bindDom + directives).
 **Depends on**: Phase 5.1 (Storage Engine — shipped), Phase 5.2 (Validation/Ontology — shipped)
 **Companion docs** (canonical surface; defer to these for API + examples):
 
@@ -22,32 +22,33 @@
 > - 2026-05-12 — 5.3.4 redesigned ahead of implementation. Original plan was "reconnect + refresh-cycle ontology check" where every refresh-token RPC carried a `currentOntologyVersion` populated from a TTL-cached Galaxy hop in NebulaAuth. Replaced with "reconnect + push-on-clear": the moment `Star.#installState()` upgrades the cached ontology, it notifies each connected subscriber via the existing fanout plumbing (grouped by `(subscriberBinding, clientId)` so one push per client) before dropping the `Subscribers` table. Eliminates the NebulaAuth → Galaxy hop, the cache, and the response-body field — push-on-clear + 5.3.4a reconnect + Handler-1 lazy detection cover the practical cases. Thundering-herd mitigation (jittered `refreshWithinMs`) sketched but deferred post-demo.
 > - 2026-05-12 — Phase 5.3.4 shipped. 5.3.4a: `onConnectionStateChange` wired through NebulaClient's constructor (closure variable for prev-state tracking — class fields not yet initialized during `super().connect()`); on `reconnecting → connected`, `#resubscribeAll()` re-issues `Star.subscribe()` for every registry entry via direct `lmz.call` (NOT via `#subscribeResource`, which would coalesce-into-pending instead of issuing a fresh RTT — important for the case where a subscribe was sent before WS drop and the snapshot response was lost). User-supplied `onConnectionStateChange` chained. 5.3.4b: `Subscriptions.clear()` returns the distinct `(subscriberBinding, clientId)` pairs that were dropped; `Star.#installState` fires one `handleResourceUpdate('', '', OntologyStaleError)` per pair via the existing fanout plumbing. Client substitutes its own pinned `ontologyVersion` for the wire's empty `clientVersion` field inside `#dispatchOntologyStale`. Baseline test-app: 156/156 across 3 consecutive runs. Test-only hooks added: `NebulaClient._resubscribeAllForTest()` (`@internal`-marked direct invocation of the walk; the integration smoke test exercises the real supersede-driven state-machine path) and `StarTest.clearSubscribersForTest` (drops the Subscribers table without going through the production push-on-clear path — used by the reconnect test to make the absence of resubscribe observable, since Phase 5.3.5 isn't shipped yet).
 > - 2026-05-12 — Phase 5.3.5 shipped via **drop-on-failed-fanout** (architectural pivot from the originally-planned alarm-driven cleanup). NebulaClientGateway extends `DurableObject` directly for zero-storage design — has no `this.lmz.call`, so initiating a mesh call from an alarm handler would have required ~30-50 LOC of envelope construction. Replaced with reactive cleanup inside `Star.#fanout`: each fanout `lmz.call` carries a handler continuation (`Star.onFanoutDelivered`) that drops the subscriber row inline when the Gateway returns `ClientDisconnectedError` (post-grace). New `Subscriptions.removeSubscriber(resourceId, clientId)` for PK-targeted single-row delete. `LUMENIZE_MESH_GRACE_PERIOD_MS` env binding added to `LumenizeClientGateway`'s `#gracePeriodMs` getter, set to `'100'` in baseline miniflare config so tests observe `ClientDisconnectedError` in well under a second. Trade-off: cleanup is reactive (next fanout to that resource), not proactive. Quiet resources leak rows until next deploy's push-on-clear (5.3.4b) — acceptable since storage is trivial and the leak is bounded. Baseline: 158/158 across 3 consecutive runs (+2 disconnect-cleanup tests).
+> - 2026-05-13 — Phase 5.3.6 restructured: (1) split into 5.3.6.0 (prereq StateManager subscriber-registration hooks), 5.3.6 (NebulaClient `bindToState`, headless), 5.3.7 (UI package, browser); old 5.3.7 for-docs tests renumbered to 5.3.8. (2) Five pinned design decisions for 5.3.6 (microtask-defer middleware, `Star.unsubscribe` mesh method, puts-only middleware, initial connection-state replay, `getBindings` option for flash wiring). (3) Flash semantic pinned to exact-path-only. (4) `x-input` two-way + cursor guard pinned for 5.3.7. (5) **UI package renamed**: `@lumenize/ui` (MIT, standalone) → `@lumenize/nebula-frontend` (UNLICENSED). Standalone publishing would have required either duplicating coding-your-ui.md as a UI-only doc (drift risk) or extracting Nebula bits into a sibling doc (refactor + cuts against the LLM-target unified-docs goal). The code is decoupled enough to extract later if a real second consumer surfaces; until then, honest framing of the coupling beats maintaining the standalone-package fiction. `@lumenize/state` stays MIT/standalone — that boundary genuinely is clean.
 
 ## Three layers, clean boundaries
 
 | Layer | Code lives | Knows about |
 | --- | --- | --- |
 | **`@lumenize/state`** | `packages/state/` (to be ported from JurisJS) | Itself only. Pure path-based reactive store. No DOM. No NebulaClient. |
-| **`@lumenize/ui`** | `packages/ui/` (to be written from scratch) | `@lumenize/state` only. DOM crawler, `x-*` directives, MutationObserver lifecycle, per-element `WeakMap` registry. No NebulaClient, no `resources.*` prefix, no Nebula wire protocol. |
+| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (to be written from scratch) | `@lumenize/state` only at code level — DOM crawler, `x-*` directives, MutationObserver lifecycle, per-element `WeakMap` registry. UNLICENSED. Package boundary is real (separate package.json, tests, vitest-browser-playwright harness) but the docs and design are Nebula-coupled (see 2026-05-13 changelog entry for rationale). |
 | **Integration (`client.bindToState`)** | `apps/nebula/src/nebula-client.ts` | All three layers, plus Nebula's wire protocol, resources schema, ontology versioning, conflict semantics, ID lifecycle. *This* is where Nebula-specific knowledge lives. |
 
-The integration layer hooks into the generic packages through two extension points the packages expose:
+The integration layer hooks into the generic `@lumenize/state` package through two extension points:
 
 - **`setState` middleware** on `@lumenize/state` — `bindToState` installs middleware that watches writes to `resources.{rt}.{rid}.*` paths and emits transactions.
 - **Subscriber-registration event** on `@lumenize/state` — `bindToState` listens for new path-subscribers under `resources.*` and reference-counts them for auto-subscribe.
 
-Both extension points are generic; any consumer can use them for any prefix. A non-Nebula consumer could use `@lumenize/state` + `@lumenize/ui` standalone with no NebulaClient.
+Both extension points stay generic in code so `@lumenize/state` remains MIT/standalone with a clean boundary. The `@lumenize/nebula-frontend` package, by contrast, is honest about its coupling to Nebula's resource model in docs and design choices.
 
 **Why design discussions feel integration-heavy:** because they are. The pure primitives got designed quickly. Most domain decisions (conflict resolution, refcount-with-grace, flash class, eTag-as-idempotency, `onShouldRefreshUI`) live in the integration layer.
 
-**Reversal question raised 2026-05-11 and declined** — the lines are clean even though discussion is integration-heavy. Folding into Nebula would lose the MIT-reusable-packages story and force Studio's bundler to extract them anyway.
+**Reversal of 2026-05-11 anti-folding decision** (2026-05-13): the UI package gets renamed from `@lumenize/ui` (MIT, standalone) to `@lumenize/nebula-frontend` (UNLICENSED, coupled to Nebula). `@lumenize/state` stays MIT/standalone — its boundary is genuinely clean. Trigger for the reversal: coding-your-ui.md as written is a Nebula doc, not a UI-library doc; truly standalone publishing required either doc duplication (drift risk) or splitting (cuts against the LLM-target unified-docs goal). Code stays decoupled enough that extracting a generic UI package later is mostly renaming + standalone-doc writing — defer that work until a real second consumer surfaces.
 
 ## Package picture
 
 | Package | Source | Scope | Status |
 | --- | --- | --- | --- |
 | `@lumenize/state` | Port from JurisJS | StateManager + path helpers (`isValidPath`, `getPathParts`, `deepEquals`), `track`, `computed`, middleware list. ~340 LOC. | Phase 5.3.0 prerequisite |
-| `@lumenize/ui` | Written from scratch | `bindDom(root, state, options?)` DOM-crawl helper with Alpine-flavored `x-*` directives. ~510 LOC total: ~200 base directives, ~100 `x-for` / `x-if`, ~210 components & recursion (`x-component` / `x-render` / `x-prop:*` / `$local` / `x-key-from` / `$trail` / handler scope-injection). | Built alongside Studio demo |
+| `@lumenize/nebula-frontend` | Written from scratch | `bindDom(root, state, options?)` DOM-crawl helper with Alpine-flavored `x-*` directives. ~700–900 LOC incl. tests: ~200 base directives, ~100 `x-for` / `x-if`, ~210 components & recursion (`x-component` / `x-render` / `x-prop:*` / `$local` / `x-key-from` / `$trail` / handler scope-injection), plus `x-input` two-way cursor guard, lifecycle hooks, vitest-browser-playwright harness. UNLICENSED until Nebula ships externally. | Built alongside Studio demo |
 | `@lumenize/router` | Written from scratch | URL ↔ state-path two-way sync. ~200 LOC. | Studio-blocking; deferred until first Studio app needs routing |
 
 Why not take Alpine as a dep:
@@ -133,7 +134,7 @@ The word "subscribe" appears at two layers, doing two different jobs.
 | `client.resources.subscribe(rt, rid)` | NebulaClient | yes — WS round-trip to Star | Tells Star to push snapshots on every change. Inserts row in Star's `Subscribers` table. |
 | `state.subscribe(path, cb)` | `@lumenize/state` StateManager | no — purely in-memory | Registers a callback that fires whenever `setState` writes to this path *in this browser tab*. |
 
-`client.resources.subscribe` gets data flowing *into* the local store from server. `state.subscribe` binds anything (DOM elements, computed paths, anything else) *to* that store. The DOM-binding crawler in `@lumenize/ui` only uses `state.subscribe` — it has no idea NebulaClient or Star exist.
+`client.resources.subscribe` gets data flowing *into* the local store from server. `state.subscribe` binds anything (DOM elements, computed paths, anything else) *to* that store. The DOM-binding crawler in `@lumenize/nebula-frontend` only uses `state.subscribe` — at the code level it has no idea NebulaClient or Star exist.
 
 ## Surface — implementation signatures
 
@@ -271,7 +272,7 @@ Responsibilities:
 3. **Remote-pushes direction.** `handleResourceUpdate` writes through directly to `state.setState`; middleware does NOT intercept (would create a loop).
 4. **Connection-state surfacing.** Subscribe to LumenizeClient's connection events; on each transition write to `lmz.connection.state` (string), `lmz.connection.connected` (boolean), and (on each `'connected'` transition) `lmz.connection.lastConnectedAt` (timestamp ms).
 
-### `bindDom(root, state, options?)` — `@lumenize/ui` entry
+### `bindDom(root, state, options?)` — `@lumenize/nebula-frontend` entry
 
 ```typescript
 bindDom(root: Element, state: StateManager, options?: {
@@ -482,35 +483,105 @@ Scope narrowed after 5.3.4b push-on-clear shipped: the deploy-driven path is ful
 - [x] **Disconnected subscriber row dropped on next fanout attempt** ([nebula-client-disconnect-cleanup.test.ts](apps/nebula/test/test-apps/baseline/nebula-client-disconnect-cleanup.test.ts)): clients A and B subscribe to resource R (2 rows); disconnect B; wait past grace (500 ms with grace=100 ms); A mutates R; assert B's row is gone, A's row remains.
 - [x] **Success path is a no-op**: same setup but B stays connected; A mutates; B receives fanout (resourceUpdateCount bumps); both rows still present.
 
-### Phase 5.3.6 — `client.bindToState(state)` integration + `@lumenize/ui` bindDom
+### Phase 5.3.6.0 — `@lumenize/state` subscriber-registration hooks (prereq) ✅ shipped 2026-05-13
 
-#### bindToState (NebulaClient)
+Tiny addition to StateManager (~10 LOC + tests) so Phase 5.3.6's integration layer can refcount bindings without `@lumenize/nebula-frontend` needing to know about NebulaClient. Keeps the code-level three-layers separation: `bindDom` calls plain `state.subscribe(...)` as usual; `bindToState` watches those subscribe events on `resources.*` paths and reference-counts to drive `client.resources.subscribe` / `unsubscribe`. Alternatives considered and rejected: (a) `bindDom` exposes `onBinding(action, path)` callback option — loose coupling, but punts wiring onto the user; (b) refcount inside `bindDom` and expose via shared registry — wrong layer per the "three layers" design.
 
-- [ ] `client.bindToState(state, options?)` registers `setState` middleware on `state` watching `resources.{rt}.{rid}.*`
-- [ ] Optimistic-write flow: middleware reads `eTag` via `state.getState('resources.{rt}.{rid}.meta.eTag')`, packages with fresh `newETag`, submits via `client.resources.transaction()`
-- [ ] Auto-subscribe reference counting (`Map<resourceKey, count>`): 0→1 → `subscribe`; count→0 → schedule `unsubscribe` after `unsubscribeGraceMs` (default 2000); new binding during grace cancels
-- [ ] Connection-state surfacing: write `lmz.connection.state` (string) and `lmz.connection.connected` (boolean) on every transition; write `lmz.connection.lastConnectedAt` (timestamp ms) on each `'connected'` transition. **Wiring point already exists from 5.3.4a**: NebulaClient's constructor passes a wrapping `onConnectionStateChange` to LumenizeClient that already runs internal logic (reconnect re-subscribe) before chaining to the user-supplied callback. 5.3.6 inserts a third layer between those two that writes through to `state` via the bound StateManager.
-- [ ] Optimistic-write rollback on terminal failure: `bindToState` consumes the `TransactionResolution` and on `'validation-failed'` / `'permission-denied'` / `'ontology-stale'` / `'timeout'` rolls back the optimistic state at affected paths to last-confirmed. (`'use-server'` writes the server's value via the existing handleResourceUpdate path; `'committed'` updates eTag in `.meta`; `'human-in-the-loop'` keeps optimistic painted; `'retries-exhausted'` rollback policy is a UX choice — default to rollback.)
+- [x] Add `onSubscriberAdded(cb: (path: string) => void): () => void` and `onSubscriberRemoved(cb: (path: string) => void): () => void` to StateManager.
+- [x] Completed-fact semantics: fire `onSubscriberAdded` after the Set add lands inside `subscribe()`; fire `onSubscriberRemoved` after the Set delete lands inside the returned disposer.
+- [x] Hierarchical-vs-exact mode is irrelevant — hook fires once per `subscribe()` call regardless. Two subscribers on the same path fire the hook twice (refcount semantics).
+- [x] Disposers are idempotent — calling twice fires `onSubscriberRemoved` only once.
+- [x] Error containment: thrown hooks `console.error` and continue (mirrors `@lumenize/state`'s middleware / subscriber-throw isolation).
+- [x] Tests: add/remove fires; multiple registered hooks in install order; disposers detach hooks; thrown hook doesn't break subsequent fires; same-path repeats fire independently; idempotent disposer; add+remove ordering on a full subscribe→dispose cycle.
 
-#### bindDom + directives (`@lumenize/ui`)
+### Phase 5.3.6 — NebulaClient `bindToState` integration (headless)
 
-- [ ] `bindDom(root, state, options?)` with `handlers` and `autoObserve` options
-- [ ] Initial subtree walk: iterate `el.attributes`, register `x-*` bindings
-- [ ] MutationObserver with `{ childList: true, subtree: true }` when `autoObserve !== false`
-- [ ] On `addedNodes`: walk subtree, register bindings, increment refcount
-- [ ] On `removedNodes`: schedule unregister via `queueMicrotask`; check `el.isConnected` in microtask (move handling); on true removal, walk subtree, unregister, decrement refcount
-- [ ] Per-element binding tracking: `WeakMap<HTMLElement, BindingRecord[]>`
-- [ ] Directive set: `x-text`, `x-html`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input` per [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md)
-- [ ] `x-for` parser: regex `/^(\w+)\s+in\s+(.+)$/`; `<template>`-only host; clone management by `x-key`
-- [ ] `x-for` scoped path resolver: first segment === loopVar → scoped value; `$loopVar` segments → substitute; else normal path
-- [ ] `x-for` reactivity: diff old vs new keys; preserve unchanged clones; MutationObserver handles binding registration/unregistration for added/removed clones
-- [ ] `x-if` parser: `<template>`-only host; supports `!path` negation
-- [ ] `x-if` lifecycle composition: mount/unmount via DOM insertion/removal; existing MutationObserver mechanism handles binding registration/unregistration
-- [ ] Forbid `x-for` + `x-if` on same `<template>` (throw or warn loudly); nested templates supported
-- [ ] Directive attributes are read once at binding time — no `attributes` observation
-- [ ] `handlers` config: `x-on:event="handlerName"` looks up by string name
+NebulaClient-internal layer — registers the `setState` middleware, runs the refcount loop, surfaces connection state, and routes rollback verdicts. All testable headlessly (Node-mode StateManager + real NebulaClient against vitest-pool-workers Star); Phase 5.3.7 (`@lumenize/nebula-frontend`) is what feeds it real DOM bindings. Originally bundled with the UI package as "5.3.6a"; **split into its own phase 2026-05-13** to land the integration contract before opening the new `packages/nebula-frontend/` directory.
 
-### Phase 5.3.7 — For-docs tests (one big `it`, narrative)
+**Decisions pinned 2026-05-13** (filed against questions raised in pre-impl review):
+
+| Question | Resolution |
+| --- | --- |
+| Middleware sub-path → full-value `put` | **Microtask defer.** Middleware returns `undefined` (writes pass through); after the write lands, read full `value` via `state.getState('resources.{rt}.{rid}.value')` and submit `put`. Keeps middleware-return semantics clean and avoids an extra drill-and-substitute in the hot path. |
+| `Star.unsubscribe(rt, rid)` mesh method | **Add it.** Plain `@mesh()` method on Star — no ontology check (unsubscribe should always succeed); calls `Subscriptions.removeSubscriber(resourceId, clientId)` keyed off `callContext.callChain.at(-1)?.instanceName`. Drop the matching `#subscriptionRegistry` entry on client side when `unsubscribe` is actually issued (after the grace period). |
+| Middleware scope: creates vs. puts | **Puts only.** The middleware only translates writes that have a cached `meta.eTag` for `(rt, rid)`. Creates go through explicit `client.resources.transaction(...)` calls. Rationale: form-submit handlers are programmatic; declarative-input-only-flows are field-edit on existing resources. Keeps middleware logic simple; no ambiguity over "does setting a never-seen path mean create?" When the middleware sees a write under `resources.{rt}.{rid}.value.*` with no cached `meta.eTag`, it logs a warn and lets the write through without submitting (the local state still paints; caller is responsible for the subscribe / create call). |
+| Initial connection-state on `bindToState(state)` | **Replay current state immediately** into the bound StateManager. Read `super.connectionState` ([packages/mesh/src/lumenize-client.ts:360](packages/mesh/src/lumenize-client.ts:360)) at bind time, write through to `lmz.connection.state` / `.connected` (and `.lastConnectedAt` if currently connected). Subsequent transitions write through via the third wrapper layer added below. |
+| Flash-class wiring between 5.3.6 and 5.3.7 | **`getBindings` option on `bindToState`.** `@lumenize/nebula-frontend`'s `bindDom` returns `{ getBindings: (path) => HTMLElement[], dispose }`; callers wire flash via `client.bindToState(state, { getBindings: ui.getBindings })`. Headless tests pass nothing — resolver context's `bindings` Map stays empty and the flash is a no-op. Default flash applies on `'use-server'` only — other rollback outcomes (`'validation-failed'` / `'permission-denied'` / `'timeout'` / `'ontology-stale'` / `'retries-exhausted'`) restore-without-flash for now; revisit if Studio surfaces the friction. |
+| Flash semantic for non-leaf bindings | **Exact-path only.** `getBindings(diffPath)` returns only elements bound to `diffPath` itself, not ancestors. Rationale: ancestor-bound elements are typically `x-show` / `x-if` testing truthiness (existence) — sub-field diffs don't change their visible state, so flashing them is noise. Users who want elaborate flash UX (flash the whole card on any sub-field change, etc.) get the full `bindings` Map in the resolver's `context` and can implement custom class-add logic there. We don't throw on non-leaf bindings — bad rendering (`[object Object]`) is loud enough that users self-correct; intentional non-leaf bindings via `state.computed()` are legitimate. |
+
+#### Checklist
+
+- [ ] `client.bindToState(state, options?)` registers a `setState` middleware on `state` watching writes under `resources.{rt}.{rid}.value.*` (descendants of `value`, not meta). Other paths pass through with no middleware action.
+- [ ] **Reserved-prefix filter** at top of middleware: skip immediately for any path not matching `^resources\.[^.]+\.[^.]+\.value(\.|$)`. Cheap regex, runs on every write.
+- [ ] **Middleware context discrimination** (load-bearing precondition): the middleware fires on EVERY `setState`, including the framework's own write-throughs from `handleResourceUpdate`, the conflict-resolver's `use-server` write path, and rollback paths. Without a context flag, the middleware would try to send remote-arrived snapshots back to the server as new transactions (infinite loop). Add a `context` arg to every framework-internal `setState` call: server-originated writes pass `{ source: 'remote' }`, rollback writes pass `{ source: 'rollback' }`, computed-driven writes already pass `{ source: 'computed' }` (existing). Middleware skips all three. Update `handleResourceUpdate` writes ([nebula-client.ts:806-811](apps/nebula/src/nebula-client.ts:806)), the conflict-resolver `use-server` write path ([nebula-client.ts:621-627](apps/nebula/src/nebula-client.ts:621)), and any other framework `setState` callers.
+- [ ] **Sub-path → full-value put** (per pinned decision): middleware returns `undefined` (lets the write through). Schedules submission via `queueMicrotask` after the write lands; reads full `value` and `meta.eTag` via `state.getState`. If `meta.eTag` is absent, the middleware is in the "create" branch — log a warn and skip (creates go through explicit `transaction()` per pinned decision).
+- [ ] **Stash `oldValue` for rollback**: BEFORE returning, the middleware reads the full pre-write `value` (via `state.getState('resources.{rt}.{rid}.value')`) and stashes it keyed by the generated `newETag`. The submitted op is `put` with the full post-write value; on rollback, the stash is restored at the same full-value path.
+- [ ] **Auto-subscribe via refcount** (`Map<resourceKey, count>`): watch `state.onSubscriberAdded` / `onSubscriberRemoved` (from 5.3.6.0). For paths matching `^resources\.[^.]+\.[^.]+(\.|$)`, derive `(rt, rid)` and refcount. 0→1 → `client.resources.subscribe(rt, rid)`. count→0 → schedule `client.resources.unsubscribe(rt, rid)` after `unsubscribeGraceMs` (default 2000); new binding during grace cancels the pending unsubscribe. On actual unsubscribe issue, drop the `#subscriptionRegistry` entry so reconnect doesn't re-subscribe stale entries.
+- [ ] **Server-side `Star.unsubscribe(rt, rid)`** — add `@mesh()` method on Star. No ontology check. Calls `Subscriptions.removeSubscriber(resourceId, clientId)` where `clientId` comes from `callContext.callChain.at(-1)?.instanceName`. No return value. Add to `client.resources` namespace as a private internal call site (no public `client.resources.unsubscribe(...)` — only the refcount loop calls it).
+- [ ] **Initial connection-state replay**: on `bindToState(state)`, read `super.connectionState` and write it through to `lmz.connection.state` + `lmz.connection.connected` (with `source: 'remote'`). If currently `'connected'`, also write `lmz.connection.lastConnectedAt = Date.now()` (best-effort — we don't track the real prior `'connected'` timestamp pre-bind).
+- [ ] **Connection-state transitions**: the third wrapper layer (inserted between the existing reconnect-resubscribe layer and the user callback at [nebula-client.ts:263-276](apps/nebula/src/nebula-client.ts:263)) writes to `lmz.connection.state` (string), `lmz.connection.connected` (boolean), and (on each `'connected'` transition) `lmz.connection.lastConnectedAt` (timestamp ms) via `setState(..., { source: 'remote' })`. Skip the write if `#state` is null (bind hasn't happened yet — initial state is replayed when it eventually does).
+- [ ] Optimistic-write rollback on terminal failure: `bindToState` consumes the `TransactionResolution` and restores the pre-write value via `setState(path, savedOldValue, { source: 'rollback' })` for outcomes other than `'committed'` and `'use-server'`. Per-outcome behavior:
+  - `'committed'` → update `meta.eTag` to the new eTag (value already optimistically painted correctly); clear the saved `oldValue`.
+  - `'use-server'` → server's value already written through the existing 5.3.3c path (no rollback needed); clear the saved `oldValue`. Flash class fires on diff fields (see flash row in pinned decisions).
+  - `'validation-failed'` / `'permission-denied'` / `'ontology-stale'` / `'timeout'` / `'retries-exhausted'` → restore `oldValue` via `setState(..., { source: 'rollback' })`; clear the saved entry. No flash (per pinned decision).
+  - `'human-in-the-loop'` → optimistic state stays painted; the saved `oldValue` is kept until the app's follow-up `transaction()` settles (or is cleared by an explicit cancel mechanism — TBD if the demo exposes the friction).
+- [ ] **Flash class on `'use-server'`**: if `getBindings` option was provided, compare resolved value to `local.value` field-by-field; for diff fields, add `flashClass` to bound elements (`getBindings(diffPath)` returns the element list) for `flashDuration` ms. No-op if `getBindings` isn't wired (headless mode). Reads class/duration from the `#perTypeResolvers` entry for the resource type.
+- [ ] **Doc-drift fix**: update [website/docs/nebula/coding-your-ui.md](website/docs/nebula/coding-your-ui.md) § "Awaiting `transaction()` and error handling" — current text shows `try/catch` with `err.reason` strings (`'conflict-lost'`, `'conflict-handoff'`, etc.) but the actual API is always-resolve with `TransactionResolution`. Replace with `switch (outcome.resolution)` examples matching what `bindToState` consumes. Update the surrounding narrative ("the Promise rejects on real outcomes…") end-to-end.
+- [ ] Tests (Node-mode, headless StateManager + real NebulaClient against vitest-pool-workers Star, no `@lumenize/nebula-frontend`): commit roundtrip; conflict-with-use-server (verify server snapshot lands); rollback on each failure outcome; connection-state path writes (replay + transitions); auto-subscribe-on-first-state-subscribe (simulated via `state.subscribe` directly); unsubscribe-with-grace-then-cancel-on-rebind; middleware skips creates (warn + no-op); middleware skips non-`resources.*.value` writes; middleware skips `{ source: 'remote' | 'rollback' | 'computed' }` context.
+- [ ] **Defensive registry cleanup on `unsubscribe`** + interleaving test: when refcount 1→0 and the grace timer fires during a disconnected state, the `client.resources.unsubscribe(rt, rid)` call queues in LumenizeClient's offline queue. Drop the matching `#subscriptionRegistry` entry *when the grace timer fires*, not when the unsubscribe is acknowledged — otherwise `#resubscribeAll()` on the next reconnect resurrects the entry. Test: subscribe → disconnect WS → trigger 1→0 → wait > grace ms → reconnect → assert no resubscribe RTT fires for that key.
+
+### Phase 5.3.7 — `@lumenize/nebula-frontend` bindDom + directives (browser, new package)
+
+Lives in `packages/nebula-frontend/` (new package, UNLICENSED). Knows about `@lumenize/state` only at the code level; no NebulaClient imports, no Nebula wire protocol, no `resources.*` prefix interpretation in the code. Docs and design are honestly Nebula-coupled — `coding-your-ui.md` covers both UI and resources content together (see 2026-05-13 changelog for the rationale on dropping the standalone-MIT framing). Semantics in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — the doc is canonical; implementation must match the doc's described behavior. Originally bundled into Phase 5.3.6 as "5.3.6b"; **split into its own phase 2026-05-13** because the realistic LOC (~700–900 incl. tests + new vitest-browser-playwright harness setup) and new-package scaffolding warrant a distinct phase. Earlier ~510 LOC estimate was optimistic.
+
+**Test infrastructure** (pinned 2026-05-13): `@vitest/browser-playwright` — the pattern already in use in [packages/structured-clone/vitest.config.js](packages/structured-clone/vitest.config.js). Real browser via Playwright gives MutationObserver / microtask / focus / event-bubbling fidelity that directive systems need (Alpine, Vue, etc. all hit jsdom-vs-real-browser corners). Pure-logic tests (path-resolution helpers, scoped-path resolver, `x-for` key-diff) stay in vitest's Node mode for speed.
+
+**Return shape** (pinned 2026-05-13 to support flash-class wiring with Phase 5.3.6's `bindToState`): `bindDom(root, state, opts)` returns `{ getBindings: (path: string) => HTMLElement[], dispose: () => void }`. Callers wire flash via `client.bindToState(state, { getBindings: ui.getBindings })`.
+
+#### Core bindDom + base directives (~200 LOC)
+
+- [ ] Scaffold `packages/nebula-frontend/` per CLAUDE.md "Standard Package Files" (vitest-browser-playwright config like `packages/structured-clone/`, tsconfig, package.json with `@lumenize/state` peer dep, UNLICENSED).
+- [ ] `bindDom(root, state, options?)` with `handlers` and `autoObserve` options; returns `{ getBindings, dispose }`.
+- [ ] Initial subtree walk: iterate `el.attributes`, register `x-*` bindings.
+- [ ] MutationObserver with `{ childList: true, subtree: true }` when `autoObserve !== false`.
+- [ ] On `addedNodes`: walk subtree, register bindings, increment refcount.
+- [ ] On `removedNodes`: schedule unregister via `queueMicrotask`; check `el.isConnected` in microtask (move handling); on true removal, walk subtree, unregister, decrement refcount.
+- [ ] Per-element binding tracking: `WeakMap<HTMLElement, BindingRecord[]>`; reverse `Map<path, Set<HTMLElement>>` for `getBindings`.
+- [ ] Base directive set: `x-text`, `x-html`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input` per [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md).
+- [ ] Directive attributes are read once at binding time — no `attributes` observation.
+- [ ] `handlers` config: `x-on:event="handlerName"` looks up by string name.
+- [ ] **`x-input` two-way binding + cursor guard** (pinned 2026-05-13). Two-way: typing fires `setState(path, e.target.value)`; ancestor-write at the path writes back to `el.value`. Cursor preservation on back-write: (a) skip if `el.value === newValue` (covers the optimistic-then-confirmed common case as a no-op); (b) when value differs, save `el.selectionStart` / `el.selectionEnd` before the write, restore after (clamped to new value length). Server-authoritative semantic: if another client writes a different value while user is mid-typing, their text gets replaced — their next keystroke re-asserts through the optimistic path. ~20-30 LOC.
+
+#### `x-for` / `x-if` template directives (~100 LOC)
+
+- [ ] `x-for` parser: regex `/^(\w+)\s+in\s+(.+)$/`; `<template>`-only host; clone management by `x-key`.
+- [ ] `x-for` scoped path resolver: first segment === loopVar → scoped value; `$loopVar` segments → substitute; else normal path.
+- [ ] `x-for` reactivity: diff old vs new keys; preserve unchanged clones; MutationObserver handles binding registration/unregistration for added/removed clones.
+- [ ] `x-if` parser: `<template>`-only host; supports `!path` negation.
+- [ ] `x-if` lifecycle composition: mount/unmount via DOM insertion/removal; existing MutationObserver mechanism handles binding registration/unregistration.
+- [ ] Forbid `x-for` + `x-if` on same `<template>` (throw or warn loudly); nested templates supported.
+
+#### Components and recursion (~210 LOC)
+
+- [ ] `x-component="name"` definition directive on `<template>` — registers a component definition keyed by name. Definitions are local to the `bindDom` root.
+- [ ] `x-render="name"` instantiation directive on `<template>` — clones the named component's template body in place. Recursive: `x-render="own-name"` inside a component's own template walks subtrees, bounded by JS call stack.
+- [ ] `x-prop:{name}="value"` directive — propagates a scoped value into the component instance (mirrors `x-bind:attr` colon-namespacing). Inside the template body, available as `${name}` substitution.
+- [ ] `$local` per-instance state proxy — get/set proxy mapped to `ui.{componentName}.{instanceKey}.*` paths in the StateManager. Required `x-key-from="..."` directive derives the discriminator (instance key). Underspecified detail to pin during impl: how `$local` initializes default values on first mount (paired with the component-level `onMount` lifecycle hook below).
+- [ ] `x-key-from="path"` — derives the per-instance key for `$local` from a scoped path. Required when the component uses `$local`.
+- [ ] `$trail` — read-only array of ancestor scoped values, auto-built from chained `x-key` / `x-key-from` values during recursive descent. Used internally to disambiguate component instances at multiple positions in the same tree (e.g., the DAG-tree-with-virtual-branches worked example); also exposed to handlers and directive values for breadcrumb UIs.
+- [ ] Handler scope-injection — `x-on:event="handlerName"` resolution passes `(event, scope)` to handlers, where `scope` is destructurable as `{ $local, $node, $trail, ...propNames }`.
+- [ ] Canonical example to validate against: `coding-your-ui.md` § "Worked example: DAG tree with virtual branches".
+
+#### Lifecycle hooks (minimum-viable per Phase -1 § 6 resolution)
+
+- [ ] `x-on:mount` / `x-on:unmount` element-level hooks — fire when a directive-bearing element enters/leaves the DOM tree the crawler is observing. Distinct from `x-on:click` etc. (real DOM events). Use cases: starting a timer when a card mounts, releasing a resource handle when it unmounts, focusing an input on appearance.
+- [ ] Component-level `onMount(scope)` / `onUnmount(scope)` declared inside the component definition. Receives the same `{ $local, $node, $trail, ... }` scope as handlers. Pairs naturally with `$local` initialization — the "set `$local.expanded = false` exactly once on first mount" pattern that `$local` lacked a clear answer for.
+- [ ] Composability with `x-for`: each iteration's clone is its own "mount" — `x-on:mount` on a `<template x-for>`-hosted element fires per-iteration.
+- [ ] MutationObserver grace-period interaction: if an element is moved (removed + re-added in same task), the microtask-deferred unregister skips the unmount. `x-on:unmount` matches — fires only on *actual* removal, not on moves.
+- [ ] Sync vs async: hooks are best-effort sync callbacks. `onUnmount` specifically must complete *before* the binding refcount decrements (otherwise unsubscribe races with cleanup that needs the subscription).
+- [ ] Error containment: hook throws `console.error` and continue, mirroring middleware / subscriber-throw isolation already in `@lumenize/state`. Never let a user-supplied hook take down the framework.
+
+### Phase 5.3.8 — For-docs tests (one big `it`, narrative)
 
 All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace periods need real time).
 
@@ -605,7 +676,9 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
 
    **Status**: tidy-up + Open Q4 both resolved into Phase 5.3.2 (server-side install-time clear) + Phase 5.3.4 (client-side refresh-cycle detection). Remaining: implementation in those phases. Drop-on-failed-fanout stays as a Phase -1 idea, not on any checklist.
 
-6. **Lifecycle hooks — surface area to be designed.** The framework already has *internal* lifecycle events: MutationObserver-driven binding registration/unregistration, refcount-based auto-subscribe / unsubscribe-with-grace, connection-state transitions surfaced at `lmz.connection.*`, conflict-resolver invocation, deploy/staleness signal. None of these are currently exposed as *user-facing hooks* an app developer (or a Studio-generated component) can register a callback against. Worth a triage pass before Phase 5.3.6 ships, since `bindDom` is the natural attachment point.
+6. **Lifecycle hooks — resolved 2026-05-13 ahead of Phase 5.3.6b.** The framework already has *internal* lifecycle events: MutationObserver-driven binding registration/unregistration, refcount-based auto-subscribe / unsubscribe-with-grace, connection-state transitions surfaced at `lmz.connection.*`, conflict-resolver invocation, deploy/staleness signal. The triage below enumerated six candidate user-facing hook surfaces.
+
+   **Resolution**: ship the minimum-viable set in Phase 5.3.6b — **`x-on:mount` / `x-on:unmount` on elements + component-level `onMount(scope)` / `onUnmount(scope)`**. The remaining four candidates (per-resource-subscription, per-transaction granularity, auth/scope, `onReady`/`onError`) are explicitly deferred unless a Studio template exposes the friction. The chosen hooks are now line items in Phase 5.3.6b's "Lifecycle hooks (minimum-viable per Phase -1 § 6 resolution)" subsection — refer to that for implementation specifics; this entry is the historical triage record.
 
    Candidate hook points to consider:
    - **Per-element / per-binding**: `x-on:mount` / `x-on:unmount` — fires when a directive-bearing element enters/leaves the DOM tree the crawler is observing. Distinct from `x-on:click` etc., which are real DOM events. Useful for: starting a timer when a card mounts, releasing a resource handle when it unmounts, focusing an input on appearance.
@@ -616,15 +689,17 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    - **Whole-`bindDom` lifecycle**: `onReady` (initial subtree walk + initial subscribe RTTs all resolved — useful for a splash-screen `x-if`), `onError` (unhandled framework error).
 
    Cross-cutting concerns:
-   - **Where do they live?** Element-scoped → `@lumenize/ui` (`x-on:mount` etc., plus component-definition syntax). Resource/transaction → integration layer (`bindToState` options or `client.resources.on*` methods). Auth → `NebulaClient` constructor options or event emitter.
+   - **Where do they live?** Element-scoped → `@lumenize/nebula-frontend` (`x-on:mount` etc., plus component-definition syntax). Resource/transaction → integration layer (`bindToState` options or `client.resources.on*` methods). Auth → `NebulaClient` constructor options or event emitter.
    - **Sync vs async**: most hooks should be best-effort sync callbacks. `onUnmount` specifically must complete *before* the binding refcount decrements (otherwise unsubscribe races with cleanup that needs the subscription).
    - **Error containment**: hook throws should `console.error` and continue, mirroring middleware / subscriber-throw isolation already in `@lumenize/state`. Never let a user-supplied hook take down the framework.
    - **Composability with `x-for`**: each iteration's clone is its own "mount" — does `x-on:mount` on a `<template x-for>`-hosted element fire per-iteration? (Probably yes — that's the useful semantic.)
    - **MutationObserver grace-period interaction**: if an element is "moved" (removed + re-added in same task), the microtask-deferred unregister logic skips the unmount. `x-on:unmount` should match — fire only on *actual* removal, not on moves.
 
-   **Triage**: think before designing. The 2 s grace period + refcount semantics in 5.3.6 already give us *internal* mount/unmount events; question is which to expose. Minimum-viable surface for the demo is probably: `x-on:mount` + `x-on:unmount` on elements, and component-level `onMount` / `onUnmount` for per-instance setup (especially for `$local` initialization, which is currently underspecified). Defer auth/scope hooks, per-transaction granularity, and `onReady` unless a Studio template genuinely needs them.
-
-   **Outcome destination**: resolve in this file before Phase 5.3.6 design-finalizes; the answer affects `bindDom`'s option surface and the `x-component` directive grammar in `coding-your-ui.md`. If the design space turns out larger than expected, split into its own task file (`tasks/lumenize-ui-lifecycle.md`).
+   **Triage decision** (taken 2026-05-13): ship the minimum-viable set — `x-on:mount` / `x-on:unmount` on elements + component-level `onMount` / `onUnmount`. The 2 s grace period + refcount semantics in 5.3.6 already give us *internal* mount/unmount events; these two surfaces expose what app authors actually need (timer start/stop, focus management, `$local` initialization). All four other candidates deferred:
+   - **Per-resource-subscription** (`onSubscribed` / `onUnsubscribed`): NebulaClient already exposes the `subscribe`/`read`/`transaction` Promises and the `onETagConflict` hook; adding per-fanout-event callbacks is duplicative surface for unclear benefit. Revisit if a Studio template needs to react to "the snapshot is settled" beyond what reactive bindings already provide.
+   - **Per-transaction granularity** (`onSubmitted` / `onCommitted` / `onConflicted` / `onRolledBack`): the always-resolve `TransactionResolution` discriminated union + per-type `onETagConflict` already cover every terminal state. Granular hooks would be redundant with the Promise.
+   - **Auth/scope transitions** (`onScopeChange`): activeScope changes today happen via page reload (scope-switching is full re-bootstrap, per `tasks/archive/nebula-7-client.md`). When in-place scope switching becomes a real feature, revisit.
+   - **Whole-`bindDom` lifecycle** (`onReady` / `onError`): `onReady` is interesting for splash-screen UX but `x-if` on `lmz.connection.connected` + per-resource `meta.eTag` presence covers it declaratively. `onError` is a future observability story, not a demo blocker.
 
 7. **DAG-tree-as-special-resource (reactive DAG binding).** The DAG tree is conceptually a resource — clients eventually want to bind UI to it (`x-text="resources.lmz.dag.value.nodes['42'].label"`, tree-view directives, reactive permission badges). The cleanest design **reuses the resource-subscribe plumbing** rather than building parallel `client.dag.subscribe()` / `handleDagUpdate()` / a separate `DagSubscribers` table — the whole consolidation work in 5.3.1 (one Subscribers schema, one fanout path) was about not making exactly that mistake.
 

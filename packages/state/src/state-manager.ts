@@ -33,6 +33,17 @@ export type SubscriberCallback = (
 export type ComputedFn = () => unknown;
 
 /**
+ * Subscriber-registration lifecycle hook. Fires once per `subscribe()` call
+ * (and once per disposer call). The `path` arg matches what was passed to
+ * `subscribe`. Hierarchical-vs-exact mode is irrelevant — same hook for both.
+ *
+ * Used by integration layers (e.g. NebulaClient's `bindToState`) to reference-
+ * count bindings under a path prefix without the binding-producer needing
+ * any knowledge of the consumer's domain.
+ */
+export type SubscriberLifecycleHook = (path: string) => void;
+
+/**
  * Thrown synchronously from `computed()` registration when the derivation
  * function reads `targetPath` itself, an ancestor, or a descendant — any
  * dep relationship that would re-fire the computed via hierarchical notify.
@@ -91,6 +102,8 @@ export class StateManager {
   #state: Record<string, unknown>;
   #middlewares: Middleware[];
   #subscribers = new Map<string, Set<Subscription>>();
+  #onAddedHooks: SubscriberLifecycleHook[] = [];
+  #onRemovedHooks: SubscriberLifecycleHook[] = [];
   #deps: Set<string> | null = null;
   #newSubs = new Set<string>();
   #isBatching = false;
@@ -137,17 +150,59 @@ export class StateManager {
    *
    * With `hierarchical = true` (default), fires on exact, ancestor, and
    * descendant writes; with `false`, fires only on exact writes.
+   *
+   * Fires registered `onSubscriberAdded` hooks after the registration lands,
+   * and `onSubscriberRemoved` hooks after the disposer deletes the entry —
+   * "completed-fact" semantics for both. Multiple subscriptions on the same
+   * path fire the hooks independently (no de-dup), which is exactly what
+   * refcount-style consumers want.
    */
   subscribe(path: string, callback: SubscriberCallback, hierarchical = true): () => void {
     if (!this.#subscribers.has(path)) this.#subscribers.set(path, new Set());
     const subscription: Subscription = { cb: callback, hierarchical };
     this.#subscribers.get(path)!.add(subscription);
+    this.#fireLifecycleHooks(this.#onAddedHooks, path);
+    let disposed = false;
     return () => {
+      if (disposed) return;
+      disposed = true;
       const subs = this.#subscribers.get(path);
       if (subs) {
         subs.delete(subscription);
         if (subs.size === 0) this.#subscribers.delete(path);
       }
+      this.#fireLifecycleHooks(this.#onRemovedHooks, path);
+    };
+  }
+
+  /**
+   * Register a hook that fires every time `subscribe()` is called, after the
+   * subscription has been added. Returns a disposer that removes the hook.
+   *
+   * The hook receives the subscriber's `path` arg. Multiple hooks fire in
+   * install order; each subscription fires the hooks independently (two
+   * subscribers on the same path fire the hooks twice).
+   */
+  onSubscriberAdded(hook: SubscriberLifecycleHook): () => void {
+    this.#onAddedHooks.push(hook);
+    return () => {
+      const idx = this.#onAddedHooks.indexOf(hook);
+      if (idx >= 0) this.#onAddedHooks.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Register a hook that fires every time a subscriber's disposer is called,
+   * after the entry has been removed. Returns a disposer that removes the hook.
+   *
+   * Idempotent disposers — calling the same subscription's disposer twice
+   * fires the hook only once.
+   */
+  onSubscriberRemoved(hook: SubscriberLifecycleHook): () => void {
+    this.#onRemovedHooks.push(hook);
+    return () => {
+      const idx = this.#onRemovedHooks.indexOf(hook);
+      if (idx >= 0) this.#onRemovedHooks.splice(idx, 1);
     };
   }
 
@@ -374,6 +429,22 @@ export class StateManager {
         changedPath,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  #fireLifecycleHooks(hooks: SubscriberLifecycleHook[], path: string): void {
+    // Snapshot the hook list before iterating so a hook that mutates the list
+    // (installing or removing another hook) doesn't reorder this fanout.
+    const snapshot = hooks.slice();
+    for (const hook of snapshot) {
+      try {
+        hook(path);
+      } catch (error) {
+        log.error('subscriber lifecycle hook threw', {
+          path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   }
 

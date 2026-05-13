@@ -147,6 +147,96 @@ describe('subscribe — three-direction notify', () => {
   });
 });
 
+describe('onSubscriberAdded / onSubscriberRemoved', () => {
+  it('fires onSubscriberAdded with the subscription path', () => {
+    const state = createState();
+    const added = vi.fn();
+    state.onSubscriberAdded(added);
+    state.subscribe('a.b', () => {});
+    expect(added).toHaveBeenCalledOnce();
+    expect(added).toHaveBeenCalledWith('a.b');
+  });
+
+  it('fires onSubscriberRemoved when the disposer is called', () => {
+    const state = createState();
+    const removed = vi.fn();
+    state.onSubscriberRemoved(removed);
+    const dispose = state.subscribe('a.b', () => {});
+    expect(removed).not.toHaveBeenCalled();
+    dispose();
+    expect(removed).toHaveBeenCalledWith('a.b');
+  });
+
+  it('fires once per subscribe — two subscribers on the same path fire twice', () => {
+    const state = createState();
+    const added = vi.fn();
+    state.onSubscriberAdded(added);
+    state.subscribe('shared', () => {});
+    state.subscribe('shared', () => {});
+    expect(added).toHaveBeenCalledTimes(2);
+  });
+
+  it('supports multiple hooks installed; both fire in install order', () => {
+    const state = createState();
+    const calls: string[] = [];
+    state.onSubscriberAdded(() => calls.push('first'));
+    state.onSubscriberAdded(() => calls.push('second'));
+    state.subscribe('p', () => {});
+    expect(calls).toEqual(['first', 'second']);
+  });
+
+  it('returned disposer detaches the hook', () => {
+    const state = createState();
+    const added = vi.fn();
+    const detach = state.onSubscriberAdded(added);
+    state.subscribe('a', () => {});
+    expect(added).toHaveBeenCalledTimes(1);
+    detach();
+    state.subscribe('b', () => {});
+    expect(added).toHaveBeenCalledTimes(1);
+  });
+
+  it('isolates hook throws — subsequent hooks still fire and subscribe still completes', () => {
+    const state = createState();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    state.onSubscriberAdded(() => {
+      throw new Error('boom');
+    });
+    const good = vi.fn();
+    state.onSubscriberAdded(good);
+    const cb = vi.fn();
+    state.subscribe('p', cb);
+    expect(good).toHaveBeenCalledWith('p');
+    // The subscription still works after the throw.
+    state.setState('p', 1);
+    expect(cb).toHaveBeenCalledOnce();
+    errorSpy.mockRestore();
+  });
+
+  it('idempotent disposer — calling it twice fires onSubscriberRemoved only once', () => {
+    const state = createState();
+    const removed = vi.fn();
+    state.onSubscriberRemoved(removed);
+    const dispose = state.subscribe('p', () => {});
+    dispose();
+    dispose();
+    expect(removed).toHaveBeenCalledTimes(1);
+  });
+
+  it('add+remove fire in order on a single subscribe/dispose cycle', () => {
+    const state = createState();
+    const events: Array<['add' | 'remove', string]> = [];
+    state.onSubscriberAdded((p) => events.push(['add', p]));
+    state.onSubscriberRemoved((p) => events.push(['remove', p]));
+    const dispose = state.subscribe('x', () => {});
+    dispose();
+    expect(events).toEqual([
+      ['add', 'x'],
+      ['remove', 'x'],
+    ]);
+  });
+});
+
 describe('middleware', () => {
   it('constructor-installed middleware sees writes', () => {
     const seen: Array<{ path: string; newValue: unknown }> = [];

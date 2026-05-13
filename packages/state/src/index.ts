@@ -11,7 +11,12 @@
  */
 
 export { StateManager, ComputedSelfReferenceError } from './state-manager';
-export type { Middleware, SubscriberCallback, ComputedFn } from './state-manager';
+export type {
+  Middleware,
+  SubscriberCallback,
+  ComputedFn,
+  SubscriberLifecycleHook,
+} from './state-manager';
 export { isValidPath, getPathParts, deepEquals } from './helpers';
 
 import { StateManager, type Middleware } from './state-manager';
