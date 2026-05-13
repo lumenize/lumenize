@@ -183,7 +183,7 @@ While the modal is open, the user can keep editing other fields and other resour
 
 **In either variant**, if the new transaction *also* conflicts (someone else wrote again between the user picking and the submission landing), the resolver fires again with the latest server snapshot. The original transaction's Promise stays pending across the entire chain.
 
-**Retry cap**: default 5 attempts. Beyond that, the framework rejects the original Promise with `'conflict-retries-exhausted'` — automated negotiation didn't converge. Configurable:
+**Retry cap**: default 5 attempts. Beyond that, the original `transaction()` Promise resolves with `{ resolution: 'retries-exhausted', resources, attempts }` — automated negotiation didn't converge. Configurable:
 
 ```js @skip-check
 client.resources.onETagConflict('todo', resolver, { maxRetries: 10 });
@@ -195,7 +195,7 @@ await client.resources.transaction(ops, { onETagConflict: resolver, maxRetries: 
 
 When you don't want the transaction queue parked while a conflict is pending — the user is mid-edit elsewhere, the conflict isn't urgent — return `'human-in-the-loop'` and the framework hands off entirely:
 
-- The original transaction's Promise rejects with `'conflict-handoff'`
+- The original `transaction()` Promise resolves with `{ resolution: 'human-in-the-loop', resources }`
 - Optimistic local state stays painted (the user keeps seeing what they typed)
 - No new transaction submitted by the framework
 - Transaction queue unblocks immediately; subsequent writes flow without waiting
@@ -240,20 +240,21 @@ bindDom(document.body, state, {
       // original had dependencies between resources, batching preserves them;
       // if the resources are independent, the batch costs one round-trip
       // instead of N.
-      try {
-        await client.resources.transaction(ops);
-        // Success — clear app.conflicts; framework already updated bound state.
+      const outcome = await client.resources.transaction(ops);
+      if (outcome.resolution === 'committed' || outcome.resolution === 'use-server') {
+        // Success or server-wins — clear app.conflicts; framework already
+        // updated bound state.
         for (const eTag of Object.keys(conflicts)) {
           state.setState(`app.conflicts.${eTag}`, undefined);
         }
-      } catch (err) {
-        // If any of the resolutions re-conflicted (someone wrote between the
-        // user's review and submission), the whole batch rolled back; conflicts
-        // get re-populated by the resolver firing again. Leave app.conflicts
-        // as-is so the banner stays visible and the user re-reviews.
-        if (err.reason !== 'conflict-handoff') {
-          state.setState('ui.reviewError', err.message);
-        }
+      } else if (outcome.resolution === 'human-in-the-loop') {
+        // Re-conflict: a resource churned again on the server between review
+        // and submission. The resolver fired again and re-populated
+        // app.conflicts. Leave it visible so the user re-reviews.
+      } else {
+        // validation-failed / permission-denied / ontology-stale / timeout /
+        // retries-exhausted — surface to the user.
+        state.setState('ui.reviewError', outcome);
       }
     },
   },
@@ -280,35 +281,63 @@ The framework provides the conflict signal and both versions; your code decides 
 
 Two patterns, depending on whether you call `transaction()` yourself.
 
-**Fire-and-forget** — when `x-input` triggers a transaction via the synced-state middleware, your code never calls `transaction()` directly. The framework owns the round-trip: registered resolver handles conflicts, `onShouldRefreshUI` handles ontology-staleness, optimistic state paints regardless. No `await` to write, no try/catch to add.
+**Fire-and-forget** — when `x-input` triggers a transaction via the synced-state middleware, your code never calls `transaction()` directly. The framework owns the round-trip: registered resolver handles conflicts, `onShouldRefreshUI` handles ontology-staleness, optimistic state paints regardless. No `await` to write, no `switch` to add.
 
-**Explicit transactions** — when you call `client.resources.transaction(ops)` yourself (programmatic save, batch resolution, action handlers), `await` is right because you almost always need to gate follow-up work on success (clear a draft form, dismiss a modal, navigate). And once you're awaiting, wrap in try/catch — the Promise rejects on real outcomes the user wants to know about:
+**Explicit transactions** — when you call `client.resources.transaction(ops)` yourself (programmatic save, batch resolution, action handlers), `await` is right because you almost always need to gate follow-up work on success.
+
+`transaction()` **always resolves** — never rejects (except for infrastructure failures like network drops, which still throw `Error`). It returns a `TransactionResolution` discriminated union; you `switch` on `outcome.resolution` to handle every terminal state. This is intentional: an LLM-authored `switch` produces better code-gen than relying on `try`/`catch` hygiene (where a bare `catch` would swallow the discrimination).
 
 ```js @skip-check
-try {
-  await client.resources.transaction(ops);
-  // Success path: the framework already wrote the authoritative value to
-  // bound state. You handle application-level follow-up here.
-  state.setState('ui.draft', undefined);          // e.g., clear a draft form
-  state.setState('ui.activeView', 'list');        // navigate
-} catch (err) {
-  // The Promise rejects with err.reason in:
-  //   'conflict-lost'      — resolver returned 'use-server'; server's value persists
-  //   'conflict-handoff'   — resolver returned 'human-in-the-loop'; app handles via app.conflicts
-  //   'conflict-retries-exhausted' — 'use-this' chain hit maxRetries
-  //   'validation-failed'  — server-side validation failed
-  //   'permission-denied'  — user not authorized for this write
-  //   'ontology-stale'     — version mismatch; onShouldRefreshUI typically also fires
-  //   'timeout'            — no server response within 5–10 s
-  if (err.reason === 'conflict-lost' || err.reason === 'conflict-handoff') {
-    // Resolver already did its job; no extra UI needed.
-  } else {
-    showToast('Save failed', err.message);  // app-defined
-  }
+const outcome = await client.resources.transaction(ops);
+switch (outcome.resolution) {
+  case 'committed':
+    // Server accepted the write. Bound state already has the authoritative
+    // value + the new eTag. Application-level follow-up here.
+    state.setState('ui.draft', undefined);          // e.g., clear a draft form
+    state.setState('ui.activeView', 'list');        // navigate
+    break;
+  case 'use-server':
+    // Resolver returned 'use-server'; the framework already wrote the server's
+    // value through to bound state and flashed any diff fields. Nothing extra
+    // to do unless you want a toast.
+    break;
+  case 'use-this':
+    // Not terminal — never appears here. The 'use-this' verdict triggers a
+    // recursive re-submission; the terminal is 'committed' or 'retries-exhausted'.
+    break;
+  case 'human-in-the-loop':
+    // Resolver returned 'human-in-the-loop'; optimistic state stays painted
+    // and your app is responsible for submitting the eventual resolution.
+    // Typically nothing to do at this call site — your stash + review UI handles it.
+    break;
+  case 'retries-exhausted':
+    // 'use-this' chain hit maxRetries without converging. outcome.resources
+    // carries the latest server snapshots. Decide based on context.
+    showToast('Save failed — could not reconcile', { attempts: outcome.attempts });
+    break;
+  case 'validation-failed':
+    // Server-side validation rejected the value. outcome.errors has the details.
+    state.setState('ui.validationErrors', outcome.errors);
+    break;
+  case 'permission-denied':
+    // User isn't authorized for this write. outcome.resources lists the ones
+    // that were denied.
+    showToast('Not authorized', { resources: outcome.resources });
+    break;
+  case 'ontology-stale':
+    // The framework's onShouldRefreshUI hook typically fires too; usually a
+    // page reload is the right response. Nothing extra to do here.
+    break;
+  case 'timeout':
+    // No server response within 5–10 s. The queue unblocked; you decide retry.
+    showToast('Save timed out — retry?');
+    break;
 }
 ```
 
-The success branch of `await` only runs after the entire resolver chain (including any recursive `'use-this'` round-trips) has terminated successfully. If a `'use-this'` resolution submitted a merged value and *that* committed, you're in the success branch. If the chain exhausted retries or fell to `'human-in-the-loop'`, you're in catch with the appropriate `err.reason`.
+The `'committed'` branch only runs after the entire resolver chain (including any recursive `'use-this'` round-trips) has terminated successfully. If a `'use-this'` resolution submitted a merged value and *that* committed, you're in `'committed'`. If the chain exhausted retries or fell to `'human-in-the-loop'`, you're in the matching branch.
+
+Why a discriminated union over `try`/`catch`? Two reasons. First, Studio-generated UIs are LLM-authored, and a `switch` forces every variant to be handled explicitly — a bare `try`/`catch` would swallow the discrimination. Second, several outcomes (`'use-server'`, `'human-in-the-loop'`, `'committed'`) are *normal* terminal states, not errors; pushing them through `catch` would conflate "the user's value won, took the long road" with "something broke."
 
 #### Custom flash visual
 
@@ -624,21 +653,20 @@ async function addTodo(title) {
   const list = state.getState('resources.todoList.main.value');
   const listETag = state.getState('resources.todoList.main.meta.eTag');
 
-  try {
-    await client.resources.transaction({
-      [newId]: {
-        op: 'create',
-        value: { title, description: '', done: false },
-      },
-      'main': {
-        op: 'put',
-        eTag: listETag,
-        newETag: crypto.randomUUID(),
-        value: { ...list, items: [...list.items, newId] },
-      },
-    });
-  } catch (err) {
-    state.setState('ui.addError', err.message);
+  const outcome = await client.resources.transaction({
+    [newId]: {
+      op: 'create',
+      value: { title, description: '', done: false },
+    },
+    'main': {
+      op: 'put',
+      eTag: listETag,
+      newETag: crypto.randomUUID(),
+      value: { ...list, items: [...list.items, newId] },
+    },
+  });
+  if (outcome.resolution !== 'committed' && outcome.resolution !== 'use-server') {
+    state.setState('ui.addError', outcome);
   }
 }
 ```
@@ -1084,19 +1112,19 @@ bindDom(document.body, state, {
       event.preventDefault();
       const draft = state.getState('ui.draft');
       const eTag = state.getState('resources.todo.task-42.meta.eTag');
-      try {
-        await client.resources.transaction({
-          'task-42': {
-            op: 'put',
-            eTag,
-            newETag: crypto.randomUUID(),
-            value: draft,
-          },
-        });
+      const outcome = await client.resources.transaction({
+        'task-42': {
+          op: 'put',
+          eTag,
+          newETag: crypto.randomUUID(),
+          value: draft,
+        },
+      });
+      if (outcome.resolution === 'committed' || outcome.resolution === 'use-server') {
         state.setState('ui.draft', undefined);  // success — clear the draft
-      } catch (err) {
+      } else {
         // Leave the draft in place so the user can retry. Surface the error.
-        state.setState('ui.saveError', err.message);
+        state.setState('ui.saveError', outcome);
       }
     },
   },

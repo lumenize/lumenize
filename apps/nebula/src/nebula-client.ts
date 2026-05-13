@@ -14,8 +14,11 @@
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
-import type { StateManager } from '@lumenize/state';
+import { deepEquals, type StateManager } from '@lumenize/state';
+import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
+
+const log = debug('lumenize.nebula-client');
 import type { OperationDescriptor, TransactionResult, Snapshot, TransactionError } from './resources';
 import type { Star } from './star';
 
@@ -181,6 +184,37 @@ interface QueuedTransaction {
 /** Default in-flight transaction timeout (ms). */
 const TRANSACTION_TIMEOUT_MS = 10_000;
 
+/**
+ * Options for `client.bindToState(state, options?)`. See coding-your-ui.md
+ * § "Lifecycle: bindings and subscriptions" for the user-facing semantics.
+ */
+export interface BindToStateOptions {
+  /**
+   * Grace period in milliseconds between a `(rt, rid)`'s binding refcount
+   * dropping to zero and the framework issuing `client.resources.unsubscribe`
+   * to the server. New bindings during the grace window cancel the pending
+   * unsubscribe. Default 2000 ms — matches tab-switch / modal-close churn.
+   */
+  unsubscribeGraceMs?: number;
+  /**
+   * Bridge from `@lumenize/nebula-frontend`'s `bindDom` to the conflict-flash
+   * mechanism. When the framework writes through a `'use-server'` outcome,
+   * it walks the per-field diff between the user's attempted value and the
+   * server's value; for each diff field it calls `getBindings(path)` to find
+   * bound elements and applies `flashClass` for `flashDuration` ms.
+   *
+   * Headless callers (Node tests, scripting) leave this `undefined`; the flash
+   * mechanism becomes a no-op. Real apps wire it from `bindDom`'s return:
+   *
+   * @example
+   * ```ts
+   * const ui = bindDom(document.body, state);
+   * client.bindToState(state, { getBindings: ui.getBindings });
+   * ```
+   */
+  getBindings?: (path: string) => HTMLElement[];
+}
+
 export class NebulaClient extends LumenizeClient {
   #authScope: string;
   #activeScope: string;
@@ -226,6 +260,29 @@ export class NebulaClient extends LumenizeClient {
   /** Per-type conflict resolvers registered via `onETagConflict`. */
   #perTypeResolvers = new Map<string, RegisteredResolver>();
 
+  /**
+   * Bound-state shape. `bindToState` reads and mutates this. The closure-
+   * variable reference (`#boundStateRef.current`) is what the constructor-
+   * scoped `onConnectionStateChange` wrapper reads — see constructor for the
+   * "class fields aren't initialized during super()" workaround.
+   */
+  #bindOptions: { unsubscribeGraceMs: number; getBindings?: (path: string) => HTMLElement[] } = {
+    unsubscribeGraceMs: 2000,
+  };
+  #boundStateRef!: { current: StateManager | null };
+  #middlewareDisposer: (() => void) | null = null;
+  #subAddedDisposer: (() => void) | null = null;
+  #subRemovedDisposer: (() => void) | null = null;
+
+  /**
+   * Binding refcount per `(rt, rid)` — driven by `state.onSubscriberAdded` /
+   * `onSubscriberRemoved` hooks from 5.3.6.0. 0→1 triggers
+   * `client.resources.subscribe`; count→0 schedules `unsubscribe` after the
+   * grace period.
+   */
+  #bindingRefcount = new Map<SubscribeKey, number>();
+  #pendingUnsubscribes = new Map<SubscribeKey, ReturnType<typeof setTimeout>>();
+
   constructor(config: NebulaClientConfig) {
     const {
       authScope,
@@ -236,11 +293,16 @@ export class NebulaClient extends LumenizeClient {
       ...baseConfig
     } = config;
 
-    // Closure variable rather than an instance field: LumenizeClient's
+    // Closure variables rather than instance fields: LumenizeClient's
     // constructor calls `connect()` synchronously, which fires
-    // onConnectionStateChange('connecting') before our class fields finish
+    // onConnectionStateChange('connecting') before subclass fields finish
     // initializing. A closure captures cleanly without `this.#field` access.
+    // Same trick for `boundStateRef` — the constructor wrapper writes
+    // connection-state through to the bound StateManager, but `bindToState`
+    // (which sets `boundStateRef.current`) runs much later. Mutable ref
+    // object lets both observe the same value.
     let prevConnectionState: ConnectionState | null = null;
+    const boundStateRef: { current: StateManager | null } = { current: null };
 
     super({
       ...baseConfig,
@@ -271,6 +333,17 @@ export class NebulaClient extends LumenizeClient {
         if (prevConnectionState === 'reconnecting' && state === 'connected') {
           this.#resubscribeAll();
         }
+        // Phase 5.3.6: write connection state through to bound StateManager
+        // (if bound). Pre-bind transitions are skipped — `bindToState` replays
+        // the current state at bind time to cover anything missed.
+        const bound = boundStateRef.current;
+        if (bound) {
+          bound.setState('lmz.connection.state', state, { source: 'remote' });
+          bound.setState('lmz.connection.connected', state === 'connected', { source: 'remote' });
+          if (state === 'connected') {
+            bound.setState('lmz.connection.lastConnectedAt', Date.now(), { source: 'remote' });
+          }
+        }
         prevConnectionState = state;
         userOnConnectionStateChange?.(state);
       },
@@ -280,6 +353,7 @@ export class NebulaClient extends LumenizeClient {
     this.#activeScope = activeScope;
     this.#ontologyVersion = ontologyVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
+    this.#boundStateRef = boundStateRef;
   }
 
   /**
@@ -320,17 +394,241 @@ export class NebulaClient extends LumenizeClient {
 
   /**
    * Bind a `StateManager` so resource updates write through to
-   * `resources.{rt}.{rid}.value` and `resources.{rt}.{rid}.meta`.
+   * `resources.{rt}.{rid}.value` and `resources.{rt}.{rid}.meta`, local writes
+   * under `resources.{rt}.{rid}.value.*` translate to transactions, DOM-driven
+   * subscriber registrations refcount-drive subscribe/unsubscribe, and
+   * connection-state surfaces at `lmz.connection.*`.
    *
-   * Phase 5.3.3a — minimal-binding form: just registers the store reference.
-   * Phase 5.3.6 will expand this method to install the local-writes →
-   * remote-transactions `setState` middleware, auto-subscribe-via-refcount,
-   * unsubscribe-with-grace, and connection-state surfacing at `lmz.connection.*`.
-   * Callers should keep using `bindToState` — the name is stable; the
-   * functionality grows in place.
+   * Single-shot: calling more than once warns and no-ops. Rebinding to a
+   * different StateManager isn't supported in 5.3.6 (no real use case yet).
    */
-  bindToState(state: StateManager): void {
+  bindToState(state: StateManager, options?: BindToStateOptions): void {
+    if (this.#state) {
+      log.warn('bindToState called more than once — ignoring subsequent call');
+      return;
+    }
     this.#state = state;
+    this.#boundStateRef.current = state;
+    this.#bindOptions = {
+      unsubscribeGraceMs: options?.unsubscribeGraceMs ?? 2000,
+      getBindings: options?.getBindings,
+    };
+
+    // Replay current connection state — covers any transitions that fired
+    // during super().connect() before this bind landed.
+    const cs = this.connectionState;
+    state.setState('lmz.connection.state', cs, { source: 'remote' });
+    state.setState('lmz.connection.connected', cs === 'connected', { source: 'remote' });
+    if (cs === 'connected') {
+      state.setState('lmz.connection.lastConnectedAt', Date.now(), { source: 'remote' });
+    }
+
+    // Install setState middleware — translates local writes to transactions.
+    this.#middlewareDisposer = state.use((args) => this.#middlewareFn(args));
+
+    // Install subscriber-registration hooks — drive refcount auto-subscribe.
+    this.#subAddedDisposer = state.onSubscriberAdded((path) => this.#onPathSubscriberAdded(path));
+    this.#subRemovedDisposer = state.onSubscriberRemoved((path) => this.#onPathSubscriberRemoved(path));
+  }
+
+  /**
+   * `setState` middleware. Fires on every write; filters to
+   * `resources.{rt}.{rid}.value(.|$)` paths and skips framework-internal
+   * writes (`source: 'remote' | 'rollback' | 'computed'`). For each
+   * qualifying write, schedules a microtask that submits the full post-write
+   * value as a `put` transaction and processes the outcome (rollback /
+   * committed-eTag-update / no-op for resolver-driven paths).
+   *
+   * Always returns `undefined` — never substitutes the value being written.
+   * The optimistic-paint is the user's `setState` itself; transactions are
+   * a side-effect.
+   *
+   * **Create handling**: writes under `resources.{rt}.{rid}.value.*` without
+   * a cached `meta.eTag` are treated as "user is editing a never-subscribed
+   * resource." Logged as a warn and skipped (no transaction submitted).
+   * Per pinned decision, creates go through explicit
+   * `client.resources.transaction(ops)` calls.
+   */
+  #middlewareFn(args: { path: string; oldValue: unknown; newValue: unknown; context: unknown; state: Record<string, unknown> }): unknown {
+    const { path, context } = args;
+    const ctxSource = (context && typeof context === 'object' ? (context as { source?: string }).source : undefined);
+    if (ctxSource === 'remote' || ctxSource === 'rollback' || ctxSource === 'computed') {
+      return undefined;
+    }
+    const match = /^resources\.([^.]+)\.([^.]+)\.value(?:\.|$)/.exec(path);
+    if (!match) return undefined;
+
+    const rt = match[1];
+    const rid = match[2];
+    const basePath = `resources.${rt}.${rid}`;
+    const state = this.#state!;
+    const eTag = state.getState(`${basePath}.meta.eTag`) as string | undefined;
+    if (!eTag) {
+      log.warn(
+        'bindToState middleware: write under resources.*.value with no cached meta.eTag — skipping transaction. ' +
+          'Use client.resources.transaction(...) for creates.',
+        { path },
+      );
+      return undefined;
+    }
+    // Capture pre-write full value as the rollback target. The user's write
+    // is about to land at a sub-path; for terminal failure we restore the
+    // full pre-write value.
+    const preWriteValue = state.getState(`${basePath}.value`);
+    const newETag = crypto.randomUUID();
+
+    queueMicrotask(async () => {
+      // Re-read full value AFTER the optimistic write has landed.
+      const submitValue = state.getState(`${basePath}.value`);
+      const outcome = await this.resources.transaction(
+        { [rid]: { op: 'put', eTag, value: submitValue } },
+        { newETag },
+      );
+      this.#processMiddlewareOutcome(outcome, basePath, preWriteValue);
+    });
+
+    return undefined;
+  }
+
+  /**
+   * Process the outcome of a middleware-originated transaction. State writes
+   * here use `source: 'rollback'` (for failure restores) or `'remote'` (for
+   * the committed eTag update) so the middleware doesn't see them as new
+   * user writes.
+   *
+   * `'use-server'`: nothing to do here — `#useServerOutcome` already wrote
+   * the server snapshot through and `#applyFlash` already kicked off the
+   * field-diff flash. Idem `'human-in-the-loop'` (optimistic stays painted).
+   */
+  #processMiddlewareOutcome(
+    outcome: TransactionResolution,
+    basePath: string,
+    preWriteValue: unknown,
+  ): void {
+    const state = this.#state;
+    if (!state) return;
+    switch (outcome.resolution) {
+      case 'committed':
+        state.setState(`${basePath}.meta.eTag`, outcome.eTag, { source: 'remote' });
+        return;
+      case 'use-server':
+      case 'human-in-the-loop':
+        return;
+      case 'validation-failed':
+      case 'permission-denied':
+      case 'ontology-stale':
+      case 'timeout':
+      case 'retries-exhausted':
+        state.setState(`${basePath}.value`, preWriteValue, { source: 'rollback' });
+        return;
+    }
+  }
+
+  /**
+   * `state.onSubscriberAdded` listener — increments per-`(rt, rid)` refcount.
+   * 0→1 triggers `client.resources.subscribe`. New binding within the
+   * unsubscribe grace window cancels the pending unsubscribe so we don't
+   * round-trip on tab-switch / modal-reopen churn.
+   */
+  #onPathSubscriberAdded(path: string): void {
+    const match = /^resources\.([^.]+)\.([^.]+)(?:\.|$)/.exec(path);
+    if (!match) return;
+    const [, rt, rid] = match;
+    const key: SubscribeKey = `${rt}:${rid}`;
+    const count = this.#bindingRefcount.get(key) ?? 0;
+    this.#bindingRefcount.set(key, count + 1);
+
+    const pending = this.#pendingUnsubscribes.get(key);
+    if (pending) {
+      // Cancel the pending unsubscribe — server-side subscription is still live.
+      clearTimeout(pending);
+      this.#pendingUnsubscribes.delete(key);
+      return;
+    }
+    if (count === 0) {
+      // First binding — issue subscribe. The Promise is intentionally not
+      // awaited; the framework writes through via handleResourceUpdate when
+      // the initial snapshot arrives.
+      this.resources.subscribe(rt, rid).catch((err) => {
+        log.warn('auto-subscribe failed', { rt, rid, error: err instanceof Error ? err.message : String(err) });
+      });
+    }
+  }
+
+  /**
+   * `state.onSubscriberRemoved` listener — decrements per-`(rt, rid)`
+   * refcount. On count→0, schedules `client.resources.unsubscribe` after the
+   * grace window. The registry entry is dropped at unsubscribe-issue time
+   * (not at grace-fire time) so reconnect-mid-grace doesn't resurrect a
+   * deliberately-unsubscribing entry.
+   */
+  #onPathSubscriberRemoved(path: string): void {
+    const match = /^resources\.([^.]+)\.([^.]+)(?:\.|$)/.exec(path);
+    if (!match) return;
+    const [, rt, rid] = match;
+    const key: SubscribeKey = `${rt}:${rid}`;
+    const count = this.#bindingRefcount.get(key) ?? 0;
+    if (count <= 1) {
+      this.#bindingRefcount.delete(key);
+      if (this.#pendingUnsubscribes.has(key)) return; // already scheduled
+      const timer = setTimeout(() => {
+        this.#pendingUnsubscribes.delete(key);
+        // Drop registry FIRST so a reconnect during the call doesn't resurrect.
+        this.#subscriptionRegistry.delete(key);
+        this.lmz.call('STAR', this.#activeScope,
+          this.ctn<Star>().unsubscribe(rt, rid));
+      }, this.#bindOptions.unsubscribeGraceMs);
+      this.#pendingUnsubscribes.set(key, timer);
+    } else {
+      this.#bindingRefcount.set(key, count - 1);
+    }
+  }
+
+  /**
+   * Per-field flash on a `'use-server'` conflict resolution. Compares the
+   * user's attempted value (from the `put`/`create` op in `inFlight.ops`)
+   * to the server's authoritative value field-by-field at top level; for
+   * each diff field, calls `getBindings(path)` and adds `flashClass` for
+   * `flashDuration` ms. No-op if `getBindings` isn't wired (headless mode).
+   *
+   * Top-level diff only — nested-object changes flash the whole field, not
+   * the leaf. Adequate for the typical per-field input pattern; revisit if
+   * Studio templates expose nested-field flash needs.
+   */
+  #applyFlash(
+    inFlight: QueuedTransaction,
+    serverResources: Record<string, Snapshot>,
+  ): void {
+    const getBindings = this.#bindOptions.getBindings;
+    if (!getBindings) return;
+    for (const [rid, snap] of Object.entries(serverResources)) {
+      const op = inFlight.ops[rid];
+      if (!op || (op.op !== 'put' && op.op !== 'create')) continue;
+      const local = op.value;
+      const server = snap.value;
+      if (
+        !local || !server ||
+        typeof local !== 'object' || typeof server !== 'object'
+      ) continue;
+      const rt = snap.meta.typeName;
+      const basePath = `resources.${rt}.${rid}.value`;
+      const registered = this.#perTypeResolvers.get(rt);
+      const flashClass = registered?.options.flashClass ?? DEFAULT_FLASH_CLASS;
+      if (!flashClass) continue; // explicit null disables flash
+      const flashDuration = registered?.options.flashDuration ?? DEFAULT_FLASH_DURATION_MS;
+      const localRecord = local as Record<string, unknown>;
+      const serverRecord = server as Record<string, unknown>;
+      const allKeys = new Set([...Object.keys(localRecord), ...Object.keys(serverRecord)]);
+      for (const key of allKeys) {
+        if (deepEquals(localRecord[key], serverRecord[key])) continue;
+        const fieldPath = `${basePath}.${key}`;
+        const els = getBindings(fieldPath);
+        for (const el of els) {
+          el.classList.add(flashClass);
+          setTimeout(() => el.classList.remove(flashClass), flashDuration);
+        }
+      }
+    }
   }
 
   /** Resource namespace — entry point for subscribe / read / transaction. */
@@ -513,7 +811,7 @@ export class NebulaClient extends LumenizeClient {
         this.#handleConflict(inFlight, result).catch(() => {
           // Resolver / framework error during conflict handling — fall back
           // to use-server with whatever conflicts we have visible.
-          this.#finalize(inFlight, this.#useServerOutcome(result));
+          this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
         });
         return;
       }
@@ -605,15 +903,21 @@ export class NebulaClient extends LumenizeClient {
     // Mixed errors (conflict + validation, etc.) shouldn't reach here —
     // handleTransactionResult's branch checks for conflict-ONLY before
     // dispatching to async path. Defensive fall-through to use-server.
-    return this.#useServerOutcome(result);
+    return this.#useServerOutcome(inFlight, result);
   }
 
   /**
    * Build a `use-server` outcome from a conflict-bearing result. Writes
-   * server snapshots through to bound state. Used by the framework-default
-   * resolver path AND as a fallback when async resolver flow errors out.
+   * server snapshots through to bound state and fires the per-field flash
+   * class on any DOM elements bound to a changed field (if `getBindings`
+   * is wired through `bindToState`). Used by the framework-default resolver
+   * path AND as a fallback when async resolver flow errors out — flash fires
+   * in either case.
    */
-  #useServerOutcome(result: { ok: false; errors: Record<string, TransactionError> }): TransactionResolution {
+  #useServerOutcome(
+    inFlight: QueuedTransaction,
+    result: { ok: false; errors: Record<string, TransactionError> },
+  ): TransactionResolution {
     const serverResources: Record<string, Snapshot> = {};
     for (const [rid, err] of Object.entries(result.errors)) {
       if (err.type === 'conflict') serverResources[rid] = err.currentSnapshot;
@@ -621,9 +925,10 @@ export class NebulaClient extends LumenizeClient {
     if (this.#state) {
       for (const [rid, snap] of Object.entries(serverResources)) {
         const basePath = `resources.${snap.meta.typeName}.${rid}`;
-        this.#state.setState(`${basePath}.value`, snap.value);
-        this.#state.setState(`${basePath}.meta`, snap.meta);
+        this.#state.setState(`${basePath}.value`, snap.value, { source: 'remote' });
+        this.#state.setState(`${basePath}.meta`, snap.meta, { source: 'remote' });
       }
+      this.#applyFlash(inFlight, serverResources);
     }
     return { resolution: 'use-server', resources: serverResources };
   }
@@ -685,13 +990,13 @@ export class NebulaClient extends LumenizeClient {
       );
     } catch {
       // Resolver itself errored — default to use-server.
-      this.#finalize(inFlight, this.#useServerOutcome(result));
+      this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
       return;
     }
 
     switch (verdict.resolution) {
       case 'use-server':
-        this.#finalize(inFlight, this.#useServerOutcome(result));
+        this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
         return;
 
       case 'human-in-the-loop':
@@ -803,11 +1108,11 @@ export class NebulaClient extends LumenizeClient {
     if (this.#state) {
       const basePath = `resources.${resourceType}.${resourceId}`;
       if (result === null) {
-        this.#state.setState(`${basePath}.value`, undefined);
-        this.#state.setState(`${basePath}.meta`, undefined);
+        this.#state.setState(`${basePath}.value`, undefined, { source: 'remote' });
+        this.#state.setState(`${basePath}.meta`, undefined, { source: 'remote' });
       } else {
-        this.#state.setState(`${basePath}.value`, result.value);
-        this.#state.setState(`${basePath}.meta`, result.meta);
+        this.#state.setState(`${basePath}.value`, result.value, { source: 'remote' });
+        this.#state.setState(`${basePath}.meta`, result.meta, { source: 'remote' });
       }
     }
 

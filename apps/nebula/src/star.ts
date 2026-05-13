@@ -404,6 +404,33 @@ export class Star extends NebulaDO {
     }
   }
 
+  // ─── Unsubscribe ───────────────────────────────────────────────────
+
+  /**
+   * Drop the caller's subscriber row for `(resourceType, resourceId)`. Called
+   * by NebulaClient's refcount loop in `bindToState` after the grace period
+   * expires for a 1→0 transition. PK-targeted delete.
+   *
+   * `resourceType` is currently unused — `Subscribers` rows key on
+   * `(resourceId, clientId)` only; the type lives on the resource snapshot.
+   * Kept in the API for symmetry with `subscribe(rt, rid)` and so a future
+   * type-discriminated subscriber model (per Phase -1 § 7) doesn't churn the
+   * client surface.
+   *
+   * No ontology check — unsubscribe is best-effort. If the row doesn't exist
+   * (already cleaned up by drop-on-failed-fanout, ontology-install clear, or
+   * a prior call), the DELETE is a no-op.
+   */
+  @mesh()
+  unsubscribe(resourceType: string, resourceId: string): void {
+    void resourceType;
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('unsubscribe requires a client origin with instanceName in callChain[0]');
+    }
+    this.#subscriptions.removeSubscriber(resourceId, clientId);
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────
 
   /**
