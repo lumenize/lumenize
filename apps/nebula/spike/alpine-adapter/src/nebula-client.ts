@@ -1,0 +1,855 @@
+/**
+ * NebulaClient — SPIKE COPY. Reshaped from
+ * `apps/nebula/src/nebula-client.ts` for the alpine-adapter spike:
+ *   - `bindToState` and all its supporting machinery REMOVED — the factory
+ *     in `create-nebula-client.ts` owns the integration with Vue reactivity
+ *     and consumes this client's events via `onResourceUpdate(handler)`.
+ *   - `client.resources.unsubscribe(rt, rid)` ADDED as a public method —
+ *     called by the factory when binding refcount drops to zero (after grace).
+ *   - `#useServerOutcome` and `handleResourceUpdate` no longer write to a
+ *     bound `StateManager`; they emit via the registered fanout handler so
+ *     the factory can write through to the Vue store.
+ *
+ * The diff against `apps/nebula/src/nebula-client.ts` IS the 5.3.7 implementation
+ * plan for NebulaClient's changes.
+ */
+
+import { LumenizeClient, mesh } from '@lumenize/mesh/client';
+import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
+import { debug } from '@lumenize/debug';
+import { isOntologyStaleError } from './errors';
+import type {
+  OperationDescriptor,
+  TransactionResult,
+  Snapshot,
+  TransactionError,
+} from '@lumenize/nebula/client';
+// Star is a server-side DO class; `import type` erases at runtime, so this
+// is safe even from Node test harnesses where `cloudflare:workers` would
+// otherwise blow up.
+import type { Star } from '@lumenize/nebula';
+
+const log = debug('lumenize.nebula-client-spike');
+
+export interface OntologyStaleInfo {
+  reason: 'ontology-stale';
+  clientVersion: string;
+  currentVersion: string;
+}
+
+/**
+ * `client.resources.transaction()` always resolves with this discriminated
+ * union — never rejects (except for infrastructure failures which still
+ * throw `Error`). Caller switches on `outcome.resolution` to handle every
+ * terminal state. See `tasks/nebula-frontend.md` § Types for design rationale.
+ *
+ * Phase 5.3.3b ships the non-conflict-resolver variants. The resolver-driven
+ * `'use-server'`, `'retries-exhausted'`, and `'human-in-the-loop'` paths
+ * land in 5.3.3c. Until then, conflicts arrive as the framework default
+ * `'use-server'` (write server value, resolve with that outcome).
+ */
+export type TransactionResolution =
+  | { resolution: 'committed'; eTag: string }
+  | { resolution: 'use-server'; resources: Record<string, Snapshot> }
+  | { resolution: 'human-in-the-loop'; resources: Record<string, Snapshot> }
+  | { resolution: 'retries-exhausted'; resources: Record<string, Snapshot>; attempts: number }
+  | { resolution: 'validation-failed'; errors: Record<string, unknown> }
+  | { resolution: 'permission-denied'; resources: string[] }
+  | { resolution: 'ontology-stale'; clientVersion: string; currentVersion: string }
+  | { resolution: 'timeout' };
+
+/** Per-call options for `client.resources.transaction()`. */
+export interface TransactionOptions {
+  /** Override the constructor's `ontologyVersion` for this call (admin/scripting only). */
+  ontologyVersion?: string;
+  /** Override the auto-generated `newETag` (idempotency-probe / retry scenarios). */
+  newETag?: string;
+  /**
+   * Per-call conflict resolver. Overrides any per-type registered resolver
+   * for this transaction. Precedence: per-call > per-type > framework default
+   * (`() => ({ resolution: 'use-server' })`).
+   */
+  onETagConflict?: ConflictResolver;
+  /**
+   * Per-call override for max recursive `'use-this'` retries before resolving
+   * with `'retries-exhausted'`. Falls back to the per-type registered value,
+   * then the framework default (5).
+   */
+  maxRetries?: number;
+}
+
+/**
+ * Resolver verdict returned from `ConflictResolver`. Discriminant `resolution`
+ * intentionally matches `TransactionResolution`'s discriminant so the
+ * vocabulary is consistent end-to-end.
+ *
+ * - `'use-server'`: accept the server's value, abandon local changes.
+ * - `'use-this'`: re-submit with `value` and the server's new eTag. Bounded
+ *   by `maxRetries` — on cap, the transaction resolves with `'retries-exhausted'`.
+ * - `'human-in-the-loop'`: defer to user. Optimistic state stays painted.
+ *   Caller is responsible for any follow-up `transaction()` call.
+ */
+export type ConflictResolution =
+  | { resolution: 'use-server' }
+  | { resolution: 'use-this'; value: unknown }
+  | { resolution: 'human-in-the-loop' };
+
+/**
+ * Per-type conflict resolver. Invoked when the server returns an eTag conflict
+ * on a `put` op. Receives the local (attempted) value, the server's current
+ * snapshot, and a context object (Phase 5.3.6 will populate `context.bindings`
+ * with the path → HTMLElement[] map from `bindDom`; 5.3.3c passes an empty Map).
+ *
+ * Can be sync or async. The in-flight queue's 5–10 s timeout is **suspended**
+ * during resolver execution — a modal can sit open for minutes without
+ * triggering `'timeout'`.
+ */
+export type ConflictResolver = (
+  local: { value: unknown; eTag: string },
+  server: Snapshot,
+  context: { bindings: Map<string, HTMLElement[]> },
+) => ConflictResolution | Promise<ConflictResolution>;
+
+/** Options for `client.resources.onETagConflict(rt, resolver, options?)`. */
+export interface ETagConflictOptions {
+  /** Max recursive `'use-this'` retries before `'retries-exhausted'`. Default 5. */
+  maxRetries?: number;
+  /**
+   * CSS class to flash on bound elements at fields where the resolved value
+   * differs from `local.value`. Phase 5.3.6 wires this through `bindDom`.
+   * Stored on the registration here so 5.3.6 can read it.
+   */
+  flashClass?: string | null;
+  /** Flash duration in ms. Phase 5.3.6 reads this. Default 1000. */
+  flashDuration?: number;
+}
+
+interface RegisteredResolver {
+  resolver: ConflictResolver;
+  options: Required<Omit<ETagConflictOptions, 'flashClass'>> & { flashClass: string | null };
+}
+
+/** Framework default — server-wins. */
+const DEFAULT_RESOLVER: ConflictResolver = () => ({ resolution: 'use-server' });
+const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_FLASH_CLASS = 'lumenize-conflict-revert';
+const DEFAULT_FLASH_DURATION_MS = 1000;
+
+/** Per-call options for `client.resources.read()`. */
+export interface ReadOptions {
+  /** Override the constructor's `ontologyVersion` for this call. */
+  ontologyVersion?: string;
+}
+
+export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
+  /** Auth scope — determines refresh cookie path (e.g., 'acme.app.tenant-a' or 'acme' for admins) */
+  authScope: string;
+  /** Active scope — baked into JWT aud claim AND Star DO instance name (e.g., 'acme.app.tenant-a') */
+  activeScope: string;
+  /**
+   * Ontology version this client was built against. Auto-attached to every
+   * `client.resources.*` call. Studio bakes this in at app build time.
+   */
+  ontologyVersion: string;
+  /**
+   * Optional hook invoked when the server signals the client's ontology
+   * version is stale (deploys happened since this client started). Typical
+   * implementation: `() => window.location.reload()`. No default — undefined
+   * means opted-out, in which case the staleness signal still surfaces via
+   * the originating Promise's `{ resolution: 'ontology-stale' }` outcome.
+   */
+  onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+}
+
+type SubscribeKey = string; // `${resourceType}:${resourceId}`
+
+interface PendingSubscribe {
+  resolve: (snapshot: Snapshot | null) => void;
+  reject: (error: Error) => void;
+}
+
+interface PendingRead {
+  resolve: (snapshot: Snapshot | null) => void;
+  reject: (error: Error) => void;
+}
+
+interface QueuedTransaction {
+  ops: Record<string, OperationDescriptor>;
+  newETag: string;
+  ontologyVersion: string;
+  /** Caller's resolver override (highest precedence). */
+  onETagConflict?: ConflictResolver;
+  /** Caller's maxRetries override; per-type or default if unset. */
+  maxRetries?: number;
+  /**
+   * Attempt counter — 1 on initial submission, incremented on each
+   * `'use-this'` resubmit. Compared against the resolved `maxRetries` value
+   * to decide between recursive retry and `'retries-exhausted'`.
+   */
+  attempt: number;
+  resolve: (outcome: TransactionResolution) => void;
+}
+
+/** Default in-flight transaction timeout (ms). */
+const TRANSACTION_TIMEOUT_MS = 10_000;
+
+/** Server fanout handler. The factory registers one of these to write
+ *  through to its Vue-reactive store. */
+export type OnResourceUpdateHandler = (
+  resourceType: string,
+  resourceId: string,
+  snapshot: Snapshot | null | Error,
+) => void;
+
+export class NebulaClient extends LumenizeClient {
+  #authScope: string;
+  #activeScope: string;
+  #ontologyVersion: string;
+  #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  #onResourceUpdateHandler: OnResourceUpdateHandler | null = null;
+
+  /**
+   * Active subscriptions registry. Used by Phase 5.3.4 auto-resubscribe on
+   * reconnect.
+   */
+  #subscriptionRegistry = new Map<SubscribeKey, { resourceType: string; resourceId: string }>();
+
+  /**
+   * In-flight `subscribe(rt, rid)` Promises awaiting their first
+   * `handleResourceUpdate`. Settled on the first matching update, then
+   * cleared.
+   */
+  #pendingSubscribes = new Map<SubscribeKey, PendingSubscribe>();
+
+  /**
+   * In-flight `read(rt, rid)` Promises, correlated by `requestId`.
+   */
+  #pendingReads = new Map<string, PendingRead>();
+
+  /**
+   * Serial transaction queue. At most one in-flight transaction; subsequent
+   * calls queue.
+   */
+  #txnQueue: QueuedTransaction[] = [];
+  #inFlightTxn: QueuedTransaction | null = null;
+  #inFlightTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Per-type conflict resolvers registered via `onETagConflict`. */
+  #perTypeResolvers = new Map<string, RegisteredResolver>();
+
+  constructor(config: NebulaClientConfig) {
+    const {
+      authScope,
+      activeScope,
+      ontologyVersion,
+      onShouldRefreshUI,
+      onConnectionStateChange: userOnConnectionStateChange,
+      ...baseConfig
+    } = config;
+
+    // Closure variables rather than instance fields: LumenizeClient's
+    // constructor calls `connect()` synchronously, which fires
+    // onConnectionStateChange before subclass fields finish initializing.
+    // The `runtimeHandlerRef` lets the factory register a late-bound
+    // listener (via `onConnectionStateChange()`) and have it observed by
+    // the constructor's wrapper.
+    let prevConnectionState: ConnectionState | null = null;
+    const runtimeHandlerRef: { current: ((state: ConnectionState) => void) | null } = { current: null };
+
+    super({
+      ...baseConfig,
+      gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+      refresh: async () => {
+        const fetchFn = config.fetch ?? fetch;
+        const res = await fetchFn(
+          `${config.baseUrl}/auth/${authScope}/refresh-token`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ activeScope }),
+          },
+        );
+        if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
+        const data = await res.json() as { access_token: string; sub: string };
+        return { access_token: data.access_token, sub: data.sub };
+      },
+      onConnectionStateChange: (state) => {
+        if (prevConnectionState === 'reconnecting' && state === 'connected') {
+          this.#resubscribeAll();
+        }
+        prevConnectionState = state;
+        runtimeHandlerRef.current?.(state);
+        userOnConnectionStateChange?.(state);
+      },
+    });
+
+    this.#authScope = authScope;
+    this.#activeScope = activeScope;
+    this.#ontologyVersion = ontologyVersion;
+    this.#onShouldRefreshUI = onShouldRefreshUI;
+    this.#connectionStateHandlerRef = runtimeHandlerRef;
+  }
+
+  #connectionStateHandlerRef!: { current: ((state: ConnectionState) => void) | null };
+
+  /**
+   * Register a runtime listener for connection-state transitions. The factory
+   * uses this to mirror state into `store.lmz.connection.*`. The
+   * constructor-supplied `onConnectionStateChange` from config is still
+   * invoked too (chained after this listener). Single-handler; replaces.
+   */
+  onConnectionStateChange(handler: ((state: ConnectionState) => void) | null): void {
+    this.#connectionStateHandlerRef.current = handler;
+  }
+
+  /**
+   * Register a listener for server-pushed resource updates (initial subscribe
+   * snapshots + ongoing fanout). The factory uses this to write through to
+   * its Vue-reactive store with `context: 'remote'`. Single-listener;
+   * subsequent calls replace the previous registration.
+   */
+  onResourceUpdate(handler: OnResourceUpdateHandler): void {
+    this.#onResourceUpdateHandler = handler;
+  }
+
+  /**
+   * Re-issue `Star.subscribe()` for every entry in `#subscriptionRegistry`.
+   * Fired from the `reconnecting → connected` transition in the constructor's
+   * connection-state callback.
+   *
+   * We unconditionally re-issue (no dedupe-on-pending) for correctness: if a
+   * subscribe was sent before the WS dropped but the initial-snapshot response
+   * was lost in flight, LumenizeClient does NOT re-send already-sent
+   * fire-and-forget messages on reconnect, so the pending Promise would hang
+   * forever without a fresh subscribe RTT here. The cost of being safe: a
+   * subscribe issued while the WS was already down (in LumenizeClient's
+   * #messageQueue) will both flush from the queue AND get re-issued — server's
+   * `INSERT OR REPLACE` makes both arrivals idempotent and the second
+   * initial-snapshot push deep-equals-dedups in `handleResourceUpdate`.
+   *
+   * We bypass `#subscribeResource` (rather than calling it for each entry)
+   * because its coalesce path piggybacks on existing pending entries without
+   * issuing a fresh RTT — which is exactly the trap above.
+   */
+  #resubscribeAll(): void {
+    for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
+      this.lmz.call('STAR', this.#activeScope,
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+    }
+  }
+
+  /**
+   * @internal Test-only — invokes the same resubscribe walk that fires on a
+   * `reconnecting → connected` transition. Provided because forcing an
+   * unsolicited WS close from outside the client is awkward in the
+   * vitest-pool-workers harness. The state-machine wiring that calls this
+   * in production is covered by mesh-level tests + a smoke test that
+   * exercises the real supersede path.
+   */
+  _resubscribeAllForTest(): void { this.#resubscribeAll(); }
+
+  /** Resource namespace — entry point for subscribe / read / transaction. */
+  readonly resources = {
+    /**
+     * Subscribe to a resource. Resolves with the initial snapshot on the
+     * first `handleResourceUpdate` for `(rt, rid)`. Subsequent updates are
+     * fanout pushes that write through to bound state but do not re-resolve.
+     *
+     * If a pending subscribe for the same `(rt, rid)` already exists, the
+     * returned Promise piggybacks on that pending settlement instead of
+     * issuing a duplicate request — Star's `INSERT OR REPLACE` would no-op
+     * anyway, and clients calling subscribe multiple times for the same key
+     * should observe a single first-snapshot resolve.
+     */
+    subscribe: (resourceType: string, resourceId: string): Promise<Snapshot | null> => {
+      return this.#subscribeResource(resourceType, resourceId);
+    },
+
+    /**
+     * Ad-hoc read of a resource. Each call gets its own `requestId`; concurrent
+     * reads to the same `(rt, rid)` are independently correlated. Does NOT
+     * write to bound state — `read` is for scripting / ad-hoc inspection.
+     * Use `subscribe` for reactive UIs.
+     */
+    read: (resourceType: string, resourceId: string, options?: ReadOptions): Promise<Snapshot | null> => {
+      return this.#readResource(resourceType, resourceId, options);
+    },
+
+    /**
+     * Submit a transaction. Always resolves with `TransactionResolution`;
+     * caller switches on `outcome.resolution`. Throws only for infrastructure
+     * failures (network drops, mesh crashes).
+     *
+     * `newETag` is auto-generated (one per call, shared across all resources
+     * in the batch). Pass `options.newETag` to override — needed for the
+     * idempotency-retry pattern where a dropped response is retried with
+     * the original eTag.
+     */
+    transaction: (
+      ops: Record<string, OperationDescriptor>,
+      options?: TransactionOptions,
+    ): Promise<TransactionResolution> => {
+      return this.#submitTransaction(ops, options);
+    },
+
+    /**
+     * Register a conflict resolver for `resourceType`. Returns `void`; later
+     * registrations replace earlier ones (per-type, single resolver).
+     *
+     * Precedence at conflict time: per-call `options.onETagConflict` >
+     * per-type registered > framework default (`'use-server'`).
+     */
+    onETagConflict: (
+      resourceType: string,
+      resolver: ConflictResolver,
+      options?: ETagConflictOptions,
+    ): void => {
+      this.#perTypeResolvers.set(resourceType, {
+        resolver,
+        options: {
+          maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
+          flashClass: options?.flashClass === null
+            ? null
+            : (options?.flashClass ?? DEFAULT_FLASH_CLASS),
+          flashDuration: options?.flashDuration ?? DEFAULT_FLASH_DURATION_MS,
+        },
+      });
+    },
+
+    /**
+     * Cancel a server-side subscription for `(rt, rid)`. Fire-and-forget;
+     * the factory calls this when binding refcount drops to zero after the
+     * grace period.
+     */
+    unsubscribe: (resourceType: string, resourceId: string): void => {
+      const key: SubscribeKey = `${resourceType}:${resourceId}`;
+      // Drop registry first so reconnect-during-unsubscribe doesn't resurrect.
+      this.#subscriptionRegistry.delete(key);
+      this.lmz.call('STAR', this.#activeScope,
+        this.ctn<Star>().unsubscribe(resourceType, resourceId));
+    },
+  };
+
+  #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
+    const key = `${resourceType}:${resourceId}`;
+
+    // Coalesce with an in-flight subscribe for the same key. Capture the
+    // entry's CURRENT resolve/reject as plain function values (not via the
+    // entry object) — aliasing the object would make the chained closure
+    // read the newly-installed function back through itself, recursing.
+    const inFlight = this.#pendingSubscribes.get(key);
+    if (inFlight) {
+      return new Promise<Snapshot | null>((resolve, reject) => {
+        const prevResolve = inFlight.resolve;
+        const prevReject = inFlight.reject;
+        inFlight.resolve = (snap) => { prevResolve(snap); resolve(snap); };
+        inFlight.reject = (err) => { prevReject(err); reject(err); };
+      });
+    }
+
+    this.#subscriptionRegistry.set(key, { resourceType, resourceId });
+
+    return new Promise<Snapshot | null>((resolve, reject) => {
+      this.#pendingSubscribes.set(key, { resolve, reject });
+      this.lmz.call('STAR', this.#activeScope,
+        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+    });
+  }
+
+  #readResource(
+    resourceType: string,
+    resourceId: string,
+    options?: ReadOptions,
+  ): Promise<Snapshot | null> {
+    // `resourceType` is currently not used over the wire: `Resources.read`
+    // keys on `resourceId` alone (storage assumes globally unique resourceIds
+    // per Star). Kept in the client signature for API symmetry with
+    // subscribe/transaction and for future addressing changes.
+    void resourceType;
+    const requestId = crypto.randomUUID();
+    const version = options?.ontologyVersion ?? this.#ontologyVersion;
+    return new Promise<Snapshot | null>((resolve, reject) => {
+      this.#pendingReads.set(requestId, { resolve, reject });
+      this.lmz.call('STAR', this.#activeScope,
+        this.ctn<Star>().read(version, resourceId, requestId));
+    });
+  }
+
+  #submitTransaction(
+    ops: Record<string, OperationDescriptor>,
+    options?: TransactionOptions,
+  ): Promise<TransactionResolution> {
+    return new Promise<TransactionResolution>((resolve) => {
+      const queued: QueuedTransaction = {
+        ops,
+        newETag: options?.newETag ?? crypto.randomUUID(),
+        ontologyVersion: options?.ontologyVersion ?? this.#ontologyVersion,
+        onETagConflict: options?.onETagConflict,
+        maxRetries: options?.maxRetries,
+        attempt: 1,
+        resolve,
+      };
+      this.#txnQueue.push(queued);
+      this.#pumpTxnQueue();
+    });
+  }
+
+  #pumpTxnQueue(): void {
+    if (this.#inFlightTxn) return; // already submitted; wait for handleTransactionResult
+    const next = this.#txnQueue.shift();
+    if (!next) return;
+
+    this.#inFlightTxn = next;
+    this.#inFlightTimer = setTimeout(() => {
+      // Timeout — resolve the in-flight Promise with timeout outcome,
+      // clear in-flight, drain the queue. The server's eventual response
+      // (if it ever arrives) is dropped by `handleTransactionResult`.
+      const stuck = this.#inFlightTxn;
+      this.#inFlightTxn = null;
+      this.#inFlightTimer = null;
+      if (stuck) stuck.resolve({ resolution: 'timeout' });
+      this.#pumpTxnQueue();
+    }, TRANSACTION_TIMEOUT_MS);
+
+    this.lmz.call('STAR', this.#activeScope,
+      this.ctn<Star>().transaction(next.ontologyVersion, next.newETag, next.ops));
+  }
+
+  /**
+   * Receive transaction result from Star. Routes synchronous outcomes
+   * through `#finalize` and asynchronous conflict-resolver outcomes through
+   * `#handleConflict`. The in-flight queue's timeout is cleared on arrival;
+   * during resolver execution the queue stays blocked (we know what's
+   * happening — the user has a modal — so no timeout is enforced).
+   */
+  @mesh()
+  handleTransactionResult(result: TransactionResult | Error): void {
+    const inFlight = this.#inFlightTxn;
+    if (!inFlight) return; // late arrival after timeout — drop
+    if (this.#inFlightTimer !== null) {
+      clearTimeout(this.#inFlightTimer);
+      this.#inFlightTimer = null;
+    }
+
+    // Conflict-only path: route through async resolver. Other outcomes
+    // (committed, validation-failed, permission-denied, ontology-stale,
+    // infrastructure error) are synchronous.
+    if (!(result instanceof Error) && !result.ok) {
+      const types = new Set(Object.values(result.errors).map((e) => e.type));
+      if (types.has('conflict') && !types.has('validation') && !types.has('permission')) {
+        // Fire-and-forget — handler advances queue after resolver settles.
+        this.#handleConflict(inFlight, result).catch(() => {
+          // Resolver / framework error during conflict handling — fall back
+          // to use-server with whatever conflicts we have visible.
+          this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
+        });
+        return;
+      }
+    }
+
+    this.#finalize(inFlight, this.#mapSynchronousOutcome(inFlight, result));
+  }
+
+  /**
+   * Settle the in-flight transaction with `outcome` and pump the queue.
+   * Single source of truth for "I'm done with this transaction"; conflict
+   * paths converge here after the resolver verdict has been processed.
+   */
+  #finalize(inFlight: QueuedTransaction, outcome: TransactionResolution): void {
+    this.#inFlightTxn = null;
+    inFlight.resolve(outcome);
+    this.#pumpTxnQueue();
+  }
+
+  /**
+   * Fire the `onShouldRefreshUI` constructor hook (if registered) with the
+   * staleness info. Swallows user-callback throws so an erroring hook can't
+   * take the framework down.
+   *
+   * When the inbound error's `clientVersion` is empty, substitute the client's
+   * own pinned version. This is load-bearing for the Phase 5.3.4b push-on-clear
+   * path: Star doesn't store per-subscriber `clientVersion` on the Subscribers
+   * row, so the `OntologyStaleError` it sends carries an empty `clientVersion`.
+   * The Handler-1 mismatch paths (transaction / read / subscribe) always carry
+   * a real client version, so the substitution is a no-op for those.
+   */
+  #dispatchOntologyStale(clientVersion: string, currentVersion: string): void {
+    if (!this.#onShouldRefreshUI) return;
+    try {
+      this.#onShouldRefreshUI({
+        reason: 'ontology-stale',
+        clientVersion: clientVersion || this.#ontologyVersion,
+        currentVersion,
+      });
+    } catch {
+      // swallow
+    }
+  }
+
+  /**
+   * Synchronous outcome mapping for committed / validation-failed /
+   * permission-denied / ontology-stale / infrastructure-error paths.
+   * Conflicts route through `#handleConflict` instead.
+   */
+  #mapSynchronousOutcome(
+    inFlight: QueuedTransaction,
+    result: TransactionResult | Error,
+  ): TransactionResolution {
+    if (result instanceof Error) {
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+        return {
+          resolution: 'ontology-stale',
+          clientVersion: result.clientVersion,
+          currentVersion: result.currentVersion,
+        };
+      }
+      void inFlight;
+      return { resolution: 'timeout' };
+    }
+
+    if (result.ok) {
+      return { resolution: 'committed', eTag: inFlight.newETag };
+    }
+
+    const errors = result.errors;
+    const errorTypes = new Set(Object.values(errors).map((e) => e.type));
+
+    if (errorTypes.has('validation')) {
+      const validationErrors: Record<string, unknown> = {};
+      for (const [rid, err] of Object.entries(errors)) {
+        if (err.type === 'validation') validationErrors[rid] = err.errors;
+      }
+      return { resolution: 'validation-failed', errors: validationErrors };
+    }
+
+    if (errorTypes.has('permission')) {
+      const resources = Object.entries(errors)
+        .filter(([, err]) => err.type === 'permission')
+        .map(([rid]) => rid);
+      return { resolution: 'permission-denied', resources };
+    }
+
+    // Mixed errors (conflict + validation, etc.) shouldn't reach here —
+    // handleTransactionResult's branch checks for conflict-ONLY before
+    // dispatching to async path. Defensive fall-through to use-server.
+    return this.#useServerOutcome(inFlight, result);
+  }
+
+  /**
+   * Build a `use-server` outcome from a conflict-bearing result. The
+   * server snapshots are surfaced via the registered fanout handler (so the
+   * factory writes them through to its Vue store) AND included in the
+   * returned outcome so the transaction-originator gets full visibility.
+   *
+   * Flash machinery omitted in the spike — see Phase -1 § 7.
+   */
+  #useServerOutcome(
+    inFlight: QueuedTransaction,
+    result: { ok: false; errors: Record<string, TransactionError> },
+  ): TransactionResolution {
+    void inFlight;
+    const serverResources: Record<string, Snapshot> = {};
+    for (const [rid, err] of Object.entries(result.errors)) {
+      if (err.type === 'conflict') serverResources[rid] = err.currentSnapshot;
+    }
+    // Emit fanout for each server resource so the factory writes through.
+    for (const [rid, snap] of Object.entries(serverResources)) {
+      this.#onResourceUpdateHandler?.(snap.meta.typeName, rid, snap);
+    }
+    return { resolution: 'use-server', resources: serverResources };
+  }
+
+  /**
+   * Async conflict-resolver flow. Picks the resolver per precedence
+   * (per-call > per-type > framework default), invokes it (sync or async),
+   * and acts on the returned `ConflictResolution`:
+   *
+   * - `'use-server'`: write server.value through bound state, resolve
+   *   transaction with `'use-server'`.
+   * - `'use-this'`: build a new ops batch using server's new eTag for
+   *   conflicted resources + resolver's value; re-submit (recursive,
+   *   bounded by `maxRetries`).
+   * - `'human-in-the-loop'`: resolve transaction with the handoff outcome;
+   *   optimistic state stays painted (no write-through here).
+   *
+   * Resolver receives info about the FIRST conflicting resource. For
+   * single-resource transactions (typical UI case) this is unambiguous;
+   * for multi-resource transactions with mixed types, the per-call override
+   * is the right tool (one resolver covers all).
+   */
+  async #handleConflict(
+    inFlight: QueuedTransaction,
+    result: { ok: false; errors: Record<string, TransactionError> },
+  ): Promise<void> {
+    const conflictResources: Record<string, Snapshot> = {};
+    for (const [rid, err] of Object.entries(result.errors)) {
+      if (err.type === 'conflict') conflictResources[rid] = err.currentSnapshot;
+    }
+    const firstConflictRid = Object.keys(conflictResources)[0];
+    const firstServer = conflictResources[firstConflictRid];
+    const firstType = firstServer.meta.typeName;
+
+    // Resolve precedence: per-call > per-type > default
+    const registered = this.#perTypeResolvers.get(firstType);
+    const resolver: ConflictResolver = inFlight.onETagConflict
+      ?? registered?.resolver
+      ?? DEFAULT_RESOLVER;
+    const maxRetries = inFlight.maxRetries
+      ?? registered?.options.maxRetries
+      ?? DEFAULT_MAX_RETRIES;
+
+    // Build `local` from the original op (only `put` carries a value; for
+    // non-put conflicts we still call the resolver with `value: undefined`
+    // and the op's eTag).
+    const originalOp = inFlight.ops[firstConflictRid];
+    const localValue: unknown = (originalOp && (originalOp.op === 'put' || originalOp.op === 'create'))
+      ? originalOp.value
+      : undefined;
+    const localETag: string = (originalOp && 'eTag' in originalOp) ? originalOp.eTag : '';
+
+    let verdict: ConflictResolution;
+    try {
+      verdict = await resolver(
+        { value: localValue, eTag: localETag },
+        firstServer,
+        { bindings: new Map() }, // Phase 5.3.6 will populate from bindDom
+      );
+    } catch {
+      // Resolver itself errored — default to use-server.
+      this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
+      return;
+    }
+
+    switch (verdict.resolution) {
+      case 'use-server':
+        this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
+        return;
+
+      case 'human-in-the-loop':
+        // Optimistic state stays painted — do NOT write server.value through.
+        this.#finalize(inFlight, { resolution: 'human-in-the-loop', resources: conflictResources });
+        return;
+
+      case 'use-this': {
+        // Bounded recursion: increment attempt; cap → retries-exhausted.
+        const nextAttempt = inFlight.attempt + 1;
+        if (nextAttempt > maxRetries) {
+          this.#finalize(inFlight, {
+            resolution: 'retries-exhausted',
+            resources: conflictResources,
+            attempts: inFlight.attempt,
+          });
+          return;
+        }
+        // Rebuild ops: replace the conflicted resource's op with a put using
+        // server's new eTag + resolver's value. Other ops in the batch keep
+        // their original eTags (if they also conflicted they'll re-route
+        // through the resolver on the next round-trip).
+        const newOps: Record<string, OperationDescriptor> = { ...inFlight.ops };
+        newOps[firstConflictRid] = {
+          op: 'put',
+          eTag: firstServer.meta.eTag,
+          value: verdict.value,
+        };
+        // Fresh newETag for the retry (idempotency key is per-attempt).
+        inFlight.ops = newOps;
+        inFlight.newETag = crypto.randomUUID();
+        inFlight.attempt = nextAttempt;
+        // Re-submit. Restart the timeout; the queue stays blocked.
+        this.#inFlightTimer = setTimeout(() => {
+          const stuck = this.#inFlightTxn;
+          this.#inFlightTxn = null;
+          this.#inFlightTimer = null;
+          if (stuck) stuck.resolve({ resolution: 'timeout' });
+          this.#pumpTxnQueue();
+        }, TRANSACTION_TIMEOUT_MS);
+        this.lmz.call('STAR', this.#activeScope,
+          this.ctn<Star>().transaction(inFlight.ontologyVersion, inFlight.newETag, inFlight.ops));
+        return;
+      }
+    }
+  }
+
+  /**
+   * Receive a read response from Star. Settles the matching `requestId`'s
+   * pending Promise; concurrent reads are independently correlated.
+   *
+   * Ontology-stale errors also fire the `onShouldRefreshUI` hook before the
+   * Promise rejects — same staleness signal as the transaction path.
+   */
+  @mesh()
+  handleReadResponse(requestId: string, result: Snapshot | null | Error): void {
+    const pending = this.#pendingReads.get(requestId);
+    if (!pending) return;
+    this.#pendingReads.delete(requestId);
+    if (result instanceof Error) {
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+      }
+      pending.reject(result);
+    } else {
+      pending.resolve(result);
+    }
+  }
+
+  /**
+   * Receive resource snapshot push from Star.
+   *
+   * Two interleaved jobs:
+   *   1. Settle the originating `subscribe(rt, rid)` Promise if one is pending.
+   *   2. Emit the snapshot via `onResourceUpdate` handler if one is registered
+   *      (the factory's handler writes through to the Vue store).
+   *
+   * `result === null` means resource genuinely absent. Soft-deleted resources
+   * arrive as a real Snapshot with `meta.deleted: true`.
+   */
+  @mesh()
+  handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+    const key = `${resourceType}:${resourceId}`;
+    const pending = this.#pendingSubscribes.get(key);
+
+    if (result instanceof Error) {
+      if (isOntologyStaleError(result)) {
+        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
+      }
+      if (pending) {
+        this.#pendingSubscribes.delete(key);
+        this.#subscriptionRegistry.delete(key);
+        pending.reject(result);
+      }
+      // Emit error via handler so factory can choose to do something
+      // (e.g., clear the store entry, surface to user).
+      this.#onResourceUpdateHandler?.(resourceType, resourceId, result);
+      return;
+    }
+
+    // Emit snapshot via handler — factory writes through to store.
+    this.#onResourceUpdateHandler?.(resourceType, resourceId, result);
+
+    // Settle pending subscribe Promise (first-call-wins)
+    if (pending) {
+      this.#pendingSubscribes.delete(key);
+      pending.resolve(result);
+    }
+  }
+
+  /**
+   * Accept calls relayed through Star (fanout, transaction-result, read-result).
+   *
+   * The default `LumenizeClient.onBeforeCall` rejects calls where `callChain[0]`
+   * is another `LumenizeClient` instance (its peer-to-peer guard). Nebula's
+   * fanout pattern is **Star-mediated**, not peer-to-peer: client A mutates →
+   * Star fans out → client B receives `handleResourceUpdate`. The default's
+   * `callChain[0] === otherClient` view of this is too strict.
+   *
+   * The actual security boundary is `NebulaClientGateway.onBeforeCallToClient`,
+   * which verifies the call's `originAuth.claims.aud` matches the connected
+   * client's aud at the Gateway. Once a call has cleared that check, it has
+   * a legitimate Nebula-scope and can be dispatched on the client.
+   */
+  override onBeforeCall(): void {
+    // intentionally permissive — Gateway aud check is the boundary
+  }
+}

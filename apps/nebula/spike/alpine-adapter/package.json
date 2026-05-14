@@ -1,0 +1,33 @@
+{
+  "name": "@lumenize/spike-alpine-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe:scheduling": "tsx probes/scheduling.ts",
+    "probe:batching": "tsx probes/batching.ts",
+    "probe:clone-types": "tsx probes/clone-types.ts",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "types": "wrangler types --config test/wrangler.jsonc"
+  },
+  "dependencies": {
+    "@vue/reactivity": "^3.5.13",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.15.1",
+    "@lumenize/debug": "*",
+    "@lumenize/mesh": "*",
+    "@lumenize/nebula": "*",
+    "@lumenize/nebula-auth": "*",
+    "@lumenize/testing": "*",
+    "jsdom": "^25.0.1",
+    "@types/jsdom": "^21.1.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "4.1.4",
+    "wrangler": "^4.86.0"
+  }
+}

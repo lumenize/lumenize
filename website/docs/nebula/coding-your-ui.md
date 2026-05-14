@@ -1,34 +1,188 @@
 ---
 title: Coding your UI
-description: How to build a Nebula front end — NebulaClient, resources, real-time sync, and the x-* directives.
+description: How to build a Nebula front end — NebulaClient, resources, real-time sync, with Vue 3 in-DOM mode.
 ---
 
 # Coding your UI
 
 A Nebula front end is HTML + DaisyUI + a thin bootstrap script. The framework handles subscribes, transactions, and conflicts; you write the markup.
 
-## NebulaClient
+:::warning Doc rewrite in progress
+**The framework target shifted from a custom Alpine-flavored directive layer to Vue 3 in-DOM mode (2026-05-14).** The top of this page reflects the new direction. The lower sections (`x-text`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input`, `x-for`, `x-if`, `x-component` / `x-render` / `$local` / `$trail`) describe the SUPERSEDED Alpine plan and will be rewritten in Phase 5.3.7-v4. They are kept for now as a reference for the conflict-resolver semantics, addressing conventions, and lifecycle/reactivity invariants — all of which carry forward to the Vue version unchanged. Anything that says "directive" below maps to a stock Vue `v-*` directive or a native Vue component; the addressing path (`resources.<rt>.<rid>.value.<field>`) is identical in both worlds.
 
-`NebulaClient` is the connection between your front end and the back end. One instance per page. Studio's generated bootstrap creates it for you with the right scopes and ontology version baked in.
+See [tasks/nebula-frontend.md](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md) § "Phase 5.3.7 (Vue replan)" for the active plan.
+:::
 
-```js @skip-check
-import { NebulaClient } from '@lumenize/nebula-client';
-import { state } from '@lumenize/state';
-import { bindDom } from '@lumenize/ui';
+## NebulaClient and the store
 
-const client = new NebulaClient({
-  baseUrl: 'https://my-app.example.com',
-  authScope: 'acme.app.tenant-a',
-  activeScope: 'acme.app.tenant-a',
-  ontologyVersion: 'v42',                          // baked at build time
-  onShouldRefreshUI: () => window.location.reload(),
-});
+A Nebula front end has three things:
 
-client.bindToState(state);
-bindDom(document.body, state);
+1. **`NebulaClient`** — the connection between your front end and the back end. One instance per page. Studio's generated bootstrap creates it for you with the right scopes and ontology version baked in.
+2. **The factory** — `createNebulaClient(...)` wraps the client and returns a `store` (a reactive object) plus the client. The store is where your UI reads from and writes to.
+3. **Vue 3 in-DOM mode** — Vue's runtime+compiler bundle (~33 KB gzip). You author HTML with stock `v-*` directives + a single `Vue.createApp({...}).mount('#app')`. No SFC build step.
+
+```html @skip-check
+<!doctype html>
+<html>
+  <head>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script type="module">
+      import { createNebulaClient } from '@lumenize/nebula-frontend';
+
+      // 1. Create the factory FIRST — before connection completes — so the
+      //    onConnectionStateChange listener captures the initial transition.
+      const { client, store } = createNebulaClient({
+        baseUrl: 'https://my-app.example.com',
+        authScope: 'acme.app.tenant-a',
+        activeScope: 'acme.app.tenant-a',
+        ontologyVersion: 'v42',                  // baked at build time
+        onShouldRefreshUI: () => window.location.reload(),
+      });
+
+      // 2. Mount Vue. The `store` is reactive — any v-* directive that
+      //    reads from it will re-render when it changes.
+      Vue.createApp({
+        setup() {
+          return { store };
+        },
+      }).mount('#app');
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Your markup here. Read from store.resources.<rt>[id].value.<field>; -->
+      <!-- write via v-model or store.resources.<rt>[id].value.<field> = ... -->
+    </div>
+  </body>
+</html>
 ```
 
 See [NebulaClient](./nebula-client.md) for the full constructor options, auth model, and lifecycle.
+
+### Order of construction matters
+
+Call `createNebulaClient(...)` BEFORE awaiting the WebSocket connection. Internally the factory wires `onConnectionStateChange` to mirror connection state into `store.lmz.connection.*`; the listener only fires on future transitions. Late registration would miss the initial `connecting → connected` and leave `lmz.connection.*` empty.
+
+If you need to do work after the connection lands (e.g., admin bootstrap), `await client.waitForConnected()` (or watch `store.lmz.connection.connected` reactively from your UI).
+
+### Two ways to write to the store
+
+```js @skip-check
+// 1. Direct property assignment (works for any path — equivalent to v-model under the hood)
+store.resources.todo[id].value.title = 'New title';
+
+// 2. v-model on a form input — fires per-keystroke by default
+//    <input v-model="store.resources.todo[id].value.title">
+```
+
+Both go through the factory's middleware: optimistic local apply, then debounced transaction submission (500ms quiet window, 2000ms maxWait — see "Debouncing" below). You don't manually call `client.resources.transaction(...)` for routine UI writes. For server-side / scripting work, the lower-level API is still available — see [NebulaClient](./nebula-client.md).
+
+### v-model and deep paths
+
+`v-model` requires a real l-value path — `?.` (optional chaining) is not allowed. When binding to a resource that may not have loaded yet, guard with `v-if`:
+
+```html @skip-check
+<template v-if="store.resources.todo[id]?.value">
+  <input v-model="store.resources.todo[id].value.title" />
+</template>
+<span v-else>Loading…</span>
+```
+
+The `v-if` removes the input from the DOM until the snapshot lands. Once the resource is in the store, the input renders and binds.
+
+### Per-keystroke vs blur-triggered writes
+
+By default `v-model` listens on `input` (fires every keystroke). The optimistic local update is immediate; the network transaction is **debounced** by the synced-state middleware (500ms quiet + 2000ms maxWait — see "Debouncing" below), so per-keystroke v-model doesn't pile up server traffic.
+
+For forms where you specifically want commit-on-blur (less responsive to in-flight typing, but matches "I'm done editing this field" semantics), use the `.lazy` modifier:
+
+```html @skip-check
+<input v-model.lazy="store.resources.todo[id].value.title" />
+```
+
+`.lazy` switches the listener from `input` to `change` (fires on blur for text inputs, on commit for selects). Useful when the field has expensive computed downstream effects or when "I want to drop my edit by clearing it before blurring" is a real UX flow.
+
+### Debouncing
+
+The factory's synced-state middleware coalesces transaction submissions per `(resourceType, resourceId)`:
+
+- **Quiet window**: 500 ms. After the last write to a resource, wait 500 ms of no further writes, then submit.
+- **Max wait**: 2 s. If the user keeps typing forever, submit at least every 2 s regardless.
+- **Flush on lifecycle**: pending writes flush on component unmount, input blur, and `client.dispose()`.
+- **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
+
+For a typical typed-into-an-input scenario, a 10-character edit produces ~1 transaction, not 10. Tune per-resource-type:
+
+```js @skip-check
+client.resources.transactionDebounce('todo', { quietMs: 1000, maxWaitMs: 5000 });
+```
+
+Or opt out for snappy commits (e.g., dropdowns where instant is right):
+
+```html @skip-check
+<select v-model.eager="store.resources.task[id].value.status">
+  <!-- ... -->
+</select>
+```
+
+`v-model.eager` is a custom directive shipped by `@lumenize/nebula-frontend` that bypasses debouncing for the bound write.
+
+### Recursive components (e.g., tree views)
+
+Vue components can recurse natively — just give the component a `name` and reference itself in its own template. Each instance auto-subscribes to its own resource:
+
+```html @skip-check
+<!-- index.html -->
+<div id="app">
+  <tree-node :node-id="rootId" />
+</div>
+```
+
+```js @skip-check
+const TreeNode = {
+  name: 'TreeNode',
+  props: ['nodeId'],
+  // Inside a template STRING (parsed by Vue's runtime compiler), PascalCase
+  // tag names like <TreeNode> work. When you write the SAME markup into
+  // innerHTML (the index.html above), the browser HTML parser lowercases the
+  // tag and Vue can't resolve it — that's why the index.html uses kebab-case
+  // <tree-node>. Inside template strings either case works.
+  template: `
+    <span>{{ store.resources.TreeNode[nodeId]?.value?.label ?? '...' }}</span>
+    <ul v-if="(store.resources.TreeNode[nodeId]?.value?.children?.length ?? 0) > 0">
+      <li v-for="childId in store.resources.TreeNode[nodeId].value.children" :key="childId">
+        <TreeNode :node-id="childId" />
+      </li>
+    </ul>
+  `,
+  setup() {
+    return { store };           // pulled from your outer setup
+  },
+};
+```
+
+Each `TreeNode` instance reads from its own resource path, which auto-subscribes the resource (refcounted with grace — see "Lifecycle" below). Unmounting a `TreeNode` disposes its Vue effectScope, decrements the refcount, and (if zero) unsubscribes after the grace period.
+
+### Per-component local state
+
+For state that's local to one UI element (open/closed, draft text, current tab, etc.) — anything that isn't synced — use Vue's native `ref` / `reactive` in `setup()`:
+
+```js @skip-check
+const Card = {
+  setup() {
+    const expanded = ref(false);
+    return { expanded };
+  },
+  template: `
+    <div>
+      <button @click="expanded = !expanded">{{ expanded ? 'Hide' : 'Show' }}</button>
+      <div v-if="expanded">...content...</div>
+    </div>
+  `,
+};
+```
+
+Local state stays out of the synced store entirely. Each card instance has its own `expanded` — Vue handles per-instance scope natively.
 
 ## Resources
 
@@ -277,6 +431,38 @@ The framework provides the conflict signal and both versions; your code decides 
 - **`'use-this'` (async)** — user must pick *right now*, framework handles submission. Modal-style UX. The most common choice for "give the user agency on a conflict."
 - **`'human-in-the-loop'`** — conflicts can be deferred. Banner + review-later UX. The user keeps working uninterrupted.
 
+##### Text fields specifically — don't leave the default
+
+For any field a user is actively typing into (long-form text, descriptions, comments, document bodies), the default `'use-server'` resolution is the wrong choice. Here's why:
+
+1. The user is typing into `<input v-model="store.resources.doc[id].value.body">`. Each keystroke fires an optimistic local update; the synced-state middleware debounces transaction submission.
+2. While the user is mid-sentence, **another client commits a write to the same resource.** Server fans out the new snapshot. The factory's resource-update handler writes it to the store unconditionally.
+3. The user's in-flight transaction arrives at the server with the now-stale eTag → conflict → default `'use-server'` resolution.
+4. The user's typing disappears. Their `v-model` input snaps to the other client's value mid-keystroke.
+
+This is the data race; debouncing reduces it but doesn't eliminate it. The reliable fix is to register a `'use-this'` resolver with a real text-merge function on every resource type that holds long-form text:
+
+```js @skip-check
+import { textMerge } from '@lumenize/nebula-frontend';   // 3-way merge helper (TBD shape)
+
+client.resources.onETagConflict('doc', (local, server) => ({
+  resolution: 'use-this',
+  value: {
+    ...server.value,                                                       // start from server snapshot
+    body: textMerge(server.value.body, local.value.body, /* base = */ server.value.body),
+  },
+}));
+```
+
+For typing-into-text-fields, **custom merge is almost always the right answer**, not `'use-server'`. The framework default exists because it's safe for non-text fields (enums, booleans, IDs) and because every resource type needs *some* default. Register an explicit resolver for text-bearing types.
+
+What "right merge" looks like depends on the data:
+- **Short single-line text** (titles, labels): typical pattern is `local wins` — short strings rarely have meaningful concurrent edits worth merging. `value: { ...server.value, title: local.value.title }`.
+- **Long-form text** (descriptions, comments, document bodies): three-way merge (CRDT-style or libdiff-based). The shipped `textMerge` helper will use a sensible default; you can swap in `diff-match-patch` or similar.
+- **Structured content** (markdown, code): three-way merge at the line level, OR fall back to async `'use-this'` with a modal showing both versions.
+
+Set fields (assignees, tags) typically want set-union; enums want last-write-wins (server is fine); IDs want last-write-wins (server is fine).
+
 #### Awaiting `transaction()` and error handling
 
 Two patterns, depending on whether you call `transaction()` yourself.
@@ -436,6 +622,28 @@ This is the simplest pattern — no JS, no extra state, just put the placeholder
 When the snapshot arrives, the framework swaps the templates atomically — skeleton unmounts, real card mounts with its bindings registered.
 
 For a deleted or non-existent resource, the same `!resources.{type}.{id}.value` branch shows. If you need to distinguish "loading" from "doesn't exist," check `lmz.connection.lastConnectedAt` (no connection yet ⇒ probably loading) or use a derived `state.computed()` path that combines connection state with snapshot presence.
+
+:::warning Alpine-flavored content below is SUPERSEDED
+The remaining sections describe the Alpine-flavored `x-*` directive plan (`x-text`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input`, `x-for`, `x-if`, `x-component` / `x-render` / `$local` / `$trail`). That plan was replaced by **Vue 3 in-DOM mode** on 2026-05-14 — the top of this page is the current direction.
+
+These sections will be rewritten in Phase 5.3.7-v4 once the production `@lumenize/nebula-frontend` factory lands. They're kept here for now because the conflict-resolver semantics, addressing conventions, lifecycle/reactivity invariants, eTag idempotency, and `lmz.connection.*` patterns described below all carry forward to the Vue version unchanged. Anything `x-*` maps to a stock Vue `v-*` directive or a native Vue component; the addressing path `resources.<rt>.<rid>.value.<field>` is identical.
+
+Vue equivalents at a glance:
+
+| Alpine x-* (below) | Vue v-* (replacement) |
+| --- | --- |
+| `x-text="path"` | `{{ path }}` (text interpolation) |
+| `x-html="path"` | `v-html="path"` |
+| `x-bind:attr="path"` | `:attr="path"` (or `v-bind:attr`) |
+| `x-show="path"` | `v-show="path"` |
+| `x-class:name="path"` | `:class="{ name: path }"` |
+| `x-on:event="handler"` | `@event="handler"` (or `v-on:event`) |
+| `x-input` (two-way) | `v-model` (default) or `v-model.lazy` (blur-triggered) |
+| `x-for="item in path"` | `v-for="item in path"` |
+| `x-if="path"` / `x-if="!path"` | `v-if="path"` / `v-if="!path"` |
+| `x-component` / `x-render` / `$local` | native Vue components + `setup() { return { expanded: ref(false) } }` |
+| `$trail` (multi-position recursion disambig) | not needed — Vue's recursive components handle per-instance scope natively |
+:::
 
 ## Lifecycle: bindings and subscriptions
 

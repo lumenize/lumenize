@@ -1,13 +1,19 @@
 # Nebula Frontend
 
-**Status**: Active — demo critical path
-**Progress**: Phases 5.3.0 – 5.3.6 shipped (5.3.6 on 2026-05-13). Next: Phase 5.3.7 (`@lumenize/nebula-frontend` bindDom + directives, browser).
+**Status**: Active — demo critical path. **Framework target pivoted 2026-05-14 to Vue 3 in-DOM mode** ([vue spike outcome](archive/vue-in-dom-spike.md)).
+**Progress**: Phases 5.3.0 – 5.3.6 shipped 2026-05-12/13 (some Alpine-era code being replaced — see "Already shipped" annotations). **Next: Phase 5.3.7 (Vue replan)**, sequenced docs-first.
 **Depends on**: Phase 5.1 (Storage Engine — shipped), Phase 5.2 (Validation/Ontology — shipped)
 **Companion docs** (canonical surface; defer to these for API + examples):
 
-- [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — app-generating-LLM-facing API, directives, conflict-resolution patterns, worked examples. **The source of truth for what the stack exposes.**
+- [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — app-generating-LLM-facing API, directives, conflict-resolution patterns, worked examples. **The source of truth for what the stack exposes.** ⚠️ Top half rewritten for Vue 3 (2026-05-14); lower half is Alpine-flavored and tagged SUPERSEDED — finish rewriting in Phase 5.3.7-v1.
 - [website/docs/nebula/nebula-client.md](../website/docs/nebula/nebula-client.md) — `NebulaClient` reference
 - [website/docs/nebula/auth-flows.md](../website/docs/nebula/auth-flows.md) — auth flow sequence diagrams
+
+> **Start here (resuming the work):**
+> 1. Read § "Phase 5.3.7 (Vue replan, 2026-05-14) — ACTIVE PLAN" below — that's the working section.
+> 2. Phase 5.3.7-v1 (docs-first) is the immediate next step. Open [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) and finish the lower-half rewrite end-to-end against Vue's surface. Output a side `5.3.7-API-spec.md` listing every API surface the doc references; that's the spec for v3 implementation.
+> 3. Sections above the Vue replan are framework-agnostic and still pinned (handlers, transaction-resolution types, ontology-version model, auth model, Star subscribe machinery). Pre-Vue Alpine-era detail has been pruned (2026-05-14 cleanup pass); a few cross-cutting references remain inline to flag what's been replaced.
+> 4. Spike artifacts: factory + tests + harness live in `apps/nebula/spike/alpine-adapter/` (kept until 5.3.7-v3 ports them to `packages/nebula-frontend/`, then deleted). Spike task files are in `tasks/archive/`.
 
 > **DRAFT** — consolidates the original `tasks/nebula-5.3-subscriptions.md`, `tasks/lumenize-ui.md`, and `tasks/nebula-7-client.md` into a single design home for the Nebula frontend stack. Originals in `tasks/archive/`.
 >
@@ -25,41 +31,46 @@
 > - 2026-05-13 — Phase 5.3.6 restructured: (1) split into 5.3.6.0 (prereq StateManager subscriber-registration hooks), 5.3.6 (NebulaClient `bindToState`, headless), 5.3.7 (UI package, browser); old 5.3.7 for-docs tests renumbered to 5.3.8. (2) Five pinned design decisions for 5.3.6 (microtask-defer middleware, `Star.unsubscribe` mesh method, puts-only middleware, initial connection-state replay, `getBindings` option for flash wiring). (3) Flash semantic pinned to exact-path-only. (4) `x-input` two-way + cursor guard pinned for 5.3.7. (5) **UI package renamed**: `@lumenize/ui` (MIT, standalone) → `@lumenize/nebula-frontend` (UNLICENSED). Standalone publishing would have required either duplicating coding-your-ui.md as a UI-only doc (drift risk) or extracting Nebula bits into a sibling doc (refactor + cuts against the LLM-target unified-docs goal). The code is decoupled enough to extract later if a real second consumer surfaces; until then, honest framing of the coupling beats maintaining the standalone-package fiction. `@lumenize/state` stays MIT/standalone — that boundary genuinely is clean.
 > - 2026-05-13 — Phase 5.3.7 split into 5.3.7a (scaffold + core bindDom + base directives + element lifecycle, ~250-350 LOC) and 5.3.7b (x-for/x-if/components/recursion/live-cursors, ~400-500 LOC). Eleven design decisions pinned ahead of impl per pre-impl review: paths-only (no ternaries in directives — doc bugs to rewrite using `state.computed()` or `x-class`/`x-if`); `$local` full Proxy with direct property assignment; live cursors for scoped values (without them tree-update-during-recompute breaks); v1 `x-input` form types limited to text/textarea/checkbox/select (radio/number/date/file deferred to future ontology-driven-forms work); component `onMount`/`onUnmount` declared via `components` option on `bindDom` mirroring `handlers`; `root.contains(el)` for move detection (tighter than `isConnected`); `bindToState` must be called before `bindDom`; `x-show` toggles `display: none`/`''`; `x-html` is unsanitized; component definitions are two-pass setup + global to bindDom root; `$trail` is `unknown[]`; `getBindings` is direct-path only (scoped-value bindings won't flash, documented limitation).
 > - 2026-05-13 — Phase 5.3.6.0 + 5.3.6 shipped. 5.3.6.0: 10-LOC `onSubscriberAdded` / `onSubscriberRemoved` lifecycle hooks on `@lumenize/state`'s StateManager + 8 new tests. 5.3.6: `bindToState` integration layer in `nebula-client.ts` — setState middleware (puts-only, microtask defer, reserved-prefix filter, context-discrimination skip), refcount auto-subscribe via the new hooks with `unsubscribeGraceMs` cancel-on-rebind, `Star.unsubscribe` mesh method, third connection-state wrapper layer writing through to `lmz.connection.*` paths, `#useServerOutcome` refactored to accept `inFlight` for flash, `#applyFlash` with `getBindings`-driven top-level-field diff. Doc-drift fixed: [coding-your-ui.md](website/docs/nebula/coding-your-ui.md) end-to-end converted from `try/catch` framing to `switch (outcome.resolution)`. Baseline: 169/169 across 3 consecutive runs (was 161 — 8 new tests). Two checklist items deferred to follow-up: rollback failure-outcome tests (need deeper failure-injection harness; code path implemented) + WS-disconnect-during-grace interleaving test (need WS-disconnect tooling in baseline harness).
+> - 2026-05-14 — **Phase 5.3.7 framework target pivoted from "Alpine-flavored custom directive layer" to "Vue 3 in-DOM mode"** after `tasks/archive/vue-in-dom-spike.md` ran cleanly (Q1–Q5 all green, plus retained 27/27 carry-forward). Predecessor `tasks/archive/alpine-adapter-spike.md` had reached a partial-go (Alpine locked at `@vue/reactivity@3.1.5`, no `effectScope`, no shared reactiveMap with 3.2+); the Vue spike validated the bigger reframe. Major upstream consequences: **`@lumenize/state` will be deleted** (Vue's `reactive` + `effectScope` replace it); **`@lumenize/nebula-frontend` becomes a thin factory + composables on top of Vue**, not a from-scratch directive layer; the entire Alpine-flavored x-* directive grammar below is SUPERSEDED in favor of stock `v-*` directives + recursive Vue components. The Alpine-era 5.3.7a/5.3.7b implementation plans below are KEPT as historical record but no longer drive work — the active plan is "Phase 5.3.7 (Vue replan)" inserted before them. Material spike findings: (a) Vue render effects don't activate their scope, so the factory uses `getCurrentInstance()?.scope` as a fallback inside `trackResourceRead` — ~10 LOC bridge; (b) `__v_skip: true` is dead code in Vue 3.5 in-DOM mode (Vue 3.5 probes `__v_isRef` instead, handled by pass-through); (c) factory must be created BEFORE awaiting client connection (`onConnectionStateChange` only fires on transitions); (d) `v-model` is per-keystroke by default — debouncing belongs in the synced-state middleware, not in v-model itself. Spike code in `apps/nebula/spike/alpine-adapter/` (dir kept for git-history continuity despite the framework target shift).
 
-## Three layers, clean boundaries
+## Three layers, clean boundaries (Vue replan, 2026-05-14)
 
 | Layer | Code lives | Knows about |
 | --- | --- | --- |
-| **`@lumenize/state`** | `packages/state/` (to be ported from JurisJS) | Itself only. Pure path-based reactive store. No DOM. No NebulaClient. |
-| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (to be written from scratch) | `@lumenize/state` only at code level — DOM crawler, `x-*` directives, MutationObserver lifecycle, per-element `WeakMap` registry. UNLICENSED. Package boundary is real (separate package.json, tests, vitest-browser-playwright harness) but the docs and design are Nebula-coupled (see 2026-05-13 changelog entry for rationale). |
-| **Integration (`client.bindToState`)** | `apps/nebula/src/nebula-client.ts` | All three layers, plus Nebula's wire protocol, resources schema, ontology versioning, conflict semantics, ID lifecycle. *This* is where Nebula-specific knowledge lives. |
+| **Vue 3 reactivity** | `node_modules/vue` (transitive dep) | Itself only. Pure Proxy-based reactivity engine — `reactive()`, `effectScope()`, `getCurrentInstance().scope`, render effects. No Nebula knowledge. |
+| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (to be scaffolded in 5.3.7-v3) | Vue 3 + NebulaClient. Contains: factory (`createNebulaClient`) — outer Proxy wrapper with path-aware middleware + effectScope-tied refcount + synced-state middleware + debouncing; small directives/composables (`v-model.eager`, `useNebula(...)`); `textMerge` helper. UNLICENSED. |
+| **NebulaClient** | `apps/nebula/src/nebula-client.ts` → moves to `packages/nebula-frontend/src/nebula-client.ts` in 5.3.7-v3 | Mesh handlers (`handleTransactionResult`, `handleResourceUpdate`), `client.resources.{subscribe, read, transaction, onETagConflict, transactionDebounce}` API, ontology version + `onShouldRefreshUI` hook, two-scope auth model, conflict-resolver invocation, serial transaction queue. |
 
-The integration layer hooks into the generic `@lumenize/state` package through two extension points:
+The factory hooks into Vue's reactivity through three primitives:
 
-- **`setState` middleware** on `@lumenize/state` — `bindToState` installs middleware that watches writes to `resources.{rt}.{rid}.*` paths and emits transactions.
-- **Subscriber-registration event** on `@lumenize/state` — `bindToState` listens for new path-subscribers under `resources.*` and reference-counts them for auto-subscribe.
+- **Outer path-aware Proxy `set` trap** — captures the full write path, runs middleware chain, forwards to Vue's `reactive()`. All writes (v-model, direct property assignment, programmatic) flow through it.
+- **`effectScope` + `getCurrentInstance().scope` fallback** — refcounts resource reads per-scope, cleans up on scope dispose. The fallback bridges the Vue 3 quirk where `ReactiveEffect.run()` doesn't activate the owning scope during component renders.
+- **`onScopeDispose` via `scope.run(...)`** — registers the decrement callback against the right scope. Component unmount → scope disposes → callback fires → grace period → server `unsubscribe`.
 
-Both extension points stay generic in code so `@lumenize/state` remains MIT/standalone with a clean boundary. The `@lumenize/nebula-frontend` package, by contrast, is honest about its coupling to Nebula's resource model in docs and design choices.
+**Why the layers look different from Alpine plan:** with Vue we don't own the DOM crawler, directive grammar, MutationObserver lifecycle, per-element binding registry, or `$local` shape. Vue does all of that. Our layer is the bridge from Vue's reactivity to NebulaClient's wire protocol — middleware + refcount + debounce + conflict-resolver wiring. ~350 LOC total.
 
-**Why design discussions feel integration-heavy:** because they are. The pure primitives got designed quickly. Most domain decisions (conflict resolution, refcount-with-grace, flash class, eTag-as-idempotency, `onShouldRefreshUI`) live in the integration layer.
+**`@lumenize/state` is being DELETED** (5.3.7-v3 deletion task). Vue's `reactive()` + `effectScope()` cover every load-bearing semantic the StateManager had. The path-based PUBLIC API survives via the factory's path-aware outer Proxy — see [memory: path-based-public-api-on-vue-reactivity](https://github.com/lumenize/lumenize/blob/main/.claude/projects/-Users-larry-Projects-mcp-lumenize/memory/feedback_path_based_reactivity.md).
 
-**Reversal of 2026-05-11 anti-folding decision** (2026-05-13): the UI package gets renamed from `@lumenize/ui` (MIT, standalone) to `@lumenize/nebula-frontend` (UNLICENSED, coupled to Nebula). `@lumenize/state` stays MIT/standalone — its boundary is genuinely clean. Trigger for the reversal: coding-your-ui.md as written is a Nebula doc, not a UI-library doc; truly standalone publishing required either doc duplication (drift risk) or splitting (cuts against the LLM-target unified-docs goal). Code stays decoupled enough that extracting a generic UI package later is mostly renaming + standalone-doc writing — defer that work until a real second consumer surfaces.
+**Historical note**: the original three-layer design (`@lumenize/state` ↔ `@lumenize/nebula-frontend` ↔ `client.bindToState`) was pinned 2026-05-09, reframed 2026-05-13 (package rename + UNLICENSED), then superseded entirely 2026-05-14 by the Vue spike. Detail pruned in the 2026-05-14 cleanup; see git history for the prior plan if needed.
 
-## Package picture
+## Package picture (Vue replan, 2026-05-14)
 
 | Package | Source | Scope | Status |
 | --- | --- | --- | --- |
-| `@lumenize/state` | Port from JurisJS | StateManager + path helpers (`isValidPath`, `getPathParts`, `deepEquals`), `track`, `computed`, middleware list. ~340 LOC. | Phase 5.3.0 prerequisite |
-| `@lumenize/nebula-frontend` | Written from scratch | `bindDom(root, state, options?)` DOM-crawl helper with Alpine-flavored `x-*` directives. ~700–900 LOC incl. tests: ~200 base directives, ~100 `x-for` / `x-if`, ~210 components & recursion (`x-component` / `x-render` / `x-prop:*` / `$local` / `x-key-from` / `$trail` / handler scope-injection), plus `x-input` two-way cursor guard, lifecycle hooks, vitest-browser-playwright harness. UNLICENSED until Nebula ships externally. | Built alongside Studio demo |
-| `@lumenize/router` | Written from scratch | URL ↔ state-path two-way sync. ~200 LOC. | Studio-blocking; deferred until first Studio app needs routing |
+| `vue` | npm (`^3.5`) | Reactivity engine + in-DOM template compiler + directive grammar (v-*, recursive components, v-model). Transitive dep of `@lumenize/nebula-frontend`. | Used as-is |
+| `@lumenize/nebula-frontend` | Written from scratch (factory pattern validated by [vue-in-dom-spike.md](archive/vue-in-dom-spike.md)) | `createNebulaClient(config) → { client, store, use, dispose }` factory + small Vue composables (`useNebula`) + `v-model.eager` directive + `textMerge` helper. ~300 LOC factory + ~50 LOC debounce + helpers. UNLICENSED until Nebula ships externally. NebulaClient ALSO moves here from `apps/nebula/src/` in 5.3.7-v3. | Built in Phase 5.3.7-v3 |
+| `vue-router` | npm (`^4`) | URL ↔ component routing, route params, navigation guards. Standard Vue 3 router; pairs natively with Vue 3.5. | Used as-is when routing is needed (Studio-blocking) |
+| ~~`@lumenize/router`~~ **NOT PURSUED 2026-05-14** | ~~Written from scratch — URL ↔ state-path two-way sync. ~200 LOC.~~ Vue replan: **default to [vue-router](https://router.vuejs.org/)**. Only revisit a custom package if a real need surfaces that vue-router can't cover. URL-params-into-store (the original 200 LOC plan) collapses to ~10 LOC of `watchEffect` in app code reading `useRoute()` and writing relevant params into `store.app.*` — or shipped as a small `useRouteSync(map)` composable from `@lumenize/nebula-frontend` if Studio apps want it factored out. | Not planned |
 
-Why not take Alpine as a dep:
+Why Vue 3 in-DOM mode (over alternatives):
 
-- Path-based vs Proxy-based reactivity mismatch (load-bearing for synced-state middleware, eTag-stored-at-sibling-path, per-path snapshot fanout).
-- Alpine's runtime cost (~30 KB minified) vs ~200 LOC custom implementation.
-- We borrow Alpine's *directive syntax* for LLM training-data alignment without taking the dep.
+- **Native shared reactivity** with our factory's path-aware outer Proxy (Vue 3.5's `reactive()` composes cleanly; Alpine's bundled `@vue/reactivity@3.1.5` did not — see [feedback: check-transitive-version-pins](https://github.com/lumenize/lumenize/blob/main/.claude/projects/-Users-larry-Projects-mcp-lumenize/memory/feedback_check_transitive_version_pins.md)).
+- **Native recursion**, native `v-for` / `v-if` / `v-model`, native per-component scope. Zero directive code in our package.
+- **No SFC build step** — in-DOM mode loads from `<script src>`, parses templates at runtime via Vue's runtime compiler. Studio can later pre-compile templates for runtime-only Vue if bundle ergonomics matter.
+- **LLM training corpus** is large (Vue 3 is well-represented in LLM training data, similar to or larger than Alpine).
+- **Path-based PUBLIC API preserved** via the factory's path-aware outer Proxy — user code reads `store.resources.<rt>[id].value.<field>` (path-flavored property access), middleware sees the path, conflict resolvers and synced-state behavior unchanged. The path-based-vs-Proxy-keyed framing turned out to be a false tradeoff — we get both.
 
-DaisyUI is pinned as the styling layer — class-based, framework-free, no coupling to reactivity model.
+DaisyUI is pinned as the styling layer — class-based, framework-free, no coupling to reactivity model. Vue is just as compatible as Alpine was.
 
 ## Background: lazy ontology-version model
 
@@ -86,12 +97,12 @@ Already shipped via earlier auth work (`tasks/archive/nebula-auth.md`, `tasks/ar
 
 ## Decisions pinned
 
+> Framework-agnostic decisions below — these carry forward unchanged under the Vue replan. Vue-specific decisions live in the table in "Phase 5.3.7 (Vue replan, 2026-05-14) — ACTIVE PLAN" further down.
+
 | Decision | Choice | Rationale |
 | --- | --- | --- |
-| **UI integration boundary** | `@lumenize/state` `getState`/`setState`, NOT a generic event emitter on NebulaClient. Nebula-specific glue (auto-subscribe, conflict resolver, flash class, refcount-with-grace, `resources.*` prefix interpretation) lives in NebulaClient's `bindToState`, NOT in either generic package. See § "Three layers". | Packages stay generic and MIT-reusable; integration is the third layer where Nebula-specific knowledge lives. |
-| **Local value store** | `@lumenize/state`'s StateManager is THE store. NebulaClient holds NO shadow cache. `value` and `meta` live at sibling paths (`resources.todo.task-42.value`, `resources.todo.task-42.meta`). | One source of truth, reactivity for free, no sync-two-stores hazard. |
-| **Headless mode** | NebulaClient depends on `@lumenize/state` directly — no renderer needed. | Same StateManager-shape works in Node/Workers tests as in browser. |
-| **API namespace** | `client.resources.{subscribe, read, transaction, onETagConflict}`. | `subscribe`/`read` collide with too many JS APIs to leave bare. |
+| **Headless mode** **PINNED** | NebulaClient + factory work in Node (vitest) and browser. Factory imports from `@vue/reactivity` + `@vue/runtime-core` (both pure JS, no DOM required for headless tests). | Same factory works in Node/Workers tests as in browser; spike Phase 0a/0b verify this. |
+| **API namespace** **PINNED** | `client.resources.{subscribe, read, transaction, onETagConflict, transactionDebounce}`. | `subscribe`/`read` collide with too many JS APIs to leave bare. |
 | **Subscribe scope** | Single resource `(resourceType, resourceId)`. | Multi-resource subscriptions deferred. |
 | **Fan-out path** | `Star → NebulaClientGateway (lmz.call) → NebulaClient (handler)`. | Same Handler 1 / Handler 2 plumbing used by `transaction()` and `read()`. |
 | **Subscriber identity** | `sub` from `callContext.originAuth.sub` (required); `bindingName` + `instanceName` from `callContext.callChain.at(-1)`. | Subscriptions are user-initiated, not mesh-to-mesh. |
@@ -100,7 +111,7 @@ Already shipped via earlier auth work (`tasks/archive/nebula-auth.md`, `tasks/ar
 | **Auto-resubscribe on reconnect** | Client maintains local subscription registry; on LumenizeClient `connected` event after `reconnecting`, re-subscribe each entry. | LumenizeClient already auto-reconnects; only need to re-register. |
 | **Resource ID character constraint** | `resourceType` and `resourceId` restricted to `[A-Za-z0-9_-]`. State path is fixed at `resources.{resourceType}.{resourceId}` (the `statePath?` override on subscribe was dropped in 5.3.3a — entire-resource-at-a-time addressing only). | Period-delimited state paths and slash-delimited URLs must be unambiguously interconvertible. Hierarchical-notify-with-deepEquals in StateManager makes deep directive bindings reactive to bulk-snapshot pushes without spurious re-renders. |
 | **Reserved state-path prefixes** | Two top-level prefixes are framework-reserved: `resources.*` (synced resource snapshots — `resources.{rt}.{rid}.value` and `.meta`) and `lmz.*` (everything else framework-owned — connection state, future things). All other top-level segments (`ui.*`, `app.*`, etc.) are app-owned. Framework only touches `resources.*` and `lmz.*`. | Two prefixes, not one. `lmz.resources.*` would be strictly consistent but adds a segment to every directive in every UI — significant ongoing ergonomic cost. `resources.` is short and distinctive enough on its own; `lmz.` covers the rare framework-meta cases. App authors get the rest of the namespace. |
-| **`lmz.connection.*` connection-state surfacing** | NebulaClient writes LumenizeClient's connection state to `lmz.connection.*` paths so the UI can bind declaratively. Paths: `lmz.connection.state` (`'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'`); `lmz.connection.connected` (boolean — true iff `state === 'connected'`); `lmz.connection.lastConnectedAt` (timestamp ms, set on each `'connected'` transition). Updated by `bindToState`'s setup — subscribes to LumenizeClient's connection events, writes through on each transition. | Real-time-sync demos need a visible connection-state indicator (part of the wow factor; also tells users when their edits aren't reaching the server). Surfacing as state paths makes it declarative: `<div x-show="!lmz.connection.connected">Reconnecting…</div>` works without event listeners in user code. Three paths cover common cases (state string for fine-grained display, boolean for show/hide, timestamp for "last synced X ago" UX). |
+| **`lmz.connection.*` connection-state surfacing** **PINNED (impl moved to factory)** | NebulaClient/factory writes LumenizeClient's connection state to `lmz.connection.*` paths so the UI can bind declaratively. Paths: `lmz.connection.state` (`'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'`); `lmz.connection.connected` (boolean — true iff `state === 'connected'`); `lmz.connection.lastConnectedAt` (timestamp ms, set on each `'connected'` transition). Updated by the **factory** — wires `client.onConnectionStateChange` to write through on each transition. Factory must be created BEFORE awaiting connection so the initial transition isn't missed. | Real-time-sync demos need a visible connection-state indicator. Surfacing as state paths makes it declarative: `<div v-show="!store.lmz.connection.connected">Reconnecting…</div>` works without event listeners in user code. Three paths cover common cases (state string for fine-grained display, boolean for show/hide, timestamp for "last synced X ago" UX). *(Vue replan: directive syntax changed from `x-show` to `v-show`; impl moved from `bindToState` to factory.)* |
 | **Idempotency mechanism** | Client generates the *new* eTag (`newETag`) for each transaction; server detects "current eTag equals client's `newETag`" as "your own write already landed" and returns idempotent success. | Cleaner than separate `txnId` — no server-side dedupe table, idempotency implicit in the eTag itself. Auto-retry safe across network drops. |
 | **Transaction queue** | Serial — at most one transaction in flight per client; subsequent calls queue. 5–10 s timeout then resolve the in-flight Promise with `{ resolution: 'timeout' }` (queue unblocks). Caller-decided retry. Queue blocks transactions on *all* resources/fields, not just the in-flight one. Optimistic local state still paints immediately on `setState` (the middleware does `setState` first, then enqueues) — so the user sees their typing land regardless of queue state. Queue is in-memory only; refresh clears it. | Matches human editing speeds; avoids partial-application reasoning. Timeout collapses all "I don't know what happened" failure modes to one signal. Optimistic-paint-then-enqueue means visual responsiveness is unaffected by queue depth. |
 | **Resolver execution suspends queue timeout** | When `handleTransactionResult` invokes an async resolver (returns a Promise), the 5–10 s timeout is suspended until the resolver settles. When the framework submits the new transaction post-resolver, a fresh timeout starts for that submission. No max-duration enforced on the resolver itself — a modal can sit open for minutes if the user gets distracted. | The 5–10 s timeout is for "I don't know what happened to this call" cases. During resolver execution, the framework knows exactly what's happening — the user has the modal. App-level timeouts on the resolver (e.g., "auto-cancel after 30s") are the caller's responsibility via `Promise.race`. |
@@ -108,11 +119,6 @@ Already shipped via earlier auth work (`tasks/archive/nebula-auth.md`, `tasks/ar
 | **Conflict flash class** | After resolution, framework compares resolved value to `local.value` field-by-field; for diff fields, adds `flashClass` to bound elements for `flashDuration` ms. Default class `lumenize-conflict-revert`, duration 1000 ms. Configurable per type via `onETagConflict('rt', resolver, { flashClass, flashDuration })`; `flashClass: null` disables. | Default visual signal that user input was changed by a conflict, without explicit UX code. Field-diff inference means only actually-affected fields flash. |
 | **`ontologyVersion` on every operation** | NebulaClient constructor argument (Studio's bootstrap fills in at build time). Auto-attached to every `client.resources.*` call. `options.ontologyVersion` per-op override for admin scripts. | Lock-step UI/ontology. Star already takes it for Handler 1/2 dispatch. |
 | **Staleness signal + `onShouldRefreshUI` hook** | Star's cache-miss-with-mismatch path returns `{ kind: 'ontology-stale', clientVersion, currentVersion }`. NebulaClient dispatches to registered `onShouldRefreshUI` constructor hook (no default — undefined = opted-out). Originating Promise also settles. | Centralized hook for an orthogonal signal that multiple call sites would otherwise each need to inspect. Distinct from earlier-rejected `onStaleVersion` (which was tied to one error path). |
-| **Dynamic-DOM lifecycle (MutationObserver + refcounted subscribe)** | One `MutationObserver` per `bindDom(root, state)` call with `{ childList: true, subtree: true }`. Additions → walk subtree, register bindings, increment per-`(rt, rid)` refcount (0→1 triggers `subscribe`). Removals → schedule unregister via `queueMicrotask` (move-vs-remove check via `el.isConnected`); count→0 schedules `unsubscribe` after `unsubscribeGraceMs` (default 2000); new binding within grace cancels pending unsubscribe. Per-element tracking via `WeakMap<HTMLElement, BindingRecord[]>`. Directive attrs read once at binding time. Configurable via `bindDom(root, state, { autoObserve: false })` and `client.bindToState(state, { unsubscribeGraceMs: 2000 })`. | JurisJS auto-cleanup already calls for MutationObserver; we extend for additions. Microtask defer handles moves. Refcount-with-grace covers tab-switch / modal / quick-rerender churn cheaply. Read-once attrs avoid attribute-mutation re-binding (Studio templates don't need it). |
-| **`x-for` (list iteration)** | `<template>`-only host. Syntax: `<template x-for="loopVar in path" x-key="...">`. Scoped path resolution: first segment === `loopVar` → scoped value navigation; path contains `$loopVar` → substitute the value as a string; otherwise normal state path. `x-key` required (default by-index logs a warn). Reactivity: diff old vs new keys; unchanged clones stay, added clones inserted (MutationObserver picks up bindings), removed clones (MutationObserver picks up unbind). | Iteration genuinely can't be path-only; carve out one directive. `<template>` host matches Alpine and makes "definition, not real DOM" unambiguous. `$loopVar` substitution enables FK-list rendering without JS map. |
-| **`x-if` (conditional mount/unmount)** | `<template>`-only host. Syntax: `<template x-if="path">` or `<template x-if="!path">`. JS truthiness. No inline comparisons — use `state.computed()` for derived booleans. Don't combine `x-for` and `x-if` on same `<template>`; nest. Mount fires MutationObserver `addedNodes`; unmount fires `removedNodes`. No `x-else` / `x-else-if`. | Mount/unmount (vs `x-show`'s display-toggle) frees bindings when subtree invisible. `!path` matches Alpine; `x-unless` would create LLM friction. Skipping `x-else` keeps grammar minimal; `state.computed()` is the principled path for complex conditions. |
-| **Components & recursion** (added 2026-05-12) | `<template>`-only host for definition (`x-component="name"`) and instantiation (`x-render="name"`). Props via `x-prop:{name}="value"` (mirrors `x-bind:attr` / `x-class:name` colon-namespacing); inside the template, props are accessed as `${name}`. Per-instance state via `$local` (get/set proxy mapped to `ui.{componentName}.{instanceKey}.*`); `x-key-from="..."` derives the discriminator (required when `$local` used). Component instances at multiple positions in the same tree are disambiguated by `$trail` — a read-only array of ancestor scoped values auto-built from chained `x-key` / `x-key-from` values during recursive descent. Handlers receive `(event, scope)` with destructurable `{ $local, $node, $trail, ... }` slots. Recursion uses `x-render="own-name"` inside the component's own template; no hard depth limit (bounded by JS call stack). Canonical example: `coding-your-ui.md` § "Worked example: DAG tree with virtual branches". | Component + recursion + per-instance state is the union of needs from parameterized reuse, tree UIs, and per-card-toggle UX. Alpine doesn't ship components, so we extend rather than borrow. The colon-namespace shape (`x-prop:`, `x-bind:`, `x-class:`) keeps the directive grammar internally consistent. `$local` mirrors JurisJS's `newState` pattern but with path-keyed storage (matches Lumenize's path-based reactivity model end-to-end). `$trail` solves the multi-parent-rendering case directly: same logical node at two positions gets independent state, no manual instance-key construction. **Replaces** the 2026-05-09 "no ObjectDOM port" framing where components were declared out of scope — the recursion + reactivity-binding findings from `tasks/ui-renderer-spike.md` showed that porting Juris's renderer wasn't the "free components and recursion" we'd estimated, and extending the Alpine grammar produced a cleaner end-to-end design at lower LOC. |
-
 ## Three handlers, three control flows
 
 Transaction responses, subscription pushes, and ad-hoc reads have fundamentally different control flows. Don't conflate.
@@ -127,16 +133,16 @@ The first two are necessarily `@mesh` handlers because Star calls them. The thir
 
 UI flow uses `subscribe` for reactive reads. `read` is the explicit-intent escape hatch for ad-hoc / scripting.
 
-## Two `subscribe`s — different things
+## Subscribe semantics (Vue replan, 2026-05-14)
 
-The word "subscribe" appears at two layers, doing two different jobs.
+Two flavors of "this thing reacts to data changes," at different layers, doing different jobs:
 
-| Call | Layer | Network? | Purpose |
+| Mechanism | Layer | Network? | Purpose |
 | --- | --- | --- | --- |
-| `client.resources.subscribe(rt, rid)` | NebulaClient | yes — WS round-trip to Star | Tells Star to push snapshots on every change. Inserts row in Star's `Subscribers` table. |
-| `state.subscribe(path, cb)` | `@lumenize/state` StateManager | no — purely in-memory | Registers a callback that fires whenever `setState` writes to this path *in this browser tab*. |
+| `client.resources.subscribe(rt, rid)` | NebulaClient | yes — WS round-trip to Star | Tells Star to push snapshots on every change. Inserts row in Star's `Subscribers` table. Invoked automatically by the factory when a Vue component's render-time read of `store.resources.<rt>[<rid>]` increments the per-resource refcount 0 → 1. |
+| Vue render effect (template binding) | Vue's reactivity | no — purely in-memory | Vue's compiled render function re-runs when any property the template reads from changes. No separate `subscribe(path, cb)` API surface — reads are *tracked*, writes *trigger*. Wiring is invisible to user code (just write `{{ store.x.y.z }}` and Vue handles the dep tracking). |
 
-`client.resources.subscribe` gets data flowing *into* the local store from server. `state.subscribe` binds anything (DOM elements, computed paths, anything else) *to* that store. The DOM-binding crawler in `@lumenize/nebula-frontend` only uses `state.subscribe` — at the code level it has no idea NebulaClient or Star exist.
+`client.resources.subscribe` gets data flowing *into* the local store from server. Vue's render effects bind the DOM *to* that store. **The user never calls either directly** for typical UI work — the factory + Vue cooperate automatically. The `client.resources.subscribe(...)` API is exposed for explicit-intent cases (programmatic data prefetch, headless scripts).
 
 ## Surface — implementation signatures
 
@@ -259,35 +265,16 @@ NebulaClient constructor gains:
 - `ontologyVersion: string` — auto-attached to every operation
 - `onShouldRefreshUI?: (info: { clientVersion: string; currentVersion: string; reason: 'ontology-stale' }) => void` — centralized hook for staleness signal
 
-### `client.bindToState(state, options?)` — the integration entry point
+### Integration entry point — `createNebulaClient(config)`
 
-```typescript
-client.bindToState(state: StateManager, options?: {
-  unsubscribeGraceMs?: number;  // default 2000
-}): void
-```
+`createNebulaClient(config)` from `@lumenize/nebula-frontend` is the integration entry point. It folds four responsibilities into the factory's outer Proxy + middleware + effectScope-tied refcount + connection observer:
 
-Responsibilities:
+1. **Local writes → remote transactions** — outer Proxy `set` trap → synced-state middleware → debounced `client.resources.transaction(...)`.
+2. **Auto-subscribe via reference counting** — `trackResourceRead` driven by `getCurrentInstance().scope` + `onScopeDispose`. Refcount-with-grace; `unsubscribeGraceMs` knob.
+3. **Remote pushes direction** — `client.onResourceUpdate(...)` handler writes through `internalDeepWrite` with `context.source === 'remote'` (middleware sees the context and skips).
+4. **Connection-state surfacing** — factory wires `client.onConnectionStateChange` directly. **Order invariant**: factory must be created BEFORE awaiting connection.
 
-1. **Local writes → remote transactions.** `setState` middleware on `state` watches writes to `resources.{rt}.{rid}.*`. Reads cached `eTag` from `getState('resources.{rt}.{rid}.meta.eTag')`, generates `newETag`, constructs op, calls `client.resources.transaction(...)`. User's `setState` is also the optimistic local write.
-2. **Auto-subscribe via reference counting.** `Map<resourceKey, count>` keyed by `${rt}:${rid}`. Each new binding (initial walk + observer-detected additions) increments. 0→1 triggers `client.resources.subscribe(rt, rid)`. Count→0 schedules `unsubscribe` after `unsubscribeGraceMs`; new binding during grace cancels.
-3. **Remote-pushes direction.** `handleResourceUpdate` writes through directly to `state.setState`; middleware does NOT intercept (would create a loop).
-4. **Connection-state surfacing.** Subscribe to LumenizeClient's connection events; on each transition write to `lmz.connection.state` (string), `lmz.connection.connected` (boolean), and (on each `'connected'` transition) `lmz.connection.lastConnectedAt` (timestamp ms).
-
-### `bindDom(root, state, options?)` — `@lumenize/nebula-frontend` entry
-
-```typescript
-bindDom(root: Element, state: StateManager, options?: {
-  handlers?: Record<string, Function>;  // x-on:event="handlerName" lookup table
-  autoObserve?: boolean;                 // default true; false = one-shot initial scan
-}): void
-```
-
-Directive set: `x-text`, `x-html`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input`, `x-for`, `x-if`, `x-key`, `x-component`, `x-render`, `x-prop:name`, `x-key-from`. Scoped values exposed to directives and to handlers: `$node` (and any other `x-prop:*` names), `$local` (per-instance state proxy), `$trail` (read-only array of ancestor scoped values). Semantics in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — the doc is canonical. Implementation must match the doc's described behavior.
-
-`<template>`-only host for `x-for`, `x-if`, `x-component`, and `x-render`. Scoped path resolution inside `x-for` (see Decisions row). `$trail` auto-built from chained `x-key` / `x-key-from` values during descent; used internally to derive `instanceKey` for `$local`, and exposed to handlers and directive values for breadcrumb-style UIs.
-
-Move-vs-removal: on `removedNodes`, schedule unregister via `queueMicrotask`; in microtask, check `el.isConnected`; skip if still connected.
+Full surface details in "Phase 5.3.7 (Vue replan)" below + the rewritten [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md).
 
 ### Types
 
@@ -348,35 +335,17 @@ type TransactionResolution =
 - LumenizeClient base (auto-reconnect)
 
 **From this task, Phases 5.3.0 – 5.3.3d (2026-05-12)**:
-- 5.3.0 — `@lumenize/state` package ported from JurisJS (StateManager + helpers + `computed` + `state.use()`; extended `subscribe` semantics: fires on exact + ancestor + descendant writes)
-- 5.3.1 — Star subscribe machinery (`Subscriptions` class + table at `apps/nebula/src/subscriptions.ts`, `@mesh subscribe`, Handler 1/2 + idempotent inserts; `subscriberBinding` column derived from `callChain.at(-1)?.bindingName`)
-- 5.3.2 — Resource-mutation fanout (`Star.#fanout` via `Subscriptions.forResource`, originator exclusion via `clientId`); `Subscriptions.clear()` via `DROP TABLE + CREATE TABLE` wired into `Star.#installState` for deploy-driven subscriber tidy-up; `NebulaClient.onBeforeCall` override to accept Star-mediated fanout
-- 5.3.3a — NebulaClient foundation: constructor `ontologyVersion` + `onShouldRefreshUI`, `bindToState(state)` minimal-binding form, `client.resources.subscribe(rt, rid)`, `handleResourceUpdate` writes through to bound state at `resources.{rt}.{rid}.{value, meta}`, subscribe-call coalescing
-- 5.3.3b — `client.resources.read(rt, rid)` (requestId correlation + new `handleReadResponse` mesh handler, replacing the removed `handleReadResult`); `client.resources.transaction(ops, options?)` always-resolves with `TransactionResolution`; serial in-flight queue + 10 s timeout; lifted `newETag` to API surface; server-side idempotency short-circuit; widened `TransactionError` with `'permission'` variant; restructured `Resources.transaction` permission checks to collect-not-throw
-- 5.3.3c — Conflict-resolver machinery: `client.resources.onETagConflict(rt, resolver, options?)`, per-call override, `ConflictResolution` discriminated union (`'use-server'` / `'use-this'` / `'human-in-the-loop'`), recursive `'use-this'` bounded by `maxRetries`, async resolver execution suspends queue timeout
-- 5.3.3d — Structured ontology-staleness signal (`OntologyStaleError` + `isOntologyStaleError` in `apps/nebula/src/errors.ts`) replaces the prior message-string-pattern detection; `onShouldRefreshUI` fires on transaction, read, and subscribe paths
+- 5.3.0 — `@lumenize/state` package ported from JurisJS — ⚠️ **TO BE DELETED in Phase 5.3.7-v3 per Vue replan.** Vue's `reactive()` + `effectScope()` cover every load-bearing semantic. Test-case set will be harvested as factory tests.
+- 5.3.1 — Star subscribe machinery (`Subscriptions` class + table at `apps/nebula/src/subscriptions.ts`, `@mesh subscribe`, Handler 1/2 + idempotent inserts; `subscriberBinding` column derived from `callChain.at(-1)?.bindingName`) — **STAYS** (server-side; framework-agnostic).
+- 5.3.2 — Resource-mutation fanout + `Subscriptions.clear()` wired into `Star.#installState`; `NebulaClient.onBeforeCall` override to accept Star-mediated fanout — **STAYS** (server-side + cross-framework client behavior).
+- 5.3.3a — NebulaClient foundation: constructor `ontologyVersion` + `onShouldRefreshUI`, **`bindToState(state)` minimal-binding form** (⚠️ to be REPLACED in 5.3.7-v3 by `createNebulaClient` factory), `client.resources.subscribe(rt, rid)`, `handleResourceUpdate`, subscribe-call coalescing — mixed: API methods stay, `bindToState` plumbing goes.
+- 5.3.3b — `client.resources.read(rt, rid)` + `client.resources.transaction(ops, options?)` always-resolves; serial in-flight queue + 10 s timeout; `newETag` API; idempotency short-circuit; `TransactionError` widened with `'permission'` variant — **STAYS** (framework-agnostic API).
+- 5.3.3c — Conflict-resolver machinery: `client.resources.onETagConflict(rt, resolver, options?)`, per-call override, `ConflictResolution` discriminated union, recursive `'use-this'` bounded by `maxRetries`, async resolver suspends queue timeout — **STAYS** (framework-agnostic).
+- 5.3.3d — Structured ontology-staleness signal (`OntologyStaleError` + `isOntologyStaleError` in `apps/nebula/src/errors.ts`); `onShouldRefreshUI` fires on transaction, read, and subscribe paths — **STAYS** (framework-agnostic).
 
-### Phase 5.3.0 — Port `@lumenize/state` (prerequisite) ✅ shipped 2026-05-12
+### Phase 5.3.0 — Port `@lumenize/state` (prerequisite) ✅ shipped 2026-05-12 — ⚠️ code being deleted in 5.3.7-v3
 
-Source: [JurisJS `src/juris.js`](https://github.com/jurisjs/juris/blob/main/src/juris.js), lines 138–446 (`StateManager` class) + helpers near the top of the file. The port preserves the JurisJS internal model but with **one deliberate divergence**: the public `subscribe()` semantics are extended to fire on exact + ancestor + descendant writes (see Gotchas). The rest is mechanical — normalize style to Lumenize conventions.
-
-- [x] New package `packages/state/` (MIT) — `@lumenize/state`
-- [x] Exports: `StateManager` class + `createState(initialState?, middleware?)` factory. **No default singleton** — preserves the option of multiple instances (mirrors NebulaClient's "one per page but two-instances has use cases" stance), and avoids cross-test pollution. Studio bootstrap constructs at module top-level.
-- [x] Port `StateManager` (~310 LOC) — `getState`, `setState`, `subscribe` (extended — see Gotchas), `track` + `deps`, `executeBatch` (keep Promise-callback support — adds ~10 LOC, useful when integration-layer optimistic writes touch multiple paths atomically), middleware list, `#hasCircularUpdate`, `#notifySubscribers`, `#triggerPathSubscribers`
-- [x] Port top-level helpers (~30 LOC) — `isValidPath`, `getPathParts`, `deepEquals`
-- [x] **Drop from the port:** `subscribeExact` (no current caller), `subscribeInternal` (its descendant-fire behavior folded into the single public `subscribe`), `reset()` (tests get a clean slate via a fresh `createState()` — add back with `structuredClone` if any Juris internals we ported call into it), `createPromisify` (async-prop machinery out of scope per the inventory)
-- [x] Add `state.use(middleware): () => void` for post-construction middleware install/remove (returns the remove fn). Constructor still accepts an initial middleware array for symmetry. Required because `bindToState` installs its middleware after `StateManager` construction.
-- [x] Add `state.computed(targetPath, fn): () => void` — user-facing derived-state API. Uses `track()` internally; subscribes to collected deps; re-runs and re-tracks on dep change. Returns dispose function. **Error model**: at registration, walk deps once and if `targetPath` appears among them, throw a `ComputedSelfReferenceError` immediately. Runtime throws inside `fn` → `console.error` and retain prior value (don't break the computed; the next dep-change re-runs `fn` and may recover).
-- [x] Types: `getState`/`setState` typed with `unknown` values; call sites cast. The store has no schema — typing values stronger would lie.
-- [x] Replace `createLogger` calls with `@lumenize/debug`
-- [x] Normalize `_underscore` privates to `#hash` per CLAUDE.md, except where cross-class access requires public
-- [x] Tests in `packages/state/test/` — vanilla vitest in Node mode (pure-JS package, no Workers pool needed). Cover `getState`/`setState`/`subscribe` (all three fire directions — exact, ancestor write, descendant write — per Gotchas)/`executeBatch` (sync + Promise callback)/`use` (add + remove)/`computed` (happy path, self-ref-at-registration throws, runtime fn-throw retains prior value)
-
-**Gotchas — easy to lose if you only port the obvious-looking API:**
-
-- **`subscribe(path, callback, hierarchical = true)` — extended semantics, deliberate divergence from JurisJS.** Juris's external `subscribe()` only fires on exact + descendant writes (write to `'a.b.c.d'` notifies subscribers on `'a.b'` or `'a.b.c'`); the inverse direction (write to `'a.b'` notifies subscribers on `'a.b.c.d'`) only happens via `subscribeInternal` and its descendant-walk inside `#notifySubscribers`. **In `@lumenize/state` the single public `subscribe()` fires on all three:** exact, ancestor writes (bulk-snapshot push case — `handleResourceUpdate` writes the whole `.value` and a directive bound at `.value.title` must fire), and descendant writes (granular field-change case — `setState` on `.value.title` and any directive bound on `.value` or `.value.title` must fire). Deep-equals dedup (next bullet) keeps the cost of the extended semantics in check. Verification: register a subscriber at `'a.b.c'`; write at `'a.b.c'` (exact) → fires; write at `'a.b'` (ancestor) → fires; write at `'a.b.c.d'` (descendant) → fires.
-- **Deep-equals dedup inside notify.** Without it, every parent-level write would re-fire every descendant subscriber. The JurisJS implementation deep-equals-compares each descendant subscriber's tracked value against the previous one and skips no-op fires. Preserve this — without it, bulk snapshots would cause storms of redundant subscriber callbacks. Verification: write a parent path with one field changed; assert only that field's subscriber fires.
-- **`track()` collects deps as a side effect.** Inside `getState(path, default, track = true)`, the third parameter defaults to `true` and pushes `path` into the currently-active `deps` set on `this`. `track(fn)` is what installs that set. Reactive update mechanisms (and `computed`) all rely on this implicit collection. Preserve the side-effect semantics; don't refactor to explicit dep declarations.
+Ported `StateManager` from JurisJS as `@lumenize/state` (MIT). Vue's `reactive()` + `effectScope()` replace this — the package and its 80-test suite are deleted in 5.3.7-v3. Test cases worth keeping (deep-equals dedup, hierarchical-notify invariants) carry forward as factory tests.
 
 ### Phase 5.3.1 — Star subscribe machinery ✅ shipped 2026-05-12
 
@@ -485,151 +454,231 @@ Scope narrowed after 5.3.4b push-on-clear shipped: the deploy-driven path is ful
 - [x] **Disconnected subscriber row dropped on next fanout attempt** ([nebula-client-disconnect-cleanup.test.ts](apps/nebula/test/test-apps/baseline/nebula-client-disconnect-cleanup.test.ts)): clients A and B subscribe to resource R (2 rows); disconnect B; wait past grace (500 ms with grace=100 ms); A mutates R; assert B's row is gone, A's row remains.
 - [x] **Success path is a no-op**: same setup but B stays connected; A mutates; B receives fanout (resourceUpdateCount bumps); both rows still present.
 
-### Phase 5.3.6.0 — `@lumenize/state` subscriber-registration hooks (prereq) ✅ shipped 2026-05-13
+### Phase 5.3.6.0 — `@lumenize/state` subscriber-registration hooks (prereq) ✅ shipped 2026-05-13 — ⚠️ code being deleted in 5.3.7-v3
 
-Tiny addition to StateManager (~10 LOC + tests) so Phase 5.3.6's integration layer can refcount bindings without `@lumenize/nebula-frontend` needing to know about NebulaClient. Keeps the code-level three-layers separation: `bindDom` calls plain `state.subscribe(...)` as usual; `bindToState` watches those subscribe events on `resources.*` paths and reference-counts to drive `client.resources.subscribe` / `unsubscribe`. Alternatives considered and rejected: (a) `bindDom` exposes `onBinding(action, path)` callback option — loose coupling, but punts wiring onto the user; (b) refcount inside `bindDom` and expose via shared registry — wrong layer per the "three layers" design.
+Added `onSubscriberAdded` / `onSubscriberRemoved` hooks to StateManager (~10 LOC + 8 tests) to support refcount-driven auto-subscribe. Replaced under Vue replan by `effectScope` + `getCurrentInstance().scope` in the factory.
 
-- [x] Add `onSubscriberAdded(cb: (path: string) => void): () => void` and `onSubscriberRemoved(cb: (path: string) => void): () => void` to StateManager.
-- [x] Completed-fact semantics: fire `onSubscriberAdded` after the Set add lands inside `subscribe()`; fire `onSubscriberRemoved` after the Set delete lands inside the returned disposer.
-- [x] Hierarchical-vs-exact mode is irrelevant — hook fires once per `subscribe()` call regardless. Two subscribers on the same path fire the hook twice (refcount semantics).
-- [x] Disposers are idempotent — calling twice fires `onSubscriberRemoved` only once.
-- [x] Error containment: thrown hooks `console.error` and continue (mirrors `@lumenize/state`'s middleware / subscriber-throw isolation).
-- [x] Tests: add/remove fires; multiple registered hooks in install order; disposers detach hooks; thrown hook doesn't break subsequent fires; same-path repeats fire independently; idempotent disposer; add+remove ordering on a full subscribe→dispose cycle.
+### Phase 5.3.6 — NebulaClient `bindToState` integration (headless) ✅ shipped 2026-05-13 — ⚠️ TO BE REPLACED by `createNebulaClient` factory in 5.3.7-v3
 
-### Phase 5.3.6 — NebulaClient `bindToState` integration (headless) ✅ shipped 2026-05-13
+Shipped the `bindToState` integration as the bridge between `@lumenize/state` and `NebulaClient` (169-test baseline). Under the Vue replan, the entire layer is replaced by the `createNebulaClient` factory (~300 LOC, validated by [vue-in-dom-spike.md](archive/vue-in-dom-spike.md)). The four shipped responsibilities (write-through middleware, auto-subscribe refcount, connection-state surfacing, flash-class wiring) carry forward into the factory.
 
-NebulaClient-internal layer — registers the `setState` middleware, runs the refcount loop, surfaces connection state, and routes rollback verdicts. All testable headlessly (Node-mode StateManager + real NebulaClient against vitest-pool-workers Star); Phase 5.3.7 (`@lumenize/nebula-frontend`) is what feeds it real DOM bindings. Originally bundled with the UI package as "5.3.6a"; **split into its own phase 2026-05-13** to land the integration contract before opening the new `packages/nebula-frontend/` directory.
-
-**Decisions pinned 2026-05-13** (filed against questions raised in pre-impl review):
+**Pinned decisions carrying forward to factory** (filed 2026-05-13 against pre-impl review; still load-bearing for the Vue factory):
 
 | Question | Resolution |
 | --- | --- |
-| Middleware sub-path → full-value `put` | **Microtask defer.** Middleware returns `undefined` (writes pass through); after the write lands, read full `value` via `state.getState('resources.{rt}.{rid}.value')` and submit `put`. Keeps middleware-return semantics clean and avoids an extra drill-and-substitute in the hot path. |
-| `Star.unsubscribe(rt, rid)` mesh method | **Add it.** Plain `@mesh()` method on Star — no ontology check (unsubscribe should always succeed); calls `Subscriptions.removeSubscriber(resourceId, clientId)` keyed off `callContext.callChain.at(-1)?.instanceName`. Drop the matching `#subscriptionRegistry` entry on client side when `unsubscribe` is actually issued (after the grace period). |
-| Middleware scope: creates vs. puts | **Puts only.** The middleware only translates writes that have a cached `meta.eTag` for `(rt, rid)`. Creates go through explicit `client.resources.transaction(...)` calls. Rationale: form-submit handlers are programmatic; declarative-input-only-flows are field-edit on existing resources. Keeps middleware logic simple; no ambiguity over "does setting a never-seen path mean create?" When the middleware sees a write under `resources.{rt}.{rid}.value.*` with no cached `meta.eTag`, it logs a warn and lets the write through without submitting (the local state still paints; caller is responsible for the subscribe / create call). |
-| Initial connection-state on `bindToState(state)` | **Replay current state immediately** into the bound StateManager. Read `super.connectionState` ([packages/mesh/src/lumenize-client.ts:360](packages/mesh/src/lumenize-client.ts:360)) at bind time, write through to `lmz.connection.state` / `.connected` (and `.lastConnectedAt` if currently connected). Subsequent transitions write through via the third wrapper layer added below. |
-| Flash-class wiring between 5.3.6 and 5.3.7 | **`getBindings` option on `bindToState`.** `@lumenize/nebula-frontend`'s `bindDom` returns `{ getBindings: (path) => HTMLElement[], dispose }`; callers wire flash via `client.bindToState(state, { getBindings: ui.getBindings })`. Headless tests pass nothing — resolver context's `bindings` Map stays empty and the flash is a no-op. Default flash applies on `'use-server'` only — other rollback outcomes (`'validation-failed'` / `'permission-denied'` / `'timeout'` / `'ontology-stale'` / `'retries-exhausted'`) restore-without-flash for now; revisit if Studio surfaces the friction. |
-| Flash semantic for non-leaf bindings | **Exact-path only.** `getBindings(diffPath)` returns only elements bound to `diffPath` itself, not ancestors. Rationale: ancestor-bound elements are typically `x-show` / `x-if` testing truthiness (existence) — sub-field diffs don't change their visible state, so flashing them is noise. Users who want elaborate flash UX (flash the whole card on any sub-field change, etc.) get the full `bindings` Map in the resolver's `context` and can implement custom class-add logic there. We don't throw on non-leaf bindings — bad rendering (`[object Object]`) is loud enough that users self-correct; intentional non-leaf bindings via `state.computed()` are legitimate. |
+| Middleware sub-path → full-value `put` | **Microtask defer.** Middleware returns `undefined` (writes pass through); after the write lands, read full `value` and submit `put`. Keeps middleware-return semantics clean. |
+| `Star.unsubscribe(rt, rid)` mesh method | **Add it.** Plain `@mesh()` method on Star — no ontology check; calls `Subscriptions.removeSubscriber(resourceId, clientId)` keyed off `callContext.callChain.at(-1)?.instanceName`. |
+| Middleware scope: creates vs. puts | **Puts only.** Middleware only translates writes that have a cached `meta.eTag` for `(rt, rid)`. Creates go through explicit `client.resources.transaction(...)` calls. Missing `meta.eTag` → warn-and-skip via `@lumenize/debug`. |
+| Initial connection-state on factory creation | **Replay current state immediately.** Read current connection state at factory creation time and write through to `lmz.connection.state` / `.connected` / `.lastConnectedAt`. Subsequent transitions write through via the connection-observer wrapper. |
+| Flash-class wiring (5.3.6 ↔ 5.3.7) | **`getBindings` option.** Headless tests pass nothing — flash is a no-op. Default flash applies on `'use-server'` only; other rollback outcomes restore-without-flash for now. |
+| Flash semantic for non-leaf bindings | **Exact-path only.** `getBindings(diffPath)` returns only elements bound to `diffPath` itself, not ancestors. Users who want elaborate flash UX get the full `bindings` Map in the resolver's `context` and can implement custom class-add logic there. |
 
-#### Checklist
+Deferred items kept for the factory port:
 
-- [x] `client.bindToState(state, options?)` registers a `setState` middleware on `state` watching writes under `resources.{rt}.{rid}.value.*` (descendants of `value`, not meta). Other paths pass through with no middleware action.
-- [x] **Reserved-prefix filter** at top of middleware: skip immediately for any path not matching `^resources\.[^.]+\.[^.]+\.value(\.|$)`. Cheap regex, runs on every write.
-- [x] **Middleware context discrimination**: framework-internal `setState` calls in `handleResourceUpdate` and `#useServerOutcome` now pass `{ source: 'remote' }`; middleware skips `remote` / `rollback` / `computed` contexts.
-- [x] **Sub-path → full-value put** (per pinned decision): middleware returns `undefined`, schedules `queueMicrotask` that reads the full post-write value + eTag and submits via `client.resources.transaction()`. Missing `meta.eTag` → warn-and-skip via `@lumenize/debug` (creates go through explicit `transaction()`).
-- [x] **Stash `oldValue` for rollback**: middleware captures full pre-write `value` synchronously (before returning `undefined`) via `state.getState`; passed to `#processMiddlewareOutcome` for terminal-failure restore.
-- [x] **Auto-subscribe via refcount** (`Map<resourceKey, count>`) via `state.onSubscriberAdded` / `onSubscriberRemoved` from 5.3.6.0. 0→1 → `client.resources.subscribe`; count→0 → schedule `client.resources.unsubscribe` after grace; mid-grace re-binding cancels.
-- [x] **Server-side `Star.unsubscribe(rt, rid)`** — `@mesh()` method on Star calling `Subscriptions.removeSubscriber(resourceId, clientId)`, no ontology check.
-- [x] **Initial connection-state replay**: `bindToState` reads `super.connectionState` and writes through to `lmz.connection.state`, `.connected`, `.lastConnectedAt`.
-- [x] **Connection-state transitions**: third wrapper layer in constructor (between reconnect-resubscribe and user callback) writes through to bound state via closure-variable `boundStateRef` (mutable ref object — class fields aren't initialized during `super()`).
-- [x] Optimistic-write rollback on terminal failure: `#processMiddlewareOutcome` handles all `TransactionResolution` variants per pinned decision matrix. `'committed'` updates `meta.eTag`; `'use-server'` is a no-op (already handled by `#useServerOutcome`); failures restore `preWriteValue` via `setState(..., { source: 'rollback' })`; `'human-in-the-loop'` keeps optimistic.
-- [x] **Flash class on `'use-server'`**: `#applyFlash` walks top-level fields, uses `deepEquals` for diff detection, calls `getBindings(fieldPath)` and adds/removes `flashClass` via `setTimeout`. Reads class/duration from `#perTypeResolvers` entry (or framework defaults). No-op when `getBindings` undefined (headless).
-- [x] **Doc-drift fix**: [coding-your-ui.md](website/docs/nebula/coding-your-ui.md) updated end-to-end — § "Awaiting `transaction()`" replaced with `switch (outcome.resolution)` example covering all 8 variants; § "Human-in-the-loop" updated to "Promise resolves" framing; § "Retry cap" updated; ordering examples (atomic-append, save-handler) converted from `try/catch` to outcome-switching.
-- [x] Tests (Node-mode in baseline test-app, 8 new tests): commit roundtrip; middleware skips no-eTag creates; middleware skips `ui.*` / `app.*` / `lmz.*` / `meta.*` writes; middleware skips `source: 'remote' | 'rollback' | 'computed'` context; connection-state replay; auto-subscribe via `state.subscribe`; unsubscribe-grace-then-cancel-on-rebind; unsubscribe-grace-fire (Subscribers table row dropped).
-- [ ] **Rollback failure-outcome tests** (deferred to follow-up): rollback path for `validation-failed` / `permission-denied` / `ontology-stale` / `timeout` / `retries-exhausted` needs deeper test-harness support to inject each outcome from a middleware-originated transaction. Code path is implemented in `#processMiddlewareOutcome`. Will pair naturally with 5.3.7's for-docs tests where full conflict-scenario harnesses already exist. The first attempt to assert validation-failed rollback failed (state stayed at the invalid value — needs investigation into whether typia validation actually runs on a `put` when the resource exists, vs only on `create`; see [resources.ts:306-310](apps/nebula/src/resources.ts:306) which only validates `put` when `currentSnapshots.get(resourceId)` is truthy).
-- [ ] **Defensive registry cleanup on `unsubscribe`** + interleaving test (deferred to follow-up): subscribe → disconnect WS → trigger 1→0 → wait > grace ms → reconnect → assert no resubscribe RTT for that key. Code is in place (`#subscriptionRegistry.delete(key)` at grace-timer fire time, before issuing `unsubscribe`); test needs WS-disconnect tooling that doesn't currently exist in baseline harness.
-- [ ] **Spy-able `@lumenize/debug` output for tests** (deferred follow-up, cross-cutting): `nebula-client.ts` middleware emits `log.warn(...)` via `@lumenize/debug` when a write hits the create-path skip branch. Tests can't easily verify the warn fired — `@lumenize/debug` routes through `console.debug` (not `console.warn`) and gates on the DEBUG env var, neither of which our baseline test harness wires up. Options to consider: (a) DEBUG env-var injection in `setup.ts` + `console.debug` spy; (b) per-test `output` override option on `@lumenize/debug`'s logger to capture into an array; (c) parallel `console.warn(...)` for must-be-observable warn cases. Affects any test that wants to assert a specific log fired — not just 5.3.6.
+- **Rollback failure-outcome tests**: rollback path for `validation-failed` / `permission-denied` / `ontology-stale` / `timeout` / `retries-exhausted` needs deeper test-harness support. Code path was implemented in `#processMiddlewareOutcome`; reapply in factory. The first attempt at validation-failed rollback failed (state stayed at the invalid value — needs investigation into whether typia validation actually runs on a `put` when the resource exists; see [resources.ts:306-310](apps/nebula/src/resources.ts:306)).
+- **Defensive registry cleanup on `unsubscribe`** + interleaving test: subscribe → disconnect WS → trigger 1→0 → wait > grace ms → reconnect → assert no resubscribe RTT for that key. Needs WS-disconnect tooling.
+- **Spy-able `@lumenize/debug` output for tests**: cross-cutting; affects any test that wants to assert a specific log fired. Options: (a) DEBUG env-var injection + `console.debug` spy; (b) per-test `output` override on `@lumenize/debug`'s logger; (c) parallel `console.warn(...)` for must-be-observable warn cases.
 
-### Phase 5.3.7 — `@lumenize/nebula-frontend` (split 2026-05-13 into 5.3.7a + 5.3.7b)
+### Phase 5.3.7 (Vue replan, 2026-05-14) — ACTIVE PLAN
 
-Lives in `packages/nebula-frontend/` (new package, UNLICENSED). Knows about `@lumenize/state` only at the code level; no NebulaClient imports, no Nebula wire protocol, no `resources.*` prefix interpretation in the code. Docs and design are honestly Nebula-coupled — `coding-your-ui.md` covers both UI and resources content together (see 2026-05-13 changelog for the rationale on dropping the standalone-MIT framing). Semantics in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — the doc is canonical; implementation must match the doc's described behavior. Originally bundled into Phase 5.3.6 as "5.3.6b"; **split into its own phase 2026-05-13** because the realistic LOC (~700–900 incl. tests + new vitest-browser-playwright harness setup) and new-package scaffolding warrant a distinct phase. Earlier ~510 LOC estimate was optimistic.
+Vue 3 in-DOM mode replaces the previously-planned Alpine-flavored custom directive layer. Deletes `@lumenize/state`. Scaffolds `@lumenize/nebula-frontend` around a factory that wraps NebulaClient.
 
-**Test infrastructure** (pinned 2026-05-13): `@vitest/browser-playwright` — the pattern already in use in [packages/structured-clone/vitest.config.js](packages/structured-clone/vitest.config.js). Real browser via Playwright gives MutationObserver / microtask / focus / event-bubbling fidelity that directive systems need (Alpine, Vue, etc. all hit jsdom-vs-real-browser corners). Pure-logic tests (path-resolution helpers, scoped-path resolver, `x-for` key-diff) stay in vitest's Node mode for speed.
+**Architecture diff vs the Alpine plan:**
 
-**Return shape** (pinned 2026-05-13 to support flash-class wiring with Phase 5.3.6's `bindToState`): `bindDom(root, state, opts)` returns `{ getBindings: (path: string) => HTMLElement[], dispose: () => void }`. Callers wire flash via `client.bindToState(state, { getBindings: ui.getBindings })`.
+| Concept | Alpine plan (superseded) | Vue plan (active) |
+| --- | --- | --- |
+| Reactivity engine | `@lumenize/state` (StateManager, ported from JurisJS) | Vue 3's `reactive()` from `@vue/reactivity` (already a transitive dep of Vue) |
+| DOM crawler / directives | `@lumenize/nebula-frontend` writes ~700–900 LOC of x-* directives (x-text, x-bind, x-show, x-class, x-on, x-input, x-for, x-if, x-component, x-render, x-prop, $local, $trail) | Vue's stock `v-*` directives + native recursive components. ~0 LOC of directive code in our package. |
+| Auto-subscribe | MutationObserver + refcount via subscriber-registration hooks on `@lumenize/state` | Factory's Proxy `get` trap + Vue's component effectScope (via `getCurrentInstance().scope` bridge) + refcount with grace |
+| User integration entry | `client.bindToState(state)` + `bindDom(root, state)` | `const { client, store } = createNebulaClient(config)`; `Vue.createApp({setup() { return { store } }}).mount('#app')` |
+| Conflict resolver pattern | `client.resources.onETagConflict(rt, resolver, options?)` | Carries forward unchanged (orthogonal to framework choice) |
+| Per-component state | `$local` Proxy mapped to `ui.{componentName}.{instanceKey}.*` paths | Vue's `setup()`-scoped `ref`s — native Vue idiom, no factory plumbing |
+| Recursion | `x-render="own-name"` directive + `$trail` for multi-position disambiguation | Native Vue recursive component (component template references itself by `name`) |
+| Live cursors for scoped values | Hand-built live-cursor mechanism for $node / loop vars / props / $local / $trail | Vue's reactivity is already live; no additional plumbing |
+| `x-input` cursor preservation | Hand-built per-type dispatch (text / textarea / checkbox / select) with `selectionStart`/`selectionEnd` save/restore | Vue's `v-model` handles all standard form elements correctly out of the box |
+| `flashClass` for conflict UX | `bindDom`'s `getBindings(path)` + integration-layer diff | Need a Vue-friendly equivalent (TBD — likely `client.bindings(rt, rid, field)` returning the bound `HTMLElement[]`, or a `v-flash="path"` custom directive published with the package) |
+| Test harness | vitest-browser-playwright (real browser) | Same target. Spike used jsdom because of the un-fixable-yet `LumenizeClient` bundling issues (see "5.3.7 prerequisites" below); real-browser harness blocks ship. |
 
-**Decisions pinned 2026-05-13** (filed against the pre-impl review):
+**Pinned decisions (Vue era):**
 
-| Question | Resolution |
-| --- | --- |
-| Expression syntax in directive values | **Paths only — no ternaries, no calls, no operators.** The doc's `$local.expanded ? 'Hide' : 'Show'` and `.toUpperCase()` examples are **doc bugs** to be rewritten. Two real alternatives for users: (a) `state.computed(targetPath, fn)` materializes the derived value as a path; (b) `x-class:hide-icon` / `x-if` patterns for conditional rendering. Coding-your-ui.md update is a 5.3.7a checklist item — replace every ternary-in-directive with one of those two patterns. |
-| `$local` API | **Full Proxy** — direct property access for both read and write. `$local.expanded` reads; `$local.expanded = false` writes. Backed by paths `ui.{componentName}.{instanceKey}.*` in the StateManager. Update doc to drop the `$local.get(...)` / `$local.set(...)` function-style. |
-| Scoped values reactivity | **Live cursors.** `$node`, loop variables, prop values, and `$local` are reactive — re-derive on each access from the state path (or scope chain) that produced them. Snapshot semantics would break the DAG-tree worked example (tree-update-during-recompute must update inside preserved clones). ~50-100 LOC of additional plumbing for 5.3.7b. |
-| `x-input` form-element types (v1) | **text / textarea / checkbox / select** for v1. Defer radio, number, date, file, multi-select. Cursor preservation (selection-range save/restore) only for text/textarea. When the ontology-driven forms work happens (future phase), this list expands to support email/phone/etc. formatted fields. |
-| Component-level `onMount` / `onUnmount` declaration | **`components` option on `bindDom`** mirroring `handlers`: `bindDom(root, state, { components: { 'tree-item': { onMount, onUnmount } } })`. Receives the same `{ $local, $node, $trail, ...propNames }` scope handlers get. |
-| Move detection on `removedNodes` | **`root.contains(el)`** in the microtask check, not `el.isConnected`. Tighter — treats moves outside the observed `bindDom` root as removals even if the element ends up elsewhere in the document. |
-| `bindDom` ↔ `bindToState` ordering | **`bindToState` first, then `bindDom`.** Without this order, bindDom's initial walk fires `state.subscribe(...)` calls before bindToState installs its `onSubscriberAdded` hook, so refcount auto-subscribe misses the initial bindings. Document in coding-your-ui.md "Getting started". |
-| `x-show` mechanism | `el.style.display = 'none'` to hide; `el.style.display = ''` to restore (lets CSS-defined display win). |
-| `x-html` sanitization | None — `el.innerHTML = value` verbatim. User is responsible for pre-sanitization. Document explicitly. |
-| Component definitions setup | Two-pass walk: first pass registers every `<template x-component>` in the root; second pass processes the rest. Definitions are global to the bindDom root (no nested-scope shadowing). |
-| `$trail` typing | Heterogeneous `unknown[]` — snapshot-at-render-time of scoped values from document root down to (but not including) current scope. Don't try to type strongly; the destructurer in user code knows the shape. |
-| `getBindings` and scoped-value bindings | Direct-path bindings only. `<span x-text="$node.label">` registers no path, so `getBindings(...)` won't return it. Documented limitation; doesn't break flash class (typical `x-input` writes are direct paths). |
+| Decision | Choice | Rationale |
+| --- | --- | --- |
+| **Framework target** | Vue 3.5+ in-DOM mode (`vue/dist/vue.esm-bundler.js` — compiler-included, ~33 KB gzip). No SFC build step. End users author HTML with `v-*` directives + a single `Vue.createApp({...}).mount('#app')`. | Studio's "single HTML file + `<script src>`" target requires the in-DOM compiler. Pre-compiled SFCs are a future Studio-deploy optimization, not a v1 ergonomics requirement. |
+| **Pinia** | NOT taken as a dependency. The factory is the store. | Pinia's `defineStore` + composable pattern leans on SFC-bundled imports; the no-build path requires import maps that defeat the simplicity win. Re-evaluate post-spike if a real cross-component coordination need surfaces. |
+| **`@lumenize/state`** | DELETED. The spike confirmed Vue's `reactive()` + `effectScope()` cover every load-bearing semantic (deep-equal dedup via factory wrapper, hierarchical-notify via Vue dep tracking, batched ancestor-write fanout via Vue scheduler). | The 80-test semantic invariant set was harvested into the factory's tests; no standalone state-manager package warranted. |
+| **Factory shape** | `createNebulaClient(config) → { client, store, use, dispose }`. `store` is a Vue-reactive Proxy with middleware in the `set` trap. `client` exposes connection/transaction/subscription methods. Consumer wires it in Vue via `setup() { return { store }; }`. | One entry point; same API in Node and browser. Test-app pattern survives unchanged. |
+| **Factory before `connect`** | `createNebulaClient(...)` must be called BEFORE the underlying NebulaClient's connection resolves. The `onConnectionStateChange` listener only fires on future transitions; late registration would miss the initial `connecting → connected` and leave `lmz.connection.*` unpopulated. | Discovered in spike harness debugging. Doc must establish this as the natural order. Alternative considered (factory replays current state on registration) is an option for 5.3.7 but adds API surface — the order invariant is simpler. |
+| **Auto-subscribe scope resolution** | Factory checks `getCurrentScope()` first (synthetic test scopes); falls back to `getCurrentInstance()?.scope` from `@vue/runtime-core` for component renders. `onScopeDispose` registered via `scope.run(...)` because Vue's render-effect path doesn't activate the component's scope at `run()` time. | The structural gotcha. Vue components' render `ReactiveEffect.run()` only sets `activeSub` (dep tracking) and `shouldTrack` — it does NOT set `activeEffectScope`. So `getCurrentScope()` returns null inside renders unless we bridge. ~10 LOC. |
+| **Per-component state** | Use Vue's native `setup()` with `ref` / `reactive` for local component state. NOT the factory's store, NOT a `$local` paths-into-store mechanism. | Vue idiom; no factory mechanism needed. Vibe coder reads as native Vue. Local state isn't synced anyway — it's per-component. |
+| **`v-model` debouncing** | Synced-state middleware debounces transaction submission per-resource with **500 ms quiet window + 2000 ms maxWait**. Local optimistic write fires on every keystroke (no DOM-level debounce). Transactions flush on (a) quiet window elapse, (b) maxWait elapse, (c) component unmount, (d) input blur (when reachable). Per-resource serial queue (already-pinned 5.3.6 design) ensures eTag races resolve correctly: when transaction T1 is in-flight, T2 buffers and gets submitted using T1's resulting eTag. | Per-keystroke transactions are network-chatty and pile up server-side (history table dedup is 60-min server-side; client-side debounce is independent). 500/2000 ms is the lodash-default-ish profile and matches "feels responsive but doesn't spam." Configurable per-call via `client.resources.transactionDebounce(rt, { quietMs, maxWaitMs })`; per-write opt-out via `v-model.eager` directive modifier (provided by a small Vue custom directive in `@lumenize/nebula-frontend`) for cases like select dropdowns where instant commit is right. |
+| **`v-model` default trigger** | Per-keystroke (`input` event). Document `.lazy` (blur-triggered) as the standard escape for "I want to commit on blur." | Matches user expectation of "I see what I'm typing." Lazy is one modifier away. |
+| **Conflict resolver hooks** | Carry forward the already-pinned `client.resources.onETagConflict(rt, resolver, options?)` API unchanged. Spike's adapter currently collapses non-`committed`-and-non-`use-server` outcomes into rollback; 5.3.7 surfaces each terminal outcome (`'use-this'`, `'human-in-the-loop'`, `'permission-denied'`, `'retries-exhausted'`, `'ontology-stale'`) per the existing `TransactionResolution` discriminated union. | Resolver semantics are framework-agnostic. Spike just hadn't wired the full surface yet. |
+| **`__v_skip`** | Not used. Vue 3.5 in-DOM mode probes `__v_isRef` but not `__v_skip`; the latter was Alpine 3.x specific. Factory's Proxy passes through `__v_*` reads to the underlying Vue reactive (which answers correctly). | Q2a sub-probe verified. Removing the flag simplifies the get trap. |
+| **`v-if` on `v-model`-bound paths** | Idiomatic Vue: `<template v-if="store.resources.<rt>[id]?.value"><input v-model="store.resources.<rt>[id].value.title" /></template>`. The `v-if` guard is required because `v-model` needs a real l-value path. | Standard Vue pattern. Doc must show this — vibe coders won't infer it. |
+| **In-DOM template tag case** | Component tags in markup written to `innerHTML` MUST be kebab-case (`<tree-node>`); the browser HTML parser lowercases tag names before Vue sees them. Inside template strings (parsed by Vue), PascalCase works. Doc must call this out. | Browser-parser semantics; not negotiable. |
+| **Client-side router** | Default to **`vue-router`** when Studio apps need routing. The original Alpine-era `@lumenize/router` plan (~200 LOC URL↔state-path sync, written from scratch) is abandoned. URL-params-into-store collapses to ~10 LOC of `watchEffect` in app code (or an optional `useRouteSync(map)` composable in `@lumenize/nebula-frontend` if Studio templates want it factored). Only revisit a custom router if vue-router exposes a concrete blocker — none foreseen. | vue-router is mature, well-documented, large LLM training corpus, integrates natively with Vue's reactivity. Building a custom router was Alpine-era thinking (we owned everything because the ecosystem didn't fit); Vue's ecosystem fits. |
+| **`flashClass` for conflicts** | Defer concrete design to 5.3.7 implementation. Two viable options: (a) `client.bindings(rt, rid, field)` returns the bound `HTMLElement[]` (Vue exposes via `useTemplateRef` + the factory tracking ref names); (b) ship a small `v-flash` custom directive that listens for path-level flash events. Pick during implementation. | Vue doesn't have an Alpine-style `getBindings` equivalent out of the box; either approach is small. |
 
-#### Phase 5.3.7a — Scaffold + core bindDom + base directives + element lifecycle (~250-350 LOC)
+**5.3.7 prerequisites — must land before `@lumenize/nebula-frontend` ships:**
 
-- [ ] Scaffold `packages/nebula-frontend/` per CLAUDE.md "Standard Package Files" (vitest-browser-playwright + Node project config like `packages/structured-clone/`, tsconfig, package.json with `@lumenize/state` peer dep, UNLICENSED).
-- [ ] `bindDom(root, state, options?)` with `handlers`, `components`, and `autoObserve` options; returns `{ getBindings, dispose }`.
-- [ ] Initial subtree walk: iterate `el.attributes`, register `x-*` bindings.
-- [ ] MutationObserver with `{ childList: true, subtree: true }` when `autoObserve !== false`.
-- [ ] On `addedNodes`: walk subtree, register bindings.
-- [ ] On `removedNodes`: schedule unregister via `queueMicrotask`; check `root.contains(el)` in microtask (move handling — tighter than `isConnected`); on true removal, walk subtree, unregister.
-- [ ] Per-element binding tracking: `WeakMap<HTMLElement, BindingRecord[]>`; reverse `Map<path, Set<HTMLElement>>` for `getBindings`.
-- [ ] Base directive set: `x-text`, `x-html` (no sanitization — set `innerHTML` verbatim), `x-bind:attr`, `x-show` (`display: none` / `''`), `x-class:name`, `x-on:event`, `x-input` per [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md).
-- [ ] Directive attributes are read once at binding time — no `attributes` observation.
-- [ ] `handlers` config: `x-on:event="handlerName"` looks up by string name; handler receives `(event, scope)` where `scope` is empty at root, populated inside loops/components (5.3.7b).
-- [ ] **`x-input` two-way binding + cursor guard**: typing fires `setState(path, value)`; ancestor-write at the path writes back to the element. Per-type dispatch:
-  - `<input type="text">` / `<input>` (default) / `<textarea>` → `el.value`; selection-range save/restore on back-write (skip if `el.value === newValue`; otherwise save `selectionStart`/`selectionEnd`, write, restore clamped to new length).
-  - `<input type="checkbox">` → `el.checked` (boolean); no selection preservation.
-  - `<select>` → `el.value` (string); no selection preservation.
-  - Other types (radio, number, date, file, multi-select) → throw at binding time with "supported types: text, textarea, checkbox, select". Expand list when ontology-driven forms ship.
-- [ ] **`x-on:mount` / `x-on:unmount` element-level lifecycle hooks**. Fire when directive-bearing elements enter/leave the observed tree. Distinct from DOM events. Sync best-effort. `onUnmount` runs *before* binding unregister so cleanup can read state still wired. Error containment: `console.error` and continue.
-- [ ] **Doc updates** in [website/docs/nebula/coding-your-ui.md](website/docs/nebula/coding-your-ui.md):
-  - Remove every ternary-in-directive example (lines 781, 829, 967, etc.). Replace with `x-class` + path-truthy or two `x-if`s for the icon/label-flip pattern.
-  - Drop the `.toUpperCase()` doc example or replace with a `state.computed` walkthrough.
-  - Rewrite `$local` examples to drop function-style `.get('foo')` / `.set('foo', x)`; use direct property `$local.expanded = false`.
-  - Add a "Getting started: bindToState before bindDom" subsection establishing the ordering invariant.
-  - Add a note under `x-html` that it sets `innerHTML` unsanitized.
-- [ ] Tests (mix of browser-project + node-project): initial-walk binding registration; MutationObserver add/remove; move handling via `root.contains`; each base directive's read/write; `x-input` per type; `x-on:mount`/`unmount` ordering; `getBindings(path)` correctness for direct-path bindings; `autoObserve: false` skip behavior.
+Bundling NebulaClient for real browsers is currently blocked by two transitive imports. Both are pre-existing (vue-in-dom-spike Phase -1 § 7 + § 8 — copied here for visibility):
 
-#### Phase 5.3.7b — x-for / x-if / components / recursion / live-cursor scoped values (~400-500 LOC)
+- **`@lumenize/debug` does `await import('cloudflare:workers')` in a try/catch.** Runtime fine; vite's import-analysis fails ahead of time. Spike uses an alias stub; real fix: bundler-config guidance in the debug package README (`optimizeDeps.exclude: ['cloudflare:workers']` + `build.rollupOptions.external: ['cloudflare:workers']`) OR rework debug's auto-detection to use a runtime feature check that doesn't reference the literal specifier.
+- **`@lumenize/mesh/client` pulls in `node:async_hooks` transitively via lmz-api.ts.** The client-side path doesn't USE AsyncLocalStorage in any meaningful way — ALS is for server-side request-scoped CallContext propagation. Real fix: split lmz-api into client-only / server-only modules, or lazy-load the ALS-dependent paths.
 
-- [ ] **`x-for` template directive**: parser `/^(\w+)\s+in\s+(.+)$/`; `<template>`-only host; `x-key` required (default by-index → loud warn). Scoped path resolver: first segment === `loopVar` → scoped value navigation; `$loopVar` segments → substitute as path segment; else normal state path.
-- [ ] **`x-for` reactivity**: diff old vs new keys on path change; preserve unchanged clones; MutationObserver picks up bindings for added/removed clones.
-- [ ] **`x-if` template directive**: parser supports `!path` negation; `<template>`-only host; mount/unmount via DOM insertion/removal; MutationObserver handles binding lifecycle. Forbid `x-for` + `x-if` on same `<template>` (loud throw); nest instead.
-- [ ] **`x-component="name"` definition directive on `<template>`**: registers a component definition keyed by name. First-pass walk collects all definitions before processing renders.
-- [ ] **`x-render="name"` instantiation directive on `<template>`**: clones the named component's template body in place. Recursive `x-render="own-name"` walks subtrees bounded by JS call stack.
-- [ ] **`x-prop:{name}="value"`** propagates a scoped value into the component instance. Inside the template body, accessible as `${name}` (e.g., `x-prop:label="..."` → `$label`).
-- [ ] **`$local` per-instance state Proxy**: backed by `ui.{componentName}.{instanceKey}.*` paths in the StateManager. Direct property access for read AND write (`$local.expanded`, `$local.expanded = false`). Default initialization is the user's job in `onMount({ $local }) { $local.expanded = false }`.
-- [ ] **`x-key-from="path"`** derives the per-instance key for `$local` from a scoped path. Required on any component that uses `$local`; optional otherwise.
-- [ ] **`$trail`** — read-only `unknown[]` of ancestor scoped values, auto-built from chained `x-key` / `x-key-from` values during recursive descent. Disambiguates `instanceKey` for `$local` when same component renders at multiple tree positions. Exposed to handlers and directive values.
-- [ ] **Live cursors for scoped values**: `$node`, loop variables, prop values, `$local`, and `$trail` re-derive on each access from the underlying state path (or scope chain). Without this, tree-update-during-recompute breaks the DAG-tree worked example. The "live" mechanism: scope chain holds path-references (not snapshots); resolver re-reads on each binding evaluation.
-- [ ] **Handler scope-injection**: `x-on:event="handlerName"` resolution passes `(event, scope)` where `scope` is destructurable as `{ $local, $node, $trail, ...propNames }`. Handlers at root scope receive an empty scope object.
-- [ ] **Component-level `onMount(scope)` / `onUnmount(scope)`** declared in the `components` option of `bindDom`. Receives the same scope shape as handlers. Fires per-instance (per-clone). `onUnmount` runs before binding unregister.
-- [ ] Composability with `x-for`: each iteration's clone is its own mount/unmount unit.
-- [ ] Canonical end-to-end probe: `coding-your-ui.md` § "Worked example: DAG tree with virtual branches" must run correctly against the implementation.
-- [ ] Tests: x-for inline-array iteration with key-preservation on reorder; x-for FK with `$loopVar` substitution + auto-subscribe; x-if mount/unmount + `!path` negation; nested x-for + x-if; x-component definition + render; recursion (tree-item example); $local Proxy read/write; $trail composition; live-cursor update on state change (e.g. assignee.role changes in inline-array iteration trigger re-render of bound spans); onMount/onUnmount component lifecycle.
+Spike workaround was Node + jsdom + `@lumenize/testing`'s `Browser` class (Phase 0a/0b/1 all in jsdom). Production-grade 5.3.7 must close both items.
+
+**`@lumenize/nebula-frontend` skeleton (target shape):**
+
+```
+packages/nebula-frontend/
+├── package.json          # UNLICENSED; deps: vue ^3.5, @lumenize/nebula-client
+├── src/
+│   ├── index.ts          # re-export createNebulaClient, types
+│   ├── create-nebula-client.ts   # factory: Proxy + middleware + effectScope + debounce
+│   ├── debounce.ts       # per-resource quiet/maxWait/flush implementation
+│   ├── types.ts          # ClientLike, Middleware, WriteContext, FactoryResult
+│   └── deep-equals.ts    # structural equality helper
+├── test/
+│   ├── unit/             # factory mechanics with mock client (Phase 0a equivalent)
+│   ├── e2e/              # vitest-pool-workers in-process Star (Phase 0b equivalent)
+│   └── browser/          # vitest-browser-playwright real-browser harness (NEW; spike used jsdom)
+└── README.md
+```
+
+**Implementation phases (Vue replan):**
+
+Sequencing intentionally docs-first. Reasoning: the entire Phase 5.3.7 pivot was triggered by reading coding-your-ui.md as user code, not by reading the implementation plan. Worked examples in user-facing prose surface design problems that abstract API reviews miss (ergonomics, defaults, naming friction). Doing the doc rewrite BEFORE implementation means design issues get caught on cheap-to-change prose; doing it after means they get caught after the implementation has ossified around the wrong shape. The spike already validated every load-bearing primitive, so the doc isn't speculating — it's nailing down the surface against proven mechanics. See [tasks/archive/vue-in-dom-spike.md](archive/vue-in-dom-spike.md) Phase 2 findings for what's locked.
+
+#### Phase 5.3.7-v1 — Doc rewrite first (~1 day)
+
+Finish the rewrite of [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) end-to-end. The top half (NebulaClient + store + v-model + recursion + debouncing + per-component state + text-field conflict-resolver guidance) was rewritten 2026-05-14 against the spike's validated patterns. The remaining lower half (currently marked SUPERSEDED with an x-* → v-* mapping table) needs full conversion.
+
+- [ ] Convert every section under "Lifecycle: bindings and subscriptions" through end-of-file from Alpine x-* framing to Vue v-* framing. Read the existing prose carefully — the conflict-resolver semantics, addressing conventions, lifecycle/reactivity invariants, eTag idempotency, and `lmz.connection.*` patterns all carry forward UNCHANGED. Only the directive syntax + the bindDom/bindToState wiring shifts.
+- [ ] Worked example: "DAG tree with virtual branches" — port end-to-end to Vue components. This is the hardest UI shape Nebula targets and is the strongest design-review surface. If anything feels awkward in Vue, surface it before implementation.
+- [ ] Worked example: text-block editor with custom `textMerge` resolver (uses the already-added "Text fields specifically — don't leave the default" section as the API shape).
+- [ ] Worked example: per-component local state via `setup() { return { expanded: ref(false) } }` replacing `$local` / `x-data`.
+- [ ] Worked example: conditional rendering replacing `x-if` ternaries — `v-if` + `v-else` paths. (Note: `v-else` and `v-else-if` ARE in scope for Vue; the Alpine plan deliberately rejected `x-else` to keep grammar minimal, but Vue has them so the doc should use them.)
+- [ ] Worked example: list iteration replacing `x-for` — `v-for="item in items" :key="item.id"`. Cover the foreign-key case (`v-for="todoId in store.resources.list[lid].value.items"` then nested `store.resources.todo[todoId].value.title` read inside).
+- [ ] **Output a side-document `5.3.7-API-spec.md`** (in `tasks/` or as an appendix here) listing every API surface the rewritten doc references: factory signature, every config option, every method on `client.resources.*`, debounce knobs, conflict-resolver wiring, `textMerge` signature, `v-model.eager` directive shape, exports from `@lumenize/nebula-frontend`. This is the input to v3 implementation.
+- [ ] **User design-review pass.** Read the rewritten doc as a vibe coder would read it. Flag any code sample that reads awkwardly, defaults that surprise, names that feel wrong. Capture findings BEFORE v2 starts.
+- [ ] Delete the SUPERSEDED admonition + the v-* mapping table once the rewrite is complete. The top + bottom of the doc should be coherent end-to-end.
+
+#### Phase 5.3.7-v2 — Prerequisites unblock (~1–2 days)
+
+Mechanical refactors with no API surface impact. Can run in parallel with v1 if a second hand is available; serial otherwise.
+
+- [ ] Fix `@lumenize/debug` bundler-config story: either document `optimizeDeps.exclude` + `external` for consumers, OR rewrite the auto-detection to avoid the literal `cloudflare:workers` specifier. **Add a real-browser smoke** to `packages/debug/` so the fix is regression-tested.
+- [ ] Fix `@lumenize/mesh/client` async_hooks dependency: split lmz-api into client/server modules, OR lazy-load ALS-dependent code paths. **Add a real-browser smoke** to `packages/mesh/`.
+- [ ] CORS audit on NebulaAuth (Phase -1 § 9 in the spike): if `@lumenize/nebula-frontend` will ever be served cross-origin from the API Worker, NebulaAuth needs `Access-Control-Allow-*` headers. Document the deployment-config story.
+
+#### Phase 5.3.7-v3 — Scaffold + factory + Vue integration (~2 days)
+
+Implements the API surface fixed by v1's doc rewrite. The doc is the spec; this phase makes the doc true.
+
+- [ ] Scaffold `packages/nebula-frontend/` per CLAUDE.md "Standard Package Files" (UNLICENSED, `@lumenize/nebula-client` + `vue` deps, vitest configs for unit + e2e + browser projects).
+- [ ] Port factory from `apps/nebula/spike/alpine-adapter/src/create-nebula-client.ts`: Proxy wrapper, middleware chain, `effectScope` + `getCurrentInstance().scope` fallback, refcount + grace, `internalDeepWrite`, synced-state middleware. ~290 LOC.
+- [ ] Port `nebula-client-adapter.ts` shape OR fold into factory (decision during implementation — the spike adapter exists because `createNebulaClient` was framework-agnostic; if factory becomes Vue-aware anyway, the adapter step may disappear).
+- [ ] Build `debounce.ts`: per-resource `(rt, rid)` timer state, quiet/maxWait policy, flush API (called on commit, unmount, blur, dispose).
+- [ ] Wire debounce into synced-state middleware: optimistic write lands immediately; transaction submission queues to the debouncer; debouncer flushes through the existing serial-per-resource queue.
+- [ ] Conflict-resolver wiring: expose `client.resources.onETagConflict(rt, resolver, options?)` and per-call `options.onETagConflict`. Carry forward the full `TransactionResolution` surface (use-this recursion, retries-exhausted, human-in-the-loop, permission-denied, ontology-stale, validation-failed, timeout).
+- [ ] Connection-state replay: on `createNebulaClient` registration, capture current connection state from the client and write through to `lmz.connection.*` so order-of-construction is forgiving (the harness-fix from the spike, productionized).
+- [ ] Carry-forward tests: 24 Phase 0a factory-basics + 3 Phase 0b e2e (smoke, transaction-roundtrip, cross-client-fanout) + 5 Vue probes (Q1–Q5 from spike), total 32 tests across unit + e2e + browser projects.
+
+**Correctness items surfaced in spike review (must address in v2 before shipping):**
+
+- [ ] **eTag-race correctness in the serial queue.** Spike factory queues independent transactions per keystroke. With debouncing the in-practice race is rare, but it isn't eliminated — fast typing across the 2 s maxWait boundary can still produce two overlapping submissions. The already-pinned serial-per-resource queue must: (a) hold at most one in-flight transaction per resource; (b) buffer subsequent writes; (c) submit buffered writes using the in-flight transaction's resulting eTag, not the pre-submit eTag. Test: simulate user typing across maxWait boundary, assert exactly N coalesced transactions land with monotonically advancing eTags (no conflict resolver fired). Test: simulate cross-client commit landing while local tx is in-flight, assert conflict resolver fires once, not multiple times.
+- [ ] **Re-entrancy guard on the middleware chain.** If a user-supplied middleware writes back to the store from inside its callback, the outer Proxy's `set` trap re-enters and a sloppy middleware could infinite-loop. Vue's reactivity handles its own re-entry, but our deep-equal-then-middleware-then-trigger sequence has no `inFlight` guard. Add a `Set<string>` of currently-applying paths to the factory; if a `set` trap fires for a path already in the set, skip middleware (forward direct to Vue reactive). Document the contract: "middleware MUST NOT write to its own path inside its callback; cross-path writes are fine." Add a test that intentionally writes back from middleware to verify no loop.
+- [ ] **Lazy post-middleware deep-equals.** Spike runs `deepEquals(oldValue, finalValue)` twice on every write: once before middleware (skip identical writes) and once after middleware (substitution detection). The post-middleware check is wasted work when no middleware substituted. Track a `substituted: boolean` flag in the middleware loop; only run the post-middleware deep-equals if `substituted === true`. ~5 LOC savings, removes ~50% of deep-equals work on the hot path.
+- [ ] **Mid-edit fanout contract.** Server fanout arriving while a user is mid-typing will visually clobber their in-progress text under the default `'use-server'` resolver. This is by-design (Nebula's optimistic + server-is-truth model), but the user-visible UX is bad for text fields. Recommendation already captured in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) § "Text fields specifically — don't leave the default". Ship a `textMerge(server, local, base)` helper from `@lumenize/nebula-frontend` (or pull in `diff-match-patch` if licensing allows) so users can register a text-merge resolver in one line. Test: simulate concurrent-edit conflict on a text field with `textMerge` resolver registered, assert both edits preserved.
+
+**Things that can't be fully assessed until v2 lands — track as risks, surface during impl:**
+
+- [ ] **Serial-queue interaction with debouncing.** Two timer-driven systems (debounce + serial queue) need careful coordination. Likely ~50 LOC of state machine: pending-writes-while-tx-in-flight buffer + debounce timer flush + maxWait flush + unmount/blur flush + transaction-result triggers buffered submit. Draw the state diagram before coding.
+- [ ] **Vue `<Suspense>` / `<KeepAlive>` interaction.** Recursive trees + KeepAlive could surface scope-disposal edge cases the spike didn't exercise. Test: mount a KeepAlive'd component with subscribed resources, switch away, switch back; verify exactly-one-subscribe (resource stays subscribed across keep-alive cycle, or properly unsubs + resubs). Test: `<Suspense>` boundaries inside recursive trees — async setup during recursion shouldn't double-subscribe.
+- [ ] **Real-browser vs jsdom divergence.** Phase 5.3.7-v3's real-browser harness will surface things the spike couldn't see: input event timing, IME composition events (Asian languages — typing Chinese/Japanese/Korean fires composition events the spike never exercised), focus management around `v-model.lazy`, paint scheduling. Vue's surface is battle-tested but our debounce/flush-on-blur interaction with composition events is novel. Test: IME composition probe — type a multi-key character, verify exactly one transaction fires after composition ends, not one per intermediate keystroke.
+- [ ] **Bundle ergonomics for end users.** Studio's deploy could pre-compile templates to runtime-only Vue (~22 KB gzip), saving ~11 KB vs the in-DOM compiler build (~33 KB gzip). The decision is deferrable to Studio's deploy work, but should be a conscious choice. Open question: do we ship `vue/dist/vue.esm-browser.js` as the canonical `<script src>` target (compiler-included), or do we publish a Studio-deploy mode that pre-compiles + ships runtime-only? Document the trade-off in `@lumenize/nebula-frontend` README once that package exists.
+
+#### Phase 5.3.7-v4 — Real-browser harness + production-shape probes (~1–2 days)
+
+- [ ] vitest-browser-playwright setup mirroring `packages/structured-clone/vitest.config.js`. Browser project includes a CORS-config wrapper Worker if needed.
+- [ ] Port all 5 Vue spike probes to the browser project (Q1 createApp, Q2 factory+Vue composition, Q3 recursive tree, Q4 auto-subscribe + exactly-once unsubscribe, Q5 v-model + middleware).
+- [ ] Add real-browser-specific probes: focus/blur timing on `v-model`, MutationObserver paint scheduling, real WebSocket reconnect (vs jsdom shim).
+- [ ] Debounce behavior verification: rapid keystrokes produce ≤ ceil(typing_duration / maxWaitMs) + 1 transactions; flush-on-unmount works; flush-on-blur works.
+- [ ] IME composition events probe (Asian-language typing): multi-key character composition fires `compositionstart` / `compositionupdate` / `compositionend` events, NOT one `input` per intermediate keystroke. Verify exactly one transaction fires after composition ends.
+- [ ] Flash-class design implemented + tested per chosen approach (option (a) or (b) from pinned decisions).
+- [ ] Vue `<Suspense>` / `<KeepAlive>` interaction probes per the "Things that can't be fully assessed" risk list above.
+
+#### Phase 5.3.7-v5 — Doc polish + secondary docs (~half day)
+
+The main doc rewrite happened in v1; v5 covers anything that needed v3 implementation details to write correctly.
+
+- [ ] Re-read [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) end-to-end against the shipped implementation. Fix any drift between doc claims and code behavior surfaced during v3/v4.
+- [ ] Update [nebula-client.md](../website/docs/nebula/nebula-client.md) if NebulaClient surface changed during the spike's reshape.
+- [ ] New page (or section): "Using @lumenize/nebula-frontend with Vue" covering single-HTML-file CDN load, build-step option for SFC users, debounce knobs.
+- [ ] Document the IME / composition behavior + the `v-model.eager` directive in the docs (these are the most likely "huh, why does it do that?" support questions).
+
+**Deletions (post-merge):**
+
+- [ ] `packages/state/` — entire directory, including 80 tests. Harvest test cases as comments in the factory's test file if any aren't already covered.
+- [ ] `apps/nebula/spike/alpine-adapter/` — entire directory once 5.3.7-v2 lands. Keep until then for reference.
+- [ ] `nebula-client.ts`'s `bindToState` + supporting machinery — replaced by the factory's middleware + effectScope.
+
+**Dead-code audit (after the obvious deletions land):**
+
+The Alpine → Vue pivot likely leaves orphaned helpers, types, and code paths beyond the three obvious deletions above. Catch them before they rot. Two complementary passes:
+
+- [ ] **Coverage-driven sweep**: run `npm test` with coverage on `apps/nebula/` + `packages/nebula-frontend/` after v3 lands. Anything at 0% coverage that isn't a known untested-but-load-bearing path (e.g., test-only initiators marked `@internal`) is a candidate. Workflow: open each 0%-coverage file, ask "is the caller of this still alive?", delete if no.
+- [ ] **Static review of changed files**: walk every file modified in the 5.3.7 series (`git diff --stat origin/main...HEAD -- apps/nebula packages/nebula-frontend packages/mesh`). For each, scan for: unused exports (the factory replaces `bindToState`'s plumbing — likely orphaned helpers in `nebula-client.ts`); types that only the Alpine path referenced (`StateManager` type imports, `BindingRecord`, `$local`-shape types, `getBindings`-related types); refcount/grace-period logic that's now driven by Vue's effectScope instead of the StateManager hooks; `setState` middleware bookkeeping (`oldValue` stash for rollback, `source` context tag, microtask-defer queue) that may have moved to the factory but left a shadow in NebulaClient.
+- [ ] Specific things to look for given what the pivot did:
+  - `#subscriptionRegistry` ↔ factory's refcount Map: one or the other should own this, not both
+  - `#applyFlash` + `#perTypeResolvers` flash-class state: factory inherits the resolver registry, but `#applyFlash` and `getBindings` plumbing may be dead
+  - `internalDeepWrite` vs StateManager's `setState({ source: 'remote' })`: pick one path through
+  - reserved-prefix filter regex (`^resources\\.[^.]+\\.[^.]+\\.value(\\.|$)`) — does the factory's Proxy `set` trap still need it, or does the path-aware middleware express the same intent more naturally?
+- [ ] **Probe the coding-your-ui.md doc against the shipped API**: every API surface mentioned in the v1-rewritten doc should resolve to a real export from `@lumenize/nebula-frontend` or `@lumenize/nebula-client`. Anything mentioned in the doc that doesn't exist is a TODO; anything exported that the doc doesn't mention is a candidate for deletion (the doc IS the spec post-v1).
+
+**Out of scope for 5.3.7 (post-demo):**
+
+- Pre-compiled SFC mode (Studio deploy-time vite step replacing the runtime in-DOM compiler).
+- `flashClass` rich-diff support (field-level rendering of WHAT changed, not just THAT it changed).
+- Multi-resource subscriptions / query subscribe (still out of scope per § "Out of scope (post-demo)").
 
 ### Phase 5.3.8 — For-docs tests (one big `it`, narrative)
 
-All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace periods need real time).
+> **Vue replan (2026-05-14)**: Test items below are mostly framework-agnostic (they exercise NebulaClient + factory + Star semantics, not directive syntax). A handful reference Alpine specifics (`x-text`, `x-for`, `x-if`, `state.computed`, MutationObserver lifecycle) — those are tagged inline with their Vue equivalents. The framework-agnostic tests are CARRIED FORWARD unchanged; the directive-specific tests get rewritten against the Vue surface during 5.3.7-v4 (real-browser harness phase).
 
-- [ ] Two clients subscribe to same resource; client A transactions; client B's bound StateManager path updates via `handleResourceUpdate`
-- [ ] BroadcastChannel: client A doesn't receive own update via fanout; instead reflects authoritative value via `handleTransactionResult`'s success path
-- [ ] `'use-server'` resolution: loser's resolver returns `{ resolution: 'use-server' }`; framework `setState`s server value; transaction Promise resolves with `{ resolution: 'use-server', resources }`
-- [ ] `'use-this'` resolution: loser returns `{ resolution: 'use-this', value }`; framework submits new transaction with `eTag = server.meta.eTag`. Verify recursion: second submission also conflicts → resolver fires again → eventually succeeds (Promise resolves with `{ resolution: 'committed', eTag }`).
-- [ ] `maxRetries` exhaustion: resolver always returns `'use-this'`, every submission conflicts; after default 5 attempts, transaction Promise resolves with `{ resolution: 'retries-exhausted', attempts: 5, resources }`
-- [ ] `'human-in-the-loop'`: resolver returns the handoff; transaction Promise resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted (NOT overwritten); no new transaction; test then manually submits follow-up
-- [ ] Per-call override: `transaction(ops, { onETagConflict: customResolver })` overrides per-type registered resolver for that call only
-- [ ] Idempotency probe: drop a transaction response (test-only); client retries with same `newETag`; server returns idempotent success without duplicate
-- [ ] `client.resources.read(rt, rid)` returns current snapshot without writing to bound state
-- [ ] Staleness probe: client constructed with `'v1'`, server now `'v2'`; transaction → `onShouldRefreshUI` fires with `{ clientVersion: 'v1', currentVersion: 'v2', reason: 'ontology-stale' }`
-- [ ] Connection-state probe: trigger LumenizeClient connection events programmatically; assert `lmz.connection.state` / `lmz.connection.connected` / `lmz.connection.lastConnectedAt` paths update correctly on each transition
-- [ ] Permission-denied probe: attempt a write the user isn't authorized for; transaction Promise resolves with `{ resolution: 'permission-denied', resources }`; optimistic state rolls back to last-confirmed
-- [ ] Flash class: after `'use-server'` where local differed from server, framework adds `flashClass` to bound elements at diff fields; removed after `flashDuration` ms. Test both default class and custom; verify `flashClass: null` disables.
-- [ ] Resolver bindings: `context.bindings` contains exactly elements bound to paths under conflicting resource
-- [ ] Auto-subscribe probe: HTML with `x-text` binding to `resources.{rt}.{rid}.*` triggers `client.resources.subscribe` automatically
-- [ ] Dynamic-DOM addition: append element with new `(rt, rid)`; observer triggers `subscribe`
-- [ ] Dynamic-DOM removal + grace period: remove element; refcount → 0; `unsubscribe` does NOT fire immediately; after `unsubscribeGraceMs`, fires
-- [ ] Grace-period cancel: remove + re-add within grace; pending `unsubscribe` is cancelled (never fires)
-- [ ] Move (not removal): remove from one parent, append to another in same task; binding survives (no unregister)
-- [ ] `autoObserve: false`: post-initial-walk DOM additions do NOT activate
-- [ ] `x-for` inline-array iteration: N items render correctly; mutations (push/pop/reorder) update correctly with keys preserving clone identity
-- [ ] `x-for` FK with `$loopVar`: auto-subscribe fires per ID; removal triggers grace-period unsubscribe
-- [ ] `x-if` mount/unmount + `!path` negation: bindings register/unregister with the conditional content
-- [ ] `x-for` + nested `x-if` (filtered iteration): clones mount/unmount independently
-- [ ] `state.computed()` driving `x-if`: derivation re-runs on source change; `x-if` reacts
-- [ ] Test object includes Map, Date, and Cycle (Phase 5 testing invariant)
-- [ ] Disconnect/reconnect: client B re-subscribes automatically and receives any updates that landed during disconnect
+All async probes use `vi.waitFor` (Vue's reactive scheduler is microtask-deferred; grace periods need real time).
+
+- [ ] Two clients subscribe to same resource; client A transactions; client B's bound store path updates via `handleResourceUpdate` *(framework-agnostic; carries forward unchanged)*
+- [ ] BroadcastChannel: client A doesn't receive own update via fanout; instead reflects authoritative value via `handleTransactionResult`'s success path *(framework-agnostic)*
+- [ ] `'use-server'` resolution: loser's resolver returns `{ resolution: 'use-server' }`; framework writes server value through; transaction Promise resolves with `{ resolution: 'use-server', resources }` *(framework-agnostic)*
+- [ ] `'use-this'` resolution: loser returns `{ resolution: 'use-this', value }`; framework submits new transaction with `eTag = server.meta.eTag`. Verify recursion: second submission also conflicts → resolver fires again → eventually succeeds (Promise resolves with `{ resolution: 'committed', eTag }`). *(framework-agnostic)*
+- [ ] `maxRetries` exhaustion: resolver always returns `'use-this'`, every submission conflicts; after default 5 attempts, transaction Promise resolves with `{ resolution: 'retries-exhausted', attempts: 5, resources }` *(framework-agnostic)*
+- [ ] `'human-in-the-loop'`: resolver returns the handoff; transaction Promise resolves with `{ resolution: 'human-in-the-loop', resources }`; optimistic state stays painted (NOT overwritten); no new transaction; test then manually submits follow-up *(framework-agnostic)*
+- [ ] Per-call override: `transaction(ops, { onETagConflict: customResolver })` overrides per-type registered resolver for that call only *(framework-agnostic)*
+- [ ] Idempotency probe: drop a transaction response (test-only); client retries with same `newETag`; server returns idempotent success without duplicate *(framework-agnostic)*
+- [ ] `client.resources.read(rt, rid)` returns current snapshot without writing to bound store *(framework-agnostic)*
+- [ ] Staleness probe: client constructed with `'v1'`, server now `'v2'`; transaction → `onShouldRefreshUI` fires with `{ clientVersion: 'v1', currentVersion: 'v2', reason: 'ontology-stale' }` *(framework-agnostic)*
+- [ ] Connection-state probe: trigger LumenizeClient connection events programmatically; assert `lmz.connection.state` / `lmz.connection.connected` / `lmz.connection.lastConnectedAt` paths update correctly on each transition *(framework-agnostic)*
+- [ ] Permission-denied probe: attempt a write the user isn't authorized for; transaction Promise resolves with `{ resolution: 'permission-denied', resources }`; optimistic state rolls back to last-confirmed *(framework-agnostic)*
+- [ ] Flash class: after `'use-server'` where local differed from server, framework flashes bound elements at diff fields (mechanism TBD per 5.3.7 flash-class design decision); removed after `flashDuration` ms. Test both default class and custom; verify `flashClass: null` disables. *(Vue-version: depends on the chosen flash mechanism — `v-flash` directive or `client.bindings(rt, rid, field)` API.)*
+- [ ] Resolver bindings: resolver context exposes elements bound to paths under conflicting resource (mechanism TBD per flash-class design)
+- [ ] Auto-subscribe probe: Vue component reading `store.resources.{rt}.{rid}.value.<field>` in a template triggers `client.resources.subscribe` automatically on mount *(Vue-version: replaces Alpine `x-text` probe; same intent)*
+- [ ] Dynamic-DOM addition: mount a new Vue component instance with new `(rt, rid)`; auto-subscribe triggers `subscribe` *(Vue-version: replaces MutationObserver-driven add probe; Vue component scope drives this)*
+- [ ] Component-unmount + grace period: unmount a component referencing `(rt, rid)`; refcount → 0; `unsubscribe` does NOT fire immediately; after `unsubscribeGraceMs`, fires *(Vue-version: replaces MutationObserver-driven remove probe; same semantics via `onScopeDispose`)*
+- [ ] Grace-period cancel: unmount + remount within grace (e.g., via `v-if` toggle); pending `unsubscribe` is cancelled (never fires) *(Vue-version: `v-if` toggle replaces DOM remove+add)*
+- [ ] `<KeepAlive>` interaction: cached component referencing a resource stays subscribed across activate/deactivate cycles (or properly unsubs+resubs — design decision per "Things that can't be fully assessed") *(NEW Vue-specific probe; was N/A under Alpine plan)*
+- [ ] `v-for` inline-array iteration: N items render correctly; mutations (push/pop/reorder) update correctly with `:key` preserving instance identity *(Vue-version: replaces `x-for`)*
+- [ ] `v-for` FK with nested resource read: auto-subscribe fires per ID inside the loop body; removal triggers grace-period unsubscribe *(Vue-version: replaces `x-for $loopVar`)*
+- [ ] `v-if` mount/unmount: bindings register/unregister with the conditional content *(Vue-version: replaces `x-if`)*
+- [ ] `v-for` + nested `v-if` (filtered iteration): clones mount/unmount independently
+- [ ] Vue `computed()` driving `v-if`: derivation re-runs on source change; `v-if` reacts *(Vue-version: replaces `state.computed()`)*
+- [ ] Test object includes Map, Date, and Cycle (Phase 5 testing invariant) *(framework-agnostic)*
+- [ ] Disconnect/reconnect: client B re-subscribes automatically and receives any updates that landed during disconnect *(framework-agnostic)*
+- [ ] **IME composition probe** (NEW Vue-specific, real-browser only): multi-key character composition (e.g., Japanese input) fires `compositionstart` / `compositionupdate` / `compositionend` events; exactly one transaction fires after composition ends, not one per intermediate keystroke
+- [ ] **Debounce flush-on-blur probe** (NEW): pending debounced write flushes when the bound input loses focus, even if the quiet window hasn't elapsed
+- [ ] **Debounce maxWait probe** (NEW): continuous typing across the maxWait boundary produces ≥1 transaction per maxWait window, not zero
+- [ ] **`v-model.eager` probe** (NEW): writes via `v-model.eager` bypass debouncing and fire transactions immediately
 
 ## Out of scope (post-demo)
 
@@ -641,11 +690,11 @@ All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace period
 
 ## Open Questions
 
-1. **Subscriber cleanup on disconnect** — exact mechanism. Options: (a) Gateway hooks WS close → "drop subscribers for clientId" → Star; (b) periodic Star sweep based on last-heartbeat; (c) accept leak for demo. (a) is right but needs Gateway plumbing.
+1. **Subscriber cleanup on disconnect** — **Resolved 2026-05-12** via drop-on-failed-fanout (Phase 5.3.5, shipped). `Star.#fanout` carries a result-handler continuation; on `ClientDisconnectedError` post-grace from the Gateway, `Star.onFanoutDelivered` drops the subscriber row inline. Three-mechanism cleanup model (active-WS-close + ontology-install-clear + drop-on-failed-fanout) covers all cases. See Phase -1 § 5 for the full record.
 2. **Permission revocation mid-subscription** — if admin revokes read permission on a node while subscribed, existing subscribers still fanout. Acceptable for demo; DAG-mutation path needs to invalidate subscribers for production.
 3. **`getEffectivePermission` per-subscriber on notification?** Probably no for demo; revisit for production.
 4. **Subscribe-time-then-no-recheck vs subscribe-time-and-on-deploy** — when Studio deploy changes guards/ontology, do existing subscribers get re-evaluated? **Resolved 2026-05-12**: all invalidated on deploy. `Star.#installState()` clears the `Subscribers` table via `DROP TABLE + CREATE TABLE` (one billed write). Clients re-subscribe naturally on the post-deploy page reload. Details in Phase -1 § 5 and Phase 5.3.2 / 5.3.4 checklists.
-5. **Subscription identifier** — does `(clientId, resourceType, resourceId)` uniquely identify a subscription, or need generated `subId` for multi-tab same-client? `instanceName` of the Gateway should already disambiguate.
+5. **Subscription identifier** — **Resolved by design**: `(clientId, resourceType, resourceId)` uniquely identifies a subscription. `clientId` is the Gateway's `instanceName` (`callContext.callChain.at(-1)?.instanceName`); multi-tab same-user = different Gateway instances = different `clientId`s. No generated `subId` needed.
 6. **Mesh-framework Promise correlation for `client.resources.read()`** — **Resolved 2026-05-12 in Phase 5.3.3b** via option (b) "hidden plumbing handler": client generates `requestId = crypto.randomUUID()` per call, threads through `Star.read(ontologyVersion, rt, rid, requestId)`, server delivers via new internal `@mesh() handleReadResponse(requestId, result)` on NebulaClient, which settles a `Map<requestId, {resolve, reject}>` entry. The earlier `handleReadResult` was removed entirely. Transactions don't need correlation thanks to the serial in-flight queue (5.3.3b).
 7. **Query language** — for "give me all todos where status='open'" with result-set subscription. Deferred to own phase. Design space includes query shape, server-side execution model, result-set subscription semantics, pagination, cursor stability across schema migrations.
 
@@ -653,11 +702,11 @@ All dynamic-DOM probes use `vi.waitFor` (MutationObserver is async; grace period
 
 Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a task — a bin for ideas that surface during the work but don't fit the current plan. Triage outcomes: do-now / later-task-file / backlog / drop. Resolve everything here before archiving this file.
 
-1. **Same-field conflict cascade during async resolver.** If a user has a modal open for `resources.todo.task-42.value.title` and keeps typing into that same title field while the modal is open, the additional typing enqueues new transactions with the pre-conflict `meta.eTag`. After the modal resolves and T1's submission lands, T2 fires with the now-stale eTag, conflicts against the server's new eTag, and the modal pops *again* with the latest server snapshot. Semantically correct (each conflict gets the user's choice); visually noisy ("why does this keep popping up?"). **Triage**: not solving for v1 — Studio-generated UIs rarely have a user typing into the field that's mid-conflict (the modal grabs focus). Possible v2 fixes: re-tag queued transactions with the latest server eTag at submission time, or batch typing into the same field while a modal is up (don't queue per-keystroke transactions).
+1. **Same-field conflict cascade during async resolver.** If a user has a modal open for `resources.todo.task-42.value.title` and keeps typing into that same title field while the modal is open, the additional typing enqueues new transactions with the pre-conflict `meta.eTag`. After the modal resolves and T1's submission lands, T2 fires with the now-stale eTag, conflicts against the server's new eTag, and the modal pops *again* with the latest server snapshot. Semantically correct (each conflict gets the user's choice); visually noisy ("why does this keep popping up?"). **Triage**: not solving for v1 — Studio-generated UIs rarely have a user typing into the field that's mid-conflict (the modal grabs focus). Possible v2 fixes: re-tag queued transactions with the latest server eTag at submission time, or batch typing into the same field while a modal is up (don't queue per-keystroke transactions). **Update 2026-05-14 (Vue replan)**: the pinned debouncing policy (500 ms quiet + 2000 ms maxWait, plus serial-per-resource queue using in-flight tx's resulting eTag for buffered writes) substantially mitigates this — fast typing during a modal becomes one buffered transaction submitted with the post-resolver eTag, not N queued transactions with stale eTags. The "noisy modal re-pop" still exists if typing crosses the maxWait boundary, but the typical case (sub-2-second modal interaction) is clean.
 
 2. **Re-conflict during human-in-the-loop batch resolution.** The doc's review-later example builds an atomic batched transaction from all pending conflicts. If any of the resources in that batch has churned again on the server (someone wrote between the original conflict and the user's review-later submission), the whole batch rolls back and the resolver fires again — for whichever resource(s) re-conflicted, plus presumably the same `'human-in-the-loop'` policy. The conflict stash gets re-populated; the user goes through review again. **Triage**: probably fine — the user's already in a "review and resolve" mindset, so a second review pass isn't jarring. But worth thinking about whether the framework should somehow signal "this is a re-resolution of a previously-handed-off conflict" so the UI can highlight it. Not blocking demo; revisit if real Studio markup exposes the friction.
 
-3. **`@lumenize/router`** — URL ↔ state-path two-way sync, ~200 LOC. Studio-blocking for multi-view apps. **Triage**: defer until first Studio app needs routing. Single-page-with-conditional-views (`x-if` on `ui.activeView`) is enough for most demo apps. **Outcome destination**: own task file (`tasks/lumenize-router.md`) when work starts; or fold into `tasks/nebula-frontend.md` if it stays small.
+3. **Client-side routing — RESOLVED 2026-05-14: default to `vue-router`.** The original Alpine-era plan (`@lumenize/router`, ~200 LOC URL↔state-path sync, written from scratch) is **abandoned**. With Vue 3 in-DOM mode as the framework target, [vue-router](https://router.vuejs.org/) is the canonical answer — mature, well-documented, large LLM training corpus, integrates natively with Vue's reactivity. **Triage**: when Studio first needs routing, scaffold vue-router. Single-page-with-conditional-views (`v-if` on `store.app.activeView`) still works for one-pager apps; routing kicks in when navigation, URL-encoded state, or back-button support matters. **URL-params-into-store**: the original 200 LOC "two-way sync" plan reduces to ~10 LOC of `watchEffect` in app code (or a tiny `useRouteSync({ todoId: 'app.activeTodoId' })` composable in `@lumenize/nebula-frontend` if Studio templates want it factored). **Only consider a custom router** if vue-router exposes a concrete blocker — e.g., reactive route-param-as-store-path that vue-router's composables can't express cleanly. None foreseen. **Outcome destination**: no separate task file needed; Studio app work picks up vue-router when routing surfaces.
 
 4. **Client-side typia validator for instant form validation.** Server-side validation is already shipped (typia compiled per ontology version, runs on every transaction). For "instant" form-validation UX (red border on invalid input as the user types, before submit), we'd want the same validator running client-side.
 
@@ -694,9 +743,7 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
 
    **Status**: tidy-up + Open Q4 both resolved into Phase 5.3.2 (server-side install-time clear) + Phase 5.3.4 (client-side refresh-cycle detection). Remaining: implementation in those phases. Drop-on-failed-fanout stays as a Phase -1 idea, not on any checklist.
 
-6. **Lifecycle hooks — resolved 2026-05-13 ahead of Phase 5.3.6b.** The framework already has *internal* lifecycle events: MutationObserver-driven binding registration/unregistration, refcount-based auto-subscribe / unsubscribe-with-grace, connection-state transitions surfaced at `lmz.connection.*`, conflict-resolver invocation, deploy/staleness signal. The triage below enumerated six candidate user-facing hook surfaces.
-
-   **Resolution**: ship the minimum-viable set in Phase 5.3.6b — **`x-on:mount` / `x-on:unmount` on elements + component-level `onMount(scope)` / `onUnmount(scope)`**. The remaining four candidates (per-resource-subscription, per-transaction granularity, auth/scope, `onReady`/`onError`) are explicitly deferred unless a Studio template exposes the friction. The chosen hooks are now line items in Phase 5.3.6b's "Lifecycle hooks (minimum-viable per Phase -1 § 6 resolution)" subsection — refer to that for implementation specifics; this entry is the historical triage record.
+6. **Lifecycle hooks — resolved 2026-05-13, REMAPPED 2026-05-14 (Vue replan).** The original resolution shipped `x-on:mount` / `x-on:unmount` directives + component-level `onMount(scope)` / `onUnmount(scope)` for the Alpine-flavored plan. **Under the Vue replan, lifecycle hooks are stock Vue: `onMounted(fn)` / `onBeforeUnmount(fn)` / `onUnmounted(fn)` from `vue`**. Same semantics (per-instance, scope-injected, error-contained); zero custom code in `@lumenize/nebula-frontend`. The remaining four candidates (per-resource-subscription, per-transaction granularity, auth/scope, `onReady`/`onError`) remain explicitly deferred. The original triage record below is kept for context.
 
    Candidate hook points to consider:
    - **Per-element / per-binding**: `x-on:mount` / `x-on:unmount` — fires when a directive-bearing element enters/leaves the DOM tree the crawler is observing. Distinct from `x-on:click` etc., which are real DOM events. Useful for: starting a timer when a card mounts, releasing a resource handle when it unmounts, focusing an input on appearance.
@@ -764,30 +811,6 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    **When to revisit**: if a Studio app exposes the friction. Likely shape: collect all conflicting resources by type, invoke each type's resolver once with that type's conflicting set, merge the verdicts. `'use-this'` verdict's `value` would need a per-resource shape (`Record<resourceId, value>`). `'human-in-the-loop'` covering multiple resources is its own UX question (one modal for all? one per resource?). For demo, leave it as a known limitation.
 
    **Outcome destination**: design pass when a real workload requires it; until then, this Phase -1 entry is the record.
-
-9. **Alpine.js plugins vs custom directive layer (raised 2026-05-13).** Each round of 5.3.7 design pinning surfaces another "this is how Alpine handles it" answer (cursor guard, x-input form types, $local-shape, ternary-or-no, recursion). The accumulating evidence: we're recreating a sliver of Alpine. **Triage**: not pivoting for the demo. The pin-and-borrow-Alpine's-solutions model the user proposed is the right middle ground — keep custom code, but when a corner case has an established Alpine answer, just adopt it. Three places this could change later: (a) form-input variety beyond text/textarea/checkbox/select (radio, number, date, file, multi-select) — Alpine plugins like `alpinejs-mask` or `alpine-form` handle many of these; (b) animation/transition directives (`x-transition`) — Alpine plugin territory; (c) instance-level reactivity systems (`x-data` scope) that Alpine has natively but we explicitly opted against. **When to revisit**: when ontology-driven forms work happens (need rich input types per field-format — email, phone, date — that align with Alpine's plugin ecosystem). If we hit a third major decision that defaults to "do what Alpine does," reopen the "use Alpine as a base" question seriously. **Outcome destination**: design memo or its own task file when the trigger lands; until then, this entry is the record.
-
-## Pre-port JurisJS inventory (archive reference)
-
-> **⚠ Superseded by 2026-05-09 direction-pinning.** Inventory remains as historical reference. Port scope is now narrower: only `StateManager` + top-level helpers (~340 LOC) port to `@lumenize/state`. `DOMRenderer`, `ComponentManager`, the `Juris` orchestrator, async-prop machinery, and JurisJS router/url-state-sync are **not** being ported.
-
-Source read: cloned `https://github.com/jurisjs/juris.git`. MIT-licensed. ~2,227 LOC in `src/juris.js`.
-
-**Keeping** (in `@lumenize/state`):
-- Top-level helpers — `isValidPath`, `getPathParts`, `deepEquals` (~30 LOC)
-- `StateManager` (lines 138–445, ~310 LOC) — `getState`, `setState`, `subscribe`, `subscribeExact`, `track` + `deps`, `executeBatch`, middleware list, `#hasCircularUpdate`, `#notifySubscribers`, `#triggerPathSubscribers`
-
-**Not porting** (replaced by `@lumenize/ui` from scratch or unneeded):
-- `DOMRenderer` (~910 LOC)
-- `ComponentManager` (~485 LOC)
-- `Juris` orchestrator (~250 LOC)
-- Async-prop / promise placeholder machinery (~250 LOC)
-- `url-state-sync.js` / `juris-router.js` (~700 LOC each — write `@lumenize/router` from scratch instead)
-- Template compiler (`juris-template.js`)
-- Web Component factory (`juris-webcomponent.js`)
-- DOM enhancer (`juris-enhance.js`)
-- CSS extractor (`juris-cssextractor.js`)
-- Headless add-ons (most of `headless/` and `src/headless/`)
 
 ## Notes
 
