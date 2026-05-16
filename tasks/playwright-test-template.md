@@ -4,11 +4,11 @@
 
 **Goal**: a reusable real-browser test template for any `@lumenize/*` package that bundles a NebulaClient-backed front end. The template should be drop-in: a new package wanting real-browser coverage copies the vitest config + playwright shim + a test scaffold, and is up and running.
 
-The Vue-in-DOM spike validated end-to-end behavior in jsdom + `@lumenize/testing`'s `Browser` class because three known transitive imports prevent real-browser bundling. Each is mechanical to fix; this task bundles all three with the test-template work so they ship together with regression-tests.
+The Vue-in-DOM spike validated end-to-end behavior in jsdom + `@lumenize/testing`'s `Browser` class because three known transitive imports prevent real-browser bundling. Each is mechanical to fix; this task bundles all three with the test-template work so they ship together with regression-tests. A fourth item (item #4 below) is a Node-side test failure of different category, filed here because it belongs to the same "browser-tier needs work before we trust it" theme.
 
 ---
 
-## Three known blockers
+## Known blockers
 
 ### 1. `@lumenize/debug` imports `cloudflare:workers`
 
@@ -52,6 +52,36 @@ Concretely:
 - [ ] Implement the parse + match + header-set logic in `routeDORequest()` (or its NebulaAuth wrapper).
 - [ ] Add a unit test (worker test) asserting (a) no `Origin` header → no CORS headers in response; (b) `Origin` not in list → no CORS headers; (c) `Origin` in list → matching `Access-Control-Allow-Origin`; (d) preflight `OPTIONS` returns correct headers.
 - [ ] Document in NebulaAuth's docs that this binding is required for non-same-origin browser clients.
+
+### 4. `smoke.test.ts > round-trip` errors with null/undefined object conversion
+
+**Different category from #1–#3** (those are browser-bundling failures caught by vite static analysis; this is a Node-side runtime test failure). Filed here because both belong to "browser-tier test issues that need investigation before we trust the tier for regression-gating."
+
+Source: [apps/nebula/test/browser/smoke.test.ts](../apps/nebula/test/browser/smoke.test.ts) step 3 (`"3. round-trip — NebulaClient → Gateway → Star → Galaxy → result"`). Run in isolation against a local `wrangler dev` (no `BENCH_BASE_URL` override), a `client.callStarTransaction(...)` call sets:
+
+```
+client.lastError = "Cannot convert undefined or null to object"
+```
+
+Steps 1 (smoke baseline) and 2 (auth flow) pass when smoke runs alone. The message is the exact form thrown by `Object.{keys,entries,values,assign}(null|undefined)`.
+
+**Diagnostic state (2026-05-16, on `feat/structured-clone-object-based-wire-format` after Phase 1+2 W4 wire-format work):**
+- Baseline test-app (covering the same transaction round-trip code path through Star→Galaxy) **passes**.
+- Direct `preprocess`→`postprocess` round-trip on the exact transaction payload shape (`{ [uuid]: { op, typeName, nodeId, value: { title } } }`) is **byte-identical** — the new W4 wire format is NOT mangling this shape.
+- Phase 1+2 commits do not touch `apps/nebula/src/`, `packages/mesh/`, or `packages/rpc/` — only `packages/structured-clone/`. A regression localized to one browser-tier test while baseline passes through the same path is statistically unlikely.
+- Pre-branch state at `feat/nebula-resources` tip (`70f1667`) **not bisected**: `npm install` at that tip fails with `zwitch@2.0.4 not found` (lockfile/registry mismatch), so the cheap bisect path was blocked.
+
+**Plausible causes (likelihood order):**
+1. **Pre-existing flakiness/breakage.** The browser tier was moved off the default `npm test` (run on-demand via `npm run bench`, per memory + the bench/regular tests sharing the directory). This test may have been broken for a while without anyone noticing.
+2. A code path in `Star.doTransaction` or `Resources.transaction` calling `Object.keys` on a value that's null under timing-specific conditions baseline doesn't trigger (e.g., a cache-miss-then-Galaxy-fetch race).
+3. Real Phase 1+2 regression in a code path baseline doesn't exercise — possible but unlikely given the probe + zero consumer-code changes.
+
+The `InstrumentedNebulaClientGateway` (bench-only subclass) is bound in the local browser-test wrangler config as `NebulaClientGateway` via aliased export. The bench_marker frames it emits trigger an `"Unknown Gateway message type: bench_marker"` warning on the unchanged client — that's stderr noise, not the failure, but it's another small contract-drift hint worth checking during investigation.
+
+**Investigation approach:**
+- [ ] Instrument `Star.doTransaction` / `Resources.transaction` (or the request-handling chain on the server) to capture the stack trace of the actual throw, not just propagate the message. The current `lastError` carries only `.message` — the stack would localize the null/undefined origin.
+- [ ] Definitively classify pre-existing vs regression — either fix the deps issue at `70f1667` and bisect, or check CI history for prior smoke runs.
+- [ ] Fix the actual bug, OR document the test's expected operating mode (e.g., "requires `BENCH_BASE_URL` pointing at a deployed worker; otherwise xfail"), OR `it.skip` with a clear TODO if the root cause needs deeper rework.
 
 ---
 
