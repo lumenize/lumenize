@@ -144,10 +144,23 @@ Tests green in cowork (Linux sandbox):
 - `apps/nebula/test/test-apps/baseline/` — same constraint plus needs `.dev.vars`.
 
 **Phase 2 follow-up (deferred, low risk):**
-1. Rewrite `packages/ts-runtime-validator/src/to-typescript.ts` walker to consume W4 directly (drop `w4ToLegacyTuple`). Mechanical: every `tag = node[0]` dispatch becomes a `$type` check; `["$lmz", id]` becomes `{ $ref: id }`.
-2. Verify mesh/rpc/nebula test suites on a local Mac/Linux runner with workerd available.
-3. Regenerate API reference pages under `website/docs/structured-clone/api/` (LmzIntermediate.md was updated by hand; other auto-generated pages may need a regeneration pass if the JSDoc shape they're generated from has shifted).
-4. Phase 3 (in-memory DAG normalization) and Phase 4 (per-mutation patches in Star fanout) per task plan — both LOCAL only.
+1. ~~Rewrite `packages/ts-runtime-validator/src/to-typescript.ts` walker to consume W4 directly.~~ **Resolved (commit `30e47f9`)**: the package is deprecated (superseded by `@lumenize/ts-runtime-parser-validator`) and no internal consumer imports from it, so `toTypeScript()` was reduced to a stub that throws a clear migration message. The legacy walker is preserved in git history if anyone wants to revive it later.
+2. **Verify mesh/rpc/nebula test suites on local Mac** (the workerd-blocked items). This is the first thing to do after switching from cowork to Claude Code:
+   - `packages/mesh/` — uses preprocess/postprocess as black boxes; expected green.
+   - `packages/rpc/` — same.
+   - `packages/ts-runtime-parser-validator/` — doesn't import structured-clone; untestable in cowork (cloudflareTest needs workerd-darwin), should be green on Mac.
+   - `apps/nebula/test/test-apps/baseline/` — needs `.dev.vars` (JWT keys, admin bootstrap email, Resend API key, etc.). Pre-flight check before Phase 3.
+3. Regenerate API reference pages under `website/docs/structured-clone/api/` (LmzIntermediate.md was updated by hand in cowork but `/docs/**/api` is gitignored, so the edit didn't persist; the JSDoc on the new `LmzIntermediate` interface is correct so the next regeneration pass produces correct docs).
+4. **Cowork-only artifacts that can stay or go on Mac:**
+   - `packages/structured-clone/vitest.node-only.config.ts` — a crutch added because cowork's Linux sandbox lacks `workerd-linux-arm64` alongside the host-installed `workerd-darwin-arm64`. On Mac the standard `vitest.config.js` works. Keep it (helpful for future cowork sessions, doesn't change anything for Mac users) or delete it (one fewer config to think about) — pick on local.
+5. **Pre-existing dirty working-tree files from a prior cowork session (~1 month stale per Larry's recollection)** — these were carried in by the cowork mount on Day 1 and never touched by Phase 1/2 commits, so they won't conflict with anything. On Mac, `git status` will show them as modified/untracked. Inspect each and decide keep-or-discard:
+   - `tasks/nebula-frontend.md`, `tasks/nebula-studio.md` (modified)
+   - `website/docs/mesh/calls.mdx`, `website/docs/mesh/index.mdx` (modified)
+   - `website/docs/nebula/coding-your-ui.md` (modified, 1580 lines)
+   - `website/sidebars.ts` (modified)
+   - `package.json` adds `apps/nebula/spike/sfc-devstar-loop` to workspaces; `package-lock.json` accordingly
+   - Untracked: `apps/nebula/spike/sfc-devstar-loop/`, `tasks/archive/spike-sfc-dev-cycle.md`, `tasks/debounce-serial-queue.md`, `tasks/icebox/typia-visit-tracking.md`, `tasks/playwright-test-template.md`, `website/docs/nebula/api-reference.md`, `website/docs/nebula/resources.md`, `.claude/settings.local.json`
+6. Phase 3 (in-memory DAG normalization in `apps/nebula/src/{dag-tree,dag-ops}.ts`) and Phase 4 (per-mutation patches in Star fanout) per task plan — both LOCAL only.
 
 ## Phase 3: Nebula DAG In-Memory Normalization (LOCAL)
 
