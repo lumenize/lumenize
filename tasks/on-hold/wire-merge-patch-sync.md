@@ -3,7 +3,7 @@
 **Status**: On hold — post-demo
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
-- DAG normalization in [tasks/nebula-dag-normalize.md](../nebula-dag-normalize.md) (Phase 3 of the original wire-format task) — required for the DAG-tree half of this work, not for the per-resource half
+- DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
 **Related**: [tasks/nebula-frontend.md](../nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal

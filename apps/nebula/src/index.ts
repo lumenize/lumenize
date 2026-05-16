@@ -25,7 +25,7 @@ export { OntologyStaleError, isOntologyStaleError } from './errors';
 
 // DAG tree
 export { DagTree } from './dag-tree';
-export type { PermissionTier, DagTreeState } from './dag-ops';
+export type { PermissionTier, DagTreeState, DagTreeView, DagTreeNodeData, EdgeKey } from './dag-ops';
 export {
   ROOT_NODE_ID,
   validateSlug,
@@ -35,6 +35,8 @@ export {
   getEffectivePermission,
   getNodeAncestors,
   getNodeDescendants,
+  buildDagTreeView,
+  makeEdgeKey,
 } from './dag-ops';
 
 // Gateway

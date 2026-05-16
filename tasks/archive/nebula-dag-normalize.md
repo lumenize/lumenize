@@ -1,7 +1,19 @@
 # Nebula DAG In-Memory Normalization
 
-**Status**: Not started — next up, pre-demo
-**Context**: Originally Phase 3 of [tasks/archive/structured-clone-object-based-wire-format.md](archive/structured-clone-object-based-wire-format.md). Extracted to its own task when that file was archived (Phases 1+2 of the wire format shipped 2026-05-16; Phase 3 still pending; Phase 4 moved to [tasks/on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md)).
+**Status**: ✅ Complete (shipped 2026-05-16)
+**Context**: Originally Phase 3 of [tasks/archive/structured-clone-object-based-wire-format.md](archive/structured-clone-object-based-wire-format.md). Extracted to its own task when that file was archived (Phases 1+2 of the wire format shipped 2026-05-16; Phase 4 → [tasks/on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md)).
+
+## Outcome (2026-05-16)
+
+- `DagTreeState` is now `{ nodes, edges, permissions }`. `NodeData` no longer carries `parentIds[]` / `childIds[]`.
+- New `DagTreeView` interface (state + `parentsByChild` + `childrenByParent` adjacency indexes), with `buildDagTreeView(state)` helper exported from `@lumenize/nebula`.
+- `dag-ops.ts` functions (`detectCycle`, `checkSlugUniqueness`, `resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`) take `DagTreeView` first arg instead of `DagTreeState`.
+- `DagTree` class lazily builds the view alongside the state cache; both invalidated via a single `#invalidate()` helper on every mutation.
+- `EdgeKey` is a template-literal type (`` `${number}:${number}` ``) with a `makeEdgeKey(p, c)` helper. Edge existence checks (in `addEdge`, `removeEdge`, `reparentNode`) use `state.edges.has(makeEdgeKey(p, c))`.
+- Baseline test-app: 166 passed / 2 skipped (same count as pre-refactor). Test assertions on `state.nodes.get(id)!.parentIds`/`childIds` replaced with `state.edges.has(\`${p}:${c}\`)`.
+- `apps/nebula` type-check clean.
+
+Pre-existing typecheck errors in `packages/ts-runtime-validator` (missing `dist/typescript.bundled.mjs` declaration file) are unrelated to this work — the package is deprecated and its build artifact would need to be regenerated; out of scope for Phase 3.
 
 ## Goal
 
