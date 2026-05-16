@@ -150,6 +150,72 @@ Extend `dag-tree.test.ts` (or add `dag-tree-sync.test.ts`):
 - read-with-too-stale-ETag → full snapshot
 - patch-apply-failure → full-snapshot retry
 
+## Adjacent DAG optimization: lazy access-control reads
+
+Independent of the patch-sync work but landing in the same cost-efficiency theme. Worth capturing here because the implementation reshapes the DagTree class's read paths and conflicts conceptually with the diff-source-of-truth design — they should be decided together.
+
+### Motivation
+
+After Phase 3 (DAG normalization), every cold-path access to `DagTree.requirePermission(...)` triggers `#buildState()`, which is a full-table scan of `Nodes`, `Edges`, and `Permissions` (~`N + E + P` row reads — ~2.5k rows for a 1k-node DAG). Under DO hibernation (10s idle → eviction), every wake-up pays this cost on the very first request.
+
+But 99% of requests aren't DAG mutations — they're permission checks for normal resource operations. A permission check only needs to know "does `sub` have at least `tier` on `nodeId`?" — which is bounded by tree depth × upward fanout. For typical org trees (depth 3–6, fanout 1–2), that's 3–12 row reads — and usually fewer because the check short-circuits on a direct grant near the leaf.
+
+**100–1000× fewer reads per cold-path permission check.** At scale (e.g., 10k Stars × 10 wake-ups/day × 2.5k reads each = 250M row-reads/day just from cold loads), this is real money.
+
+### The proposal
+
+Add a "cold mode" path that reads adjacency and grants from SQL on demand, used when `#_view` is null:
+
+1. `DagTree.requirePermission(nodeId, tier)`: if `#_view` exists, use the in-memory walk (current behavior). Otherwise, walk via per-node SQL.
+2. SQL walk for permission check on `(sub, nodeId, tier)`:
+   - `SELECT permission FROM Permissions WHERE nodeId = ? AND sub = ?` (uses PK index)
+   - If grant >= tier → return true
+   - Else: `SELECT parentNodeId FROM Edges WHERE childNodeId = ?` (uses `idx_Edges_child`)
+   - For each parent, repeat (BFS with visited set)
+3. Mutations still trigger the rebuild (cycle detection + slug uniqueness need the full view). After a mutation, the cache stays warm under sustained activity; eviction returns the DO to cold mode.
+
+### Graceful degradation
+
+- **Lightly loaded Star (rare access, mostly hibernated)**: every wake stays in cold mode → permission checks cost ~depth reads, never pays the 2.5k rebuild. Wins big.
+- **Heavily loaded Star (sustained activity)**: first mutation rebuilds the cache → cache stays warm under continuous use → in-memory path serves all subsequent permission checks → no SQL pollution. No regression.
+- **Mid case (occasional bursts)**: each burst's first request uses SQL (cheap); mutations within the burst warm the cache.
+
+### Implementation outline
+
+Cleanest design: a thin adapter interface so the walks themselves live once.
+
+```ts
+interface DagTreeReader {
+  getDirectGrants(nodeId: number, sub: string): PermissionTier | null;
+  getParents(nodeId: number): Iterable<number>;
+}
+```
+
+- `InMemoryReader` wraps a `DagTreeView`
+- `SqlReader` wraps `DurableObjectState['storage']`
+
+`resolvePermission(reader, sub, nodeId, tier)` and `getEffectivePermission(reader, sub, nodeId)` accept a `DagTreeReader` instead of (or in addition to) `DagTreeView`. The walking logic stays in one place.
+
+`DagTree.requirePermission()` picks: `reader = this.#_view ? new InMemoryReader(this.#_view) : new SqlReader(this.#ctx.storage)`.
+
+Cycle detection, slug uniqueness, `getNodeAncestors`, `getNodeDescendants`: leave on the view path; mutations rebuild it anyway.
+
+### Risks
+
+1. **Test coverage drift**: in-memory path gets heavily tested because mutations are common in test setup. SQL path can go untested. Mitigation: a test fixture that constructs a DO with seed data via direct SQL, then runs permission-check assertions BEFORE any mutation (so the view stays null).
+2. **Two paths for the same logic** if the adapter abstraction isn't strong enough. Mitigation: keep the adapter narrow (the two methods above), so divergence is impossible by construction.
+3. **Worst-case deep tree**: a 20-deep tree with grants only at the root means 20 SQL reads per permission check. Still microseconds (in-process SQLite), but worth bounding in monitoring once we have real workloads.
+
+### Interaction with diff-source-of-truth options
+
+- **Option C (in-memory snapshot reference, recommended above)**: orthogonal — Option C tracks `lastFanoutSnapshot` for patch generation; this proposal optimizes a different read path (permission checks). Both can land together.
+- **Option A (whole DAG as Resource row)**: somewhat redundant — A's cold-load cost is already 1 row read, so the "lazy" optimization buys little. Decide A first; if A wins, this section becomes moot.
+- **Option B (validFrom/validTo per row)**: complementary — the SQL walks here would query `Nodes`/`Edges`/`Permissions` as-of `now`, slightly more complex but tractable.
+
+### When to do this
+
+Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fresh and the abstractions are still local. Could ship pre-demo as a cost optimization, or wait until the patch-sync work picks up and bundle it.
+
 ## Open design questions (defer until pickup)
 
 - **Patch-history retention concrete N for resources.** Memory budget vs. cache hit rate.
