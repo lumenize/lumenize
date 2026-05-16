@@ -132,6 +132,23 @@ Two options for the patch generate/apply primitives:
 - (b) Hand-roll — apply is ~50 LOC, diff is ~150 LOC, no transitive dependencies.
 Decide during Phase 1 with library survey; record in `RESULTS.md`.
 
+**Phase 2 status (2026-05-16):** ✅ Format refactor shipped in cowork. The W4 `{ json, meta }` format is now the wire format produced by `preprocess()` and consumed by `postprocess()` in `packages/structured-clone/`. `diff` and `applyMergePatch` are exported from the public API per the success criterion.
+
+Tests green in cowork (Linux sandbox):
+- `packages/structured-clone/` — 270/270 (node project; the workers project can't run in cowork because `workerd-linux-arm64` isn't installed alongside the host-installed `workerd-darwin-arm64`. A temporary `vitest.node-only.config.ts` was added — Mac users should keep using `vitest.config.js`.)
+- `packages/ts-runtime-validator/` — 272/272. `to-typescript.ts` was kept on the legacy tuple shape via a local W4→tuple adapter (`w4ToLegacyTuple` in `to-typescript.ts`) — rewriting its walker to consume W4 directly is tracked as Phase 2 follow-up below.
+
+**Cowork could not run** (require `workerd-linux-arm64` or `.dev.vars`):
+- `packages/mesh/` — uses `@cloudflare/vitest-pool-workers`. Must re-run locally on the Mac side of the workspace before merging. Code review of `packages/mesh/src/lmz-api.ts`, `gateway-messages.ts`, `lumenize-client-gateway.ts`, `alarms.ts` shows they consume `preprocess()`/`postprocess()` opaquely (no inspection of `.root`/`.objects[]`), so they should be source-compatible with the new shape.
+- `packages/rpc/` — same: uses `parse()`/`postprocess()`/`preprocess()` as black boxes.
+- `apps/nebula/test/test-apps/baseline/` — same constraint plus needs `.dev.vars`.
+
+**Phase 2 follow-up (deferred, low risk):**
+1. Rewrite `packages/ts-runtime-validator/src/to-typescript.ts` walker to consume W4 directly (drop `w4ToLegacyTuple`). Mechanical: every `tag = node[0]` dispatch becomes a `$type` check; `["$lmz", id]` becomes `{ $ref: id }`.
+2. Verify mesh/rpc/nebula test suites on a local Mac/Linux runner with workerd available.
+3. Regenerate API reference pages under `website/docs/structured-clone/api/` (LmzIntermediate.md was updated by hand; other auto-generated pages may need a regeneration pass if the JSDoc shape they're generated from has shifted).
+4. Phase 3 (in-memory DAG normalization) and Phase 4 (per-mutation patches in Star fanout) per task plan — both LOCAL only.
+
 ## Phase 3: Nebula DAG In-Memory Normalization (LOCAL)
 
 **Goal:** Apply D1 to `apps/nebula`. Baseline test-app green.

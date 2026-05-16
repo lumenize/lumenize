@@ -7,7 +7,149 @@
  * @see tasks/nebula-5.2.1-structured-clone-to-typescript.md for full design
  */
 
-import { preprocess, type LmzIntermediate } from '@lumenize/structured-clone';
+import { preprocess } from '@lumenize/structured-clone';
+
+/**
+ * Local tuple-format adapter.
+ *
+ * The structured-clone package now emits the W4 `{ json, meta }` format
+ * (see `experiments/structured-clone-object-format/RESULTS.md`). This file's
+ * walker is heavily coupled to the legacy `{ root, objects[] }` tuple shape
+ * — rewriting it is tracked as Phase 2 follow-up in
+ * `tasks/structured-clone-object-based-wire-format.md`.
+ *
+ * As a stopgap, we convert W4 → legacy tuples in-process. Behavior is
+ * identical because the conversion preserves cycles via the same `$lmz`
+ * indirection.
+ */
+interface LegacyTuple {
+  root: any;
+  objects: any[];
+}
+
+function w4ToLegacyTuple(intermediate: { json: any; meta: { aliases?: Record<string, any> } }): LegacyTuple {
+  const objects: any[] = [];
+  const aliasIdToSlot = new Map<number, number>();
+  // Pre-allocate alias slots so cycles can resolve back-refs.
+  const aliasesIn = intermediate.meta?.aliases ?? {};
+  for (const key of Object.keys(aliasesIn)) {
+    aliasIdToSlot.set(Number(key), objects.length);
+    objects.push(null);
+  }
+  // Fill alias slots.
+  for (const key of Object.keys(aliasesIn)) {
+    const aliasId = Number(key);
+    const slotIdx = aliasIdToSlot.get(aliasId)!;
+    objects[slotIdx] = w4EncodeAsTuple(aliasesIn[key], objects, aliasIdToSlot);
+  }
+  const root = w4EncodeInline(intermediate.json, objects, aliasIdToSlot);
+  return { root, objects };
+}
+
+function w4UnescapeKey(k: string): string {
+  return k.startsWith('$$') ? k.slice(1) : k;
+}
+
+/** Convert a W4 value to either an inline tuple (for primitives) or a `["$lmz", id]` ref (for complex). */
+function w4EncodeInline(v: any, objects: any[], aliasIdx: Map<number, number>): any {
+  if (v === null) return ['null'];
+  if (typeof v === 'string') return ['string', v];
+  if (typeof v === 'number') return ['number', v];
+  if (typeof v === 'boolean') return ['boolean', v];
+  if (typeof v === 'object' && v !== null) {
+    if ('$ref' in v && Object.keys(v).length === 1) {
+      return ['$lmz', aliasIdx.get(v.$ref)!];
+    }
+    if ('$type' in v) {
+      // Inline-only tags (primitives in legacy format)
+      const t = v.$type;
+      if (t === 'undefined') return ['undefined'];
+      if (t === 'bigint') return ['bigint', v.value];
+      if (t === 'number-special') return ['number', v.value];
+      // Other $type values are complex — slot them.
+    }
+    const slotIdx = objects.length;
+    objects.push(null);
+    objects[slotIdx] = w4EncodeAsTuple(v, objects, aliasIdx);
+    return ['$lmz', slotIdx];
+  }
+  // Defensive fallback (shouldn't reach here for valid W4 input)
+  return v;
+}
+
+/** Convert a W4 complex value into the legacy slot tuple form (e.g. `["object", {...}]`). */
+function w4EncodeAsTuple(v: any, objects: any[], aliasIdx: Map<number, number>): any {
+  if (Array.isArray(v)) {
+    return ['array', v.map((x) => w4EncodeInline(x, objects, aliasIdx))];
+  }
+  if (v && typeof v === 'object' && '$type' in v) {
+    const t = v.$type as string;
+    switch (t) {
+      case 'date':
+        return ['date', v.iso];
+      case 'regexp':
+        return ['regexp', { source: v.source, flags: v.flags }];
+      case 'url':
+        return ['url', { href: v.href }];
+      case 'headers':
+        return ['headers', v.entries];
+      case 'map':
+        return [
+          'map',
+          v.entries.map(([k, val]: [any, any]) => [
+            w4EncodeInline(k, objects, aliasIdx),
+            w4EncodeInline(val, objects, aliasIdx),
+          ]),
+        ];
+      case 'set':
+        return ['set', v.values.map((x: any) => w4EncodeInline(x, objects, aliasIdx))];
+      case 'function':
+        return ['function', { name: v.name }];
+      case 'error': {
+        const out: any = { name: v.name, message: v.message };
+        if (v.stack !== undefined) out.stack = v.stack;
+        if (v.cause !== undefined) out.cause = w4EncodeInline(v.cause, objects, aliasIdx);
+        for (const k of Object.keys(v)) {
+          if (['$type', 'name', 'message', 'stack', 'cause'].includes(k)) continue;
+          out[w4UnescapeKey(k)] = w4EncodeInline(v[k], objects, aliasIdx);
+        }
+        return ['error', out];
+      }
+      case 'request-sync':
+        // Headers field is already an encoded W4 value — re-encode to inline form.
+        return ['request-sync', { ...v.data, headers: w4EncodeInline(v.data.headers, objects, aliasIdx) }];
+      case 'response-sync':
+        return ['response-sync', { ...v.data, headers: w4EncodeInline(v.data.headers, objects, aliasIdx) }];
+      case 'boolean-object':
+        return ['boolean-object', v.value];
+      case 'number-object':
+        return ['number-object', v.value];
+      case 'string-object':
+        return ['string-object', v.value];
+      case 'bigint-object':
+        return ['bigint-object', v.value];
+      case 'arraybuffer':
+        return ['arraybuffer', {
+          type: v.subtype,
+          data: v.data,
+          ...(v.byteOffset !== undefined ? { byteOffset: v.byteOffset } : {}),
+          ...(v.byteLength !== undefined ? { byteLength: v.byteLength } : {}),
+        }];
+      // 'undefined', 'bigint', 'number-special' handled in w4EncodeInline
+      default:
+        // Unknown tag — emit a plain object with the $type preserved.
+        const objOut: any = {};
+        for (const k of Object.keys(v)) objOut[w4UnescapeKey(k)] = w4EncodeInline(v[k], objects, aliasIdx);
+        return ['object', objOut];
+    }
+  }
+  // Plain object
+  const out: any = {};
+  for (const k of Object.keys(v)) out[w4UnescapeKey(k)] = w4EncodeInline(v[k], objects, aliasIdx);
+  return ['object', out];
+}
+
+type LmzIntermediate = LegacyTuple; // local alias — file's walker still expects this shape
 
 /** Valid JS identifier pattern — keys matching this can be unquoted in object literals */
 const IDENTIFIER_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
@@ -145,8 +287,10 @@ export function toTypeScript(
   typeName: string,
   typeParams?: Record<string, string>,
 ): string {
-  // Pass 1: preprocess() → LmzIntermediate
-  const intermediate: LmzIntermediate = preprocess(value);
+  // Pass 1: preprocess() returns W4 format; convert to legacy tuple shape
+  // for this file's walker (Phase 2 follow-up: rewrite walker to consume W4 directly).
+  const w4 = preprocess(value);
+  const intermediate: LmzIntermediate = w4ToLegacyTuple(w4 as { json: any; meta: { aliases?: Record<string, any> } });
 
   // Pass 2: Walk intermediate.root to emit TypeScript
   const visiting = new Set<number>();
