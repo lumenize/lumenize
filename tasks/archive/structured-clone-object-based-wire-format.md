@@ -1,8 +1,20 @@
 # Structured-Clone: Object-Based Wire Format for RFC 7396 Diffs
 
-**Status**: Design Complete, Implementation Not Started
-**Branch**: `feat/structured-clone-object-based-wire-format` (off `feat/nebula-resources`)
+**Status**: Archived — Phases 1+2 shipped, remainder split across other tasks
+**Branch**: `feat/structured-clone-object-based-wire-format` (merged into `feat/nebula-resources` via [PR #11](https://github.com/lumenize/lumenize/pull/11), merge commit `260c242`, then deleted)
 **Created**: 2026-05-16
+**Archived**: 2026-05-16
+
+## Outcome summary
+
+| Phase | Status | Where the work lives now |
+|---|---|---|
+| 1 — experiment + W4 winner selection | ✅ Shipped | `experiments/structured-clone-object-format/` (per CLAUDE.md, stays in workspaces while it works) |
+| 2 — W4 ships in `@lumenize/structured-clone` (preprocess/postprocess/diff/applyMergePatch + RFC 7396 conformance) | ✅ Shipped | `packages/structured-clone/` on `feat/nebula-resources` |
+| 3 — Nebula DAG in-memory normalization | 🔜 Next up (pre-demo) | Extracted to [tasks/nebula-dag-normalize.md](nebula-dag-normalize.md) |
+| 4 — Wire merge-patch into Star fanout (DAG) + per-resource reads | ⏸ On hold (post-demo) | Moved + scope-expanded to [tasks/on-hold/wire-merge-patch-sync.md](on-hold/wire-merge-patch-sync.md) |
+
+The content below is the original full plan, preserved for design-decision history (D1–D5, Co-work environment notes, candidate-format trade-offs, etc.). For current work see the linked tasks.
 
 ## Objective
 
