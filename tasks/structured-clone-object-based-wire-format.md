@@ -67,6 +67,8 @@ Co-work runs without `.dev.vars` (gitignored secrets: JWT keys, NEBULA_AUTH_BOOT
 
 **Location:** `experiments/structured-clone-object-format/` (per CLAUDE.md experiments convention — own `package.json`, add as individual entry to root workspaces, run `npm install` at repo root). Add a one-line entry in this task file when the experiment dir is created.
 
+**Experiment status (2026-05-16):** ✅ Complete. Winner is **W4** (SuperJSON-style nested document + sparse meta sidecar). See [experiments/structured-clone-object-format/RESULTS.md](../experiments/structured-clone-object-format/RESULTS.md) for the full breakdown — W4 dominates on both snapshot size (21% smaller gzipped than current tuple at N=10k) AND patch size (rename/move/grant under 100 bytes gzipped, vs 165KB for tuple's full-snapshot-on-any-change). Patch library decision: hand-rolled (~120 LOC, no deps) at [experiments/structured-clone-object-format/src/merge-patch.ts](../experiments/structured-clone-object-format/src/merge-patch.ts) — moves into the package in Phase 2.
+
 **What to build:**
 
 1. **Synthetic DAG state generator** — produces a deterministic `{ nodes, edges, permissions }` object of N nodes with realistic fanout distribution (e.g., 80% leaves, 15% mid-tier branches, 5% root-ish wide branches). Generate fixtures at N=100, N=1000, N=10000.
