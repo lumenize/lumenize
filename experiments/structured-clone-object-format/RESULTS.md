@@ -115,7 +115,13 @@ Perf is within a 2× band across formats — none are disqualified on perf.
 | W3 | 4.1 ms | 3.1 ms | 17.4 ms | 1.0 ms |
 | W4 | 6.2 ms | 5.7 ms | 15.2 ms | 1.5 ms |
 
-W4's encode/decode are 30–50% slower than tuple's because the current reference impl uses `JSON.parse(JSON.stringify(...))` as a stand-in for a content-preserving deep clone — production Phase 2 code should clone directly. Even so, encode at 6ms for a 10k-node DAG is below the 16ms frame budget and well below the typical RPC latency floor.
+W4's encode/decode are 30–50% slower than tuple's because the experiment's reference impl takes a shortcut: `JSON.parse(JSON.stringify(state))` as a one-liner that both produces the wire form AND ensures the result doesn't share references with the input (so test mutations don't leak). The tuple/W1/W2/W3 encoders avoid the second JSON pass for free because they're walking and allocating fresh containers as they go.
+
+This shortcut is a property of the **experiment's reference impl**, not the W4 format itself. A production W4 encoder doesn't clone separately — it walks the source once and emits the wire form inline, exactly like the tuple encoder does. Phase 2's `packages/structured-clone/src/preprocess.ts` is written this way, and its perf is in tuple's neighborhood (not measured here, but the algorithm is identical in shape).
+
+Also note: `JSON.parse(JSON.stringify(...))` is lossless for *this* fixture because `DagTreeState` is deliberately plain JSON (no `Map`, `Set`, `Date`, etc. — Phase 1 scope explicitly excluded special types and cycles). For data containing those, the production walker emits inline `{ $type, ...payload }` tags and would not be replaceable by a JSON round-trip or even `structuredClone`.
+
+Bottom line: encode at 6ms for a 10k-node DAG is below the 16ms frame budget and well below typical RPC latency. Production W4 will be faster still.
 
 Diff time scales with patch-size for the catastrophic cases; for the wins it's all under 25ms at N=10k. Apply time is uniformly tiny.
 
