@@ -144,8 +144,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
     // BUT: we DO need to track its identity so the transform's shared
     // outputs are correctly aliased. For simplicity Pass 1 ignores the
     // transform; transform return values are treated as opaque scalars in
-    // Pass 2 (they don't get cycle-tracked). This is the same semantics
-    // the tuple format had.
+    // Pass 2 (they don't get cycle-tracked).
     const prev = refCount.get(value);
     refCount.set(value, (prev ?? 0) + 1);
     if (prev !== undefined) return; // already counted; skip recursion
@@ -234,7 +233,7 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
     if (typeof value === 'bigint') return { $type: 'bigint', value: value.toString() };
     if (typeof value === 'function') {
       // Functions encoded as a marker. Custom props on the function aren't
-      // currently preserved (matches the old tuple format).
+      // currently preserved.
       return { $type: 'function', name: (value as Function).name || 'anonymous' };
     }
 
