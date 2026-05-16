@@ -7,6 +7,11 @@
  *    footprint — every consumer inherits our deps.
  *  - Behavior is fully predictable; no surprises from upstream maintenance.
  *
+ * Conformance: verified against all 15 test vectors from RFC 7396 Appendix A.
+ * See `test/merge-patch-rfc7396.test.ts` for the canonical spec compliance
+ * suite (vectors copied verbatim from the public RFC). Round-trip
+ * (`apply(before, diff(before, after)) === after`) is also covered there.
+ *
  * Contract (RFC 7396):
  *  - `null` in a patch means "delete this key from target".
  *  - Arrays are atomic — any change replaces the whole array.
