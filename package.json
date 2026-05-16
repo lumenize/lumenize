@@ -16,7 +16,8 @@
     "packages/ts-runtime-parser-validator/forks/typia/interface",
     "packages/ts-runtime-parser-validator/forks/typia/utils",
     "apps/nebula/spike/alpine-adapter",
-    "apps/nebula/spike/sfc-devstar-loop"
+    "apps/nebula/spike/sfc-devstar-loop",
+    "experiments/structured-clone-object-format"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

@@ -1,74 +1,80 @@
 /**
  * @lumenize/structured-clone
- * 
- * Tuple-based $lmz format for structured cloning with cycle and alias support.
- * Combines Cap'n Web's human-readable tuple format with full cycle/alias preservation.
- * 
+ *
+ * Object-based $lmz format for structured cloning with full cycle / alias /
+ * special-type preservation and RFC 7396 JSON Merge Patch support.
+ *
+ * Wire shape (W4):
+ *   - `{ json, meta }` — `json` is the encoded document, mostly native JSON
+ *     for cycle-free common-case data. `meta.aliases` holds shared/cyclic
+ *     subgraphs when they exist.
+ *   - Special types (Date, Map, Set, Error, RegExp, Headers, URL, etc.)
+ *     are encoded as inline `{ $type, ...payload }` tags.
+ *   - Patches over this shape are typically <100 bytes for single-field
+ *     mutations on documents of 10k+ nodes; see
+ *     `experiments/structured-clone-object-format/RESULTS.md` for the
+ *     benchmark-driven rationale.
+ *
  * Supported types:
- * - Primitives: string, number, boolean, null, undefined, bigint
- * - Special numbers: NaN, Infinity, -Infinity  
- * - Objects: Object, Array, Date, RegExp, Map, Set, Error
- * - TypedArrays: Uint8Array, etc.
- * - Web API: Request, Response, Headers, URL
- * - Cycles and aliases fully preserved
- * 
- * Format: ["type", data] tuples with ["$lmz", index] references
- * 
+ *   - Primitives: string, number, boolean, null, undefined, bigint
+ *   - Special numbers: NaN, Infinity, -Infinity
+ *   - Objects: Object, Array, Date, RegExp, Map, Set, Error
+ *   - TypedArrays + ArrayBuffer + DataView
+ *   - Web API: RequestSync, ResponseSync, Headers, URL
+ *   - Cycles and aliases fully preserved via `meta.aliases`
+ *
  * Inspired by:
- * - Cap'n Web (tuple format): https://github.com/cloudflare/capnweb
- * - @ungap/structured-clone (cycle detection): https://github.com/ungap/structured-clone
+ *   - SuperJSON (nested-document + meta sidecar shape)
+ *   - Cap'n Web (inline-tagged special types)
+ *   - @ungap/structured-clone (cycle detection algorithm)
  */
 
 import { preprocess, type PreprocessOptions } from './preprocess';
 import { postprocess } from './postprocess';
 
 /**
- * Convert value to JSON string with full type support.
- * 
- * Handles cycles, aliases, Date, RegExp, Map, Set, Error, BigInt, TypedArrays.
- * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
- * 
- * This is a convenience wrapper around `preprocess()` + `JSON.stringify()`.
- * 
- * Note: Async for Request/Response body reading.
- * 
- * @param value - Any serializable value
- * @param options - Optional preprocessing options including custom transform hooks
- * @returns JSON string in tuple $lmz format
- * @throws TypeError if value contains symbols
+ * Convert a value to a JSON string with full structured-clone semantics.
+ *
+ * Handles cycles, aliases, Date, RegExp, Map, Set, Error, BigInt, TypedArrays,
+ * and synchronous Web API wrappers (RequestSync, ResponseSync).
+ *
+ * Convenience wrapper around `preprocess()` + `JSON.stringify()`.
+ *
+ * @param value - Any serializable value.
+ * @param options - Optional preprocessing options.
+ * @returns JSON string in `{ json, meta }` form.
+ * @throws TypeError if value contains symbols.
  */
 export function stringify(value: any, options?: PreprocessOptions): string {
   return JSON.stringify(preprocess(value, options));
 }
 
 /**
- * Restore value from JSON string.
- * 
- * Inverse of stringify(). Reconstructs all types including cycles and aliases.
- * 
- * This is a convenience wrapper around `JSON.parse()` + `postprocess()`.
- * 
- * All reconstruction operations are synchronous.
- * 
- * @param value - JSON string in tuple $lmz format
- * @returns Restored value with all types and references preserved
+ * Restore a value from a JSON string. Inverse of `stringify()`.
+ *
+ * Convenience wrapper around `JSON.parse()` + `postprocess()`.
  */
 export function parse(value: string): any {
   return postprocess(JSON.parse(value));
 }
 
-// Intermediate format API - see preprocess.ts and postprocess.ts for full JSDoc
+// Intermediate-format API
 export { preprocess, TRANSFORM_SKIP } from './preprocess';
 export { postprocess } from './postprocess';
 
-// Synchronous Request/Response wrappers - see request-sync.ts and response-sync.ts for full JSDoc
+// RFC 7396 JSON Merge Patch — primitives for per-mutation sync over the
+// object-based wire format. Hand-rolled (~120 LOC, no deps).
+export { applyMergePatch, diff } from './merge-patch';
+export type { JsonValue, MergePatch } from './merge-patch';
+
+// Synchronous Request/Response wrappers
 export { RequestSync } from './request-sync';
 export { ResponseSync } from './response-sync';
 
-// Type exports - only what's needed by other packages or advanced users
+// Type exports
 export type {
-  LmzIntermediate,       // For intermediate format consumers (used by ts-runtime-validator)
-  PreprocessTransform,   // For custom transform hooks (used by RPC)
-  PathElement,           // For operation chain conversion (used by RPC)
-  PreprocessOptions      // For users who need transform hooks
+  LmzIntermediate,
+  PreprocessTransform,
+  PathElement,
+  PreprocessOptions,
 } from './preprocess';
