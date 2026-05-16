@@ -55,6 +55,36 @@ If WebSocket guarantees ordering, ETag chaining is sufficient. If not (e.g., HTT
 
 If 10 mutations happen in 50 ms, do we send 10 patches or 1 coalesced patch? Likely coalesce per fanout invocation. Defer until perf shows it matters.
 
+### Where the previous state lives (diff source-of-truth)
+
+To compute `diff(prev, new)` for fanout, the server needs the *immediately previous* W4 snapshot. The DAG normalization that landed pre-demo solved the *in-memory* shape but didn't decide *where* the previous state lives. Three options, in order of recommendation:
+
+**C — In-memory snapshot reference (recommended, simplest).** Keep current row-level storage. Maintain a `#lastFanoutSnapshot: W4 | null` reference on the DagTree class (or in Star). Flow:
+1. Mutation happens → invalidate state cache (current behavior).
+2. Next access rebuilds state from rows (current behavior).
+3. On fanout: compute `newSnapshot = preprocess(state)` (needed anyway to send), `patch = diff(lastFanoutSnapshot, newSnapshot)`, fan out.
+4. `lastFanoutSnapshot = newSnapshot`.
+
+No storage changes, no new abstractions. Drift-proof. The "previous snapshot" is a single in-memory reference, refreshed on every fanout. Eviction → `lastFanoutSnapshot` is null → first fanout after wake sends full snapshot (acceptable; rare event).
+
+**A — Whole DAG as a single Resource row (also strong).** Serialize the entire `DagTreeState` to one row; let Resources' built-in `validFrom`/`validTo` give us versioning for free. On fanout, the "previous version" is a storage read.
+
+Pros vs C:
+- Cold-load reads collapse from `O(N + E + P)` row-reads (full table scans) to **1 row-read**. For 1k-node trees that's ~2.5k rows → 1.
+- Per-mutation write count is equal or better than current: 1 row vs 1–2 rows for multi-row mutations (add-node, move-node). Per CLAUDE.md, writes are 1000× reads — this favors A.
+- Previous-version retrieval is a storage read, not a memory invariant — DO eviction doesn't lose history.
+
+Cons / unknowns:
+- **Storage growth**: every version retained as a full blob. At ~30–50 KB serialized per 1k-node DAG, mutation rate × retention determines GB-month cost. Probably noise at typical ontology mutation rates.
+- **Per-row size cap**: DO SQL row size limit isn't documented as a specific number that I've verified. SQLite supports up to 1 GB rows; Cloudflare may cap lower. A 10k-node W4 blob could plausibly hit a real cap. If it does, multi-row chunking erodes the "1 read" benefit.
+- Writes are 1 row but the row is *large* — billing is per-row not per-byte, so this is mostly fine, but worth confirming nothing in the pricing model penalizes large rows.
+
+**B — `validFrom`/`validTo` per node/edge/permission row (most "Resources-like" but most complex).** Each mutation closes an old row and opens a new one. Reconstructing state at time T means three AS-OF queries across `Nodes`/`Edges`/`Permissions`. Storage growth comparable to A but in many small rows. Beautiful for temporal queries; expensive for cross-table coherence on every read.
+
+**Tentative landing**: start with **C** when this work is picked up — it's the smallest change and solves the specific motivation. If cold-load read costs prove painful (workload-dependent — depends on DO eviction frequency), revisit **A**. **B** stays a long-tail option for if/when temporal queries become a first-class capability beyond DAG sync.
+
+**Verify before committing to A** (when/if we go there): (1) confirm the DO SQL per-row size cap; (2) bench actual mutation rate against expected storage growth; (3) confirm CF billing model is purely per-row, not per-byte, for SQL writes.
+
 ## DAG-specific sub-plan
 
 ### Server-side (Star)
@@ -64,7 +94,7 @@ If 10 mutations happen in 50 ms, do we send 10 patches or 1 coalesced patch? Lik
 3. Fanout: send `{ patch, fromETag, toETag }` to every subscribed client.
 4. If a subscriber's known ETag doesn't match `prev`'s ETag → send a full snapshot instead.
 
-**Why DAG normalization (Phase 3) is a hard prerequisite**: without it, the in-memory state's inline `parentIds[]` / `childIds[]` arrays would force whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry).
+**DAG normalization (shipped 2026-05-16, archive: [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md))** was the hard prerequisite for this work. Without it, the inline `parentIds[]` / `childIds[]` arrays would have forced whole-array replacement under merge-patch on every edge change — defeating the diff. With normalized `{ nodes, edges, permissions }`, adding a node is two key flips (one new node entry + one new edge entry).
 
 ### Client-side (NebulaClient)
 
