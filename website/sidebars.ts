@@ -355,6 +355,8 @@ const sidebars: SidebarsConfig = {
       items: [
         'nebula/nebula-client',
         'nebula/coding-your-ui',
+        'nebula/resources',
+        'nebula/api-reference',
         'nebula/auth-flows',
       ],
     },

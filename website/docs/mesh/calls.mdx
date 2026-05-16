@@ -19,7 +19,7 @@ Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudfl
 | Capability | Workers RPC | Lumenize Mesh |
 |------------|-------------|---------------|
 | **Non-Cloudflare nodes** | Not supported | Full peer: coded the same way, has acces to the same core capabilities, etc. |
-| **Identity propogation** | DOs don't know their own name/binding so use a manual init pattern | Automatic 
+| **Identity propagation** | Binding name unavailable from inside; instance name populated for `getByName`/`idFromName` access (and post-2026-03-15 alarms) but undefined for `idFromString`, `newUniqueId`, and > 1024-byte names | Both populated on first mesh entry, persisted in storage, and reused across every subsequent invocation regardless of entry path |
 | **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, and mutable `state` |
 | **Consistent Robust Type Support** | Cap'n Web is subset | Date, Set, Map, cycles, aliases, etc. |
 | **Access control** | Up to you | `@mesh()` guards + `onBeforeCall` hooks |

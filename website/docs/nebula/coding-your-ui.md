@@ -1,85 +1,114 @@
 ---
 title: Coding your UI
-description: How to build a Nebula front end — NebulaClient, resources, real-time sync, with Vue 3 in-DOM mode.
+description: How to build a Nebula front end with Vue 3 SFCs and TypeScript — store reads and writes, auto-subscribe, conflict resolution, recursive components.
 ---
 
 # Coding your UI
 
-A Nebula front end is HTML + DaisyUI + a thin bootstrap script. The framework handles subscribes, transactions, and conflicts; you write the markup.
+A Nebula front end is Vue 3 Single-File Components (SFCs) written in TypeScript, styled with DaisyUI, rendering resources whose shape you defined in your ontology (a TypeScript `.d.ts`-style file). The framework handles subscribes, transactions, and conflicts.
 
-:::warning Doc rewrite in progress
-**The framework target shifted from a custom Alpine-flavored directive layer to Vue 3 in-DOM mode (2026-05-14).** The top of this page reflects the new direction. The lower sections (`x-text`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input`, `x-for`, `x-if`, `x-component` / `x-render` / `$local` / `$trail`) describe the SUPERSEDED Alpine plan and will be rewritten in Phase 5.3.7-v4. They are kept for now as a reference for the conflict-resolver semantics, addressing conventions, and lifecycle/reactivity invariants — all of which carry forward to the Vue version unchanged. Anything that says "directive" below maps to a stock Vue `v-*` directive or a native Vue component; the addressing path (`resources.<rt>.<rid>.value.<field>`) is identical in both worlds.
+This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [api-reference.md](./api-reference.md). For the resource data model (addressing, eTags, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
 
-See [tasks/nebula-frontend.md](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md) § "Phase 5.3.7 (Vue replan)" for the active plan.
-:::
+## The three pieces
 
-## NebulaClient and the store
+A Nebula front end has three layers:
 
-A Nebula front end has three things:
+1. **Vue 3 SFCs** — `.vue` files with `<script setup lang="ts">`, `<template>`, and optional `<style scoped>`. Studio compiles them to render-function modules on every save (locally during iteration; at deploy time for production assets). The browser only ever loads pre-compiled JS — no in-DOM compiler, no `'unsafe-eval'` CSP needed.
+2. **The store** — a Vue-reactive Proxy that your `v-*` directives bind to. Reads under `store.resources.*` auto-subscribe to the resources they touch; writes flow through optimistic apply + debounced server submission. The whole reactive UI surface lives here.
+3. **`NebulaClient`** — the underlying connection between your front end and the back end. Used directly for operations that don't fit "read or write a single field" — explicit multi-resource transactions, conflict-resolver registration, programmatic subscribes, ad-hoc reads.
 
-1. **`NebulaClient`** — the connection between your front end and the back end. One instance per page. Studio's generated bootstrap creates it for you with the right scopes and ontology version baked in.
-2. **The factory** — `createNebulaClient(...)` wraps the client and returns a `store` (a reactive object) plus the client. The store is where your UI reads from and writes to.
-3. **Vue 3 in-DOM mode** — Vue's runtime+compiler bundle (~33 KB gzip). You author HTML with stock `v-*` directives + a single `Vue.createApp({...}).mount('#app')`. No SFC build step.
+`createNebulaClient(config)` is your single bootstrap call. It instantiates the client, wraps it in the store, and returns both.
 
-```html @skip-check
-<!doctype html>
-<html>
-  <head>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <script type="module">
-      import { createNebulaClient } from '@lumenize/nebula-frontend';
+## Bootstrap (three files)
 
-      // 1. Create the factory FIRST — before connection completes — so the
-      //    onConnectionStateChange listener captures the initial transition.
-      const { client, store } = createNebulaClient({
-        baseUrl: 'https://my-app.example.com',
-        authScope: 'acme.app.tenant-a',
-        activeScope: 'acme.app.tenant-a',
-        ontologyVersion: 'v42',                  // baked at build time
-        onShouldRefreshUI: () => window.location.reload(),
-      });
+A minimal Nebula front end is three files plus an `index.html` shell with a `<div id="app"></div>` mount point (Studio generates the shell for you).
 
-      // 2. Mount Vue. The `store` is reactive — any v-* directive that
-      //    reads from it will re-render when it changes.
-      Vue.createApp({
-        setup() {
-          return { store };
-        },
-      }).mount('#app');
-    </script>
-  </head>
-  <body>
-    <div id="app">
-      <!-- Your markup here. Read from store.resources.<rt>[id].value.<field>; -->
-      <!-- write via v-model or store.resources.<rt>[id].value.<field> = ... -->
-    </div>
-  </body>
-</html>
+```typescript @skip-check
+// store.ts — initialize the client + store once. Any component that needs
+// either of these imports them from here; no need to thread them through props.
+import { createNebulaClient } from '@lumenize/nebula-frontend';
+
+export const { client, store } = createNebulaClient({
+  baseUrl: 'https://my-app.example.com',
+  authScope: 'acme.app.tenant-a',     // refresh-cookie path
+  activeScope: 'acme.app.tenant-a',   // baked into JWT `aud` claim
+  appVersion: 'dev',                  // Studio substitutes the real version at deploy time
+  onShouldRefreshUI: () => window.location.reload(),
+});
+
+// Per-type conflict resolvers and terminal-outcome reactions go here too —
+// see "Forms: explicit save" and "Atomic append" below for examples.
+```
+
+```typescript @skip-check
+// main.ts — Vue entrypoint. The side-effect import on './store' instantiates
+// the NebulaClient before the app mounts, which matters because `createNebulaClient`
+// must be called BEFORE the WebSocket connects so its `onConnectionStateChange`
+// listener captures the initial connecting → connected transition.
+import { createApp } from 'vue';
+import App from './App.vue';
+import './store';
+
+createApp(App).mount('#app');
+```
+
+```vue @skip-check
+<!-- App.vue — the root component. Sub-components import `store` (and `client`
+     if they need it) the same way; no need to thread them through props. -->
+<script setup lang="ts">
+import { store } from './store';
+</script>
+
+<template>
+  <main>
+    <!-- Your markup here. -->
+  </main>
+</template>
 ```
 
 See [NebulaClient](./nebula-client.md) for the full constructor options, auth model, and lifecycle.
 
-### Order of construction matters
+## Resources at a glance
 
-Call `createNebulaClient(...)` BEFORE awaiting the WebSocket connection. Internally the factory wires `onConnectionStateChange` to mirror connection state into `store.lmz.connection.*`; the listener only fires on future transitions. Late registration would miss the initial `connecting → connected` and leave `lmz.connection.*` empty.
+**Resources are the heart of this system. They are both simple and powerful. You use them when developing your app in Nebula Studio. Your users use them when they interact with your app because they are the only place for them to store anything.**
 
-If you need to do work after the connection lands (e.g., admin bootstrap), `await client.waitForConnected()` (or watch `store.lmz.connection.connected` reactively from your UI).
+Each resource is a JavaScript object addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
-### Two ways to write to the store
+- `store.resources.<resourceType>[<resourceId>].value` — the resource's current value.
+- `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (`eTag`, change metadata, etc.).
 
-```js @skip-check
-// 1. Direct property assignment (works for any path — equivalent to v-model under the hood)
-store.resources.todo[id].value.title = 'New title';
+Reads inside a Vue component auto-subscribe to the resources they touch. Writes flow through optimistic local apply + a server transaction (eTag-based, with per-type conflict resolution and idempotency). The full resource model — addressing, optimistic concurrency, the per-type handler, transaction outcomes — is documented in [Resources](./resources.md).
 
-// 2. v-model on a form input — fires per-keystroke by default
-//    <input v-model="store.resources.todo[id].value.title">
+## Reading and writing through the store
+
+Read and write the store inline in templates using stock Vue syntax. Auto-subscribe on read and debounced server submission on write are invisible. The framework ships [Vue 3](https://vuejs.org/) — the full directive vocabulary (`v-bind`, `v-on`, `v-if`/`v-else-if`/`v-else`, `v-for`, `v-show`, `v-model`, etc.) and event modifiers (`.stop`, `.prevent`, `.enter`, etc.) are all available. One Nebula-specific addition, `v-model.eager`, is covered below in [Write timing](#write-timing-debouncing-lazy-and-eager).
+
+```html @skip-check
+<!-- The `?.` guards against the snapshot not having arrived yet. Auto-subscribes on first read. -->
+<h2>{{ store.resources.todo[id]?.value?.title ?? 'Loading…' }}</h2>
+
+<!-- :class object syntax (shorthand for v-bind:class) toggles a class on a reactive value. -->
+<li :class="{ 'line-through': store.resources.todo[id]?.value?.done }">
+  <!-- v-model: each keystroke optimistically updates the store and queues a debounced transaction. -->
+  <input v-model="store.resources.todo[id].value.title" />
+</li>
+
+<span v-if="store.resources.todo[id]?.value?.done" class="badge badge-success">Done</span>
+<span v-else class="badge">Open</span>
 ```
 
-Both go through the factory's middleware: optimistic local apply, then debounced transaction submission (500ms quiet window, 2000ms maxWait — see "Debouncing" below). You don't manually call `client.resources.transaction(...)` for routine UI writes. For server-side / scripting work, the lower-level API is still available — see [NebulaClient](./nebula-client.md).
+The same paths work from TypeScript — inside a `computed`, a method, or an event handler:
 
-### v-model and deep paths
+```typescript @skip-check
+const title = store.resources.todo[id]?.value?.title;          // reactive read
+store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
+```
 
-`v-model` requires a real l-value path — `?.` (optional chaining) is not allowed. When binding to a resource that may not have loaded yet, guard with `v-if`:
+For multi-resource atomic batches, explicit conflict-resolution handlers, programmatic subscriptions, and other operations that don't fit "read or write a single field," use the underlying `client` directly — the canonical case is [Forms: explicit save](#forms-explicit-save) below.
+
+### `v-model` requires a real l-value path
+
+Optional chaining (`?.`) isn't allowed in a `v-model` expression. Guard the input with `v-if` so it only mounts after the snapshot lands:
 
 ```html @skip-check
 <template v-if="store.resources.todo[id]?.value">
@@ -88,1255 +117,516 @@ Both go through the factory's middleware: optimistic local apply, then debounced
 <span v-else>Loading…</span>
 ```
 
-The `v-if` removes the input from the DOM until the snapshot lands. Once the resource is in the store, the input renders and binds.
+## Write timing: debouncing, `.lazy`, and `.eager`
 
-### Per-keystroke vs blur-triggered writes
+By default `v-model` listens on `input` (fires every keystroke). The optimistic local update is immediate; the network transaction is **debounced** by the synced-state middleware so per-keystroke `v-model` doesn't pile up server traffic.
 
-By default `v-model` listens on `input` (fires every keystroke). The optimistic local update is immediate; the network transaction is **debounced** by the synced-state middleware (500ms quiet + 2000ms maxWait — see "Debouncing" below), so per-keystroke v-model doesn't pile up server traffic.
+The middleware coalesces transaction submissions per `(resourceType, resourceId)`:
 
-For forms where you specifically want commit-on-blur (less responsive to in-flight typing, but matches "I'm done editing this field" semantics), use the `.lazy` modifier:
-
-```html @skip-check
-<input v-model.lazy="store.resources.todo[id].value.title" />
-```
-
-`.lazy` switches the listener from `input` to `change` (fires on blur for text inputs, on commit for selects). Useful when the field has expensive computed downstream effects or when "I want to drop my edit by clearing it before blurring" is a real UX flow.
-
-### Debouncing
-
-The factory's synced-state middleware coalesces transaction submissions per `(resourceType, resourceId)`:
-
-- **Quiet window**: 500 ms. After the last write to a resource, wait 500 ms of no further writes, then submit.
-- **Max wait**: 2 s. If the user keeps typing forever, submit at least every 2 s regardless.
+- **Quiet window**: 500 ms. After the last write to a resource, wait 500 ms with no further writes, then submit.
+- **Max wait**: 2 s. If the user keeps writing forever, submit at least every 2 s regardless.
 - **Flush on lifecycle**: pending writes flush on component unmount, input blur, and `client.dispose()`.
 - **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
 
-For a typical typed-into-an-input scenario, a 10-character edit produces ~1 transaction, not 10. Tune per-resource-type:
+A typical 10-character edit in a text input produces ~1 transaction, not 10.
 
-```js @skip-check
+:::caution Text fields need a custom merge handler
+Debouncing reduces but doesn't eliminate the "another client wrote while I was typing" race. With the framework's default `'use-server'` resolution, an in-flight conflict will yank the user's mid-keystroke text back to the server's value. For any field a user types into (long-form text, comments, document bodies), register a per-type handler with a real text-merge function — see [Resources § Text fields specifically — don't leave the default](./resources.md#text-fields-specifically--dont-leave-the-default).
+:::
+
+### Per-type tuning
+
+```typescript @skip-check
+// Slower defaults for, e.g., a long-text field where you want fewer round-trips.
 client.resources.transactionDebounce('todo', { quietMs: 1000, maxWaitMs: 5000 });
 ```
 
-Or opt out for snappy commits (e.g., dropdowns where instant is right):
+### `v-model.lazy` — commit on blur
 
 ```html @skip-check
+<!-- Listen on `change` instead of `input`: text input fires on blur, select on
+     commit. Use when "I'm done editing this field" matches better than
+     "live update on every keystroke" — typically when the field has expensive
+     downstream effects, or "drop my edit by clearing it before blurring" is
+     a real UX flow. -->
+<input v-model.lazy="store.resources.todo[id].value.title" />
+```
+
+### `v-model.eager` — bypass debouncing entirely
+
+```html @skip-check
+<!-- Submit the transaction on the next microtask after the change event,
+     skipping the quiet window. Use for clicks-to-commit interactions
+     (dropdowns, checkboxes, radios) where waiting 500 ms feels wrong. -->
 <select v-model.eager="store.resources.task[id].value.status">
-  <!-- ... -->
-</select>
-```
-
-`v-model.eager` is a custom directive shipped by `@lumenize/nebula-frontend` that bypasses debouncing for the bound write.
-
-### Recursive components (e.g., tree views)
-
-Vue components can recurse natively — just give the component a `name` and reference itself in its own template. Each instance auto-subscribes to its own resource:
-
-```html @skip-check
-<!-- index.html -->
-<div id="app">
-  <tree-node :node-id="rootId" />
-</div>
-```
-
-```js @skip-check
-const TreeNode = {
-  name: 'TreeNode',
-  props: ['nodeId'],
-  // Inside a template STRING (parsed by Vue's runtime compiler), PascalCase
-  // tag names like <TreeNode> work. When you write the SAME markup into
-  // innerHTML (the index.html above), the browser HTML parser lowercases the
-  // tag and Vue can't resolve it — that's why the index.html uses kebab-case
-  // <tree-node>. Inside template strings either case works.
-  template: `
-    <span>{{ store.resources.TreeNode[nodeId]?.value?.label ?? '...' }}</span>
-    <ul v-if="(store.resources.TreeNode[nodeId]?.value?.children?.length ?? 0) > 0">
-      <li v-for="childId in store.resources.TreeNode[nodeId].value.children" :key="childId">
-        <TreeNode :node-id="childId" />
-      </li>
-    </ul>
-  `,
-  setup() {
-    return { store };           // pulled from your outer setup
-  },
-};
-```
-
-Each `TreeNode` instance reads from its own resource path, which auto-subscribes the resource (refcounted with grace — see "Lifecycle" below). Unmounting a `TreeNode` disposes its Vue effectScope, decrements the refcount, and (if zero) unsubscribes after the grace period.
-
-### Per-component local state
-
-For state that's local to one UI element (open/closed, draft text, current tab, etc.) — anything that isn't synced — use Vue's native `ref` / `reactive` in `setup()`:
-
-```js @skip-check
-const Card = {
-  setup() {
-    const expanded = ref(false);
-    return { expanded };
-  },
-  template: `
-    <div>
-      <button @click="expanded = !expanded">{{ expanded ? 'Hide' : 'Show' }}</button>
-      <div v-if="expanded">...content...</div>
-    </div>
-  `,
-};
-```
-
-Local state stays out of the synced store entirely. Each card instance has its own `expanded` — Vue handles per-instance scope natively.
-
-## Resources
-
-Resources are how your app's data lives in Nebula. From your UI's perspective, each resource is a JavaScript object — fully supporting everything the structured-clone algorithm supports: `Map`, `Date`, cycles, etc. The framework handles the conversion to/from a storable representation transparently. You write to the resource the same way you'd write any in-memory JavaScript object, and the rich types round-trip correctly.
-
-Each resource also carries a client-generated `eTag` (UUID) attached on every write — the eTag does double duty as both the optimistic-concurrency token and the idempotency key for safe retries. The shape of each resource type is defined by your ontology — a TypeScript `.d.ts`-style file that Nebula compiles into a runtime parser-validator. See [TS Runtime Parser-Validator](../ts-runtime-parser-validator/index.md) for how the ontology becomes the validator.
-
-Think of Nebula's resource layer as a document database with inter-resource relationships and real-time sync:
-
-- **Document database** — each resource is a JavaScript object addressed by `(type, id)`.
-- **With references** — fields can point to other resources by id; the ontology declares which fields are references and to what type.
-- **Real-time sync** — clients subscribe to resources they care about; mutations fan out to all subscribers automatically.
-
-### Addressing resources
-
-Three encodings, isomorphic — same segments, different delimiters per context.
-
-**1. In HTML directives (period-delimited, drilled into sub-fields):**
-
-```html @skip-check
-<span x-text="resources.todo.task-42.value.title"></span>
-```
-
-**2. In code (tuple at the top level):**
-
-```js @skip-check
-await client.resources.subscribe('todo', 'task-42');
-await client.resources.transaction({
-  'task-42': { op: 'put', eTag, newETag, value: { title: 'New title', /* ... */ } },
-});
-const snap = await client.resources.read('todo', 'task-42');
-```
-
-**3. REST (slash-delimited, coming soon):**
-
-```
-GET  /resources/todo/task-42
-POST /resources/todo/task-42
-```
-
-`resourceType` and `resourceId` are restricted to `[A-Za-z0-9_-]` — no periods (would break path parsing), no slashes (would break URL parsing). ULIDs, UUIDs, and conventional slugs all fit.
-
-#### Reserved state-path prefixes
-
-Two top-level prefixes are framework-reserved:
-
-- **`resources.*`** — synced resource snapshots, written by the framework on every server push. `resources.{type}.{id}.value` holds the resource value; `resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
-- **`lmz.*`** — everything else framework-owned. Today: connection state (`lmz.connection.state`, `lmz.connection.connected`, `lmz.connection.lastConnectedAt`). Future framework-meta paths land here too.
-
-Every other top-level segment is yours. Common conventions:
-
-- `ui.*` — transient UI state (modal open/closed, form drafts, conflict tracking, anything reactive but not synced)
-- `app.*` — application-wide local state (active view, current user prefs, etc.)
-- Anything else — completely free
-
-The framework only touches `resources.*` and `lmz.*`. Vibe coders write to the rest however they want.
-
-### Optimistic concurrency
-
-#### What's an eTag?
-
-Every resource snapshot carries an `eTag` — a UUID generated by whichever client most recently wrote the resource. The eTag travels with the data into your local state at `resources.{type}.{id}.meta.eTag`. When your front end submits a transaction, it sends two things: the eTag of the snapshot it based its edit on (`eTag`), and a freshly-generated UUID for the new snapshot (`newETag`).
-
-The server uses both:
-
-- **Concurrency check** — if the current stored eTag matches your `eTag`, your write wins (and the new snapshot gets your `newETag`). If it doesn't, another client wrote first — your transaction conflicts and the resolver fires.
-- **Idempotency** — if the current stored eTag matches your `newETag`, that means your prior transaction landed but you didn't get the response (network drop mid-flight, etc.) and now you're retrying. Server returns idempotent success rather than spuriously conflicting with your own prior write.
-
-You never construct or compare eTags yourself. The framework reads the cached `eTag` from state when emitting a transaction, generates a fresh `newETag` via `crypto.randomUUID()`, and sends both to the server. Same UUID does both jobs — no separate idempotency-key field.
-
-#### Handling conflicts
-
-When a conflict happens, NebulaClient invokes a resolver — registered per resource type — that decides what to do. Three resolution shapes cover the cases. Each example below shows the minimum code needed; the markup stays unchanged across all three.
-
-##### `'use-server'` (default — server wins)
-
-No code needed. This is the framework default. The user's local edit gets replaced with the server's authoritative value. The framework also adds a `lumenize-conflict-revert` class to every bound DOM element whose value changed, for ~1 second — your CSS decides the visual.
-
-```css @skip-check
-.lumenize-conflict-revert {
-  animation: flash-red 1s ease-out;
-}
-@keyframes flash-red {
-  0%   { outline: 2px solid var(--color-error); }
-  100% { outline: 2px solid transparent; }
-}
-```
-
-No JS. No HTML changes. The flash signals "your input was reverted" without any modal or prompt.
-
-##### `'use-this'` (framework submits a chosen value)
-
-When the conflict can be resolved automatically OR via quick user input, return a value and the framework submits a new transaction at the server's current eTag. Two variants depending on whether you need user input.
-
-**Synchronous — automatic merge, no user prompt:**
-
-```js @skip-check
-client.resources.onETagConflict('todo', (local, server) => ({
-  resolution: 'use-this',
-  value: {
-    title: local.value.title,                                              // mine wins (short string)
-    status: server.value.status,                                           // theirs wins (enum)
-    description: textMerge(local.value.description, server.value.description),
-    assignees: setUnion(local.value.assignees, server.value.assignees),
-  },
-}));
-```
-
-**Async — show a modal, wait for user choice, framework submits:**
-
-Put a `<dialog>` once in your page; the same dialog handles any conflict on this resource type.
-
-```html @skip-check
-<dialog id="conflict-modal" class="modal">
-  <form method="dialog" class="modal-box">
-    <h3 class="font-bold text-lg">Someone else edited this</h3>
-    <div class="mt-4 space-y-2">
-      <p><strong>Your version:</strong> <span x-text="ui.conflict.local.title"></span></p>
-      <p><strong>Server's version:</strong> <span x-text="ui.conflict.server.title"></span></p>
-    </div>
-    <div class="modal-action">
-      <button value="mine" class="btn btn-primary">Keep mine</button>
-      <button value="theirs" class="btn">Use server's</button>
-    </div>
-  </form>
-</dialog>
-```
-
-```js @skip-check
-client.resources.onETagConflict('todo', async (local, server) => {
-  // Stash both versions in state so the modal can read them via x-text.
-  state.setState('ui.conflict', { local, server });
-
-  const modal = document.getElementById('conflict-modal');
-  const choice = await new Promise((resolve) => {
-    modal.addEventListener('close', () => resolve(modal.returnValue), { once: true });
-    modal.showModal();
-  });
-  state.setState('ui.conflict', undefined);
-
-  return choice === 'mine'
-    ? { resolution: 'use-this', value: local.value }
-    : { resolution: 'use-server' };
-});
-```
-
-Note the `state.setState('ui.conflict', ...)` for resolver-local display data: path-based state is the unified reactive model in Lumenize, including for transient UI data. The modal's `x-text` directives can read the values declaratively because they live at a path; closure variables would force imperative DOM updates. JurisJS uses the same pattern for component-local state (everything reactive lives in the state tree).
-
-The transaction queue parks while the modal is open. When the user picks, the resolver returns the chosen resolution and the framework submits the new transaction at the server's current eTag — no manual `transaction()` call from your code.
-
-While the modal is open, the user can keep editing other fields and other resources. Their `setState` calls paint the optimistic value immediately and queue the resulting transactions behind the parked one. When the modal closes, the queue drains in order. There's no artificial timeout on how long the modal can stay open — if the user takes five minutes to decide, that's fine.
-
-**In either variant**, if the new transaction *also* conflicts (someone else wrote again between the user picking and the submission landing), the resolver fires again with the latest server snapshot. The original transaction's Promise stays pending across the entire chain.
-
-**Retry cap**: default 5 attempts. Beyond that, the original `transaction()` Promise resolves with `{ resolution: 'retries-exhausted', resources, attempts }` — automated negotiation didn't converge. Configurable:
-
-```js @skip-check
-client.resources.onETagConflict('todo', resolver, { maxRetries: 10 });
-// or per-call:
-await client.resources.transaction(ops, { onETagConflict: resolver, maxRetries: 3 });
-```
-
-##### `'human-in-the-loop'` (non-blocking — defer to the app)
-
-When you don't want the transaction queue parked while a conflict is pending — the user is mid-edit elsewhere, the conflict isn't urgent — return `'human-in-the-loop'` and the framework hands off entirely:
-
-- The original `transaction()` Promise resolves with `{ resolution: 'human-in-the-loop', resources }`
-- Optimistic local state stays painted (the user keeps seeing what they typed)
-- No new transaction submitted by the framework
-- Transaction queue unblocks immediately; subsequent writes flow without waiting
-
-Your app stashes the conflict somewhere and surfaces it on its own schedule. Typical pattern: a banner that shows pending conflicts, the user clicks "Review" when they're ready, your code walks the stash and submits resolution transactions.
-
-```js @skip-check
-client.resources.onETagConflict('document', (local, server) => {
-  state.setState(`app.conflicts.${server.meta.eTag}`, {
-    resourceType: 'document',
-    resourceId: server.meta.resourceId,
-    local,
-    server,
-  });
-  return { resolution: 'human-in-the-loop' };
-});
-
-// A derived count makes the banner's x-show easy.
-state.computed('app.conflictsCount', () =>
-  Object.keys(state.getState('app.conflicts') ?? {}).length
-);
-
-bindDom(document.body, state, {
-  handlers: {
-    reviewConflicts: async () => {
-      const conflicts = state.getState('app.conflicts') ?? {};
-
-      // Walk each conflict, collect the user's chosen value into one batch.
-      const ops = {};
-      for (const [eTag, conflict] of Object.entries(conflicts)) {
-        const choice = await showYourReviewUI(conflict);  // app-defined
-        ops[conflict.resourceId] = {
-          op: 'put',
-          eTag: conflict.server.meta.eTag,
-          newETag: crypto.randomUUID(),
-          value: choice,
-        };
-      }
-
-      // Submit all resolutions as one atomic transaction — mirrors the shape
-      // of the original transaction that produced these conflicts. If the
-      // original had dependencies between resources, batching preserves them;
-      // if the resources are independent, the batch costs one round-trip
-      // instead of N.
-      const outcome = await client.resources.transaction(ops);
-      if (outcome.resolution === 'committed' || outcome.resolution === 'use-server') {
-        // Success or server-wins — clear app.conflicts; framework already
-        // updated bound state.
-        for (const eTag of Object.keys(conflicts)) {
-          state.setState(`app.conflicts.${eTag}`, undefined);
-        }
-      } else if (outcome.resolution === 'human-in-the-loop') {
-        // Re-conflict: a resource churned again on the server between review
-        // and submission. The resolver fired again and re-populated
-        // app.conflicts. Leave it visible so the user re-reviews.
-      } else {
-        // validation-failed / permission-denied / ontology-stale / timeout /
-        // retries-exhausted — surface to the user.
-        state.setState('ui.reviewError', outcome);
-      }
-    },
-  },
-});
-```
-
-```html @skip-check
-<div x-show="app.conflictsCount" class="alert alert-warning">
-  <span x-text="app.conflictsCount"></span> pending conflicts.
-  <button x-on:click="reviewConflicts" class="btn btn-sm">Review</button>
-</div>
-```
-
-The framework provides the conflict signal and both versions; your code decides timing, UI, and when to submit. The same `client.resources.transaction()` API submits the resolution — there's no "manual mode" fallback, just deferred orchestration with the standard API.
-
-##### When to use which
-
-- **`'use-server'`** — most fields most of the time. Safe default.
-- **`'use-this'` (sync)** — automatic merge per field (text-merge, set-union, last-write-wins per field, etc.).
-- **`'use-this'` (async)** — user must pick *right now*, framework handles submission. Modal-style UX. The most common choice for "give the user agency on a conflict."
-- **`'human-in-the-loop'`** — conflicts can be deferred. Banner + review-later UX. The user keeps working uninterrupted.
-
-##### Text fields specifically — don't leave the default
-
-For any field a user is actively typing into (long-form text, descriptions, comments, document bodies), the default `'use-server'` resolution is the wrong choice. Here's why:
-
-1. The user is typing into `<input v-model="store.resources.doc[id].value.body">`. Each keystroke fires an optimistic local update; the synced-state middleware debounces transaction submission.
-2. While the user is mid-sentence, **another client commits a write to the same resource.** Server fans out the new snapshot. The factory's resource-update handler writes it to the store unconditionally.
-3. The user's in-flight transaction arrives at the server with the now-stale eTag → conflict → default `'use-server'` resolution.
-4. The user's typing disappears. Their `v-model` input snaps to the other client's value mid-keystroke.
-
-This is the data race; debouncing reduces it but doesn't eliminate it. The reliable fix is to register a `'use-this'` resolver with a real text-merge function on every resource type that holds long-form text:
-
-```js @skip-check
-import { textMerge } from '@lumenize/nebula-frontend';   // 3-way merge helper (TBD shape)
-
-client.resources.onETagConflict('doc', (local, server) => ({
-  resolution: 'use-this',
-  value: {
-    ...server.value,                                                       // start from server snapshot
-    body: textMerge(server.value.body, local.value.body, /* base = */ server.value.body),
-  },
-}));
-```
-
-For typing-into-text-fields, **custom merge is almost always the right answer**, not `'use-server'`. The framework default exists because it's safe for non-text fields (enums, booleans, IDs) and because every resource type needs *some* default. Register an explicit resolver for text-bearing types.
-
-What "right merge" looks like depends on the data:
-- **Short single-line text** (titles, labels): typical pattern is `local wins` — short strings rarely have meaningful concurrent edits worth merging. `value: { ...server.value, title: local.value.title }`.
-- **Long-form text** (descriptions, comments, document bodies): three-way merge (CRDT-style or libdiff-based). The shipped `textMerge` helper will use a sensible default; you can swap in `diff-match-patch` or similar.
-- **Structured content** (markdown, code): three-way merge at the line level, OR fall back to async `'use-this'` with a modal showing both versions.
-
-Set fields (assignees, tags) typically want set-union; enums want last-write-wins (server is fine); IDs want last-write-wins (server is fine).
-
-#### Awaiting `transaction()` and error handling
-
-Two patterns, depending on whether you call `transaction()` yourself.
-
-**Fire-and-forget** — when `x-input` triggers a transaction via the synced-state middleware, your code never calls `transaction()` directly. The framework owns the round-trip: registered resolver handles conflicts, `onShouldRefreshUI` handles ontology-staleness, optimistic state paints regardless. No `await` to write, no `switch` to add.
-
-**Explicit transactions** — when you call `client.resources.transaction(ops)` yourself (programmatic save, batch resolution, action handlers), `await` is right because you almost always need to gate follow-up work on success.
-
-`transaction()` **always resolves** — never rejects (except for infrastructure failures like network drops, which still throw `Error`). It returns a `TransactionResolution` discriminated union; you `switch` on `outcome.resolution` to handle every terminal state. This is intentional: an LLM-authored `switch` produces better code-gen than relying on `try`/`catch` hygiene (where a bare `catch` would swallow the discrimination).
-
-```js @skip-check
-const outcome = await client.resources.transaction(ops);
-switch (outcome.resolution) {
-  case 'committed':
-    // Server accepted the write. Bound state already has the authoritative
-    // value + the new eTag. Application-level follow-up here.
-    state.setState('ui.draft', undefined);          // e.g., clear a draft form
-    state.setState('ui.activeView', 'list');        // navigate
-    break;
-  case 'use-server':
-    // Resolver returned 'use-server'; the framework already wrote the server's
-    // value through to bound state and flashed any diff fields. Nothing extra
-    // to do unless you want a toast.
-    break;
-  case 'use-this':
-    // Not terminal — never appears here. The 'use-this' verdict triggers a
-    // recursive re-submission; the terminal is 'committed' or 'retries-exhausted'.
-    break;
-  case 'human-in-the-loop':
-    // Resolver returned 'human-in-the-loop'; optimistic state stays painted
-    // and your app is responsible for submitting the eventual resolution.
-    // Typically nothing to do at this call site — your stash + review UI handles it.
-    break;
-  case 'retries-exhausted':
-    // 'use-this' chain hit maxRetries without converging. outcome.resources
-    // carries the latest server snapshots. Decide based on context.
-    showToast('Save failed — could not reconcile', { attempts: outcome.attempts });
-    break;
-  case 'validation-failed':
-    // Server-side validation rejected the value. outcome.errors has the details.
-    state.setState('ui.validationErrors', outcome.errors);
-    break;
-  case 'permission-denied':
-    // User isn't authorized for this write. outcome.resources lists the ones
-    // that were denied.
-    showToast('Not authorized', { resources: outcome.resources });
-    break;
-  case 'ontology-stale':
-    // The framework's onShouldRefreshUI hook typically fires too; usually a
-    // page reload is the right response. Nothing extra to do here.
-    break;
-  case 'timeout':
-    // No server response within 5–10 s. The queue unblocked; you decide retry.
-    showToast('Save timed out — retry?');
-    break;
-}
-```
-
-The `'committed'` branch only runs after the entire resolver chain (including any recursive `'use-this'` round-trips) has terminated successfully. If a `'use-this'` resolution submitted a merged value and *that* committed, you're in `'committed'`. If the chain exhausted retries or fell to `'human-in-the-loop'`, you're in the matching branch.
-
-Why a discriminated union over `try`/`catch`? Two reasons. First, Studio-generated UIs are LLM-authored, and a `switch` forces every variant to be handled explicitly — a bare `try`/`catch` would swallow the discrimination. Second, several outcomes (`'use-server'`, `'human-in-the-loop'`, `'committed'`) are *normal* terminal states, not errors; pushing them through `catch` would conflate "the user's value won, took the long road" with "something broke."
-
-#### Custom flash visual
-
-The framework's default flash class is `lumenize-conflict-revert` with a 1-second duration. Both are configurable per type:
-
-```js @skip-check
-client.resources.onETagConflict('todo', resolver, {
-  flashClass: 'my-warn-flash',   // or null to disable framework flash
-  flashDuration: 1500,            // ms
-});
-```
-
-For richer UX (apply CSS to a parent, fire a JS animation, combine flash with an alert), the resolver receives a third argument with the DOM bindings:
-
-```js @skip-check
-client.resources.onETagConflict('todo', (local, server, { bindings }) => {
-  // bindings is Map<path, HTMLElement[]> — every element bound to a path
-  // under this resource that's about to be reverted.
-  bindings.forEach((els, path) => {
-    els.forEach(el => el.closest('.card')?.classList.add('alert-conflict'));
-  });
-  return { resolution: 'use-server' };
-});
-```
-
-The default flash still happens unless `flashClass: null` was set at registration.
-
-## Connection state
-
-NebulaClient surfaces its connection state to three reserved paths so the UI can bind declaratively without event listeners.
-
-| Path | Type | Description |
-| --- | --- | --- |
-| `lmz.connection.state` | string | `'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'` |
-| `lmz.connection.connected` | boolean | `true` iff `state === 'connected'` |
-| `lmz.connection.lastConnectedAt` | number (ms) | Set on each `'connected'` transition |
-
-### Common patterns
-
-Show a banner only when disconnected:
-
-```html @skip-check
-<div x-show="!lmz.connection.connected" class="alert alert-warning">
-  Disconnected — your changes are queued. Reconnecting…
-</div>
-```
-
-Show fine-grained status text:
-
-```html @skip-check
-<span class="badge" x-text="lmz.connection.state"></span>
-```
-
-Mount different content depending on connection state, with the framework's path-based reactivity doing the work:
-
-```html @skip-check
-<template x-if="lmz.connection.connected">
-  <button class="btn btn-primary" x-on:click="save">Save</button>
-</template>
-<template x-if="!lmz.connection.connected">
-  <button class="btn btn-disabled" disabled>Reconnecting…</button>
-</template>
-```
-
-The framework writes to these paths on every LumenizeClient connection-state transition. You never have to register a connection-state event listener.
-
-## Loading and first paint
-
-When a binding first mounts, the resource's snapshot hasn't arrived yet — `resources.{type}.{id}.value` is `undefined` until the initial server push completes (typically tens of milliseconds, sometimes longer on cold connect). Two patterns handle the gap:
-
-**Initial text content as the placeholder.** The text between `<span x-text="…">` and `</span>` shows until the subscription fires. Once the snapshot lands, the framework replaces it.
-
-```html @skip-check
-<span x-text="resources.todo.task-42.value.title">Loading…</span>
-```
-
-This is the simplest pattern — no JS, no extra state, just put the placeholder in the markup. Works for any one-way text binding.
-
-**Skeleton loaders / whole-card placeholders.** Use `x-if` on `resources.{type}.{id}.value` (truthy after the snapshot arrives, falsy before) to swap between a skeleton and the real card:
-
-```html @skip-check
-<template x-if="resources.todo.task-42.value">
-  <div class="card">
-    <h2 class="card-title" x-text="resources.todo.task-42.value.title"></h2>
-    <p x-text="resources.todo.task-42.value.description"></p>
-  </div>
-</template>
-<template x-if="!resources.todo.task-42.value">
-  <div class="card skeleton">
-    <div class="skeleton-line w-2/3"></div>
-    <div class="skeleton-line w-full"></div>
-  </div>
-</template>
-```
-
-When the snapshot arrives, the framework swaps the templates atomically — skeleton unmounts, real card mounts with its bindings registered.
-
-For a deleted or non-existent resource, the same `!resources.{type}.{id}.value` branch shows. If you need to distinguish "loading" from "doesn't exist," check `lmz.connection.lastConnectedAt` (no connection yet ⇒ probably loading) or use a derived `state.computed()` path that combines connection state with snapshot presence.
-
-:::warning Alpine-flavored content below is SUPERSEDED
-The remaining sections describe the Alpine-flavored `x-*` directive plan (`x-text`, `x-bind:attr`, `x-show`, `x-class:name`, `x-on:event`, `x-input`, `x-for`, `x-if`, `x-component` / `x-render` / `$local` / `$trail`). That plan was replaced by **Vue 3 in-DOM mode** on 2026-05-14 — the top of this page is the current direction.
-
-These sections will be rewritten in Phase 5.3.7-v4 once the production `@lumenize/nebula-frontend` factory lands. They're kept here for now because the conflict-resolver semantics, addressing conventions, lifecycle/reactivity invariants, eTag idempotency, and `lmz.connection.*` patterns described below all carry forward to the Vue version unchanged. Anything `x-*` maps to a stock Vue `v-*` directive or a native Vue component; the addressing path `resources.<rt>.<rid>.value.<field>` is identical.
-
-Vue equivalents at a glance:
-
-| Alpine x-* (below) | Vue v-* (replacement) |
-| --- | --- |
-| `x-text="path"` | `{{ path }}` (text interpolation) |
-| `x-html="path"` | `v-html="path"` |
-| `x-bind:attr="path"` | `:attr="path"` (or `v-bind:attr`) |
-| `x-show="path"` | `v-show="path"` |
-| `x-class:name="path"` | `:class="{ name: path }"` |
-| `x-on:event="handler"` | `@event="handler"` (or `v-on:event`) |
-| `x-input` (two-way) | `v-model` (default) or `v-model.lazy` (blur-triggered) |
-| `x-for="item in path"` | `v-for="item in path"` |
-| `x-if="path"` / `x-if="!path"` | `v-if="path"` / `v-if="!path"` |
-| `x-component` / `x-render` / `$local` | native Vue components + `setup() { return { expanded: ref(false) } }` |
-| `$trail` (multi-position recursion disambig) | not needed — Vue's recursive components handle per-instance scope natively |
-:::
-
-## Lifecycle: bindings and subscriptions
-
-Bindings and resource subscriptions track DOM presence automatically. You don't have to call `subscribe`/`unsubscribe` or rebind when you add or remove elements.
-
-- **Adding nodes** (via `appendChild`, `insertAdjacentHTML`, `innerHTML`, framework rerender, etc.) — a `MutationObserver` rooted at the `bindDom` target walks each added subtree, registers `x-*` bindings, and increments per-`(rt, rid)` reference counts. New `(rt, rid)` pairs trigger `client.resources.subscribe` automatically.
-- **Removing nodes** — the same observer detects removals, unsubscribes the path-level state callbacks, and decrements refcounts. When the refcount for a `(rt, rid)` reaches zero, the framework waits a **2-second grace period** before calling `client.resources.unsubscribe(rt, rid)` on the server. If a new binding for the same pair appears during the grace window (tab switch back, modal closes and reopens), the pending unsubscribe is cancelled. Configurable via `client.bindToState(state, { unsubscribeGraceMs: 2000 })`.
-- **Moving nodes** (removed from one parent, attached to another in the same task) — handled correctly: removal is deferred to a microtask, so if the element is still in the document after the microtask drains, no unregistration happens.
-
-**Directive attributes are read once at binding time.** Changing `x-text="a.b"` to `x-text="a.c"` at runtime via `setAttribute` does *not* rebind. If you need that, remove and re-insert the element. (Studio-generated templates don't mutate directive attrs after mount, so this isn't a practical concern.)
-
-For tests or specialized environments, the observer can be disabled: `bindDom(root, state, { autoObserve: false })`. With `autoObserve: false`, bindings are registered only during the initial walk; subsequent DOM changes are not picked up.
-
-## The `x-*` directives
-
-The crawler in [`@lumenize/ui`](../lumenize-ui/index.md) recognizes a small set of attribute directives. Values are *paths only* — no expressions, no function calls inside the attribute. Computed values go in state via `state.computed()`, not in markup.
-
-### Alpine-flavored, with deliberate deviations
-
-The directive syntax is borrowed from [Alpine.js](https://alpinejs.dev/) because LLMs have heavy training-data exposure to it. Lumenize is not Alpine — it's a path-based reactive store with an Alpine-shaped binding layer on top. The deviations:
-
-- **Paths only, no expressions.** `x-text="user.name"` reads a state path. `x-text="user.name.toUpperCase()"` is not supported. Use `state.computed(targetPath, fn)` to materialize computed values as state paths, then bind to those paths.
-- **No `x-data`.** State is global via `@lumenize/state`, not per-element scopes.
-- **No event modifiers.** `x-on:click.stop`, `x-on:keydown.enter`, and similar are not supported. Handler functions receive the event and decide.
-- **`x-input` instead of `x-model`** — named after the DOM event the directive listens to.
-- **`<template>` is the only valid host for `x-for` and `x-if`.** Alpine accepts them on any element; Lumenize requires `<template>` for clarity (the template is a definition; the rendered clones are the real DOM).
-- **Negation: `!path`.** `x-if="!resources.todo.task-42.value.completed"` works. No `x-unless` directive.
-
-### `x-text` — one-way text content
-
-Set element text content from a state path. Most common directive.
-
-```html @skip-check
-<h2 x-text="resources.todo.task-42.value.title"></h2>
-<span class="badge" x-text="resources.todo.task-42.value.status"></span>
-```
-
-Use for any text that should reflect server state. Read-only on the UI side.
-
-### `x-html` — one-way HTML content
-
-Set element innerHTML from a state path. Use sparingly; the value must be pre-sanitized HTML. Prefer `x-text` for plain strings.
-
-```html @skip-check
-<div x-html="resources.document.doc-7.value.renderedBody"></div>
-```
-
-### `x-bind:attr` — one-way attribute binding
-
-Bind any element attribute to a state path. Common attrs: `href`, `src`, `disabled`, `aria-label`, custom `data-*` attributes.
-
-```html @skip-check
-<a x-bind:href="resources.todo.task-42.value.externalUrl">View source</a>
-<button x-bind:disabled="resources.todo.task-42.value.locked">Edit</button>
-```
-
-### `x-show` — conditional display
-
-Toggle `display: none` based on a state path's truthiness.
-
-```html @skip-check
-<div x-show="resources.todo.task-42.value.archived" class="badge badge-neutral">Archived</div>
-```
-
-### `x-class:name` — conditional class
-
-Toggle a single class based on a path's truthiness. Multiple `x-class:*` allowed per element.
-
-```html @skip-check
-<li
-  x-class:line-through="resources.todo.task-42.value.done"
-  x-class:bg-warning="resources.todo.task-42.value.overdue"
->
-  <span x-text="resources.todo.task-42.value.title"></span>
-</li>
-```
-
-### `x-on:event` — event listener
-
-Call a registered handler on a DOM event. The handler name is a string referring to a function registered with `bindDom`. No expressions inside the attribute.
-
-```html @skip-check
-<button x-on:click="markDone">Mark done</button>
-```
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    markDone: async () => {
-      // ... build and submit a transaction
-    },
-  },
-});
-```
-
-### `x-input` — two-way binding for form fields
-
-Bind an `<input>`, `<textarea>`, or `<select>` to a state path. On mount: element shows the path's value. On user input: setState fires, which the synced-state middleware turns into a transaction.
-
-```html @skip-check
-<input x-input="resources.todo.task-42.value.title" />
-<textarea x-input="resources.todo.task-42.value.description"></textarea>
-<select x-input="resources.todo.task-42.value.status">
   <option value="open">Open</option>
   <option value="done">Done</option>
 </select>
 ```
 
-Named for the DOM `input` event the directive listens to (not `x-model` — "model" isn't in Nebula's vocabulary).
+`v-model.eager` is a custom modifier shipped by `@lumenize/nebula-frontend`. Optimistic apply, eTag generation, and conflict-resolver wiring all still apply — only the debounce delay is bypassed.
 
-## Lists with `x-for`
+## Loading and first paint
 
-Iteration is the one place where "paths only" hits a wall — you can't loop in pure path syntax. `x-for` is the directive that handles it.
-
-### Mechanics
-
-- Host element: `<template>` (required). The template element does not render itself; clones go into the template's parent.
-- Attribute syntax: `x-for="loopVar in path"` where `path` resolves to an array at runtime.
-- `x-key="..."` is required for stable identity across array mutations. Without a key, default is by-index — works for append/prepend but causes unnecessary re-renders on reorder.
-- Inside the template, `loopVar` is a scoped value (the current array element). Path resolution: first segment matches `loopVar` → use the scoped value; path contains `$loopVar` → substitute the value as a path segment; otherwise → normal state path.
-
-### Case 1 — embedded arrays of inline objects
+A resource's `?.value` is `undefined` until the initial server push lands (typically tens of ms; longer on cold connect). Three patterns:
 
 ```html @skip-check
-<ul>
-  <template x-for="assignee in resources.todo.task-42.value.assignees" x-key="assignee.id">
-    <li>
-      <span x-text="assignee.name"></span>
-      <span class="badge" x-text="assignee.role"></span>
-    </li>
-  </template>
-</ul>
-```
+<!-- 1. Inline placeholder via ?? — simplest; works for any one-way text binding. -->
+<span>{{ store.resources.todo['task-42']?.value?.title ?? 'Loading…' }}</span>
 
-`assignee.name` resolves to the current iteration's `name` field. The loop variable is the scoped object; standard JS-style dot navigation from there.
-
-### Case 2 — foreign keys (array of resource IDs)
-
-When the array contains IDs pointing to other resources, the loop variable is a string and the rendered clone should subscribe to a *different* resource each iteration. Use `$loopVar` to substitute the value as a path segment:
-
-```html @skip-check
-<div class="cards-grid">
-  <template x-for="subtaskId in resources.todo.task-42.value.subtaskIds" x-key="$subtaskId">
-    <div class="card">
-      <h3 x-text="resources.todo.$subtaskId.value.title"></h3>
-      <p x-text="resources.todo.$subtaskId.value.description"></p>
-    </div>
-  </template>
+<!-- 2. Skeleton loader — v-if on `value` swaps branches atomically once the snapshot arrives. -->
+<div v-if="store.resources.todo['task-42']?.value" class="card">
+  <h2>{{ store.resources.todo['task-42'].value.title }}</h2>
 </div>
+<div v-else class="card skeleton"></div>
 ```
 
-After substitution, `resources.todo.task-7.value.title` is a normal state path. `bindToState`'s auto-subscribe sees the new `(todo, task-7)` pair and fires `client.resources.subscribe('todo', 'task-7')` automatically. When the clone is removed (array shrinks, key disappears), the refcount decrements and the 2-second grace-period unsubscribe applies — same lifecycle as static bindings.
-
-### Nested loops
-
-Inner loops introduce nested scopes; inner loop variables shadow outer ones if names collide. Different names are easier to read:
-
-```html @skip-check
-<template x-for="project in resources.workspace.main.value.projects" x-key="project.id">
-  <section>
-    <h2 x-text="project.name"></h2>
-    <template x-for="taskId in project.taskIds" x-key="$taskId">
-      <article x-text="resources.todo.$taskId.value.title"></article>
-    </template>
-  </section>
-</template>
-```
-
-### Reactivity
-
-When the array at the path changes, the framework diffs old keys vs new keys: unchanged clones stay (their inner bindings continue reacting normally); new keys produce new clones (with new bindings registered via MutationObserver); removed keys produce removed clones (with bindings unregistered the same way). Iteration composes with the standard binding lifecycle.
-
-### Root-level collections (no parent)
-
-For "show me all the todos" — a list that doesn't hang off a parent resource — use a **container resource**: a single root-level resource whose value holds an array of IDs.
-
-Ontology:
+A deleted-server-side resource also produces a falsy `value`. To distinguish "loading" from "deleted", check `?.meta?.deleted` (true for tombstones, undefined for never-loaded), or compose snapshot + connection state into a `computed`:
 
 ```typescript @skip-check
-interface TodoList {
-  items: string[];   // IDs of Todo resources
-}
+import { computed } from 'vue';
 
-interface Todo {
-  title: string;
-  description: string;
-  done: boolean;
-}
+// Return from setup(); branch with v-if / v-else-if / v-else in the template.
+const todoStatus = computed(() => {
+  const snap = store.resources.todo['task-42'];
+  if (!store.lmz.connection.lastConnectedAt) return 'connecting';
+  if (snap?.meta?.deleted)                   return 'deleted';
+  if (!snap?.value)                          return 'loading';
+  return 'ready';
+});
 ```
 
-UI subscribes to the container, iterates its `items` array, renders each todo by ID with `$loopVar` substitution:
+## Connection state
+
+The factory mirrors `NebulaClient`'s connection state to three reserved paths under `lmz.connection.*`. UI binds declaratively; no event listeners. Initial seeds (`'disconnected'` / `false` / `undefined`) mean first-paint reads never need `?.` guards.
+
+| Path | Type | Description |
+| --- | --- | --- |
+| `lmz.connection.state` | `'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'` | Current state. |
+| `lmz.connection.connected` | `boolean` | `true` iff `state === 'connected'`. |
+| `lmz.connection.lastConnectedAt` | `number \| undefined` | `Date.now()` from the most recent `'connected'` transition. |
 
 ```html @skip-check
-<ul>
-  <template x-for="todoId in resources.todoList.main.value.items" x-key="$todoId">
-    <li>
-      <input type="checkbox" x-input="resources.todo.$todoId.value.done" />
-      <span x-text="resources.todo.$todoId.value.title"></span>
-    </li>
-  </template>
-</ul>
+<!-- Banner while disconnected. Optimistic writes still queue in the background. -->
+<div v-if="!store.lmz.connection.connected" class="alert alert-warning">
+  Disconnected — your changes are queued. Reconnecting…
+</div>
+
+<!-- Disable a button while not connected. -->
+<button :disabled="!store.lmz.connection.connected" class="btn btn-primary" @click="save">Save</button>
 ```
 
-There's one well-known root container (`('todoList', 'main')` here) that the app subscribes to at boot. The container resource itself is created once per tenant during setup.
+For richer status UI (color-coded badges, "last connected X minutes ago" tooltips), use `:class` object syntax against `lmz.connection.state` and format `lmz.connection.lastConnectedAt` with `new Date(...)`.
 
-This pattern works well up to ~hundreds of items per container. Beyond that, you'd want a query language (deferred — see below) to filter, paginate, and stream result-set changes incrementally.
+## Auto-subscribe and component scope
 
-### Atomic append — adding to a collection
+Auto-subscribe is driven by Vue's reactivity, not a `MutationObserver`. The store's path-aware Proxy intercepts every read; when a read happens inside a component's `setup()` or render function, the proxy reaches the active Vue scope via `getCurrentInstance()?.scope` and refcounts the `(resourceType, resourceId)` pair.
 
-Creating a new resource and adding its ID to a container happens in **one transaction**:
+- **0 → 1 refcount.** Fires `client.resources.subscribe(resourceType, resourceId)` — fire-and-forget. The snapshot arrives later via the server's fanout push, which writes through to the store and triggers Vue's normal reactivity to re-render.
+- **Refcount-with-grace on unmount.** When the component unmounts, its `effectScope` disposes; the registered `onScopeDispose` callback decrements the refcount. The 1 → 0 transition does NOT immediately unsubscribe — it schedules `client.resources.unsubscribe(resourceType, resourceId)` after a 2-second grace period (configurable via `createNebulaClient({ unsubscribeGraceMs: ... })`). A new subscribe inside the window (tab-switch back, modal close-then-reopen, `<KeepAlive>` swap) cancels the pending unsubscribe — server-side subscription stays live, no re-subscribe RTT.
+- **Dedup within a scope.** Multiple reads of the same `(resourceType, resourceId)` in one component (e.g., `:title` and `:body` interpolations on the same resource) count as one refcount entry. The first read registers; subsequent reads are no-ops at the refcount layer.
 
-```js @skip-check
-async function addTodo(title) {
-  const newId = ulid();   // any URL-safe unique ID generator works
-  const list = state.getState('resources.todoList.main.value');
-  const listETag = state.getState('resources.todoList.main.meta.eTag');
+You never call `subscribe` / `unsubscribe` directly for routine UI; the lifecycle is bound to Vue component lifetimes.
 
-  const outcome = await client.resources.transaction({
-    [newId]: {
-      op: 'create',
-      value: { title, description: '', done: false },
-    },
-    'main': {
-      op: 'put',
-      eTag: listETag,
-      newETag: crypto.randomUUID(),
-      value: { ...list, items: [...list.items, newId] },
-    },
-  });
-  if (outcome.resolution !== 'committed' && outcome.resolution !== 'use-server') {
-    state.setState('ui.addError', outcome);
-  }
-}
-```
+For explicit-control cases (warming a cache before navigation, scripting, headless tests), `client.resources.subscribe(rt, rid)` is still available — see [api-reference.md § resources.subscribe](./api-reference.md#resourcessubscribe). Explicit subscribes don't refcount; they hold the subscription until you explicitly `unsubscribe`.
 
-Atomicity matters: if either op fails (validation error on the todo, conflict on the list), neither commits. The new todo doesn't exist as an orphan, and the list doesn't reference a non-existent ID.
+## Per-component local state
 
-For the inevitable "two users added a todo at the same time" race, register a `'use-this'` resolver on the list type that does set-union of `items`:
+For state that's local to one UI element (open/closed, draft text, current tab, etc.) — anything that isn't synced — use Vue's native `ref` / `reactive` inside `<script setup>`:
 
-```js @skip-check
-client.resources.onETagConflict('todoList', (local, server) => ({
-  resolution: 'use-this',
-  value: {
-    ...server.value,
-    items: [...new Set([...local.value.items, ...server.value.items])],
-  },
-}));
-```
+```vue @skip-check
+<!-- Card.vue — per-instance `expanded` flag. Each <Card> renders with its
+     own independent state automatically; no instanceKey plumbing needed. -->
+<script setup lang="ts">
+import { ref } from 'vue';
 
-Both users' additions land. No modal, no human-in-the-loop — just framework-driven merge.
+const expanded = ref(false);
+</script>
 
-### Query language (coming later)
-
-For "render every todo where status is open" — i.e., a query-result list with server-side filtering, sorting, pagination, and result-set subscription so adds/removes stream in — Nebula will need a query language. That work is deferred. For now, container resources cover most demo apps; once you need to scale beyond a single container's array, queries become the right tool.
-
-## Conditionals with `x-if`
-
-Mount and unmount a DOM subtree based on a state path's truthiness.
-
-### Mechanics
-
-- Host: `<template>` (required, same as `x-for`).
-- Attribute: `x-if="path"` or `x-if="!path"`. Truthy = mount; falsy = unmount. JS standard truthiness applies (`false`, `0`, `''`, `null`, `undefined`, `NaN` all falsy).
-- No comparisons or operators in the attribute. Use `state.computed()` to materialize a derived boolean and bind `x-if` to that.
-- Composes with the lifecycle: mount fires MutationObserver `addedNodes`, bindings register, refcounts increment. Unmount fires `removedNodes`, bindings unregister, refcounts decrement, 2-second grace-period unsubscribe kicks in.
-
-### Simple case
-
-```html @skip-check
-<template x-if="resources.todo.task-42.value.completed">
-  <span class="badge badge-success">Done</span>
-</template>
-
-<template x-if="!resources.todo.task-42.value.completed">
-  <button x-on:click="markDone">Mark done</button>
-</template>
-```
-
-### Composing with `x-for` — filtered iteration
-
-Don't combine `x-for` and `x-if` on the same `<template>` (ambiguous: filter before iteration, or iterate-then-conditionally-render). Nest them:
-
-```html @skip-check
-<template x-for="task in resources.dashboard.main.value.allTasks" x-key="task.id">
-  <template x-if="task.active">
-    <li x-text="task.title"></li>
-  </template>
-</template>
-```
-
-The outer loop iterates every task. The inner `x-if` mounts a `<li>` only for active ones. Inactive tasks produce no DOM and (because there are no bindings to register) no subscriptions to manage.
-
-### Complex conditions via `state.computed()`
-
-The "no expressions in attributes" rule means inline comparisons like `x-if="task.status === 'open'"` are not supported. Materialize the boolean as state:
-
-```js @skip-check
-state.computed('app.derived.task-42.isOpen', () =>
-  state.getState('resources.todo.task-42.value.status') === 'open'
-);
-```
-
-```html @skip-check
-<template x-if="app.derived.task-42.isOpen">
-  <button class="btn btn-primary">Resolve</button>
-</template>
-```
-
-`state.computed(targetPath, fn)` recomputes `fn` whenever any path read inside it changes, and writes the result to `targetPath`. Multiple `x-if`s can subscribe to the same derived boolean. See [`@lumenize/state`](../lumenize-state/index.md) for the full computed-state API.
-
-For loops with conditional dependence on the loop variable, `$loopVar` substitution composes naturally:
-
-```html @skip-check
-<template x-for="subtaskId in resources.todo.task-42.value.subtaskIds" x-key="$subtaskId">
-  <template x-if="resources.todo.$subtaskId.value.completed">
-    <div class="text-success" x-text="resources.todo.$subtaskId.value.title"></div>
-  </template>
-  <template x-if="!resources.todo.$subtaskId.value.completed">
-    <div class="text-base-content" x-text="resources.todo.$subtaskId.value.title"></div>
-  </template>
-</template>
-```
-
-## Components and recursion
-
-The directives so far cover read, write, iterate, and branch — all that flat-list UIs need. Three things they don't cover:
-
-- **Parameterized reuse.** "Render this same shape 100 times with different inputs," where the shape is bigger than one element.
-- **Recursion.** A tree where each node renders the same shape and its own children.
-- **Per-instance UI state.** Each of 100 cards has its own "expanded/collapsed" toggle, independent of the others.
-
-Components handle all three. A component is a `<template>` tagged with `x-component="name"` that lives in the DOM but doesn't render itself. You render it elsewhere with `x-render="name"`, passing scoped values via `x-prop:{name}="value"`.
-
-### Defining a component with `x-component`
-
-```html @skip-check
-<template x-component="stat-card" x-key-from="$label">
-  <div class="card bg-base-100 shadow">
-    <div class="card-body">
-      <h2 class="card-title" x-text="$label"></h2>
-      <p class="text-3xl font-bold" x-text="$value"></p>
-      <button x-on:click="toggleDetail" class="btn btn-sm">
-        <span x-text="$local.expanded ? 'Hide' : 'Show'"></span> detail
-      </button>
-      <template x-if="$local.expanded">
-        <p class="text-sm opacity-70" x-text="$detail"></p>
-      </template>
-    </div>
+<template>
+  <div>
+    <button class="btn btn-sm" @click="expanded = !expanded">
+      {{ expanded ? 'Hide' : 'Show' }}
+    </button>
+    <div v-if="expanded">...content...</div>
   </div>
 </template>
 ```
 
-- **Host element**: `<template>` (same as `x-for` / `x-if`). The template doesn't render itself; clones are made wherever `x-render` instantiates it.
-- **`x-component="name"`**: the registration name. Names use `kebab-case` to mirror HTML custom-element conventions and to be visually distinct from native elements when read.
-- **Inside the template**: scoped values from props (`$label`, `$value`, `$detail`) and per-instance state (`$local`) are available everywhere a state path would be, plus a few extra slots in directive values that the next subsections explain.
-- **`x-key-from`**: explained under per-instance state below. Required when a component holds local state; optional otherwise.
+For non-synced state that must be shared across components (a search query in a header consumed by a list elsewhere, a current-view selector, etc.), put it under a non-reserved prefix on the store — typically `store.ui.*` (transient UI state) or `store.app.*` (app-wide local state). The framework only auto-syncs writes under `resources.*`; everything else is yours.
 
-### Rendering a component with `x-render` and `x-prop:*`
+The factory does NOT auto-vivify intermediate objects under non-reserved prefixes. `v-model="store.ui.todoForm.draft.title"` requires `store.ui.todoForm.draft` to already exist as an object — otherwise the read side of `v-model` throws (you can't optional-chain in a `v-model` l-value). Initialize the shape you bind to either in `store.ts` at module load or in an `onMounted` hook on the component that owns the field, as shown in the [Forms: explicit save](#forms-explicit-save) and [Worked example](#worked-example-dag-tree-with-virtual-branches) sections.
+
+
+## Lists with `v-for`
+
+The interesting Nebula cases for `v-for` are the **foreign-key pattern** (each iteration auto-subscribes to a different resource) and **container resources** (a well-known resource holding an array of IDs).
 
 ```html @skip-check
-<div class="grid grid-cols-3 gap-4">
-  <template x-render="stat-card"
-            x-prop:label="'Active users'"
-            x-prop:value="resources.metrics.daily.value.activeUsers"
-            x-prop:detail="resources.metrics.daily.value.activeUsersDetail"></template>
-
-  <template x-render="stat-card"
-            x-prop:label="'Revenue'"
-            x-prop:value="resources.metrics.daily.value.revenue"
-            x-prop:detail="resources.metrics.daily.value.revenueDetail"></template>
-
-  <template x-render="stat-card"
-            x-prop:label="'Errors'"
-            x-prop:value="resources.metrics.daily.value.errors"
-            x-prop:detail="resources.metrics.daily.value.errorsDetail"></template>
+<!-- Foreign keys: each read of store.resources.todo[subtaskId] inside the loop
+     auto-subscribes that (todo, subtaskId) pair. Removing an ID unmounts the
+     <div>, decrements the refcount, and (after the 2 s grace period) unsubscribes. -->
+<div
+  v-for="subtaskId in store.resources.todo['task-42']?.value?.subtaskIds ?? []"
+  :key="subtaskId"
+>
+  <h3>{{ store.resources.todo[subtaskId]?.value?.title ?? '...' }}</h3>
 </div>
 ```
 
-- **Host element**: `<template>`. Like `x-for`, the template element doesn't render; the rendered clone goes in its parent.
-- **`x-render="name"`** locates the registered component template.
-- **`x-prop:{name}="value"`** passes a scoped value as a prop. Inside the component, the prop is accessible as `${name}` (e.g., `x-prop:label="..."` becomes `$label`).
-- **Prop values follow the same path-or-string rules as other directives**: bare paths resolve to state, single-quoted literals are strings, and loop variables (e.g., `$node`, see below) are scoped values. No expressions or function calls.
+Inline arrays of embedded objects (e.g., `assignees`) iterate the same way without auto-subscribing per item — the embedded object's fields are right there. Nested loops nest naturally; inner-loop variables shadow outer ones if names collide.
 
-### Per-instance state with `$local`
+### Root-level collections via a container resource
 
-`$local` is a per-component-instance state proxy. Reading from it returns the value at the framework-managed path `ui.{componentName}.{instanceKey}.*`; writing to it does the equivalent `setState`. Each component instance has its own `instanceKey`, so 100 stat-cards have 100 independent `$local.expanded` flags.
+For "show me all the todos" — a list that doesn't hang off a parent resource — use a **container resource** whose value holds an array of IDs. The container (e.g., `('todoList', 'main')`) is created once per tenant during setup.
+
+```typescript @skip-check
+// Ontology (.d.ts-style file)
+interface TodoList { items: string[] }                // IDs of Todo resources
+interface Todo     { title: string; done: boolean }
+```
 
 ```html @skip-check
-<template x-component="stat-card" x-key-from="$label">
-  <!-- ... -->
-  <button x-on:click="toggleDetail">
-    <span x-text="$local.expanded ? 'Hide' : 'Show'"></span> detail
-  </button>
-</template>
-```
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    toggleDetail: (event, { $local }) => {
-      $local.set('expanded', !$local.get('expanded'));
-    },
-  },
-});
-```
-
-**`x-key-from="..."`** tells the framework how to derive each instance's `instanceKey`. The value is a scoped path resolving to a stable, unique-per-instance string or number — most often a prop like `$label` or a loop variable's `.id`. Required on any component that uses `$local`; optional otherwise.
-
-If you want shared state across all instances (rare), bind to an explicit `ui.*` path directly instead of using `$local`.
-
-### Handler scope injection
-
-When a handler is invoked from inside a component or an `x-for` body, it receives the current scope as its second argument:
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    saveCard: (event, { $node, $local, $trail }) => {
-      // $node — the current scoped value (loop var or component prop)
-      // $local — per-instance state proxy (get / set)
-      // $trail — read-only array of ancestor scoped values (see below)
-    },
-  },
-});
-```
-
-The framework destructures whichever slots the handler asks for. Handlers at the root scope (outside any component or loop) receive an empty scope object — `(event, {})` — so you can write handlers that don't care about scope without conditional handling.
-
-### The `$trail` — knowing where you are in a nested structure
-
-`$trail` is a read-only array of the scoped values of all ancestor scopes from the document root down to (but not including) the current scope. Use it for breadcrumb-style UIs or for handlers that need to know the rendering path.
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    chooseNode: (event, { $node, $trail }) => {
-      // $trail is, e.g., [rootNode, departmentNode, teamNode]
-      // $node is the leaf the user clicked.
-      const breadcrumbs = [...$trail, $node];
-      state.setState('app.chosenBreadcrumbs', breadcrumbs);
-    },
-  },
-});
-```
-
-The framework also uses `$trail` internally to disambiguate `instanceKey` for `$local` when a component renders at multiple positions in the same tree — so the same logical node has independent state at each rendering position. You rarely need to think about this; just know that `$local.expanded` won't accidentally bleed across two different occurrences of the same component.
-
-### Recursion: the canonical pattern
-
-A component can render itself by name — there's no special syntax for recursion beyond `x-render="own-name"` inside the component's own template. Each level passes a different scoped value (typically a child of the current node) so recursion is finite.
-
-```html @skip-check
-<template x-component="tree-item" x-key-from="$node.id">
-  <li>
-    <span x-text="$node.label"></span>
-    <template x-if="$local.isOpen">
-      <ul>
-        <template x-for="child in $node.children" x-key="child.id">
-          <template x-render="tree-item" x-prop:node="child"></template>
-        </template>
-      </ul>
-    </template>
+<!-- Subscribes to the container; each iteration subscribes to its todo. -->
+<ul>
+  <li v-for="todoId in store.resources.todoList['main']?.value?.items ?? []" :key="todoId">
+    <input type="checkbox" v-model="store.resources.todo[todoId].value.done" />
+    {{ store.resources.todo[todoId]?.value?.title ?? '...' }}
   </li>
-</template>
-```
-
-The framework auto-builds each instance's `$trail` from the chain of `x-key` and `x-key-from` values encountered while descending. A node rendering at two different positions in the tree gets two distinct `instanceKey`s — its expand/collapse state at one occurrence doesn't affect the other.
-
-There's no hard recursion limit; depth is bounded only by the JS call stack (effectively thousands of levels). Trees in practice are tens of levels deep, well within budget.
-
-## Worked example: DAG tree with virtual branches
-
-A full Nebula DAG tree component — multi-parent rendering, virtual "Deleted" / "Orphaned" branches, search with match highlighting and auto-expand of ancestors of matches. Pulls all the pieces together.
-
-### State layout
-
-```
-resources.dagNode.{nodeId}.value         — one synced resource per row
-  { slug, label, deleted, parentIds[], childIds[] }
-
-app.tree.root                             — derived, hydrated tree
-  TreeNode = { id, label, labelRuns?, deleted, children: TreeNode[] }
-  Root's children include virtual __deleted__ and __orphaned__
-  branches (if non-empty).
-
-ui.search.query                           — search-input value
-ui.tree-item.{instanceKey}.isOpen         — per-instance expand state
-```
-
-The server (Star DO) holds one row per node in SQLite and exposes each row as a synced resource. The client derives `app.tree.root` via a single `state.computed` that walks the node map from the mirror root (`nodeId = 1`).
-
-### Derivation
-
-```js @skip-check
-state.computed('app.tree.root', () => {
-  const nodes = state.getState('resources.dagNode') ?? {};
-  const query = (state.getState('ui.search.query') ?? '').toLowerCase();
-  return deriveTreeWithVirtuals(nodes, query);
-});
-
-function deriveTreeWithVirtuals(nodesByResourceId, query) {
-  // ... walks from root (nodeId='1'), rendering a node under each of its parents.
-  //   Skips deleted nodes during the main walk; collects them into a __deleted__
-  //   subtree. Computes orphaned (nodes not reachable from root via undeleted
-  //   edges) into __orphaned__. When query is non-empty, splits each label
-  //   into labelRuns = [{text, match: boolean}, ...] so the template can render
-  //   match highlighting safely without x-html.
-}
-```
-
-Two design notes:
-
-- **Multi-parent rendering** is intentional. A node with parents `[A, B]` renders once under `A` and once under `B`. Per-instance state (`$local.isOpen`) stays independent at each position because `$trail` differs.
-- **Virtual branches** use `__deleted__` and `__orphaned__` as IDs. The slug regex (`^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`) rejects underscores, so these IDs are structurally un-collide-able with anything a user could create as a node slug. Labels in the UI are `'Deleted'` / `'Orphaned'`.
-
-### Template
-
-```html @skip-check
-<input type="text" x-input="ui.search.query" placeholder="Search…" class="input">
-
-<template x-component="tree-item" x-key-from="$node.id">
-  <li class="menu-item">
-    <div class="flex items-center gap-2">
-      <button
-        x-on:click="toggleOpen"
-        x-show="$node.children.length"
-        class="btn btn-ghost btn-xs"
-      >
-        <span x-text="$local.isOpen ? '▼' : '▶'"></span>
-      </button>
-
-      <template x-if="!$node.labelRuns">
-        <span x-text="$node.label"></span>
-      </template>
-      <template x-if="$node.labelRuns">
-        <span>
-          <template x-for="run in $node.labelRuns" x-key="run.text">
-            <span
-              x-text="run.text"
-              x-class:bg-warning="run.match"
-            ></span>
-          </template>
-        </span>
-      </template>
-    </div>
-
-    <template x-if="$local.isOpen">
-      <ul class="menu menu-dropdown menu-dropdown-show ml-4">
-        <template x-for="child in $node.children" x-key="child.id">
-          <template x-render="tree-item" x-prop:node="child"></template>
-        </template>
-      </ul>
-    </template>
-  </li>
-</template>
-
-<ul class="menu menu-md bg-base-200 rounded-box">
-  <template x-render="tree-item" x-prop:node="app.tree.root"></template>
 </ul>
 ```
 
-### Handlers
+This works up to ~hundreds of items. Beyond that, a query language is the right tool — deferred for now.
 
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    toggleOpen: (event, { $local }) => {
-      $local.set('isOpen', !$local.get('isOpen'));
-    },
-  },
-});
-```
+### Atomic append — adding to a collection
 
-That's the entire handler payload. No node-ID extraction, no path construction — `$local` resolves to the correct `ui.tree-item.{instanceKey}.isOpen` automatically.
+Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a set-union of `items` — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
 
-### Auto-expanding ancestors of search matches
+```typescript @skip-check
+async function addTodo(title: string) {
+  const newId = crypto.randomUUID();
+  const list     = store.resources.todoList['main']?.value;
+  const listETag = store.resources.todoList['main']?.meta?.eTag;
 
-When the search query is non-empty, ancestors of every matching node need to flip to `isOpen: true` automatically so matches are visible. A separate `state.computed` handles this as a side effect:
+  // Both ops in one call → atomic. Either both commit or neither does.
+  const outcome = await client.resources.transaction({
+    [newId]: { op: 'create', nodeId: list.nodeId, typeName: 'todo',
+               value: { title, done: false } },
+    'main':  { op: 'put',    eTag: listETag,
+               value: { ...list, items: [...list.items, newId] } },
+  });
 
-```js @skip-check
-state.computed('app.tree.searchAncestorsExpanded', () => {
-  const tree = state.getState('app.tree.root');
-  const query = state.getState('ui.search.query');
-  if (!query || !tree) return null;
-  walkAndExpandAncestorsOfMatches(tree);
-  return Date.now(); // dummy value; the side effect is the point
-});
-
-function walkAndExpandAncestorsOfMatches(node, trail = []) {
-  if (node.labelRuns?.some(r => r.match)) {
-    for (const ancestor of trail) {
-      const instanceKey = ancestorInstanceKey(ancestor, trail);
-      state.setState(`ui.tree-item.${instanceKey}.isOpen`, true);
-    }
-  }
-  for (const child of node.children ?? []) {
-    walkAndExpandAncestorsOfMatches(child, [...trail, node]);
-  }
+  // Top-level switch handles ONLY transaction-wide failures
+  // (infrastructure-error / timeout / ontology-stale). Per-resource outcomes
+  // (use-server, validation-failed, etc.) go to the per-type handler.
+  if (outcome.kind !== 'ok') store.ui.addError = outcome;
 }
 ```
 
-Keeping the expand-ancestors logic in its own computed (rather than folding it into the derivation) leaves `deriveTreeWithVirtuals` pure: same inputs always produce the same tree structure regardless of any UI state mutations triggered as a side effect.
+## Conditionals with `v-if`
+
+Standard Vue. Subscriptions inside an unmounted branch don't fire — auto-subscribe only kicks in when a component actually reads from the store.
+
+```html @skip-check
+<span v-if="store.resources.todo['task-42']?.value?.done" class="badge badge-success">Done</span>
+<button v-else @click="markDone">Mark done</button>
+```
+
+Don't put `v-for` and `v-if` on the same element — nest instead (`<template v-for>` outside, `<li v-if>` inside). For conditions reused across multiple sites or substantial enough to warrant testing, lift into a `computed`:
+
+```typescript @skip-check
+import { computed } from 'vue';
+const isOpen = computed(() => store.resources.todo['task-42']?.value?.status === 'open');
+```
 
 ## Read-only and editable views of the same field
 
-The same path can appear with both `x-text` (display) and `x-input` (edit) in different places — they stay in sync automatically because they both subscribe to the same state path. Three common patterns:
-
-### Side-by-side: always visible, always editable
+The same store path can appear as both text and an input — they stay in sync through Vue's reactivity. Two patterns:
 
 ```html @skip-check
-<div class="card">
-  <h2 class="card-title" x-text="resources.todo.task-42.value.title"></h2>
-  <input
-    class="input input-sm"
-    x-input="resources.todo.task-42.value.title"
-    aria-label="Edit title"
-  />
+<!-- Side-by-side: heading + input both bound to the same path. Live-preview UIs. -->
+<div v-if="store.resources.todo['task-42']?.value" class="card">
+  <h2>{{ store.resources.todo['task-42'].value.title }}</h2>
+  <input v-model="store.resources.todo['task-42'].value.title" aria-label="Edit title" />
+</div>
+
+<!-- Click-to-edit: swap on focus. `store.ui.editingTitle` is local-only —
+     under `ui.*` (not `resources.*`) so the synced-state middleware ignores it. -->
+<div v-if="store.resources.todo['task-42']?.value" class="card">
+  <h2 v-if="!store.ui.editingTitle" @click="store.ui.editingTitle = true">
+    {{ store.resources.todo['task-42'].value.title }}
+  </h2>
+  <input v-else v-model="store.resources.todo['task-42'].value.title"
+         @blur="store.ui.editingTitle = false" />
 </div>
 ```
-
-The heading and the input update each other through state. Use for compact admin views or "live preview" UIs.
-
-### Click-to-edit: swap on focus
-
-Toggle visibility with a piece of local UI state. Local state lives outside the `resources.*` tree, so the synced-state middleware ignores it.
-
-```html @skip-check
-<div class="card">
-  <h2
-    x-show="!ui.editingTitle"
-    x-on:click="enterEdit"
-    x-text="resources.todo.task-42.value.title"
-    class="cursor-pointer"
-  ></h2>
-  <input
-    x-show="ui.editingTitle"
-    x-input="resources.todo.task-42.value.title"
-    x-on:blur="exitEdit"
-  />
-</div>
-```
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    enterEdit: () => state.setState('ui.editingTitle', true),
-    exitEdit:  () => state.setState('ui.editingTitle', false),
-  },
-});
-```
-
-State path `ui.editingTitle` is purely local — never synced.
 
 ### Forms: explicit save
 
-For multi-field forms where you want all edits to commit together (rather than per-keystroke transactions), bind inputs to a *local* draft path and submit it with an explicit handler. The middleware doesn't auto-transact local paths; you submit the transaction yourself.
+For multi-field forms that should commit together (rather than per-keystroke transactions), bind inputs to a local draft path and submit on click. Each form keeps its draft under its own `store.ui.<formName>.draft` path. The per-type handler clears the draft on commit and surfaces per-resource problems — register once in `store.ts`. (For the full set of resolution branches and how each affects the draft, see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).)
 
-```html @skip-check
-<form class="card" x-on:submit="saveTodo">
-  <input x-input="ui.draft.title" />
-  <textarea x-input="ui.draft.description"></textarea>
-  <select x-input="ui.draft.status">
-    <option value="open">Open</option>
-    <option value="done">Done</option>
-  </select>
-  <button type="submit" class="btn btn-primary">Save</button>
-</form>
-```
-
-```js @skip-check
-bindDom(document.body, state, {
-  handlers: {
-    saveTodo: async (event) => {
-      event.preventDefault();
-      const draft = state.getState('ui.draft');
-      const eTag = state.getState('resources.todo.task-42.meta.eTag');
-      const outcome = await client.resources.transaction({
-        'task-42': {
-          op: 'put',
-          eTag,
-          newETag: crypto.randomUUID(),
-          value: draft,
-        },
-      });
-      if (outcome.resolution === 'committed' || outcome.resolution === 'use-server') {
-        state.setState('ui.draft', undefined);  // success — clear the draft
-      } else {
-        // Leave the draft in place so the user can retry. Surface the error.
-        state.setState('ui.saveError', outcome);
-      }
-    },
-  },
+```typescript @skip-check
+// store.ts (alongside the createNebulaClient call)
+client.resources.onTransactionResourceResolution('todo', (rid, resolution) => {
+  switch (resolution.kind) {
+    case 'committed':         store.ui.todoForm.draft = undefined; break;
+    case 'validation-failed': store.ui.todoForm.validationErrors = resolution.errors; break;
+    case 'permission-denied': store.ui.todoForm.saveError = { kind: 'permission-denied', rid }; break;
+    // 'use-server' / 'retries-exhausted' fall to the framework's default red-flash.
+  }
 });
 ```
 
-The draft lives at `ui.draft` (local-only); the resource lives at `resources.todo.task-42` (synced). The save handler reads the eTag from the synced state and submits the draft as a put.
+```vue @skip-check
+<!-- TodoForm.vue — local draft → explicit transaction on submit. -->
+<script setup lang="ts">
+import { onMounted } from 'vue';
+import { store, client } from './store';
+
+// Init the draft on first mount. Both store.ui.todoForm and .draft must exist
+// as objects before v-model can bind nested fields (the factory does NOT
+// auto-vivify intermediate objects under non-reserved prefixes).
+onMounted(() => {
+  if (!store.ui.todoForm) store.ui.todoForm = {};
+  store.ui.todoForm.draft = { ...(store.resources.todo['task-42']?.value
+    ?? { title: '', description: '', status: 'open' }) };
+});
+
+async function saveTodo() {
+  const outcome = await client.resources.transaction({
+    'task-42': {
+      op: 'put',
+      eTag: store.resources.todo['task-42']?.meta?.eTag,
+      value: store.ui.todoForm.draft,
+    },
+  });
+  // Per-resource outcomes (validation-failed, etc.) go to the per-type handler.
+  // await-site handles ONLY transaction-wide failures.
+  if (outcome.kind !== 'ok') store.ui.todoForm.saveError = outcome;
+}
+</script>
+
+<template>
+  <form v-if="store.ui.todoForm?.draft" @submit.prevent="saveTodo">
+    <input v-model="store.ui.todoForm.draft.title" />
+    <textarea v-model="store.ui.todoForm.draft.description"></textarea>
+    <select v-model="store.ui.todoForm.draft.status">
+      <option value="open">Open</option>
+      <option value="done">Done</option>
+    </select>
+    <button type="submit">Save</button>
+  </form>
+</template>
+```
+
+Rule of thumb: `store.resources.*` for per-keystroke (debounced) writes; `store.ui.<formName>.*` for staged writes that the user explicitly commits. For multiple concurrent forms, use distinct form names (`store.ui.projectForm.draft`, etc.).
+
+## Recursive components
+
+Vue SFCs recurse natively — a component references itself in its own template by file-stem name (or by an explicit `name` declared in the script). Each instance auto-subscribes to its own resource, and unmounting decrements the refcount.
+
+```vue @skip-check
+<!-- TreeNode.vue -->
+<script setup lang="ts">
+import { store } from './store';
+
+defineProps<{ nodeId: string }>();
+</script>
+
+<template>
+  <span>{{ store.resources.treeNode[nodeId]?.value?.label ?? '...' }}</span>
+  <ul v-if="(store.resources.treeNode[nodeId]?.value?.childIds?.length ?? 0) > 0">
+    <!-- `childIds` is an array of node IDs (foreign-key pattern from "Lists"
+         above). Each recursive <TreeNode> auto-subscribes to its own resource
+         via store.resources.treeNode[childId]. -->
+    <li
+      v-for="childId in store.resources.treeNode[nodeId].value.childIds"
+      :key="childId"
+    >
+      <TreeNode :node-id="childId" />
+    </li>
+  </ul>
+</template>
+```
+
+```vue @skip-check
+<!-- App.vue — mount the recursive tree at a known root id. -->
+<script setup lang="ts">
+import TreeNode from './TreeNode.vue';
+
+const rootId = '1';   // root resource id; subscribed via the first read inside TreeNode
+</script>
+
+<template>
+  <TreeNode :node-id="rootId" />
+</template>
+```
+
+Per-instance state (expand/collapse, draft text, etc.) lives in each component's `<script setup>` as plain `ref` / `reactive` — Vue handles "independent state at each rendering position" natively.
+
+## Worked example: rendering the built-in DAG tree
+
+**Every Nebula app receives the same built-in DAG** — the tree of nodes that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.resources.lmz.dag.value` (visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape so it can grey out inaccessible nodes locally). Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
+
+A pre-built `<NebulaDagTree>` component will likely ship from `@lumenize/nebula-frontend` for the default tree-view case. The from-scratch example below is useful regardless: it's the right starting point when the pre-built doesn't fit your UX, AND it's the blueprint for what the framework-shipped component does internally.
+
+The example pulls together: a single subscribe to the framework-reserved DAG resource, walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering, virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+
+### The DAG resource shape
+
+`store.resources.lmz.dag.value` is a `DagTreeState`:
+
+```typescript @skip-check
+// Imported from '@lumenize/nebula/client'.
+interface DagTreeState {
+  nodes: Map<number, {
+    slug: string;
+    label: string;
+    deleted: boolean;
+    parentIds: number[];      // foreign-key edges to parent node integers
+    childIds:  number[];
+  }>;
+  permissions: Map<number, Map<string, 'admin' | 'write' | 'read'>>;
+}
+```
+
+Subscribing to `('lmz', 'dag')` once seeds the value; subsequent server-side mutations fan out a fresh snapshot through the same `handleResourceUpdate` path as any other resource.
+
+The framework reserves the `lmz` resourceType for its own resources (mirrors the `lmz.*` reserved prefix used for non-resource paths like `lmz.connection.*` — anything under `lmz` in either reserved namespace is framework territory).
+
+> **Implementation status (2026-05-15):** the `('lmz', 'dag')` binding is the pinned design but the server-side `DagTree.#onChanged` → `Star.#fanout` rewire is not yet wired up. Tracked in [tasks/nebula-frontend.md § DAG-tree-as-special-resource](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md). Wire-format on mutation (full snapshot vs. eTag-bump-and-pull vs. op-broadcast) is also still open; the client-facing API in this section doesn't depend on which server option is picked.
+
+**Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `TreeNode` instance with independent per-instance state automatically.
+
+**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. The slug regex (`^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`) rejects underscores, so these IDs can't collide with anything a user could create. Real DAG nodes have integer `nodeId`; the derived `TreeNodeData.id` is a string — `String(nodeId)` for real nodes, `__virtual__` strings for virtual branches.
+
+### Derivation helpers (`tree.ts`)
+
+```typescript @skip-check
+// tree.ts — shape + derivation helpers used by App.vue and TreeNode.vue.
+import { ROOT_NODE_ID, type DagTreeState } from '@lumenize/nebula/client';
+
+export interface TreeNodeData {
+  id: string;                                       // String(nodeId) for real nodes; '__deleted__' / '__orphaned__' for virtuals
+  label: string;
+  labelRuns?: { text: string; match: boolean }[];   // populated when query is non-empty
+  deleted?: boolean;
+  children: TreeNodeData[];
+}
+
+// Walks from ROOT_NODE_ID through `dag.nodes`, rendering a node under each of
+// its parents. Skips deleted nodes during the main walk; collects them into a
+// __deleted__ subtree. Computes orphaned (nodes not reachable from root via
+// undeleted edges) into __orphaned__. When `query` is non-empty, splits each
+// label into labelRuns = [{text, match: boolean}, ...] so the template can
+// render match highlighting safely without v-html.
+export function deriveTreeWithVirtuals(
+  dag: DagTreeState,
+  query: string,
+): TreeNodeData {
+  // Reads dag.nodes.get(ROOT_NODE_ID), then recursively follows childIds
+  // through dag.nodes.get(childId) for each. Map.get(...) is O(1).
+  return { /* root TreeNodeData */ } as TreeNodeData;
+}
+
+// For each node whose labelRuns contains a match, adds every id in `ancestors`
+// to `ids`, then recurses into children with this node's id appended to
+// `ancestors`.
+export function walkAndCollectAncestorsOfMatches(
+  tree: TreeNodeData,
+  ancestors: string[],
+  ids: Set<string>,
+): void {
+  // ...
+}
+```
+
+### Component (`TreeNode.vue`)
+
+```vue @skip-check
+<!-- TreeNode.vue — recursive tree row + child list. -->
+<script setup lang="ts">
+import { ref, inject, watch, type Ref } from 'vue';
+import type { TreeNodeData } from './tree';
+
+// Capture the props object so script-side code can read `props.node.id`
+// (defineProps<...>() without a binding only exposes props in the template).
+const props = defineProps<{ node: TreeNodeData }>();
+
+// Per-instance state: each TreeNode instance has its own isOpen.
+const isOpen = ref(false);
+const toggleOpen = () => { isOpen.value = !isOpen.value; };
+
+// App.vue provides a reactive set of ids to auto-expand on search match.
+// When our id appears in the set, flip isOpen to true.
+const expansionsForQuery = inject<Ref<Set<string>>>('expansionsForQuery');
+watch(
+  () => expansionsForQuery?.value,
+  (set) => { if (set?.has(props.node.id)) isOpen.value = true; },
+  { immediate: true },
+);
+</script>
+
+<template>
+  <li>
+    <button v-show="node.children.length" @click="toggleOpen">
+      {{ isOpen ? '▼' : '▶' }}
+    </button>
+
+    <!-- Plain label when not searching; highlighted runs when query is active. -->
+    <span v-if="!node.labelRuns">{{ node.label }}</span>
+    <span v-else>
+      <span v-for="(run, i) in node.labelRuns" :key="i"
+            :class="{ 'bg-warning': run.match }">{{ run.text }}</span>
+    </span>
+
+    <!-- Recursion: each child gets its own TreeNode instance with its own isOpen. -->
+    <ul v-if="isOpen">
+      <TreeNode v-for="child in node.children" :key="child.id" :node="child" />
+    </ul>
+  </li>
+</template>
+```
+
+### Root component (`App.vue`)
+
+```vue @skip-check
+<!-- App.vue — search input + tree derivation + provide auto-expand set. -->
+<script setup lang="ts">
+import { computed, provide, onMounted } from 'vue';
+import type { DagTreeState } from '@lumenize/nebula/client';
+import { store } from './store';
+import TreeNode from './TreeNode.vue';
+import { deriveTreeWithVirtuals, walkAndCollectAncestorsOfMatches,
+  type TreeNodeData } from './tree';
+
+onMounted(() => { if (!store.ui.search) store.ui.search = { query: '' }; });
+
+// First read of store.resources.lmz.dag triggers auto-subscribe to ('lmz', 'dag').
+// Re-runs when the server pushes a new DagTreeState or the query changes.
+// Vue 3's reactivity tracks Map.get / Map iteration natively.
+const tree = computed<TreeNodeData | null>(() => {
+  const dag = store.resources.lmz?.dag?.value as DagTreeState | undefined;
+  if (!dag) return null;
+  return deriveTreeWithVirtuals(dag, (store.ui.search?.query ?? '').toLowerCase());
+});
+
+// Pure derivation (returns a Set, doesn't mutate component state) — every
+// TreeNode instance rendered at the same id (multi-parent positions) sees
+// the same set independently.
+const expansionsForQuery = computed<Set<string>>(() => {
+  const t = tree.value;
+  const q = store.ui.search?.query;
+  if (!q || !t) return new Set();
+  const ids = new Set<string>();
+  walkAndCollectAncestorsOfMatches(t, [], ids);
+  return ids;
+});
+provide('expansionsForQuery', expansionsForQuery);
+</script>
+
+<template>
+  <input v-if="store.ui.search" v-model="store.ui.search.query" placeholder="Search…" />
+  <ul v-if="tree"><TreeNode :node="tree" /></ul>
+</template>
+```

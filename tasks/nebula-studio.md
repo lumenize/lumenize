@@ -46,14 +46,92 @@ Both artifacts must stay coherent: the UI must reference entity names, field nam
 - Abandoned apps cost essentially nothing; active apps stay well under any practical DO limits.
 - Each chat session pins to a **non-main branch** (the `.dev` branch by default, auto-created when the Star is created). The branch's Star is an independent DO instance with its own SQLite — fully isolated from `.main`. In-place lazy migration runs on each branch's Star — see `tasks/nebula-branches.md` and `tasks/nebula-5.5-branch-migrations.md`. Cross-branch data copy at branch creation (the `origin !== null` case) is post-demo.
 
-### Studio UI hosting (open — needs spike)
+### Files as resources (no separate VFS)
 
-Two candidate mechanisms for hosting Studio's own HTML/JS:
+Captured 2026-05-15 during the post-SFC-pivot Studio design discussion. **Application source files are resources of type `file`** (or potentially more granular types per extension), stored on the session's `.dev` branch's Star alongside the user's data resources.
+
+Value is the content directly; mime-type lives on `meta` as a framework-owned field (see [tasks/nebula-frontend.md](nebula-frontend.md) § "Snapshot meta fields" for the broader meta shape):
+
+```
+store.resources.file['App.vue'].value      = '<template>...'      // content directly
+store.resources.file['App.vue'].meta       = { eTag, validFrom, mimeType: 'text/x-vue', ... }
+
+store.resources.file['store.ts'].value     = 'import { ... } ...'
+store.resources.file['store.ts'].meta      = { eTag, validFrom, mimeType: 'application/typescript', ... }
+
+store.resources.file['index.html'].value   = '<!doctype html>...'
+store.resources.file['index.html'].meta    = { eTag, validFrom, mimeType: 'text/html', ... }
+```
+
+For binary uploads (images, generated blobs), `value` is `ArrayBuffer` and `meta.mimeType` tells you how to interpret it. Maps cleanly to MCP's `TextResourceContents` / `BlobResourceContents` split.
+
+What we get for free by leaning on Resources instead of building a separate virtual file system:
+
+- **Storage** on the dev Star (already there for synced resources).
+- **Versioning via branches** — each session is on its own `.dev` branch with isolated file state; named checkpoint branches give us "save this version" UX (see Editor / Preview below).
+- **Optimistic transactions on every edit** (already there).
+- **Subscribe-and-fanout for the preview** — the dev Star's compile pipeline subscribes to file resources, recompiles on change, broadcasts reload to the preview client. This is exactly the spike pattern in `apps/nebula/spike/sfc-devstar-loop/` (see also the "Dev-mode Star: SFC compile + reload broadcast" section below).
+- **Mesh access for the agent** — Studio's LLM calls `client.resources.transaction({...})` to edit files, identical to the primitive that powers the UI's resource writes. No second consistency model for source code.
+
+**What we explicitly DON'T build:**
+
+- A separate VFS abstraction layer (e.g., a `FileSystem` class wrapping DO storage).
+- A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility. Versioning + diffing + branching all fall out of resources + branches.
+- A parallel "files" storage path distinct from resources.
+
+**What stays open / TBD:**
+
+- Single `file` resource type with `mimeType` discrimination vs. distinct types per extension (`vueComponent`, `tsModule`, `htmlShell`, etc.). Single type is simpler; distinct types let the ontology express per-kind invariants (e.g., a `vueComponent` must parse as SFC). Probably start with single + mimeType, split later if invariants matter.
+- "Export to GitHub" — a post-demo one-shot dump of the latest branch state into a git operation outside the Workers runtime. Not on critical path.
+- Big-file handling — most source files are small; if generated assets get large (images, blobs), Resources may or may not be the right home. Cross that bridge later.
+
+### Authoring environment: web vs desktop (open — needs decision before Studio implementation starts)
+
+Studio's authoring surface (chat + editor + preview) could be either:
+
+- **Web app** — Studio served from a Lumenize-managed origin, runs in the user's browser. The "Studio UI hosting" subsection below enumerates the two web-hosting options. Distribution = URL.
+- **Desktop app** (Electron / Tauri / webview-bun / electron-bun) — Studio installed locally. Has access to the user's file system and shell. Distribution = download.
+
+The desktop-first angle deserves explicit consideration. Wins (raised 2026-05-14):
+
+1. **Local file system** — Studio app source lives on disk like normal code. Git-native workflow. Cloud sync becomes opt-in (think VS Code with Settings Sync), not the substrate Studio has to fight against.
+2. **Real preview** — run actual `vite dev` with HMR for the user's app. The preview IS the production-faithful Vue runtime minus the deploy. No need to invent a browser-side preview environment. Pairs with the Galaxy-side template pre-compile path (see `tasks/nebula-frontend.md` § "Phase 5.3.7" → "CSP `unsafe-eval`"): two compile sites (local vite for dev preview, Galaxy for production deploy) with the same purity guarantee.
+3. **Shell access for tooling extension** — let users run prettier/eslint/custom build steps. Plugins become "things that run in a child process," not browser-API-sandboxed approximations.
+4. **No CSP/CORS fighting in the editor** — `'unsafe-eval'` requirement is moot for the dev experience; only matters for what Galaxy serves to end users of the deployed app.
+5. **The "vibe coder" persona is increasingly AI-assisted-IDE-shaped** — Cursor / Windsurf / Claude Code are all desktop apps with file-system context. Studio fits the same mental shape if it's a desktop app; sits awkwardly between IDE and web tool if it's a browser-only thing.
+
+Tradeoffs:
+
+- **Distribution friction** — desktop apps need download + install vs. share-a-URL. Mitigation: also ship a web version with reduced features (no local files, in-memory project state only) for "try without committing." VS Code does this with vscode.dev — same UI, different capabilities, shared backend.
+- **Auto-update infrastructure** — Electron has battle-tested patterns; webview-bun / electron-bun less so.
+- **Cross-platform packaging** — Mac signing/notarization, Windows code-signing, Linux .deb/.rpm/.AppImage. Real engineering investment.
+- **Bundle size** — Electron ~100+ MB; Tauri ~20 MB; webview-bun ~10 MB.
+
+**Tech-pick gut take** (when the decision lands):
+
+- **Electron** is the safest bet for the wrapper/distribution layer. TS/Node-native stack matches the rest of Lumenize; mature update/notarization tooling; biggest LLM training corpus (vibe-coder reference material). VS Code is Electron and that's the closest analog for what Studio is.
+- **Tauri** is technically prettier (smaller, faster, native webview) but introduces Rust to the toolchain. Worth it only if bundle size or perf becomes a real customer ask.
+- **Runtime layer (Node vs Bun) is independently swappable from the wrapper.** Anthropic acquired Bun and Claude Code is already Bun-based — the bun-flavored tooling (electron-bun, webview-bun, Bun.serve + native webview) is more credible than "indie experiment" framing suggested earlier. Claude Desktop is Electron-on-Node today; if it migrates to a Bun-based shell, that's the strongest signal for Lumenize to follow.
+- **Strategic forward-look**: ship Studio on Electron + Node when implementation lands (lowest risk, fastest path), but pin "swap to Bun runtime when Claude Desktop or equivalent validates it" as a deliberate option. Maturity of the wrapper/distribution layer is the load-bearing concern; the runtime under it can move with the ecosystem.
+
+**Implications for downstream design** (worth knowing now):
+
+- **The "Studio UI hosting" question below becomes N/A for the editor itself** if Studio is a desktop app — the app ships its own UI. The hosting question reduces to "serving the GENERATED apps" only.
+- **Editor / Preview section** further down assumes "in-browser editing." If desktop-first, that becomes "webview-in-desktop-app editing" + local `vite dev` preview. Different mechanisms; same UX shape.
+- **Iteration Loop's "remote debug tail"** stays relevant — the user's deployed app (running in Cloudflare) still needs to surface logs to Studio regardless of whether Studio is web or desktop.
+
+**Decision deferred** to when Studio implementation actually starts. Capture user's preference here before then. **My (Claude's) recommendation is desktop-first via Electron** if no strong web-first constraint surfaces — the AI-IDE comparison is the strongest signal.
+
+### Studio UI hosting (open — needs spike, partially obsoleted by the desktop decision above)
+
+If Studio is web-hosted (or for the web-version sibling of a desktop app), two candidate mechanisms for hosting its HTML/JS:
 
 - **Cloudflare Workers Assets** — official static asset serving.
 - **Dogfood the artifact-serving path from a Galaxy fork** — same mechanism we'd use for serving generated apps.
 
 HTTP from a DO has to go through a Worker-hosted fetch router; that's fine — we already do it for auth and NebulaAuth on a hot path. The real question is whether we use the **same** mechanism for Galaxy-hosted generated apps and for Studio itself, or **different** mechanisms. Decide via spike — this section IS the spike's scope.
+
+If Studio is desktop-only, the editor's own hosting is moot; only the generated-app hosting decision remains.
 
 ### Versioning and Branching
 
@@ -80,10 +158,72 @@ For the vibe coder's ontology specifically (their resource type definitions, not
 
 ## Editor / Preview
 
-- In-browser editing environment for reviewing and tweaking generated code (or the chat-only equivalent if we cut the editor for v1).
+- **Chat-first, no editor.** See "Chat-first UI direction" subsection below — pinned 2026-05-15.
 - **Live preview with auto-refresh.** Specifically: a perpetual preview URL with a hot/auto/push refresh mechanism. Don't reinvent Vite HMR — pick the lightest mechanism that works.
 - Auto-refresh is also needed in production: UI and ontology versions are deployed lock-step, and we already specified browser refresh on version change. That refresh is lazy in production but **hot/push** in Studio. Same plumbing might generalize — open question.
 - "Deploy" in Studio is **not** `wrangler deploy`. It's our own deploy-to-dev process that updates the session's branch's Star DWL bundle and pushes the auto-refresh signal to clients connected to that branch.
+
+### Chat-first UI direction (pinned 2026-05-15)
+
+The user spends ~90% of their time in chat. The agent occasionally pulls up files for review in **read-only mode** — never an editable code editor. The user's recourse for "wrong code" is to talk to the agent, not to fix it themselves. Counter-intuitive but right: the moment the user can edit, the LLM's mental model can desync from the file state, and recovery is painful. Better to invest in agent reliability than in an editor fallback.
+
+The vibe coder cares about **behavior**, not code. Chat surfaces behavior; files surface implementation. Gating files behind "agent pulls them up when relevant" keeps the user in behavior-mode by default.
+
+**Two highlight modes** (both feed selection context back to the agent):
+
+1. **Preview-element highlight** — user clicks an element in the running preview (the blue button, that paragraph, this row). The agent maps the click to source range; user describes the change in natural language. *This is the vibe-coder-native highlight* — they don't know what file the blue button is in; the preview is their mental model.
+2. **File-text highlight** — when the agent has already opened a file for review, user can select a text span to disambiguate ("this prop should be `done: boolean`"). Fallback for precision cases inside already-opened code.
+
+**Layout:**
+
+- Persistent split-screen: **chat on one side, preview always visible on the other**. The preview is the user's feedback signal — don't hide it behind a tab.
+- When the agent opens a file for read-only review, it overlays/replaces the preview temporarily, then collapses back. Files never linger; the preview is the default surface.
+
+**Speech-to-text correction lane:**
+
+- STT errors propagate fast. Show the transcribed message in an editable field before send.
+- Optional auto-send after N seconds of silence post-utterance, but with cancel + edit available before send.
+- Speak-don't-type is a real differentiator for vibe coders (faster than typing for natural language).
+
+**Checkpoint UX over true git:**
+
+- "Save this version" creates a named child branch from the current `.dev` (`tasks/nebula-branches.md`).
+- "Go back to when it worked" rolls the dev branch's state back to that named branch.
+- No git commits, no diffs, no merge conflicts visible to the user. Just named checkpoints. Branch-as-checkpoint is one of the nicer consequences of the existing branches design.
+
+**No "drop down to the editor" escape hatch.** If the agent is wrong, the recourse is "explain again" — not user-edit. If we add an editor later as a power-user toggle, it's in a deliberate **debug/inspect mode**, NOT the default. Power-user toggle is aimed at internal dev + advanced customers; not the vibe-coder default and not on the demo path.
+
+**Open questions to resolve during implementation:**
+
+- How rich is "file open for review"? Plain text vs. syntax-highlighted? Probably syntax-highlighted (read-only Monaco or CodeMirror) for skimmability, but no edit operations bound.
+- What does preview-element-highlight feel like as a UX gesture? Click? Click-and-hold? Hover-with-shift? Studio's gesture choice affects how naturally users discover the feature.
+- How does the agent surface "I'm pulling up this file because I want to talk about it" vs. "this file is what I just edited"? Both produce a file-open event, but the user's mental frame differs.
+- For chat history specifically: scrolling through 1000+ messages, search, threading. Standard chat-UI design space; not Nebula-specific but needs to feel solid.
+
+### Dev-mode Star: SFC compile + reload broadcast
+
+The `.dev` branch's Star is where SFC compilation and reload-broadcast live. It's user-local (Star DOs are placed in the colo of first call → near the Studio user), so the compile + reload loop has eyeball-to-colo RTT only — no cross-continent latency even for users far from Galaxy. Spike validated 2026-05-15.
+
+**What the dev Star does for dev mode:**
+
+- Imports `@vue/compiler-sfc` (library dep, ~700 ms cold-load, sub-ms warm-compile per SFC).
+- Exposes an `@mesh()` `compileSFC(source)` method. Studio's NebulaClient calls it via `lmz.call` over the existing WS — no separate HTTP surface needed.
+- Broadcasts `'reload'` to preview clients via the existing Subscriber/fanout machinery (preview clients subscribe to a known reload signal; compile triggers fanout). Avoids a separate hibernating-WS pool.
+- TypeScript pipeline is two-step: `@vue/compiler-sfc` resolves Vue macros, then a downstream TS transpiler (`typescript` npm) strips remaining TS syntax to produce executable JS. Same shape as the existing typia validator pipeline.
+
+**Validated mechanics (spike findings):**
+
+- See [tasks/archive/spike-sfc-dev-cycle.md](archive/spike-sfc-dev-cycle.md) and [apps/nebula/spike/sfc-devstar-loop/RESULTS.md](../apps/nebula/spike/sfc-devstar-loop/RESULTS.md).
+- Round-trip latency: sub-2 ms p50 locally; ~36 ms p50 Pittsburgh→IAD deployed. Well inside "feels instant" for any user hitting their nearest colo.
+
+**When implementing this section: port the spike's code into the dev Star** (`@vue/compiler-sfc` import, hibernating-WS pattern, compile method — ~250 LOC total). After porting:
+
+- Delete `apps/nebula/spike/sfc-devstar-loop/` (the entire spike directory).
+- Delete `tasks/archive/spike-sfc-dev-cycle.md` (the spike task file, currently archived).
+- Remove the spike's entry from the root `package.json` `workspaces` list.
+- Tear down the deployed `spike-sfc-galaxy-loop` Worker with `wrangler delete --name spike-sfc-galaxy-loop`.
+
+The spike exists only as a stepping stone for this section's implementation.
 
 ## Iteration Loop
 

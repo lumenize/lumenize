@@ -1,6 +1,29 @@
 # Typia Visit-Tracking: Copy In + Modify
 
-**Status**: Phases 1–2 shipped 2026-04-24 alongside `@lumenize/ts-runtime-parser-validator` (5.2.4.1, now archived at [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md)). Phase 3 shipped the parser-validator-side regression tests; the upstream-port portion stays deferred per that phase's rationale. **Phase 0 returned positive 2026-04-28** with API design fully settled across a three-comment exchange on [issue #1820](https://github.com/samchon/typia/issues/1820): no new method, no new parameter, recursion-gated WeakSet allocation via `MetadataSchema` traversal — see Phase 0 below for the full thread. Samchon also noted he'll add cycle support himself during the typescript-go migration he's actively working on. **Phase 4 is unblocked but the active track is undecided** — porting our copy to a clean PR is more involved than the original task anticipated; see [Implementation discoveries vs. PR-friendliness](#implementation-discoveries-vs-pr-friendliness). Decision deferred to at least 2026-05-02 (mirroring Samchon's ~4-day response window). Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review.
+**Status**: **Iceboxed 2026-05-16** — track 4c selected (defer pending typia-go migration). See "Why this is iceboxed" below.
+
+Phases 1–2 shipped 2026-04-24 alongside `@lumenize/ts-runtime-parser-validator` (5.2.4.1, archived at [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](../archive/nebula-5.2.4.1-validator-engine-upgrade.md)). Phase 3 shipped the parser-validator-side regression tests; the upstream-port portion stays deferred per that phase's rationale. Phase 0 returned positive 2026-04-28 with API design fully settled across a three-comment exchange on [issue #1820](https://github.com/samchon/typia/issues/1820): no new method, no new parameter, recursion-gated WeakSet allocation via `MetadataSchema` traversal. Samchon also noted he'll add cycle support himself during the typescript-go migration he's actively working on. Phase 4 was a decision between 4a (upstream PR) and 4c (defer pending typia-go) — 4c selected on 2026-05-16. Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review.
+
+## Why this is iceboxed
+
+Our fork is **strictly more capable** than what would land upstream. The settled PR design (Samchon's recursion-gated approach) drops case-3 coverage — non-recursive types with runtime DAG aliases get re-walked. Our universal-wrap design handles it. See "Coverage tradeoff: our fork covers more cases than the PR design" section below for the full 3-case table.
+
+Three reinforcing reasons not to do the PR work right now:
+
+1. **PR-ing means trading capability for code we'd delete anyway.** Replacing our fork with the upstream variant is a one-way perf regression we can't easily unship.
+2. **Samchon has committed to adding cycle support in his typescript-go migration**, which he's actively working on. Our fork's lifespan likely ends with that cutover regardless of what we do upstream against current TS typia.
+3. **The Cloudflare Workers compatibility question for typia-go (Containers vs WASM) is a much bigger conversation** than visit-tracking. Handling both together at the typia-go cutover is the natural decision point — and we'll have concrete data on whether the case-3 regression matters for our workload by then.
+
+Promote out of icebox if any of these become true:
+
+- typia-go cutover is imminent and we need to make a fresh decision on cycle support in the new runtime (Containers vs WASM question gets answered, or Samchon's typia-go cycle-support design diverges from our needs).
+- We hit a concrete production case where the case-3 coverage matters — non-recursive type with shared subtree references at runtime, and re-walking causes observable pain. Today's workload is overwhelmingly case-1/case-2 (recursive types), so this is unlikely.
+- 5.2.4.1's wire-in needs a typia bump that incorporates Samchon's typescript-go cycle work, forcing the fork-deletion question.
+- Samchon's typescript-go migration stalls long enough that our fork becomes a long-term maintenance burden — at which point 4b (helper consolidation in the fork) is the path forward.
+
+## Discovered/refined during
+
+Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review. Phases 1–3 shipped with 5.2.4.1 on 2026-04-24. Phase 0 (upstream issue #1820) posted same day; settled across three Samchon comments on 2026-04-28. The case-3 coverage tradeoff surfaced during a session review on 2026-05-16, inverting the usual upstream-PR calculus and confirming 4c as the right path — leading to this iceboxing.
 
 **Depends on**: None (typia 12.0.2 is pinned).
 **Artifact**: `packages/ts-runtime-parser-validator/forks/typia/` — copied TypeScript source from `samchon/typia@v12.0.2`, modified in-place.
