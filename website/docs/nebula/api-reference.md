@@ -25,12 +25,11 @@ Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** sta
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
-| `client.resources.transactionDebounce(rt, opts)` | new-in-v3 | [resources.transactionDebounce](#resourcestransactiondebounce) |
+| `client.resources.transactionDebounce(rt, opts)` (runtime override) | new-in-v3 | [resources.transactionDebounce](#resourcestransactiondebounce) |
 | `client.dispose()` | new-in-v3 | [client.dispose](#clientdispose) |
 | Reserved state paths (`resources.*`, `lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
 | `textMerge(server, local, base)` helper | deferred-post-5.3.7 (see note) | [textMerge](#textmerge) |
-| `v-model.eager` directive modifier | new-in-v3 | [v-model.eager](#v-modeleager) |
 | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
 | `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (new shape with `'ok'`, `'infrastructure-error'`) | [TransactionOutcome](#transactionoutcome) |
 | `TransactionResourceResolution` discriminated union (per-resource, what the handler receives) | new-in-v3 | [TransactionResourceResolution](#transactionresourceresolution) |
@@ -53,14 +52,15 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. Must be
 
 ### Config
 
-`NebulaClientConfig` extends [`LumenizeClientConfig`](../mesh/lumenize-client.md) (minus `refresh` and `gatewayBindingName`) with these additional fields:
+`NebulaClientConfig` extends [`LumenizeClientConfig`](../mesh/lumenize-client.md) (minus `refresh` and `gatewayBindingName`) with these additional fields. In a browser session that has completed the auth discovery flow, **only `appVersion` is required** — all other fields auto-detect from the environment. The remaining fields stay configurable as escape hatches for admin/scripting callers (headless tests, server-side tooling) where there's no browser cookie or no same-origin server.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `authScope` | `string` | required | Auth scope path (e.g., `'acme.app.tenant-a'`). Determines refresh-cookie path. |
-| `activeScope` | `string` | required | Active scope baked into the JWT `aud` claim. Same as `authScope` for regular users; can differ for admins with wildcard access. |
-| `appVersion` | `string` | required | Client's app version (lock-step with the ontology version server-side). Auto-attached to every `resources.*` call. Studio sets this at deploy time. |
-| `onShouldRefreshUI` | `(info: OntologyStaleInfo) => void` | `undefined` | Invoked when the server signals client ontology is stale. Typical: `() => window.location.reload()`. If unset, staleness still surfaces via `{ kind: 'ontology-stale' }`. |
+| `appVersion` | `string` | required | Client's app version (lock-step with the server's ontology version). Auto-attached to every `resources.*` call. Studio's bootstrap substitutes this at deploy time; that's the entire reason Studio's `store.ts` has substitution markup. |
+| `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
+| `authScope` | `string` | derived from refresh cookie | Determines which refresh endpoint receives the cookie. When omitted, the client hits a global refresh endpoint that reads the scope from the refresh token itself. Specify only for explicit-scope admin/scripting calls. |
+| `activeScope` | `string` | derived from JWT `aud` | The Star instance to route mesh calls to. When omitted, the client parses the JWT returned by the refresh response and extracts `aud`. Differs from `authScope` only for admins with wildcard access. |
+| `onShouldRefreshUI` | `(info: OntologyStaleInfo) => void \| null` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.) or `null` to opt out (staleness still surfaces via `{ kind: 'ontology-stale' }`). |
 | `unsubscribeGraceMs` | `number` | `2000` | Grace period (ms) between binding-refcount reaching zero and `client.resources.unsubscribe` firing. New bindings inside the window cancel the pending unsubscribe. |
 
 ### Return shape
@@ -74,43 +74,77 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. Must be
 
 ### Example
 
+The Studio-generated `store.ts` in a browser app:
+
 ```typescript @skip-check
-// store.ts — initialize once at module load, export for any component to import.
+// store.ts (Studio bootstrap)
 import { createNebulaClient } from '@lumenize/nebula-frontend';
 
 export const { client, store } = createNebulaClient({
-  baseUrl: 'https://my-app.example.com',
-  authScope: 'acme.app.tenant-a',
-  activeScope: 'acme.app.tenant-a',
-  appVersion: 'dev',
-  onShouldRefreshUI: () => window.location.reload(),
+  appVersion: __APP_VERSION__,   // Studio substitutes at deploy time
 });
 ```
 
-```typescript @skip-check
-// main.ts — Vue entrypoint.
-import { createApp } from 'vue';
-import App from './App.vue';
-import './store';  // side-effect import: initializes the NebulaClient
+All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScope`/`activeScope` from the auth-discovery cookie + JWT, `onShouldRefreshUI` from the default reload.
 
-createApp(App).mount('#app');
+Admin/scripting form with all overrides explicit:
+
+```typescript @skip-check
+const { client, store } = createNebulaClient({
+  baseUrl: 'https://my-app.example.com',
+  authScope: 'acme.app.tenant-a',
+  activeScope: 'acme.app.tenant-a',
+  appVersion: 'v42',
+  onShouldRefreshUI: null,        // opt out of auto-reload — caller handles staleness
+});
 ```
 
-See [coding-your-ui.md](./coding-your-ui.md) § "NebulaClient and the store" for the SFC authoring conventions and the matching `App.vue` shape.
+See [coding-your-ui.md § Building your UI on top of Resources](./coding-your-ui.md#building-your-ui-on-top-of-resources) for how `store.ts` fits into the Studio-managed bootstrap, and [tasks/nebula-studio.md § Bootstrap files](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md) for what Studio scaffolds.
 
 ## `client.resources.subscribe` {#resourcessubscribe}
 
-**Tag**: `implemented-in-spike`
+**Tag**: `implemented-in-spike` (return shape reshaped in v3 — now a `Disposable` handle for `using`-compatible scope binding).
 
 ```typescript @skip-check
-subscribe(resourceType: string, resourceId: string): Promise<Snapshot | null>;
+subscribe(resourceType: string, resourceId: string): ResourceSubscription;
+
+interface ResourceSubscription extends Disposable {
+  /** Resolves with the initial snapshot on the first server-side `handleResourceUpdate`
+   *  for `(rt, rid)`. Subsequent fanout updates write through to bound state but
+   *  do not re-resolve this promise. */
+  readonly snapshot: Promise<Snapshot | null>;
+  /** Manual unsubscribe; equivalent to leaving a `using` scope. */
+  [Symbol.dispose](): void;
+}
 ```
 
-Subscribe to a resource. Resolves with the initial snapshot on the first server-side `handleResourceUpdate` for `(rt, rid)`. Subsequent updates are fanout pushes that write through to bound state but do not re-resolve.
+Subscribes synchronously (registers the subscriber row immediately); the **initial snapshot** arrives asynchronously via `handleResourceUpdate` and is exposed on `.snapshot`.
 
-If a pending subscribe for the same `(rt, rid)` already exists, the returned Promise piggybacks on that pending settlement instead of issuing a duplicate request.
+If a pending subscribe for the same `(rt, rid)` already exists, the new handle's `.snapshot` piggybacks on that pending settlement instead of issuing a duplicate request. `[Symbol.dispose]()` decrements per-handle; the underlying server-side subscription releases when the last handle disposes (mirrors auto-subscribe's refcount-with-grace).
 
-**Typical usage**: rarely called directly. Most subscriptions happen via auto-subscribe (reading from the store inside a Vue component triggers `subscribe` on the underlying client). Call explicitly only when subscribing to a resource the UI doesn't yet bind to (e.g., warming a cache before navigating to a view).
+### Idiomatic usage with `using`
+
+```typescript @skip-check
+{
+  using sub = client.resources.subscribe('todo', 'task-42');
+  const snap = await sub.snapshot;            // wait for initial fanout if you care
+  // ... work with the resource ...
+}                                              // auto-unsubscribes here
+```
+
+### Manual control (subscribe and unsubscribe in different places)
+
+```typescript @skip-check
+// Some setup code:
+client.resources.subscribe('todo', 'task-42');                  // handle discarded; subscription stays live
+
+// Some teardown code, possibly elsewhere:
+client.resources.unsubscribe('todo', 'task-42');                // standalone API
+```
+
+**Typical usage**: rarely called directly. Most subscriptions happen via auto-subscribe (reading from the store inside a Vue component triggers `subscribe` on the underlying client). Call explicitly only when subscribing to a resource the UI doesn't yet bind to — warming a cache before navigation, scripting, headless tests. The `using` form is the idiomatic explicit pattern; the standalone `unsubscribe` is for cases where the subscribe and release sites legitimately differ.
+
+**TypeScript requirement**: `Disposable` and the `using` keyword are ES2023 / TypeScript 5.2+. Studio-generated tsconfig includes the needed `lib: ["ESNext"]` or equivalent.
 
 ## `client.resources.unsubscribe` {#resourcesunsubscribe}
 
@@ -122,7 +156,9 @@ unsubscribe(resourceType: string, resourceId: string): void;
 
 Unsubscribe from a resource. Fire-and-forget. Server drops the subscriber row.
 
-Auto-subscribe handles the common case (component unmount → refcount to zero → grace period → unsubscribe). Call explicitly only when you subscribed explicitly.
+**Equivalent to calling `[Symbol.dispose]()` on the matching [`ResourceSubscription`](#resourcessubscribe) handle.** Use this standalone form when the subscribe and unsubscribe sites legitimately differ (a parent component subscribes; an unrelated event handler later unsubscribes). When subscribe and unsubscribe live in the same scope, prefer `using` — see [`subscribe`](#resourcessubscribe) for the idiomatic form.
+
+Auto-subscribe handles the common case (component unmount → grace period → unsubscribe). Call explicitly only when you subscribed explicitly.
 
 ## `client.resources.read` {#resourcesread}
 
@@ -167,11 +203,15 @@ Per-resource outcomes (commit, server-wins, conflict-pending, validation-failed,
 
 ```typescript @skip-check
 type OperationDescriptor =
-  | { op: 'create'; nodeId: number; typeName: string; value: any }
-  | { op: 'put';    eTag: string; value: any }
-  | { op: 'move';   eTag: string; nodeId: number }
-  | { op: 'delete'; eTag: string };
+  | { op: 'create'; typeName: string; nodeId: number; value: any }
+  | { op: 'put';    typeName: string; value: any;       eTag?: string }
+  | { op: 'move';   typeName: string; nodeId: number;   eTag?: string }
+  | { op: 'delete'; typeName: string;                   eTag?: string };
 ```
+
+`typeName` is required on every op (needed for client-side `eTag` lookup on put/move/delete; matches `create`'s pre-existing requirement).
+
+**`eTag` auto-derives from the local store.** For `put` / `move` / `delete`, omitting `eTag` causes the factory to look up `store.resources.<typeName>[<resourceId>]?.meta?.eTag` at call time and use that as the optimistic-concurrency baseline. This is the normal case — UI code never has to wire eTags manually. If the resource isn't in the local store (e.g., admin/scripting code that hasn't subscribed), the call throws a clear client-side error rather than letting the server reject; pass `eTag` explicitly to bypass auto-derive (see [Explicit eTag override](#explicit-etag-override) below).
 
 Multi-resource transactions are atomic: every op commits or none do.
 
@@ -186,27 +226,44 @@ Multi-resource transactions are atomic: every op commits or none do.
 
 ### Example — single resource
 
-```javascript @skip-check
+```typescript @skip-check
+// eTag auto-derives from store.resources.todo['task-42']?.meta?.eTag.
 const outcome = await client.resources.transaction({
-  'task-42': { op: 'put', eTag, value: { title: 'New title' } },
+  'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title' } },
 });
 ```
 
 ### Example — multi-resource atomic batch
 
-```javascript @skip-check
+```typescript @skip-check
 const newId = crypto.randomUUID();
 const outcome = await client.resources.transaction({
-  [newId]: { op: 'create', nodeId: 1, typeName: 'todo', value: { title, done: false } },
-  'list-main': {
-    op: 'put',
-    eTag: listETag,
-    value: { ...list, items: [...list.items, newId] },
-  },
+  [newId]:     { op: 'create', typeName: 'todo', nodeId: 1,
+                 value: { title, done: false } },
+  'list-main': { op: 'put',    typeName: 'todoList',
+                 value: { ...list, items: [...list.items, newId] } },
 });
 ```
 
 If either op fails (validation, conflict, permission), neither commits. Use this shape when one resource references another by ID — atomicity prevents orphans and dangling references.
+
+### Explicit eTag override {#explicit-etag-override}
+
+Pass `eTag` explicitly to bypass auto-derive. Two real use cases:
+
+1. **Resource not in the local store** — admin/scripting code that submits a put/delete without first subscribing. Auto-derive would throw; passing `eTag` lets the call proceed.
+2. **Baseline on a stashed snapshot, not the current local one** — e.g., the human-in-the-loop conflict pattern stashes a `server.meta.eTag` at conflict-detection time and submits resolution later against that specific baseline. The local store may have moved on; the stashed eTag is the right baseline. See [Resources § human-in-the-loop verdict](./resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app).
+
+```typescript @skip-check
+// Explicit baseline — Bob's resolution submission against the stashed snapshot.
+const outcome = await client.resources.transaction({
+  'task-42': { op: 'put', typeName: 'todo',
+               eTag: conflict.server.meta.eTag,            // ← stashed baseline, not auto-derived
+               value: resolvedValue },
+});
+```
+
+In typical UI code (every example outside this subsection), omit `eTag` and let the framework derive it.
 
 ## `client.resources.onTransactionResourceResolution` {#resourcesontransactionresourceresolution}
 
@@ -269,25 +326,26 @@ See [TransactionResourceResolution](#transactionresourceresolution) for the inpu
 
 ## `client.resources.transactionDebounce` {#resourcestransactiondebounce}
 
-**Tag**: `new-in-v3`
+**Tag**: `new-in-v3`. Runtime override only — for normal use, debounce config is declared in the ontology and emitted into the validator bundle Studio ships with each app.
 
 ```typescript @skip-check
 transactionDebounce(
   resourceType: string,
-  opts: { quietMs: number; maxWaitMs: number },
+  opts: {
+    quietMs?: number;       // type default for fields without an explicit setting
+    maxWaitMs?: number;
+    fields?: Record<string, { quietMs?: number; maxWaitMs?: number }>;
+  },
 ): void;
 ```
 
-Configure per-keystroke debouncing for the synced-state middleware on a per-resource-type basis. The factory's synced-state middleware coalesces transaction submissions per `(resourceType, resourceId)`:
+**The primary surface for debounce config is the ontology**, not this call. Field-type-derived defaults (e.g., `boolean` → `quietMs: 0`) and explicit `@debounce(q, m)` / `@longform` annotations on the .d.ts compile into the bundle the factory loads at startup. See [Ontology § Annotations](./ontology.md#annotations).
 
-- **`quietMs`** — wait this long with no further writes to the same resource, then submit. Default `500` ms.
-- **`maxWaitMs`** — if the user keeps writing forever, submit at least every `maxWaitMs`. Default `2000` ms.
+`transactionDebounce` exists as a **runtime override** for edge cases the annotation model doesn't cover — A/B testing different debounce values, slower-network modes, role-based tuning. Precedence: runtime override > ontology annotation > type-based default > framework default (`500` / `2000`).
 
-Pending writes also flush on component unmount, input blur, and `client.dispose()`.
+**Resource-level merge rule** when multiple fields have pending writes with different timings: **shortest active timer wins** for both `quietMs` and `maxWaitMs`. Clicking a `@debounce(0)` checkbox flushes the entire pending resource transaction immediately, including any pending text-field edits — which matches the intuition that the click was a deliberate commit.
 
-For per-write opt-out, see [`v-model.eager`](#v-modeleager).
-
-Behavior under load: at most one transaction in flight per `(rt, rid)`; subsequent writes during in-flight buffer; flush submits using the in-flight transaction's resulting `eTag`. The state machine + property tests live in [tasks/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/debounce-serial-queue.md).
+Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on component unmount, input blur, and `client.dispose()`. At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/debounce-serial-queue.md).
 
 ## `client.dispose` {#clientdispose}
 
@@ -338,6 +396,12 @@ The factory mirrors the underlying `LumenizeClient` connection state to three re
 
 The factory writes to these paths on every transition; user code never registers a connection-state listener. The initial seed values are intentional so first-paint reads never return `undefined`.
 
+## `client.claims` {#clientclaims}
+
+**Tag**: inherited from `LumenizeClient`
+
+NebulaClient extends [`LumenizeClient`](../mesh/lumenize-client.md), so `client.claims` (the decoded JWT payload — `sub`, `aud`, `isAdmin`, etc.) is available with no Nebula-specific wrapping. See [mesh: LumenizeClient § Client identity](../mesh/lumenize-client.md#client-identity-clientclaims) for the full surface. Idiomatic Nebula use is per-user keying: `store.resources.todoList[client.claims.sub]`.
+
 ## `textMerge` {#textmerge}
 
 **Tag**: `deferred-post-5.3.7`
@@ -351,23 +415,6 @@ Three-way merge helper for long-form text fields. Intended for use inside a `'us
 **Status**: not shipping in 5.3.7. The "Text fields specifically — don't leave the default" guidance in [resources.md](./resources.md) describes the pattern; until `textMerge` ships, vibe coders writing text-field resolvers either pull in `diff-match-patch` themselves or accept that fast typing during a concurrent edit can lose characters.
 
 Shipped helper will live at `@lumenize/nebula-frontend`'s top-level export.
-
-## `v-model.eager` {#v-modeleager}
-
-**Tag**: `new-in-v3`
-
-```html @skip-check
-<select v-model.eager="store.resources.task[id].value.status">
-  <option value="open">Open</option>
-  <option value="done">Done</option>
-</select>
-```
-
-Custom directive modifier shipped by `@lumenize/nebula-frontend`. Bypasses the synced-state middleware's debouncing for the bound write — the transaction submits on the next microtask after the `change` event, not after the quiet window.
-
-**When to use it**: dropdowns, checkboxes, radio buttons, color pickers — anywhere the user's "intent to commit" is obvious from the interaction (a click, not a keystroke) and waiting 500 ms feels wrong. **When not to use it**: text inputs (debounce is doing the right thing) and any other field with rapid sub-second user activity.
-
-Bound writes still flow through the rest of the middleware chain (deep-equal dedup, optimistic apply, eTag generation, server submission, conflict-resolver wiring) — only debounce is bypassed.
 
 ## Handler bindings {#handler-bindings}
 

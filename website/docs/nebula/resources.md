@@ -9,11 +9,12 @@ From your UI's perspective, each resource is a JavaScript object — fully suppo
 
 Each resource also carries a client-generated `eTag` (UUID) attached on every write — the eTag does double duty as both the optimistic-concurrency token and the idempotency key for safe retries. The shape of each resource type is defined by your ontology — a TypeScript `.d.ts`-style file that Nebula compiles into a runtime parser-validator. See [TS Runtime Parser-Validator](../ts-runtime-parser-validator/index.md) for how the ontology becomes the validator.
 
-Think of Nebula's resource layer as a document database with inter-resource relationships and real-time sync:
+Think of Nebula's resource layer as a document database with inter-resource relationships, real-time sync, and structural access control:
 
 - **Document database** — each resource is a JavaScript object addressed by `(type, id)`.
 - **With references** — fields can point to other resources by id; the ontology declares which fields are references and to what type.
 - **Real-time sync** — clients subscribe to resources they care about; mutations fan out to all subscribers automatically.
+- **Structural access control** — every resource is attached at create time to a node in your app's **org/permission tree**. Each node has a per-user permissions table; permissions cascade additively from ancestors. See [Access control](#access-control) below.
 
 ## Addressing resources
 
@@ -61,6 +62,168 @@ Every other top-level segment is yours. Common conventions:
 - Anything else — completely free
 
 The framework only touches `resources.*` and `lmz.*`. Vibe coders write to the rest however they want.
+
+## Access control
+
+Every resource is attached to a node in your app's **org/permission tree**. The attachment happens at create time: `OperationDescriptor.create` carries a `nodeId: number` field naming the node the new resource lives under. After creation, the attachment can be changed with `op: 'move'`.
+
+### What "org" means here
+
+"Org tree" pulls in two directions:
+
+1. **Mimicking your organization's structure.** For an internal HR or project-management tool, the tree might literally mirror your business: company → divisions → teams → individuals. People in higher-up subtrees get grants that cascade to everything below.
+2. **Organizing data for permissioning.** Equally common: the tree has nothing to do with your business and is just a way to group resources so permissions can be granted in bulk. A consumer SaaS app might use it to give every user their own subtree, with no real-world "org" anywhere in sight.
+
+Both uses get the same mechanics. The "org" in "org tree" reads more as a verb (to organize) than a noun.
+
+### Permissions table and resolution
+
+Each node carries a per-user permissions table — `sub` (the subject claim from the user's JWT) → `'admin' | 'write' | 'read'`. Effective permission for `(sub, nodeId)` is the **highest grant found on any ancestor path** from the resource's attached node up to root.
+
+```typescript @skip-check
+// Conceptual — actual API surface lives on the tree admin endpoints.
+node.permissions = new Map([
+  ['user:alice', 'admin'],
+  ['user:bob',   'write'],
+  ['group:eng',  'read'],
+]);
+```
+
+Three properties follow:
+
+- **Permissions cascade additively.** A grant on a parent applies to every descendant. Lower nodes can grant more, never less. To narrow access, attach the resource to a deeper node where only the right users have grants on the ancestors.
+- **The tree structure is universally visible.** Every connected client gets the full tree at `store.resources.lmz.dag.value` (a single framework-provided resource). Visibility isn't restricted because the permission UX wants every client to know the full shape locally — grey out inaccessible nodes, suggest where to request access, breadcrumb the current scope. Resource **values** are still gated by permission at every read and write; only the tree **structure** is universal.
+- **Permission checks run on every transaction.** The server resolves the effective permission for the calling user against each affected resource's attached node before applying any op. A failed check returns `{ kind: 'permission-denied' }` for that resource in the per-type [`onTransactionResourceResolution`](#per-resource-behavior--the-ontransactionresourceresolution-handler) handler.
+
+### Worked example: sharing in a todo-list app
+
+Suppose you're building a todo app. Each user has many lists; some are private; some get shared with other users. The natural starting tree:
+
+```mermaid
+graph TD
+  root([root])
+  alice([user-alice])
+  bob([user-bob])
+  carol([user-carol])
+  shopping[list-shopping]
+  work[list-work]
+  personal[list-personal]
+  trips[list-trips]
+  root --> alice
+  root --> bob
+  root --> carol
+  alice --> shopping
+  alice --> work
+  bob --> personal
+  carol --> trips
+```
+
+Alice has `admin` on `user-alice`; that grant cascades to both her lists and to every todo attached under them. Bob has `admin` on `user-bob` only — by default he can't see anything in Alice's subtree.
+
+Now Alice wants to share `list-shopping` with Bob. There are **two ways** to express that — each illustrates a property of the underlying structure.
+
+#### Approach 1: Grant a permission on the shared node — for limited-access sharing
+
+This is the right approach when Alice wants to give Bob **limited** access — typically read-only. She grants `bob: read` (or `write` — her choice) on the `list-shopping` node:
+
+```mermaid
+graph TD
+  root([root])
+  alice([user-alice])
+  bob([user-bob])
+  shopping["list-shopping<br/><i>bob: read</i>"]
+  work[list-work]
+  personal[list-personal]
+  root --> alice
+  root --> bob
+  alice --> shopping
+  alice --> work
+  bob --> personal
+
+  style shopping fill:#ffe4b5,color:#000
+```
+
+Bob's effective permission on `list-shopping` is now exactly the tier Alice picked — independent of whatever rights he has on his own subtree. The list stays in Alice's subtree; Alice remains the owner; Bob has the narrow access she granted him.
+
+**Use this when:**
+- You want to share **read-only** — let someone view but not edit.
+- You want to share `write` while keeping `admin` (control over deletion, sharing, etc.) to yourself.
+- The relationship is asymmetric: one clear owner, one collaborator with limited rights.
+
+**Tradeoff:** the shared list stays in the owner's subtree, so the sharee's UI has to surface it via a "shared with me" view that pulls from outside their natural subtree.
+
+#### Approach 2: Add a second parent — for co-ownership
+
+This is the right approach when Alice and Bob should be **true co-owners** of `list-shopping`. She adds `user-bob` as a second parent of `list-shopping`:
+
+```mermaid
+graph TD
+  root([root])
+  alice([user-alice])
+  bob([user-bob])
+  shopping[list-shopping]
+  work[list-work]
+  personal[list-personal]
+  root --> alice
+  root --> bob
+  alice --> shopping
+  alice --> work
+  bob --> personal
+  bob -. "2nd parent" .-> shopping
+
+  style shopping fill:#ffe4b5,color:#000
+```
+
+No permission grant on `list-shopping` is needed. Effective-permission resolution climbs **all** ancestor paths and takes the maximum. Bob has `admin` on `user-bob`; that grant cascades to `list-shopping` via the new edge. Alice still has `admin` via the original edge. **Both users have full admin over the list.**
+
+The flexibility to give one node multiple parents is what makes the underlying structure technically a **DAG** (directed acyclic graph) rather than a strict tree. The "tree" in "org/permission tree" is a friendly shorthand; the actual graph type is a DAG, with all the extra modeling power that brings.
+
+**Co-ownership is real, not nominal.** If Alice later "removes the list from her account" — which in UI terms means deleting her parent edge — the list doesn't disappear:
+
+```mermaid
+graph TD
+  root([root])
+  alice([user-alice])
+  bob([user-bob])
+  shopping[list-shopping]
+  work[list-work]
+  personal[list-personal]
+  root --> alice
+  root --> bob
+  alice --> work
+  bob --> personal
+  bob --> shopping
+
+  style shopping fill:#ffe4b5,color:#000
+```
+
+`list-shopping` still exists under `user-bob`, who retains full admin. Symmetric: if Bob removes his edge instead, Alice keeps full admin. **Either party can leave; the other keeps everything.**
+
+**Use this when:**
+- You want both parties to have the same rights — e.g., a shared household to-do list both partners can edit and reshare equally.
+- You want either party to be able to leave the relationship without disrupting the other.
+- You want the shared item to appear in the second user's natural subtree, with no "shared with me" framing.
+- You want to give a whole group access by attaching a single edge — e.g., add `team-eng` as a second parent of every team project, and every member's grants on `team-eng` cascade in automatically.
+
+**Tradeoffs:**
+- You can't grant narrower-than-admin access this way. The sharee gets whatever they have on their own subtree, which is usually admin. For read-only sharing, Approach 1 is the right tool.
+- Mental model is harder: the same node appears in two places.
+- Cycles are still forbidden — if Alice tried to make `list-shopping` a parent of `user-bob`, the cycle detector at [dag-ops.ts](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-ops.ts) would reject it.
+
+#### When to use which
+
+| Goal | Approach 1 (grant) | Approach 2 (second parent) |
+|---|---|---|
+| Read-only sharing | ✓ the right tool | ✗ — sharee gets full admin |
+| Share `write` while keeping `admin` for yourself | ✓ the right tool | ✗ |
+| True co-ownership (both have admin, either can leave) | awkward to express | ✓ the right tool |
+| Either party can leave without taking the resource with them | ✗ — owner's delete is the resource's delete | ✓ — leaving = deleting only your edge |
+| Resource appears in sharee's natural subtree | ✗ | ✓ |
+| Grant to a whole group via a single edge | ✗ — per-resource grants | ✓ — one parent edge per resource |
+
+The two approaches **compose freely** — a real app uses both. Grants for "show this list read-only to my accountant"; second-parent edges for "this shared household list belongs to all the roommates equally."
+
+See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree) for the client-side patterns that render this structure (including the **multi-parent rendering** case — a node with two parents shows up under each one in the tree view).
 
 ## Optimistic concurrency
 
@@ -264,12 +427,18 @@ async function reviewConflicts() {
   const conflicts = store.app.conflicts ?? {};
 
   // Walk each conflict, collect the user's chosen value into one batch.
-  const ops: Record<string, { op: 'put'; eTag: string; value: unknown }> = {};
+  // NOTE: we pass `eTag` EXPLICITLY (skipping the framework's auto-derive)
+  // because the right baseline here is the server snapshot at conflict-stash
+  // time, not the current local store eTag (which may have moved on since).
+  // This is the canonical case for explicit eTag override; see
+  // api-reference.md § Explicit eTag override.
+  const ops: Record<string, { op: 'put'; typeName: string; eTag: string; value: unknown }> = {};
   for (const [, conflict] of Object.entries(conflicts)) {
     const choice = await showYourReviewUI(conflict);
     ops[conflict.resourceId] = {
       op: 'put',
-      eTag: conflict.server.meta.eTag,
+      typeName: conflict.resourceType,
+      eTag: conflict.server.meta.eTag,                  // stashed baseline, not auto-derived
       value: choice,
     };
   }

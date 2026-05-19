@@ -35,9 +35,47 @@ The rest of this file describes Studio proper — i.e., what we build *after* th
 The Studio AI generates two kinds of artifacts:
 
 1. **Ontology** — a `.d.ts` file with TypeScript types plus annotations (validation today, ORM later). Uploaded to Nebula; upload and processing already works (Phases 5.2.x).
-2. **UI** — HTML and JavaScript files that operate within Nebula's resources constraints (access control, real-time subscriptions, queries). Resources work Firebase-style — mostly client-side capable.
+2. **UI** — `.vue` Single-File Components (per the 2026-05-15 SFC pivot — see [tasks/nebula-frontend.md](nebula-frontend.md) § Phase 5.3.7) that operate within Nebula's resources constraints (access control, real-time subscriptions, queries). Resources work Firebase-style — mostly client-side capable.
 
 Both artifacts must stay coherent: the UI must reference entity names, field names, and access patterns that match the current ontology exactly.
+
+### Bootstrap files (auto-scaffolded, not LLM-authored)
+
+Separately from LLM code generation, Studio **auto-populates** a small fixed set of bootstrap files when an app is first created. These files are identical across every app (with one Studio-controlled difference between dev and prod, see below) and are NEVER touched by the LLM during the conversation — they live in the app's file space (per § "Files as resources") but are seeded by Studio's app-creation flow, not by code generation. This keeps the LLM's attention focused on the `.vue` components and the ontology, which is what the doc at [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) is tuned for (the coding-your-ui doc explicitly omits the bootstrap files because the LLM doesn't generate them).
+
+The three bootstrap files:
+
+```typescript
+// store.ts — initialize the client + store once. Per-type conflict resolvers
+// and terminal-outcome reactions registered alongside (the LLM CAN add these
+// later as it builds out app behavior — they belong in this file).
+import { createNebulaClient } from '@lumenize/nebula-frontend';
+
+export const { client, store } = createNebulaClient({
+  appVersion: __APP_VERSION__,  // Studio substitutes at deploy time
+});
+```
+
+```typescript
+// main.ts — Vue entrypoint.
+import { createApp } from 'vue';
+import App from './App.vue';
+import './store';
+
+createApp(App).mount('#app');
+```
+
+```html
+<!-- index.html — minimal shell. -->
+<!doctype html>
+<html><body><div id="app"></div><script type="module" src="./main.ts"></script></body></html>
+```
+
+**The dev-vs-prod difference is in `__APP_VERSION__` substitution only.** During dev iteration, Studio injects `'dev'` (or a build-stamped value); at deploy time Studio injects the version that matches the deployed ontology bundle so the server can enforce app/ontology lock-step.
+
+All other `createNebulaClient` config fields auto-detect from the browser environment (see [tasks/nebula-frontend.md](nebula-frontend.md) § Phase 5.3.7-v3 "Make all createNebulaClient config fields optional"). The `store.ts` shown above is therefore the entire bootstrap contract — Studio doesn't need to choose between many config shapes; it just substitutes one variable.
+
+**`store.ts` is the one bootstrap file the LLM may extend.** Per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) belong here. The LLM appends them as it implements app behavior; Studio's initial scaffold leaves the file ready to receive these additions. `main.ts` and `index.html` should never be edited after scaffolding.
 
 ## Architecture
 
@@ -147,6 +185,20 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 - **Styling: DaisyUI** (Tailwind component library, MIT). Pure CSS, framework-free. Strong LLM training coverage; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo.
 - Generated code is TypeScript strings deployed to DWL isolates.
 - Schema validation via tsc-in-DWL (already shipped as `@lumenize/ts-runtime-parser-validator`).
+- **Per-field runtime config (debounce, conflict resolvers, UI rendering hints) lives in ontology annotations, NOT in separate JS config files.** Studio's LLM writes annotations into the `.d.ts` ontology file from a small rule table mapping field types and semantic intent to annotations. The typia/ontology compile pass emits a config map alongside the validator bundle; the factory loads the bundle at startup and applies the config automatically. This means: the LLM doesn't generate a separate `transactionDebounce` call to keep in sync with the ontology; it just writes the right annotation in one place. See [website/docs/nebula/ontology.md § Annotations](../website/docs/nebula/ontology.md#annotations) for the annotation vocabulary.
+
+  **Studio's field-type → annotation rule table** (demo-scope, kept small):
+
+  | Vibe coder intent → | LLM picks → | Effects (derived by framework) |
+  |---|---|---|
+  | "boolean toggle" → `field: boolean` | no annotation | `@debounce(0)` implied; eager commit |
+  | "small set of choices" → `field: 'a' \| 'b' \| 'c'` | no annotation | `@debounce(0)` implied; eager commit |
+  | "short label / name / title" → `field: string` | no annotation | type default debounce (500/2000) |
+  | "long-form text / notes / description / body" → `field: string` | `@longform` | slower debounce + text-merge resolver + `<textarea>` UI |
+  | "counter / amount / score" → `field: number` | no annotation | type default |
+  | explicit custom timing | `@debounce(quietMs, maxWaitMs)` | exact override |
+
+  The LLM consults this table during ontology generation; the vibe coder typically only sees explicit annotations (`@longform`, `@debounce(...)`) during chat-based review.
 
 ### Nebula API Schema Definitions for LLM Context
 

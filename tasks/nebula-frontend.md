@@ -24,7 +24,7 @@ History note: this file consolidates the originals `nebula-5.3-subscriptions.md`
 | Layer | Code lives | Knows about |
 | --- | --- | --- |
 | **Vue 3 reactivity** | `node_modules/vue` (transitive dep) | Itself only. Pure Proxy-based reactivity engine — `reactive()`, `effectScope()`, `getCurrentInstance().scope`, render effects. No Nebula knowledge. |
-| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (scaffolded in 5.3.7-v3) | Vue 3 + NebulaClient. Contains: factory (`createNebulaClient`) — outer Proxy wrapper with path-aware middleware + effectScope-tied refcount + synced-state middleware + debouncing; small directives/composables (`v-model.eager`, `useNebula(...)`); `textMerge` helper. UNLICENSED. |
+| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (scaffolded in 5.3.7-v3) | Vue 3 + NebulaClient. Contains: factory (`createNebulaClient`) — outer Proxy wrapper with path-aware middleware + effectScope-tied refcount + synced-state middleware + debouncing (with per-field config consumed from the ontology-derived validator bundle); composables (`useNebula(...)`); `textMerge` helper. UNLICENSED. |
 | **NebulaClient** | `apps/nebula/src/nebula-client.ts` → moves to `packages/nebula-frontend/src/nebula-client.ts` in 5.3.7-v3 | Mesh handlers (`handleTransactionResult`, `handleResourceUpdate`), `client.resources.{subscribe, read, transaction, onTransactionResourceResolution, transactionDebounce}` API, ontology version + `onShouldRefreshUI` hook, two-scope auth model, per-type handler invocation, serial transaction queue. |
 
 The factory hooks into Vue's reactivity through three primitives:
@@ -40,7 +40,7 @@ Total ~350 LOC across the factory + debounce + helpers. Vue owns the DOM crawler
 | Package | Source | Scope | Status |
 | --- | --- | --- | --- |
 | `vue` | npm (`^3.5`) | Reactivity engine + in-DOM template compiler + directive grammar (v-*, recursive components, v-model). Transitive dep of `@lumenize/nebula-frontend`. | Used as-is |
-| `@lumenize/nebula-frontend` | Written from scratch (factory pattern validated by [vue-in-dom-spike.md](archive/vue-in-dom-spike.md)) | `createNebulaClient(config) → { client, store, use, dispose }` factory + small Vue composables (`useNebula`) + `v-model.eager` directive + `textMerge` helper. ~300 LOC factory + ~50 LOC debounce + helpers. UNLICENSED until Nebula ships externally. NebulaClient ALSO moves here from `apps/nebula/src/` in 5.3.7-v3. | Built in Phase 5.3.7-v3 |
+| `@lumenize/nebula-frontend` | Written from scratch (factory pattern validated by [vue-in-dom-spike.md](archive/vue-in-dom-spike.md)) | `createNebulaClient(config) → { client, store, use, dispose }` factory + small Vue composables (`useNebula`) + `textMerge` helper. Debounce + per-field config consumed from the ontology-derived validator bundle (no custom Vue directive). ~300 LOC factory + ~50 LOC debounce + helpers. UNLICENSED until Nebula ships externally. NebulaClient ALSO moves here from `apps/nebula/src/` in 5.3.7-v3. | Built in Phase 5.3.7-v3 |
 | `vue-router` | npm (`^4`) | URL ↔ component routing, route params, navigation guards. Standard Vue 3 router; pairs natively with Vue 3.5. | Used as-is when routing is needed (Studio-blocking) |
 
 DaisyUI is pinned as the styling layer — class-based, framework-free, no coupling to reactivity model.
@@ -576,7 +576,7 @@ Scaffolds `@lumenize/nebula-frontend` around a factory (`createNebulaClient`) th
 | **Factory before `connect`** | `createNebulaClient(...)` must be called BEFORE the underlying NebulaClient's connection resolves. The `onConnectionStateChange` listener only fires on future transitions; late registration would miss the initial `connecting → connected` and leave `lmz.connection.*` unpopulated. | Discovered in spike harness debugging. Doc must establish this as the natural order. Alternative considered (factory replays current state on registration) is an option for 5.3.7 but adds API surface — the order invariant is simpler. |
 | **Auto-subscribe scope resolution** | Factory checks `getCurrentScope()` first (synthetic test scopes); falls back to `getCurrentInstance()?.scope` from `@vue/runtime-core` for component renders. `onScopeDispose` registered via `scope.run(...)` because Vue's render-effect path doesn't activate the component's scope at `run()` time. | The structural gotcha. Vue components' render `ReactiveEffect.run()` only sets `activeSub` (dep tracking) and `shouldTrack` — it does NOT set `activeEffectScope`. So `getCurrentScope()` returns null inside renders unless we bridge. ~10 LOC. |
 | **Per-component state** | Use Vue's native `setup()` with `ref` / `reactive` for local component state. NOT the factory's store, NOT a `$local` paths-into-store mechanism. | Vue idiom; no factory mechanism needed. Vibe coder reads as native Vue. Local state isn't synced anyway — it's per-component. |
-| **`v-model` debouncing** | Synced-state middleware debounces transaction submission per-resource with **500 ms quiet window + 2000 ms maxWait**. Local optimistic write fires on every keystroke (no DOM-level debounce). Transactions flush on (a) quiet window elapse, (b) maxWait elapse, (c) component unmount, (d) input blur (when reachable). Per-resource serial queue (already-pinned 5.3.6 design) ensures eTag races resolve correctly: when transaction T1 is in-flight, T2 buffers and gets submitted using T1's resulting eTag. | Per-keystroke transactions are network-chatty and pile up server-side (history table dedup is 60-min server-side; client-side debounce is independent). 500/2000 ms is the lodash-default-ish profile and matches "feels responsive but doesn't spam." Configurable per-call via `client.resources.transactionDebounce(rt, { quietMs, maxWaitMs })`; per-write opt-out via `v-model.eager` directive modifier (provided by a small Vue custom directive in `@lumenize/nebula-frontend`) for cases like select dropdowns where instant commit is right. |
+| **`v-model` debouncing** | Synced-state middleware debounces transaction submission per-resource with **500 ms quiet window + 2000 ms maxWait** as framework defaults. Local optimistic write fires on every keystroke (no DOM-level debounce). Transactions flush on (a) quiet window elapse, (b) maxWait elapse, (c) component unmount, (d) input blur (when reachable). Per-resource serial queue ensures eTag races resolve correctly: when transaction T1 is in-flight, T2 buffers and gets submitted using T1's resulting eTag. **Per-field overrides come from the ontology** — annotations like `@debounce(0)` and `@longform` (and field-type-derived defaults: `boolean`/enum auto-eager) compile into the validator bundle the factory loads at startup. Resource-level merge rule when multiple fields have pending writes: **shortest active timer wins**. Runtime override via `client.resources.transactionDebounce(rt, opts)` for edge cases (A/B testing, dynamic config). | Per-keystroke transactions are network-chatty and pile up server-side. 500/2000 ms is the lodash-default-ish profile. Per-field control via ontology annotations (the same place field types are declared) instead of HTML-level modifiers — Studio's LLM generates the right defaults from field types; vibe coder never thinks about debounce. Resolves the earlier `v-model.eager` design — no custom Vue directive needed; field-type defaults + `@debounce(0)` annotation cover the click-to-commit case. |
 | **`v-model` default trigger** | Per-keystroke (`input` event). Document `.lazy` (blur-triggered) as the standard escape for "I want to commit on blur." | Matches user expectation of "I see what I'm typing." Lazy is one modifier away. |
 | **Per-type resource handler** | Replaces the shipped `client.resources.onETagConflict(rt, resolver, options?)` with `client.resources.onTransactionResourceResolution(rt, handler, options?)`. One handler per type does both jobs — return a `ConflictResolverVerdict` from the `'conflict-pending'` branch to drive conflict resolution; react to terminal branches (`'committed'`, `'use-server'`, `'human-in-the-loop'`, `'validation-failed'`, `'permission-denied'`, `'retries-exhausted'`) for UX side-effects. Per-call override via `options.onTransactionResourceResolution` on `transaction()`. | Consolidates two previously-separate hooks (conflict resolver + outcome notification) into one. The conflict path and the success/failure path are the same handler — vibe-coder LLM has one mental model for "what happens to a resource of this type." Framework defaults still apply (server-wins on conflict, default flash classes on outcomes) so registering the handler is optional. |
 | **`__v_skip`** | Not used. Factory's Proxy passes through `__v_*` reads to the underlying Vue reactive, which answers correctly (`__v_isRef`, `__v_isReactive`, etc.). | Vue 3.5 in-DOM mode only probes `__v_isRef`. |
@@ -654,6 +654,7 @@ Implements the API surface fixed by v1's doc rewrite. The doc is the spec; this 
   - Apply the "lazy post-middleware deep-equals" optimization (carried into the correctness items below).
 - [ ] Port `nebula-client-adapter.ts` shape OR fold into factory (decision during implementation — the spike adapter exists because `createNebulaClient` was framework-agnostic; if factory becomes Vue-aware anyway, the adapter step may disappear).
 - [ ] Build `debounce.ts` per [tasks/debounce-serial-queue.md](debounce-serial-queue.md) Phase D2: per-resource `(rt, rid)` timer state, quiet/maxWait policy, flush API (called on commit, unmount, blur, dispose). State machine + invariants validated in D0/D1; D2 is mechanical port.
+- [ ] **Per-field debounce config from validator bundle.** The factory consumes per-field `quietMs`/`maxWaitMs` config emitted by the typia/ontology compile pass (see [tasks/nebula-studio.md § Code Generation](nebula-studio.md#code-generation) for the annotation → config flow). Field-type defaults: `boolean` and enum / literal-union → `{ quietMs: 0 }`; `string` → inherits type default; `string` with `@longform` annotation → `{ quietMs: 1000, maxWaitMs: 5000 }`; explicit `@debounce(q, m)` overrides everything. **Merge rule at the resource level**: when multiple fields on the same resource have pending writes, the shortest active timer wins for both `quietMs` and `maxWaitMs` — clicking a `@debounce(0)` checkbox flushes any pending text-field edits as part of the same transaction. Runtime override via the existing `client.resources.transactionDebounce(rt, opts)` API; precedence: runtime > annotation > type-default > framework-default. Wire format for the config the factory consumes: TBD during implementation (probably attached to the validator bundle alongside the typia schema).
 - [ ] Wire debounce into synced-state middleware: optimistic write lands immediately; transaction submission queues to the debouncer; debouncer flushes through the serial-per-resource queue.
 - [ ] **`TransactionOutcome` + `TransactionResourceResolution` per [api-reference.md](../website/docs/nebula/api-reference.md#transactionoutcome).** The spike at [create-nebula-client.ts:343-373](../apps/nebula/spike/alpine-adapter/src/create-nebula-client.ts:343) returns the old single-level shape with only 4 branches. v3 replaces it with the new top-level `TransactionOutcome` (4 branches: `'ok'`, `'ontology-stale'`, `'timeout'`, `'infrastructure-error'`) plus per-resource `TransactionResourceResolution` delivered to the handler. For each branch, define and test the optimistic-state semantic:
 
@@ -679,8 +680,159 @@ Implements the API surface fixed by v1's doc rewrite. The doc is the spec; this 
 
   Implementation: invoke handler from `#handleTransactionResult` for both phases. Apply default flash classes (`lumenize-commit-success` / `lumenize-conflict-revert`) before calling the handler at terminal phases so the handler can override (e.g., by removing the class) if needed.
 - [ ] **Rename `ontologyVersion` → `appVersion` in the user-facing API.** Per the docs-first sequencing, [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) and [api-reference.md](../website/docs/nebula/api-reference.md) use `appVersion` — the lock-step coupling between app and ontology versions means the LLM-as-reader mental model is "app version," not "schema version." Sites to update: NebulaClient constructor config, `client.resources.read` / `transaction` per-call options (`ReadOptions.appVersion`, `TransactionOptions.appVersion`), Star's mesh-method dispatch params, related types in `apps/nebula/src/nebula-client.ts` + `apps/nebula/src/star.ts`. Server-side internals (Star's ontology cache key, etc.) may keep `ontologyVersion` if useful — only the public API renames. The `'ontology-stale'` variant of `TransactionOutcome` keeps its `clientVersion` / `currentVersion` keys (already version-neutral).
+- [ ] **Make all `createNebulaClient` config fields optional except `appVersion`, with browser-friendly auto-detection.** The bootstrap example in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) now shows zero fields specified (the doc cut the bootstrap section entirely; Studio auto-populates `store.ts`). For that to be honest, every field needs a sensible default:
+  - `baseUrl?: string` — default to `window.location.origin` (Nebula's deployment model puts UI serving and API on the same Star domain). Required only for cross-origin admin/scripting use.
+  - `authScope?: string` + `activeScope?: string` — both currently required, both should auto-detect from the auth-discovery flow's cookie + JWT:
+    - **Server side**: add a single global refresh endpoint `${baseUrl}/auth/refresh-token` (no path-encoded scope) that reads the refresh token from the cookie and identifies the scope from the token value itself. The current per-scope endpoint can stay for admin/scripting callers that want explicit control.
+    - **Client side**: when `authScope` is not specified, the refresh call hits the global endpoint. The refresh response already returns `{ access_token, sub }`; the client parses `access_token` (JWT, base64-decode the middle segment) and extracts the `aud` claim into `activeScope`. ~5 LOC of JWT parsing in the client constructor. Subsequent `lmz.call('STAR', activeScope, ...)` use the parsed value.
+    - Both fields stay in the type as optional `?: string` overrides for admin/scripting cases (headless tests, server-side tooling) where there's no browser cookie to derive from.
+  - `onShouldRefreshUI?: (info) => void` — default to `() => window.location.reload()`. The current behavior of `undefined = opted-out` becomes `null = opted-out` (or pass `() => {}`); the typical user gets the right behavior with no config.
+  - `appVersion: string` — stays required. This is the ONLY field Studio's bootstrap needs to substitute at deploy time. In dev/iteration mode Studio passes `'dev'` (or a build-stamped value); at deploy time Studio injects the version that matches the deployed ontology bundle.
+  - Update [api-reference.md § createNebulaClient](../website/docs/nebula/api-reference.md#createnebulaclient) table to reflect new defaults and which fields are `required` vs auto-detected.
+  - Test: in jsdom + with a mocked cookie + refresh response, `createNebulaClient({ appVersion: 'v1' })` succeeds and the client connects with the right `authScope`/`activeScope` derived from the JWT.
+- [ ] **Reshape `client.resources.subscribe` to return a `Disposable` handle** (`ResourceSubscription`) for `using`-compatible scope binding. Current shipped signature (per 5.3.3a `[x]`) is `subscribe(rt, rid): Promise<Snapshot | null>`. New v3 signature:
+
+  ```typescript
+  interface ResourceSubscription extends Disposable {
+    readonly snapshot: Promise<Snapshot | null>;
+    [Symbol.dispose](): void;
+  }
+  subscribe(resourceType: string, resourceId: string): ResourceSubscription;
+  ```
+
+  Implementation: subscribe returns synchronously after registering the subscriber row; `.snapshot` carries the existing first-fanout-resolves-the-promise behavior (same Promise the old shape returned). `[Symbol.dispose]()` calls `client.resources.unsubscribe(rt, rid)`. ~10 LOC of return-shape change in `client.resources.subscribe` + ~5 LOC for the standalone `unsubscribe` to stay equivalent.
+
+  Standalone `client.resources.unsubscribe(rt, rid)` stays as a parallel surface for cases where the subscribe and release sites legitimately differ (parent component subscribes; unrelated event handler later unsubscribes). Both paths converge to the same internal cleanup.
+
+  When multiple `using` handles exist for the same `(rt, rid)`: per-handle decrement; underlying server-side subscription releases when the last handle disposes. Mirrors the auto-subscribe refcount-with-grace pattern. Concretely: factory tracks an explicit-subscribe refcount per `(rt, rid)` separately from the component-scope refcount; both contribute to "should we hold the server subscription open." When both reach zero, the standard 2 s grace period applies before issuing `client.unsubscribe`.
+
+  TypeScript: requires `lib: ["ESNext"]` (or explicit `Disposable` import) in user tsconfigs. Studio-generated tsconfig includes this; runtime uses TS 5.2+ syntax downleveled or native depending on target.
+
+  Doc sites updated alongside this work: [api-reference.md § subscribe](../website/docs/nebula/api-reference.md#resourcessubscribe), [api-reference.md § unsubscribe](../website/docs/nebula/api-reference.md#resourcesunsubscribe), [coding-your-ui.md § Auto-subscribe](../website/docs/nebula/coding-your-ui.md#auto-subscribe).
+
+  Tests: (a) `using sub = client.resources.subscribe(...)` auto-unsubscribes on scope exit; (b) `client.resources.unsubscribe(rt, rid)` is equivalent to disposing the handle; (c) two `using` handles for the same `(rt, rid)` — first dispose decrements, second triggers server-side unsubscribe; (d) `.snapshot` resolves with the same value the old Promise-returning shape resolved with.
+- [ ] **Auto-derive per-op `eTag` from the local store; require `typeName` on every op.** Current shipped `OperationDescriptor` requires `eTag` on `put`/`move`/`delete`; callers do `eTag: store.resources.<rt>[<rid>]?.meta?.eTag` boilerplate at every call site. New v3 shape:
+
+  ```typescript
+  type OperationDescriptor =
+    | { op: 'create'; typeName: string; nodeId: number; value: any }
+    | { op: 'put';    typeName: string; value: any;     eTag?: string }
+    | { op: 'move';   typeName: string; nodeId: number; eTag?: string }
+    | { op: 'delete'; typeName: string;                 eTag?: string };
+  ```
+
+  `typeName` becomes required on **every** op (was only required on `create`); needed so the factory can perform `store.resources.<typeName>[<resourceId>]?.meta?.eTag` lookup. `eTag` becomes optional. When omitted, factory derives at call time from the local store. When the resource isn't in the local store, throw a clear client-side error (`"can't auto-derive eTag for (<typeName>, <resourceId>) — not in local store; pass eTag explicitly or subscribe first"`) rather than letting the server reject — saves a round-trip on a guaranteed failure. ~20 LOC change in `client.resources.transaction` factory wrapper.
+
+  Race window: between auto-derive at call time and actual server submission, a fanout could update the local store, making the auto-derived eTag stale. Same outcome as the previous manual-lookup pattern — conflict resolver fires; the race is preserved, not introduced.
+
+  Explicit override stays for two real cases:
+  1. Admin/scripting code that submits without first subscribing.
+  2. Human-in-the-loop conflict pattern: callers stash `server.meta.eTag` at conflict-detection time and submit resolution later against that specific stashed baseline (current local store may have moved on; the stash is the right baseline). See [resources.md § human-in-the-loop verdict](../website/docs/nebula/resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app) for the worked example.
+
+  Doc sites updated alongside this work: [api-reference.md § resources.transaction](../website/docs/nebula/api-reference.md#resourcestransaction) (OperationDescriptor type + auto-derive behavior + Explicit eTag override subsection), [coding-your-ui.md § Atomic append](../website/docs/nebula/coding-your-ui.md#atomic-append--adding-to-a-collection) and [Forms: explicit save](../website/docs/nebula/coding-your-ui.md#forms-explicit-save) (simplified addTodo and saveTodo examples), [resources.md § human-in-the-loop](../website/docs/nebula/resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app) (annotation that this is the canonical explicit-eTag case).
+
+  Tests: (a) `transaction({ rid: { op: 'put', typeName: 'todo', value } })` succeeds with eTag derived from `store.resources.todo[rid]?.meta?.eTag`; (b) same call when resource not in store throws clear error; (c) explicit `eTag` passed through unchanged; (d) multi-resource batch with mixed auto-derived and explicit eTags works correctly.
 - [ ] Connection-state replay: on `createNebulaClient` registration, capture current connection state from the client and write through to `lmz.connection.*` so order-of-construction is forgiving (the harness-fix from the spike, productionized).
 - [ ] Carry-forward tests: 24 Phase 0a factory-basics + 3 Phase 0b e2e (smoke, transaction-roundtrip, cross-client-fanout) + 5 Vue probes (Q1–Q5 from spike), total 32 tests across unit + e2e + browser projects.
+- [ ] **Expose `client.claims` on LumenizeClient (mesh-level prerequisite for the next task).** NebulaClient inherits via `extends LumenizeClient`; Nebula examples use `client.claims.sub` for per-user-keyed resource lookups (see next task). Decision rationale captured during 2026-05-19 design discussion:
+
+  - **Why `claims` not `user` or `jwt`:** matches established Lumenize vocabulary (`originAuth.claims`, `claims.sub` in [auth/delegation.mdx](../website/docs/auth/delegation.mdx), etc.). "user" implies richer profile data and mutability; "jwt" is imprecise (jwt = encoded triplet, not the payload).
+  - **Why drop `#sub` (Option A) instead of mirroring it as a public convenience field (Option B):** Option A is DRY — one obvious idiom (`client.claims.sub`). Option B was tempted by the `GatewayConnectionInfo.sub` precedent (documented at [mesh/gateway.mdx:171](../website/docs/mesh/gateway.mdx) as a convenience field duplicating `claims.sub`), but on the client a richer accessor is more useful as the primary surface than a convenience alias. Zero-breakage either way: `client.sub` was never a public surface; only `#sub` private existed (used for `instanceName` generation).
+
+  **Implementation (`packages/mesh/src/lumenize-client.ts`):**
+  - Add `#claims: Readonly<JwtPayload> | null = null` private field.
+  - Add `get claims(): Readonly<JwtPayload> | null { return this.#claims; }` public getter.
+  - In `#refreshToken()`, after extracting `access_token`, parse and store: `this.#claims = Object.freeze(parseJwtUnsafe(result.access_token).payload)`. Find `parseJwtUnsafe`'s current export path (used at [website/docs/auth/testing.mdx:117](../website/docs/auth/testing.mdx) — `parseJwtUnsafe(accessToken).payload.act.sub`).
+  - **Drop the redundant `#sub` private field.** All internal references derive from `this.#claims?.sub`. The instanceName-generation site at [packages/mesh/src/lumenize-client.ts:550](../packages/mesh/src/lumenize-client.ts:550) — `this.#instanceName = \`${this.#sub}.${tabId}\`` — becomes `\`${this.#claims?.sub}.${tabId}\``.
+
+  **Backward compat:** zero breakage on the public API surface (no public `client.sub` getter existed). Mesh tests that assert directly on `#sub` will need updating to assert on `claims.sub` instead — accept the test churn.
+
+  **Tests:**
+  - Verify `client.claims` populates after refresh and matches `parseJwtUnsafe(accessToken).payload`.
+  - Verify `Object.isFrozen(client.claims)` is `true`.
+  - Update any existing test that touched `#sub` internals.
+
+  **Doc updates in `@lumenize/mesh`:**
+  - [website/docs/mesh/lumenize-client.md](../website/docs/mesh/lumenize-client.md) — add a `client.claims` section. Position alongside other public accessors / properties.
+  - Sweep [mesh/calls.mdx](../website/docs/mesh/calls.mdx) and [mesh/security.mdx](../website/docs/mesh/security.mdx) for cross-references that should mention `client.claims` as the client-side equivalent of `originAuth.claims` on the server.
+  - [mesh/gateway.mdx:171](../website/docs/mesh/gateway.mdx) — keep `GatewayConnectionInfo.sub` as-is (gateway-hook convenience field, not parallel to the client surface).
+
+- [ ] **Nebula coding-your-ui.md doc unification (depends on `client.claims` task above).** Single 2-type ontology used throughout the middle of the doc (Lists, Atomic append, Conditionals, Forms); per-user keying via `client.claims.sub` instead of the pre-created `'main'` singleton; denormalized `openCount` aggregate to make the Forms saveTodo example justify itself as a multi-resource atomic transaction. Decision rationale captured during 2026-05-19 design discussion (option triage: A=per-user keying chosen over B=three-type with explicit User and C=keep 'main' with explanatory framing — A is the most realistic AND introduces the JWT-sub-on-client pattern as a real teaching moment).
+
+  **Unified 2-type ontology** (replaces the current Lists section's snippet):
+
+  ```typescript
+  interface TodoList {
+    items: string[];        // IDs of Todo resources, in display order
+    openCount: number;      // denormalized count where status === 'open'
+  }
+
+  interface Todo {
+    title: string;
+    description: string;
+    status: 'open' | 'done';
+  }
+  ```
+
+  **Per-user keying:** replace all `('todoList', 'main')` with `('todoList', client.claims.sub)`. `client.claims.sub` is the JWT subject claim (per `client.claims` task above) — one list per user, keyed by their JWT sub.
+
+  **Edits per section in [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md):**
+
+  - **Add a short `client.claims` subsection** (suggested location: between Connection state and Auto-subscribe, OR as a sibling subsection inside Connection state). Brief — covers that `client.claims` is the JWT payload (frozen, stable for client lifetime), exposes `sub` / `aud` / etc. as standard JWT claims. Cross-link to [mesh/lumenize-client.md](../website/docs/mesh/lumenize-client.md) for the full surface and to [nebula/auth-flows.md](../website/docs/nebula/auth-flows.md) for how the user's identity is established.
+
+  - **Lists with v-for** — update ontology snippet to the unified shape. Update v-for example to use per-user keying. **Drop the inline interactive toggle** (was: checkbox bound to `done`); focus on the foreign-key auto-subscribe lesson with a display-only status indicator. Example shape:
+    ```html
+    <ul>
+      <li v-for="todoId in store.resources.todoList[client.claims.sub]?.value?.items ?? []" :key="todoId">
+        {{ store.resources.todo[todoId]?.value?.title ?? '...' }}
+        <span v-if="store.resources.todo[todoId]?.value?.status === 'done'">✓</span>
+      </li>
+    </ul>
+    ```
+
+  - **Atomic append (addTodo)** — per-user keying; new Todo's value uses `{ title, description: '', status: 'open' }`; update list's `openCount: list.openCount + 1`:
+    ```typescript
+    async function addTodo(title: string) {
+      const newId = crypto.randomUUID();
+      const list = store.resources.todoList[client.claims.sub]?.value;
+
+      const outcome = await client.resources.transaction({
+        [newId]:               { op: 'create', typeName: 'todo', nodeId: list.nodeId,
+                                 value: { title, description: '', status: 'open' } },
+        [client.claims.sub]:   { op: 'put',    typeName: 'todoList',
+                                 value: { ...list, items: [...list.items, newId],
+                                          openCount: list.openCount + 1 } },
+      });
+      // error handling on outcome goes here
+    }
+    ```
+
+  - **Conditionals with v-if** — change `store.resources.task[id]` to `store.resources.todo[id]` for cross-section consistency with the unified ontology.
+
+  - **Forms: explicit save (saveTodo)** — conditional `openCount` update via the delta pattern (status changes affect the count; title/description changes don't). The second op spreads into the transaction only if delta is nonzero (avoids unnecessary writes when the user only edited title or description):
+    ```typescript
+    async function saveTodo() {
+      const draft = store.ui.todoForm.draft;
+      const currentStatus = store.resources.todo['task-42']?.value?.status;
+      const list = store.resources.todoList[client.claims.sub]?.value;
+      const delta = (draft.status === 'open' ? 1 : 0) - (currentStatus === 'open' ? 1 : 0);
+
+      const outcome = await client.resources.transaction({
+        'task-42': { op: 'put', typeName: 'todo', value: draft },
+        ...(delta !== 0 && {
+          [client.claims.sub]: { op: 'put', typeName: 'todoList',
+                                 value: { ...list, openCount: list.openCount + delta } },
+        }),
+      });
+      // error handling on outcome goes here
+    }
+    ```
+
+  **api-reference.md** — short cross-reference to mesh's `client.claims` (since NebulaClient extends LumenizeClient, the getter is inherited; nothing Nebula-specific to document beyond the cross-link).
+
+  **Rationale for openCount specifically (worth preserving in case the design is revisited):** real todo apps almost always have a UI badge showing "N open" somewhere. The denormalized aggregate pattern is the canonical example of "why atomic multi-resource transactions matter." Without it, saveTodo is a single-resource put and a reader could reasonably ask "couldn't I just `v-model` the fields and let per-keystroke transactions batch?" With it, per-field v-model would update status per-keystroke without ever touching `openCount`, drifting the count from reality. The conditional-spread (`...(delta !== 0 && { ... })`) avoids unnecessary writes when only title/description changed.
+
+  **Rationale for dropping the Lists section's inline interactive toggle:** the lesson is "per-iteration auto-subscribe via foreign-key v-for." An interactive checkbox was a nice-to-have but added cognitive load (and with `status: 'open' | 'done'` enum vs the old `done: boolean`, the checkbox-bound-to-enum pattern got awkward). Status-toggle UX is demonstrated in the Forms section's `<select>`; the Lists example focuses on its lesson.
 
 **Correctness items surfaced in spike review (must address during v3 before shipping):**
 
@@ -721,7 +873,7 @@ The main doc rewrite happened in v1; v5 covers anything that needed v3 implement
 - [ ] Re-read [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) end-to-end against the shipped implementation. Fix any drift between doc claims and code behavior surfaced during v3/v4.
 - [ ] Update [nebula-client.md](../website/docs/nebula/nebula-client.md) if NebulaClient surface changed during the spike's reshape.
 - [ ] New page (or section): "Using @lumenize/nebula-frontend with Vue" covering single-HTML-file CDN load + debounce knobs. Include a "Security: CSP and template compilation" subsection that explains the in-DOM-mode `'unsafe-eval'` requirement, why Galaxy pre-compiles for production deploys, and the runtime-only Vue bundle the Studio-deployed apps use under strict CSP.
-- [ ] Document the IME / composition behavior + the `v-model.eager` directive in the docs (these are the most likely "huh, why does it do that?" support questions).
+- [ ] Document the IME / composition behavior in the docs (most likely "huh, why does it do that?" support question).
 
 **Deletions (post-merge):**
 
@@ -748,6 +900,9 @@ The Alpine → Vue pivot likely leaves orphaned helpers, types, and code paths b
 - Galaxy-side template pre-compilation for production deploys (closes CSP `'unsafe-eval'` requirement). Architecture pinned in v3's risks list; implementation owned by Studio's deploy work.
 - `flashClass` rich-diff support (field-level rendering of WHAT changed, not just THAT it changed).
 - Multi-resource subscriptions / query subscribe (still out of scope per § "Out of scope (post-demo)").
+- **Hold-pending-fanouts (full mid-edit-clobber protection)** — the existing per-type `onTransactionResourceResolution` handler with a text-merge `'use-this'` verdict only protects keystrokes typed *after* a concurrent fanout arrives; keystrokes typed *before* the fanout's write-through are lost when the framework applies the server snapshot via the `{ source: 'remote' }` middleware bypass. Complete protection requires the factory's synced-state middleware to **hold incoming fanouts** for any resource that has pending optimistic state (debounced write outstanding OR transaction in flight). When the next submit's conflict resolver fires, it sees both the user's full pre-fanout state and the buffered server snapshot; the resolver's merge incorporates both. After the resolver settles, apply the merged result and release the hold. Approach: resource-level granularity (not per-field) — simpler and sufficient for v1. Acceptable consequence: a server-side change to field Y on the same resource also waits for field X's submit; not user-visible since most resources have small enough field sets. ~50 LOC addition to the middleware. Documented in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) § "Write timing" caution as a known limitation pending this work.
+- **Merge helper library: `textMerge`, `setUnion`, `counterMerge`, etc.** — ship from `@lumenize/nebula-frontend`'s top-level export so per-type handlers can call them from a `'use-this'` verdict without users having to pull in `diff-match-patch` themselves or write merge logic inline. Resolves the design question of "should we add a `'crdt'` resolution kind?" — answer: no, `'use-this' + helper-fn` is the right factoring (helpers don't add framework primitives; users opt in per-type). `textMerge(server, local, base)` is 3-way diff/patch (LCS-based) and is the most load-bearing; ship that first. `setUnion(localSet, serverSet)` and `counterMerge(local, server, base)` follow when the demo or a real app needs them. `textMerge` is tagged `deferred-post-5.3.7` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge); this task lands it. **For true CRDT-backed real-time collab, see the next bullet — different scope entirely.**
+- **True CRDT-backed real-time collaborative editing (Google-Docs / Notion / Figma tier)** — distinct from the merge-helper bullet above and dramatically larger in scope. `textMerge` does 3-way diff/patch; it preserves non-overlapping concurrent edits but can lose work when edits overlap or when deletions tangle with insertions. It does NOT provide "instant convergence under arbitrary operation interleaving" — that needs an actual CRDT (yjs, automerge, etc.) with **per-character identity**, **op streaming** (sub-snapshot updates), **cursor / selection preservation across merges**, and the **CRDT state itself as the source of truth** (not just the resulting string value, which is a lossy projection). Integration is a multi-week project on its own: it'd add a parallel data tier alongside the current JS-object-shaped resources, with its own wire format (op stream, not snapshot fanout), server-side state representation (the CRDT structure persisted, not just `value`), client-side library integration (which CRDT — yjs, automerge, custom — each has its own ecosystem), and editor bindings (Tiptap/ProseMirror, Monaco, CodeMirror — different editors have different CRDT adapters). Adjacent design questions also untouched: ontology annotation surface (e.g., `@crdt-text body: string`), how CRDT-backed fields interact with permission cascade, how `eTag` / optimistic concurrency apply (or don't) at the CRDT tier. Defer until a Studio app actually needs real-time collaborative editing; capture as its own task file (`tasks/nebula-crdt-fields.md` or similar) when that day comes.
 
 ### Phase 5.3.8 — For-docs tests (one big `it`, narrative)
 
@@ -790,7 +945,8 @@ All async probes use `vi.waitFor` (Vue's reactive scheduler is microtask-deferre
 - [ ] **IME composition** (real-browser only): multi-key character composition (e.g., Japanese input) fires `compositionstart` / `compositionupdate` / `compositionend` events; exactly one transaction fires after composition ends, not one per intermediate keystroke.
 - [ ] **Debounce flush-on-blur**: pending debounced write flushes when the bound input loses focus, even if the quiet window hasn't elapsed.
 - [ ] **Debounce maxWait**: continuous typing across the maxWait boundary produces ≥1 transaction per maxWait window, not zero.
-- [ ] **`v-model.eager`**: writes via `v-model.eager` bypass debouncing and fire transactions immediately.
+- [ ] **Per-field debounce from ontology**: validator bundle carries per-field `quietMs`/`maxWaitMs`; field-type defaults (boolean → eager, etc.) and explicit `@debounce(...)` / `@longform` annotations both apply. Resource-level merge rule: shortest active timer wins (clicking a `@debounce(0)` checkbox flushes pending text-field edits too).
+- [ ] **Runtime debounce override**: `client.resources.transactionDebounce(rt, opts)` overrides the ontology-derived config for a type at runtime (precedence: runtime > annotation > type-default > framework-default).
 
 ## Out of scope (post-demo)
 
@@ -902,6 +1058,22 @@ Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a tas
    **Phase triage**: don't implement DAG-binding yet. Wait until the Studio demo (or a real app) actually wants a reactive DAG view — at that point Option 0 is small (~30 LOC + one type-check special case in `Subscriptions.subscribe` + the `#onChanged` rewire), and the scale-out decision (A vs B vs C) can be made with concrete UI requirements in hand instead of speculatively. **Outcome destination**: own subsection under Phase 5.3.x when the trigger lands; or fold into a `tasks/nebula-dag-binding.md` if the design grows beyond what fits here.
 
 8. **Multi-resource conflict-resolver semantics — resolved into v3 scope.** The Phase 5.3.3c "first-conflict wins" simplification (one resolver fires, verdict applied uniformly across all conflicting resources) is replaced by the unified per-type handler + per-resource `TransactionResourceResolution`: every conflicting resource fires its own handler invocation with `'conflict-pending'`, verdicts aggregate into a per-resource map on the top-level `TransactionOutcome.resources`. See Phase 5.3.7-v3's `TransactionOutcome` + `TransactionResourceResolution` task for the implementation work.
+
+9. **Auto-retry on transient transaction failures (`'infrastructure-error'`, `'timeout'`).** Current pinned design is caller-decided retry: when `transaction()` resolves with `{ kind: 'infrastructure-error', error }` or `{ kind: 'timeout' }`, the await-site decides whether/when/how to retry. Idempotency via the per-transaction `newETag` makes manual retry safe — submitting the same `newETag` again returns idempotent success if the original request actually landed but the response was lost.
+
+   **The proposal**: add an optional `TransactionOptions.retryPolicy?: { maxAttempts: number; backoffMs: number | ((attempt: number) => number) }` field. Defaults to no retry (preserves current contract). When set, the framework auto-resubmits on `'infrastructure-error'` and `'timeout'` outcomes — same `newETag` so idempotency holds — up to `maxAttempts`, with the caller-supplied backoff between attempts. After exhaustion, returns the final outcome to the await-site.
+
+   **Why deferred (not in v3):**
+   - Auto-retry imposes a policy decision. Some apps want "saving…" / "still saving…" / "save failed, retry?" with custom backoff; others want fire-and-forget. The current caller-decided default doesn't force a choice.
+   - Auto-retry can mask real connectivity issues — a user typing into an offline app would see no immediate signal.
+   - Most apps that want retry can wrap `transaction()` in their own retry helper today; the marginal value of framework-built-in is convenience, not capability.
+
+   **Why worth keeping on the list:**
+   - The convenience IS real. Studio's LLM generating boilerplate retry-wrappers at every call site is noisier than `transaction(ops, { retryPolicy: { maxAttempts: 3, backoffMs: 500 } })`.
+   - The shape doesn't conflict with anything else — it's a pure addition.
+   - `newETag` already provides the idempotency guarantee, so the implementation is just a loop around the existing transaction code path. ~30 LOC.
+
+   **Triage**: defer to post-5.3.7. Revisit if a real app hits the boilerplate-fatigue pain or if Studio's LLM ends up generating the retry-wrapper pattern frequently enough that promoting it to the framework would be a clear simplification. **Outcome destination**: own bullet in the "Out of scope for 5.3.7 (post-demo)" list when the trigger lands, or its own task file if the design grows.
 
 ## Notes
 

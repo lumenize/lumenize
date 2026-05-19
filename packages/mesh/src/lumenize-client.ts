@@ -1,4 +1,5 @@
 import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth';
 import {
   newContinuation,
   executeOperationChain,
@@ -127,15 +128,16 @@ export interface LumenizeClientConfig {
   /**
    * Token refresh source
    *
-   * - String: endpoint URL (POST, expects `{ access_token, sub }`)
-   * - Function: custom refresh logic returning `{ access_token, sub }`
+   * - String: endpoint URL (POST, expects `{ access_token }`)
+   * - Function: custom refresh logic returning `{ access_token }`
    *
-   * Both forms must provide `sub` so the client can auto-generate
-   * `instanceName` as `${sub}.${tabId}`.
+   * The `sub` for auto-generating `instanceName` is read from the JWT's
+   * payload (`client.claims.sub`); the refresh source only needs to return
+   * the token.
    *
    * Default: `/auth/refresh-token`
    */
-  refresh?: string | (() => Promise<{ access_token: string; sub: string }>);
+  refresh?: string | (() => Promise<{ access_token: string; sub?: string }>);
 
   /**
    * Called when connection state changes
@@ -304,7 +306,7 @@ export abstract class LumenizeClient {
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
-  #sub: string | null = null;
+  #claims: Readonly<JwtPayload> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -341,6 +343,10 @@ export abstract class LumenizeClient {
     // Store initial token if provided
     if (config.accessToken) {
       this.#accessToken = config.accessToken;
+      const parsed = parseJwtUnsafe(config.accessToken);
+      if (parsed) {
+        this.#claims = Object.freeze(parsed.payload);
+      }
     }
 
     // Set up wake-up sensing (browser only)
@@ -359,6 +365,19 @@ export abstract class LumenizeClient {
    */
   get connectionState(): ConnectionState {
     return this.#connectionState;
+  }
+
+  /**
+   * Decoded JWT payload from the current access token
+   *
+   * Frozen and stable across the client's lifetime (replaced on each refresh).
+   * Returns `null` until the first successful token refresh.
+   *
+   * Use `client.claims.sub` for per-user keying, `client.claims.aud` for the
+   * audience claim, etc. — same shape as `originAuth.claims` on the server side.
+   */
+  get claims(): Readonly<JwtPayload> | null {
+    return this.#claims;
   }
 
   /**
@@ -545,9 +564,9 @@ export abstract class LumenizeClient {
         const tabIdDeps = this.#getTabIdDeps();
         const [tabId] = await Promise.all([
           tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
-          this.#refreshToken(),  // Sets this.#accessToken and this.#sub
+          this.#refreshToken(),  // Sets this.#accessToken and this.#claims
         ]);
-        this.#instanceName = `${this.#sub}.${tabId}`;
+        this.#instanceName = `${this.#claims?.sub}.${tabId}`;
       } else if (!this.#accessToken) {
         // instanceName already set, just need the token
         await this.#refreshToken();
@@ -747,9 +766,6 @@ export abstract class LumenizeClient {
       // Custom refresh function — returns { access_token, sub }
       const result = await refresh();
       this.#accessToken = result.access_token;
-      if (result.sub) {
-        this.#sub = result.sub;
-      }
     } else if (typeof refresh === 'string') {
       // Endpoint URL - use custom fetch if provided (for cookie-aware requests)
       const fetchFn = this.#config.fetch ?? fetch;
@@ -762,12 +778,8 @@ export abstract class LumenizeClient {
         throw new Error(`Token refresh failed: ${response.status}`);
       }
 
-      const data = await response.json() as { access_token?: string; sub?: string };
+      const data = await response.json() as { access_token?: string };
       this.#accessToken = data.access_token ?? null;
-      // Store sub for instanceName auto-generation
-      if (data.sub) {
-        this.#sub = data.sub;
-      }
     } else {
       throw new Error('No refresh method configured');
     }
@@ -775,6 +787,12 @@ export abstract class LumenizeClient {
     if (!this.#accessToken) {
       throw new Error('Refresh returned no token');
     }
+
+    const parsed = parseJwtUnsafe(this.#accessToken);
+    if (!parsed) {
+      throw new Error('Refresh returned a malformed access_token');
+    }
+    this.#claims = Object.freeze(parsed.payload);
   }
 
   /**

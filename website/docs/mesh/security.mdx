@@ -78,6 +78,8 @@ someMethod() {
 }
 ```
 
+The same payload is exposed on the client side as [`client.claims`](./lumenize-client#client-identity-clientclaims) — server-side code reads `originAuth.claims`, client-side code reads `client.claims`. Both are frozen and re-derived from the verified JWT.
+
 ## Access Control
 
 ### Three-Layer Access Control Model
