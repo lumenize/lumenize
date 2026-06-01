@@ -1,3 +1,4 @@
+import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
@@ -299,6 +300,7 @@ export abstract class LumenizeClient {
   // Private Fields
   // ============================================
 
+  #debugFactory = debug;
   #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName'>> & LumenizeClientConfig;
   #instanceName: string | null = null;
   #ws: WebSocket | null = null;
@@ -518,7 +520,7 @@ export abstract class LumenizeClient {
 
   /**
    * Called when a Gateway message arrives whose `type` is not in
-   * `GatewayMessageType`. Default: warn to console.
+   * `GatewayMessageType`. Default: warn via `@lumenize/debug`.
    *
    * Override in a subclass to handle application-specific frames sent by a
    * Gateway subclass via `ws.send()`. The frame has already been
@@ -526,7 +528,8 @@ export abstract class LumenizeClient {
    * timing-marker frames emitted from Gateway hooks.
    */
   onUnknownMessage(message: any): void {
-    console.warn('Unknown Gateway message type:', message?.type);
+    const log = this.#debugFactory('lmz.mesh.LumenizeClient.onUnknownMessage');
+    log.warn('Unknown Gateway message type', { type: message?.type });
   }
 
   // ============================================
@@ -802,7 +805,10 @@ export abstract class LumenizeClient {
       // Use JSON.parse - postprocessing is done per-field as needed
       message = JSON.parse(data) as GatewayMessage;
     } catch (error) {
-      console.error('Failed to parse Gateway message:', error);
+      const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleMessage');
+      log.error('Failed to parse Gateway message', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
 
@@ -840,7 +846,8 @@ export abstract class LumenizeClient {
   #handleCallResponse(message: CallResponseMessage): void {
     const pending = this.#pendingCalls.get(message.callId);
     if (!pending) {
-      console.warn('Received response for unknown call:', message.callId);
+      const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleCallResponse');
+      log.warn('Received response for unknown call', { callId: message.callId });
       return;
     }
 

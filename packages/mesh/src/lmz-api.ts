@@ -1,3 +1,4 @@
+import { debug } from '@lumenize/debug';
 import { isDurableObjectId, getDOStub } from '@lumenize/routing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -176,13 +177,33 @@ export function setupFireAndForgetHandler(
   handlerChain: OperationChain | undefined,
   executeHandler: (chain: OperationChain) => Promise<any>
 ): Promise<void> {
+  const log = debug('lmz.mesh.lmzApi.setupFireAndForgetHandler');
   return callPromise
     .then(async (result) => {
       await executeHandlerWithResult(handlerChain, result, executeHandler);
     })
     .catch(async (error) => {
       const errorObj = error instanceof Error ? error : new Error(String(error));
+      if (!handlerChain) {
+        // Fire-and-forget call with no handler chain: the error has nowhere to
+        // be delivered. Without this log it would vanish silently (the returned
+        // promise is not awaited at the call sites). error() always outputs.
+        log.error('fire-and-forget call failed with no handler to receive the error', {
+          error: errorObj.message,
+        });
+        return;
+      }
       await executeHandlerWithResult(handlerChain, errorObj, executeHandler);
+    })
+    .catch((deliveryError) => {
+      // Delivering the result/error to the handler itself threw. The returned
+      // promise is fire-and-forget at the call sites, so this rejection would
+      // otherwise become a lost unhandled rejection.
+      const errorObj =
+        deliveryError instanceof Error ? deliveryError : new Error(String(deliveryError));
+      log.error('failed to deliver fire-and-forget result/error to handler', {
+        error: errorObj.message,
+      });
     });
 }
 

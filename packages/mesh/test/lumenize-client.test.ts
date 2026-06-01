@@ -1102,7 +1102,9 @@ describe('Message handling edge cases', () => {
   });
 
   it('handles invalid JSON in incoming message gracefully', () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @lumenize/debug routes all levels (including error) through console.debug,
+    // and error() always outputs regardless of the DEBUG filter.
+    const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1117,21 +1119,29 @@ describe('Message handling edge cases', () => {
       subscriptionRequired: false,
     }));
 
-    // Send invalid JSON — should not throw, just log error
-    ws.simulateMessage('not valid json {{{');
+    // Send invalid JSON — should not throw, just log the parse error
+    expect(() => ws.simulateMessage('not valid json {{{')).not.toThrow();
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      'Failed to parse Gateway message:',
-      expect.any(SyntaxError),
+      expect.stringContaining('Failed to parse Gateway message'),
     );
 
     consoleSpy.mockRestore();
     client.disconnect();
   });
 
-  it('warns on unknown Gateway message type', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const client = new TestClient({
+  it('dispatches unknown Gateway message types to onUnknownMessage', () => {
+    // The default onUnknownMessage warns via @lumenize/debug (filterable), but
+    // the observable contract is that the frame is routed to onUnknownMessage,
+    // which subclasses override to handle application-specific frames.
+    const unknownMessages: any[] = [];
+    class UnknownCapturingClient extends TestClient {
+      onUnknownMessage(message: any): void {
+        unknownMessages.push(message);
+      }
+    }
+
+    const client = new UnknownCapturingClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
       accessToken: 'token',
@@ -1148,17 +1158,12 @@ describe('Message handling edge cases', () => {
     // Send a message with an unknown type
     ws.simulateMessage(JSON.stringify({ type: 'unknown_message_type' }));
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Unknown Gateway message type:',
-      'unknown_message_type',
-    );
+    expect(unknownMessages).toEqual([{ type: 'unknown_message_type' }]);
 
-    consoleSpy.mockRestore();
     client.disconnect();
   });
 
-  it('warns when receiving response for unknown callId', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('ignores a response for an unknown callId without throwing', () => {
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1173,20 +1178,16 @@ describe('Message handling edge cases', () => {
       subscriptionRequired: false,
     }));
 
-    // Send a call_response for a callId that doesn't exist
-    ws.simulateMessage(JSON.stringify({
+    // Send a call_response for a callId that doesn't exist — the unknown-call
+    // guard must short-circuit (warn + return) so this is handled gracefully.
+    // Without the guard, accessing pending.timeoutId on undefined would throw.
+    expect(() => ws.simulateMessage(JSON.stringify({
       type: 'call_response',
       callId: 'nonexistent-call-id',
       success: true,
       result: null,
-    }));
+    }))).not.toThrow();
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Received response for unknown call:',
-      'nonexistent-call-id',
-    );
-
-    consoleSpy.mockRestore();
     client.disconnect();
   });
 
