@@ -12,6 +12,8 @@
   ],
   "files": [
     "worker-configuration.d.ts",
-    "cloudflare-test-env.d.ts"
+    "cloudflare-test-env.d.ts",
+    "vite-env.d.ts",
+    "test-env-augmentations.d.ts"
   ]
 }
