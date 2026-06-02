@@ -7,8 +7,11 @@
   "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts"
+      "types": "./src/index.ts",
+      "workerd": "./src/index.workerd.ts",
+      "worker": "./src/index.workerd.ts",
+      "node": "./src/index.node.ts",
+      "browser": "./src/index.browser.ts"
     }
   },
   "files": [
