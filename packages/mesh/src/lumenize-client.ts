@@ -1,6 +1,6 @@
 import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth';
+import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth/client';
 import {
   newContinuation,
   executeOperationChain,

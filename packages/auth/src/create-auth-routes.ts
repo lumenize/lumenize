@@ -1,3 +1,4 @@
+import { debug } from '@lumenize/debug';
 import { routeDORequest, type CorsOptions } from '@lumenize/routing';
 import { verifyTurnstileToken } from './turnstile';
 import type { AuthRoutesOptions } from './types';
@@ -30,10 +31,12 @@ export function createAuthRoutes(
   const testMode = envRecord.LUMENIZE_AUTH_TEST_MODE === 'true';
   const turnstileSecretKey = envRecord.TURNSTILE_SECRET_KEY as string | undefined;
 
+  const log = debug('auth.createAuthRoutes');
+
   // Warn when Turnstile secret key is missing in non-test mode
   if (!testMode && !turnstileSecretKey) {
-    console.warn(
-      '[lumenize/auth] TURNSTILE_SECRET_KEY is not set — Turnstile verification is disabled. ' +
+    log.error(
+      'TURNSTILE_SECRET_KEY is not set — Turnstile verification is disabled. ' +
       'This leaves your magic-link endpoint unprotected against automated abuse. ' +
       'See https://developers.cloudflare.com/turnstile/get-started/ to obtain a key.'
     );
@@ -41,8 +44,8 @@ export function createAuthRoutes(
 
   // Warn when AUTH_EMAIL_SENDER is missing in non-test mode
   if (!testMode && !envRecord.AUTH_EMAIL_SENDER) {
-    console.warn(
-      '[lumenize/auth] AUTH_EMAIL_SENDER is not configured — magic links and invites will not be delivered. ' +
+    log.error(
+      'AUTH_EMAIL_SENDER is not configured — magic links and invites will not be delivered. ' +
       'See https://lumenize.com/docs/auth/getting-started#email-provider'
     );
   }

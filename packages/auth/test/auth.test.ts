@@ -2590,15 +2590,17 @@ describe('@lumenize/auth - Turnstile validation', () => {
   });
 
   it('createAuthRoutes warns without TURNSTILE_SECRET_KEY in non-test mode', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // @lumenize/debug routes error() through console.debug (its default sink).
+    // error() always outputs regardless of the DEBUG filter.
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const nonTestEnv = { ...env, LUMENIZE_AUTH_TEST_MODE: undefined };
     expect(() => createAuthRoutes(nonTestEnv as typeof env)).not.toThrow();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_SECRET_KEY'));
-    warnSpy.mockRestore();
+    expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_SECRET_KEY'));
+    debugSpy.mockRestore();
   });
 
   it('createAuthRoutes does not warn with TURNSTILE_SECRET_KEY and AUTH_EMAIL_SENDER in non-test mode', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const prodEnv = {
       ...env,
       LUMENIZE_AUTH_TEST_MODE: undefined,
@@ -2606,8 +2608,9 @@ describe('@lumenize/auth - Turnstile validation', () => {
       AUTH_EMAIL_SENDER: {}, // stub service binding
     };
     expect(() => createAuthRoutes(prodEnv as typeof env)).not.toThrow();
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_SECRET_KEY'));
+    expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('AUTH_EMAIL_SENDER'));
+    debugSpy.mockRestore();
   });
 
   it('test mode bypasses Turnstile — existing magic link flow still works', async () => {
@@ -2731,13 +2734,14 @@ describe('@lumenize/auth - Turnstile validation', () => {
 
 describe('@lumenize/auth - Rate limiting', () => {
   it('createRouteDORequestAuthHooks warns when rate limiter binding is missing', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // @lumenize/debug routes error() through console.debug (its default sink).
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const envWithoutRateLimiter = { ...env, LUMENIZE_AUTH_RATE_LIMITER: undefined } as unknown as Env;
     const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(envWithoutRateLimiter);
     expect(typeof onBeforeRequest).toBe('function');
     expect(typeof onBeforeConnect).toBe('function');
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('LUMENIZE_AUTH_RATE_LIMITER'));
-    warnSpy.mockRestore();
+    expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('LUMENIZE_AUTH_RATE_LIMITER'));
+    debugSpy.mockRestore();
   });
 
   it('createRouteDORequestAuthHooks succeeds with default rate limiter binding', async () => {
