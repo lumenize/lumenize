@@ -9,6 +9,16 @@
     ".": "./src/index.ts",
     "./client": "./src/client-index.ts"
   },
+  "imports": {
+    "#lmz-api-context": {
+      "types": "./src/lmz-api-context.workerd.ts",
+      "workerd": "./src/lmz-api-context.workerd.ts",
+      "worker": "./src/lmz-api-context.workerd.ts",
+      "node": "./src/lmz-api-context.workerd.ts",
+      "browser": "./src/lmz-api-context.browser.ts",
+      "default": "./src/lmz-api-context.workerd.ts"
+    }
+  },
   "files": [
     "src/**/*"
   ],

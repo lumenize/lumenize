@@ -1,7 +1,7 @@
 import { debug } from '@lumenize/debug';
 import { isDurableObjectId, getDOStub } from '@lumenize/routing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { getCurrentCallContext, runWithCallContext } from '#lmz-api-context';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
 
@@ -9,41 +9,29 @@ import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } fro
 export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
 
 // ============================================
-// CallContext AsyncLocalStorage
+// CallContext propagation
 // ============================================
 
 /**
- * AsyncLocalStorage for call context propagation
+ * Re-export the runtime-specific CallContext storage primitives.
  *
- * This provides request-scoped storage for CallContext, ensuring that
- * `this.lmz.callContext` always returns the correct context even when
- * multiple concurrent requests are being processed.
+ * The actual implementation comes from `#lmz-api-context`, which the package's
+ * `imports` field maps to `./lmz-api-context.workerd.ts` (workerd/worker/node)
+ * or `./lmz-api-context.browser.ts` (browser). The server-side implementation
+ * uses Node's `AsyncLocalStorage` for true async-context preservation; the
+ * browser implementation uses a module-scoped variable with a documented
+ * "no preservation across await" caveat (see that file).
+ *
+ * Isolating the `node:async_hooks` import behind a conditional keeps it out
+ * of browser bundles — `@lumenize/mesh/client` (used by LumenizeClient and
+ * other browser-bundleable consumers) imports `runWithCallContext` /
+ * `getCurrentCallContext` from here transitively, so the conditional split
+ * is what makes the client browser-bundleable. See
+ * `tasks/playwright-test-template.md` § Known blockers item #2 for context.
  *
  * @internal
  */
-export const callContextStorage = new AsyncLocalStorage<CallContext>();
-
-/**
- * Get the current call context from AsyncLocalStorage
- *
- * @returns The current CallContext, or undefined if not in a call context
- * @internal
- */
-export function getCurrentCallContext(): CallContext | undefined {
-  return callContextStorage.getStore();
-}
-
-/**
- * Run a function with a specific call context
- *
- * @param context - The CallContext to use
- * @param fn - The function to run
- * @returns The result of the function
- * @internal
- */
-export function runWithCallContext<T>(context: CallContext, fn: () => T): T {
-  return callContextStorage.run(context, fn);
-}
+export { getCurrentCallContext, runWithCallContext };
 
 /**
  * Clone the current call context for capture
@@ -55,7 +43,7 @@ export function runWithCallContext<T>(context: CallContext, fn: () => T): T {
  * @internal
  */
 export function captureCallContext(): CallContext | undefined {
-  const current = callContextStorage.getStore();
+  const current = getCurrentCallContext();
   if (!current) return undefined;
 
   return {

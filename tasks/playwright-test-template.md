@@ -10,31 +10,64 @@ The Vue-in-DOM spike validated end-to-end behavior in jsdom + `@lumenize/testing
 
 ## Known blockers
 
-### 1. `@lumenize/debug` imports `cloudflare:workers`
+### 1. `@lumenize/debug` imports `cloudflare:workers` — ✅ DONE 2026-06-02
 
-Source: [packages/debug/src/index.ts](../packages/debug/src/index.ts) does `await import('cloudflare:workers')` in a try/catch for runtime auto-detection (per the CLAUDE.md "Cross-Platform Cloudflare Detection" pattern). Runtime in the browser succeeds (the catch fires); vite's ahead-of-time import-analysis fails before the catch can execute.
+Shipped via cowork's `740274e` (debug split into `index.workerd.ts` / `index.node.ts` / `index.browser.ts` / `index.ts` with package-export conditions) + this-session's `a57bbc2` (added `@lumenize/auth/client` subpath, since the auth barrel was a separate transitive leak the debug refactor exposed). Esbuild bundle of `@lumenize/mesh/client` no longer references `cloudflare:workers`; the only remaining `cloudflare:workers`/`node:` blocker is item #2 below.
 
-**Fix (recommended)**: rewrite the auto-detection to avoid the literal specifier. Options:
-- Probe via `globalThis` for a known Workers-specific global (e.g., `globalThis.WebSocketPair` or `globalThis.caches?.default`) and only attempt the dynamic import when that probe passes.
-- Use `Function('return import("cloudflare:workers")')()` to hide the specifier from static analysis. Uglier but cheaper change.
+**Chose neither** of the originally-listed options (`globalThis` probe / `Function('return import')` hack) — they were premised on keeping a single `index.ts` with a runtime probe. The exports-conditions approach is cleaner: each entry file is statically import-correct for its runtime; the bundler never sees the unresolvable specifier in the wrong path because conditions pick the right file at resolve time. CLAUDE.md's "Cross-Platform Cloudflare Detection" section was updated in `986e27d` to document both approaches and when to use each (try/catch runtime guard for non-browser-bundled code; conditions for code that must be browser-bundleable).
 
-**Alternative**: document `optimizeDeps.exclude: ['cloudflare:workers']` + `build.rollupOptions.external: ['cloudflare:workers']` for consumers. Pushes config burden onto every package that depends transitively on `@lumenize/debug`, which is many — the rewrite is preferred.
+**Verification** (this session): `npx esbuild packages/mesh/src/client-index.ts --bundle --platform=browser --format=esm --external:node:async_hooks` succeeds with 0 `cloudflare:workers` references. The `--external:node:async_hooks` workaround is the gap item #2 fills.
 
-- [ ] Pick the rewrite approach.
-- [ ] Implement.
-- [ ] Add a real-browser smoke test in `packages/debug/test/browser/` (vitest-browser-playwright) — import `debug` from a browser-bundled test file, assert it returns a no-op function in the browser and doesn't throw.
+A real-browser smoke test for `packages/debug/` isn't in scope yet (no `test/browser/` directory exists in the debug package); will be picked up when the broader real-browser test template lands in v4.
 
-### 2. `@lumenize/mesh/client` pulls in `node:async_hooks`
+- [x] Pick the rewrite approach. (Exports conditions, not literal-rewriting.)
+- [x] Implement. (740274e + a57bbc2.)
+- [ ] Real-browser smoke test in `packages/debug/test/browser/` — deferred to the v4 real-browser template scaffolding.
 
-Source: `lmz-api.ts` (used by both server and client paths) imports `AsyncLocalStorage` from `node:async_hooks`. The client-side path doesn't actually use ALS in any meaningful way — ALS is for server-side request-scoped `CallContext` propagation.
+### 2. `@lumenize/mesh/client` pulls in `node:async_hooks` — ✅ DONE 2026-06-02
 
-**Fix (recommended)**: split lmz-api into client-only / server-only modules. Re-export from `@lumenize/mesh/client` only the client-shaped surface; the server-shaped surface stays at `@lumenize/mesh` (or a `/server` subpath).
+Note: the original framing — "the client-side path doesn't actually use ALS in any meaningful way" — turned out to be inaccurate. `LumenizeClient` DOES use ALS-style context preservation for the round-trip `runWithCallContext` at incoming-call handling (`lumenize-client.ts:902`), for `buildOutgoingCallContext`'s inheritance lookup, and for handler-execution context restoration at outgoing-call dispatch (`lumenize-client.ts:1054, :1061`). A naive removal would corrupt cross-await context reads inside `@mesh()` handlers.
 
-**Alternative**: lazy-load ALS-dependent code paths so the import only fires when actually needed. Works but leaves a runtime-only check around code that's structurally client-incompatible.
+**Chose package.json `imports`-field conditions** (the same pattern `@lumenize/debug` uses for its exports, but applied to internal `#`-imports). Two implementations of the same 2-function surface — `getCurrentCallContext()` / `runWithCallContext<T>(context, fn): T`:
 
-- [ ] Pick the split approach.
-- [ ] Refactor.
-- [ ] Add a real-browser smoke test in `packages/mesh/test/browser/` — bundle a `LumenizeClient` instance via the test, instantiate, assert it doesn't throw during module load.
+- `packages/mesh/src/lmz-api-context.workerd.ts` — uses real `AsyncLocalStorage`. Selected by `workerd`/`worker`/`node` conditions (so Node, Bun, Deno, vitest-pool-workers, and Workers all get it).
+- `packages/mesh/src/lmz-api-context.browser.ts` — module-scoped variable. Selected by `browser` condition. Does NOT preserve across `await` boundaries — file header documents the caveat in detail.
+
+`packages/mesh/package.json` `imports` map:
+
+```jsonc
+"imports": {
+  "#lmz-api-context": {
+    "types": "./src/lmz-api-context.workerd.ts",
+    "workerd": "./src/lmz-api-context.workerd.ts",
+    "worker": "./src/lmz-api-context.workerd.ts",
+    "node": "./src/lmz-api-context.workerd.ts",
+    "browser": "./src/lmz-api-context.browser.ts",
+    "default": "./src/lmz-api-context.workerd.ts"
+  }
+}
+```
+
+The `types` + `default` entries are load-bearing for TypeScript (`moduleResolution: bundler` doesn't match the runtime-specific conditions without a fallback) and for runtimes that don't match anything else.
+
+`lmz-api.ts` now imports `getCurrentCallContext` / `runWithCallContext` from `#lmz-api-context` and re-exports them; `captureCallContext()` is unchanged and calls `getCurrentCallContext()` via the conditional binding.
+
+**Browser caveat — safe vs unsafe usage**:
+- ✅ Reading `this.lmz.callContext` synchronously inside an `@mesh()` handler before any await.
+- ❌ Reading `this.lmz.callContext` AFTER an await inside an `@mesh()` handler when concurrent mesh calls might be in flight.
+
+Verified 2026-06-02 that no existing client-side `@mesh()` handler in `apps/nebula/` reads `callContext` after an await — `handleTransactionResult`, `handleReadResponse`, `handleResourceUpdate` all branch on a synchronous result and never re-read callContext post-await. Future client code that needs full async-context preservation in the browser has documented escape hatches (TC39 `AsyncContext` proposal, zone.js monkey-patch, explicit closure threading).
+
+**Verification**:
+- `npx esbuild packages/mesh/src/client-index.ts --bundle --platform=browser --format=esm` succeeds with **0** `cloudflare:workers` references AND **0** `node:async_hooks` references — `@lumenize/mesh/client` is fully browser-bundleable now.
+- Mesh vitest: 365/366 (1 skipped, 0 failed) — unchanged.
+- Mesh `test:node-import`: 2/2 — unchanged.
+- Nebula unit + baseline: 169/171 (0 failed) — unchanged.
+- All 13 packages type-check cleanly.
+
+- [x] Pick the split approach. (Package.json `imports` conditions, not subpath / lazy-load.)
+- [x] Refactor.
+- [ ] Real-browser smoke test in `packages/mesh/test/browser/` — deferred to the v4 real-browser template scaffolding.
 
 ### 3. NebulaAuth has no CORS headers
 
