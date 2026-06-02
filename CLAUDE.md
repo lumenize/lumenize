@@ -82,7 +82,11 @@ Key scripts available from the monorepo root:
 
 ## Cross-Platform Cloudflare Detection
 
-When library code needs to access Cloudflare-specific APIs (like `env` from `cloudflare:workers`) but must also work in Node.js, Bun, and browsers, use top-level `await import()` in a try/catch:
+When library code needs Cloudflare-specific APIs (like `env` from `cloudflare:workers`) but must also work in Node.js, Bun, Deno, and browsers, there are two approaches. **Which one to use depends on whether the module must be bundled for the browser.**
+
+### If the module will NOT be browser-bundled — top-level `await import()` in try/catch
+
+Fine for code that only ever runs in Workers/Node/Bun/Deno (servers, DOs, CLIs), where no end-user bundler ever processes the source:
 
 ```typescript
 let cfEnv: { MY_VAR?: string } | null = null;
@@ -94,7 +98,29 @@ try {
 }
 ```
 
-This resolves in Workers and silently fails elsewhere. No build-time flags or dynamic import hacks needed. See `@lumenize/debug` for the canonical example — it auto-detects `env.DEBUG` this way, so callers just use `debug('namespace')` in all environments.
+This resolves in Workers and silently fails elsewhere **at runtime**. The catch is the caveat below.
+
+### If the module MUST be browser-bundleable — package-export conditions
+
+⚠️ The try/catch above is a *runtime* guard, not a *bundle-time* one. Bundlers (esbuild, Vite, Rollup, webpack) statically see the `'cloudflare:workers'` literal — even inside `await import(...)` in a try/catch — and fail to resolve it. So **any module that transitively reaches a browser bundle must contain zero references to `cloudflare:workers`** (see the invariant comment in `packages/mesh/src/gateway-messages.ts`, which protects `LumenizeClient` / the `@lumenize/mesh/client` entry).
+
+For these, split the environment-specific code into separate entry files and select between them with `exports` *conditions* in `package.json`, keeping `cloudflare:workers` isolated to the `workerd` entry:
+
+```jsonc
+"exports": {
+  ".": {
+    "types": "./src/index.ts",
+    "workerd": "./src/index.workerd.ts",  // static `cloudflare:workers` import lives ONLY here
+    "worker": "./src/index.workerd.ts",
+    "node": "./src/index.node.ts",        // process.env — also matched by Bun/Deno
+    "browser": "./src/index.browser.ts"   // localStorage; no cloudflare:workers
+  }
+}
+```
+
+Condition keys are runtime-matched tokens, not free-form labels: Cloudflare presents `workerd`/`worker` (not `cloudflare`); Bun and Deno fall through to `node`. Omitting `default` makes an unmatched toolchain fail resolution explicitly rather than ship a silently-wrong build.
+
+`@lumenize/debug` is the canonical example of this conditional-exports pattern — it's imported by browser-bundled client code, so it cannot use the try/catch approach. Callers just use `debug('namespace')` in all environments; the package internals resolve the right `DEBUG` source per condition.
 
 ---
 
