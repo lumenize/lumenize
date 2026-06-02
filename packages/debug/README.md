@@ -24,13 +24,28 @@ log.error('unexpected failure', { error: e.message }); // ALWAYS outputs
 
 Set the `DEBUG` environment variable (uppercase) to filter which namespaces log:
 
-- **Node.js/Bun**: `DEBUG=MyApp node app.js`
+- **Node.js/Bun/Deno**: `DEBUG=MyApp node app.js`
 - **Browser**: `localStorage.setItem('DEBUG', 'MyApp')`
 - **Cloudflare Workers**: Set in `wrangler.jsonc` vars or `.dev.vars`
 
+The correct source is selected automatically by package-export *conditions* — no
+runtime `try/catch` and no `cloudflare:workers` import in the browser/Node
+builds, so this package bundles cleanly for the browser (e.g. inside
+`@lumenize/mesh/client`):
+
+| Runtime | Export condition | Reads `DEBUG` from |
+| --- | --- | --- |
+| Cloudflare Workers | `workerd` / `worker` | `env.DEBUG` (`cloudflare:workers`) |
+| Node.js / Bun / Deno | `node` | `process.env.DEBUG` |
+| Browser (bundled) | `browser` | `localStorage.getItem('DEBUG')` |
+
+> There is intentionally no `default` condition: a toolchain that presents none
+> of the above gets an explicit resolution error rather than a silently-wrong
+> build.
+
 ### Cloudflare Workers
 
-In Workers, `env.DEBUG` is auto-detected via `import('cloudflare:workers')` — no manual configuration needed:
+In Workers, `env.DEBUG` is read via the `workerd` export condition — no manual configuration needed:
 
 ```typescript
 import { debug } from '@lumenize/debug';
