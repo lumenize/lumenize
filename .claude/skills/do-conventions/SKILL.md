@@ -165,7 +165,7 @@ Durable Objects are billed for elapsed wall-clock time whenever any of these are
   }
   ```
 - Avoid calling external APIs directly from a DO. Use the two-one-way-call pattern where a Worker makes the external call, and then "calls back" to the DO after it has the result — see [Making Calls](website/docs/mesh/calls.mdx#two-one-way-calls). For fetches that regularly take >5 seconds, `@lumenize/fetch` provides a fire-and-forget pattern with continuation — see [Fetch Service](website/docs/fetch/index.mdx).
-- Never use `setTimeout` or `setInterval` — use `alarm()` for scheduled work.
+- Use `setTimeout` or `setInterval` only for situations where you need to keep the DO from hibernating for up to 30sections. Beyond that, use something else: `alarm()`, two one-way calls, etc.
 
 ---
 
@@ -196,8 +196,8 @@ Use private handler methods (with `#` prefix) unless you need public methods for
 ```typescript
 // Worker fetch — dispatch by prefix
 return (
-  await routeDORequest(request, env, { prefix: '/auth' }) ??
-  await routeDORequest(request, env, { prefix: '/docs' }) ??
+  await routeDORequest(request, env, { prefix: '/auth' }) ||
+  await routeDORequest(request, env, { prefix: '/docs' }) ||
   new Response('Not found', { status: 404 })
 );
 ```

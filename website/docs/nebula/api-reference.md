@@ -5,7 +5,7 @@ description: API surface for @lumenize/nebula-frontend and the NebulaClient reso
 
 # API reference
 
-This page is the contract for the `@lumenize/nebula-frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [coding-your-ui.md](./coding-your-ui.md) resolves to a section here. Conceptual explanations live in coding-your-ui; this page is the lookup.
+This page is the contract for the `@lumenize/nebula-frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [Coding your UI](./coding-your-ui.md) resolves to a section here. Conceptual explanations live there; this page is the lookup.
 
 ## Status legend
 
@@ -27,8 +27,8 @@ Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** sta
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
 | `client.resources.transactionDebounce(rt, opts)` (runtime override) | new-in-v3 | [resources.transactionDebounce](#resourcestransactiondebounce) |
 | `client.dispose()` | new-in-v3 | [client.dispose](#clientdispose) |
-| Reserved state paths (`resources.*`, `lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
-| `lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
+| Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
+| `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
 | `textMerge(server, local, base)` helper | deferred-post-5.3.7 (see note) | [textMerge](#textmerge) |
 | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
 | `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (new shape with `'ok'`, `'infrastructure-error'`) | [TransactionOutcome](#transactionoutcome) |
@@ -48,7 +48,7 @@ function createNebulaClient(config: NebulaClientConfig): {
 };
 ```
 
-Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. Must be called **before** the underlying WebSocket connection resolves so the factory's `onConnectionStateChange` listener captures the initial `connecting → connected` transition; late registration leaves `lmz.connection.*` empty.
+Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. Must be called **before** the underlying WebSocket connection resolves so the factory's `onConnectionStateChange` listener captures the initial `connecting → connected` transition; late registration leaves `store.lmz.connection.*` empty.
 
 ### Config
 
@@ -68,7 +68,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. Must be
 | Field | Type | Description |
 | --- | --- | --- |
 | `client` | `NebulaClient` | Lower-level API. Use for explicit subscriptions, reads, transactions, resolver registration. |
-| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. |
+| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
 | `dispose()` | `() => void` | Tear down. Flushes any pending debounced writes, clears refcount + pending-unsubscribe timers, disposes internal scopes. |
 
@@ -99,7 +99,7 @@ const { client, store } = createNebulaClient({
 });
 ```
 
-See [coding-your-ui.md § Building your UI on top of Resources](./coding-your-ui.md#building-your-ui-on-top-of-resources) for how `store.ts` fits into the Studio-managed bootstrap, and [tasks/nebula-studio.md § Bootstrap files](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md) for what Studio scaffolds.
+See [Coding your UI § Building your UI on top of Resources](./coding-your-ui.md#building-your-ui-on-top-of-resources) for how `store.ts` fits into the Studio-managed bootstrap, and [tasks/nebula-studio.md § Bootstrap files](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md) for what Studio scaffolds.
 
 ## `client.resources.subscribe` {#resourcessubscribe}
 
@@ -316,7 +316,7 @@ When no handler is registered for a type (or when registered with default `flash
 | `'human-in-the-loop'` | (none — app handles UX explicitly) | — |
 | `'conflict-pending'` | (none — handler is deciding) | — |
 
-The user-facing CSS lives in app stylesheets — the framework just toggles class names. See [resources.md](./resources.md) § "Custom flash visuals" for example CSS.
+The user-facing CSS lives in app stylesheets — the framework just toggles class names. See [Resources § Custom flash visuals](./resources.md#custom-flash-visuals) for example CSS.
 
 ### Precedence
 
@@ -369,20 +369,20 @@ After dispose, the store remains readable (Vue reactivity is independent) but wr
 
 **Tag**: `implemented-in-spike`
 
-Two top-level prefixes on the store are framework-reserved. Writes to these paths from user code are dropped (or warned in debug builds):
+Two top-level prefixes on the store are framework-reserved. Writes to these paths from user code are dropped (or warned in debug builds). For when to read off `store` vs when to call methods on `client`, see [Coding your UI § `store` vs `client`](./coding-your-ui.md#store-vs-client--what-goes-where).
 
-- **`resources.*`** — Synced resource snapshots, written by the framework on every server push. `resources.{type}.{id}.value` holds the resource value; `resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
-- **`lmz.*`** — Other framework-owned state. Today: `lmz.connection.*` (see [below](#lmzconnection)). Future framework-meta paths land under this prefix too.
+- **`store.resources.*`** — Synced resource snapshots, written by the framework on every server push. `store.resources.{type}.{id}.value` holds the resource value; `store.resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
+- **`store.lmz.*`** — Other framework-owned state. Today: `store.lmz.connection.*` (see [below](#lmzconnection)). Future framework-meta paths land under this prefix too.
 
 Every other top-level segment is yours. Common conventions:
 
-- `ui.*` — transient UI state (modal open/closed, form drafts, conflict tracking).
-- `app.*` — application-wide local state (active view, current user prefs).
+- `store.ui.*` — transient UI state (modal open/closed, form drafts, conflict tracking).
+- `store.app.*` — application-wide local state (active view, current user prefs).
 - Anything else — free.
 
-The factory's `set` trap routes writes under `resources.<rt>.<rid>.value(\.|$)` to the synced-state middleware. Writes to `resources.<rt>.<rid>.meta.*` pass through middleware unchanged (server-owned, intentional) — but those paths are still server-managed in practice; user-code writes to `meta.eTag` will be warned-on in debug builds.
+The factory's `set` trap routes writes under `store.resources.<rt>.<rid>.value(\.|$)` to the synced-state middleware. Writes to `store.resources.<rt>.<rid>.meta.*` pass through middleware unchanged (server-owned, intentional) — but those paths are still server-managed in practice; user-code writes to `meta.eTag` will be warned-on in debug builds.
 
-## `lmz.connection` {#lmzconnection}
+## `store.lmz.connection` {#lmzconnection}
 
 **Tag**: `implemented-in-spike`
 
@@ -390,9 +390,9 @@ The factory mirrors the underlying `LumenizeClient` connection state to three re
 
 | Path | Type | Description |
 | --- | --- | --- |
-| `lmz.connection.state` | `'connecting' \| 'connected' \| 'reconnecting' \| 'disconnected'` | Initialized to `'disconnected'`. Updated on every connection-state transition. |
-| `lmz.connection.connected` | `boolean` | Initialized to `false`. `true` iff `state === 'connected'`. |
-| `lmz.connection.lastConnectedAt` | `number \| undefined` | Set on each `'connected'` transition (`Date.now()`). Unset before first connect. |
+| `store.lmz.connection.state` | `'connecting' \| 'connected' \| 'reconnecting' \| 'disconnected'` | Initialized to `'disconnected'`. Updated on every connection-state transition. |
+| `store.lmz.connection.connected` | `boolean` | Initialized to `false`. `true` iff `state === 'connected'`. |
+| `store.lmz.connection.lastConnectedAt` | `number \| undefined` | Set on each `'connected'` transition (`Date.now()`). Unset before first connect. |
 
 The factory writes to these paths on every transition; user code never registers a connection-state listener. The initial seed values are intentional so first-paint reads never return `undefined`.
 
@@ -412,7 +412,7 @@ function textMerge(server: string, local: string, base: string): string;
 
 Three-way merge helper for long-form text fields. Intended for use inside a `'use-this'` resolver to preserve both the local user's edits and a concurrent server-side commit.
 
-**Status**: not shipping in 5.3.7. The "Text fields specifically — don't leave the default" guidance in [resources.md](./resources.md) describes the pattern; until `textMerge` ships, vibe coders writing text-field resolvers either pull in `diff-match-patch` themselves or accept that fast typing during a concurrent edit can lose characters.
+**Status**: not shipping in 5.3.7. The [Resources § Text fields specifically — don't leave the default](./resources.md#text-fields-specifically--dont-leave-the-default) guidance describes the pattern; until `textMerge` ships, vibe coders writing text-field resolvers either pull in `diff-match-patch` themselves or accept that fast typing during a concurrent edit can lose characters.
 
 Shipped helper will live at `@lumenize/nebula-frontend`'s top-level export.
 
@@ -558,7 +558,7 @@ Fires on every write through the Proxy `set` trap. Return a value to substitute 
 - `'local'` — user-driven write (v-model, direct assignment). Synced-state middleware processes these.
 - `'remote'` — server fanout. Synced-state middleware skips.
 - `'rollback'` — framework restoring a pre-write value after a failed transaction. Synced-state middleware skips.
-- `'computed'` — framework vivifying intermediate containers under `resources.*` so descendant access works before snapshot arrival. Synced-state middleware skips.
+- `'computed'` — framework vivifying intermediate containers under `store.resources.*` so descendant access works before snapshot arrival. Synced-state middleware skips.
 
 Register additional middleware via `use()` from the factory return. Synced-state middleware is always-on and runs first.
 

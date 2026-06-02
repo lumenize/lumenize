@@ -304,6 +304,18 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Nebula
 
+### Ontology depth (post-demo)
+
+Strengthen the case that Nebula's data layer is an *ontology* (not just a typed schema + DAG). Triggered by the 2026-05-03 Kumar article and successors — see [tasks/reference/ontology-research.md](reference/ontology-research.md). Items below in priority order; each is independently shippable.
+
+- [ ] **Action types** — typed semantic verbs on top of `resources.transaction` (e.g. `approveOrder`, `releaseHold`), each binding {typia input schema + precondition predicate + patch shape + emitted provenance event}. This is the single primitive most cited as the schema-vs-ontology dividing line (Palantir's moat; Fabric IQ's "permitted actions" is a shallower version). Highest narrative payoff per LOC. Provenance / audit-trail story falls out for free once verbs emit events.
+
+- [ ] **Ontology introspection endpoint** — runtime API returning types, properties, relationships, action types, and constraints. typia already has this metadata at compile time; the work is exposing it. Required for Studio's LLM to ground itself without re-shipping types, and the cheapest item that flips Nebula from "typed CRUD" to "agent-readable ontology." JSON-LD / OWL serialization is a v2 if we ever want the vendor-neutral story.
+
+- [ ] **Typed relationships** — promote DAG edges (or add a parallel relationship graph) to carry `relationshipType` with its own schema, navigable bidirectionally with `@inverse` already sketched in [website/docs/nebula/ontology.md](../website/docs/nebula/ontology.md). Without this the relationship story reads as "we have a DAG" rather than "we have an ontology graph." Cheap on top of the 5.3-shipped DAG normalization (`{nodes, edges, permissions}`).
+
+### Other Nebula backlog
+
 - [ ] Refactor `dag-tree.ts` `requirePermission` to throw typed errors (`PermissionDeniedError`, `NodeNotFoundError`, `AuthenticationRequiredError`)
   - **Why**: Currently throws plain `Error` for three distinct conditions with different downstream handling needs. `Resources.transaction`'s permission-check refactor (Phase 5.3.3b) needed to distinguish "permission denied" (→ typed `TransactionError`) from "node not found" / "auth required" (→ propagate as Error). Fix is currently a fragile message-string match at [apps/nebula/src/resources.ts:368-377](apps/nebula/src/resources.ts:368) — `e.message.includes('permission required')`. Replace with `e instanceof PermissionDeniedError` checks.
   - **Pattern to follow**: `apps/nebula/src/errors.ts`'s `OntologyStaleError` + `isOntologyStaleError` (typed Error subclass with `name` override + type-guard for cross-boundary use). Same shape works for these — they stay server-side so `instanceof` works fine.

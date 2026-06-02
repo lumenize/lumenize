@@ -626,6 +626,16 @@ Remaining v1 work (now against SFC authoring):
 
 - [ ] **Rewrite template-string-dependent doc chapters in [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) against `.vue` SFCs.** Affected sections (identified during the 2026-05-15 design review): "Recursive components (e.g., tree views)" (template-string TreeNode example becomes an SFC), the DAG-tree worked example (template strings → SFCs throughout), the conflict-modal in "Optimistic concurrency" / "use-this verdict — async modal," the form patterns in "Read-only and editable views." Also remove the "Component tag case" bullet (kebab-vs-Pascal rule) and the runtime-compiler discussion (no in-DOM compiler when Galaxy / dev Stars pre-compile).
 - [ ] **Resume the design-review pass** on coding-your-ui.md + api-reference.md against the SFC-rewritten content. Flag awkward code samples, surprising defaults, names that feel wrong, surprising `deferred-post-5.3.7` tags.
+
+  **Collaboration model for the review session(s):**
+  - User reads sections in order, asks questions and proposes specific changes.
+  - Assistant answers concisely; edits ONLY on explicit sign-off. No speculative rewrites.
+  - If the assistant spots a problem while answering, mention briefly but don't fix without explicit OK.
+  - Code blocks currently use `@skip-check` (Phase 1 drafting). Don't convert to `@check-example` during review — that's a separate Phase 2 task.
+  - Don't relitigate decisions already pinned in § "Decisions pinned" or § "Phase 5.3.7" → "Pinned decisions" unless the user opens them.
+  - Don't restructure tasks/nebula-frontend.md unless something in the doc surfaces a real design question. Even then, ask first.
+  - Naming preference: longer + descriptive over short. LLM consumes these names; no one types them.
+  - Review one doc per session: coding-your-ui first, api-reference separate.
 - [ ] Verify every api-reference signature against the spike's actual `createNebulaClient` + `ClientLike` types + the existing `client.resources.*` namespace ([apps/nebula/src/nebula-client.ts](../apps/nebula/src/nebula-client.ts)). Anything in the docs that doesn't trace to real code (or a `new-in-v3` tag) is a defect.
 
 #### Phase 5.3.7-v2 — Prerequisites unblock (~1–2 days)

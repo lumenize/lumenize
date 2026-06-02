@@ -7,30 +7,34 @@ description: How to build a Nebula front end with Vue 3 SFCs and TypeScript — 
 
 A Nebula front end is Vue 3 Single-File Components (SFCs) written in TypeScript, styled with DaisyUI, rendering resources whose shape you defined in your ontology (a TypeScript `.d.ts`-style file). The framework handles subscribes, transactions, and conflicts.
 
-This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [api-reference.md](./api-reference.md). For the resource data model (addressing, eTags, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
+This page is the narrative reference Nebula Studio's hosted LLM consults when generating UI code in dialog with a user-developer — naming, defaults, and example shape are tuned for that LLM-as-reader audience. For exact signatures see [API reference](./api-reference.md). For the resource data model (addressing, eTags, transactions, conflict resolution) see [Resources](./resources.md). This page is "how to wire it together"; those pages are the contract.
 
 ## Resources at a glance
 
-**Resources are the heart of this system. They are both simple and powerful. You use them when developing your app in Nebula Studio. Your users use them when they interact with your app because they are the only place for them to store anything.**
+**Resources are the heart of this system. They are both simple and powerful. You use them when developing your app on the Nebula platform. Your users indirectly use them when they interact with your app because they are the only place for them to store anything.**
 
 Resources also handle [**access control**](./resources.md#access-control). Every resource is attached at create time to a node in your app's **org/permission tree**. Each node carries a per-user permissions table and a grant on a parent applies to every descendant.
 
-Each resource is a JavaScript object addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
+Each resource is a JavaScript object (not just JSON, but rather rich types like Map, Date, cycles, etc.) addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
 - `store.resources.<resourceType>[<resourceId>].value` — the resource's current value.
 - `store.resources.<resourceType>[<resourceId>].meta` — server-managed metadata (`eTag`, change metadata, etc.).
 
-Reads inside a Vue component auto-subscribe to the resources they touch. Writes flow through optimistic local apply + a server transaction (eTag-based, with per-type conflict resolution and idempotency). The full resource model — addressing, optimistic concurrency, the per-type handler, transaction outcomes — is documented in [Resources](./resources.md).
+The full resource model — addressing, optimistic concurrency, the per-type handler, transaction outcomes — is documented in [Resources](./resources.md), but other than shown in the examples in this document, you will rarely have to deal with them directly.
 
 ## Building your UI on top of Resources
 
 Resources reside in the cloud. The UI in your user's web browser must access and manipulate them. This occurs in three layers:
 
-1. **`NebulaClient`** — the WebSocket connection between your browser and the back end.
+1. **`NebulaClient`** — the WebSocket connection between your browser and the back end as well as authentication flows.
 2. **The store** — a Vue-reactive Proxy that your `v-*` directives bind to. Reads under `store.resources.*` auto-subscribe to the resources they touch; writes flow through optimistic apply + debounced server submission. The whole reactive UI surface lives here.
 3. **Vue 3** — `.vue` files with `<script setup lang="ts">`, `<template>`, and optional `<style scoped>`. Studio compiles them to render-function modules on every save (to a nearby dev server during development iteration; to your Galaxy when you are ready to deploy it to production). 
 
-Studio auto-populates the bootstrap (a `store.ts` that calls `createNebulaClient()` and exports `{ client, store }`, plus a Vue entrypoint and an `index.html` shell). Your `.vue` components import `{ store, client } from './store'` and write everything else. The full `createNebulaClient` config is at [api-reference.md § createNebulaClient](./api-reference.md#createnebulaclient).
+Studio auto-populates the bootstrap (a `store.ts` that calls `createNebulaClient()` and exports `{ client, store }`, plus a Vue entrypoint and an `index.html` shell). Your `.vue` components import `{ store, client } from './store'` and define the UI. The full `createNebulaClient` config is at [API reference § createNebulaClient](./api-reference.md#createnebulaclient).
+
+## `store` vs `client` — what goes where
+
+`store` holds everything reactive — synced resources, your own UI state, and connection status mirrored from the client (`store.lmz.connection.*`). `client` is the underlying connection: method calls (`transaction`, `subscribe`, `dispose`, etc.) and non-reactive identity like `client.claims`. The prefix on every path expression in this doc is load-bearing — `store.X` is something to bind to, `client.X` is something to call or look up.
 
 ## Reading and writing through the store
 
@@ -61,7 +65,7 @@ For multi-resource atomic batches, explicit conflict-resolution handlers, progra
 
 ### `v-model` requires a real writable path
 
-Optional chaining (`?.`) isn't allowed in a `v-model` expression. Guard the input with `v-if` so it only mounts after the snapshot lands:
+Optional chaining (`?.`) isn't allowed in a `v-model` expression. Guard the input with `v-if` so it only mounts after the resource value is synchronized into the store:
 
 ```html @skip-check
 <template v-if="store.resources.todo[id]?.value">
@@ -82,10 +86,12 @@ By default `v-model` listens on `input` (fires every keystroke). The optimistic 
 A typical 10-character edit produces ~1 transaction, not 10.
 
 :::caution Concurrent edits can clobber long-form text
+
 The default `'use-server'` resolution can clobber the user's keystrokes during a concurrent edit. For long-form text (descriptions, comments, document bodies, code editors), consider registering a per-type text-merge handler — see [Resources § Text fields specifically — don't leave the default](./resources.md#text-fields-specifically--dont-leave-the-default). Short single-line fields like titles don't need this.
+
 :::
 
-**Per-field timing is declared in the ontology**, not in the UI layer. A `boolean` field commits immediately (no debounce); a long-form text field uses slower debounce + text-merge. Studio's LLM generates these from field types and explicit annotations (`@debounce`, `@longform`) when it writes the ontology — see [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [api-reference.md](./api-reference.md#resourcestransactiondebounce).
+**Field-level write timing has sensible defaults** matched to each field's type — a `boolean` commits immediately (no debounce); a long-form text field uses slower debounce + text-merge; short single-line text uses the 500/2000 ms windows above. To override, annotate the field in the ontology (`@debounce`, `@longform`, etc.) — see [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
 
 ### `v-model.lazy` — commit on blur
 
@@ -140,13 +146,13 @@ const todoStatus = computed(() => {
 
 ## Connection state
 
-The factory mirrors `NebulaClient`'s connection state to three reserved paths under `lmz.connection.*`. UI binds declaratively; no event listeners. Initial seeds (`'disconnected'` / `false` / `undefined`) mean first-paint reads never need `?.` guards.
+The factory mirrors `NebulaClient`'s connection state onto the store under `store.lmz.connection.*`. UI binds declaratively; no event listeners. Initial seeds (`'disconnected'` / `false` / `undefined`) mean first-paint reads never need `?.` guards.
 
 | Path | Type | Description |
 | --- | --- | --- |
-| `lmz.connection.state` | `'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'` | Current state. |
-| `lmz.connection.connected` | `boolean` | `true` iff `state === 'connected'`. |
-| `lmz.connection.lastConnectedAt` | `number \| undefined` | `Date.now()` from the most recent `'connected'` transition. |
+| `store.lmz.connection.state` | `'connecting'` / `'connected'` / `'reconnecting'` / `'disconnected'` | Current state. |
+| `store.lmz.connection.connected` | `boolean` | `true` iff `state === 'connected'`. |
+| `store.lmz.connection.lastConnectedAt` | `number \| undefined` | `Date.now()` from the most recent `'connected'` transition. |
 
 ```html @skip-check
 <!-- Banner while disconnected. Optimistic writes still queue in the background. -->
@@ -158,7 +164,7 @@ The factory mirrors `NebulaClient`'s connection state to three reserved paths un
 <button :disabled="!store.lmz.connection.connected" class="btn btn-primary" @click="save">Save</button>
 ```
 
-For richer status UI (color-coded badges, "last connected X minutes ago" tooltips), use `:class` object syntax against `lmz.connection.state` and format `lmz.connection.lastConnectedAt` with `new Date(...)`.
+For richer status UI (color-coded badges, "last connected X minutes ago" tooltips), use `:class` object syntax against `store.lmz.connection.state` and format `store.lmz.connection.lastConnectedAt` with `new Date(...)`.
 
 ## Current user (`client.claims`)
 
@@ -190,7 +196,7 @@ When the component unmounts, the subscription releases after a **2-second grace 
        @blur="store.ui.editingTitle = false" />
 ```
 
-For non-component cases (warming a cache before navigation, scripting, headless tests), call `client.resources.subscribe(rt, rid)` directly. The returned handle is `Disposable` — use `using` for auto-release on scope exit, or call `client.resources.unsubscribe(rt, rid)` manually if subscribe and unsubscribe happen in different places. See [api-reference.md § resources.subscribe](./api-reference.md#resourcessubscribe).
+For non-component cases (warming a cache before navigation, scripting, headless tests), call `client.resources.subscribe(rt, rid)` directly. The returned handle is `Disposable` — use `using` for auto-release on scope exit, or call `client.resources.unsubscribe(rt, rid)` manually if subscribe and unsubscribe happen in different places. See [API reference § resources.subscribe](./api-reference.md#resourcessubscribe).
 
 ## Plain Vue state
 
@@ -412,7 +418,7 @@ await client.dagTree.addEdge(userBobNodeId, listShoppingId);
 await client.dagTree.removeEdge(userBobNodeId, listShoppingId);
 ```
 
-The full surface (`moveNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [api-reference.md § client.dagTree](./api-reference.md#clientdagtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./resources.md#access-control).
+The full surface (`moveNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [API reference § client.dagTree](./api-reference.md#clientdagtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./resources.md#access-control).
 
 ## Worked example: rendering the built-in tree
 

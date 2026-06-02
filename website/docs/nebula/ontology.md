@@ -114,7 +114,7 @@ Conflict-resolver registration is **per resource type** — the right merge stra
 Will cover:
 
 - Where the registration lives in code (see open question below).
-- The handler signature and the `TransactionResourceResolution` shape (link to [resources.md § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler) for the full union; this section just shows per-type recipes).
+- The handler signature and the `TransactionResourceResolution` shape (link to [Resources § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler) for the full union; this section just shows per-type recipes).
 - Common per-type patterns and when to use each:
   - **Text-body fields** (descriptions, comments, document bodies) — register a 3-way text-merge handler. The default `'use-server'` policy will yank typing mid-keystroke during concurrent edits; text-merge preserves both edits.
   - **Set-of-tags / set-of-IDs** — `'use-this'` with set-union merge so neither client's adds get lost.
@@ -142,7 +142,7 @@ Will cover briefly (link out for depth):
 
 - typia compiles the .d.ts at deploy time into a runtime parser-validator.
 - The validator runs on every transaction (server-side, before write).
-- Validation failures surface per-resource as `{ kind: 'validation-failed', errors }` in the `TransactionResourceResolution` (see [resources.md](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler)).
+- Validation failures surface per-resource as `{ kind: 'validation-failed', errors }` in the `TransactionResourceResolution` (see [Resources § Per-resource behavior](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler)).
 - Detailed pipeline + the typia tag vocabulary live in [@lumenize/ts-runtime-parser-validator](../ts-runtime-parser-validator/index.md).
 - The validator bundle ships alongside the deployed app (lock-step with `appVersion`); old clients hitting a new server get `{ kind: 'ontology-stale' }` and reload.
 
@@ -152,7 +152,7 @@ Will cover:
 
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
 - **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `appVersion` bump.
-- The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [api-reference.md § createNebulaClient](./api-reference.md#createnebulaclient)).
+- The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
 - Migrations: link to wherever the migration story ultimately lives (`tasks/nebula-5.5-branch-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio
