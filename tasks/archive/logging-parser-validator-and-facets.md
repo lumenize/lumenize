@@ -1,7 +1,13 @@
 # Logging in ts-runtime-parser-validator & Nebula Facet Validation
 
-**Status**: Plan decided 2026-06-02 — parent-side logging in the Nebula DOs.
-The parser-validator package itself stays logging-free.
+**Status (2026-06-02)**: **Complete and archived.** Plan decided + implementation
+landed in commit `ac88a60`. Parent-side logging shipped: `nebula.Star.ensureFacet` /
+`nebula.Star.installState` log.info on cold facet load; `nebula.Resources.transaction`
+wraps `parseBatch` with try/catch (log.error on RPC/load failure, log.warn on
+returned validation failures with sample of 3). `@lumenize/ts-runtime-parser-validator`
+stays logging-free. Capability-passing into the facet (via Worker Loader `env`/`props`)
+is the documented escape hatch for future per-request timing or default-substitution
+tracing.
 
 > Findings captured 2026-06-01 on branch `claude/mesh-nebula-logging-audit-q4P5U`.
 > Plan section added 2026-06-02 after deciding between parent-side and

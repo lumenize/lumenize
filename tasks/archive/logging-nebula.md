@@ -1,7 +1,13 @@
 # Logging in Nebula (apps/nebula + packages/nebula-auth)
 
-**Status**: Plan decided + implementation landed 2026-06-02. Sibling
-facet-logging task shipped just before this one (commit `ac88a60`).
+**Status (2026-06-02)**: **Complete and archived.** Plan decided + implementation
+landed in commit `059bd69`. Six touch points instrumented (by impact):
+star.ts handler catches (3 sites) + nebula-auth router.ts 500 catch + dag-tree.ts
+typed PermissionDeniedError/NodeNotFoundError + entrypoint.ts JWT debug logs +
+nebula-client.ts silent client-side warns + router.ts sub-catches. Namespace
+convention `nebula.{Class}.{method}`. Sibling facet-logging task shipped just
+before this one (commit `ac88a60`). callId-into-CallContext follow-up captured
+in tasks/nebula-scratchpad.md § Mesh Infrastructure (commit `1d51430`).
 
 > Findings captured 2026-06-01 on branch `claude/mesh-nebula-logging-audit-q4P5U`.
 > Plan section added 2026-06-02. Verified file:line citations against current
