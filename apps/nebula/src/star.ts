@@ -280,6 +280,13 @@ export class Star extends NebulaDO {
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleTransactionResult(result));
     } catch (err) {
+      debug('nebula.Star.doTransaction').error('handler threw', {
+        clientId,
+        ontologyVersion,
+        bundleId: this.#row ? `${this.#galaxyId}/${this.#row.version}` : undefined,
+        error: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : undefined,
+      });
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleTransactionResult(
           err instanceof Error ? err : new Error(String(err))));
@@ -344,6 +351,13 @@ export class Star extends NebulaDO {
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleReadResponse(requestId, snapshot));
     } catch (err) {
+      debug('nebula.Star.doRead').error('handler threw', {
+        clientId,
+        resourceId,
+        ontologyVersion,
+        error: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : undefined,
+      });
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleReadResponse(requestId,
           err instanceof Error ? err : new Error(String(err))));
@@ -417,6 +431,14 @@ export class Star extends NebulaDO {
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, snapshot));
     } catch (err) {
+      debug('nebula.Star.doSubscribe').error('handler threw', {
+        clientId,
+        resourceType,
+        resourceId,
+        ontologyVersion,
+        error: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : undefined,
+      });
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
         this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
           err instanceof Error ? err : new Error(String(err))));

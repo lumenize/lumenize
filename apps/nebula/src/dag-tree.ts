@@ -21,6 +21,7 @@ import {
   makeEdgeKey,
 } from './dag-ops';
 import type { PermissionTier, DagTreeState, DagTreeView, EdgeKey, DagTreeNodeData } from './dag-ops';
+import { PermissionDeniedError, NodeNotFoundError } from './errors';
 
 export class DagTree {
   #ctx: DurableObjectState
@@ -156,14 +157,14 @@ export class DagTree {
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
     if (claims?.access?.admin) return sub // Star admin bypass
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
-      throw new Error(`${tier} permission required on node ${nodeId}`)
+      throw new PermissionDeniedError(tier, nodeId)
     }
     return sub
   }
 
   #requireNodeExists(nodeId: number): void {
     if (!this.#cached.nodes.has(nodeId)) {
-      throw new Error(`Node ${nodeId} not found`)
+      throw new NodeNotFoundError(nodeId)
     }
   }
 

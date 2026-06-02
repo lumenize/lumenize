@@ -808,9 +808,12 @@ export class NebulaClient extends LumenizeClient {
       const types = new Set(Object.values(result.errors).map((e) => e.type));
       if (types.has('conflict') && !types.has('validation') && !types.has('permission')) {
         // Fire-and-forget — handler advances queue after resolver settles.
-        this.#handleConflict(inFlight, result).catch(() => {
+        this.#handleConflict(inFlight, result).catch((err) => {
           // Resolver / framework error during conflict handling — fall back
           // to use-server with whatever conflicts we have visible.
+          log.warn('conflict handler threw — falling back to use-server', {
+            error: err instanceof Error ? err.message : String(err),
+          });
           this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
         });
         return;
@@ -851,8 +854,12 @@ export class NebulaClient extends LumenizeClient {
         clientVersion: clientVersion || this.#ontologyVersion,
         currentVersion,
       });
-    } catch {
-      // swallow
+    } catch (err) {
+      // User-supplied callback threw — swallow so the framework keeps
+      // operating, but surface the bug to the developer.
+      log.warn('onShouldRefreshUI callback threw', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -988,8 +995,11 @@ export class NebulaClient extends LumenizeClient {
         firstServer,
         { bindings: new Map() }, // Phase 5.3.6 will populate from bindDom
       );
-    } catch {
-      // Resolver itself errored — default to use-server.
+    } catch (err) {
+      // User-supplied resolver threw — default to use-server outcome.
+      log.warn('user conflict resolver threw — falling back to use-server', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       this.#finalize(inFlight, this.#useServerOutcome(inFlight, result));
       return;
     }

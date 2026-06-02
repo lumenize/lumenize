@@ -12,18 +12,22 @@
  */
 
 import { env } from 'cloudflare:workers';
+import { debug } from '@lumenize/debug';
 import { routeNebulaAuthRequest, verifyNebulaAccessToken } from '@lumenize/nebula-auth';
 import { routeDORequest } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/auth';
 
 /** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
 async function onBeforeConnect(request: Request): Promise<Response | Request> {
+  const log = debug('nebula.entrypoint.onBeforeConnect');
   const token = extractWebSocketToken(request);
   if (!token) {
+    log.debug('rejected: missing access token', { url: request.url });
     return new Response('Unauthorized: missing access token', { status: 401 });
   }
   const jwt = await verifyNebulaAccessToken(token, env);
   if (!jwt) {
+    log.debug('rejected: invalid JWT', { url: request.url });
     return new Response('Forbidden: invalid JWT', { status: 403 });
   }
   const headers = new Headers(request.headers);

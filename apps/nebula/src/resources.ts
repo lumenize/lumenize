@@ -10,6 +10,7 @@ import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { ActClaim } from '@lumenize/auth';
 import { debug } from '@lumenize/debug';
+import { PermissionDeniedError } from './errors';
 import type {
   ParserValidator,
   ParseRequest,
@@ -413,22 +414,18 @@ export class Resources {
               break;
           }
         } catch (e) {
-          // Distinguish permission-denial (typed `TransactionError`) from
-          // other `requirePermission` throws like "Node X not found" or
-          // "Authentication required" — those signal client misuse and stay
-          // as thrown `Error`. Fragile string-match for now; TODO: have
-          // `dag-tree.ts` throw typed `PermissionDeniedError` so this match
-          // can be `e instanceof PermissionDeniedError`.
-          if (!(e instanceof Error) || !e.message.includes('permission required')) {
+          // Permission denial is collected into a typed `TransactionError` so
+          // the client learns about every affected resource, not just the
+          // first one it asked about. Anything else (`NodeNotFoundError`,
+          // "Authentication required", system errors) signals client misuse
+          // or system failure and propagates up to the Star @mesh handler.
+          if (!(e instanceof PermissionDeniedError)) {
             throw e;
           }
           // For 'move' both the source and destination are checked — record
           // the first failing nodeId (source checked first); good enough
           // for demo, refine if mover-targets need disambiguation.
-          const nodeId = op.op === 'create' || op.op === 'move'
-            ? (current?.meta.nodeId ?? op.nodeId)
-            : current!.meta.nodeId;
-          permErrors[resourceId] = { type: 'permission', requiredTier: 'write', nodeId };
+          permErrors[resourceId] = { type: 'permission', requiredTier: e.tier, nodeId: e.nodeId };
         }
       }
 

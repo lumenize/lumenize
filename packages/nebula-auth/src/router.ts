@@ -7,6 +7,7 @@
  *
  * @see tasks/nebula-auth.md § Phase 5: Worker Router
  */
+import { debug } from '@lumenize/debug';
 import {
   verifyJwt,
   verifyJwtWithRotation,
@@ -131,6 +132,14 @@ export async function routeNebulaAuthRequest(
       return await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint);
     }
   } catch (err) {
+    debug('nebula-auth.router.dispatch').error('dispatcher threw', {
+      path: url.pathname,
+      method: request.method,
+      parsedType: parsed.type,
+      parsedTarget: parsed.type === 'registry' ? parsed.endpoint : parsed.instanceName,
+      error: err instanceof Error ? err.message : String(err),
+      name: err instanceof Error ? err.name : undefined,
+    });
     return jsonError(500, 'internal_error', 'An unexpected error occurred');
   }
 }
@@ -159,7 +168,11 @@ async function handleRegistryPath(
     let body: Record<string, any>;
     try {
       body = await request.json() as Record<string, any>;
-    } catch {
+    } catch (err) {
+      debug('nebula-auth.router.bodyParse').debug('create-galaxy body not JSON', {
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return jsonError(400, 'invalid_request', 'Request body must be JSON');
     }
     body.verifiedAccess = jwtResult.payload.access;
@@ -190,7 +203,11 @@ async function handleInstancePath(
   // Validate instance name format (1–3 dot-separated slugs)
   try {
     parseId(instanceName);
-  } catch {
+  } catch (err) {
+    debug('nebula-auth.router.instanceParse').debug('invalid instance name', {
+      instanceName,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return jsonError(400, 'invalid_instance', 'Invalid instance name format');
   }
 
@@ -236,7 +253,11 @@ async function checkTurnstile(
   let body: Record<string, any>;
   try {
     body = await cloned.json();
-  } catch {
+  } catch (err) {
+    debug('nebula-auth.router.turnstileBodyParse').debug('turnstile body not JSON', {
+      path: new URL(request.url).pathname,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return jsonError(400, 'invalid_request', 'Request body must be JSON');
   }
 

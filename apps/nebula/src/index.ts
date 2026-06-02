@@ -21,7 +21,11 @@ export { Subscriptions } from './subscriptions';
 export type { SubscriberRow } from './subscriptions';
 
 // Errors
-export { OntologyStaleError, isOntologyStaleError } from './errors';
+export {
+  OntologyStaleError, isOntologyStaleError,
+  PermissionDeniedError, isPermissionDeniedError,
+  NodeNotFoundError, isNodeNotFoundError,
+} from './errors';
 
 // DAG tree
 export { DagTree } from './dag-tree';
