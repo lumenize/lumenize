@@ -11,6 +11,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { debug } from '@lumenize/debug';
 import {
   getParserValidatorFacet,
 } from '@lumenize/ts-runtime-parser-validator';
@@ -99,11 +100,21 @@ export class Star extends NebulaDO {
       throw new Error(`Ontology row missing for version '${version}' — index/row drift`);
     }
     this.#row = row;
+    const bundleId = `${this.#galaxyId}/${row.version}`;
     this.#facet = getParserValidatorFacet(
       this.ctx,
       this.env.LOADER,
-      `${this.#galaxyId}/${row.version}`,
-      () => row.validatorBundle,
+      bundleId,
+      () => {
+        // Cache miss — first reference to this bundleId on this Worker project.
+        // Warm path is the same-isolate cache lookup the helper already does.
+        debug('nebula.Star.ensureFacet').info('facet cold load', {
+          bundleId,
+          galaxyId: this.#galaxyId,
+          ontologyVersion: row.version,
+        });
+        return row.validatorBundle;
+      },
     );
     return { row, facet: this.#facet };
   }
@@ -137,11 +148,19 @@ export class Star extends NebulaDO {
       }
     });
     this.#row = row;
+    const bundleId = `${this.#galaxyId}/${row.version}`;
     this.#facet = getParserValidatorFacet(
       this.ctx,
       this.env.LOADER,
-      `${this.#galaxyId}/${row.version}`,
-      () => row.validatorBundle,
+      bundleId,
+      () => {
+        debug('nebula.Star.installState').info('facet cold load', {
+          bundleId,
+          galaxyId: this.#galaxyId,
+          ontologyVersion: row.version,
+        });
+        return row.validatorBundle;
+      },
     );
 
     // Push-on-clear (Phase 5.3.4b): notify each dropped subscriber once via the

@@ -9,6 +9,7 @@
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { ActClaim } from '@lumenize/auth';
+import { debug } from '@lumenize/debug';
 import type {
   ParserValidator,
   ParseRequest,
@@ -314,7 +315,23 @@ export class Resources {
 
     const validationErrors: Record<string, TransactionError> = {};
     if (requests.size > 0) {
-      const results = await facet.parseBatch(requests);
+      const log = debug('nebula.Resources.transaction');
+      let results;
+      try {
+        results = await facet.parseBatch(requests);
+      } catch (err) {
+        // Facet load failure (Worker Loader compile error), RPC transport
+        // failure, or unexpected internal error. Validation failures don't
+        // throw — they come back as `{ valid: false, errors }` in the result.
+        log.error('facet.parseBatch threw', {
+          ontologyVersion,
+          requestCount: requests.size,
+          typeNames: [...new Set([...requests.values()].map(r => r.typeName))],
+          error: err instanceof Error ? err.message : String(err),
+          name: err instanceof Error ? err.name : undefined,
+        });
+        throw err;
+      }
       for (const [resourceId, result] of results) {
         if (result.valid) {
           const op = ops[resourceId];
@@ -324,6 +341,17 @@ export class Resources {
         } else {
           validationErrors[resourceId] = { type: 'validation', errors: result.errors };
         }
+      }
+      const failureCount = Object.keys(validationErrors).length;
+      if (failureCount > 0) {
+        log.warn('validation failures', {
+          ontologyVersion,
+          count: failureCount,
+          requestCount: requests.size,
+          sampleErrors: Object.entries(validationErrors).slice(0, 3).map(
+            ([id, e]) => ({ resourceId: id, errors: (e as { type: 'validation'; errors: ValidationError[] }).errors }),
+          ),
+        });
       }
     }
     if (Object.keys(validationErrors).length > 0) {
