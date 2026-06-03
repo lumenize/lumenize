@@ -270,7 +270,30 @@ export interface LmzApiClient {
   readonly instanceName: string;
 
   /**
-   * Current call context (only valid during @mesh handler execution)
+   * Current call context (only valid during @mesh handler execution).
+   *
+   * ⚠️ **Browser constraint**: in the browser this value is backed by a
+   * private instance field updated synchronously when an `@mesh()` handler
+   * is dispatched. It returns the correct context for code running
+   * **synchronously** inside the handler, but may return a stale value if
+   * read **after an `await`** when concurrent mesh calls have re-entered
+   * the dispatcher. This applies to direct reads AND transitive reads via
+   * helper methods called from a post-await position.
+   *
+   * Safe pattern in browser-side `@mesh()` handlers:
+   * ```typescript
+   * @mesh()
+   * async handleX(arg) {
+   *   const ctx = this.lmz.callContext;  // ← capture synchronously
+   *   await something();
+   *   use(ctx);                          // ← use the captured value
+   *   this.helper(ctx);                  // ← thread to helpers, don't have them re-read
+   * }
+   * ```
+   *
+   * No constraint on the server side (LumenizeDO/LumenizeWorker) — those
+   * use real `AsyncLocalStorage` and preserve context across awaits. The
+   * same code pattern works there too, just isn't required.
    *
    * @throws Error if accessed outside of a mesh call context
    */
