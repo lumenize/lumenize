@@ -3,12 +3,12 @@
   "version": "0.26.0",
   "description": "De✨light✨ful testing utilities for Cloudflare Durable Objects",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     },
     "./wrangler": {
       "import": "./src/spawn-wrangler-dev.ts",
@@ -16,7 +16,7 @@
     }
   },
   "files": [
-    "dist/**/*"
+    "src/**/*"
   ],
   "scripts": {
     "test": "vitest --run",
