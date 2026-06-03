@@ -6,7 +6,32 @@
  */
 import { CloudflareEmailSender } from '@lumenize/auth';
 
+/**
+ * Matches the `instanceName` segment of a Nebula magic-link URL.
+ *
+ * Expected URL shape: `${baseUrl}${prefix}/${instanceName}/magic-link?one_time_token=...`
+ * — produced by `NebulaAuth` in `packages/nebula-auth/src/nebula-auth.ts:239`.
+ * The `instanceName` is a 1-3 dot-separated slug like `acme.app.tenant-a`.
+ *
+ * Anchored to `/magic-link?` to avoid false matches on other path segments.
+ */
+const MAGIC_LINK_INSTANCE_RE = /\/auth\/([^/]+)\/magic-link\?/;
+
 export class NebulaEmailSender extends CloudflareEmailSender {
   from = 'auth@nebula.lumenize.com';
   appName = 'Nebula';
+
+  /**
+   * Tag every magic-link email with `X-Lumenize-Auth-Instance: ${instanceName}`,
+   * making the originating instance addressable by downstream Email Routing
+   * consumers (test rigs, log filters, etc.) without parsing the body.
+   *
+   * Falls back to `{}` if the URL doesn't match the expected Nebula route
+   * shape — the magic-link still sends, just without the routing tag.
+   */
+  override magicLinkHeaders(message: { magicLinkUrl: string }): Record<string, string> {
+    const match = MAGIC_LINK_INSTANCE_RE.exec(message.magicLinkUrl);
+    if (!match) return {};
+    return { 'X-Lumenize-Auth-Instance': match[1]! };
+  }
 }

@@ -9,6 +9,10 @@
     ".": {
       "import": "./src/index.ts",
       "types": "./src/index.ts"
+    },
+    "./wrangler": {
+      "import": "./src/spawn-wrangler-dev.ts",
+      "types": "./src/spawn-wrangler-dev.ts"
     }
   },
   "files": [

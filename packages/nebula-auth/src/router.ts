@@ -15,6 +15,7 @@ import {
   extractWebSocketToken,
   verifyTurnstileToken,
 } from '@lumenize/auth';
+import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
 import { matchAccess, parseId } from './parse-id';
 import {
   NEBULA_AUTH_PREFIX,
@@ -22,6 +23,27 @@ import {
   REGISTRY_INSTANCE_NAME,
 } from './types';
 import type { NebulaJwtPayload } from './types';
+
+/**
+ * Options for {@link routeNebulaAuthRequest}.
+ */
+export interface RouteNebulaAuthOptions {
+  /**
+   * CORS configuration for cross-origin browser callers.
+   *
+   * See `@lumenize/routing`'s {@link CorsOptions} for the full type. Pass
+   * `{ origin: [...] }` with the allowed origins (typically derived from
+   * the `LUMENIZE_APPROVED_ORIGINS` env binding).
+   *
+   * - `false` or omitted (default): no CORS headers, no preflight handling.
+   *   Same-origin browser callers and non-browser callers work normally;
+   *   cross-origin browser callers are blocked by the browser.
+   * - `true`: permissive — reflect any `Origin`.
+   * - `{ origin: string[] }`: allowlist.
+   * - `{ origin: (origin, request) => boolean }`: custom validation.
+   */
+  cors?: CorsOptions;
+}
 
 // Registry endpoint suffixes (exact match after prefix)
 const REGISTRY_ENDPOINTS = new Set(['discover', 'claim-universe', 'claim-star', 'create-galaxy']);
@@ -116,20 +138,34 @@ function endpointSuffix(endpoint: string): string {
 export async function routeNebulaAuthRequest(
   request: Request,
   env: Env,
+  options: RouteNebulaAuthOptions = {},
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
-  // 1. Match prefix — return undefined for non-matching paths (fallthrough pattern)
+  // 1. Match prefix — return undefined for non-matching paths (fallthrough pattern).
+  //    CORS is applied AFTER the path match so that requests on other prefixes
+  //    fall through to the next router cleanly (the entrypoint composes us with
+  //    other handlers).
   const parsed = parsePath(url.pathname);
   if (!parsed) {
     return undefined;
   }
 
+  // 2. CORS policy — handle preflight + origin gating once, share allowedOrigin
+  //    with the response-wrapping step below.
+  const corsDecision = applyCorsPolicy(request, options.cors ?? false);
+  if (corsDecision.earlyResponse) {
+    return corsDecision.earlyResponse;
+  }
+  const allowedOrigin = corsDecision.allowedOrigin;
+  const withCors = (response: Response): Response =>
+    allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
+
   try {
     if (parsed.type === 'registry') {
-      return await handleRegistryPath(request, env, parsed.endpoint);
+      return withCors(await handleRegistryPath(request, env, parsed.endpoint));
     } else {
-      return await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint);
+      return withCors(await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint));
     }
   } catch (err) {
     debug('nebula-auth.router.dispatch').error('dispatcher threw', {
@@ -140,7 +176,7 @@ export async function routeNebulaAuthRequest(
       error: err instanceof Error ? err.message : String(err),
       name: err instanceof Error ? err.name : undefined,
     });
-    return jsonError(500, 'internal_error', 'An unexpected error occurred');
+    return withCors(jsonError(500, 'internal_error', 'An unexpected error occurred'));
   }
 }
 

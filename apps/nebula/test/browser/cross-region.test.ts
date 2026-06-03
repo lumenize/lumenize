@@ -78,7 +78,13 @@ function statsOf(samples: number[]): Stats {
   };
 }
 
-describe('Phase 6 cross-region: same-DC vs EU Workers RPC', () => {
+// EU-jurisdiction Star placement (Cloudflare jurisdictionalRestrictions) is a
+// deployed-only feature — wrangler-dev's local miniflare doesn't honor it, so
+// `/bench/cross-region-star?jurisdiction=eu` returns 500. Gate this test on
+// BENCH_BASE_URL being set (the env var that points the bench at a deployed
+// Worker), matching the existing `MULTI_CLIENT_STRESS` gating pattern in
+// multi-client.test.ts.
+describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU Workers RPC', () => {
   it('measures Workers RPC RT for same-DC vs cross-region Star', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');

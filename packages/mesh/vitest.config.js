@@ -1,6 +1,95 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
+
+/**
+ * Vite plugin that proxies `${prefix}/*` requests (both HTTP and WebSocket)
+ * to an upstream URL resolved per-request from `process.env[envVar]`. The
+ * upstream URL doesn't have to be known at plugin-init time — the env var
+ * can be set later (e.g., by a vitest globalSetup that spawns the upstream).
+ *
+ * **Why this and not Vite's built-in `server.proxy`**: Vite's proxy only
+ * accepts a static `target`. The `router` callback that http-proxy supports
+ * for dynamic targets isn't passed through. So this plugin uses http-proxy
+ * directly and reads the env var on every request.
+ *
+ * **HTTPS upstreams**: chromium never sees the upstream cert because all
+ * proxying is server-side. `secure: false` makes http-proxy accept any
+ * upstream cert (self-signed wrangler-dev, etc.) without further config.
+ *
+ * **Cookies**: because the test page and the proxied responses share the
+ * test page's origin, `SameSite=Strict; Secure` cookies set by the upstream
+ * flow normally — no rewriting needed. (`Secure` is accepted over
+ * `http://localhost` per the Secure Contexts spec.)
+ *
+ * Copy this function (and the @vitest/browser-playwright config that uses
+ * it) when adding real-browser tests to another `@lumenize/*` package.
+ * See `packages/mesh/test/browser/README.md` for the rest of the checklist.
+ *
+ * @param prefix - URL path prefix to capture (default `/upstream`). Stripped
+ *   before forwarding so the upstream sees its own URL space.
+ * @param envVar - Name of the env var that holds the upstream base URL
+ *   (default `UPSTREAM_PROXY_TARGET`). Set by globalSetup once the upstream
+ *   is ready.
+ */
+function dynamicEnvProxyPlugin({
+  prefix = '/upstream',
+  envVar = 'UPSTREAM_PROXY_TARGET',
+} = {}) {
+  const stripPrefix = (path) => path.replace(new RegExp(`^${prefix}`), '') || '/';
+  return {
+    name: `dynamic-env-proxy:${prefix}`,
+    async configureServer(server) {
+      const httpProxy = (await import('http-proxy')).default;
+      const proxy = httpProxy.createProxyServer({
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      });
+      proxy.on('proxyReq', (proxyReq) => {
+        proxyReq.path = stripPrefix(proxyReq.path);
+      });
+      proxy.on('error', (err, _req, res) => {
+        if (res && 'writeHead' in res && !res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'text/plain' });
+          res.end(`Proxy error: ${err.message}`);
+        }
+      });
+      // http-proxy doesn't attach error handlers to upstream sockets; raw
+      // socket errors (peer reset, etc.) become unhandled 'error' events
+      // that crash the Node process. Swallow them here.
+      proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
+        socket.on('error', () => { /* ignore */ });
+      });
+      proxy.on('open', (socket) => {
+        socket.on('error', () => { /* ignore */ });
+      });
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith(prefix)) return next();
+        const target = process.env[envVar];
+        if (!target) {
+          res.writeHead(503, { 'Content-Type': 'text/plain' });
+          res.end(`Upstream not ready (${envVar} unset)`);
+          return;
+        }
+        proxy.web(req, res, { target });
+      });
+      server.httpServer?.on('upgrade', (req, socket, head) => {
+        if (!req.url?.startsWith(prefix)) return;
+        const target = process.env[envVar];
+        if (!target) {
+          socket.destroy();
+          return;
+        }
+        // proxyReq doesn't fire for WS — strip the prefix here.
+        req.url = stripPrefix(req.url);
+        socket.on('error', () => { /* ignore — peer closed or reset */ });
+        proxy.ws(req, socket, head, { target });
+      });
+    },
+  };
+}
 
 // SWC plugin to transform TS (including TC39 stage 3 decorators that esbuild doesn't support).
 // Without this, `@mesh()` decorators survive Vite's default esbuild transform and V8 can't parse them.
@@ -27,6 +116,9 @@ const testModeBindings = {
 };
 
 export default defineConfig({
+  plugins: [
+    dynamicEnvProxyPlugin({ prefix: '/worker', envVar: 'WRANGLER_PROXY_TARGET' }),
+  ],
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
@@ -74,8 +166,34 @@ export default defineConfig({
             'test/for-docs/getting-started/**/*.test.ts',
             'test/for-docs/calls/**/*.test.ts',
             'test/for-docs/alarms/index.test.ts',
-            'test/for-docs/security/**/*.test.ts'
+            'test/for-docs/security/**/*.test.ts',
+            'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
           ],
+        },
+      },
+      {
+        // Real-browser tests: bundles @lumenize/mesh/client through Vite +
+        // Playwright (chromium). Catches client-side imports that work in
+        // vitest-pool-workers but fail in a real browser bundle — e.g., the
+        // `@lumenize/debug` regression where `await import('cloudflare:workers')`
+        // bundled fine under vitest-pool-workers but vite refused to resolve
+        // it. See tasks/playwright-test-template.md.
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'browser',
+          include: ['test/**/*-browser.test.ts'],
+          // global-setup spawns wrangler dev against the dedicated
+          // test/browser/worker config so the WS round-trip test can hit a
+          // real Worker. Bundle-only tests (lumenize-client-browser.test.ts)
+          // don't use the URL it provides — they just ignore the inject.
+          globalSetup: ['./test/browser/global-setup.ts'],
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: 'chromium' }],
+          },
         },
       },
       {

@@ -127,6 +127,19 @@ export interface ResolvedEmail {
   from: string;
   replyTo: string;
   appName: string;
+  /**
+   * Custom email headers, populated from per-type overridable hooks like
+   * `AuthEmailSenderBase.magicLinkHeaders(message)`. Provider implementations
+   * pass these through to their `send` API (Cloudflare's `binding.send({...})`
+   * accepts a `headers` field directly).
+   *
+   * Useful for: routing/correlation IDs that downstream Email Routing
+   * consumers can read without parsing the body, multi-tenant scope markers
+   * (e.g., `X-Lumenize-Auth-Instance`), A/B variant labels, etc.
+   *
+   * Empty `{}` by default (base hooks return no headers).
+   */
+  headers: Record<string, string>;
 }
 
 /**

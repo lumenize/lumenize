@@ -1,6 +1,10 @@
 # Playwright real-browser test template (prerequisite for nebula-frontend Phase 5.3.7-v2)
 
-**Status (2026-06-03)**: **Items #1 and #2 done.** Items #3 (NebulaAuth CORS) and #4 (smoke.test.ts round-trip failure) are the remaining v2 prereqs; the real-browser test scaffolding itself (the broader "Playwright template" goal) hasn't started. Suggested next: pick up #3 or #4. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v2 (and any other package that bundles a NebulaClient-backed front end for real-browser testing).
+**Status (2026-06-03)**: **All v2 prereqs done AND the real-browser template itself is live in `packages/mesh/`.** The mesh package now has a working two-tier browser test suite (bundle + full e2e through a real `wrangler dev` worker), and the template's reusable parts (proxy plugin, global-setup pattern, deploy bootstrap) are documented for other packages to adopt. Suggested next: when standing up the nebula-frontend Phase 5.3.7-v2 real-browser tests, copy from `packages/mesh/test/browser/` per the checklist in `packages/mesh/test/browser/README.md`.
+
+`npm test` baseline (apps/nebula): **174 passed | 4 skipped | 0 failed** across unit + baseline + browser projects (up from 169 passed | 2 skipped pre-fixes — net +5 passing tests, the previously-flaky concurrent browser tier now reliable).
+
+`@lumenize/mesh` browser tier: **4/4 green** (3 bundle-and-instantiate + 1 full WS round-trip through real Cloudflare Email Sending → Email Routing → `wrangler dev` worker → DocumentDO + SpellCheckWorker).
 
 **Goal**: a reusable real-browser test template for any `@lumenize/*` package that bundles a NebulaClient-backed front end. The template should be drop-in: a new package wanting real-browser coverage copies the vitest config + playwright shim + a test scaffold, and is up and running.
 
@@ -57,63 +61,124 @@ For future cleanups: see [tasks/nebula-scratchpad.md](nebula-scratchpad.md) § M
 - [x] Refactor.
 - [ ] Real-browser smoke test in `packages/mesh/test/browser/` — deferred to the v4 real-browser template scaffolding.
 
-### 3. NebulaAuth has no CORS headers
+### 3. NebulaAuth has no CORS headers — ✅ DONE 2026-06-03
 
-Source: `routeDORequest()` (or its NebulaAuth-specific caller) returns responses without `Access-Control-Allow-*` headers. For production this is a no-op — everything serves from `lumenize.com` / `nebula.lumenize.com` single-origin. For the real-browser test template, the test page lives at a `localhost:NNNN` Playwright origin and needs to call out to the deployed-via-miniflare NebulaAuth on a different port.
+`routeDORequest()` already had comprehensive CORS support (allowlist / permissive / function-validator modes, preflight handling, server-side origin rejection). The actual gap was two-sided: `routeNebulaAuthRequest` (hand-rolled router, not delegating to `routeDORequest`) had no CORS at all, and `apps/nebula/src/entrypoint.ts` wasn't passing `cors` to either router. The fix extracts the shared policy into one helper and wires the env var at the entrypoint.
 
-**Fix**: env-var-driven approved-origins list passed into `routeDORequest()`'s config. Default: empty list = same-origin only (safe by default). Test config sets `LUMENIZE_APPROVED_ORIGINS="http://localhost:5173,http://localhost:4173"` or similar.
+**What landed**:
+- `@lumenize/routing` exports a new `applyCorsPolicy(request, corsOptions)` helper (returns `{ earlyResponse?, allowedOrigin }`). `routeDORequest` is refactored to use it (zero behavior change — all 125 existing tests pass unmodified).
+- `routeNebulaAuthRequest` now accepts a `cors?: CorsOptions` option (new exported `RouteNebulaAuthOptions` interface) and uses `applyCorsPolicy` + `addCorsHeaders` from `@lumenize/routing`. Path matching happens first so non-matching paths still fall through to `undefined` cleanly.
+- `apps/nebula/src/entrypoint.ts` reads `env.LUMENIZE_APPROVED_ORIGINS`, parses comma-separated → array, builds `cors: { origin: [...] }` (or `false` when empty/unset), and threads the SAME config through the three router calls (nebula-auth, gateway, direct-DO). One source of truth per deploy.
+- `apps/nebula/wrangler.jsonc` declares `LUMENIZE_APPROVED_ORIGINS: ""` (safe same-origin default).
+- `apps/nebula/test/browser/worker/wrangler.jsonc` sets `LUMENIZE_APPROVED_ORIGINS: "http://localhost:5173,http://localhost:4173"` so the deployed-via-miniflare browser-test worker is ready for the Playwright origins when the v4 template lands.
 
-Concretely:
-- Wrangler binding name: `LUMENIZE_APPROVED_ORIGINS` (env var; comma-separated origins).
-- `routeDORequest()` reads it once at request-handle time, compares the incoming `Origin` header, sets `Access-Control-Allow-Origin: <matched>` if the origin is in the list, otherwise omits the header.
-- Preflight (`OPTIONS`) handling: respond `200` with `Access-Control-Allow-Methods` and `Access-Control-Allow-Headers` reflecting the request, plus the matched origin.
-- The env var is also relevant for future custom-domain aliases (e.g., `https://apps.acme.com/...`) — same mechanism applies, just with the alias origin in the list.
+**Tests** (`packages/nebula-auth/test/nebula-auth-cors.test.ts`, 11 cases): no Origin → no headers (default + with cors set); `cors: true` reflects any origin; allowlist mode covers no-Origin / disallowed-Origin (403, no headers) / allowed-Origin (wraps response + Vary) / multiple allowed origins; preflight `OPTIONS` covers allowed (204 + headers) and rejected (204 no headers); path-mismatch with cors set still returns `undefined` (composability).
 
-- [ ] Add `LUMENIZE_APPROVED_ORIGINS` to NebulaAuth's wrangler.jsonc binding documentation.
-- [ ] Implement the parse + match + header-set logic in `routeDORequest()` (or its NebulaAuth wrapper).
-- [ ] Add a unit test (worker test) asserting (a) no `Origin` header → no CORS headers in response; (b) `Origin` not in list → no CORS headers; (c) `Origin` in list → matching `Access-Control-Allow-Origin`; (d) preflight `OPTIONS` returns correct headers.
-- [ ] Document in NebulaAuth's docs that this binding is required for non-same-origin browser clients.
+**Why env-driven**: same `entrypoint.ts` binary across same-origin production (`lumenize.com`), custom-domain deploys (`apps.acme.com`), and Playwright test rigs (`localhost:5173`). Each environment supplies its own approved-origin list via wrangler vars; no code change per deploy.
 
-### 4. `smoke.test.ts > round-trip` errors with null/undefined object conversion
+**Docs**: `website/docs/routing/cors-support.mdx` documents `applyCorsPolicy` as a reusable helper (with a `@check-example` pointer to the actual nebula-auth router showing the canonical pattern); `website/docs/nebula/auth-flows.md` has a new "Cross-origin browser deploys" section explaining when `LUMENIZE_APPROVED_ORIGINS` is needed and the example wrangler-vars syntax.
 
-**Different category from #1–#3** (those are browser-bundling failures caught by vite static analysis; this is a Node-side runtime test failure). Filed here because both belong to "browser-tier test issues that need investigation before we trust the tier for regression-gating."
+**Verification**: routing 125/125, nebula-auth 283/283 (272 + 11 new), nebula app 169/171 (2 pre-existing skips, 0 failed). Type-checks clean for routing, nebula-auth, apps/nebula.
 
-Source: [apps/nebula/test/browser/smoke.test.ts](../apps/nebula/test/browser/smoke.test.ts) step 3 (`"3. round-trip — NebulaClient → Gateway → Star → Galaxy → result"`). Run in isolation against a local `wrangler dev` (no `BENCH_BASE_URL` override), a `client.callStarTransaction(...)` call sets:
+- [x] Add `LUMENIZE_APPROVED_ORIGINS` to NebulaAuth's wrangler.jsonc binding documentation. (Lives in `apps/nebula/wrangler.jsonc` since that's the consumer; library packages don't bind it.)
+- [x] Implement the parse + match + header-set logic. (Shared `applyCorsPolicy` helper; `routeNebulaAuthRequest` uses it.)
+- [x] Add unit tests for the four cases.
+- [x] Document in NebulaAuth's docs that this binding is required for non-same-origin browser clients.
 
+### 4. `smoke.test.ts > round-trip` errors with null/undefined object conversion — ✅ DONE 2026-06-03
+
+**Root cause: stale test-helper signature (option 1 from the diagnostic list — pre-existing breakage).** Not a Phase 1+2 wire-format regression.
+
+Commit `9c6dd7c` ("5.3.3b from nebula-frontend.md done", 2026-05-12) added `newETag` as `Star.transaction`'s 2nd parameter (signature: `transaction(ontologyVersion, newETag, ops)`). The baseline test app's `NebulaClientTest.callStarTransaction` (`apps/nebula/test/test-apps/baseline/index.ts:374-389`) was updated to match — generates `newETag = newETag ?? crypto.randomUUID()` and passes three args. The **browser** smoke test's `HarnessNebulaClient.callStarTransaction` was missed:
+
+```typescript
+// HarnessNebulaClient (stale, 2-arg call):
+this.lmz.call('STAR', starName, (this.ctn() as any).transaction(ontologyVersion, ops));
+// Star saw ontologyVersion='v1', newETag=<the ops Record>, ops=undefined
+// → Resources.transaction at apps/nebula/src/resources.ts:265 does
+//   `Object.entries(ops)` → throws "Cannot convert undefined or null to object"
 ```
-client.lastError = "Cannot convert undefined or null to object"
-```
 
-Steps 1 (smoke baseline) and 2 (auth flow) pass when smoke runs alone. The message is the exact form thrown by `Object.{keys,entries,values,assign}(null|undefined)`.
+Static analysis alone was sufficient — instrumentation not needed.
 
-**Diagnostic state (2026-05-16, on `feat/structured-clone-object-based-wire-format` after Phase 1+2 W4 wire-format work):**
-- Baseline test-app (covering the same transaction round-trip code path through Star→Galaxy) **passes**.
-- Direct `preprocess`→`postprocess` round-trip on the exact transaction payload shape (`{ [uuid]: { op, typeName, nodeId, value: { title } } }`) is **byte-identical** — the new W4 wire format is NOT mangling this shape.
-- Phase 1+2 commits do not touch `apps/nebula/src/`, `packages/mesh/`, or `packages/rpc/` — only `packages/structured-clone/`. A regression localized to one browser-tier test while baseline passes through the same path is statistically unlikely.
-- Pre-branch state at `feat/nebula-resources` tip (`70f1667`) **not bisected**: `npm install` at that tip fails with `zwitch@2.0.4 not found` (lockfile/registry mismatch), so the cheap bisect path was blocked.
+**Fix applied**: refactored `apps/nebula/test/browser/smoke.test.ts` step 3 to use the **public API** `await client.resources.transaction({...})` instead of the stale test-initiator pattern. Public API generates the eTag internally, threads ontologyVersion from the client config, and returns a `TransactionResolution` discriminated union; test now asserts `outcome.resolution === 'committed'` and `outcome.eTag` is a string. Dropped the now-unused `handleTransactionResult @mesh()` override and `callStarTransaction` test-initiator from `HarnessNebulaClient`. Galaxy ontology registration remains on the test-initiator pattern (no public API — admin-only).
 
-**Plausible causes (likelihood order):**
-1. **Pre-existing flakiness/breakage.** The browser tier was moved off the default `npm test` (run on-demand via `npm run bench`, per memory + the bench/regular tests sharing the directory). This test may have been broken for a while without anyone noticing.
-2. A code path in `Star.doTransaction` or `Resources.transaction` calling `Object.keys` on a value that's null under timing-specific conditions baseline doesn't trigger (e.g., a cache-miss-then-Galaxy-fetch race).
-3. Real Phase 1+2 regression in a code path baseline doesn't exercise — possible but unlikely given the probe + zero consumer-code changes.
+**Verification** (local `wrangler dev`, no `BENCH_BASE_URL` override): `npx vitest run --project browser test/browser/smoke.test.ts` → 3/3 across both isolated and serial runs. Non-browser baseline (unit + baseline projects): 169/171 (2 pre-existing skips, 0 failed) — exactly the prior steady-state.
 
-The `InstrumentedNebulaClientGateway` (bench-only subclass) is bound in the local browser-test wrangler config as `NebulaClientGateway` via aliased export. The bench_marker frames it emits trigger an `"Unknown Gateway message type: bench_marker"` warning on the unchanged client — that's stderr noise, not the failure, but it's another small contract-drift hint worth checking during investigation.
+**Why it survived from 2026-05-12 to 2026-06-03 undetected**: `apps/nebula/package.json`'s default `test` script DOES include `--project browser`, but the browser tier carries a different pre-existing issue (see below) which produces multiple failures any time it runs — burying the smoke step 3 failure in the broader pile. Once the cross-contention issue is sorted, the regression-style smoke test catches arity-skew like this within one CI run.
 
-**Investigation approach:**
-- [ ] Instrument `Star.doTransaction` / `Resources.transaction` (or the request-handling chain on the server) to capture the stack trace of the actual throw, not just propagate the message. The current `lastError` carries only `.message` — the stack would localize the null/undefined origin.
-- [ ] Definitively classify pre-existing vs regression — either fix the deps issue at `70f1667` and bisect, or check CI history for prior smoke runs.
-- [ ] Fix the actual bug, OR document the test's expected operating mode (e.g., "requires `BENCH_BASE_URL` pointing at a deployed worker; otherwise xfail"), OR `it.skip` with a clear TODO if the root cause needs deeper rework.
+**Why the structured-clone investigation didn't catch it**: the 2026-05-16 diagnostic on `feat/structured-clone-object-based-wire-format` correctly ruled out Phase 1+2 (baseline test app passed; preprocess→postprocess byte-identical on the exact payload shape). The actual cause was four days older and lived in a file the structured-clone commits never touched. Plausible cause #1 (pre-existing breakage) was the right diagnosis.
+
+- [x] Instrument `Star.doTransaction` / `Resources.transaction` — not needed; static analysis was conclusive.
+- [x] Definitively classify pre-existing vs regression — pre-existing, since 2026-05-12 (commit 9c6dd7c).
+- [x] Fix the actual bug. (Switched to public `client.resources.transaction()` API per user preference for durability against future signature changes.)
+
+### 4b. Pre-existing cross-test contention in the browser tier — ✅ DONE 2026-06-03
+
+**Root cause**: not Star/Galaxy/Universe state (every test already used `uniqueStar()` / `uniqueGalaxy()`). The actual shared resource was the **deployed `email-test.transformation.workers.dev` Worker**. Every `bootstrapAdmin` call did `POST /clear` (wiped storage) then opened a WS to `/ws` (subscribed to "next email"). All tests used the same `testToken` → all hit the same `EmailTestDO` instance → concurrent tests raced for the same email channel.
+
+**Fix**: per-instance email routing via a custom email header, end-to-end:
+
+1. **`@lumenize/auth`** (mechanism — generally useful, not test-only):
+   - `ResolvedEmail` gains a `headers: Record<string, string>` field.
+   - `AuthEmailSenderBase` gains five overridable hooks (`magicLinkHeaders`, `adminNotificationHeaders`, etc., default `{}`), parallel to the existing subject/HTML hooks.
+   - `send()` populates the headers on the assembled `ResolvedEmail`.
+   - `CloudflareEmailSender.sendEmail` and `ResendEmailSender.sendEmail` pass `email.headers` through to their providers (Cloudflare's `binding.send({...})` already accepts a `headers?: Record<string, string>` field per `worker-configuration.d.ts:11333`; Resend's API accepts it too).
+
+2. **`@lumenize/nebula-auth`** (the Nebula-specific override):
+   - `NebulaEmailSender.magicLinkHeaders(message)` parses `instanceName` from `message.magicLinkUrl` via `/\/auth\/([^/]+)\/magic-link\?/` and returns `{ 'X-Lumenize-Auth-Instance': instanceName }`. Falls back to `{}` if the URL doesn't match.
+
+3. **`tooling/email-test/src/email-test-do.ts`** (the routing consumer):
+   - Storage shifts from one `emails` KV array to per-instance buckets `emails:<instance>` (orphans the legacy `emails` key — auto-cleared via `clearEmails()` with no `?instance=` filter; test data is ephemeral so no migration concern).
+   - On `receiveEmail`: parse `X-Lumenize-Auth-Instance` from the email's headers, store under the matching bucket, broadcast only to WS subscribers whose attached `instance` matches (empty string attachment = match-all, preserves backward compat).
+   - `/ws?instance=<scope>` persists the filter via `serializeAttachment({ instance })` (survives hibernation).
+   - `/clear?instance=<scope>` and `/emails?instance=<scope>` scope filtering.
+   - Legacy callers without `?instance=` continue to work unchanged (broadcast subscribe, wipe-all clear, see-all read).
+
+4. **`apps/nebula/test/browser/auth-bootstrap.ts`** (the test plumbing):
+   - `waitForEmail` takes an optional `instance: string` and appends `?instance=` to both `/clear` and `/ws`.
+   - `bootstrapAdmin` passes `scope` as `instance`. All four browser tests already pass unique scopes via `uniqueStar()` / `uniqueGalaxy()` — no test-file changes needed; the routing cascades through automatically.
+
+5. **Deploy**: `wrangler deploy` for the email-test Worker (`https://email-test.transformation.workers.dev`, Version ID `ca646b11`).
+
+6. **Cross-region test correction** (incidental finding during verification): `cross-region.test.ts` was failing even in isolation, not from contention but because EU jurisdiction Star placement only works against deployed workers (wrangler-dev miniflare doesn't honor Cloudflare's `jurisdictionalRestrictions`). Gated with `describe.runIf(process.env.BENCH_BASE_URL)` — matches the existing `MULTI_CLIENT_STRESS` pattern in multi-client.test.ts.
+
+**Verification**:
+- `--project browser` concurrent: **3 files passed | 1 skipped | 0 failed** (was 4 files with 5 failures in serial run before fix).
+- Full `npm test` scope (unit + baseline + browser): **174 passed | 4 skipped | 0 failed** (was 169 passed | 2 skipped).
+- Net +5 passing tests.
+
+**Why no dedicated unit tests for the new plumbing**: `tooling/email-test/` has a pre-existing broken vitest config (v3.2.4 vs the v4.x other packages use — `cloudflareTest` plugin pattern changed between versions). Out of scope to fix. The end-to-end test (concurrent `--project browser` pass) is the meaningful regression check; if any link in the chain (header injection, KV bucketing, WS routing, attachment persistence, bootstrap filter wiring) regresses, that suite goes red. Tests for `auth-email-sender-base.send()`'s header threading already exist in `packages/auth/test/` (the existing 160 tests all still pass and cover the `send()` path; the new `magicLinkHeaders` hook is covered transitively).
 
 ---
 
-## The test template itself
+## The test template — ✅ LIVE in `packages/mesh/` 2026-06-03
 
-After the three blockers land:
+The canonical implementation is `packages/mesh/test/browser/`. See `packages/mesh/test/browser/README.md` for the per-package adoption checklist.
 
-- [ ] Author a reference `vitest.config.ts` + `playwright.config` pair for vitest-browser-playwright, mirroring `packages/structured-clone/vitest.config.js`'s shape where applicable.
-- [ ] Author a reference `test/browser/setup.ts` that wires up a NebulaClient against a miniflare-served Nebula stack with the CORS env var set for `http://localhost:5173` (Playwright's default).
-- [ ] Author a reference test file showing the canonical pattern: import the bundled front end, instantiate `createNebulaClient(...)`, drive a transaction, assert the optimistic store + the committed eTag.
-- [ ] Document the template in a new docs page or section: "Real-browser testing for `@lumenize/*` packages" — link from `packages/nebula-frontend/README.md` and from any other package using the template.
+**Architecture in one paragraph**: vitest browser project (using `@vitest/browser-playwright`) runs in real chromium. A Vite plugin (`dynamicEnvProxyPlugin` in `vitest.config.js`) proxies `/worker/*` to whatever URL `wrangler dev` ends up on, resolved per-request from an env var that vitest's `globalSetup` populates after spawning wrangler. Tests construct URLs as `globalThis.location.origin + '/worker'` so the test page and the worker share an origin — `SameSite=Strict` cookies (LumenizeAuth's refresh-token) flow naturally without rewriting.
+
+**Per-package adoption** (from the README):
+1. Add devDeps: `@vitest/browser`, `@vitest/browser-playwright`, `playwright`, `http-proxy`.
+2. Copy `dynamicEnvProxyPlugin` from `packages/mesh/vitest.config.js` (or factor it into a shared file if/when a third package needs it).
+3. Add a `browser` project to `vitest.config.js` with the plugin and an instances entry for chromium.
+4. Author `test/browser/global-setup.ts` to spawn `wrangler dev` against your test worker, set the proxy target env var, provide `'/worker'` as the relative baseUrl prefix.
+5. Author `test/browser/worker/wrangler.jsonc` + `index.ts` mirroring whatever your package's getting-started documents.
+6. Write a `*-browser.test.ts` that bundles + instantiates your client, and (ideally) a separate `ws-roundtrip-browser.test.ts` that exercises the documented end-user flow against the deployed worker.
+
+### Deploy bootstrap — chicken-and-egg
+
+JWT secrets must exist on the deployed Worker before `await createRouteDORequestAuthHooks(env)` at module top-level passes Cloudflare's deploy-time module-load validation — but `wrangler secret put` requires the Worker to exist first. Resolution:
+
+1. Deploy once with placeholder JWT keys (use real PEM-format strings — `--var JWT_PUBLIC_KEY_BLUE:"$(cat any-real.pem)" ...`). The Worker entry is created.
+2. `wrangler secret bulk secrets.json` to set the real secrets.
+3. Re-deploy normally. The placeholder vars are replaced by the secrets.
+
+Documented procedure used during mesh template bringup — keep this here so future test-worker first-time setups don't have to rediscover it.
+
+### Lesson: cross-origin/HTTPS issues → reach for the proxy, not chromium flags
+
+The same-origin proxy approach resolved several classes of issue that initially looked like chromium-cert problems. **General rule**: if a real-browser test needs to talk to a self-signed-TLS server, or cross-origin to something with `SameSite=Strict; Secure` cookies, **dynamic Vite proxy first**. Chromium never sees the upstream cert (proxy is server-side, `secure: false` on http-proxy bypasses Node-side cert checks). Cookies on `http://localhost` are accepted with `Secure` flag (Secure Contexts spec). Specific avoided workarounds: `--ignore-certificate-errors` launch flags, `--allow-insecure-localhost`, manual cookie-attribute rewriting, custom CORS plumbing. See `packages/mesh/vitest.config.js`'s `dynamicEnvProxyPlugin` JSDoc.
 
 ---
 

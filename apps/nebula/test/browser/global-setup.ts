@@ -21,72 +21,14 @@
  * wrangler invocation is a leak risk.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
-import { createServer } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
+import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
-const READY_REGEX = /Ready on (https?:\/\/[^\s]+)/;
-const READY_TIMEOUT_MS = 30_000;
 
-let wranglerProcess: ChildProcess | null = null;
-
-async function pickFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, () => {
-      const addr = server.address();
-      if (typeof addr !== 'object' || !addr) {
-        reject(new Error('Could not get free port'));
-        return;
-      }
-      const port = addr.port;
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function waitForReady(proc: ChildProcess): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let buf = '';
-    let resolved = false;
-
-    const timer = globalThis.setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        reject(new Error(
-          `wrangler dev did not become ready within ${READY_TIMEOUT_MS}ms.\n` +
-          `stdout/stderr buffer:\n${buf.slice(-2000)}`,
-        ));
-      }
-    }, READY_TIMEOUT_MS);
-
-    const onData = (chunk: Buffer | string) => {
-      const text = chunk.toString();
-      buf += text;
-      const match = buf.match(READY_REGEX);
-      if (match && !resolved) {
-        resolved = true;
-        globalThis.clearTimeout(timer);
-        resolve(match[1]);
-      }
-    };
-
-    proc.stdout?.on('data', onData);
-    proc.stderr?.on('data', onData);
-    proc.on('exit', (code) => {
-      if (!resolved) {
-        resolved = true;
-        globalThis.clearTimeout(timer);
-        reject(new Error(`wrangler dev exited (code=${code}) before becoming ready.\n${buf}`));
-      }
-    });
-  });
-}
+let cleanupWrangler: (() => Promise<void>) | null = null;
 
 /**
  * Read the email-test deployment's TEST_TOKEN from the root .dev.vars so the
@@ -118,14 +60,9 @@ export default async function setup(project: TestProject) {
     return; // No wrangler-dev to tear down.
   }
 
-  const port = await pickFreePort();
-
-  wranglerProcess = spawn(
-    'wrangler',
-    [
-      'dev',
-      '--config', WRANGLER_CONFIG,
-      '--port', String(port),
+  const { baseUrl, cleanup } = await spawnWranglerDev({
+    configPath: WRANGLER_CONFIG,
+    extraArgs: [
       '--local-protocol', 'https',
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
       '--var', 'PRIMARY_JWT_KEY:BLUE',
@@ -136,36 +73,15 @@ export default async function setup(project: TestProject) {
       '--var', 'DEBUG:auth,nebula-auth,nebula',
       '--log-level', 'info',
     ],
-    {
-      cwd: process.cwd(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
-
-  const baseUrl = await waitForReady(wranglerProcess);
+  });
+  cleanupWrangler = cleanup;
 
   project.provide('wranglerBaseUrl', baseUrl);
   project.provide('emailTestToken', testToken);
 
   return async () => {
-    if (wranglerProcess && !wranglerProcess.killed) {
-      wranglerProcess.kill('SIGINT');
-      await new Promise<void>((resolve) => {
-        if (!wranglerProcess) {
-          resolve();
-          return;
-        }
-        const killTimer = globalThis.setTimeout(() => {
-          wranglerProcess?.kill('SIGKILL');
-          resolve();
-        }, 5_000);
-        wranglerProcess.on('exit', () => {
-          globalThis.clearTimeout(killTimer);
-          resolve();
-        });
-      });
-      wranglerProcess = null;
-    }
+    await cleanupWrangler?.();
+    cleanupWrangler = null;
   };
 }
 

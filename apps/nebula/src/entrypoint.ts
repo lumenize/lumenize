@@ -9,13 +9,30 @@
  * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
  * 3. /{BINDING}/... → routeDORequest without prefix (blocked for now)
  * 4. Fallback → 404
+ *
+ * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
+ * binding (comma-separated origins). Empty / unset → same-origin only.
  */
 
 import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import { routeNebulaAuthRequest, verifyNebulaAccessToken } from '@lumenize/nebula-auth';
-import { routeDORequest } from '@lumenize/routing';
+import { routeDORequest, type CorsOptions } from '@lumenize/routing';
 import { extractWebSocketToken } from '@lumenize/auth';
+
+/**
+ * Parse the `LUMENIZE_APPROVED_ORIGINS` env var into a `CorsOptions` allowlist.
+ * Returns `false` (no CORS) when the var is unset, empty, or all-whitespace.
+ */
+function buildCorsOptions(approvedOrigins: string | undefined): CorsOptions {
+  const origins = (approvedOrigins ?? '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(o => o.length > 0);
+  return origins.length === 0 ? false : { origin: origins };
+}
+
+const corsOptions = buildCorsOptions(env.LUMENIZE_APPROVED_ORIGINS);
 
 /** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
 async function onBeforeConnect(request: Request): Promise<Response | Request> {
@@ -38,13 +55,14 @@ async function onBeforeConnect(request: Request): Promise<Response | Request> {
 export default {
   async fetch(request: Request) {
     // 1. Auth routes (login, refresh, invite, etc.)
-    const authResponse = await routeNebulaAuthRequest(request, env);
+    const authResponse = await routeNebulaAuthRequest(request, env, { cors: corsOptions });
     if (authResponse) return authResponse;
 
     // 2. Gateway routes (/gateway/{binding}/{instance})
     // LumenizeClient builds URLs with the /gateway/ prefix
     const gatewayResponse = await routeDORequest(request, env, {
       prefix: 'gateway',
+      cors: corsOptions,
       onBeforeRequest() {  // No plans to ever implement
         return new Response('Not Implemented', { status: 501 });
       },
@@ -54,6 +72,7 @@ export default {
 
     // 3. Direct DO access (no /gateway/ prefix) — fully blocked for now
     const directResponse = await routeDORequest(request, env, {
+      cors: corsOptions,
       onBeforeRequest() {  // Will be implemented when we add resources support
         return new Response('Not Implemented', { status: 501 });
       },

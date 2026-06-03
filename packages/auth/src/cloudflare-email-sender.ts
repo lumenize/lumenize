@@ -30,6 +30,7 @@ export class CloudflareEmailSender extends AuthEmailSenderBase {
       subject: email.subject,
       html: email.html,
       replyTo: email.replyTo,
+      headers: email.headers,
     });
   }
 }

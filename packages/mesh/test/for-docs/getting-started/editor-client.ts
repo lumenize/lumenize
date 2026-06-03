@@ -7,7 +7,7 @@
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh } from '../../../src/index.js';
+import { LumenizeClient, mesh } from '../../../src/client-index.js';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 

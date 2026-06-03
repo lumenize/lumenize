@@ -647,16 +647,26 @@ export abstract class LumenizeClient {
     this.#setConnectionState(isReconnect ? 'reconnecting' : 'connecting');
 
     try {
-      // Auto-generate instanceName if not set (parallel optimization)
-      if (!this.#instanceName && !this.#accessToken) {
-        // Run tabId generation and token refresh in parallel
-        // tabId takes ≤50ms, refresh is a network call (usually >50ms)
-        const tabIdDeps = this.#getTabIdDeps();
-        const [tabId] = await Promise.all([
-          tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
-          this.#refreshToken(),  // Sets this.#accessToken and this.#claims
-        ]);
-        this.#instanceName = `${this.#claims?.sub}.${tabId}`;
+      // Auto-generate instanceName if not set
+      if (!this.#instanceName) {
+        if (!this.#accessToken) {
+          // Parallel optimization: tabId generation (≤50ms) and token
+          // refresh (network call, usually >50ms) overlap.
+          const tabIdDeps = this.#getTabIdDeps();
+          const [tabId] = await Promise.all([
+            tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
+            this.#refreshToken(),  // Sets this.#accessToken and this.#claims
+          ]);
+          this.#instanceName = `${this.#claims?.sub}.${tabId}`;
+        } else {
+          // Token was supplied by the caller — derive instanceName from its
+          // `sub` claim + tabId without making a refresh round-trip.
+          const tabIdDeps = this.#getTabIdDeps();
+          const tabId = tabIdDeps
+            ? await getOrCreateTabId(tabIdDeps)
+            : crypto.randomUUID().slice(0, 8);
+          this.#instanceName = `${this.#claims?.sub}.${tabId}`;
+        }
       } else if (!this.#accessToken) {
         // instanceName already set, just need the token
         await this.#refreshToken();

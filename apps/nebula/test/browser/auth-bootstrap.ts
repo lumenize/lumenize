@@ -40,6 +40,18 @@ interface StoredEmail {
 interface WaitForEmailOptions {
   /** TEST_TOKEN for authenticating with the deployed email-test DO */
   testToken: string;
+  /**
+   * Scope this listener to emails carrying `X-Lumenize-Auth-Instance: <instance>`.
+   * Required for concurrent test runs — without it, multiple tests share one
+   * email channel and race each other for the next-arriving email.
+   *
+   * Maps 1:1 to NebulaAuth's `instanceName` URL segment (a 1-3 dot-separated
+   * slug like `acme-abc.app.tenant-a`). `NebulaEmailSender.magicLinkHeaders`
+   * stamps the header on every magic-link email.
+   *
+   * Omit to subscribe to ALL emails (legacy single-tenant behavior).
+   */
+  instance?: string;
   /** Timeout in ms before giving up. Default: 20000 (20s) */
   timeout?: number;
 }
@@ -54,7 +66,8 @@ export function waitForEmail(options: WaitForEmailOptions): {
   emailPromise: Promise<StoredEmail>;
   cleanup: () => void;
 } {
-  const { testToken, timeout = 20_000 } = options;
+  const { testToken, instance, timeout = 20_000 } = options;
+  const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
 
   let ws: WebSocket;
   let cleanedUp = false;
@@ -67,11 +80,13 @@ export function waitForEmail(options: WaitForEmailOptions): {
   };
 
   const emailPromise = (async () => {
-    // Clear existing emails first
-    await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}`, { method: 'POST' });
+    // Clear existing emails for this instance only (other concurrent tests'
+    // emails stay intact).
+    await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
 
-    // Connect WebSocket
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}`);
+    // Connect WebSocket — instance filter persists via serializeAttachment
+    // on the DO side, so concurrent subscribers see only their own emails.
+    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}${instanceParam}`);
 
     await new Promise<void>((resolve, reject) => {
       ws.addEventListener('open', () => resolve());
@@ -147,8 +162,12 @@ interface BootstrapAdminOptions {
 export async function bootstrapAdmin(options: BootstrapAdminOptions): Promise<void> {
   const { browser, baseUrl, scope, email, testToken } = options;
 
-  // 1. Set up email listener BEFORE triggering the send
-  const waiter = waitForEmail({ testToken });
+  // 1. Set up email listener BEFORE triggering the send.
+  //    `instance: scope` makes the email-test DO route only this test's
+  //    magic-link email to this listener (via the `X-Lumenize-Auth-Instance`
+  //    header that `NebulaEmailSender.magicLinkHeaders` stamps on every
+  //    magic-link email). Concurrent tests with different scopes don't collide.
+  const waiter = waitForEmail({ testToken, instance: scope });
 
   try {
     // 2. Request magic link

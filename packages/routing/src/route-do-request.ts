@@ -133,7 +133,7 @@ export function isOriginAllowed(origin: string, corsOptions: CorsOptions, reques
 
 /**
  * Add CORS headers to a response if origin is allowed.
- * 
+ *
  * @param response - The response to add headers to
  * @param origin - The allowed origin to reflect
  * @returns New Response with CORS headers
@@ -142,19 +142,87 @@ export function addCorsHeaders(response: Response, origin: string): Response {
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Vary', 'Origin');
-  
+
   // For WebSocket upgrades (status 101), preserve the webSocket property
   const init: ResponseInit = {
     status: response.status,
     statusText: response.statusText,
     headers
   };
-  
+
   if (response.webSocket) {
     init.webSocket = response.webSocket;
   }
-  
+
   return new Response(response.body, init);
+}
+
+/**
+ * Decision returned by {@link applyCorsPolicy}: either an early response the
+ * caller should return immediately (preflight 204 or 403 reject), or an
+ * `allowedOrigin` the caller should use to wrap its final response with
+ * {@link addCorsHeaders}.
+ */
+export interface CorsDecision {
+  /**
+   * If set, return this Response immediately. Already wrapped with CORS
+   * headers if appropriate (preflight 204 with `Access-Control-Allow-Origin`
+   * when origin is allowed; bare 403 when origin is rejected).
+   */
+  earlyResponse?: Response;
+  /**
+   * The origin to reflect in `Access-Control-Allow-Origin` when wrapping the
+   * caller's final response. `null` means no CORS headers should be added
+   * (either CORS is disabled, no Origin header was present, or the request
+   * is allowed through without CORS — see preflight/reject paths).
+   */
+  allowedOrigin: string | null;
+}
+
+/**
+ * Apply a shared CORS policy to a request. Used by every router in this
+ * monorepo that exposes a browser-callable surface.
+ *
+ * Behavior matches what was previously inlined in {@link routeDORequest}:
+ * - CORS disabled or no `Origin` header → `allowedOrigin: null`, no early response.
+ * - Allowed origin, `OPTIONS` preflight → 204 with CORS headers (early response).
+ * - Allowed origin, any other method → `allowedOrigin: origin`; caller wraps response.
+ * - Disallowed origin, `OPTIONS` preflight → 204 without CORS headers (browser blocks).
+ * - Disallowed origin, any other method → 403 reject (early response, no headers).
+ *
+ * @param request - The incoming request
+ * @param corsOptions - The CORS configuration (`false` disables CORS entirely)
+ * @returns A {@link CorsDecision} for the caller to act on
+ */
+export function applyCorsPolicy(request: Request, corsOptions: CorsOptions): CorsDecision {
+  const requestOrigin = request.headers.get('Origin');
+
+  // No Origin header or CORS disabled → pass through with no CORS state
+  if (!requestOrigin || corsOptions === false) {
+    return { allowedOrigin: null };
+  }
+
+  const allowedOrigin = isOriginAllowed(requestOrigin, corsOptions, request) ? requestOrigin : null;
+
+  // Preflight: always respond to OPTIONS when CORS is enabled and Origin is present
+  if (request.method === 'OPTIONS') {
+    const response = new Response(null, { status: 204 });
+    if (allowedOrigin) {
+      return { earlyResponse: addCorsHeaders(response, allowedOrigin), allowedOrigin: null };
+    }
+    return { earlyResponse: response, allowedOrigin: null };
+  }
+
+  // Non-OPTIONS with disallowed origin: 403 without CORS headers
+  if (!allowedOrigin) {
+    return {
+      earlyResponse: new Response('Forbidden: Origin not allowed', { status: 403 }),
+      allowedOrigin: null,
+    };
+  }
+
+  // Allowed origin, non-preflight: caller wraps response with addCorsHeaders(..., allowedOrigin)
+  return { allowedOrigin };
 }
 
 /**
@@ -229,57 +297,21 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     throw new MissingInstanceNameError(pathname);
   }
 
-  // Check CORS configuration
-  const corsOptions = options.cors ?? false;
-  const requestOrigin = request.headers.get('Origin');
-  let allowedOrigin: string | null = null;
-  
-  // Determine if origin is allowed (only if Origin header is present and CORS is enabled)
-  if (requestOrigin && corsOptions !== false) {
-    if (isOriginAllowed(requestOrigin, corsOptions, request)) {
-      allowedOrigin = requestOrigin;
-    }
-    // If origin not allowed, allowedOrigin stays null and request is forwarded to DO
-  }
-
-  // Handle preflight (OPTIONS) requests
-  // Per CORS spec, always respond to OPTIONS (even for disallowed origins)
-  // but only include CORS headers if origin is allowed
-  if (request.method === 'OPTIONS' && requestOrigin && corsOptions !== false) {
-    const response = new Response(null, { status: 204 });
-    if (allowedOrigin) {
-      log.debug('CORS preflight allowed', {
-        origin: requestOrigin,
-        binding: doBindingNameSegment,
-        instance: doInstanceNameOrId
-      });
-      return addCorsHeaders(response, allowedOrigin);
-    }
-    log.debug('CORS preflight rejected (no headers)', {
-      origin: requestOrigin,
-      binding: doBindingNameSegment,
-      instance: doInstanceNameOrId
-    });
-    // Return 204 without CORS headers - browser will see missing headers and block
-    return response;
-  }
-
-  const hookContext = { doNamespace, doInstanceNameOrId };
-
-  // Server-side origin rejection (non-standard, but provides better security)
-  // Applies to non-OPTIONS HTTP and WebSocket requests
-  if (requestOrigin && corsOptions !== false && !allowedOrigin) {
-    log.warn('CORS origin rejected', {
-      origin: requestOrigin,
+  // Check CORS configuration via shared helper
+  const corsDecision = applyCorsPolicy(request, options.cors ?? false);
+  if (corsDecision.earlyResponse) {
+    log.debug('CORS early response', {
+      status: corsDecision.earlyResponse.status,
       method: request.method,
+      origin: request.headers.get('Origin'),
       binding: doBindingNameSegment,
       instance: doInstanceNameOrId,
-      isWebSocket: request.headers.get("Upgrade")?.toLowerCase() === "websocket"
     });
-    // Return 403 without CORS headers for disallowed origins
-    // Browser will see this as a CORS failure (network error)
-    return new Response('Forbidden: Origin not allowed', { status: 403 });
+    return corsDecision.earlyResponse;
   }
+  const allowedOrigin = corsDecision.allowedOrigin;
+
+  const hookContext = { doNamespace, doInstanceNameOrId };
 
   // Call hooks based on request type (matching Cloudflare's if/else behavior)
   const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";

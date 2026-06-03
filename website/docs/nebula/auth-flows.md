@@ -11,6 +11,18 @@ Nebula uses [nebula-auth](/docs/auth) for passwordless authentication with a two
 Diagrams reference `NebulaClient` — the client-side class that manages connections. These annotations help during development and testing; they may be simplified before release.
 :::
 
+## Cross-origin browser deploys
+
+By default Nebula serves the UI and the API from the same origin (e.g. `https://lumenize.com`), so no [CORS](/docs/routing/cors-support) configuration is required. For deployments where the browser app and the Nebula worker live on different origins — custom-domain deploys (`https://apps.acme.com` calling `https://nebula.lumenize.com`), real-browser test rigs hitting a miniflare worker on a different localhost port, etc. — set the `LUMENIZE_APPROVED_ORIGINS` env binding in `wrangler.jsonc` (`vars`) to a comma-separated allowlist:
+
+```jsonc
+"vars": {
+  "LUMENIZE_APPROVED_ORIGINS": "https://apps.acme.com,https://admin.acme.com"
+}
+```
+
+The Nebula entrypoint parses this once and threads it as a single `cors` config through both the `/auth/*` router (`routeNebulaAuthRequest`) and the `/gateway/*` router (`routeDORequest`), so a browser frontend at an approved origin can hit both magic-link / refresh-token endpoints and the WebSocket mesh with the same allowlist. Empty or unset → no CORS headers (safe default).
+
 ## First-Time Login
 
 A new user arrives at the login page with no existing refresh cookie. The full flow is: discovery, scope selection, magic link email, and finally a connected `NebulaClient`.

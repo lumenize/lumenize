@@ -52,7 +52,12 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@lumenize/debug": "*",
+    "@lumenize/testing": "*",
+    "@vitest/browser": "4.1.4",
+    "@vitest/browser-playwright": "4.1.4",
     "@vitest/coverage-istanbul": "4.1.4",
+    "http-proxy": "^1.18.1",
+    "playwright": "^1.48.2",
     "tsx": "^4.19.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",
