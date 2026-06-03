@@ -13,15 +13,65 @@ import {
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
 import {
-  runWithCallContext,
-  captureCallContext,
-  buildOutgoingCallContext,
   extractCallChains,
-  createHandlerExecutor,
   setupFireAndForgetHandler,
   type CallEnvelope,
-  type LocalChainExecutor,
 } from './lmz-api.js';
+
+// ---------------------------------------------------------------------------
+// Browser-safe call-context threading
+// ---------------------------------------------------------------------------
+//
+// LumenizeClient runs in browsers where `node:async_hooks`'s AsyncLocalStorage
+// isn't available, and the userland Promise-then patching approach can't
+// preserve context across native `await` (V8 bypasses user-visible .then for
+// async-function resumes). So this file threads `CallContext` explicitly
+// through framework code via closures + a synchronous instance field
+// (`#currentCallContext`) rather than via ALS.
+//
+// `this.lmz.callContext` (the user-facing getter) reads `#currentCallContext`
+// synchronously. It returns the correct value for code running SYNCHRONOUSLY
+// inside an `@mesh()` handler (no await between handler entry and the read),
+// but may return a stale value if read AFTER an await when concurrent calls
+// have re-entered the dispatcher. This is the same cliff as today; no current
+// browser-side `@mesh()` handler in `apps/nebula/` reads `callContext` after
+// an await, so it doesn't surface in practice. Framework code below does NOT
+// depend on the field being correct across awaits — it captures the parent
+// context synchronously at every `lmz.call(...)` entry and threads it as an
+// explicit parameter through to `#callRaw` and the handler executor.
+//
+// See tasks/playwright-test-template.md § Known blockers #2 for the full
+// rationale and the alternatives considered (polyfill, refactor-everywhere).
+
+/**
+ * Build the outgoing CallContext from an explicit parent context.
+ *
+ * Mirrors `buildOutgoingCallContext` from `lmz-api.ts` but takes the parent
+ * as a parameter instead of looking it up via ALS. Returns a fresh chain
+ * when `parentContext` is undefined or `options.newChain` is set.
+ */
+function buildClientOutgoingContext(
+  callerIdentity: NodeIdentity,
+  parentContext: CallContext | undefined,
+  options?: CallOptions,
+): CallContext {
+  if (options?.newChain || !parentContext) {
+    return {
+      callChain: [callerIdentity],
+      originAuth: undefined,
+      state: options?.state ?? {},
+    };
+  }
+  const newCallChain = [...parentContext.callChain, callerIdentity];
+  const newState = options?.state
+    ? { ...parentContext.state, ...options.state }
+    : parentContext.state;
+  return {
+    callChain: newCallChain,
+    originAuth: parentContext.originAuth,
+    state: newState,
+  };
+}
 import {
   GatewayMessageType,
   type CallMessage,
@@ -419,7 +469,21 @@ export abstract class LumenizeClient {
         return self.#currentCallContext;
       },
 
-      callRaw: self.#callRaw.bind(self),
+      // Public callRaw doesn't take parentContext — the public API shape stays
+      // backward compatible. Internally, we capture #currentCallContext at the
+      // sync call site and pass it through to the renamed-internal #callRaw.
+      callRaw: (
+        calleeBindingName: string,
+        calleeInstanceNameOrId: string | undefined,
+        chainOrContinuation: OperationChain | Continuation<any>,
+        options?: CallOptions,
+      ) => self.#callRaw(
+        calleeBindingName,
+        calleeInstanceNameOrId,
+        chainOrContinuation,
+        self.#currentCallContext ?? undefined,
+        options,
+      ),
       call: self.#call.bind(self),
     };
 
@@ -895,17 +959,20 @@ export abstract class LumenizeClient {
         state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
       };
 
-      // Set up call context for this request
+      // Set up call context for this request. Setting #currentCallContext
+      // synchronously is sufficient for `this.lmz.callContext` reads in user
+      // code AND for the framework's own `lmz.call(...)` invocations — both
+      // read this field directly (see #call below). No ALS wrap needed; the
+      // browser can't preserve ALS across native await anyway, and the field
+      // is correct for the synchronous portion of the handler before any
+      // await yields control.
       this.#currentCallContext = callContext;
 
-      // Execute within call context (for nested calls)
-      const result = await runWithCallContext(callContext, async () => {
-        // Run onBeforeCall hook
-        this.onBeforeCall();
+      // Run onBeforeCall hook
+      this.onBeforeCall();
 
-        // Execute the operation chain
-        return await executeOperationChain(chain, this);
-      });
+      // Execute the operation chain
+      const result = await executeOperationChain(chain, this);
 
       // Send success response (preprocess for structured clone handling)
       const response: IncomingCallResponseMessage = {
@@ -992,6 +1059,7 @@ export abstract class LumenizeClient {
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     chainOrContinuation: OperationChain | Continuation<any>,
+    parentContext: CallContext | undefined,
     options?: CallOptions
   ): Promise<any> {
     // Extract chain from continuation if needed
@@ -1007,7 +1075,7 @@ export abstract class LumenizeClient {
       instanceName: this.#instanceName!,
     };
 
-    const callContext = buildOutgoingCallContext(callerIdentity, options);
+    const callContext = buildClientOutgoingContext(callerIdentity, parentContext, options);
 
     // Preprocess fields that may contain extended types (Maps, Sets, etc.)
     // See CallMessage interface for serialization rules
@@ -1046,23 +1114,41 @@ export abstract class LumenizeClient {
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void {
-    // 1. Extract and validate chains (shared helper)
+    // 1. Extract and validate chains
     const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
-    // 2. Set up handler execution (shared helpers)
-    // Client uses executeOperationChain directly (no RPC exposure concern)
-    const capturedContext = captureCallContext();
-    const localExecutor: LocalChainExecutor = (chain, opts) =>
-      executeOperationChain(chain, this, opts);
-    const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
+    // 2. Capture the parent context SYNCHRONOUSLY at this call site. This is
+    // the context active when user code invokes `this.lmz.call(...)`. We snapshot
+    // it now (in closure) so the outgoing call and any handler restoration use
+    // the correct value regardless of what happens to `#currentCallContext`
+    // later. (Inheritance was previously done via ALS lookup in
+    // `buildOutgoingCallContext`; we now thread it explicitly.)
+    const capturedContext = this.#currentCallContext ?? undefined;
 
-    // 3. Make remote call with context
-    const callPromise = capturedContext
-      ? runWithCallContext(capturedContext, () =>
-          this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
-      : this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
+    // 3. Handler executor: when the response arrives, temporarily restore
+    // `#currentCallContext` to the captured value so handler code (and any
+    // nested `lmz.call` it triggers) sees the same context that was active at
+    // the outgoing call site.
+    const executeHandler = async (chain: OperationChain): Promise<any> => {
+      const prev = this.#currentCallContext;
+      this.#currentCallContext = capturedContext ?? null;
+      try {
+        return await executeOperationChain(chain, this, { requireMeshDecorator: false });
+      } finally {
+        this.#currentCallContext = prev;
+      }
+    };
 
-    // 4. Fire-and-forget with handler callbacks (shared helper)
+    // 4. Make the remote call with the explicit parent context.
+    const callPromise = this.#callRaw(
+      calleeBindingName,
+      calleeInstanceNameOrId,
+      remoteChain,
+      capturedContext,
+      options,
+    );
+
+    // 5. Fire-and-forget with handler callbacks (shared helper, no ALS needed).
     setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
   }
 }

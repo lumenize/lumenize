@@ -24,48 +24,36 @@ A real-browser smoke test for `packages/debug/` isn't in scope yet (no `test/bro
 - [x] Implement. (740274e + a57bbc2.)
 - [ ] Real-browser smoke test in `packages/debug/test/browser/` — deferred to the v4 real-browser template scaffolding.
 
-### 2. `@lumenize/mesh/client` pulls in `node:async_hooks` — ✅ DONE 2026-06-02
+### 2. `@lumenize/mesh/client` pulls in `node:async_hooks` — ✅ DONE 2026-06-03
 
-Note: the original framing — "the client-side path doesn't actually use ALS in any meaningful way" — turned out to be inaccurate. `LumenizeClient` DOES use ALS-style context preservation for the round-trip `runWithCallContext` at incoming-call handling (`lumenize-client.ts:902`), for `buildOutgoingCallContext`'s inheritance lookup, and for handler-execution context restoration at outgoing-call dispatch (`lumenize-client.ts:1054, :1061`). A naive removal would corrupt cross-await context reads inside `@mesh()` handlers.
+**Two-step journey** worth recording because the first try ran into a V8 reality the original framing didn't anticipate:
 
-**Chose package.json `imports`-field conditions** (the same pattern `@lumenize/debug` uses for its exports, but applied to internal `#`-imports). Two implementations of the same 2-function surface — `getCurrentCallContext()` / `runWithCallContext<T>(context, fn): T`:
+**Step 1 (2026-06-02)** — package.json `imports`-field conditions with two impls of `getCurrentCallContext` / `runWithCallContext`: `lmz-api-context.workerd.ts` (real `AsyncLocalStorage`) for workerd/worker/node, `lmz-api-context.browser.ts` (module-scoped variable shim) for browser. Bundle clean. But the browser shim couldn't preserve context across `await` because the module var gets stomped when concurrent calls re-enter. Original plan was to ship with a documented caveat + lint rule.
 
-- `packages/mesh/src/lmz-api-context.workerd.ts` — uses real `AsyncLocalStorage`. Selected by `workerd`/`worker`/`node` conditions (so Node, Bun, Deno, vitest-pool-workers, and Workers all get it).
-- `packages/mesh/src/lmz-api-context.browser.ts` — module-scoped variable. Selected by `browser` condition. Does NOT preserve across `await` boundaries — file header documents the caveat in detail.
+**Spike (2026-06-03)** — tried building a real ALS polyfill in the browser via Promise.prototype.then patching to fix the cross-await issue. Confirmed empirically that V8 has an `await` fast-path that bypasses user-visible `.then` even when patched. Tried the well-known mitigation of replacing `globalThis.Promise` with a subclass (forces V8 to slow path). The slow path WAS reached for explicit `.then` chains but NOT for native `await` resumes — V8 schedules the `.then` call via a microtask that fires AFTER `run()`'s `finally` has already restored the previous context, so by the time patched `.then` captured a snapshot it was empty. Polyfilling ALS for native await in the browser requires zone.js-style intervention (global Promise replacement + scope-stack instead of restoration-on-return), which we judged too heavy. Polyfill spike reverted.
 
-`packages/mesh/package.json` `imports` map:
+**Step 2 (final, 2026-06-03)** — refactored `lumenize-client.ts` framework code to thread `CallContext` **explicitly** through closures + a private instance field, dropping its dependence on ALS-style lookup:
 
-```jsonc
-"imports": {
-  "#lmz-api-context": {
-    "types": "./src/lmz-api-context.workerd.ts",
-    "workerd": "./src/lmz-api-context.workerd.ts",
-    "worker": "./src/lmz-api-context.workerd.ts",
-    "node": "./src/lmz-api-context.workerd.ts",
-    "browser": "./src/lmz-api-context.browser.ts",
-    "default": "./src/lmz-api-context.workerd.ts"
-  }
-}
-```
+- `#handleIncomingCall` sets `this.#currentCallContext = callContext` synchronously, no `runWithCallContext` wrap.
+- `#callRaw` takes an explicit `parentContext: CallContext | undefined` parameter; builds the outgoing context via a new local `buildClientOutgoingContext(callerIdentity, parentContext, options)`.
+- `#call` captures `this.#currentCallContext` synchronously at the call site, threads it as a closure to the handler executor (which restores `#currentCallContext` to the captured value for the duration of handler execution) AND as an explicit argument to `#callRaw`.
+- Removed value imports of `runWithCallContext`, `captureCallContext`, `buildOutgoingCallContext`, `createHandlerExecutor` from `./lmz-api.js`. Only `extractCallChains`, `setupFireAndForgetHandler`, and the `CallEnvelope` type remain.
+- Public `LmzApiClient.callRaw` signature unchanged (back-compat); internally adapted by capturing `#currentCallContext` at the binding site.
 
-The `types` + `default` entries are load-bearing for TypeScript (`moduleResolution: bundler` doesn't match the runtime-specific conditions without a fallback) and for runtimes that don't match anything else.
+`lmz-api-context.workerd.ts` and `lmz-api-context.browser.ts` are kept — the conditional split still serves the SERVER-side files (`lumenize-do.ts`, `lumenize-worker.ts`, the shared helpers in `lmz-api.ts`). They don't get loaded by the client bundle because client framework no longer imports the ALS helpers as values.
 
-`lmz-api.ts` now imports `getCurrentCallContext` / `runWithCallContext` from `#lmz-api-context` and re-exports them; `captureCallContext()` is unchanged and calls `getCurrentCallContext()` via the conditional binding.
+`this.lmz.callContext` (user-facing API) reads `self.#currentCallContext` directly. Synchronous reads in a `@mesh()` handler are correct. The cliff (reads AFTER an `await` when concurrent calls are in flight) remains, but no current `@mesh()` handler in `apps/nebula/` triggers it, AND framework correctness no longer depends on it: the framework captures parent context synchronously at every `lmz.call(...)` entry, before any await yields control.
 
-**Browser caveat — safe vs unsafe usage**:
-- ✅ Reading `this.lmz.callContext` synchronously inside an `@mesh()` handler before any await.
-- ❌ Reading `this.lmz.callContext` AFTER an await inside an `@mesh()` handler when concurrent mesh calls might be in flight.
-
-Verified 2026-06-02 that no existing client-side `@mesh()` handler in `apps/nebula/` reads `callContext` after an await — `handleTransactionResult`, `handleReadResponse`, `handleResourceUpdate` all branch on a synchronous result and never re-read callContext post-await. Future client code that needs full async-context preservation in the browser has documented escape hatches (TC39 `AsyncContext` proposal, zone.js monkey-patch, explicit closure threading).
+For future cleanups: see [tasks/nebula-scratchpad.md](nebula-scratchpad.md) § Mesh Infrastructure for the ALS-polyfill watch item — when TC39 `AsyncContext` ships natively or a battle-tested userland polyfill emerges, swap in for `lmz-api-context.browser.ts` to close the user-facing cliff too.
 
 **Verification**:
-- `npx esbuild packages/mesh/src/client-index.ts --bundle --platform=browser --format=esm` succeeds with **0** `cloudflare:workers` references AND **0** `node:async_hooks` references — `@lumenize/mesh/client` is fully browser-bundleable now.
-- Mesh vitest: 365/366 (1 skipped, 0 failed) — unchanged.
-- Mesh `test:node-import`: 2/2 — unchanged.
-- Nebula unit + baseline: 169/171 (0 failed) — unchanged.
+- `npx esbuild packages/mesh/src/client-index.ts --bundle --platform=browser --format=esm` succeeds with **0** `cloudflare:workers` AND **0** `node:async_hooks` references (64.4 kB).
+- Mesh vitest: 365/366 (1 skipped, 0 failed).
+- Mesh `test:node-import`: 2/2.
+- Nebula unit + baseline: 169/171 (0 failed).
 - All 13 packages type-check cleanly.
 
-- [x] Pick the split approach. (Package.json `imports` conditions, not subpath / lazy-load.)
+- [x] Pick approach. (Explicit threading, not polyfill — V8 await-optimization makes the polyfill impractical without zone.js-style intervention.)
 - [x] Refactor.
 - [ ] Real-browser smoke test in `packages/mesh/test/browser/` — deferred to the v4 real-browser template scaffolding.
 
