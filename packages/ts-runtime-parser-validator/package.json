@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/ts-runtime-parser-validator",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "TypeScript runtime validator/parser for Cloudflare Workers — dynamic schemas, DO facets, typia-powered (parse, don't validate). Experimental.",
   "type": "module",
   "main": "dist/index.js",

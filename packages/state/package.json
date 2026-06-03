@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/state",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Path-based reactive store for Lumenize — getState/setState/subscribe with hierarchical notification, middleware, and computed derivations. Works in Cloudflare Workers, Node.js, Bun, and browsers.",
   "type": "module",
   "main": "dist/index.js",
@@ -22,7 +22,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.25.0"
+    "@lumenize/debug": "^0.26.0"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "4.1.4",
