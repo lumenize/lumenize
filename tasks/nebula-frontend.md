@@ -1,6 +1,6 @@
 # Nebula Frontend
 
-**Status**: Active — demo critical path. Phases 5.3.0 – 5.3.6 shipped 2026-05-12/13; **next: Phase 5.3.7**, sequenced docs-first.
+**Status**: Active — demo critical path. Phases 5.3.0 – 5.3.6 shipped 2026-05-12/13; Phase 5.3.7-v2 (prerequisites unblock) shipped 2026-06-03; **next: Phase 5.3.7-v1** (docs-first), then v3 (factory port) → v4 (real-browser harness, builds on `packages/mesh/test/browser/` template) → v5 (doc polish).
 **Depends on**: Phase 5.1 (Storage Engine — shipped), Phase 5.2 (Validation/Ontology — shipped).
 **Framework target**: Vue 3.5+ with `.vue` SFCs (compiled in the user-local dev Star for dev iteration, in Galaxy for production deploy). *Originally Vue 3 in-DOM mode per [vue-in-dom-spike.md](archive/vue-in-dom-spike.md); pivoted to SFCs 2026-05-15 after [spike-sfc-dev-cycle.md](archive/spike-sfc-dev-cycle.md) validated SFC compile in Workers with sub-50 ms global round-trip via user-local dev Stars.*
 
@@ -585,7 +585,7 @@ Scaffolds `@lumenize/nebula-frontend` around a factory (`createNebulaClient`) th
 | **Client-side router** | Use [vue-router](https://router.vuejs.org/) when Studio apps need routing. URL-params-into-store ≈ ~10 LOC of `watchEffect` in app code reading `useRoute()` (or a small `useRouteSync(map)` composable if Studio wants it factored). | Mature, well-documented, large LLM training corpus, integrates natively with Vue's reactivity. |
 | **`flashClass` for conflicts** | Defer concrete design to 5.3.7 implementation. Two viable options: (a) `client.bindings(rt, rid, field)` returns the bound `HTMLElement[]` (Vue exposes via `useTemplateRef` + the factory tracking ref names); (b) ship a small `v-flash` custom directive that listens for path-level flash events. Pick during implementation. | Vue doesn't have an Alpine-style `getBindings` equivalent out of the box; either approach is small. |
 
-**Prerequisites**: real-browser bundling of `@lumenize/nebula-frontend` is blocked by three pre-existing items (transitive `cloudflare:workers` import in `@lumenize/debug`, transitive `node:async_hooks` import in `@lumenize/mesh/client`, no CORS headers on NebulaAuth). All three plus a reusable real-browser test template are owned by [tasks/playwright-test-template.md](playwright-test-template.md) — v2 below lands that task.
+**Prerequisites**: real-browser bundling of `@lumenize/nebula-frontend` is blocked by three pre-existing items (transitive `cloudflare:workers` import in `@lumenize/debug`, transitive `node:async_hooks` import in `@lumenize/mesh/client`, no CORS headers on NebulaAuth). All three plus a reusable real-browser test template are owned by [tasks/playwright-test-template.md](archive/playwright-test-template.md) — v2 below lands that task.
 
 **Target package layout** (scaffolded in v3):
 
@@ -638,19 +638,24 @@ Remaining v1 work (now against SFC authoring):
   - Review one doc per session: coding-your-ui first, api-reference separate.
 - [ ] Verify every api-reference signature against the spike's actual `createNebulaClient` + `ClientLike` types + the existing `client.resources.*` namespace ([apps/nebula/src/nebula-client.ts](../apps/nebula/src/nebula-client.ts)). Anything in the docs that doesn't trace to real code (or a `new-in-v3` tag) is a defect.
 
-#### Phase 5.3.7-v2 — Prerequisites unblock (~1–2 days, partial 2026-06-02/03)
+#### Phase 5.3.7-v2 — Prerequisites unblock — ✅ DONE 2026-06-03
 
-Three known browser-bundling blockers (transitive `cloudflare:workers` import in `@lumenize/debug`, transitive `node:async_hooks` import in `@lumenize/mesh/client`, no CORS headers from NebulaAuth) plus a reusable real-browser test template are all bundled into [tasks/playwright-test-template.md](playwright-test-template.md). That task lands the fixes with regression-tests AND produces the template that `packages/nebula-frontend/test/browser/` adopts in v4.
+All four blockers + the real-browser test template shipped in commit `4baa75d` (mesh release at v0.25.x). The template is `packages/mesh/test/browser/` with its own adoption checklist README; v4 (`packages/nebula-frontend/test/browser/`) follows the same shape.
 
-**Progress 2026-06-02/03**: items #1 (debug) and #2 (mesh/client `node:async_hooks`) are done. Items #3 (NebulaAuth CORS) and #4 (browser `smoke.test.ts` round-trip failure) are still open. The broader Playwright test scaffolding (the real-browser test harness itself) hasn't started.
+- [x] Item #1 — `@lumenize/debug` cloudflare:workers (via package-exports conditions + `@lumenize/auth/client` subpath)
+- [x] Item #2 — `@lumenize/mesh/client` node:async_hooks (explicit CallContext threading in `lumenize-client.ts`, dropped ALS dep on the client side)
+- [x] Item #3 — NebulaAuth CORS headers (`applyCorsPolicy` helper extracted into `@lumenize/routing`; routeNebulaAuthRequest accepts `cors` option; `LUMENIZE_APPROVED_ORIGINS` env binding threads through `apps/nebula/src/entrypoint.ts`)
+- [x] Item #4 — `apps/nebula/test/browser/smoke.test.ts > round-trip` (stale 5.3.3b arity in test helper — switched to public `client.resources.transaction()` API)
+- [x] Item #4b — Cross-test contention in browser tier (per-instance email routing via `X-Lumenize-Auth-Instance` header + email-test DO bucketing)
+- [x] Real-browser test template / scaffolding (mesh browser tier: 4/4 green, real Cloudflare Email Sending → Email Routing → wrangler-dev → DocumentDO + SpellCheckWorker)
 
-- [x] Item #1 — `@lumenize/debug` cloudflare:workers
-- [x] Item #2 — `@lumenize/mesh/client` node:async_hooks
-- [ ] Item #3 — NebulaAuth CORS headers
-- [ ] Item #4 — `apps/nebula/test/browser/smoke.test.ts > round-trip` Node-side test failure
-- [ ] Real-browser test template / scaffolding
+Bonus structural additions beyond the original v2 scope:
+- `@lumenize/auth` ResolvedEmail.headers + per-message-type overridable header hooks (generic mechanism)
+- `@lumenize/testing/wrangler` exports `spawnWranglerDev()` for vitest globalSetup files
+- `@lumenize/mesh` `LumenizeClient` auto-derives `instanceName` when `accessToken` is supplied (papercut fix)
+- Dynamic Vite `dynamicEnvProxyPlugin` (parameterized; same-origin proxy approach for real-browser tests)
 
-Can run in parallel with v1 if a second hand is available; serial otherwise.
+See [tasks/playwright-test-template.md](archive/playwright-test-template.md) for the complete change log and [packages/mesh/test/browser/README.md](../packages/mesh/test/browser/README.md) for the adoption checklist that v4 will use.
 
 #### Phase 5.3.7-v3 — Scaffold + factory + Vue integration (~2 days)
 
