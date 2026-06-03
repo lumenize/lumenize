@@ -11,7 +11,8 @@
       "workerd": "./src/index.workerd.ts",
       "worker": "./src/index.workerd.ts",
       "node": "./src/index.node.ts",
-      "browser": "./src/index.browser.ts"
+      "browser": "./src/index.browser.ts",
+      "import": "./src/index.ts"
     }
   },
   "files": [
