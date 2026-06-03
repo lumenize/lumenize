@@ -1,6 +1,6 @@
 # Playwright real-browser test template (prerequisite for nebula-frontend Phase 5.3.7-v2)
 
-**Status**: not started. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v2 (and any other package that bundles a NebulaClient-backed front end for real-browser testing).
+**Status (2026-06-03)**: **Items #1 and #2 done.** Items #3 (NebulaAuth CORS) and #4 (smoke.test.ts round-trip failure) are the remaining v2 prereqs; the real-browser test scaffolding itself (the broader "Playwright template" goal) hasn't started. Suggested next: pick up #3 or #4. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v2 (and any other package that bundles a NebulaClient-backed front end for real-browser testing).
 
 **Goal**: a reusable real-browser test template for any `@lumenize/*` package that bundles a NebulaClient-backed front end. The template should be drop-in: a new package wanting real-browser coverage copies the vitest config + playwright shim + a test scaffold, and is up and running.
 

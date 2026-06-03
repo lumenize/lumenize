@@ -638,11 +638,17 @@ Remaining v1 work (now against SFC authoring):
   - Review one doc per session: coding-your-ui first, api-reference separate.
 - [ ] Verify every api-reference signature against the spike's actual `createNebulaClient` + `ClientLike` types + the existing `client.resources.*` namespace ([apps/nebula/src/nebula-client.ts](../apps/nebula/src/nebula-client.ts)). Anything in the docs that doesn't trace to real code (or a `new-in-v3` tag) is a defect.
 
-#### Phase 5.3.7-v2 — Prerequisites unblock (~1–2 days)
+#### Phase 5.3.7-v2 — Prerequisites unblock (~1–2 days, partial 2026-06-02/03)
 
 Three known browser-bundling blockers (transitive `cloudflare:workers` import in `@lumenize/debug`, transitive `node:async_hooks` import in `@lumenize/mesh/client`, no CORS headers from NebulaAuth) plus a reusable real-browser test template are all bundled into [tasks/playwright-test-template.md](playwright-test-template.md). That task lands the fixes with regression-tests AND produces the template that `packages/nebula-frontend/test/browser/` adopts in v4.
 
-- [ ] Land [tasks/playwright-test-template.md](playwright-test-template.md) end-to-end. All three blockers fixed with their own real-browser smoke tests; the test template is documented and reproducible.
+**Progress 2026-06-02/03**: items #1 (debug) and #2 (mesh/client `node:async_hooks`) are done. Items #3 (NebulaAuth CORS) and #4 (browser `smoke.test.ts` round-trip failure) are still open. The broader Playwright test scaffolding (the real-browser test harness itself) hasn't started.
+
+- [x] Item #1 — `@lumenize/debug` cloudflare:workers
+- [x] Item #2 — `@lumenize/mesh/client` node:async_hooks
+- [ ] Item #3 — NebulaAuth CORS headers
+- [ ] Item #4 — `apps/nebula/test/browser/smoke.test.ts > round-trip` Node-side test failure
+- [ ] Real-browser test template / scaffolding
 
 Can run in parallel with v1 if a second hand is available; serial otherwise.
 
