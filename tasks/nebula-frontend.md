@@ -557,7 +557,7 @@ Shipped the `bindToState` integration as the bridge between `@lumenize/state` an
 
 Deferred items kept for the factory port:
 
-- **Rollback failure-outcome tests** → split out as [validation-failed-rollback.md](validation-failed-rollback.md). Suspected real bug, not just test polish; full scope (validation-failed + the four sibling outcomes) tracked there.
+- **Rollback failure-outcome tests** ✅ in-scope work shipped 2026-06-04 — see [archive/validation-failed-rollback.md](archive/validation-failed-rollback.md). Root cause was live-reference capture in `#middlewareFn` (fix: `structuredClone` at capture site). Three outcomes covered: `validation-failed`, `permission-denied`, `ontology-stale`. Deferred siblings (`timeout`, `retries-exhausted`) tracked in [nebula-scratchpad.md](nebula-scratchpad.md) § "Rollback failure-outcome sibling tests (deferred)".
 - **Defensive registry cleanup on `unsubscribe`** + interleaving test: subscribe → disconnect WS → trigger 1→0 → wait > grace ms → reconnect → assert no resubscribe RTT for that key. Needs WS-disconnect tooling.
 - **Spy-able `@lumenize/debug` output for tests** ✅ shipped 2026-06-04 — see [archive/debug-spyable-output.md](archive/debug-spyable-output.md). Cross-cutting; `setDebugSink` / `clearDebugSink` exported from `@lumenize/debug` (undocumented test-only API). Unlocked the bindToState warn-assertion test and is available for future error-path tests.
 

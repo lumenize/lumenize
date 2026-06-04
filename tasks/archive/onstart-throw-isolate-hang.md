@@ -1,6 +1,6 @@
 # `onStart()` throw → workerd isolate hang under vitest cleanup
 
-**Status**: Not started.
+**Status**: Complete (2026-06-04). LumenizeDO ctor refactored to log onStart() failures via `.catch()` on the Promise returned by `blockConcurrencyWhile`; previously skipped `'propagates errors from onStart()'` test un-skipped and passing. Upstream issue [cloudflare/workers-sdk#14180](https://github.com/cloudflare/workers-sdk/issues/14180) filed and assigned within hours of submission.
 **Spawned from**: skipped test [packages/mesh/test/lumenize-do.test.ts:92](../packages/mesh/test/lumenize-do.test.ts) — `it.skip('propagates errors from onStart()')`. SKIP comment: "the test passes, but the broken DO leaves workerd in a bad state."
 
 ## Objective
@@ -138,7 +138,7 @@ Lives in [experiments/onstart-repro](../experiments/onstart-repro/), self-contai
 
 ### Phase 3 — Issue filed
 
-[cloudflare/workers-sdk#14180](https://github.com/cloudflare/workers-sdk/issues/14180)
+[cloudflare/workers-sdk#14180](https://github.com/cloudflare/workers-sdk/issues/14180) — Cloudflare moved to In Progress and assigned within hours of filing (2026-06-04). When their fix ships in a vitest-pool-workers release, no change needed on our end: the catch-outside-the-IIFE shape is preferable on its own merits (avoids the catch-log-rethrow anti-pattern; cleaner observation/control separation), so we treat it as the canonical LumenizeDO init pattern rather than a workaround. The explanatory comment originally attached to the refactor was removed in the same commit that archives this task.
 
 ### Workaround feasibility (tested 2026-06-04)
 

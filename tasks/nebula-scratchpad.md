@@ -94,7 +94,7 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 
 ### Rollback failure-outcome sibling tests (deferred)
 
-Spawned from [validation-failed-rollback.md](validation-failed-rollback.md) § "Scope decision (2026-06-04)". When that task lands, three of the five terminal-non-committed `TransactionResolution` outcomes have bindToState rollback test coverage: `validation-failed`, `permission-denied`, `ontology-stale`. The remaining two are deferred and want their own sibling tests once their blockers clear:
+Spawned from [archive/validation-failed-rollback.md](archive/validation-failed-rollback.md) § "Scope decision (2026-06-04)". That task shipped 2026-06-04 — three of the five terminal-non-committed `TransactionResolution` outcomes now have bindToState rollback test coverage: `validation-failed`, `permission-denied`, `ontology-stale`. The remaining two are deferred and want their own sibling tests once their blockers clear:
 
 - **`timeout`** — needs WS-disconnect tooling (also deferred in [nebula-frontend.md](nebula-frontend.md) § Phase 5.3.6). Test shape: subscribe → optimistic write → drop the WS or stall the server-side handler past the 5–10 s queue timeout → assert state reverts to pre-write snapshot via `source: 'rollback'`.
 - **`retries-exhausted`** — belongs with the broader conflict-resolver-loop redesign in Phase 5.3.7 (`TransactionOutcome` / `TransactionResourceResolution`). Test shape: register an `onETagConflict` resolver that always returns `'use-this'`, optimistic write at a stale eTag → after `maxRetries` attempts hits cap → assert state reverts.

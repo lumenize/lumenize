@@ -1,6 +1,6 @@
 # `validation-failed` rollback on optimistic `put`
 
-**Status**: Not started. Suspected real bug, not test infrastructure.
+**Status**: Complete (2026-06-04). Phase 1 postmortem identified live-reference capture as the root cause (refuting both original hypotheses). Phase 2 fix shipped: `structuredClone` at the `preWriteValue` capture site in `nebula-client.ts` + `assertNever` exhaustiveness check on the dispatcher. Phase 3 in-scope siblings shipped: `validation-failed` un-skipped + `permission-denied` and `ontology-stale` added. Deferred siblings (`timeout`, `retries-exhausted`) tracked in [nebula-scratchpad.md](nebula-scratchpad.md) § "Rollback failure-outcome sibling tests (deferred)".
 **Spawned from**: [tasks/nebula-frontend.md](nebula-frontend.md) § Phase 5.3.6 "Deferred items"; surfaced by the skipped test at [apps/nebula/test/test-apps/baseline/nebula-client-bindtostate.test.ts:291](../apps/nebula/test/test-apps/baseline/nebula-client-bindtostate.test.ts).
 
 **Prerequisite**: ✅ shipped — see [archive/debug-spyable-output.md](archive/debug-spyable-output.md). Phase 1 diagnosis can use the sink via `setDebugSink` from `@lumenize/debug` rather than `console.log`.

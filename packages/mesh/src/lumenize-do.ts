@@ -63,13 +63,6 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
-    // Log onStart() failures via `.catch()` on the Promise returned by
-    // blockConcurrencyWhile, not via a try/catch inside the IIFE. Both shapes
-    // leave the input gate broken (workerd handles that via the IIFE's
-    // rejection), but a catch INSIDE the IIFE that emits any console.* call
-    // before rethrowing makes @cloudflare/vitest-pool-workers hang at isolate
-    // teardown — see https://github.com/cloudflare/workers-sdk/issues/14180.
-    // Production behavior is unchanged.
     ctx.blockConcurrencyWhile(async () => {
       if (this.onStart) {
         await this.onStart();
