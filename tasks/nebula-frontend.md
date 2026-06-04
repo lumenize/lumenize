@@ -557,9 +557,9 @@ Shipped the `bindToState` integration as the bridge between `@lumenize/state` an
 
 Deferred items kept for the factory port:
 
-- **Rollback failure-outcome tests**: rollback path for `validation-failed` / `permission-denied` / `ontology-stale` / `timeout` / `retries-exhausted` needs deeper test-harness support. The first attempt at validation-failed rollback failed (state stayed at the invalid value — needs investigation into whether typia validation actually runs on a `put` when the resource exists; see [resources.ts:306-310](apps/nebula/src/resources.ts:306)).
+- **Rollback failure-outcome tests** → split out as [validation-failed-rollback.md](validation-failed-rollback.md). Suspected real bug, not just test polish; full scope (validation-failed + the four sibling outcomes) tracked there.
 - **Defensive registry cleanup on `unsubscribe`** + interleaving test: subscribe → disconnect WS → trigger 1→0 → wait > grace ms → reconnect → assert no resubscribe RTT for that key. Needs WS-disconnect tooling.
-- **Spy-able `@lumenize/debug` output for tests**: cross-cutting; affects any test that wants to assert a specific log fired. Options: (a) DEBUG env-var injection + `console.debug` spy; (b) per-test `output` override on `@lumenize/debug`'s logger; (c) parallel `console.warn(...)` for must-be-observable warn cases.
+- **Spy-able `@lumenize/debug` output for tests** → split out as [debug-spyable-output.md](debug-spyable-output.md). Cross-cutting; unlocks log assertions everywhere, including but not limited to nebula-frontend.
 
 ### Phase 5.3.7 — `@lumenize/nebula-frontend` factory + Vue integration
 
