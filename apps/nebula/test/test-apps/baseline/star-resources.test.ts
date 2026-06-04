@@ -563,12 +563,19 @@ describe('star-resources', () => {
       const snapshot = await waitForSuccess(user) as Snapshot;
       assertTestValue(snapshot.value);
 
-      // User cannot write
+      // User cannot write — permission failures now arrive as a typed
+      // TransactionError, not a thrown Error (5.3.3b widening).
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('Hacked') },
       });
-      const error = await waitForError(user);
-      expect(error).toContain('write permission required');
+      const result = await waitForSuccess(user) as TransactionResult;
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error('Expected permission denial');
+      const err = result.errors[resourceId] as TransactionError;
+      expect(err.type).toBe('permission');
+      if (err.type === 'permission') {
+        expect(err.requiredTier).toBe('write');
+      }
 
       admin[Symbol.dispose]();
       user[Symbol.dispose]();
@@ -597,12 +604,16 @@ describe('star-resources', () => {
       const readError = await waitForError(user);
       expect(readError).toContain('read permission required');
 
-      // User cannot write
+      // User cannot write — typed TransactionError per 5.3.3b widening
+      const newResourceId = generateUuid();
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
+        [newResourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
-      const writeError = await waitForError(user);
-      expect(writeError).toContain('write permission required');
+      const writeResult = await waitForSuccess(user) as TransactionResult;
+      expect(writeResult.ok).toBe(false);
+      if (writeResult.ok) throw new Error('Expected permission denial');
+      const writeErr = writeResult.errors[newResourceId] as TransactionError;
+      expect(writeErr.type).toBe('permission');
 
       admin[Symbol.dispose]();
       user[Symbol.dispose]();
@@ -707,12 +718,16 @@ describe('star-resources', () => {
       admin.callStarSetPermission(star, srcNode, userSub, 'write');
       await waitForSuccess(admin);
 
-      // User tries to move — should fail (no write on dst)
+      // User tries to move — should fail (no write on dst).
+      // Typed TransactionError per 5.3.3b widening.
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: dstNode },
       });
-      const error = await waitForError(user);
-      expect(error).toContain('write permission required');
+      const moveResult = await waitForSuccess(user) as TransactionResult;
+      expect(moveResult.ok).toBe(false);
+      if (moveResult.ok) throw new Error('Expected permission denial on move');
+      const moveErr = moveResult.errors[resourceId] as TransactionError;
+      expect(moveErr.type).toBe('permission');
 
       admin[Symbol.dispose]();
       user[Symbol.dispose]();

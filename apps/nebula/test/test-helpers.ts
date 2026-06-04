@@ -11,7 +11,7 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
-const ORIGIN = 'http://localhost';
+export const ORIGIN = 'http://localhost';
 
 function authUrl(path: string): string {
   return `${ORIGIN}${PREFIX}/${path}`;
@@ -125,6 +125,11 @@ export async function browserLogin(
 /**
  * Create an authenticated NebulaClient subclass and wait for it to connect.
  * Each test-app passes its own client class (e.g., NebulaClientTest).
+ *
+ * `ontologyVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
+ * `star-resources.test.ts` and similar). Tests that bind to a different
+ * ontology pass their own value. Tests that don't use `client.resources.*`
+ * at all are unaffected by the default — only the auto-attach paths use it.
  */
 export async function createAuthenticatedClient<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
@@ -132,6 +137,10 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   authScope: string,
   activeScope: string,
   email: string,
+  ontologyVersion: string = 'v1',
+  /** Optional extra config to pass through to the client constructor —
+   *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
+  extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   // Login and get access token
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
@@ -144,13 +153,16 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
     baseUrl: ORIGIN,
     authScope,
     activeScope,
+    ontologyVersion,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
     BroadcastChannel: ctx.BroadcastChannel,
+    ...extraConfig,
   });
 
-  // Wait for connection
+  // Wait for connection. Baseline-project setup file bumps vi.waitFor's
+  // default timeout to 5s (apps/nebula/test/test-apps/baseline/test/setup.ts).
   await vi.waitFor(() => {
     expect(client.connectionState).toBe('connected');
   });

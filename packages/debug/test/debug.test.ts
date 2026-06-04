@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { debug } from '../src/index';
+import { debug, setDebugSink, clearDebugSink } from '../src/index';
+import type { DebugLogOutput } from '../src/index';
 
 describe('@lumenize/debug', () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -190,6 +191,96 @@ describe('@lumenize/debug', () => {
 
       const output = JSON.parse(consoleSpy.mock.calls[0][0]);
       expect(output.level).toBe('error');
+    });
+  });
+
+  describe('test sink', () => {
+    afterEach(() => {
+      clearDebugSink();
+    });
+
+    it('captures all four levels and bypasses the DEBUG filter', () => {
+      // DEBUG is unset (beforeEach deletes it), so without a sink the
+      // filterable levels would be dropped — sink installation must bypass.
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+
+      const log = debug('test.sink');
+      log.debug('d', { x: 1 });
+      log.info('i');
+      log.warn('w');
+      log.error('e');
+
+      expect(entries.map((e) => e.level)).toEqual(['debug', 'info', 'warn', 'error']);
+      expect(entries[0].namespace).toBe('test.sink');
+      expect(entries[0].message).toBe('d');
+      expect(entries[0].data).toEqual({ x: 1 });
+    });
+
+    it('replaces console output (does not also write to console.debug)', () => {
+      setDebugSink(() => {});
+
+      const log = debug('test.sink');
+      log.debug('d');
+      log.info('i');
+      log.warn('w');
+      log.error('e');
+
+      expect(consoleSpy).not.toHaveBeenCalled();
+    });
+
+    it('clearDebugSink restores default console behavior', () => {
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+
+      const log = debug('test.sink');
+      log.warn('captured');
+      expect(entries).toHaveLength(1);
+
+      clearDebugSink();
+
+      // After clearing, the DEBUG filter applies again. With DEBUG unset,
+      // filterable levels are dropped, but `error()` still goes to console.
+      log.warn('not-captured');
+      expect(entries).toHaveLength(1);
+      expect(consoleSpy).not.toHaveBeenCalled();
+
+      log.error('to console');
+      expect(consoleSpy).toHaveBeenCalledTimes(1);
+      const output = JSON.parse(consoleSpy.mock.calls[0][0]);
+      expect(output.message).toBe('to console');
+    });
+
+    it('shares the sink across multiple debug() instances', () => {
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+
+      debug('alpha').info('from-alpha');
+      debug('beta').warn('from-beta');
+
+      expect(entries).toHaveLength(2);
+      expect(entries[0].namespace).toBe('alpha');
+      expect(entries[1].namespace).toBe('beta');
+    });
+
+    it('setDebugSink(null) is equivalent to clearDebugSink', () => {
+      const entries: DebugLogOutput[] = [];
+      setDebugSink((e) => entries.push(e));
+      setDebugSink(null);
+
+      debug('test').warn('should-not-capture');
+      expect(entries).toHaveLength(0);
+    });
+
+    it('logger.enabled is true while a sink is installed', () => {
+      const log = debug('test.sink');
+      expect(log.enabled).toBe(false);
+
+      setDebugSink(() => {});
+      expect(log.enabled).toBe(true);
+
+      clearDebugSink();
+      expect(log.enabled).toBe(false);
     });
   });
 });

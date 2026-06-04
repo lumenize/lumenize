@@ -1,3 +1,4 @@
+import { debug } from '@lumenize/debug';
 import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt';
 import type { JwtPayload } from './types';
 
@@ -197,8 +198,8 @@ export async function createRouteDORequestAuthHooks(
   // Resolve rate limiter binding (cast required — not in generated Env type)
   const rateLimiter = (env as unknown as Record<string, unknown>)['LUMENIZE_AUTH_RATE_LIMITER'] as RateLimit | undefined;
   if (!rateLimiter) {
-    console.warn(
-      '[lumenize/auth] LUMENIZE_AUTH_RATE_LIMITER binding not found — rate limiting is disabled. ' +
+    debug('auth.createRouteDORequestAuthHooks').error(
+      'LUMENIZE_AUTH_RATE_LIMITER binding not found — rate limiting is disabled. ' +
       'This leaves your authenticated routes unprotected against abuse. ' +
       'Add a rate_limits binding to your wrangler.jsonc. ' +
       'See https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/'

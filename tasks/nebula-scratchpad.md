@@ -40,6 +40,12 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 **Configurable Auth Redirects**:
 - Currently `NEBULA_AUTH_REDIRECT` is the only redirect target for both success and error. Consider separate `NEBULA_AUTH_ERROR_REDIRECT` or `NEBULA_AUTH_LOGIN_URL`, with a convention for query params (`?error=<code>&return_to=<url>`). Would let the approve endpoint redirect to login with a return URL, so after re-auth the admin lands back on the approve link.
 
+### Mesh Infrastructure
+
+- **Propagate per-call IDs through `callChain`** — see [tasks/mesh-call-tracing-and-ids.md](mesh-call-tracing-and-ids.md). A richer design than just adding a single `callId` to `CallContext`: each `callChain[]` entry gets its own `callId`, so `callChain[0].callId` is the traceId and `callChain.at(-1).callId` is the current hop. Closes the Gateway-timestamp correlation gap discussed during 2026-06-02 logging work — multiple WS frames sharing `Date.now()` due to fuzzy invocation boundaries (`feedback_cf_clock_traps.md`) wouldn't be distinguishable by timestamp alone, but per-hop callIds would. Also paired with standardizing `uniqueId()` (monotonic ULID) and `secureToken()` primitives across mesh + nebula. Five-phase plan, not started.
+
+- **Watch for browser ALS polyfills and swap one in when ready**: Today, `packages/mesh/src/lmz-api-context.browser.ts` is a module-scoped-variable shim that preserves context synchronously but not across `await` boundaries — `LumenizeClient` framework code works around this by threading `CallContext` explicitly through closures (refactored 2026-06-03; see `tasks/archive/playwright-test-template.md` § Known blockers #2 for the journey). User code reading `this.lmz.callContext` AFTER an `await` inside a browser-side `@mesh()` handler hits a silent cliff — corrupted with whatever context the most recent concurrent handler set. No current handler does this, so it doesn't bite. **The clean fix is a real ALS polyfill**, but as of 2026-06-03 the available options are weak: `@b9g/async-context` uses `node:async_hooks` internally (defeats our purpose), `@webfill/async-context` is 3+ years stale, `simple-async-context` is unvetted, and `unctx` has a different API model. Userland Promise-then patching can't intercept V8's `await` fast-path; the working alternative requires zone.js-style global Promise replacement, too heavy for a library. The TC39 [AsyncContext proposal](https://github.com/tc39/proposal-async-context) is at Stage 2 — when it advances to Stage 3+ and ships natively in a browser engine, OR when a battle-tested polyfill (TC39-shaped, light-weight, not Node-ALS-internal) appears in the npm ecosystem, swap it in. The mesh-side change at that point is small: rewrite `lmz-api-context.browser.ts` to wrap the polyfill, keep the same `runWithCallContext`/`getCurrentCallContext` exports. The framework-internal explicit threading we added stays as a defense-in-depth — works correctly regardless of whether the polyfill is present. Re-evaluate every ~6 months or when someone needs cross-await callContext reads in a browser handler.
+
 ### Star Subscription Design (Phase 5)
 
 Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in Phase 3.1. Full subscription fan-out happens in Phase 5.
@@ -86,6 +92,15 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 
 - **Bulk demo data load** — LLM/agent generates full resource timelines (create → updates → moves → deletes) with pre-computed `validFrom` chains, bulk-inserted into Star. Bypasses eTag checking (loading history, not competing with live writers), but still validates timeline consistency (monotonic `validFrom`, continuous `validTo` chains) and permission checks on target nodes. This likely supersedes Blueprint's caller-provided `validFrom` — that was also used for cross-DO synchronized updates, but Blueprint used `validFrom` as its eTag and had finer-grained multi-DO transactions. With our separate eTag + single-DO transaction model, caller-provided `validFrom` may never be needed outside of bulk load.
 
+### Rollback failure-outcome sibling tests (deferred)
+
+Spawned from [archive/validation-failed-rollback.md](archive/validation-failed-rollback.md) § "Scope decision (2026-06-04)". That task shipped 2026-06-04 — three of the five terminal-non-committed `TransactionResolution` outcomes now have bindToState rollback test coverage: `validation-failed`, `permission-denied`, `ontology-stale`. The remaining two are deferred and want their own sibling tests once their blockers clear:
+
+- **`timeout`** — needs WS-disconnect tooling (also deferred in [nebula-frontend.md](nebula-frontend.md) § Phase 5.3.6). Test shape: subscribe → optimistic write → drop the WS or stall the server-side handler past the 5–10 s queue timeout → assert state reverts to pre-write snapshot via `source: 'rollback'`.
+- **`retries-exhausted`** — belongs with the broader conflict-resolver-loop redesign in Phase 5.3.7 (`TransactionOutcome` / `TransactionResourceResolution`). Test shape: register an `onETagConflict` resolver that always returns `'use-this'`, optimistic write at a stale eTag → after `maxRetries` attempts hits cap → assert state reverts.
+
+Both should reuse the same shape as the `validation-failed`/`permission-denied`/`ontology-stale` siblings — only the trigger differs. The middleware dispatcher (`#processMiddlewareOutcome`) already handles both branches; the gap is purely test coverage.
+
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:
@@ -109,7 +124,7 @@ Fixed. `validate()` now extracts Map/Set generic type parameters from the type d
 
 ### Value Constraints via JSDoc Annotations
 
-Moved to `tasks/nebula-5.2.4.5-annotation-experiments.md`. Includes JSDoc constraints (`@min`, `@max`, `@format`, `@default`) and M:N relationship design with join tables. Query-time filtering (bounded hydration) belongs in `tasks/nebula-5.2.5-multi-resource-queries.md`.
+Moved to `tasks/on-hold/nebula-orm-and-queries.md` (post-demo). Includes JSDoc constraints (`@min`, `@max`, `@format`) as Part A, M:N relationship design with join tables as Part B, and query-time filtering / bounded hydration in the multi-resource `query()` work as Part C. (`@default` is now handled by the parse-validate package, not this work.)
 
 ### `@lumenize/ts-runtime-validate` Package Extraction
 
@@ -129,7 +144,24 @@ Old-school npm `lumenize` aggregations over temporal data. The star DO will keep
 - Training pipeline for Nebula-specialized small language model
 - Prompt engineering library (system prompts, few-shot examples, output validation)
 - Code validation pipeline (generated code → `tsc` check → DWL deploy → integration test)
-- Version control for vibe-coded applications (diff, rollback, branching)
+- Version control for vibe-coded applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
+
+  **Three timelines exist in the platform; git would address the missing one.**
+  - **Source authoring** (every AI iteration of ontology + UI code) — *not currently addressed; this is what git would cover*.
+  - **Schema deployment** (every promoted ontology version) — already addressed by immutable append-only `OntologyVersionRow`.
+  - **Data history** (every resource write) — already addressed by Snodgrass temporal storage.
+
+  **The seam**: git lives entirely on the dev side. Every `deploy_to_dev` is a commit on the `.dev` branch's iteration history. `deploy_to_main` squashes + creates a new immutable `OntologyVersionRow`, leaving git behind. Production evolution stays simple and append-only — git complements rather than replaces.
+
+  **Why it's compelling**: the AI is exceptionally good at reasoning about git directly. "Show me what changed since the last working version" is a `git diff` the AI can issue itself, not a custom API we have to design. Diff/blame/log/revert/cherry-pick all come for free once the WASM is loaded.
+
+  **Caveats to design through when this unfreezes**:
+  - **Branch-name collision** with the URL-level branches we just made first-class (`.main` / `.dev`). Different concepts (URL branches are runtime routing; git branches are authoring-time exploration), but the term overlap will confuse readers. Probably present them in the Studio UI as "iterations" or "checkpoints" to avoid saying "branch" twice.
+  - **Where the git store lives.** wasm-git's storage layer is pluggable; the choice is ours (Galaxy SQLite, dedicated DO, R2-backed).
+  - **Storage growth.** Each iteration is a commit; popular projects could accumulate gigabytes. Need a squash-after-N or GC-old story.
+  - **AI-as-git-client surface.** Letting the AI issue git commands against its iteration history is powerful but a real surface to design — what subset is exposed, how it composes with `deploy_to_dev`, etc.
+
+  **Why we're not doing this for the demo**: "the AI's working memory IS the history" works fine for a 5-minute demo. Git becomes valuable when iteration spans days/weeks across sessions. Captured here so the idea isn't lost.
 - Collaboration features (multiple vibe coders on the same application)
 - Marketplace / templates (pre-built application patterns)
 

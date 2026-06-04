@@ -64,18 +64,8 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     super(ctx, env);
 
     ctx.blockConcurrencyWhile(async () => {
-      // Call onStart() if subclass defines it
       if (this.onStart) {
-        try {
-          await this.onStart();
-        } catch (error) {
-          const log = debug('lmz.mesh.LumenizeDO.onStart');
-          log.error('onStart() failed', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-          throw error;
-        }
+        await this.onStart();
       }
 
       // Recover orphaned alarms: if the __lmz_alarms table has overdue rows
@@ -95,6 +85,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
           }
         }
       } catch { /* table doesn't exist yet — nothing to recover */ }
+    }).catch((error) => {
+      const log = debug('lmz.mesh.LumenizeDO.onStart');
+      log.error('onStart() failed', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
     });
   }
 

@@ -229,6 +229,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
+- [ ] **Working document-editor example** (browser ↔ Gateway ↔ DO). Complete, deployable system that developers can clone and run. UI framework decision documented. "Deploy to Cloudflare" button or clear deploy instructions. Linked from mesh docs. Originally Phase 4 of `mesh-post-release-part-2.md`; pulled into backlog when that file was archived during the demo-focus refactor.
+
+- [ ] **Working agent example** showing Mesh + Cloudflare's Agent pattern. At least one working example with `@lumenize/testing` AgentClient that demonstrates a practical use case (not just echo). Linked from mesh docs. Originally Phase 5 of `mesh-post-release-part-2.md`.
+
 - [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
 
 - [ ] Research adding `ctnBatch()` API to `this.lmz.call` for atomic multi-operation execution
@@ -297,6 +301,26 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     - JWKS endpoint (`/.well-known/jwks.json`) publishing the public signing keys — we already have key rotation, just need to expose it
   - **Dependency**: Much of this rides on the OAuth 2.1 AS work above (discovery, `/authorize`, `/token`, consent). Natural follow-on, not independent.
   - **References**: [OIDC Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html), [OIDC Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+
+## Nebula
+
+### Ontology depth (post-demo)
+
+Strengthen the case that Nebula's data layer is an *ontology* (not just a typed schema + DAG). Triggered by the 2026-05-03 Kumar article and successors — see [tasks/reference/ontology-research.md](reference/ontology-research.md). Items below in priority order; each is independently shippable.
+
+- [ ] **Action types** — typed semantic verbs on top of `resources.transaction` (e.g. `approveOrder`, `releaseHold`), each binding {typia input schema + precondition predicate + patch shape + emitted provenance event}. This is the single primitive most cited as the schema-vs-ontology dividing line (Palantir's moat; Fabric IQ's "permitted actions" is a shallower version). Highest narrative payoff per LOC. Provenance / audit-trail story falls out for free once verbs emit events.
+
+- [ ] **Ontology introspection endpoint** — runtime API returning types, properties, relationships, action types, and constraints. typia already has this metadata at compile time; the work is exposing it. Required for Studio's LLM to ground itself without re-shipping types, and the cheapest item that flips Nebula from "typed CRUD" to "agent-readable ontology." JSON-LD / OWL serialization is a v2 if we ever want the vendor-neutral story.
+
+- [ ] **Typed relationships** — promote DAG edges (or add a parallel relationship graph) to carry `relationshipType` with its own schema, navigable bidirectionally with `@inverse` already sketched in [website/docs/nebula/ontology.md](../website/docs/nebula/ontology.md). Without this the relationship story reads as "we have a DAG" rather than "we have an ontology graph." Cheap on top of the 5.3-shipped DAG normalization (`{nodes, edges, permissions}`).
+
+### Other Nebula backlog
+
+- [ ] Refactor `dag-tree.ts` `requirePermission` to throw typed errors (`PermissionDeniedError`, `NodeNotFoundError`, `AuthenticationRequiredError`)
+  - **Why**: Currently throws plain `Error` for three distinct conditions with different downstream handling needs. `Resources.transaction`'s permission-check refactor (Phase 5.3.3b) needed to distinguish "permission denied" (→ typed `TransactionError`) from "node not found" / "auth required" (→ propagate as Error). Fix is currently a fragile message-string match at [apps/nebula/src/resources.ts:368-377](apps/nebula/src/resources.ts:368) — `e.message.includes('permission required')`. Replace with `e instanceof PermissionDeniedError` checks.
+  - **Pattern to follow**: `apps/nebula/src/errors.ts`'s `OntologyStaleError` + `isOntologyStaleError` (typed Error subclass with `name` override + type-guard for cross-boundary use). Same shape works for these — they stay server-side so `instanceof` works fine.
+  - **Scope**: small. dag-tree.ts changes ~10 LOC; resources.ts catch block ~5 LOC; backlog because not urgent but worth doing before the next major change to either file.
+  - **Discovered during**: Phase 5.3.3b retro (typed-error fragility in the permission refactor).
 
 ## Nebula Auth
 

@@ -17,12 +17,16 @@ import {
   getEffectivePermission as getEffectivePermissionPure,
   getNodeAncestors as getNodeAncestorsPure,
   getNodeDescendants as getNodeDescendantsPure,
+  buildDagTreeView,
+  makeEdgeKey,
 } from './dag-ops';
-import type { PermissionTier, DagTreeState } from './dag-ops';
+import type { PermissionTier, DagTreeState, DagTreeView, EdgeKey, DagTreeNodeData } from './dag-ops';
+import { PermissionDeniedError, NodeNotFoundError } from './errors';
 
 export class DagTree {
   #ctx: DurableObjectState
   #_cached: DagTreeState | null = null
+  #_view: DagTreeView | null = null
   #getCallContext: () => CallContext
   #onChanged: () => void
 
@@ -79,12 +83,28 @@ export class DagTree {
   get #cached(): DagTreeState {
     if (!this.#_cached) {
       this.#_cached = this.#buildState()
+      this.#_view = null
     }
     return this.#_cached
   }
 
+  /** Adjacency-indexed view of `#cached`; rebuilt lazily on next read after a state change. */
+  get #view(): DagTreeView {
+    if (!this.#_view) {
+      this.#_view = buildDagTreeView(this.#cached)
+    }
+    return this.#_view
+  }
+
+  /** Invalidate both the state cache and its derived view. Call after any SQL mutation. */
+  #invalidate(): void {
+    this.#_cached = null
+    this.#_view = null
+  }
+
   #buildState(): DagTreeState {
-    const nodes = new Map<number, { slug: string; label: string; deleted: boolean; parentIds: number[]; childIds: number[] }>()
+    const nodes = new Map<number, DagTreeNodeData>()
+    const edges = new Set<EdgeKey>()
     const permissions = new Map<number, Map<string, PermissionTier>>()
 
     // Load all nodes
@@ -94,20 +114,13 @@ export class DagTree {
         slug: row.slug as string,
         label: row.label as string,
         deleted: Boolean(row.deleted),
-        parentIds: [],
-        childIds: [],
       })
     }
 
-    // Load all edges and populate parentIds/childIds
+    // Load all edges
     const edgeRows = this.#ctx.storage.sql.exec('SELECT parentNodeId, childNodeId FROM Edges').toArray()
     for (const row of edgeRows) {
-      const parentId = row.parentNodeId as number
-      const childId = row.childNodeId as number
-      const parent = nodes.get(parentId)
-      const child = nodes.get(childId)
-      if (parent) parent.childIds.push(childId)
-      if (child) child.parentIds.push(parentId)
+      edges.add(makeEdgeKey(row.parentNodeId as number, row.childNodeId as number))
     }
 
     // Load all permissions
@@ -124,7 +137,7 @@ export class DagTree {
       nodePerms.set(sub, tier)
     }
 
-    return { nodes, permissions }
+    return { nodes, edges, permissions }
   }
 
   // ─── Auth Helpers ─────────────────────────────────────────────────
@@ -143,15 +156,15 @@ export class DagTree {
     if (!sub) throw new Error('Authentication required')
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
     if (claims?.access?.admin) return sub // Star admin bypass
-    if (!resolvePermission(this.#cached, sub, nodeId, tier)) {
-      throw new Error(`${tier} permission required on node ${nodeId}`)
+    if (!resolvePermission(this.#view, sub, nodeId, tier)) {
+      throw new PermissionDeniedError(tier, nodeId)
     }
     return sub
   }
 
   #requireNodeExists(nodeId: number): void {
     if (!this.#cached.nodes.has(nodeId)) {
-      throw new Error(`Node ${nodeId} not found`)
+      throw new NodeNotFoundError(nodeId)
     }
   }
 
@@ -161,7 +174,7 @@ export class DagTree {
     this.#requireNodeExists(parentNodeId)
     this.requirePermission(parentNodeId, 'write')
     validateSlug(slug)
-    checkSlugUniqueness(this.#cached, parentNodeId, slug)
+    checkSlugUniqueness(this.#view, parentNodeId, slug)
 
     let newNodeId!: number
     this.#ctx.storage.transactionSync(() => {
@@ -176,7 +189,7 @@ export class DagTree {
         'INSERT INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
         parentNodeId, newNodeId,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
     return newNodeId
@@ -187,20 +200,19 @@ export class DagTree {
     this.#requireNodeExists(childNodeId)
 
     // Idempotent: if edge already exists, no-op (skip permission check)
-    const parent = this.#cached.nodes.get(parentNodeId)!
-    if (parent.childIds.includes(childNodeId)) return
+    if (this.#cached.edges.has(makeEdgeKey(parentNodeId, childNodeId))) return
 
     this.requirePermission(parentNodeId, 'write')
-    detectCycle(this.#cached, parentNodeId, childNodeId)
+    detectCycle(this.#view, parentNodeId, childNodeId)
     const child = this.#cached.nodes.get(childNodeId)!
-    checkSlugUniqueness(this.#cached, parentNodeId, child.slug)
+    checkSlugUniqueness(this.#view, parentNodeId, child.slug)
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
         'INSERT OR IGNORE INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
         parentNodeId, childNodeId,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -210,8 +222,7 @@ export class DagTree {
     this.#requireNodeExists(childNodeId)
 
     // Idempotent: if edge doesn't exist, no-op (skip permission check)
-    const parent = this.#cached.nodes.get(parentNodeId)!
-    if (!parent.childIds.includes(childNodeId)) return
+    if (!this.#cached.edges.has(makeEdgeKey(parentNodeId, childNodeId))) return
 
     this.requirePermission(parentNodeId, 'write')
 
@@ -220,7 +231,7 @@ export class DagTree {
         'DELETE FROM Edges WHERE parentNodeId = ? AND childNodeId = ?',
         parentNodeId, childNodeId,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -231,8 +242,7 @@ export class DagTree {
     this.#requireNodeExists(newParentId)
 
     // Verify old edge exists
-    const oldParent = this.#cached.nodes.get(oldParentId)!
-    if (!oldParent.childIds.includes(childNodeId)) {
+    if (!this.#cached.edges.has(makeEdgeKey(oldParentId, childNodeId))) {
       throw new Error(`Edge from ${oldParentId} to ${childNodeId} does not exist`)
     }
 
@@ -240,11 +250,11 @@ export class DagTree {
     this.requirePermission(newParentId, 'write')
 
     // Cycle detection: would newParent→child create a cycle?
-    detectCycle(this.#cached, newParentId, childNodeId)
+    detectCycle(this.#view, newParentId, childNodeId)
 
     // Slug uniqueness under new parent
     const child = this.#cached.nodes.get(childNodeId)!
-    checkSlugUniqueness(this.#cached, newParentId, child.slug)
+    checkSlugUniqueness(this.#view, newParentId, child.slug)
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
@@ -255,7 +265,7 @@ export class DagTree {
         'INSERT INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
         newParentId, childNodeId,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -272,7 +282,7 @@ export class DagTree {
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET deleted = 1 WHERE nodeId = ?', nodeId)
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -289,7 +299,7 @@ export class DagTree {
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET deleted = 0 WHERE nodeId = ?', nodeId)
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -301,14 +311,14 @@ export class DagTree {
     validateSlug(newSlug)
 
     // Check uniqueness under every parent of this node
-    const node = this.#cached.nodes.get(nodeId)!
-    for (const parentId of node.parentIds) {
-      checkSlugUniqueness(this.#cached, parentId, newSlug, nodeId)
+    const parents = this.#view.parentsByChild.get(nodeId) ?? new Set<number>()
+    for (const parentId of parents) {
+      checkSlugUniqueness(this.#view, parentId, newSlug, nodeId)
     }
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET slug = ? WHERE nodeId = ?', newSlug, nodeId)
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -321,7 +331,7 @@ export class DagTree {
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET label = ? WHERE nodeId = ?', newLabel, nodeId)
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -337,7 +347,7 @@ export class DagTree {
         'INSERT INTO Permissions (nodeId, sub, permission) VALUES (?, ?, ?) ON CONFLICT(nodeId, sub) DO UPDATE SET permission = excluded.permission',
         nodeId, targetSub, level,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -356,7 +366,7 @@ export class DagTree {
         'DELETE FROM Permissions WHERE nodeId = ? AND sub = ?',
         nodeId, targetSub,
       )
-      this.#_cached = null
+      this.#invalidate()
     })
     this.#onChanged()
   }
@@ -366,13 +376,13 @@ export class DagTree {
   checkPermission(nodeId: number, requiredTier: PermissionTier, targetSub?: string): boolean {
     this.#requireNodeExists(nodeId)
     const sub = targetSub ?? this.#requireAuth()
-    return resolvePermission(this.#cached, sub, nodeId, requiredTier)
+    return resolvePermission(this.#view, sub, nodeId, requiredTier)
   }
 
   getEffectivePermission(nodeId: number, targetSub?: string): PermissionTier | null {
     this.#requireNodeExists(nodeId)
     const sub = targetSub ?? this.#requireAuth()
-    return getEffectivePermissionPure(this.#cached, sub, nodeId)
+    return getEffectivePermissionPure(this.#view, sub, nodeId)
   }
 
   // ─── State & Traversal Queries ────────────────────────────────────
@@ -385,12 +395,12 @@ export class DagTree {
   getNodeAncestors(nodeId: number): Set<number> {
     this.#requireAuth()
     this.#requireNodeExists(nodeId)
-    return getNodeAncestorsPure(this.#cached, nodeId)
+    return getNodeAncestorsPure(this.#view, nodeId)
   }
 
   getNodeDescendants(nodeId: number): Set<number> {
     this.#requireAuth()
     this.#requireNodeExists(nodeId)
-    return getNodeDescendantsPure(this.#cached, nodeId)
+    return getNodeDescendantsPure(this.#view, nodeId)
   }
 }

@@ -274,6 +274,7 @@ describe('parse-validate throughput', () => {
       baseUrl,
       authScope: galaxyScope,
       activeScope: galaxyScope,
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

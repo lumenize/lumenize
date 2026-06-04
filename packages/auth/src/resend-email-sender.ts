@@ -35,6 +35,9 @@ export class ResendEmailSender extends AuthEmailSenderBase {
         subject: email.subject,
         html: email.html,
         reply_to: email.replyTo,
+        // Resend accepts arbitrary custom headers via the `headers` field.
+        // See https://resend.com/docs/api-reference/emails/send-email
+        headers: email.headers,
       }),
     });
 

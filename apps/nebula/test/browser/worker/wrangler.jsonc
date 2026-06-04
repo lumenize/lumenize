@@ -58,6 +58,11 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app"
+    "NEBULA_AUTH_REDIRECT": "/app",
+    // Allow Playwright + Vite dev/preview origins so the browser test page can
+    // call this deployed-via-miniflare worker cross-origin. Empty in production
+    // (single-origin deploy); per-test config provides whatever origins the
+    // test runner serves the page from.
+    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173"
   }
 }

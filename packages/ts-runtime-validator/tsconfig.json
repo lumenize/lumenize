@@ -6,5 +6,6 @@
     "rootDir": "./src"
   },
   "include": ["src/**/*"],
+  "files": ["typescript-bundle.d.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -56,8 +56,9 @@ describe('dag-tree', () => {
       expect(root!.slug).toBe('root');
       expect(root!.label).toBe('Root');
       expect(root!.deleted).toBe(false);
-      expect(root!.parentIds).toEqual([]);
-      expect(root!.childIds).toEqual([]);
+
+      expect(state.edges).toBeInstanceOf(Set);
+      expect(state.edges.size).toBe(0);
 
       expect(state.permissions).toBeInstanceOf(Map);
       expect(state.permissions.size).toBe(0);
@@ -133,7 +134,7 @@ describe('dag-tree', () => {
         expect(eng!.slug).toBe('engineering');
         expect(eng!.label).toBe('Engineering');
         expect(eng!.deleted).toBe(false);
-        expect(eng!.parentIds).toEqual([ROOT_NODE_ID]);
+        expect(state.edges.has(`${ROOT_NODE_ID}:${engId}`)).toBe(true);
       });
 
       client[Symbol.dispose]();
@@ -167,13 +168,10 @@ describe('dag-tree', () => {
       client.callStarDagTreeGetState(star);
       await vi.waitFor(() => {
         const state = client.lastResult as DagTreeState;
-        const root = state.nodes.get(ROOT_NODE_ID)!;
-        expect(root.childIds).toContain(aId);
-        expect(root.childIds).toContain(bId);
-
-        const nodeC = state.nodes.get(cId)!;
-        expect(nodeC.parentIds).toContain(aId);
-        expect(nodeC.parentIds).toContain(bId);
+        expect(state.edges.has(`${ROOT_NODE_ID}:${aId}`)).toBe(true);
+        expect(state.edges.has(`${ROOT_NODE_ID}:${bId}`)).toBe(true);
+        expect(state.edges.has(`${aId}:${cId}`)).toBe(true);
+        expect(state.edges.has(`${bId}:${cId}`)).toBe(true);
       });
 
       client[Symbol.dispose]();
@@ -401,10 +399,8 @@ describe('dag-tree', () => {
       client.callStarDagTreeGetState(star);
       await vi.waitFor(() => {
         const state = client.lastResult as DagTreeState;
-        expect(state.nodes.get(newId)!.childIds).toContain(childId);
-        expect(state.nodes.get(oldId)!.childIds).not.toContain(childId);
-        expect(state.nodes.get(childId)!.parentIds).toContain(newId);
-        expect(state.nodes.get(childId)!.parentIds).not.toContain(oldId);
+        expect(state.edges.has(`${newId}:${childId}`)).toBe(true);
+        expect(state.edges.has(`${oldId}:${childId}`)).toBe(false);
       });
 
       client[Symbol.dispose]();

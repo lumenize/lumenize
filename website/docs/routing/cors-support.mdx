@@ -199,6 +199,29 @@ try {
 }
 ```
 
+## Reusing the policy in your own router
+
+`@lumenize/routing` exports `applyCorsPolicy` and `addCorsHeaders` so any
+router that needs the same semantics (preflight handling, allowlist check,
+server-side reject) can compose them without re-implementing. `routeDORequest`
+uses these internally; `@lumenize/nebula-auth`'s `routeNebulaAuthRequest`
+shares the same `CorsOptions` shape and uses the same helpers, so a single
+`cors` config governs both auth and gateway routes in the Nebula entrypoint.
+
+The pattern (as used in `routeNebulaAuthRequest`):
+
+```typescript @check-example('packages/nebula-auth/src/router.ts')
+import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
+// ...
+  const corsDecision = applyCorsPolicy(request, options.cors ?? false);
+  if (corsDecision.earlyResponse) {
+    return corsDecision.earlyResponse;
+  }
+  const allowedOrigin = corsDecision.allowedOrigin;
+  const withCors = (response: Response): Response =>
+    allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
+```
+
 ## Integration with Hooks
 
 When CORS is enabled (not `false`), CORS headers are automatically added to responses 

@@ -29,7 +29,7 @@ import {
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
-import type { PermissionTier, OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig } from '@lumenize/nebula';
+import type { PermissionTier, OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, SubscriberRow } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -66,6 +66,42 @@ export class StarTest extends Star {
     }
     rowVersions.sort();
     return { index, rowVersions };
+  }
+
+  /**
+   * Test-only: dump the Subscribers table so tests can verify idempotency
+   * and row content. PK-ordered. Admin-gated to avoid client tests leaking
+   * the registry shape unintentionally.
+   */
+  @mesh(requireAdmin)
+  inspectSubscribers(): SubscriberRow[] {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt
+       FROM Subscribers ORDER BY resourceId, clientId`,
+    ).toArray();
+    return rows as unknown as SubscriberRow[];
+  }
+
+  /**
+   * Test-only: drop and recreate the Subscribers table. Used by 5.3.4a
+   * reconnect tests to verify that the client's resubscribe walk actually
+   * re-inserts rows. Without this hook, the absence of Phase 5.3.5
+   * (disconnect cleanup) means subscriber rows persist across WS close, so
+   * a missing resubscribe wouldn't be visible. Admin-gated.
+   */
+  @mesh(requireAdmin)
+  clearSubscribersForTest(): void {
+    this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS Subscribers (
+        resourceId TEXT NOT NULL,
+        clientId TEXT NOT NULL,
+        sub TEXT NOT NULL,
+        subscriberBinding TEXT NOT NULL,
+        subscribedAt TEXT NOT NULL,
+        PRIMARY KEY (resourceId, clientId)
+      ) WITHOUT ROWID;
+    `);
   }
 
   /**
@@ -147,6 +183,11 @@ export class NebulaClientTest extends NebulaClient {
   lastEchoMessage: string | undefined = undefined;
   lastAdminEchoMessage: string | undefined = undefined;
 
+  // --- handleResourceUpdate capture (separate from lastResult so multi-arg
+  //     payload remains inspectable in subscribe tests) ---
+  lastResourceUpdate: { resourceType: string; resourceId: string; snapshot: Snapshot | null } | undefined = undefined;
+  resourceUpdateCount = 0;
+
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
     if (value instanceof Error) {
@@ -163,6 +204,8 @@ export class NebulaClientTest extends NebulaClient {
     this.lastResult = undefined;
     this.lastError = undefined;
     this.callCompleted = false;
+    this.lastResourceUpdate = undefined;
+    this.resourceUpdateCount = 0;
   }
 
   // --- Mesh-callable methods (DOs call these through the Gateway) ---
@@ -328,22 +371,61 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
 
-  callStarTransaction(starName: string, ontologyVersion: string, ops: Record<string, OperationDescriptor>): void {
+  callStarTransaction(
+    starName: string,
+    ontologyVersion: string,
+    ops: Record<string, OperationDescriptor>,
+    newETag?: string,
+  ): void {
     this.resetResults();
+    const txnETag = newETag ?? crypto.randomUUID();
+    this.lastTxnETag = txnETag;
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().transaction(ontologyVersion, ops));
+      this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
   }
+
+  /** Last newETag used by `callStarTransaction` — useful for tests that
+   *  need to retry with the same eTag (idempotency probe). */
+  lastTxnETag: string | undefined = undefined;
 
   callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
     this.resetResults();
+    const requestId = crypto.randomUUID();
     this.lmz.call('STAR', starName,
-      this.ctn<Star>().read(ontologyVersion, resourceId));
+      this.ctn<Star>().read(ontologyVersion, resourceId, requestId));
+  }
+
+  callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
+    this.resetResults();
+    this.lmz.call('STAR', starName,
+      this.ctn<Star>().subscribe(ontologyVersion, resourceType, resourceId));
+  }
+
+  callStarInspectSubscribers(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectSubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarClearSubscribersForTest(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().clearSubscribersForTest();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   // --- Resource result handlers (override base class) ---
 
   @mesh()
   override handleTransactionResult(result: TransactionResult | Error): void {
+    // Delegate to base so the in-flight transaction queue settles for any
+    // test using `client.resources.transaction()`. The legacy
+    // `callStarTransaction` test initiator doesn't enqueue a transaction
+    // (it's just an lmz.call), so the base's `#inFlightTxn` is null and the
+    // delegation is a no-op for that path. After delegation, capture for
+    // assertion: legacy tests read `lastResult` / `lastError` /
+    // `callCompleted`.
+    super.handleTransactionResult(result);
+
     if (result instanceof Error) {
       this.lastError = result.message;
       this.lastResult = undefined;
@@ -355,12 +437,37 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   @mesh()
-  override handleReadResult(result: Snapshot | null | Error): void {
+  override handleReadResponse(_requestId: string, result: Snapshot | null | Error): void {
+    // Delegate to base for Promise correlation on the new
+    // client.resources.read() path. The base settles the pending entry in
+    // its requestId map. Then capture for assertion on the legacy
+    // `callStarRead` test initiator (which doesn't go through the Promise
+    // path — it sets `lastResult` / `lastError` and `callCompleted`).
+    super.handleReadResponse(_requestId, result);
+
     if (result instanceof Error) {
       this.lastError = result.message;
       this.lastResult = undefined;
     } else {
       this.lastResult = result;
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  @mesh()
+  override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {
+    // Delegate to base for Promise correlation + state write-through (5.3.3a).
+    // The base no-ops state write when no StateManager is bound, so tests that
+    // don't call bindToState still work.
+    super.handleResourceUpdate(resourceType, resourceId, result);
+
+    this.resourceUpdateCount++;
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastResourceUpdate = undefined;
+    } else {
+      this.lastResourceUpdate = { resourceType, resourceId, snapshot: result };
       this.lastError = undefined;
     }
     this.callCompleted = true;

@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/mesh",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Lumenize Mesh - communication framework for Cloudflare Durable Objects",
   "type": "module",
   "main": "src/index.ts",
@@ -8,6 +8,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client-index.ts"
+  },
+  "imports": {
+    "#lmz-api-context": {
+      "types": "./src/lmz-api-context.workerd.ts",
+      "workerd": "./src/lmz-api-context.workerd.ts",
+      "worker": "./src/lmz-api-context.workerd.ts",
+      "node": "./src/lmz-api-context.workerd.ts",
+      "browser": "./src/lmz-api-context.browser.ts",
+      "default": "./src/lmz-api-context.workerd.ts"
+    }
   },
   "files": [
     "src/**/*"
@@ -32,17 +42,22 @@
     "access": "public"
   },
   "dependencies": {
-    "@lumenize/auth": "^0.24.0",
-    "@lumenize/debug": "^0.25.0",
-    "@lumenize/routing": "^0.25.0",
-    "@lumenize/structured-clone": "^0.25.0",
+    "@lumenize/auth": "^0.26.0",
+    "@lumenize/debug": "^0.26.0",
+    "@lumenize/routing": "^0.26.0",
+    "@lumenize/structured-clone": "^0.26.0",
     "cron-schedule": "^6.0.0",
     "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@lumenize/debug": "*",
+    "@lumenize/testing": "^0.26.0",
+    "@vitest/browser": "4.1.4",
+    "@vitest/browser-playwright": "4.1.4",
     "@vitest/coverage-istanbul": "4.1.4",
+    "http-proxy": "^1.18.1",
+    "playwright": "^1.48.2",
     "tsx": "^4.19.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",

@@ -43,7 +43,7 @@ All mesh nodes have access to `this.lmz` — the unified API for identity and co
 
 ### Automatic Identity Propagation
 
-Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Callees store this information on first contact, enabling them to provide return addresses for callbacks, tracing, etc.
+Workers RPC requires the caller to know the callee's binding and instance name to make a call — but the callee can't independently learn either. Cloudflare's recent `ctx.id.name` change populates instance name for DOs accessed via `getByName()`/`idFromName()`, and persists it for alarms scheduled after 2026-03-15. But instance name remains undefined when the access used `idFromString()`, for `newUniqueId()` DOs, and for names longer than 1024 bytes. Binding name is never available from inside. Lumenize Mesh sidesteps all of this by storing identity in DO storage on first contact and reusing it across every subsequent invocation regardless of entry path — enabling return addresses for callbacks, tracing, etc.
 
 ### Call Context
 

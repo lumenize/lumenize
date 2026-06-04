@@ -1,4 +1,6 @@
+import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth/client';
 import {
   newContinuation,
   executeOperationChain,
@@ -11,15 +13,65 @@ import {
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
 import {
-  runWithCallContext,
-  captureCallContext,
-  buildOutgoingCallContext,
   extractCallChains,
-  createHandlerExecutor,
   setupFireAndForgetHandler,
   type CallEnvelope,
-  type LocalChainExecutor,
 } from './lmz-api.js';
+
+// ---------------------------------------------------------------------------
+// Browser-safe call-context threading
+// ---------------------------------------------------------------------------
+//
+// LumenizeClient runs in browsers where `node:async_hooks`'s AsyncLocalStorage
+// isn't available, and the userland Promise-then patching approach can't
+// preserve context across native `await` (V8 bypasses user-visible .then for
+// async-function resumes). So this file threads `CallContext` explicitly
+// through framework code via closures + a synchronous instance field
+// (`#currentCallContext`) rather than via ALS.
+//
+// `this.lmz.callContext` (the user-facing getter) reads `#currentCallContext`
+// synchronously. It returns the correct value for code running SYNCHRONOUSLY
+// inside an `@mesh()` handler (no await between handler entry and the read),
+// but may return a stale value if read AFTER an await when concurrent calls
+// have re-entered the dispatcher. This is the same cliff as today; no current
+// browser-side `@mesh()` handler in `apps/nebula/` reads `callContext` after
+// an await, so it doesn't surface in practice. Framework code below does NOT
+// depend on the field being correct across awaits — it captures the parent
+// context synchronously at every `lmz.call(...)` entry and threads it as an
+// explicit parameter through to `#callRaw` and the handler executor.
+//
+// See tasks/playwright-test-template.md § Known blockers #2 for the full
+// rationale and the alternatives considered (polyfill, refactor-everywhere).
+
+/**
+ * Build the outgoing CallContext from an explicit parent context.
+ *
+ * Mirrors `buildOutgoingCallContext` from `lmz-api.ts` but takes the parent
+ * as a parameter instead of looking it up via ALS. Returns a fresh chain
+ * when `parentContext` is undefined or `options.newChain` is set.
+ */
+function buildClientOutgoingContext(
+  callerIdentity: NodeIdentity,
+  parentContext: CallContext | undefined,
+  options?: CallOptions,
+): CallContext {
+  if (options?.newChain || !parentContext) {
+    return {
+      callChain: [callerIdentity],
+      originAuth: undefined,
+      state: options?.state ?? {},
+    };
+  }
+  const newCallChain = [...parentContext.callChain, callerIdentity];
+  const newState = options?.state
+    ? { ...parentContext.state, ...options.state }
+    : parentContext.state;
+  return {
+    callChain: newCallChain,
+    originAuth: parentContext.originAuth,
+    state: newState,
+  };
+}
 import {
   GatewayMessageType,
   type CallMessage,
@@ -127,15 +179,16 @@ export interface LumenizeClientConfig {
   /**
    * Token refresh source
    *
-   * - String: endpoint URL (POST, expects `{ access_token, sub }`)
-   * - Function: custom refresh logic returning `{ access_token, sub }`
+   * - String: endpoint URL (POST, expects `{ access_token }`)
+   * - Function: custom refresh logic returning `{ access_token }`
    *
-   * Both forms must provide `sub` so the client can auto-generate
-   * `instanceName` as `${sub}.${tabId}`.
+   * The `sub` for auto-generating `instanceName` is read from the JWT's
+   * payload (`client.claims.sub`); the refresh source only needs to return
+   * the token.
    *
    * Default: `/auth/refresh-token`
    */
-  refresh?: string | (() => Promise<{ access_token: string; sub: string }>);
+  refresh?: string | (() => Promise<{ access_token: string; sub?: string }>);
 
   /**
    * Called when connection state changes
@@ -217,7 +270,30 @@ export interface LmzApiClient {
   readonly instanceName: string;
 
   /**
-   * Current call context (only valid during @mesh handler execution)
+   * Current call context (only valid during @mesh handler execution).
+   *
+   * ⚠️ **Browser constraint**: in the browser this value is backed by a
+   * private instance field updated synchronously when an `@mesh()` handler
+   * is dispatched. It returns the correct context for code running
+   * **synchronously** inside the handler, but may return a stale value if
+   * read **after an `await`** when concurrent mesh calls have re-entered
+   * the dispatcher. This applies to direct reads AND transitive reads via
+   * helper methods called from a post-await position.
+   *
+   * Safe pattern in browser-side `@mesh()` handlers:
+   * ```typescript
+   * @mesh()
+   * async handleX(arg) {
+   *   const ctx = this.lmz.callContext;  // ← capture synchronously
+   *   await something();
+   *   use(ctx);                          // ← use the captured value
+   *   this.helper(ctx);                  // ← thread to helpers, don't have them re-read
+   * }
+   * ```
+   *
+   * No constraint on the server side (LumenizeDO/LumenizeWorker) — those
+   * use real `AsyncLocalStorage` and preserve context across awaits. The
+   * same code pattern works there too, just isn't required.
    *
    * @throws Error if accessed outside of a mesh call context
    */
@@ -299,12 +375,13 @@ export abstract class LumenizeClient {
   // Private Fields
   // ============================================
 
+  #debugFactory = debug;
   #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName'>> & LumenizeClientConfig;
   #instanceName: string | null = null;
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
-  #sub: string | null = null;
+  #claims: Readonly<JwtPayload> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -341,6 +418,10 @@ export abstract class LumenizeClient {
     // Store initial token if provided
     if (config.accessToken) {
       this.#accessToken = config.accessToken;
+      const parsed = parseJwtUnsafe(config.accessToken);
+      if (parsed) {
+        this.#claims = Object.freeze(parsed.payload);
+      }
     }
 
     // Set up wake-up sensing (browser only)
@@ -359,6 +440,19 @@ export abstract class LumenizeClient {
    */
   get connectionState(): ConnectionState {
     return this.#connectionState;
+  }
+
+  /**
+   * Decoded JWT payload from the current access token
+   *
+   * Frozen and stable across the client's lifetime (replaced on each refresh).
+   * Returns `null` until the first successful token refresh.
+   *
+   * Use `client.claims.sub` for per-user keying, `client.claims.aud` for the
+   * audience claim, etc. — same shape as `originAuth.claims` on the server side.
+   */
+  get claims(): Readonly<JwtPayload> | null {
+    return this.#claims;
   }
 
   /**
@@ -398,7 +492,21 @@ export abstract class LumenizeClient {
         return self.#currentCallContext;
       },
 
-      callRaw: self.#callRaw.bind(self),
+      // Public callRaw doesn't take parentContext — the public API shape stays
+      // backward compatible. Internally, we capture #currentCallContext at the
+      // sync call site and pass it through to the renamed-internal #callRaw.
+      callRaw: (
+        calleeBindingName: string,
+        calleeInstanceNameOrId: string | undefined,
+        chainOrContinuation: OperationChain | Continuation<any>,
+        options?: CallOptions,
+      ) => self.#callRaw(
+        calleeBindingName,
+        calleeInstanceNameOrId,
+        chainOrContinuation,
+        self.#currentCallContext ?? undefined,
+        options,
+      ),
       call: self.#call.bind(self),
     };
 
@@ -518,7 +626,7 @@ export abstract class LumenizeClient {
 
   /**
    * Called when a Gateway message arrives whose `type` is not in
-   * `GatewayMessageType`. Default: warn to console.
+   * `GatewayMessageType`. Default: warn via `@lumenize/debug`.
    *
    * Override in a subclass to handle application-specific frames sent by a
    * Gateway subclass via `ws.send()`. The frame has already been
@@ -526,7 +634,8 @@ export abstract class LumenizeClient {
    * timing-marker frames emitted from Gateway hooks.
    */
   onUnknownMessage(message: any): void {
-    console.warn('Unknown Gateway message type:', message?.type);
+    const log = this.#debugFactory('lmz.mesh.LumenizeClient.onUnknownMessage');
+    log.warn('Unknown Gateway message type', { type: message?.type });
   }
 
   // ============================================
@@ -538,16 +647,26 @@ export abstract class LumenizeClient {
     this.#setConnectionState(isReconnect ? 'reconnecting' : 'connecting');
 
     try {
-      // Auto-generate instanceName if not set (parallel optimization)
-      if (!this.#instanceName && !this.#accessToken) {
-        // Run tabId generation and token refresh in parallel
-        // tabId takes ≤50ms, refresh is a network call (usually >50ms)
-        const tabIdDeps = this.#getTabIdDeps();
-        const [tabId] = await Promise.all([
-          tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
-          this.#refreshToken(),  // Sets this.#accessToken and this.#sub
-        ]);
-        this.#instanceName = `${this.#sub}.${tabId}`;
+      // Auto-generate instanceName if not set
+      if (!this.#instanceName) {
+        if (!this.#accessToken) {
+          // Parallel optimization: tabId generation (≤50ms) and token
+          // refresh (network call, usually >50ms) overlap.
+          const tabIdDeps = this.#getTabIdDeps();
+          const [tabId] = await Promise.all([
+            tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
+            this.#refreshToken(),  // Sets this.#accessToken and this.#claims
+          ]);
+          this.#instanceName = `${this.#claims?.sub}.${tabId}`;
+        } else {
+          // Token was supplied by the caller — derive instanceName from its
+          // `sub` claim + tabId without making a refresh round-trip.
+          const tabIdDeps = this.#getTabIdDeps();
+          const tabId = tabIdDeps
+            ? await getOrCreateTabId(tabIdDeps)
+            : crypto.randomUUID().slice(0, 8);
+          this.#instanceName = `${this.#claims?.sub}.${tabId}`;
+        }
       } else if (!this.#accessToken) {
         // instanceName already set, just need the token
         await this.#refreshToken();
@@ -747,9 +866,6 @@ export abstract class LumenizeClient {
       // Custom refresh function — returns { access_token, sub }
       const result = await refresh();
       this.#accessToken = result.access_token;
-      if (result.sub) {
-        this.#sub = result.sub;
-      }
     } else if (typeof refresh === 'string') {
       // Endpoint URL - use custom fetch if provided (for cookie-aware requests)
       const fetchFn = this.#config.fetch ?? fetch;
@@ -762,12 +878,8 @@ export abstract class LumenizeClient {
         throw new Error(`Token refresh failed: ${response.status}`);
       }
 
-      const data = await response.json() as { access_token?: string; sub?: string };
+      const data = await response.json() as { access_token?: string };
       this.#accessToken = data.access_token ?? null;
-      // Store sub for instanceName auto-generation
-      if (data.sub) {
-        this.#sub = data.sub;
-      }
     } else {
       throw new Error('No refresh method configured');
     }
@@ -775,6 +887,12 @@ export abstract class LumenizeClient {
     if (!this.#accessToken) {
       throw new Error('Refresh returned no token');
     }
+
+    const parsed = parseJwtUnsafe(this.#accessToken);
+    if (!parsed) {
+      throw new Error('Refresh returned a malformed access_token');
+    }
+    this.#claims = Object.freeze(parsed.payload);
   }
 
   /**
@@ -802,7 +920,10 @@ export abstract class LumenizeClient {
       // Use JSON.parse - postprocessing is done per-field as needed
       message = JSON.parse(data) as GatewayMessage;
     } catch (error) {
-      console.error('Failed to parse Gateway message:', error);
+      const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleMessage');
+      log.error('Failed to parse Gateway message', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
 
@@ -840,7 +961,8 @@ export abstract class LumenizeClient {
   #handleCallResponse(message: CallResponseMessage): void {
     const pending = this.#pendingCalls.get(message.callId);
     if (!pending) {
-      console.warn('Received response for unknown call:', message.callId);
+      const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleCallResponse');
+      log.warn('Received response for unknown call', { callId: message.callId });
       return;
     }
 
@@ -870,17 +992,20 @@ export abstract class LumenizeClient {
         state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
       };
 
-      // Set up call context for this request
+      // Set up call context for this request. Setting #currentCallContext
+      // synchronously is sufficient for `this.lmz.callContext` reads in user
+      // code AND for the framework's own `lmz.call(...)` invocations — both
+      // read this field directly (see #call below). No ALS wrap needed; the
+      // browser can't preserve ALS across native await anyway, and the field
+      // is correct for the synchronous portion of the handler before any
+      // await yields control.
       this.#currentCallContext = callContext;
 
-      // Execute within call context (for nested calls)
-      const result = await runWithCallContext(callContext, async () => {
-        // Run onBeforeCall hook
-        this.onBeforeCall();
+      // Run onBeforeCall hook
+      this.onBeforeCall();
 
-        // Execute the operation chain
-        return await executeOperationChain(chain, this);
-      });
+      // Execute the operation chain
+      const result = await executeOperationChain(chain, this);
 
       // Send success response (preprocess for structured clone handling)
       const response: IncomingCallResponseMessage = {
@@ -967,6 +1092,7 @@ export abstract class LumenizeClient {
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     chainOrContinuation: OperationChain | Continuation<any>,
+    parentContext: CallContext | undefined,
     options?: CallOptions
   ): Promise<any> {
     // Extract chain from continuation if needed
@@ -982,7 +1108,7 @@ export abstract class LumenizeClient {
       instanceName: this.#instanceName!,
     };
 
-    const callContext = buildOutgoingCallContext(callerIdentity, options);
+    const callContext = buildClientOutgoingContext(callerIdentity, parentContext, options);
 
     // Preprocess fields that may contain extended types (Maps, Sets, etc.)
     // See CallMessage interface for serialization rules
@@ -1021,23 +1147,41 @@ export abstract class LumenizeClient {
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void {
-    // 1. Extract and validate chains (shared helper)
+    // 1. Extract and validate chains
     const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
-    // 2. Set up handler execution (shared helpers)
-    // Client uses executeOperationChain directly (no RPC exposure concern)
-    const capturedContext = captureCallContext();
-    const localExecutor: LocalChainExecutor = (chain, opts) =>
-      executeOperationChain(chain, this, opts);
-    const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
+    // 2. Capture the parent context SYNCHRONOUSLY at this call site. This is
+    // the context active when user code invokes `this.lmz.call(...)`. We snapshot
+    // it now (in closure) so the outgoing call and any handler restoration use
+    // the correct value regardless of what happens to `#currentCallContext`
+    // later. (Inheritance was previously done via ALS lookup in
+    // `buildOutgoingCallContext`; we now thread it explicitly.)
+    const capturedContext = this.#currentCallContext ?? undefined;
 
-    // 3. Make remote call with context
-    const callPromise = capturedContext
-      ? runWithCallContext(capturedContext, () =>
-          this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
-      : this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
+    // 3. Handler executor: when the response arrives, temporarily restore
+    // `#currentCallContext` to the captured value so handler code (and any
+    // nested `lmz.call` it triggers) sees the same context that was active at
+    // the outgoing call site.
+    const executeHandler = async (chain: OperationChain): Promise<any> => {
+      const prev = this.#currentCallContext;
+      this.#currentCallContext = capturedContext ?? null;
+      try {
+        return await executeOperationChain(chain, this, { requireMeshDecorator: false });
+      } finally {
+        this.#currentCallContext = prev;
+      }
+    };
 
-    // 4. Fire-and-forget with handler callbacks (shared helper)
+    // 4. Make the remote call with the explicit parent context.
+    const callPromise = this.#callRaw(
+      calleeBindingName,
+      calleeInstanceNameOrId,
+      remoteChain,
+      capturedContext,
+      options,
+    );
+
+    // 5. Fire-and-forget with handler callbacks (shared helper, no ALS needed).
     setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
   }
 }

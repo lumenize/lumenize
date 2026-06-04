@@ -180,7 +180,7 @@ For long-running external calls, consider using [`@lumenize/fetch`](/docs/fetch)
 `LumenizeClient` runs anywhere with JavaScript and WebSocket support (browser, node.js, bun, etc.) and is a **full mesh peer** — it can both make and receive calls.
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/editor-client.ts')
-import { LumenizeClient, mesh, type LumenizeClientConfig } from '@lumenize/mesh';
+import { LumenizeClient, mesh, type LumenizeClientConfig } from '@lumenize/mesh/client';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 

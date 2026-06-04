@@ -97,27 +97,33 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
 
     let subject: string;
     let html: string;
+    let headers: Record<string, string>;
 
     switch (message.type) {
       case 'magic-link':
         subject = this.magicLinkSubject(message);
         html = this.magicLinkHtml(message);
+        headers = this.magicLinkHeaders(message);
         break;
       case 'admin-notification':
         subject = this.adminNotificationSubject(message);
         html = this.adminNotificationHtml(message);
+        headers = this.adminNotificationHeaders(message);
         break;
       case 'approval-confirmation':
         subject = this.approvalConfirmationSubject(message);
         html = this.approvalConfirmationHtml(message);
+        headers = this.approvalConfirmationHeaders(message);
         break;
       case 'invite-existing':
         subject = this.inviteExistingSubject(message);
         html = this.inviteExistingHtml(message);
+        headers = this.inviteExistingHeaders(message);
         break;
       case 'invite-new':
         subject = this.inviteNewSubject(message);
         html = this.inviteNewHtml(message);
+        headers = this.inviteNewHeaders(message);
         break;
     }
 
@@ -128,6 +134,7 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
       from: this.from,
       replyTo: resolvedReplyTo,
       appName: this.appName,
+      headers,
     };
 
     await this.sendEmail(resolved);
@@ -188,5 +195,33 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
 
   inviteNewSubject(_message: InviteNewMessage): string {
     return "You've been invited";
+  }
+
+  // ============================================
+  // Overridable header hooks (return Record<string, string>)
+  //
+  // Default to `{}`. Override to thread routing/correlation IDs, multi-tenant
+  // scope markers, A/B variant labels, etc. through to provider-emitted email
+  // headers (Cloudflare's `binding.send({...})` accepts a `headers` field).
+  // ============================================
+
+  magicLinkHeaders(_message: MagicLinkMessage): Record<string, string> {
+    return {};
+  }
+
+  adminNotificationHeaders(_message: AdminNotificationMessage): Record<string, string> {
+    return {};
+  }
+
+  approvalConfirmationHeaders(_message: ApprovalConfirmationMessage): Record<string, string> {
+    return {};
+  }
+
+  inviteExistingHeaders(_message: InviteExistingMessage): Record<string, string> {
+    return {};
+  }
+
+  inviteNewHeaders(_message: InviteNewMessage): Record<string, string> {
+    return {};
   }
 }

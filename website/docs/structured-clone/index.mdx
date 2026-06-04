@@ -27,7 +27,7 @@ import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 - **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
 - **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects (via RequestSync/ResponseSync)
 - **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
-- **Circular References**: Automatically handled with `$lmz` reference markers
+- **Circular References**: Automatically handled — shared and cyclic subgraphs are hoisted into `meta.aliases` and referenced by `{ $ref: id }`
 - **Zero Dependencies**: No external packages required
 - **Synchronous API**: No async/await needed for serialization
 
@@ -202,7 +202,7 @@ const restored = parse(jsonString);           // Reconstructs from JSON string
 For scenarios where you want a simple object format without stringification:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
-const intermediate = preprocess(complexObject);  // Returns { root, objects }
+const intermediate = preprocess(complexObject);  // Returns { json, meta }
 const restored = postprocess(intermediate);      // Reconstructs from object
 ```
 
@@ -222,7 +222,8 @@ Binary formats are generally smaller, but this implementation is generally faste
 ## Attribution
 
 Inspired by:
-- **Cap'n Web** (tuple format) - https://github.com/cloudflare/capnweb
+- **SuperJSON** (nested-document + meta sidecar shape) - https://github.com/blitz-js/superjson
+- **Cap'n Web** (inline-tagged special types) - https://github.com/cloudflare/capnweb
 - **@ungap/structured-clone** (cycle detection) - https://github.com/ungap/structured-clone by Andrea Giammarchi
 
 See [ATTRIBUTIONS.md](https://github.com/lumenize/lumenize/blob/main/ATTRIBUTIONS.md) for full attribution details.

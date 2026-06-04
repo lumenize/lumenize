@@ -35,16 +35,16 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
-    "@lumenize/testing": "^0.24.0",
+    "@lumenize/testing": "*",
     "@vitest/coverage-istanbul": "4.1.4",
     "typescript": "^5.9.2",
     "vitest": "4.1.4",
     "wrangler": "^4.86.0"
   },
   "dependencies": {
-    "@lumenize/auth": "^0.24.0",
-    "@lumenize/debug": "^0.24.0",
-    "@lumenize/routing": "^0.24.0"
+    "@lumenize/auth": "*",
+    "@lumenize/debug": "*",
+    "@lumenize/routing": "*"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",

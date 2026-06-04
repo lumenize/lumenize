@@ -15,6 +15,10 @@
   },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "NEBULA_AUTH_REDIRECT": "/app"
+    "NEBULA_AUTH_REDIRECT": "/app",
+    // Comma-separated origins allowed to call this Worker from a browser.
+    // Empty = same-origin only (safe default for the single-origin lumenize.com deploy).
+    // Custom-domain deploys and real-browser test rigs override this per environment.
+    "LUMENIZE_APPROVED_ORIGINS": ""
   }
 }

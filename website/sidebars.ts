@@ -353,8 +353,12 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Nebula',
       items: [
-        'nebula/auth-flows',
         'nebula/nebula-client',
+        'nebula/coding-your-ui',
+        'nebula/ontology',
+        'nebula/resources',
+        'nebula/api-reference',
+        'nebula/auth-flows',
       ],
     },
 

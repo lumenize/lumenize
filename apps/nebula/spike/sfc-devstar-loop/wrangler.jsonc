@@ -1,0 +1,17 @@
+{
+  "name": "spike-sfc-galaxy-loop",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-05-01",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "GALAXY", "class_name": "SpikeGalaxy" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SpikeGalaxy"]
+    }
+  ]
+}

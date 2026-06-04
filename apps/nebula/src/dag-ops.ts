@@ -9,15 +9,60 @@ export const ROOT_NODE_ID = 1
 
 export type PermissionTier = 'admin' | 'write' | 'read'
 
+/** Canonical edge key form for `DagTreeState.edges`. */
+export type EdgeKey = `${number}:${number}`
+
+export function makeEdgeKey(parentNodeId: number, childNodeId: number): EdgeKey {
+  return `${parentNodeId}:${childNodeId}` as EdgeKey
+}
+
+export interface DagTreeNodeData {
+  slug: string;
+  label: string;
+  deleted: boolean;
+}
+
 export interface DagTreeState {
-  nodes: Map<number, {
-    slug: string;
-    label: string;
-    deleted: boolean;
-    parentIds: number[];
-    childIds: number[];
-  }>;
+  nodes: Map<number, DagTreeNodeData>;
+  edges: Set<EdgeKey>;
   permissions: Map<number, Map<string, PermissionTier>>; // nodeId → { sub → tier }
+}
+
+/**
+ * Read-only adjacency-indexed view of a `DagTreeState`.
+ *
+ * `state` is the canonical, wire-shippable form. `parentsByChild` and
+ * `childrenByParent` are O(1) lookup indexes derived from `state.edges`,
+ * built once per state rebuild so traversal/permission/cycle queries stay
+ * fast.
+ *
+ * Build a fresh view from a state via `buildDagTreeView(state)`; consumers
+ * that mutate state must rebuild the view (or invalidate it) afterward.
+ */
+export interface DagTreeView {
+  readonly state: DagTreeState;
+  readonly parentsByChild: ReadonlyMap<number, ReadonlySet<number>>;
+  readonly childrenByParent: ReadonlyMap<number, ReadonlySet<number>>;
+}
+
+const EMPTY_SET: ReadonlySet<number> = new Set<number>()
+
+/** Build a `DagTreeView` from a `DagTreeState`. O(E) over edges. */
+export function buildDagTreeView(state: DagTreeState): DagTreeView {
+  const parentsByChild = new Map<number, Set<number>>()
+  const childrenByParent = new Map<number, Set<number>>()
+  for (const edge of state.edges) {
+    const colon = edge.indexOf(':')
+    const parentId = Number(edge.slice(0, colon))
+    const childId = Number(edge.slice(colon + 1))
+    let kids = childrenByParent.get(parentId)
+    if (!kids) { kids = new Set(); childrenByParent.set(parentId, kids) }
+    kids.add(childId)
+    let pars = parentsByChild.get(childId)
+    if (!pars) { pars = new Set(); parentsByChild.set(childId, pars) }
+    pars.add(parentId)
+  }
+  return { state, parentsByChild, childrenByParent }
 }
 
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
@@ -34,21 +79,22 @@ export function validateSlug(slug: string): void {
   }
 }
 
-export function checkSlugUniqueness(state: DagTreeState, parentNodeId: number, slug: string, excludeNodeId?: number): void {
-  const parent = state.nodes.get(parentNodeId)
+export function checkSlugUniqueness(view: DagTreeView, parentNodeId: number, slug: string, excludeNodeId?: number): void {
+  const parent = view.state.nodes.get(parentNodeId)
   if (!parent) throw new Error(`Node ${parentNodeId} not found`)
-  for (const childId of parent.childIds) {
+  const children = view.childrenByParent.get(parentNodeId) ?? EMPTY_SET
+  for (const childId of children) {
     if (excludeNodeId !== undefined && childId === excludeNodeId) continue
-    const child = state.nodes.get(childId)
+    const child = view.state.nodes.get(childId)
     if (child && child.slug === slug) {
       throw new Error(`Slug '${slug}' already exists under parent ${parentNodeId}`)
     }
   }
 }
 
-export function detectCycle(state: DagTreeState, parentNodeId: number, childNodeId: number): void {
+export function detectCycle(view: DagTreeView, parentNodeId: number, childNodeId: number): void {
   // If adding parent→child would create a cycle, parent must be a descendant of child.
-  // Walk up from parent via parentIds; if we find child, it's a cycle.
+  // Walk up from parent via parentsByChild; if we find child, it's a cycle.
   const visited = new Set<number>()
   const queue = [parentNodeId]
   while (queue.length > 0) {
@@ -58,11 +104,9 @@ export function detectCycle(state: DagTreeState, parentNodeId: number, childNode
     }
     if (visited.has(current)) continue
     visited.add(current)
-    const node = state.nodes.get(current)
-    if (node) {
-      for (const pid of node.parentIds) {
-        if (!visited.has(pid)) queue.push(pid)
-      }
+    const parents = view.parentsByChild.get(current) ?? EMPTY_SET
+    for (const pid of parents) {
+      if (!visited.has(pid)) queue.push(pid)
     }
   }
 }
@@ -75,12 +119,12 @@ export function detectCycle(state: DagTreeState, parentNodeId: number, childNode
  * Deleted nodes are climbed through and their grants are considered normally.
  */
 export function resolvePermission(
-  state: DagTreeState,
+  view: DagTreeView,
   sub: string,
   nodeId: number,
   requiredTier: PermissionTier,
 ): boolean {
-  const effective = getEffectivePermission(state, sub, nodeId)
+  const effective = getEffectivePermission(view, sub, nodeId)
   if (!effective) return false
   return TIER_RANK[effective] >= TIER_RANK[requiredTier]
 }
@@ -90,7 +134,7 @@ export function resolvePermission(
  * Returns null if no grant found on any ancestor.
  */
 export function getEffectivePermission(
-  state: DagTreeState,
+  view: DagTreeView,
   sub: string,
   nodeId: number,
 ): PermissionTier | null {
@@ -104,7 +148,7 @@ export function getEffectivePermission(
     visited.add(current)
 
     // Check direct grant on this node
-    const nodePerms = state.permissions.get(current)
+    const nodePerms = view.state.permissions.get(current)
     if (nodePerms) {
       const grant = nodePerms.get(sub)
       if (grant) {
@@ -117,11 +161,9 @@ export function getEffectivePermission(
     }
 
     // Climb to parents
-    const node = state.nodes.get(current)
-    if (node) {
-      for (const pid of node.parentIds) {
-        if (!visited.has(pid)) queue.push(pid)
-      }
+    const parents = view.parentsByChild.get(current) ?? EMPTY_SET
+    for (const pid of parents) {
+      if (!visited.has(pid)) queue.push(pid)
     }
   }
 
@@ -131,44 +173,32 @@ export function getEffectivePermission(
 // ─── Traversal ──────────────────────────────────────────────────────
 
 /** Get all ancestor nodeIds (excludes the starting node). */
-export function getNodeAncestors(state: DagTreeState, nodeId: number): Set<number> {
+export function getNodeAncestors(view: DagTreeView, nodeId: number): Set<number> {
   const ancestors = new Set<number>()
   const queue: number[] = []
-  const node = state.nodes.get(nodeId)
-  if (node) {
-    for (const pid of node.parentIds) queue.push(pid)
-  }
+  for (const pid of view.parentsByChild.get(nodeId) ?? EMPTY_SET) queue.push(pid)
   while (queue.length > 0) {
     const current = queue.pop()!
     if (ancestors.has(current)) continue
     ancestors.add(current)
-    const n = state.nodes.get(current)
-    if (n) {
-      for (const pid of n.parentIds) {
-        if (!ancestors.has(pid)) queue.push(pid)
-      }
+    for (const pid of view.parentsByChild.get(current) ?? EMPTY_SET) {
+      if (!ancestors.has(pid)) queue.push(pid)
     }
   }
   return ancestors
 }
 
 /** Get all descendant nodeIds (excludes the starting node). */
-export function getNodeDescendants(state: DagTreeState, nodeId: number): Set<number> {
+export function getNodeDescendants(view: DagTreeView, nodeId: number): Set<number> {
   const descendants = new Set<number>()
   const queue: number[] = []
-  const node = state.nodes.get(nodeId)
-  if (node) {
-    for (const cid of node.childIds) queue.push(cid)
-  }
+  for (const cid of view.childrenByParent.get(nodeId) ?? EMPTY_SET) queue.push(cid)
   while (queue.length > 0) {
     const current = queue.pop()!
     if (descendants.has(current)) continue
     descendants.add(current)
-    const n = state.nodes.get(current)
-    if (n) {
-      for (const cid of n.childIds) {
-        if (!descendants.has(cid)) queue.push(cid)
-      }
+    for (const cid of view.childrenByParent.get(current) ?? EMPTY_SET) {
+      if (!descendants.has(cid)) queue.push(cid)
     }
   }
   return descendants

@@ -27,9 +27,7 @@
 
 import { describe, it, expect, inject, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { mesh } from '@lumenize/mesh/client';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import type { OperationDescriptor, TransactionResult } from '@lumenize/nebula/client';
 import { bootstrapAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
@@ -43,9 +41,11 @@ function uniqueStar(): string {
 }
 
 /**
- * Test-side NebulaClient that captures transaction results into instance
- * fields so the test can assert against them. Mirrors NebulaClientTest from
- * apps/nebula/test/test-apps/baseline/index.ts but lives Node-side here.
+ * Test-side NebulaClient. The Star round-trip uses the public
+ * `client.resources.transaction()` API (Promise-returning, framework-managed
+ * eTag) — no `@mesh()` overrides needed for that path. The Galaxy ontology
+ * registration still goes through the test-initiator pattern because
+ * `appendOntologyVersion` is admin-only and has no public-API surface.
  */
 class HarnessNebulaClient extends NebulaClient {
   lastResult: any = undefined;
@@ -72,30 +72,10 @@ class HarnessNebulaClient extends NebulaClient {
     this.callCompleted = true;
   }
 
-  // Star calls back into the client via these mesh-decorated handlers
-  // when its transaction / read completes.
-  @mesh()
-  override handleTransactionResult(result: TransactionResult | Error): void {
-    if (result instanceof Error) {
-      this.lastError = result.message;
-      this.lastResult = undefined;
-    } else {
-      this.lastResult = result;
-      this.lastError = undefined;
-    }
-    this.callCompleted = true;
-  }
-
   callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: { version: string; types: string }): void {
     this.resetResults();
     const remote = (this.ctn() as any).appendOntologyVersion(versionConfig);
     this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
-  }
-
-  callStarTransaction(starName: string, ontologyVersion: string, ops: Record<string, OperationDescriptor>): void {
-    this.resetResults();
-    this.lmz.call('STAR', starName,
-      (this.ctn() as any).transaction(ontologyVersion, ops));
   }
 }
 
@@ -151,6 +131,7 @@ describe('browser harness', () => {
       baseUrl,
       authScope: scope,
       activeScope: scope,
+      ontologyVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
@@ -171,9 +152,11 @@ describe('browser harness', () => {
       });
       expect(client.lastError, 'ontology registration should not error').toBeUndefined();
 
-      // 5. Fire a transaction creating a single resource on the Star.
+      // 5. Fire a transaction creating a single resource on the Star, using
+      //    the public `client.resources.transaction()` API. Resolves with a
+      //    discriminated union — assert `resolution === 'committed'`.
       const resourceId = crypto.randomUUID();
-      client.callStarTransaction(scope, ONTOLOGY_VERSION, {
+      const outcome = await client.resources.transaction({
         [resourceId]: {
           op: 'create',
           typeName: 'TestResource',
@@ -181,15 +164,10 @@ describe('browser harness', () => {
           value: { title: 'smoke-test resource' },
         },
       });
-      await vi.waitFor(() => {
-        expect(client.callCompleted).toBe(true);
-      });
-      expect(client.lastError, 'transaction should not error').toBeUndefined();
-
-      const txnResult = client.lastResult as TransactionResult;
-      expect(txnResult.ok).toBe(true);
-      if (txnResult.ok) {
-        expect(txnResult.eTags[resourceId]).toBeDefined();
+      expect(outcome.resolution).toBe('committed');
+      if (outcome.resolution === 'committed') {
+        expect(outcome.eTag).toBeDefined();
+        expect(typeof outcome.eTag).toBe('string');
       }
     } finally {
       // Dispose the client so the WS closes and the test process can exit.

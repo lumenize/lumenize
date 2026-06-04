@@ -82,7 +82,11 @@ Key scripts available from the monorepo root:
 
 ## Cross-Platform Cloudflare Detection
 
-When library code needs to access Cloudflare-specific APIs (like `env` from `cloudflare:workers`) but must also work in Node.js, Bun, and browsers, use top-level `await import()` in a try/catch:
+When library code needs Cloudflare-specific APIs (like `env` from `cloudflare:workers`) but must also work in Node.js, Bun, Deno, and browsers, there are two approaches. **Which one to use depends on whether the module must be bundled for the browser.**
+
+### If the module will NOT be browser-bundled — top-level `await import()` in try/catch
+
+Fine for code that only ever runs in Workers/Node/Bun/Deno (servers, DOs, CLIs), where no end-user bundler ever processes the source:
 
 ```typescript
 let cfEnv: { MY_VAR?: string } | null = null;
@@ -94,7 +98,29 @@ try {
 }
 ```
 
-This resolves in Workers and silently fails elsewhere. No build-time flags or dynamic import hacks needed. See `@lumenize/debug` for the canonical example — it auto-detects `env.DEBUG` this way, so callers just use `debug('namespace')` in all environments.
+This resolves in Workers and silently fails elsewhere **at runtime**. The catch is the caveat below.
+
+### If the module MUST be browser-bundleable — package-export conditions
+
+⚠️ The try/catch above is a *runtime* guard, not a *bundle-time* one. Bundlers (esbuild, Vite, Rollup, webpack) statically see the `'cloudflare:workers'` literal — even inside `await import(...)` in a try/catch — and fail to resolve it. So **any module that transitively reaches a browser bundle must contain zero references to `cloudflare:workers`** (see the invariant comment in `packages/mesh/src/gateway-messages.ts`, which protects `LumenizeClient` / the `@lumenize/mesh/client` entry).
+
+For these, split the environment-specific code into separate entry files and select between them with `exports` *conditions* in `package.json`, keeping `cloudflare:workers` isolated to the `workerd` entry:
+
+```jsonc
+"exports": {
+  ".": {
+    "types": "./src/index.ts",
+    "workerd": "./src/index.workerd.ts",  // static `cloudflare:workers` import lives ONLY here
+    "worker": "./src/index.workerd.ts",
+    "node": "./src/index.node.ts",        // process.env — also matched by Bun/Deno
+    "browser": "./src/index.browser.ts"   // localStorage; no cloudflare:workers
+  }
+}
+```
+
+Condition keys are runtime-matched tokens, not free-form labels: Cloudflare presents `workerd`/`worker` (not `cloudflare`); Bun and Deno fall through to `node`. Omitting `default` makes an unmatched toolchain fail resolution explicitly rather than ship a silently-wrong build.
+
+`@lumenize/debug` is the canonical example of this conditional-exports pattern — it's imported by browser-bundled client code, so it cannot use the try/catch approach. Callers just use `debug('namespace')` in all environments; the package internals resolve the right `DEBUG` source per condition.
 
 ---
 
@@ -127,6 +153,14 @@ Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async
 
 **Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
 
+### Cross-Boundary Typed Errors
+
+Errors crossing DO ↔ Client (or DO ↔ DO via mesh) get preprocessed/postprocessed by `@lumenize/structured-clone`. The pipeline preserves `name`, `message`, `stack`, `cause`, and all custom own properties — but **`instanceof` doesn't survive cross-boundary**, because postprocess reconstructs via `(globalThis as any)[name] || Error` and non-built-in subclasses aren't on `globalThis`.
+
+For structured signals across mesh boundaries: detect via `err.name === 'MyTypedError'` + property-presence check, not `err instanceof MyTypedError`. Canonical example: `apps/nebula/src/errors.ts` (`OntologyStaleError` + `isOntologyStaleError`). Full mechanics + registration-for-`instanceof` workaround in [website/docs/structured-clone/index.mdx](website/docs/structured-clone/index.mdx) § "Custom Error Classes".
+
+**Refactoring throws → typed errors**: when consolidating a throw-based error path, enumerate *every* case the inner code can throw, not just the one you're typing. A catch that's too broad silently swallows unrelated failure modes — caught here during 5.3.3b when a Resources.transaction permission refactor accidentally swallowed `"Node X not found"` (a malformed-request error) as a permission failure. Either define one typed Error per case, or string-match the message and mark the site with a TODO.
+
 ### Fire-and-Forget Error Delivery
 When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
@@ -150,6 +184,59 @@ subscribe(id: string) {
   this.ctx.storage.kv.put('subscribers', subs);
 }
 ```
+
+### LumenizeClient subclasses: callbacks fire during super()
+
+`LumenizeClient`'s constructor calls `this.connect()` synchronously, which fires `onConnectionStateChange('connecting')` **before** the subclass's class-field declarations have run. A subclass tracking state across that callback can't use a `#` instance field — writing to one before its initializer runs throws "Cannot write to private field that has not been initialized." Use a **closure variable in the constructor** instead:
+
+```typescript
+constructor(config: NebulaClientConfig) {
+  const { onConnectionStateChange: userCallback, ...baseConfig } = config;
+  // Closure variable — captures cleanly across the synchronous super() callback.
+  let prevConnectionState: ConnectionState | null = null;
+
+  super({
+    ...baseConfig,
+    onConnectionStateChange: (state) => {
+      if (prevConnectionState === 'reconnecting' && state === 'connected') {
+        this.#onReconnect();  // method access via prototype — safe even during super()
+      }
+      prevConnectionState = state;
+      userCallback?.(state);  // chain to any user-supplied callback
+    },
+  });
+}
+```
+
+Methods on the prototype (including `#`-prefixed ones) ARE accessible during super() — but they must not touch class fields, which init later. Canonical example: `apps/nebula/src/nebula-client.ts` constructor.
+
+### `LumenizeClientGateway` is NOT a mesh participant
+
+It extends `DurableObject` directly (not `LumenizeDO`) to maintain the "zero storage" design noted in its class comment. So `this.lmz.call(...)` is unavailable. Subclasses (`NebulaClientGateway`, etc.) inherit this constraint. Outbound calls from a Gateway must either build mesh envelopes manually and call `stub.__executeOperation(envelope)` (the pattern at `packages/mesh/src/lumenize-client-gateway.ts` `#handleClientCall`), or use direct Workers RPC via `env.X.get(env.X.idFromName(name)).method(args)` — bypassing mesh entirely.
+
+For Gateway-originated cleanup, prefer **reactive patterns** (e.g., drop-on-failed-fanout using the result-handler form below) over **proactive ones** (alarm-driven calls into the mesh). The former is much simpler given the constraint. Canonical example: `Star.#fanout` in `apps/nebula/src/star.ts` — the cleanup runs on Star's side, not the Gateway's, even though "user closed the tab" is fundamentally a Gateway-observed event.
+
+### `lmz.call` with a result handler (4-arg form)
+
+`lmz.call` has two forms. The 3-arg form is true fire-and-forget: `lmz.call(binding, instance, remote)` — the call leaves the DO and the caller has no local awareness of whether it succeeded. The 4-arg form pairs the call with a **local** result handler: `lmz.call(binding, instance, remote, this.ctn().onDelivered(remote))`. When the remote call settles, the framework invokes `onDelivered(result)` on this DO — with the success value on success, or with the Error object on failure (including structured errors like `ClientDisconnectedError` from disconnected client Gateways).
+
+Useful for reactive cleanup, retry logic, observability hooks — anything that wants to react to "did the call actually land?" without `await`ing a Promise.
+
+```typescript
+// In Star.#fanout — react to a disconnected subscriber by dropping its row.
+const remote = this.ctn<NebulaClient>().handleResourceUpdate(rt, rid, snapshot);
+this.lmz.call(sub.subscriberBinding, sub.clientId, remote,
+  this.ctn().onFanoutDelivered(resourceId, sub.clientId, remote));
+
+// Handler — local method, no `@mesh()` needed; result is { $result | Error }.
+onFanoutDelivered(resourceId: string, clientId: string, result: unknown): void {
+  if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+    this.#subscriptions.removeSubscriber(resourceId, clientId);
+  }
+}
+```
+
+The result handler executes locally on the same DO that initiated the call — it does NOT need `@mesh()` (it's not a remote call surface). Canonical example: `Star.#fanout` + `Star.onFanoutDelivered` in `apps/nebula/src/star.ts`.
 
 ---
 
@@ -261,6 +348,34 @@ await vi.waitFor(async () => {
   expect(status).toBe('complete');
 });
 ```
+
+### `vi.waitFor` timeout defaults
+
+`vi.waitFor`'s default timeout is 1000 ms. Under parallel-test contention this is fragile — tests that pass in isolation flake when run alongside heavier files (the "isolation flips the result" signature). For test-app suites with auth/WebSocket setup, install a project-wide default via `setupFiles`:
+
+```typescript
+// test/setup.ts
+import { vi } from 'vitest';
+const orig = vi.waitFor;
+vi.waitFor = ((fn, opts) =>
+  orig(fn, { timeout: 5000, interval: 50, ...(opts ?? {}) })
+) as typeof vi.waitFor;
+```
+
+```javascript
+// vitest.config.js (within the project)
+test: { setupFiles: ['./test/setup.ts'] }
+```
+
+Per-test `{ timeout }` overrides take precedence as expected. Canonical example: [apps/nebula/test/test-apps/baseline/test/setup.ts](apps/nebula/test/test-apps/baseline/test/setup.ts).
+
+### Test initiators vs the public API
+
+Test subclasses (e.g., `NebulaClientTest`) add `callXxx(...)` initiator methods that issue direct `this.lmz.call(...)`s from the client to a DO. These initiators **bypass the public API** — they don't populate client-side state like `#subscriptionRegistry`, `#pendingSubscribes`, or `#perTypeResolvers`. They're for testing the **server-side** path (Star, Galaxy, etc.) where the client is just a call source.
+
+When the unit under test is **client-side state** (auto-resubscribe registry walks, pending-Promise correlation, resolver precedence, optimistic-state rollback, etc.), use the public API (`client.resources.subscribe(...)`, `client.resources.transaction(...)`, etc.) so client-side state is actually populated. Mixing the two in a single test produces "the subscribe ran on Star but the client doesn't know about it" failures that look like production bugs but are test-code bugs.
+
+Also note: test-initiator methods on `NebulaClientTest` call `resetResults()` which **zeroes** capture fields including `resourceUpdateCount`, `lastResourceUpdate`, `lastResult`, etc. When asserting "did the count go up?", capture the baseline immediately before the action under test — not before the setup helpers that call test initiators run.
 
 ### App Test Pattern
 For apps in `apps/`, use `test/test-apps/{name}/` with `instrumentDOProject`. See `apps/nebula/test/test-apps/README.md` for the checklist.

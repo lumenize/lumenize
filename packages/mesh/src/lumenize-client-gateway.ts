@@ -110,6 +110,17 @@ export class LumenizeClientGateway extends DurableObject<any> {
   #pendingReconnectWaiters: ReconnectWaiter[] = [];
 
   get #gracePeriodMs(): number {
+    // Explicit numeric override takes precedence. Tests that need to observe
+    // post-grace behavior (e.g. Phase 5.3.5 drop-on-failed-fanout cleanup —
+    // the fanout's __executeOperation only returns ClientDisconnectedError
+    // after the grace period expires) set this to a small value via miniflare's
+    // `bindings` block so close → cleanup observable in well under a second.
+    // Production-safe by default — the binding is simply unset there.
+    const override = (this.env as any).LUMENIZE_MESH_GRACE_PERIOD_MS;
+    if (override !== undefined) {
+      const parsed = Number(override);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
     return (this.env as any).LUMENIZE_MESH_TEST_MODE === 'true'
       ? TEST_GRACE_PERIOD_MS
       : PRODUCTION_GRACE_PERIOD_MS;

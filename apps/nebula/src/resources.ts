@@ -9,6 +9,8 @@
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { ActClaim } from '@lumenize/auth';
+import { debug } from '@lumenize/debug';
+import { PermissionDeniedError } from './errors';
 import type {
   ParserValidator,
   ParseRequest,
@@ -16,6 +18,7 @@ import type {
 } from '@lumenize/ts-runtime-parser-validator';
 import { stringify, parse } from '@lumenize/structured-clone';
 import type { DagTree } from './dag-tree';
+import type { PermissionTier } from './dag-ops';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -47,7 +50,8 @@ export type OperationDescriptor =
 
 export type TransactionError =
   | { type: 'conflict'; currentSnapshot: Snapshot }
-  | { type: 'validation'; errors: ValidationError[] };
+  | { type: 'validation'; errors: ValidationError[] }
+  | { type: 'permission'; requiredTier: PermissionTier; nodeId: number };
 
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
@@ -59,18 +63,15 @@ export class Resources {
   #ctx: DurableObjectState;
   #getCallContext: () => CallContext;
   #dagTree: DagTree;
-  #onChanged: () => void;
 
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     dagTree: DagTree,
-    onChanged: () => void,
   ) {
     this.#ctx = ctx;
     this.#getCallContext = getCallContext;
     this.#dagTree = dagTree;
-    this.#onChanged = onChanged;
     this.#createSchema();
     this.#bootstrapConfig();
   }
@@ -256,7 +257,9 @@ export class Resources {
   async transaction(
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,
+    newETag: string,
     facet: ParserValidator,
+    onMutations?: (mutations: Map<string, Snapshot>) => void,
   ): Promise<TransactionResult> {
     // Empty ops — no-op
     const entries = Object.entries(ops);
@@ -276,8 +279,12 @@ export class Resources {
     // Step 2: Calculate single validFrom
     const validFrom = this.#calculateValidFrom(currentSnapshots);
 
-    // Step 3: Generate single eTag
-    const eTag = crypto.randomUUID();
+    // Step 3: Use the caller-supplied per-transaction eTag (one for the whole
+    // batch). The client generates this so it can also serve as the
+    // idempotency key — if a retry lands and every resource is already at
+    // this eTag, Step 9 short-circuits to a `committed` result without
+    // writing again.
+    const eTag = newETag;
 
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
@@ -309,7 +316,23 @@ export class Resources {
 
     const validationErrors: Record<string, TransactionError> = {};
     if (requests.size > 0) {
-      const results = await facet.parseBatch(requests);
+      const log = debug('nebula.Resources.transaction');
+      let results;
+      try {
+        results = await facet.parseBatch(requests);
+      } catch (err) {
+        // Facet load failure (Worker Loader compile error), RPC transport
+        // failure, or unexpected internal error. Validation failures don't
+        // throw — they come back as `{ valid: false, errors }` in the result.
+        log.error('facet.parseBatch threw', {
+          ontologyVersion,
+          requestCount: requests.size,
+          typeNames: [...new Set([...requests.values()].map(r => r.typeName))],
+          error: err instanceof Error ? err.message : String(err),
+          name: err instanceof Error ? err.name : undefined,
+        });
+        throw err;
+      }
       for (const [resourceId, result] of results) {
         if (result.valid) {
           const op = ops[resourceId];
@@ -320,6 +343,17 @@ export class Resources {
           validationErrors[resourceId] = { type: 'validation', errors: result.errors };
         }
       }
+      const failureCount = Object.keys(validationErrors).length;
+      if (failureCount > 0) {
+        log.warn('validation failures', {
+          ontologyVersion,
+          count: failureCount,
+          requestCount: requests.size,
+          sampleErrors: Object.entries(validationErrors).slice(0, 3).map(
+            ([id, e]) => ({ resourceId: id, errors: (e as { type: 'validation'; errors: ValidationError[] }).errors }),
+          ),
+        });
+      }
     }
     if (Object.keys(validationErrors).length > 0) {
       return { ok: false, errors: validationErrors };
@@ -327,6 +361,7 @@ export class Resources {
 
     // Steps 6–10: Atomic transaction
     let result: TransactionResult = { ok: true, eTags: {} };
+    const writtenSnapshots = new Map<string, Snapshot>();
 
     this.#ctx.storage.transactionSync(() => {
       // Step 6: Re-read inside transaction (authoritative for eTag checking)
@@ -357,25 +392,64 @@ export class Resources {
         }
       }
 
-      // Step 8: Permission checks
+      // Step 8: Permission checks. Collect all failures into a typed
+      // `TransactionError` rather than throwing on the first denial — the
+      // client wants to know about every affected resource, not just the
+      // first one it happened to ask about.
+      const permErrors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
-        switch (op.op) {
-          case 'create':
-            this.#dagTree.requirePermission(op.nodeId, 'write');
-            break;
-          case 'put':
-          case 'delete':
-            this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
-            break;
-          case 'move':
-            this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
-            this.#dagTree.requirePermission(op.nodeId, 'write');
-            break;
+        try {
+          switch (op.op) {
+            case 'create':
+              this.#dagTree.requirePermission(op.nodeId, 'write');
+              break;
+            case 'put':
+            case 'delete':
+              this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
+              break;
+            case 'move':
+              this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
+              this.#dagTree.requirePermission(op.nodeId, 'write');
+              break;
+          }
+        } catch (e) {
+          // Permission denial is collected into a typed `TransactionError` so
+          // the client learns about every affected resource, not just the
+          // first one it asked about. Anything else (`NodeNotFoundError`,
+          // "Authentication required", system errors) signals client misuse
+          // or system failure and propagates up to the Star @mesh handler.
+          if (!(e instanceof PermissionDeniedError)) {
+            throw e;
+          }
+          // For 'move' both the source and destination are checked — record
+          // the first failing nodeId (source checked first); good enough
+          // for demo, refine if mover-targets need disambiguation.
+          permErrors[resourceId] = { type: 'permission', requiredTier: e.tier, nodeId: e.nodeId };
         }
       }
 
-      // Step 9: Check eTags — conflicts produce { ok: false }
+      if (Object.keys(permErrors).length > 0) {
+        result = { ok: false, errors: permErrors };
+        return;
+      }
+
+      // Step 9a: Idempotency short-circuit. If every existing resource is
+      // already at `newETag` (and creates are no-ops via "current exists
+      // with newETag"), the client's previous attempt landed — return as
+      // committed without writing again.
+      const allAtNewETag = entries.every(([resourceId, op]) => {
+        const current = authoritative.get(resourceId);
+        return current?.meta.eTag === newETag;
+      });
+      if (allAtNewETag) {
+        const eTags: Record<string, string> = {};
+        for (const [resourceId] of entries) eTags[resourceId] = newETag;
+        result = { ok: true, eTags };
+        return;
+      }
+
+      // Step 9b: Check eTags — conflicts produce { ok: false }
       const errors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         if (op.op === 'create') continue;
@@ -395,7 +469,7 @@ export class Resources {
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId) ?? null;
 
-        // Move to same node — idempotent no-op
+        // Move to same node — idempotent no-op (no write, no fanout)
         if (op.op === 'move' && current && op.nodeId === current.meta.nodeId) {
           eTags[resourceId] = current.meta.eTag;
           continue;
@@ -406,13 +480,20 @@ export class Resources {
           : authoritative.get(resourceId)!.meta.typeName;
         this.#writeSnapshot(resourceId, current, op, validFrom, eTag, changedBy, typeName, ontologyVersion);
         eTags[resourceId] = eTag;
+
+        // Capture the post-write snapshot for fanout. Re-read inside the
+        // transactionSync so the captured value matches what was actually
+        // committed. Soft-delete carries `meta.deleted: true` — we pass the
+        // real Snapshot, never null, per the user-facing decision in 5.3.1.
+        const written = this.#getCurrentSnapshot(resourceId);
+        if (written) writtenSnapshots.set(resourceId, written);
       }
 
       result = { ok: true, eTags };
     });
 
-    if (result.ok) {
-      this.#onChanged();
+    if (result.ok && writtenSnapshots.size > 0 && onMutations) {
+      onMutations(writtenSnapshots);
     }
 
     return result;

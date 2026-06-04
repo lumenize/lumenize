@@ -1,0 +1,13 @@
+{
+  "name": "structured-clone-object-format-experiment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Wire-format comparison for RFC 7396 patchability (Phase 1 of tasks/structured-clone-object-based-wire-format.md). RFC 7396 diff/apply is hand-rolled (see src/merge-patch.ts) — see RESULTS.md § Patch library decision.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "tsx scripts/bench.ts",
+    "report": "tsx scripts/run-report.ts"
+  }
+}

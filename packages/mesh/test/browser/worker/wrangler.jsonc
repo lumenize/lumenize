@@ -1,0 +1,59 @@
+{
+  "name": "lumenize-mesh-browser-e2e",
+  "main": "./index.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
+      { "name": "DOCUMENT_DO", "class_name": "DocumentDO" },
+      { "name": "LUMENIZE_AUTH", "class_name": "LumenizeAuth" }
+    ]
+  },
+  "services": [
+    {
+      "binding": "SPELLCHECK_WORKER",
+      "service": "lumenize-mesh-browser-e2e",
+      "entrypoint": "SpellCheckWorker"
+    },
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "lumenize-mesh-browser-e2e",
+      "entrypoint": "AuthEmailSender"
+    }
+  ],
+  // `remote: true` proxies to the real Cloudflare Email Sending service so
+  // magic-link emails actually deliver through Email Routing to the deployed
+  // `email-test` Worker (same pattern as apps/nebula/test/browser).
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "LUMENIZE_AUTH_RATE_LIMITER",
+      "namespace_id": "2002",
+      "simple": {
+        "limit": 100,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    "LUMENIZE_AUTH_REDIRECT": "/app",
+    // First subject registered with this exact email is automatically
+    // admin-approved (isAdmin in JWT). Required for our test, which uses
+    // a brand-new subject each run — without this, the JWT's
+    // `adminApproved: false` makes the auth gate 403 the WS upgrade.
+    "LUMENIZE_AUTH_BOOTSTRAP_EMAIL": "test@lumenize.io"
+  }
+}

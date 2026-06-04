@@ -51,8 +51,10 @@ export {
   getEffectivePermission,
   getNodeAncestors,
   getNodeDescendants,
+  buildDagTreeView,
+  makeEdgeKey,
 } from './dag-ops';
-export type { PermissionTier, DagTreeState } from './dag-ops';
+export type { PermissionTier, DagTreeState, DagTreeView, DagTreeNodeData, EdgeKey } from './dag-ops';
 
 // Ontology config types — shape contract for callGalaxyAppendOntologyVersion.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';

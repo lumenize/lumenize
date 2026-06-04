@@ -107,6 +107,23 @@ function createMockWebSocketClass(): typeof WebSocket {
 }
 
 // ============================================
+// JWT fixture helper
+// ============================================
+
+/**
+ * Build a structurally valid JWT with the given payload claims.
+ * Signature is fake — used for unit tests that parse the payload
+ * (`parseJwtUnsafe`) without verification.
+ */
+function createFakeJwt(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const body = btoa(JSON.stringify(payload))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${header}.${body}.fakesig`;
+}
+
+// ============================================
 // Test Client Implementation
 // ============================================
 
@@ -269,6 +286,63 @@ describe('LumenizeClient', () => {
       });
 
       expect(client.lmz.type).toBe('LumenizeClient');
+      client.disconnect();
+    });
+  });
+
+  describe('client.claims', () => {
+    it('is null before any token is available', () => {
+      const client = new TestClient({
+        baseUrl: 'wss://example.com',
+        WebSocket: createMockWebSocketClass(),
+        refresh: '/auth/refresh-token',
+      });
+
+      expect(client.claims).toBeNull();
+      client.disconnect();
+    });
+
+    it('is populated from initial accessToken in config', () => {
+      const token = createFakeJwt({ sub: 'alice', aud: 'tenant-x', iat: 1700000000 });
+      const client = new TestClient({
+        instanceName: 'alice.tab1',
+        baseUrl: 'wss://example.com',
+        accessToken: token,
+        WebSocket: createMockWebSocketClass(),
+      });
+
+      expect(client.claims).not.toBeNull();
+      expect(client.claims?.sub).toBe('alice');
+      expect(client.claims?.aud).toBe('tenant-x');
+      expect(client.claims?.iat).toBe(1700000000);
+      client.disconnect();
+    });
+
+    it('is populated after refresh via function', async () => {
+      const token = createFakeJwt({ sub: 'bob', aud: 'tenant-y' });
+      const client = new TestClient({
+        baseUrl: 'wss://example.com',
+        WebSocket: createMockWebSocketClass(),
+        refresh: async () => ({ access_token: token }),
+      });
+
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(client.claims?.sub).toBe('bob');
+      expect(client.claims?.aud).toBe('tenant-y');
+      client.disconnect();
+    });
+
+    it('is frozen — payload cannot be mutated', () => {
+      const token = createFakeJwt({ sub: 'carol' });
+      const client = new TestClient({
+        instanceName: 'carol.tab1',
+        baseUrl: 'wss://example.com',
+        accessToken: token,
+        WebSocket: createMockWebSocketClass(),
+      });
+
+      expect(Object.isFrozen(client.claims)).toBe(true);
       client.disconnect();
     });
   });
@@ -725,7 +799,7 @@ describe('Token refresh', () => {
       WebSocket: createMockWebSocketClass(),
       refresh: async () => {
         refreshCalled = true;
-        return { access_token: 'new-token', sub: 'user-from-refresh' };
+        return { access_token: createFakeJwt({ sub: 'user-from-refresh' }) };
       },
     });
 
@@ -733,8 +807,9 @@ describe('Token refresh', () => {
     await new Promise(r => setTimeout(r, 10));
 
     expect(refreshCalled).toBe(true);
-    // instanceName should be auto-generated from sub
+    // instanceName should be auto-generated from the JWT's sub claim
     expect(client.lmz.instanceName).toContain('user-from-refresh');
+    expect(client.claims?.sub).toBe('user-from-refresh');
     client.disconnect();
   });
 
@@ -749,8 +824,7 @@ describe('Token refresh', () => {
         expect(url).toBe('/auth/refresh-token');
         expect(init?.method).toBe('POST');
         return new Response(JSON.stringify({
-          access_token: 'url-token',
-          sub: 'url-user',
+          access_token: createFakeJwt({ sub: 'url-user' }),
         }));
       },
     });
@@ -759,6 +833,7 @@ describe('Token refresh', () => {
 
     expect(fetchCalled).toBe(true);
     expect(client.lmz.instanceName).toContain('url-user');
+    expect(client.claims?.sub).toBe('url-user');
     client.disconnect();
   });
 
@@ -767,11 +842,11 @@ describe('Token refresh', () => {
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
-      accessToken: 'initial-token',
+      accessToken: createFakeJwt({ sub: 'user' }),
       WebSocket: createMockWebSocketClass(),
       refresh: async () => {
         refreshCount++;
-        return { access_token: `token-${refreshCount}`, sub: 'user' };
+        return { access_token: createFakeJwt({ sub: 'user', counter: refreshCount }) };
       },
     });
 
@@ -1102,7 +1177,9 @@ describe('Message handling edge cases', () => {
   });
 
   it('handles invalid JSON in incoming message gracefully', () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // @lumenize/debug routes all levels (including error) through console.debug,
+    // and error() always outputs regardless of the DEBUG filter.
+    const consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1117,21 +1194,29 @@ describe('Message handling edge cases', () => {
       subscriptionRequired: false,
     }));
 
-    // Send invalid JSON — should not throw, just log error
-    ws.simulateMessage('not valid json {{{');
+    // Send invalid JSON — should not throw, just log the parse error
+    expect(() => ws.simulateMessage('not valid json {{{')).not.toThrow();
 
     expect(consoleSpy).toHaveBeenCalledWith(
-      'Failed to parse Gateway message:',
-      expect.any(SyntaxError),
+      expect.stringContaining('Failed to parse Gateway message'),
     );
 
     consoleSpy.mockRestore();
     client.disconnect();
   });
 
-  it('warns on unknown Gateway message type', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const client = new TestClient({
+  it('dispatches unknown Gateway message types to onUnknownMessage', () => {
+    // The default onUnknownMessage warns via @lumenize/debug (filterable), but
+    // the observable contract is that the frame is routed to onUnknownMessage,
+    // which subclasses override to handle application-specific frames.
+    const unknownMessages: any[] = [];
+    class UnknownCapturingClient extends TestClient {
+      onUnknownMessage(message: any): void {
+        unknownMessages.push(message);
+      }
+    }
+
+    const client = new UnknownCapturingClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
       accessToken: 'token',
@@ -1148,17 +1233,12 @@ describe('Message handling edge cases', () => {
     // Send a message with an unknown type
     ws.simulateMessage(JSON.stringify({ type: 'unknown_message_type' }));
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Unknown Gateway message type:',
-      'unknown_message_type',
-    );
+    expect(unknownMessages).toEqual([{ type: 'unknown_message_type' }]);
 
-    consoleSpy.mockRestore();
     client.disconnect();
   });
 
-  it('warns when receiving response for unknown callId', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('ignores a response for an unknown callId without throwing', () => {
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1173,20 +1253,16 @@ describe('Message handling edge cases', () => {
       subscriptionRequired: false,
     }));
 
-    // Send a call_response for a callId that doesn't exist
-    ws.simulateMessage(JSON.stringify({
+    // Send a call_response for a callId that doesn't exist — the unknown-call
+    // guard must short-circuit (warn + return) so this is handled gracefully.
+    // Without the guard, accessing pending.timeoutId on undefined would throw.
+    expect(() => ws.simulateMessage(JSON.stringify({
       type: 'call_response',
       callId: 'nonexistent-call-id',
       success: true,
       result: null,
-    }));
+    }))).not.toThrow();
 
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Received response for unknown call:',
-      'nonexistent-call-id',
-    );
-
-    consoleSpy.mockRestore();
     client.disconnect();
   });
 

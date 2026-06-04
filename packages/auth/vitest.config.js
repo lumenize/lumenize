@@ -86,7 +86,12 @@ export default defineConfig({
         })],
         test: {
           name: 'e2e-email-resend',
-          testTimeout: 30000,
+          // 60s, double e2e-email — Resend's HTTPS hop adds delivery jitter on
+          // top of the in-process Cloudflare Email Sending path. Not a code
+          // race: the magic-link write is synchronous + DO output-gated before
+          // the 200 OK, so a real-user click can't race the commit. The bump
+          // is cushion for Resend variability on cold-start sequential runs.
+          testTimeout: 60000,
           sequence: { groupOrder: 2 },
           include: ['test/e2e-email-resend/**/*.test.ts'],
         },
