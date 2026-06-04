@@ -87,9 +87,7 @@ describe('@lumenize/mesh - onStart() Lifecycle Hook', () => {
     expect(flag).toBe(true);
   });
 
-  // SKIP: This test causes vitest to hang during cleanup due to broken.inputGateBroken
-  // The test passes, but the broken DO leaves workerd in a bad state
-  it.skip('propagates errors from onStart()', async () => {
+  it('propagates errors from onStart()', async () => {
     const stub = env.ONSTART_ERROR_DO.getByName('onstart-error-1');
     await expect(stub.getValue()).rejects.toThrow('Intentional onStart error for testing');
   });

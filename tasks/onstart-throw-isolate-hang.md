@@ -71,4 +71,108 @@ Three possible response shapes:
 
 ## Findings
 
-(Empty — to be filled in during Phase 1.)
+### Phase 1 — Production behavior (2026-06-04)
+
+**Verdict: production recovers cleanly. The bug is a vitest-pool-workers teardown issue, not a workerd runtime issue.**
+
+Repro deployed at `https://onstart-repro.transformation.workers.dev` (account "Lumenize and Transformation.dev"). Source: [experiments/onstart-repro](../experiments/onstart-repro/). Two DO classes — `BrokenDO` (plain `DurableObject` whose constructor calls `ctx.blockConcurrencyWhile(async () => { throw ... })`, no LumenizeDO wrapper) and `HealthyDO` (control).
+
+Observations:
+
+- **10 sequential `GET /broken?name=broken-1` requests**: every one returned the expected error with elapsedMs in the 200-530 ms range. No request rejected instantly (which would indicate a cached/wedged input gate), no request hung, no degradation across requests.
+- **`GET /healthy` immediately after the 10 broken hits**: returned `pong` in 21 ms (warm). Worker as a whole is fully responsive.
+- **Fresh sibling instance `broken-2`**: same behavior as `broken-1` — fresh cold start (~315 ms), constructor throw, clean rejection. No spillover from the previously-broken `broken-1`.
+- **20 parallel requests to `broken-1`**: all completed in 112-229 ms. `wrangler tail` showed 21 DO exception events across two unique `durableObjectId`s (some coalescing happened, but each batch triggered a fresh constructor that threw).
+- **Other DO instances and classes are unaffected.** `healthy-1`, `healthy-2`, and a fresh `broken-3` all worked as expected after the burst.
+
+Interpretation: workerd appears to evict the broken DO after each failed instantiation. Subsequent calls to the same instance name get a brand-new DO that runs the same constructor and throws the same error. From the application's perspective, the broken DO is "permanently broken" (every call fails the same way), but there is no leak to other DOs, no isolate wedge, no eviction-storm, no recovery delay needed. The SKIP comment in [packages/mesh/test/lumenize-do.test.ts:91](../packages/mesh/test/lumenize-do.test.ts:91) — "the test passes, but the broken DO leaves workerd in a bad state" — does not reflect production behavior.
+
+Routing decision: **filed at [cloudflare/workers-sdk](https://github.com/cloudflare/workers-sdk/issues)** (`@cloudflare/vitest-pool-workers`), not workerd.
+
+### Phase 2 — Minimum vitest repro (2026-06-04)
+
+**The trigger is more specific than the SKIP comment implied.** Bisecting from mesh's setup down to plain `DurableObject` revealed two necessary conditions inside the `ctx.blockConcurrencyWhile(...)` IIFE: **(1) a `console.*` call**, and **(2) a throw**. Either one alone is fine. Together, they hang vitest at teardown.
+
+Bisection trail (all run under `vitest 4.1.4` + `@cloudflare/vitest-pool-workers 0.16.13`):
+
+| Setup | Result |
+| --- | --- |
+| Plain `DurableObject`, `blockConcurrencyWhile` throws, **no console call** | exits 293 ms ✅ |
+| Plain `DurableObject`, throw + post-throw SQL (LumenizeDO-shaped), no console call | exits 419 ms ✅ |
+| Plain `DurableObject`, projects-based vitest config | exits ✅ |
+| Plain `DurableObject`, 4 tests in file including healthy DOs around the broken one | exits 443 ms ✅ |
+| Plain `DurableObject`, **+ `console.log(...)` inside the IIFE before throw** | **hangs >45 s** ❌ |
+| Same, with `console.debug(JSON.stringify(...))` instead of `console.log` | hangs ❌ |
+| Same trigger, without any try/catch wrapping the throw | hangs ❌ |
+| `@lumenize/mesh` imported into bundle but only the plain-DO test runs (no console call) | exits ≈1 s ✅ |
+| `LumenizeDO` subclass with thrown `onStart()` (which goes through LumenizeDO's `debug().error()` + rethrow) | hangs ❌ |
+| Mesh's `OnStartErrorDO` (full mesh setup + worker bundle) | hangs ❌ |
+
+So the trigger is the **combination of synchronous console output and a thrown rejection inside the same `blockConcurrencyWhile` IIFE**. `LumenizeDO` hits it because its catch handler does `log.error(...)` (`console.debug(JSON.stringify(...))`) and then rethrows. Any user-authored DO that logs before throwing inside `blockConcurrencyWhile` will hit the same hang under vitest-pool-workers.
+
+The canonical minimum repro is ~22 LOC of source:
+
+```typescript
+// src/index.ts
+import { DurableObject } from 'cloudflare:workers';
+export class BrokenDO extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.blockConcurrencyWhile(async () => {
+      console.log('emit anything before the throw to trigger the hang');
+      throw new Error('Intentional throw in blockConcurrencyWhile');
+    });
+  }
+  async getValue(): Promise<string> { return 'never-reached'; }
+}
+export default { async fetch() { return new Response('ok'); } } satisfies ExportedHandler<Env>;
+```
+
+Lives in [experiments/onstart-repro](../experiments/onstart-repro/), self-contained (no `@lumenize/*` deps, no swc, no decorators). README.md explains how to flip the trigger on/off.
+
+**Mesh test SKIP comment updated** at [packages/mesh/test/lumenize-do.test.ts:90-96](../packages/mesh/test/lumenize-do.test.ts:90) to reflect the actual trigger ("console.* + throw inside the IIFE", not "broken DO leaves workerd in a bad state").
+
+**Gist published** (flat layout, single npm install + npm test reproduces): https://gist.github.com/lmaccherone/e6f49cf2e7fa4a0cb9efe03a4b1c2feb
+
+**Recommended issue title for cloudflare/workers-sdk**: *"@cloudflare/vitest-pool-workers hangs at teardown when a DO blockConcurrencyWhile IIFE both emits a `console.*` call and throws"*.
+
+### Phase 3 — Issue filed
+
+[cloudflare/workers-sdk#14180](https://github.com/cloudflare/workers-sdk/issues/14180)
+
+### Workaround feasibility (tested 2026-06-04)
+
+In the experiment, with `console.log` + `throw` inside `blockConcurrencyWhile`'s IIFE:
+
+| Workaround | Result |
+| --- | --- |
+| `queueMicrotask(() => console.log(...))` then `throw` inside the IIFE | **still hangs** ❌ |
+| `.catch(err => console.log(...))` chained on the Promise returned by `blockConcurrencyWhile` | **exits cleanly** ✅ |
+
+So `queueMicrotask` does not dodge the trigger (the microtask runs before vitest considers the IIFE rejection settled). The viable shape is: do NOT catch inside the IIFE; let it reject; observe the rejection via `.catch()` on the returned Promise.
+
+For `LumenizeDO`, this means restructuring `lumenize-do.ts`'s constructor from:
+
+```typescript
+ctx.blockConcurrencyWhile(async () => {
+  if (this.onStart) {
+    try { await this.onStart(); }
+    catch (error) { log.error(...); throw error; }   // <— this catch is the hang trigger
+  }
+  // alarm recovery
+});
+```
+
+to:
+
+```typescript
+ctx.blockConcurrencyWhile(async () => {
+  if (this.onStart) await this.onStart();
+  // alarm recovery
+}).catch((error) => {
+  log.error('LumenizeDO init failed', {...});
+  // No rethrow — the input gate is already broken by the IIFE's rejection.
+});
+```
+
+Net behavior identical from the user's standpoint (failures still log + bubble), but vitest teardown drains cleanly so the [propagates errors from onStart()](../packages/mesh/test/lumenize-do.test.ts:96) test can be un-skipped.

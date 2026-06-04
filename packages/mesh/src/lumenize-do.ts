@@ -63,19 +63,16 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
+    // Log onStart() failures via `.catch()` on the Promise returned by
+    // blockConcurrencyWhile, not via a try/catch inside the IIFE. Both shapes
+    // leave the input gate broken (workerd handles that via the IIFE's
+    // rejection), but a catch INSIDE the IIFE that emits any console.* call
+    // before rethrowing makes @cloudflare/vitest-pool-workers hang at isolate
+    // teardown — see https://github.com/cloudflare/workers-sdk/issues/14180.
+    // Production behavior is unchanged.
     ctx.blockConcurrencyWhile(async () => {
-      // Call onStart() if subclass defines it
       if (this.onStart) {
-        try {
-          await this.onStart();
-        } catch (error) {
-          const log = debug('lmz.mesh.LumenizeDO.onStart');
-          log.error('onStart() failed', {
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
-          });
-          throw error;
-        }
+        await this.onStart();
       }
 
       // Recover orphaned alarms: if the __lmz_alarms table has overdue rows
@@ -95,6 +92,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
           }
         }
       } catch { /* table doesn't exist yet — nothing to recover */ }
+    }).catch((error) => {
+      const log = debug('lmz.mesh.LumenizeDO.onStart');
+      log.error('onStart() failed', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
     });
   }
 

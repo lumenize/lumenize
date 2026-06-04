@@ -1,0 +1,17 @@
+{
+  "name": "onstart-repro",
+  "main": "./src/index.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "BROKEN", "class_name": "BrokenDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BrokenDO"]
+    }
+  ]
+}
