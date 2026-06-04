@@ -1,4 +1,5 @@
 import type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './types';
+import { getDebugSink } from './sink';
 
 /**
  * Configuration for creating a debug logger
@@ -73,9 +74,14 @@ export class DebugLoggerImpl implements DebugLogger {
   }
 
   /**
-   * Check if any level is enabled (useful for expensive pre-computations)
+   * Check if any level is enabled (useful for expensive pre-computations).
+   *
+   * When a test sink is installed via `setDebugSink`, this is always `true`
+   * — sink-installed implies "capture everything", and any callers gating
+   * expensive work on `enabled` should run that work so the sink sees it.
    */
   get enabled(): boolean {
+    if (getDebugSink() !== null) return true;
     return this.#enabledCache.get('debug') ||
            this.#enabledCache.get('info') ||
            this.#enabledCache.get('warn') ||
@@ -83,10 +89,15 @@ export class DebugLoggerImpl implements DebugLogger {
   }
 
   /**
-   * Internal method to log at a specific level (for filterable levels only)
+   * Internal method to log at a specific level (for filterable levels only).
+   *
+   * Sink contract: when a sink is installed, the DEBUG filter is bypassed and
+   * the entry goes to the sink only — the default console output is replaced,
+   * not augmented.
    */
   #log(level: DebugLevel, message: string, data?: any, _options?: DebugOptions): void {
-    if (!this.#enabledCache.get(level)) return;
+    const sink = getDebugSink();
+    if (!sink && !this.#enabledCache.get(level)) return;
 
     const log: DebugLogOutput = {
       type: 'debug',
@@ -100,13 +111,21 @@ export class DebugLoggerImpl implements DebugLogger {
       log.data = data;
     }
 
-    this.#output(log);
+    if (sink) {
+      sink(log);
+    } else {
+      this.#output(log);
+    }
   }
 
   /**
-   * Internal method to create and output a log (bypasses filter check)
+   * Internal method to create and output a log (bypasses filter check).
+   *
+   * Used only by `error()`. Sink contract matches `#log` — when a sink is
+   * installed, the entry goes to the sink only.
    */
   #logMessage(level: DebugLevel, message: string, data?: any): void {
+    const sink = getDebugSink();
     const log: DebugLogOutput = {
       type: 'debug',
       level,
@@ -119,7 +138,11 @@ export class DebugLoggerImpl implements DebugLogger {
       log.data = data;
     }
 
-    this.#output(log);
+    if (sink) {
+      sink(log);
+    } else {
+      this.#output(log);
+    }
   }
 
   debug(message: string, data?: any, options?: DebugOptions): void {

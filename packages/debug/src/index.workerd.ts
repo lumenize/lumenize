@@ -20,3 +20,7 @@ export const debug = createDebug(
 );
 
 export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './types';
+
+// Test-only sink — not part of the documented public API. See ./sink.ts.
+export { setDebugSink, clearDebugSink } from './sink';
+export type { DebugSink } from './sink';
