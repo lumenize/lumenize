@@ -21,7 +21,11 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
     const testEmail = 'test@lumenize.io';
     const browser = new Browser();
 
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    // 45s email-wait window — wider than the 20s default because Resend's
+    // HTTPS delivery is more variable than Cloudflare Email Sending's
+    // in-process binding. The vitest project testTimeout is bumped to 60s to
+    // hold this plus the click round-trip.
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, timeout: 45000 });
     cleanup = waiter.cleanup;
 
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
