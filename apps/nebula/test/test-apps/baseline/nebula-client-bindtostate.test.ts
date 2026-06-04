@@ -14,7 +14,9 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { createState } from '@lumenize/state';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
+import type { DebugLogOutput } from '@lumenize/debug';
+import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -50,14 +52,16 @@ async function createResource(
   return result.eTags[resourceId];
 }
 
-// Used by the skipped warn-spy test. See open follow-up about spy-able
-// `@lumenize/debug` output in [tasks/nebula-frontend.md] § 5.3.6.
-let warnSpy: ReturnType<typeof vi.spyOn>;
+// Captures every `@lumenize/debug` entry emitted in the test isolate so the
+// "no cached meta.eTag" warn test can assert on it. See
+// `packages/debug/src/sink.ts` for the (undocumented) sink API.
+let debugEntries: DebugLogOutput[];
 beforeEach(() => {
-  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  debugEntries = [];
+  setDebugSink((e) => debugEntries.push(e));
 });
 afterEach(() => {
-  warnSpy.mockRestore();
+  clearDebugSink();
 });
 
 describe('bindToState — commit roundtrip', () => {
@@ -86,9 +90,8 @@ describe('bindToState — commit roundtrip', () => {
 
 describe('bindToState — middleware skip cases', () => {
   it('skips writes with no cached meta.eTag (no transaction observable)', async () => {
-    // Weaker version of the skipped test below — verifies the absence of a
-    // transaction submission by checking no `meta.eTag` got populated. Keep
-    // this passing while the spy-able-warn follow-up is open.
+    // Complements the warn-assertion test below by verifying the absence of
+    // a transaction submission via state inspection (no `meta.eTag` set).
     const star = uniqueStar();
     const a = await adminClient(star);
 
@@ -109,11 +112,7 @@ describe('bindToState — middleware skip cases', () => {
     a.client[Symbol.dispose]();
   });
 
-  // Blocked on: `@lumenize/debug` routes through `console.debug` (not
-  // `console.warn`) and gates on the DEBUG env var, so a `console.warn` spy
-  // doesn't catch the middleware's `log.warn(...)`. Follow-up tracked in
-  // [tasks/nebula-frontend.md] § 5.3.6 "Spy-able `@lumenize/debug` output".
-  it.skip('skips writes with no cached meta.eTag (create path) and logs a warn', async () => {
+  it('skips writes with no cached meta.eTag (create path) and logs a warn', async () => {
     const star = uniqueStar();
     const a = await adminClient(star);
 
@@ -126,10 +125,13 @@ describe('bindToState — middleware skip cases', () => {
     await new Promise<void>((r) => queueMicrotask(r));
 
     expect(state.getState('resources.TestResource.never-subscribed.value.title')).toBe('orphan');
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('no cached meta.eTag'),
-      expect.any(Object),
+    const warn = debugEntries.find(
+      (e) =>
+        e.namespace === 'lumenize.nebula-client' &&
+        e.level === 'warn' &&
+        e.message.includes('no cached meta.eTag'),
     );
+    expect(warn).toBeDefined();
 
     a.client[Symbol.dispose]();
   });
@@ -278,17 +280,7 @@ describe('bindToState — auto-subscribe via refcount', () => {
 });
 
 describe('bindToState — rollback', () => {
-  // Blocked on: state stays at the invalid value rather than rolling back.
-  // Likely cause: typia validation on a `put` is gated by
-  // `currentSnapshots.get(resourceId)` being truthy at
-  // [apps/nebula/src/resources.ts:306-310] — needs investigation into whether
-  // validation actually runs in this path or the bad value gets committed.
-  // Code path for the rollback itself is in `#processMiddlewareOutcome`
-  // (covered for the `'committed'` and `'use-server'` paths via other tests).
-  // Follow-up tracked in [tasks/nebula-frontend.md] § 5.3.6 "Rollback
-  // failure-outcome tests". When this passes, add siblings for
-  // permission-denied / ontology-stale / timeout / retries-exhausted.
-  it.skip("validation-failed: optimistic write reverts to pre-write value via source: 'rollback'", async () => {
+  it("validation-failed: optimistic write reverts to pre-write value via source: 'rollback'", async () => {
     const star = uniqueStar();
     const a = await adminClient(star);
     const rid = generateUuid();
@@ -310,6 +302,83 @@ describe('bindToState — rollback', () => {
     // Wait for rollback.
     await vi.waitFor(() => {
       expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('Valid');
+    });
+
+    a.client[Symbol.dispose]();
+  });
+
+  it("permission-denied: optimistic write reverts to pre-write value via source: 'rollback'", async () => {
+    const star = uniqueStar();
+    const a = await adminClient(star);
+    const rid = generateUuid();
+
+    // Admin creates a node where the user has read but not write.
+    a.client.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
+    await vi.waitFor(() => expect(a.client.lastResult).toBeDefined());
+    const nodeId = a.client.lastResult as number;
+
+    a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
+      [rid]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'AdminWrote', status: 'todo' } },
+    });
+    await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
+
+    // Create a non-admin user with read-only permission on the node.
+    const adminBrowser = new Browser();
+    const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    const userBrowser = new Browser();
+    await createSubject(adminBrowser, star, adminToken, 'reader@example.com');
+    const { client: reader, payload: readerPayload } = await createAuthenticatedClient(
+      NebulaClientTest, userBrowser, star, star, 'reader@example.com',
+    );
+    a.client.callStarSetPermission(star, nodeId, readerPayload.sub, 'read');
+    await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
+
+    const state = createState();
+    reader.bindToState(state);
+    await reader.resources.subscribe('TestResource', rid);
+    expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('AdminWrote');
+
+    state.setState(`resources.TestResource.${rid}.value.title`, 'ReaderTriedToWrite');
+    expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('ReaderTriedToWrite');
+
+    await vi.waitFor(() => {
+      expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('AdminWrote');
+    });
+
+    a.client[Symbol.dispose]();
+    reader[Symbol.dispose]();
+  });
+
+  it("ontology-stale: optimistic write reverts to pre-write value via source: 'rollback'", async () => {
+    const star = uniqueStar();
+    const galaxyName = star.split('.').slice(0, 2).join('.');
+    const rid = generateUuid();
+
+    // Build a v1-pinned client.
+    const a = await createAuthenticatedClient(
+      NebulaClientTest, new Browser(), star, star, 'admin@example.com', 'v1',
+    );
+    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: TEST_TYPES });
+    await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
+    await createResource(a.client, star, rid, { title: 'V1value', status: 'todo' });
+
+    const state = createState();
+    a.client.bindToState(state);
+    await a.client.resources.subscribe('TestResource', rid);
+    expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1value');
+
+    // Append v2 and force Star to install v2 — client stays pinned at v1.
+    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
+    await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
+    await a.client.resources.read('TestResource', rid, { ontologyVersion: 'v2' });
+
+    // Optimistic write via the v1-pinned client — server returns
+    // ontology-stale because Star is at v2.
+    state.setState(`resources.TestResource.${rid}.value.title`, 'V1writeAttempt');
+    expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1writeAttempt');
+
+    await vi.waitFor(() => {
+      expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1value');
     });
 
     a.client[Symbol.dispose]();

@@ -142,6 +142,26 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     client[Symbol.dispose]();
   });
 
+  it('validation-failed: bad value on put resolves with validation-failed (regression probe for hypothesis 1)', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const resourceId = generateUuid();
+
+    const created = await client.resources.transaction({
+      [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Valid' } },
+    });
+    if (created.resolution !== 'committed') throw new Error('Expected committed');
+
+    const outcome = await client.resources.transaction({
+      [resourceId]: { op: 'put', eTag: created.eTag, value: { title: 42 as unknown as string } },
+    });
+    expect(outcome.resolution).toBe('validation-failed');
+    if (outcome.resolution !== 'validation-failed') throw new Error('Expected validation-failed');
+    expect(outcome.errors[resourceId]).toBeDefined();
+
+    client[Symbol.dispose]();
+  });
+
   it('permission-denied: non-admin user write resolves with permission-denied', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await setupAdminClient(star);

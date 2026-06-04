@@ -92,6 +92,15 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 
 - **Bulk demo data load** — LLM/agent generates full resource timelines (create → updates → moves → deletes) with pre-computed `validFrom` chains, bulk-inserted into Star. Bypasses eTag checking (loading history, not competing with live writers), but still validates timeline consistency (monotonic `validFrom`, continuous `validTo` chains) and permission checks on target nodes. This likely supersedes Blueprint's caller-provided `validFrom` — that was also used for cross-DO synchronized updates, but Blueprint used `validFrom` as its eTag and had finer-grained multi-DO transactions. With our separate eTag + single-DO transaction model, caller-provided `validFrom` may never be needed outside of bulk load.
 
+### Rollback failure-outcome sibling tests (deferred)
+
+Spawned from [validation-failed-rollback.md](validation-failed-rollback.md) § "Scope decision (2026-06-04)". When that task lands, three of the five terminal-non-committed `TransactionResolution` outcomes have bindToState rollback test coverage: `validation-failed`, `permission-denied`, `ontology-stale`. The remaining two are deferred and want their own sibling tests once their blockers clear:
+
+- **`timeout`** — needs WS-disconnect tooling (also deferred in [nebula-frontend.md](nebula-frontend.md) § Phase 5.3.6). Test shape: subscribe → optimistic write → drop the WS or stall the server-side handler past the 5–10 s queue timeout → assert state reverts to pre-write snapshot via `source: 'rollback'`.
+- **`retries-exhausted`** — belongs with the broader conflict-resolver-loop redesign in Phase 5.3.7 (`TransactionOutcome` / `TransactionResourceResolution`). Test shape: register an `onETagConflict` resolver that always returns `'use-this'`, optimistic write at a stale eTag → after `maxRetries` attempts hits cap → assert state reverts.
+
+Both should reuse the same shape as the `validation-failed`/`permission-denied`/`ontology-stale` siblings — only the trigger differs. The middleware dispatcher (`#processMiddlewareOutcome`) already handles both branches; the gap is purely test coverage.
+
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:

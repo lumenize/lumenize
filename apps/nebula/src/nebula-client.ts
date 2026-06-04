@@ -185,6 +185,15 @@ interface QueuedTransaction {
 const TRANSACTION_TIMEOUT_MS = 10_000;
 
 /**
+ * Exhaustiveness check for discriminated-union switches. The `never` parameter
+ * type means TypeScript flags any unhandled variant at the call site as a
+ * compile error.
+ */
+function assertNever(x: never): never {
+  throw new Error(`Unhandled discriminant: ${JSON.stringify(x)}`);
+}
+
+/**
  * Options for `client.bindToState(state, options?)`. See coding-your-ui.md
  * § "Lifecycle: bindings and subscriptions" for the user-facing semantics.
  */
@@ -473,8 +482,11 @@ export class NebulaClient extends LumenizeClient {
     }
     // Capture pre-write full value as the rollback target. The user's write
     // is about to land at a sub-path; for terminal failure we restore the
-    // full pre-write value.
-    const preWriteValue = state.getState(`${basePath}.value`);
+    // full pre-write value. Deep-clone is load-bearing: StateManager mutates
+    // the live object in place when writing a sub-path, so a reference
+    // capture would have its fields mutated by the user's own write before
+    // the rollback ever fires.
+    const preWriteValue = structuredClone(state.getState(`${basePath}.value`));
     const newETag = crypto.randomUUID();
 
     queueMicrotask(async () => {
@@ -521,6 +533,8 @@ export class NebulaClient extends LumenizeClient {
       case 'retries-exhausted':
         state.setState(`${basePath}.value`, preWriteValue, { source: 'rollback' });
         return;
+      default:
+        assertNever(outcome);
     }
   }
 
