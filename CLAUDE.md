@@ -48,11 +48,13 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 
 `experiments/*` are point-in-time spikes, not maintained artifacts. Results live in the experiment's `RESULTS.md` / `FINDINGS.md` / blog post, not in keeping the code runnable. An experiment commonly breaks soon after it's run because we modify the source code it depended on — **that's fine**; don't try to fix it.
 
-**Starting a new experiment**: create `experiments/<name>/` with its own `package.json`, `wrangler.jsonc`, etc., then add `"experiments/<name>"` **as an individual entry** (not a glob) to the root `package.json` `workspaces` list, then run `npm install` at the repo root. Individual entries are load-bearing — `experiments/*` would break `npm install` the moment one experiment references a renamed/deleted package.
+**Tracked by default.** Experiments are committed to git like any other code — `experiments/` is *not* git-ignored. (It used to be, which created a footgun: every active experiment also has to be a `package.json` `workspaces` entry, and a workspace pointing at a git-ignored — thus clone-absent — directory breaks `npm install` on a fresh clone. So active experiments were already being force-added; the ignore only ever silently hid scaffolds.) Only experiment-local generated/raw artifacts stay ignored — `node_modules/`, `dist/`, `.wrangler/`, `coverage/`, `__screenshots__/`, `.dev.vars`, and `*-raw-*.json` dumps are caught by the global rules in `.gitignore` (add a targeted `experiments/...` rule there for any new bulk-generated output, as `experiments/tsgo-benchmarks/schemas/` does).
 
-**When an old experiment breaks**: remove its entry from the root `package.json` `workspaces` list (or delete the dir entirely if the results are already captured elsewhere). Do NOT try to make it run again.
+**Starting a new experiment**: create `experiments/<name>/` with its own `package.json`, `wrangler.jsonc`, etc., then add `"experiments/<name>"` **as an individual entry** (not a glob) to the root `package.json` `workspaces` list, then run `npm install` at the repo root. Individual entries are load-bearing — `experiments/*` would break `npm install` the moment one experiment references a renamed/deleted package. Just commit the new files; no `git add -f` needed anymore.
 
-The workspaces list will only contain currently-active experiments. Old ones drop out; that's the intended steady state.
+**When an old experiment breaks or goes stale**: remove its entry from the root `package.json` `workspaces` list, and once its results are captured elsewhere (a task file, `RESULTS.md`, or blog post), delete the dir entirely — `git rm -r experiments/<name>` — rather than letting it rot. Do NOT try to make it run again.
+
+The steady state: the `workspaces` list holds only currently-active experiments, while git tracks both active and not-yet-pruned ones. Prune stale dirs periodically so the tracked set doesn't grow without bound.
 
 ---
 

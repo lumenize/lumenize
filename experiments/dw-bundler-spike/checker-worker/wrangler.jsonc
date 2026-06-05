@@ -1,0 +1,11 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "tsc-checker-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "rules": [
+    { "type": "Text", "globs": ["**/*.bundle"], "fallthrough": true }
+  ]
+}

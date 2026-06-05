@@ -1,0 +1,17 @@
+{
+  "name": "@lumenize/nebula-boot-repro",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal repro: wrangler dev fails to boot when a Worker imports from @lumenize/nebula",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config ./wrangler.jsonc --port 8800",
+    "dump": "wrangler deploy --dry-run --outdir /tmp/nebula-boot-repro-out"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  },
+  "dependencies": {
+    "@lumenize/nebula": "^0.24.0"
+  }
+}

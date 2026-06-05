@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dwl-benchmarks",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BENCH_DO",
+        "class_name": "BenchDO"
+      }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_classes": ["BenchDO"] }
+  ]
+}
