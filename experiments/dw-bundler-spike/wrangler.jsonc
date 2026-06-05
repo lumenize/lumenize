@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dw-bundler-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "rules": [
+    { "type": "Text", "globs": ["**/*.bundle"], "fallthrough": true }
+  ],
+
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ],
+
+  "services": [
+    { "binding": "TSC_CHECKER", "service": "tsc-checker-worker", "entrypoint": "TscChecker" }
+  ]
+}

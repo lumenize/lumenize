@@ -1,0 +1,20 @@
+{
+  "name": "ctx-id-name-experiment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "test": "vitest --run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.16.6",
+    "@cloudflare/workers-types": "^4.20251011.0",
+    "typescript": "^5.9.2",
+    "vitest": "4.1.4",
+    "wrangler": "^4.92.0"
+  }
+}

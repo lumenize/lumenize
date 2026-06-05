@@ -45,8 +45,12 @@ dist-ssr
 # node-localstorage
 .scratch
 
-# Experiments (throwaway spikes, not for source control)
-experiments/
+# Experiments — tracked by default. Prune stale dirs when their results are
+# captured elsewhere; keep package.json "workspaces" curated to active experiments.
+# Per-experiment node_modules/dist/.wrangler/coverage/__screenshots__/.dev.vars are
+# already covered by the global rules above. These cover generated/raw artifacts only:
+experiments/**/*-raw-*.json
+experiments/tsgo-benchmarks/schemas/
 
 # vitest
 .vitest-cache

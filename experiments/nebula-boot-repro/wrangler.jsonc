@@ -1,0 +1,26 @@
+{
+  "name": "nebula-boot-repro",
+  "main": "./index.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
+      { "name": "UNIVERSE", "class_name": "Universe" },
+      { "name": "GALAXY", "class_name": "Galaxy" },
+      { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "NebulaClientGateway",
+        "Universe",
+        "Galaxy",
+        "ResourceHistory"
+      ]
+    }
+  ]
+}

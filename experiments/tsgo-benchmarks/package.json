@@ -1,0 +1,8 @@
+{
+  "name": "tsgo-benchmarks",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@typescript/native-preview": "^7.0.0-dev"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "dwl-benchmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251011.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.86.0"
+  },
+  "dependencies": {
+    "@cloudflare/codemode": "^0.1.2"
+  }
+}

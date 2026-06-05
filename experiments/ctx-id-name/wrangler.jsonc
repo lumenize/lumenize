@@ -1,0 +1,17 @@
+{
+  "name": "ctx-id-name-experiment",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PROBE_DO", "class_name": "ProbeDO" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ProbeDO"]
+    }
+  ]
+}
