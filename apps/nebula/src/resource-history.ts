@@ -1,5 +1,11 @@
 /**
- * ResourceHistory — UUID-named DO locked to the creating active scope
+ * ResourceHistory — a tenant-scoped helper DO used as the canonical scope-isolation
+ * test fixture (see tasks/nebula-do-scope-isolation.md). Scope binding is enforced
+ * structurally by the base class; @see NebulaDO.
+ *
+ * NOT a home for resource history. Resource history (old snapshots) is stored in R2,
+ * not in per-resource DOs — see tasks/on-hold/nebula-resource-history-r2.md. This class
+ * has no production caller; it exists only to exercise NebulaDO's tenant isolation.
  */
 
 import { mesh } from '@lumenize/mesh';
