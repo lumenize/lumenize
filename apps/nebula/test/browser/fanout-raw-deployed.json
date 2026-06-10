@@ -1,0 +1,60 @@
+{
+  "summary": {
+    "label": "deployed",
+    "baseUrl": "https://nebula-browser-test.transformation.workers.dev",
+    "galaxyScope": "acme-e63b7e8c.app",
+    "starName": "acme-e63b7e8c.app.tenant-fanout",
+    "M": 2,
+    "iterations": 3,
+    "commitToArrival": {
+      "mean": 0.16027800000059264,
+      "p50": 0.21600000000034925,
+      "p75": 0.3834999999999127,
+      "p95": 0.3834999999999127,
+      "p99": 0.3834999999999127,
+      "min": -0.11866599999848404,
+      "max": 0.3834999999999127
+    },
+    "endToEnd": {
+      "mean": 51.981639000000236,
+      "p50": 52.75433300000077,
+      "p75": 53.77491699999882,
+      "p95": 53.77491699999882,
+      "p99": 53.77491699999882,
+      "min": 49.41566700000112,
+      "max": 53.77491699999882
+    },
+    "commitDuration": {
+      "mean": 51.82136099999965,
+      "p50": 52.37083300000086,
+      "p75": 53.55891699999847,
+      "p95": 53.55891699999847,
+      "p99": 53.55891699999847,
+      "min": 49.534332999999606,
+      "max": 53.55891699999847
+    }
+  },
+  "samples": [
+    {
+      "iter": 0,
+      "eTag": "bb1da170-1dd1-4621-8060-4ccdfe284262",
+      "tBeforeCommit": 19027.08025,
+      "tAfterCommit": 19079.451083,
+      "tArrived": 19079.834583
+    },
+    {
+      "iter": 1,
+      "eTag": "2deebd3d-e5df-445e-8cfc-9156a45b9f48",
+      "tBeforeCommit": 19079.949208,
+      "tAfterCommit": 19133.508125,
+      "tArrived": 19133.724125
+    },
+    {
+      "iter": 2,
+      "eTag": "c9f80756-07aa-4ca1-ab7f-e441ff71d854",
+      "tBeforeCommit": 19133.750625,
+      "tAfterCommit": 19183.284958,
+      "tArrived": 19183.166292
+    }
+  ]
+}

@@ -3,9 +3,10 @@
  *
  * When a client closes its WebSocket and doesn't reconnect within the
  * Gateway's grace period, that client's `Subscribers` rows leak. The
- * cleanup mechanism is **reactive**, not proactive: the next time `Star.#fanout`
- * tries to push to that client, the Gateway returns `ClientDisconnectedError`,
- * and Star's `#onFanoutDelivered` handler deletes the offending row inline.
+ * cleanup mechanism is **reactive**, not proactive: the next time `Star.#broadcast`
+ * (via `this.svc.broadcast`) tries to push to that client, the Gateway returns
+ * `ClientDisconnectedError`, and Star's `onBroadcastResult` handler — the `onResult`
+ * partial `svc.broadcast` completes per target — deletes the offending row inline.
  *
  * For "quiet" resources that nobody mutates after the disconnect, the row
  * stays leaked until the next deploy's push-on-clear (5.3.4b) catches it.
@@ -89,9 +90,9 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     // miniflare-induced latency.
     await new Promise((r) => setTimeout(r, 500));
 
-    // a triggers a mutation. Star's #fanout iterates subscribers; one of them
-    // is b (disconnected). The lmz.call to b's Gateway returns
-    // ClientDisconnectedError → #onFanoutDelivered deletes b's row inline.
+    // a triggers a mutation. Star.#broadcast fans out via svc.broadcast; one of
+    // its targets is b (disconnected). The push to b's Gateway returns
+    // ClientDisconnectedError → onBroadcastResult deletes b's row inline.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Updated by a' } },
     });
@@ -133,7 +134,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     });
 
     // Both rows should still be present — the success path of
-    // #onFanoutDelivered must not delete rows.
+    // onBroadcastResult must not delete rows.
     a.client.callStarInspectSubscribers(star);
     const rowsAfter = await waitForSuccess(a.client) as SubscriberRow[];
     expect(rowsAfter).toHaveLength(2);

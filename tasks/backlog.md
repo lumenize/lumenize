@@ -257,6 +257,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Website, Blog, etc.
 
+- [ ] Publish blog 2e "Scaling Durable Object broadcast" — flip `draft: true` → published at `website/blog/2026-06-06-scaling-durable-object-broadcast/index.md` (only remaining item from archived [fanout-scaling-benchmark](archive/fanout-scaling-benchmark.md))
+
 - [ ] Draft blog post: "When time stops: benchmarking Cloudflare Durable Objects from outside" (working title)
   - **Why**: The bench harness pattern we built for the parse-validate release is genuinely novel for the Cloudflare community. Most DO bench writeups use `vi.bench` inside the Workers test pool and quietly absorb the time-pinning problem. The WS-push-observer pattern with ping-subtraction is the right answer but not obvious — and it deserves to be documented as its own contribution.
   - **What to cover**:

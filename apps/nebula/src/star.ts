@@ -274,7 +274,7 @@ export class Star extends NebulaDO {
 
       const { row, facet } = this.#ensureFacet();
       const result = await this.#resources.transaction(ops, row.version, newETag, facet,
-        (mutations) => this.#fanout(mutations, clientId));
+        (mutations) => this.#broadcast(mutations, clientId));
 
       // Deliver result to client
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -486,53 +486,81 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * Resource-mutation fanout (Phase 5.3.2). Called from
-   * `Resources.transaction` via the `onMutations` callback after a successful
-   * commit. For each mutated resource, look up subscribers and dispatch
-   * `handleResourceUpdate` to each — excluding the originator (they already
-   * receive the authoritative result via `handleTransactionResult`).
+   * Resource-mutation broadcast (Phase 5.3.2 / Phase 5b primitive lift).
+   * Called from `Resources.transaction` via the `onMutations` callback
+   * after a successful commit. For each mutated resource, look up
+   * subscribers and dispatch `handleResourceUpdate` to each — excluding
+   * the originator (they already receive the authoritative result via
+   * `handleTransactionResult`).
    *
    * Per the pinned subscribe-time-only guard semantics, we do NOT re-check
    * DAG read permission per subscriber per push. Permission revocation
    * mid-subscription is accepted for demo (Phase -1 Open Q2).
    *
-   * **Drop-on-failed-fanout (Phase 5.3.5)**: each `lmz.call` is paired with a
-   * `#onFanoutDelivered` handler that fires when the call settles. If the
-   * client's Gateway returned `ClientDisconnectedError` (post-grace-period),
-   * we delete the leaked subscriber row inline. This is the "user closed the
-   * tab" cleanup path — reactive (next mutation triggers it), simpler than
-   * an alarm-driven proactive scheme. Quiet resources leak rows until the
-   * next deploy's `Subscriptions.clear()` + push-on-clear catches them.
+   * Uses `this.svc.broadcast` — the framework primitive that picks between
+   * a direct loop (`targets.length ≤ directThreshold`) and a recursive
+   * Worker tier (`> directThreshold`) automatically. See
+   * `packages/mesh/src/broadcast.ts` and `tasks/fanout-scaling-benchmark.md`.
+   *
+   * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult`
+   * partial continuation that the framework completes by appending the
+   * per-target call result. On `ClientDisconnectedError`, we drop the leaked
+   * subscriber row using `clientInstanceName` carried on the error itself
+   * (no separate target arg needed in the handler signature). For
+   * unavailable Gateway / transient errors we keep the row — over-eager
+   * deletion would over-cleanup.
    */
-  #fanout(mutations: Map<string, Snapshot>, originatorClientId: string) {
+  #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string) {
+    // Per-Star bench overrides. All env vars exist for the fanout-scaling
+    // bench; production sets none.
+    //
+    //   STAR_BROADCAST_DIRECT_THRESHOLD — override svc.broadcast's
+    //     direct-vs-tree cutoff. `Infinity` forces direct (naive loop);
+    //     `0` forces tree; numeric overrides the framework default of 100.
+    //   STAR_BROADCAST_OMIT_ON_RESULT=1 — call svc.broadcast WITHOUT the
+    //     `onResult` partial. Strips drop-on-failed-fanout cleanup. Used
+    //     to isolate the cost of result-handler dispatch.
+    const rawThreshold = (this.env as any)?.STAR_BROADCAST_DIRECT_THRESHOLD;
+    const directThreshold = rawThreshold === undefined
+      ? undefined
+      : rawThreshold === 'Infinity'
+        ? Infinity
+        : parseInt(rawThreshold, 10);
+    const omitOnResult = (this.env as any)?.STAR_BROADCAST_OMIT_ON_RESULT === '1';
     for (const [resourceId, snapshot] of mutations) {
       const subscribers = this.#subscriptions.forResource(resourceId);
-      for (const sub of subscribers) {
-        if (sub.clientId === originatorClientId) continue;
-        const remote = this.ctn<NebulaClient>().handleResourceUpdate(
-          snapshot.meta.typeName, resourceId, snapshot);
-        this.lmz.call(sub.subscriberBinding, sub.clientId, remote,
-          this.ctn().onFanoutDelivered(resourceId, sub.clientId, remote));
-      }
+      const targets = subscribers
+        .filter(sub => sub.clientId !== originatorClientId)
+        .map(sub => ({ bindingName: sub.subscriberBinding, instanceName: sub.clientId }));
+      const remote = this.ctn<NebulaClient>().handleResourceUpdate(
+        snapshot.meta.typeName, resourceId, snapshot);
+      const opts: { directThreshold?: number; onResult?: any } = {};
+      if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
+      if (directThreshold !== undefined) opts.directThreshold = directThreshold;
+      this.svc.broadcast(targets, remote, opts);
     }
   }
 
   /**
-   * Fanout-delivery handler. Fires when the `#fanout`'s `lmz.call` settles —
-   * either with success (the client received the snapshot) or with an error
-   * (most often `ClientDisconnectedError` if the client's Gateway is post-
-   * grace-period). On `ClientDisconnectedError`, drop the leaked subscriber
-   * row inline. Other errors (transient network, Gateway misbehavior) are
-   * logged but the row stays — over-eager deletion would over-cleanup.
+   * Per-target broadcast result handler. Invoked once per subscriber
+   * (success or failure) by `svc.broadcast`'s plumbing. The framework
+   * appends `result` to the partial continuation Star passed via
+   * `opts.onResult`, so this method's signature is
+   * `(resourceId, result)`; the target clientId comes from
+   * `ClientDisconnectedError.clientInstanceName` when delivery fails.
    *
-   * Public visibility because mesh handler-continuations resolve by name on
-   * the local DO; `@mesh()` not required since this is a local execution,
-   * not a remote call surface.
+   * Public visibility because mesh handler-continuations resolve by name
+   * on the local DO; needs `@mesh()` because in the tree branch the tier
+   * worker dispatches this call across the service binding (so the
+   * framework needs to recognize the method as call-callable).
    */
-  onFanoutDelivered(resourceId: string, clientId: string, result: unknown): void {
+  @mesh()
+  onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      this.#subscriptions.removeSubscriber(resourceId, clientId);
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
   }
+
 }

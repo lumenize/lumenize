@@ -2,7 +2,7 @@
   "name": "nebula-browser-test",
   "main": "./index.ts",
   "compatibility_date": "2026-04-01",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
@@ -12,7 +12,8 @@
       { "name": "STAR", "class_name": "StarTest" },
       { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
+      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
   },
   "migrations": [
@@ -27,6 +28,18 @@
         "NebulaAuth",
         "NebulaAuthRegistry"
       ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["BenchAgent"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
+    },
+    {
+      "tag": "v4",
+      "deleted_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
     }
   ],
   "services": [
@@ -34,6 +47,11 @@
       "binding": "AUTH_EMAIL_SENDER",
       "service": "nebula-browser-test",
       "entrypoint": "TestNebulaEmailSender"
+    },
+    {
+      "binding": "LUMENIZE_BROADCAST_TIER",
+      "service": "nebula-browser-test",
+      "entrypoint": "BenchFanoutTier"
     }
   ],
   // Cloudflare Email Sending binding used by CloudflareEmailSender (which
@@ -63,6 +81,11 @@
     // call this deployed-via-miniflare worker cross-origin. Empty in production
     // (single-origin deploy); per-test config provides whatever origins the
     // test runner serves the page from.
-    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173"
+    "LUMENIZE_APPROVED_ORIGINS": "http://localhost:5173,http://localhost:4173",
+    // Fanout-scaling bench overrides for Star.#broadcast. Comment out / unset
+    // both when not actively running an experiment to restore production
+    // behavior (svc.broadcast default threshold=100, onResult handler wired).
+    // "STAR_BROADCAST_DIRECT_THRESHOLD": "Infinity",
+    // "STAR_BROADCAST_OMIT_ON_RESULT": "1"
   }
 }

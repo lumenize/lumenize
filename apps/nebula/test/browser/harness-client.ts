@@ -21,7 +21,7 @@
 
 import { mesh } from '@lumenize/mesh/client';
 import { NebulaClient } from '@lumenize/nebula/client';
-import type { OperationDescriptor, TransactionResult } from '@lumenize/nebula/client';
+import type { OperationDescriptor, Snapshot, TransactionResult } from '@lumenize/nebula/client';
 
 /** Per-call decomposed timing: arrival timestamps from the Node clock. */
 export interface DecomposedTimings {
@@ -41,6 +41,15 @@ export class HarnessNebulaClient extends NebulaClient {
   #pending?: { resolve: (v: any) => void; reject: (e: Error) => void };
   /** Map<callId, markerArrival ms>. Entries are deleted by the helper that consumed them. */
   #markersByCallId = new Map<string, number>();
+  /**
+   * Map<eTag, t_arrived ms> — populated by every `handleResourceUpdate` carrying
+   * a non-error Snapshot. Used by the fanout bench (`tasks/fanout-scaling-benchmark.md`)
+   * to capture per-subscriber push delivery time, correlated by the eTag the
+   * originator pre-generates via `client.resources.transaction({ newETag })`.
+   */
+  #fanoutArrivalsByETag = new Map<string, number>();
+  /** Resolvers registered by `waitForFanoutArrival` for eTags not yet seen. */
+  #pendingFanoutWaits = new Map<string, (t: number) => void>();
 
   #settle(v: any): void {
     if (v instanceof Error) this.#pending?.reject(v);
@@ -57,14 +66,80 @@ export class HarnessNebulaClient extends NebulaClient {
   }
 
   // Mesh callbacks the Star invokes directly over the existing WS.
+  // Always chain to super so the public-API in-flight queue used by
+  // `client.resources.transaction()` settles too. Tests using the direct
+  // `callStarTransaction` pattern leave `#inFlightTxn` unset, so super is
+  // a no-op in that mode; tests using the public API never set `#pending`,
+  // so the `#settle` call is a no-op in that mode.
   @mesh()
   override handleTransactionResult(r: TransactionResult | Error): void {
     this.#settle(r);
+    super.handleTransactionResult(r);
   }
 
   @mesh()
   handlePingResult(r: number | Error): void {
     this.#settle(r);
+  }
+
+  /**
+   * Override `handleResourceUpdate` to record the Node-side arrival time for
+   * every snapshot delivery, keyed by `snapshot.meta.eTag`. Initial-subscribe
+   * snapshots and fanout pushes both flow through here — the fanout bench
+   * filters by the originator-generated eTag so initial-snapshot deliveries
+   * don't pollute the measurement.
+   *
+   * Calls super to preserve normal subscribe-Promise settlement, bound-state
+   * write-through, and ontology-stale handling.
+   */
+  @mesh()
+  override handleResourceUpdate(
+    resourceType: string,
+    resourceId: string,
+    result: Snapshot | null | Error,
+  ): void {
+    if (result && !(result instanceof Error)) {
+      const eTag = result.meta.eTag;
+      const t = performance.now();
+      this.#fanoutArrivalsByETag.set(eTag, t);
+      const waiter = this.#pendingFanoutWaits.get(eTag);
+      if (waiter) {
+        this.#pendingFanoutWaits.delete(eTag);
+        waiter(t);
+      }
+    }
+    super.handleResourceUpdate(resourceType, resourceId, result);
+  }
+
+  /**
+   * Resolve with the `performance.now()` timestamp captured when this client's
+   * `handleResourceUpdate` fired for `eTag`. If already received, resolves
+   * immediately; otherwise waits until the matching delivery arrives.
+   *
+   * Test code typically pre-generates `eTag` via `crypto.randomUUID()` and
+   * passes it to `client.resources.transaction(ops, { newETag: eTag })` so the
+   * eTag is known before any subscriber receives the push.
+   */
+  waitForFanoutArrival(eTag: string, timeoutMs = 30_000): Promise<number> {
+    const cached = this.#fanoutArrivalsByETag.get(eTag);
+    if (cached !== undefined) {
+      return Promise.resolve(cached);
+    }
+    return new Promise<number>((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        this.#pendingFanoutWaits.delete(eTag);
+        reject(new Error(`waitForFanoutArrival: timeout after ${timeoutMs}ms for eTag ${eTag}`));
+      }, timeoutMs);
+      this.#pendingFanoutWaits.set(eTag, (t) => {
+        globalThis.clearTimeout(timer);
+        resolve(t);
+      });
+    });
+  }
+
+  /** Drop any captured arrivals — useful between bench iterations to bound memory. */
+  resetFanoutArrivals(): void {
+    this.#fanoutArrivalsByETag.clear();
   }
 
   // Plain handler for callers that explicitly forward via
@@ -78,12 +153,13 @@ export class HarnessNebulaClient extends NebulaClient {
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
+    newETag: string = crypto.randomUUID(),
   ): Promise<DecomposedCallResult<TransactionResult>> {
     return this.#callWithMarker((onSent) => {
       this.lmz.call(
         'STAR',
         starName,
-        (this.ctn() as any).transaction(ontologyVersion, ops),
+        (this.ctn() as any).transaction(ontologyVersion, newETag, ops),
         undefined,
         { onSent },
       );
@@ -175,4 +251,5 @@ export class HarnessNebulaClient extends NebulaClient {
       this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
     });
   }
+
 }
