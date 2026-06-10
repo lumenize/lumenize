@@ -47,10 +47,12 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
   
 - **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
   
-- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare circumstances. Further, a single hop between regions can be on the order of tens to hundreds of ms so the already-insignificant addition of ~5-12ms becomes even more insignficant as distance increases.
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare circumstances. Further, a single hop between regions can be on the order of tens to hundreds of ms so the already-insignificant addition of ~5-12ms becomes even more insignficant as distance increases. One exception: when a single application DO broadcasts to many connected clients (>~250 subscribers), the extra Gateway hop materially shows up in the originator's per-message round-trip — see [`svc.broadcast`](/docs/mesh/broadcast) for the recommended pattern (tiered fanout via a recursive Worker tier) and `tasks/fanout-scaling-benchmark.md` for the measured curve.
 
 - **Throughput**: With this design, authentication and routing CPU work is spread out across multiple DOs rather than serializing on the callee. Our benchmarks show this results in ~14% increase in peak throughput.
-  
+
+- **Security isolation (DMZ)**: Because Gateway is the only mesh node that talks to the public internet, the application DOs never see raw WebSocket frames or unverified identity. Gateway is a one-purpose forwarder (no storage, no business logic, no application code paths reachable from the wire) — see [Trust DMZ](#trust-demilitarized-zone-dmz) below. A bug in your application DOs cannot be exploited by sending a malformed WS frame; a bug in Gateway has nothing to leak. The single-DO alternative collapses these into one process, where every application code path is also a public-facing one.
+
 - **Complexity**:
   - **More complex**. For simple use-cases, connecting a single client to a single-DO over is arguably simpler. However, once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.
   - **Simpler**. Having a client address look exactly like the address of other nodes in the mesh enables the simpler true-peer mental-model. Clients are not only coded like other mesh nodes, they are addressed in the same way. The upstream vs downstream distinction disappears. 
