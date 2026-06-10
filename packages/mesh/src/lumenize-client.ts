@@ -390,6 +390,15 @@ export abstract class LumenizeClient {
   #WebSocketClass: typeof WebSocket;
   #lmzApi: LmzApiClient | null = null;
 
+  // The constructor's eager connect() fires the initial 'connecting'
+  // transition synchronously. For a subclass that runs during super(), before
+  // the subclass's field initializers — so delivery of that first
+  // onConnectionStateChange is deferred to a microtask (see the constructor
+  // and #setConnectionState). The WebSocket itself is still created eagerly;
+  // only the subclass-observable callback waits for construction to finish.
+  #deferInitialStateCallback = false;
+  #pendingInitialState: ConnectionState | null = null;
+
   // ============================================
   // Constructor
   // ============================================
@@ -427,8 +436,28 @@ export abstract class LumenizeClient {
     // Set up wake-up sensing (browser only)
     this.#setupWakeUpSensing();
 
-    // Start connection immediately (eager connect)
+    // Eager connect. connect() synchronously creates the WebSocket and sets
+    // state to 'connecting', but delivery of that initial onConnectionStateChange
+    // is deferred to a microtask: for a subclass this constructor runs during
+    // super(), before the subclass's field initializers, so firing the callback
+    // synchronously here would run subclass code (an override, or a closure
+    // capturing `this`) against a half-constructed instance. By the next
+    // microtask, construction is complete.
+    this.#deferInitialStateCallback = true;
     this.connect();
+    this.#deferInitialStateCallback = false;
+
+    const pendingState = this.#pendingInitialState;
+    if (pendingState !== null) {
+      this.#pendingInitialState = null;
+      queueMicrotask(() => {
+        // Skip if a later transition already superseded it — e.g. the caller
+        // synchronously called disconnect() before this microtask ran.
+        if (this.#connectionState === pendingState) {
+          this.#config.onConnectionStateChange?.(pendingState);
+        }
+      });
+    }
   }
 
   // ============================================
@@ -837,7 +866,13 @@ export abstract class LumenizeClient {
   #setConnectionState(state: ConnectionState): void {
     if (this.#connectionState !== state) {
       this.#connectionState = state;
-      this.#config.onConnectionStateChange?.(state);
+      if (this.#deferInitialStateCallback) {
+        // Captured here; the constructor delivers it on a microtask once
+        // construction (including any subclass) has completed.
+        this.#pendingInitialState = state;
+      } else {
+        this.#config.onConnectionStateChange?.(state);
+      }
     }
   }
 
@@ -1182,6 +1217,8 @@ export abstract class LumenizeClient {
     );
 
     // 5. Fire-and-forget with handler callbacks (shared helper, no ALS needed).
-    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
+    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
+      onErrorOnly: options?.onErrorOnly,
+    });
   }
 }

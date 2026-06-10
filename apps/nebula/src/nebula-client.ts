@@ -234,6 +234,10 @@ export class NebulaClient extends LumenizeClient {
    *  no-op for state when null (Promise correlation still works). */
   #state: StateManager | null = null;
 
+  /** Previous connection state, for detecting the `reconnecting → connected`
+   *  transition in the connection-state callback (see constructor). */
+  #prevConnectionState: ConnectionState | null = null;
+
   /**
    * Active subscriptions registry. Used by Phase 5.3.4 auto-resubscribe on
    * reconnect, and (in 5.3.6) by refcount-with-grace. For 5.3.3a the entry
@@ -269,16 +273,10 @@ export class NebulaClient extends LumenizeClient {
   /** Per-type conflict resolvers registered via `onETagConflict`. */
   #perTypeResolvers = new Map<string, RegisteredResolver>();
 
-  /**
-   * Bound-state shape. `bindToState` reads and mutates this. The closure-
-   * variable reference (`#boundStateRef.current`) is what the constructor-
-   * scoped `onConnectionStateChange` wrapper reads — see constructor for the
-   * "class fields aren't initialized during super()" workaround.
-   */
+  /** Bound-state options. `bindToState` populates this from its `options` arg. */
   #bindOptions: { unsubscribeGraceMs: number; getBindings?: (path: string) => HTMLElement[] } = {
     unsubscribeGraceMs: 2000,
   };
-  #boundStateRef!: { current: StateManager | null };
   #middlewareDisposer: (() => void) | null = null;
   #subAddedDisposer: (() => void) | null = null;
   #subRemovedDisposer: (() => void) | null = null;
@@ -302,17 +300,10 @@ export class NebulaClient extends LumenizeClient {
       ...baseConfig
     } = config;
 
-    // Closure variables rather than instance fields: LumenizeClient's
-    // constructor calls `connect()` synchronously, which fires
-    // onConnectionStateChange('connecting') before subclass fields finish
-    // initializing. A closure captures cleanly without `this.#field` access.
-    // Same trick for `boundStateRef` — the constructor wrapper writes
-    // connection-state through to the bound StateManager, but `bindToState`
-    // (which sets `boundStateRef.current`) runs much later. Mutable ref
-    // object lets both observe the same value.
-    let prevConnectionState: ConnectionState | null = null;
-    const boundStateRef: { current: StateManager | null } = { current: null };
-
+    // LumenizeClient defers the initial onConnectionStateChange to a microtask,
+    // so this wrapper only ever fires *after* construction completes — meaning
+    // it can safely read/write subclass fields (`#prevConnectionState`,
+    // `#state`) directly. No closure-variable workaround needed.
     super({
       ...baseConfig,
       gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
@@ -339,13 +330,13 @@ export class NebulaClient extends LumenizeClient {
         // when the WS is back up). The initial-connect transition is
         // `disconnected → connecting → connected`, which we don't treat as
         // a reconnect (registry is empty anyway).
-        if (prevConnectionState === 'reconnecting' && state === 'connected') {
+        if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
           this.#resubscribeAll();
         }
         // Phase 5.3.6: write connection state through to bound StateManager
         // (if bound). Pre-bind transitions are skipped — `bindToState` replays
         // the current state at bind time to cover anything missed.
-        const bound = boundStateRef.current;
+        const bound = this.#state;
         if (bound) {
           bound.setState('lmz.connection.state', state, { source: 'remote' });
           bound.setState('lmz.connection.connected', state === 'connected', { source: 'remote' });
@@ -353,7 +344,7 @@ export class NebulaClient extends LumenizeClient {
             bound.setState('lmz.connection.lastConnectedAt', Date.now(), { source: 'remote' });
           }
         }
-        prevConnectionState = state;
+        this.#prevConnectionState = state;
         userOnConnectionStateChange?.(state);
       },
     });
@@ -362,7 +353,6 @@ export class NebulaClient extends LumenizeClient {
     this.#activeScope = activeScope;
     this.#ontologyVersion = ontologyVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
-    this.#boundStateRef = boundStateRef;
   }
 
   /**
@@ -417,7 +407,6 @@ export class NebulaClient extends LumenizeClient {
       return;
     }
     this.#state = state;
-    this.#boundStateRef.current = state;
     this.#bindOptions = {
       unsubscribeGraceMs: options?.unsubscribeGraceMs ?? 2000,
       getBindings: options?.getBindings,
