@@ -179,6 +179,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'mesh/sql',
             'mesh/alarms',
+            'mesh/broadcast',
             'mesh/creating-plugins',
           ],
         },

@@ -1,13 +1,17 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import {
   newContinuation,
+  continuationFromChain,
   executeOperationChain,
+  replaceNestedOperationMarkers,
   type OperationChain,
   type Continuation,
   type AnyContinuation,
 } from './ocan/index.js';
 import { createLmzApiForWorker, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+import { mesh } from './mesh-decorator.js';
+import { BROADCAST_TIER_BINDING, type BroadcastTarget } from './broadcast.js';
 
 // Re-export continuation types from ocan for convenience
 export type { Continuation, AnyContinuation };
@@ -195,6 +199,129 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       nodeTypeName: 'LumenizeWorker',
       includeInstanceName: false,
     });
+  }
+
+  /**
+   * Recursive tier handler for `svc.broadcast` (Phase 5b primitive).
+   *
+   * The originating DO calls `svc.broadcast(targets, remote, opts)` which,
+   * when `targets.length > directThreshold`, dispatches into this method via
+   * the `LUMENIZE_BROADCAST_TIER` service binding (which the user wires to
+   * their own Worker entry; any LumenizeWorker subclass inherits this
+   * method). The tier:
+   *
+   *   - if `targets.length <= branch`, dispatches `remote` to each target
+   *     directly (fire-and-forget, no result handler in v1);
+   *   - otherwise partitions targets into `branch` groups and recurses
+   *     through itself via the same service binding — each child runs in
+   *     a fresh Worker isolate with its own subrequest budget.
+   *
+   * `remote` arrives as a pre-extracted `OperationChain` rather than a
+   * `Continuation` because it's already been serialized across the wire;
+   * `lmz.call` accepts either form. We re-dispatch it as-is at each leaf.
+   *
+   * v1 is fire-and-forget. v2 will add a per-target onResult handler that
+   * forwards results back to `callChain[0]` (the originating DO).
+   *
+   * @internal Framework method — do not override or call directly.
+   */
+  @mesh()
+  __broadcastTier(
+    targets: BroadcastTarget[],
+    remote: OperationChain,
+    branch: number,
+    onResultChain?: OperationChain,
+  ): void {
+    if (targets.length === 0) return;
+    if (targets.length <= branch) {
+      // Re-wrap the incoming serialized chain back into a Continuation
+      // (lmz.call only accepts proxies, not raw OperationChain arrays).
+      const remoteContinuation = continuationFromChain<any>(remote);
+      if (onResultChain) {
+        // 4-arg form: result comes back here on this tier worker via
+        // `__forwardBroadcastResult`, which substitutes the result into the
+        // onResult chain and forwards to callChain[0] (the originating DO).
+        // `onErrorOnly: true` skips the success-path handler dispatch — both
+        // a CPU save and (on workerd) a structural latency lift, since
+        // success-path .then() handlers attached to outbound subrequests
+        // appear to keep the tier worker's invocation alive until they
+        // settle.
+        for (const t of targets) {
+          this.lmz.call(
+            t.bindingName,
+            t.instanceName,
+            remoteContinuation,
+            this.ctn<LumenizeWorker>().__forwardBroadcastResult(onResultChain),
+            { onErrorOnly: true },
+          );
+        }
+      } else {
+        for (const t of targets) {
+          this.lmz.call(t.bindingName, t.instanceName, remoteContinuation);
+        }
+      }
+      return;
+    }
+    const groupSize = Math.ceil(targets.length / branch);
+    for (let g = 0; g < branch; g++) {
+      const start = g * groupSize;
+      if (start >= targets.length) break;
+      const slice = targets.slice(start, start + groupSize);
+      this.lmz.call(
+        BROADCAST_TIER_BINDING,
+        undefined,
+        this.ctn<LumenizeWorker>().__broadcastTier(slice, remote, branch, onResultChain),
+      );
+    }
+  }
+
+  /**
+   * Tier-side helper for `svc.broadcast`'s `onResult` path. Runs locally on
+   * the tier worker when each per-target leaf call settles (success or
+   * error). The framework appends the call's `result` to this method's
+   * args via the standard last-argument convention. We then:
+   *
+   *   1. Substitute `result` into the caller-supplied `onResultChain` (the
+   *      partial continuation built by the originating DO) using
+   *      `replaceNestedOperationMarkers` — the same helper that powers the
+   *      4-arg `lmz.call` form's result wiring.
+   *   2. Forward the resolved chain to `callChain[0]` (the originating DO)
+   *      via a fresh `lmz.call`. `callChain[0]` is the DO that started
+   *      this broadcast because `__broadcastTier` was originally invoked
+   *      from there.
+   *
+   * @internal Framework method — do not override or call directly.
+   */
+  @mesh()
+  __forwardBroadcastResult(
+    onResultChain: OperationChain,
+    // The framework appends the per-target call result here via the
+    // last-argument convention; declared optional so call-site code that
+    // pre-binds only `onResultChain` (which is what the tier does) still
+    // type-checks.
+    result?: unknown,
+  ): void {
+    // **Tier optimization**: only forward to `callChain[0]` when the result
+    // is an Error. Success-path callbacks would otherwise pile up on the
+    // originating DO's input gate at high N (e.g., 1000 incoming
+    // `onBroadcastResult` calls all serialized through Star's gate measurably
+    // slows throughput). Drop-on-failed-fanout style cleanup only cares about
+    // errors anyway. Direct-branch behavior is unchanged — there the
+    // handler always runs locally on the originating DO via the 4-arg
+    // `lmz.call` form, success or error.
+    if (!(result instanceof Error)) return;
+    const origin = this.lmz.callContext.callChain[0];
+    if (!origin) {
+      // No origin to forward to — silently drop.
+      return;
+    }
+    const resolved = replaceNestedOperationMarkers(onResultChain, result);
+    // `lmz.call` requires a Continuation proxy. Wrap the resolved chain.
+    this.lmz.call(
+      origin.bindingName,
+      origin.instanceName,
+      continuationFromChain<any>(resolved),
+    );
   }
 }
 

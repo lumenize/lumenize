@@ -1,5 +1,6 @@
 import type { sql } from './sql';
 import type { Alarms } from './alarms';
+import type { BroadcastFn } from './broadcast';
 
 // ============================================
 // Mesh Node Identity & Call Context
@@ -56,6 +57,19 @@ export interface CallOptions {
    * client's internal pending-call map. Fires once per call.
    */
   onSent?: (callId: string) => void;
+  /**
+   * For 4-arg `lmz.call` (with handler continuation): if true, the handler
+   * is invoked ONLY when the remote call rejects (Error path). On success,
+   * the handler chain is never dispatched and the success result is dropped.
+   *
+   * Useful for fire-and-forget paths that want structured error handling
+   * (retry, cleanup, escalation) without paying the per-call success-path
+   * dispatch cost — e.g. `svc.broadcast`'s drop-on-failed-fanout, where
+   * the originator only cares about `ClientDisconnectedError`.
+   *
+   * Defaults to false — both success and error are dispatched.
+   */
+  onErrorOnly?: boolean;
 }
 
 // ============================================
@@ -91,6 +105,8 @@ export interface LumenizeServices {
   sql: ReturnType<typeof sql>;
   /** Built-in alarm scheduling service for DO */
   alarms: Alarms;
+  /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
+  broadcast: BroadcastFn;
   // Additional services are added via declaration merging in their respective NADIS packages
 }
 
@@ -101,6 +117,8 @@ declare global {
     sql: ReturnType<typeof sql>;
     /** Built-in alarm scheduling service for DO */
     alarms: Alarms;
+    /** Built-in broadcast service — dispatch a continuation to many targets with tree-fanout offloading at scale */
+    broadcast: BroadcastFn;
     // Additional services are added via declaration merging in their respective NADIS packages
   }
 }

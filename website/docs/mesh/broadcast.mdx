@@ -1,0 +1,178 @@
+---
+title: "Broadcast"
+description: Dispatch a continuation to many targets with tree-fanout offloading at scale
+---
+
+# Broadcast
+
+`this.svc.broadcast(targets, remote, opts?)` dispatches one continuation to many `(bindingName, instanceName)` targets. At small target counts it runs as a flat loop inside the calling DO. At large target counts it offloads the loop to a recursive Worker tier so the caller doesn't pay quadratic queueing on its own concurrent-subrequest budget.
+
+For low-N use cases (a chat room, a small team, a few subscribers), you can still write the loop by hand — the docs example in [Making Calls § Breaking Call Chains](./calls#breaking-call-chains) shows a 4-line `#broadcast` helper that fires-and-forgets one `lmz.call` per subscriber. `svc.broadcast` is the same shape at small N, and switches automatically to a tiered dispatch above a configurable threshold so the same call site keeps working as your fanout grows.
+
+## Basic Usage
+
+```typescript @skip-check-approved('conceptual')
+import { LumenizeDO } from '@lumenize/mesh';
+
+class RoomDO extends LumenizeDO<Env> {
+  @mesh()
+  postMessage(text: string) {
+    this.ctx.storage.kv.put(`msg:${Date.now()}`, text);
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+
+    // Build the list of targets and the continuation. Each subscriber's
+    // Gateway gets the same `handleMessage` call.
+    const targets = [...subscribers].map(clientId => ({
+      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+      instanceName: clientId,
+    }));
+    this.svc.broadcast(targets, this.ctn<RoomClient>().handleMessage(text));
+  }
+}
+```
+
+That's it for the success path. The framework decides whether to dispatch directly from `RoomDO` or hand the list to a recursive Worker tier based on `targets.length`.
+
+## Options
+
+```typescript @skip-check-approved('conceptual')
+interface BroadcastOptions {
+  /** Per-tier fan factor inside the Worker tier. Default 6 — matches the
+      observed Workers RPC concurrent-outbound-subrequest cap per isolate. */
+  branch?: number;
+
+  /** If targets.length <= directThreshold, dispatch directly from the
+      caller without touching the tier worker. Default 100. Pass Infinity
+      to force direct dispatch at any N. Pass 0 to force tier dispatch. */
+  directThreshold?: number;
+
+  /** Optional per-target result handler. See "Result Handling" below. */
+  onResult?: Continuation<unknown>;
+}
+```
+
+The two thresholds serve different purposes:
+
+- **`directThreshold`** answers "is the extra tier hop worth paying for the queue relief?" — a DO-side decision about routing.
+- **`branch`** answers "how many children does each tier node fan out to?" — a tier-side property of the tree shape. The default of 6 matches the per-isolate concurrent-outbound-subrequest cap so no tier node ever queues internally.
+
+## Result Handling (Drop-on-Failed-Fanout)
+
+For drop-on-failed-fanout cleanup, pass a partial continuation as `onResult`. The framework completes it by appending the per-target result via the standard last-argument convention (same mechanism the 4-arg `lmz.call` form uses):
+
+```typescript @skip-check-approved('conceptual')
+class RoomDO extends LumenizeDO<Env> {
+  @mesh()
+  postMessage(text: string) {
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    const targets = [...subscribers].map(clientId => ({
+      bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+      instanceName: clientId,
+    }));
+
+    this.svc.broadcast(targets, this.ctn<RoomClient>().handleMessage(text), {
+      onResult: this.ctn<this>().onMessageDelivered(),
+    });
+  }
+
+  @mesh()
+  onMessageDelivered(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as ClientDisconnectedError).clientInstanceName;
+      if (clientId) {
+        const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+        subscribers.delete(clientId);
+        this.ctx.storage.kv.put('subscribers', subscribers);
+      }
+    }
+  }
+}
+```
+
+The handler's `result` argument is appended automatically. For failed Gateway deliveries the result is a `ClientDisconnectedError` whose `clientInstanceName` field tells you exactly which subscriber dropped — no separate `target` argument is needed in the handler signature.
+
+:::warning[Errors-only handler dispatch]
+
+`onResult` is invoked **only on Error**. Successful per-target deliveries silently drop the result; the handler is never dispatched in that case.
+
+Both branches (direct and tree) implement this the same way:
+
+- The **tree branch** (`> directThreshold`) routes per-target results through the framework's `__forwardBroadcastResult` on the tier worker, which short-circuits on success and only forwards Errors back to `callChain[0]`.
+- The **direct branch** (`≤ directThreshold`) uses the underlying [`lmz.call`'s `onErrorOnly` option](/docs/mesh/mesh-api#calloptions) to skip the success-path handler entirely.
+
+For the dominant use case — drop-on-failed-fanout cleanup — this is exactly the desired behavior. It also avoids a structural latency cost on Cloudflare workerd: success-path handler chains attached to outbound subrequests appear to keep the originating invocation alive until they settle, which adds up to hundreds of milliseconds of wall-clock RT to the originator at high N. Skipping them is both correct and faster.
+
+If you have a real need for success callbacks, file an issue; the design accommodates a future `fireOn: 'always' | 'error'` option on `BroadcastOptions`.
+
+:::
+
+## Setup for the Tree Branch
+
+The direct branch needs nothing special — it's just a loop in your DO. The tree branch (any call with `targets.length > directThreshold`) routes through a Worker entrypoint that inherits the `__broadcastTier` `@mesh()` method from `LumenizeWorker` base. To enable it, bind your own Worker entry to itself under the binding name `LUMENIZE_BROADCAST_TIER`:
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-worker",
+  "main": "src/index.ts",
+  "services": [
+    {
+      "binding": "LUMENIZE_BROADCAST_TIER",
+      "service": "my-worker",
+      "entrypoint": "MyEntrypoint"  // any class extends LumenizeWorker
+    }
+  ]
+}
+```
+
+Users who only ever broadcast to small fanouts (`≤ directThreshold`) can skip this — `svc.broadcast` only consults `env.LUMENIZE_BROADCAST_TIER` when it actually needs to dispatch into the tier. Failing the binding lookup at high N gives a clear error.
+
+## Picking `directThreshold`
+
+The default of 100 was conservative — the tree adds an extra Worker hop (roughly 50–200 ms wall-clock on real CF), and at small target counts the calling DO's own subrequest budget is plenty. Above that, the tier pays for itself.
+
+Empirically (see [tasks/fanout-scaling-benchmark.md](https://github.com/lumenize/lumenize/blob/main/tasks/fanout-scaling-benchmark.md)) the production-path crossover where the tier starts winning on real CF is closer to N=500. The 100 default leaves headroom; if you know your workload sits in N=100–500, override per call:
+
+```typescript @skip-check-approved('conceptual')
+this.svc.broadcast(targets, remote, { directThreshold: 500 });
+```
+
+For very-high-N workloads (1000+ subscribers per fanout), the tier reliably wins on tail latency and worst-case delivery time. At N=1000 on deployed CF, the recursive Worker tier delivered to all 1000 subscribers with a max wait of ~2.7 s vs ~5.4 s for the flat-loop equivalent — both with zero failures.
+
+## When Not to Use `svc.broadcast`
+
+- **Targets with per-target arguments**: the same continuation goes to every target. If each subscriber needs a different payload, you're sending N calls in a loop, not broadcasting — write the loop directly with `this.lmz.call(...)`.
+- **You need success callbacks**: see the warning above — `onResult` is errors-only.
+- **You're inside a Worker entrypoint**: `svc` is DO-only. If your application logic genuinely lives in a Worker and needs to fan out to many targets, the cleanest pattern today is to call into a DO that does the broadcast. (Future revisions may expose `lmz.broadcast` on `LumenizeWorker` if the use case shows up.)
+
+## Implementation Details
+
+### Direct branch (`targets.length <= directThreshold`)
+
+```typescript @skip-check-approved('conceptual')
+for (const t of targets) {
+  // 4-arg form when onResult is provided. The `onErrorOnly: true` option
+  // skips success-path handler dispatch (matches the tree branch's
+  // __forwardBroadcastResult errors-only semantic).
+  if (opts.onResult) {
+    this.lmz.call(t.bindingName, t.instanceName, remote, opts.onResult, {
+      onErrorOnly: true,
+    });
+  } else {
+    this.lmz.call(t.bindingName, t.instanceName, remote);
+  }
+}
+```
+
+The chain is inherited (no `newChain`), so `originAuth` flows through to each target — Gateways can authorize the push the same way they would for the originator's direct call.
+
+### Tree branch (`targets.length > directThreshold`)
+
+The calling DO dispatches the full target list to `LUMENIZE_BROADCAST_TIER`. That Worker (extending `LumenizeWorker`) inherits a `@mesh() __broadcastTier` method that:
+
+1. If `targets.length <= branch`: dispatches the continuation directly to each target with a tier-local 4-arg handler (when `onResult` was supplied).
+2. Else: partitions `targets` into `branch` groups and recursively calls itself via the same service binding, running each child in a fresh isolate with its own subrequest budget.
+
+Branching at 6 means no tier node queues internally and the tree depth is `ceil(log₆(N))` — three levels covers N=216, four levels covers N=1296.
+
+For `onResult`, the tier's framework-internal `__forwardBroadcastResult` runs at each leaf when the per-target call settles. It uses `replaceNestedOperationMarkers` (the same OCAN helper that powers `$result` substitution in 4-arg `lmz.call`) to inject the result into the partial continuation, then forwards the resolved chain to `callChain[0]` (the originating DO) via a fresh `lmz.call`. Because `callChain[0]` is preserved across every recursive tier hop, the originating DO always receives its own handler call regardless of how deep the tree went.

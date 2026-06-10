@@ -270,6 +270,37 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
+  // 4-arg call with onErrorOnly:true — success-path handler must NOT fire
+  testCallOnErrorOnlySuccess(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined,
+    value: string
+  ): void {
+    const remote = this.ctn<TestDO>().remoteEcho(value);
+    this.lmz.call(
+      calleeBindingName,
+      calleeInstanceName,
+      remote,
+      this.ctn().handleCallResult(remote),
+      { onErrorOnly: true },
+    );
+  }
+
+  // 4-arg call with onErrorOnly:true — error-path handler MUST still fire
+  testCallOnErrorOnlyError(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined
+  ): void {
+    const remote = this.ctn<TestDO>().throwError();
+    this.lmz.call(
+      calleeBindingName,
+      calleeInstanceName,
+      remote,
+      this.ctn().handleCallError(remote),
+      { onErrorOnly: true },
+    );
+  }
+
   // Result handler for successful call results (no @mesh needed — result handlers
   // are executed locally via __localChainExecutor with requireMeshDecorator: false)
   handleCallResult(result: any): void {

@@ -1,3 +1,5 @@
+import { isDONamespace } from './is-do-namespace';
+
 /**
  * Error thrown when multiple Durable Object bindings match the path segment.
  * 
@@ -109,15 +111,7 @@ function generateBindingVariations(pathSegment: string): string[] {
  * Get all Durable Object binding names from the environment.
  */
 function getDurableObjectBindings(env: Record<string, any>): string[] {
-  return Object.keys(env).filter(key => {
-    const value = env[key];
-    // Check if it looks like a DurableObjectNamespace
-    // (has getByName, getById, etc. methods)
-    return value && 
-           typeof value === 'object' && 
-           typeof value.getByName === 'function' &&
-           typeof value.idFromName === 'function';
-  });
+  return Object.keys(env).filter(key => isDONamespace(env[key]));
 }
 
 /**

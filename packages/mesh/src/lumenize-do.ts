@@ -513,3 +513,7 @@ import { sql } from './sql';
 import { Alarms } from './alarms';
 (globalThis as any).__lumenizeServiceRegistry['alarms'] = (doInstance: any) => new Alarms(doInstance);
 
+// Register built-in broadcast service (always available on this.svc.broadcast for LumenizeDO subclasses)
+import { broadcast } from './broadcast';
+(globalThis as any).__lumenizeServiceRegistry['broadcast'] = (doInstance: any) => broadcast(doInstance);
+

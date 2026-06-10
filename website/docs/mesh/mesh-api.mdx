@@ -64,10 +64,18 @@ callRaw(
 interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
   state?: Record<string, unknown>; // Initial or merged state for the call
+  // ...
+  onSent?: (callId: string) => void;
+  // ...
+  onErrorOnly?: boolean;
 }
 ```
 
 When `newChain` is false (the default) and the `state` option is provided, it is merged with any inherited state from the current [call context](#interface-callcontext) (overlapping properties are overwritten). When `newChain` is true, the `state` option becomes the initial state for the new chain.
+
+`onSent` is invoked synchronously with the generated `callId` immediately before the call message is sent (or queued, when disconnected). Useful for correlating an outbound call with later inbound frames — e.g. tracing markers or custom Gateway-emitted WebSocket frames — without exposing the client's internal pending-call map.
+
+`onErrorOnly` applies only to the 4-arg `this.lmz.call(callee, instance, remote, handler, opts)` form: when `true`, the handler chain is invoked only on remote rejection; successful results are dropped without dispatch. Useful for fire-and-forget paths that want structured error handling (retry, escalation, cleanup) without paying the per-call success-path dispatch cost — `svc.broadcast`'s drop-on-failed-fanout cleanup uses this internally.
 
 ## Interface: `CallContext`
 

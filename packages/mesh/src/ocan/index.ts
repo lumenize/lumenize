@@ -27,6 +27,7 @@ export {
 // Proxy factory for building chains
 export {
   newContinuation,
+  continuationFromChain,
   getOperationChain
 } from './proxy-factory.js';
 
