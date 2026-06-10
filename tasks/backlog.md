@@ -147,6 +147,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Would provide consistent behavior across all environments (Workers, Node, Browser)
   - Properties would return exactly what you set, no platform surprises
 
+- [ ] Calibrate `/review-task` against real task files (carried over from archived [task-review-panel](archive/task-review-panel.md))
+  - Run the panel against a recent task file AND a *completed* one where we know what the manual loops found — does it surface the same issues? Findings must be actionable, not generic advice.
+  - **Lens subsetting**: the skill says to drop irrelevant lenses (e.g. security on a pure refactor) — confirm manual subsetting is enough or whether it should auto-pick from task content.
+  - **Product lens depth**: how much "vision coherence" is reviewable mechanically vs. needs a human? Sharpen the `product` lens prompt if it returns generic advice.
+
 
 ## Documentation
 
@@ -175,8 +180,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Soften "favor sync over async" emphasis across docs and assistant guidance
   - **Why**: The DO concurrency model framing — "input gates make code passively correct so long as you don't await" — is elegant for simple workloads but insufficient at scale. Once a system has work crossing Workers RPC boundaries, sibling-DO coordination, or interleaved invocations to hit throughput, you need explicit mechanisms (eTags, two-phase commits, idempotency keys, version vectors). Current docs over-emphasize "no await, no race" as if it's the whole correctness story.
   - **Where to audit**:
-    - `CLAUDE.md` ("Keep Methods Synchronous", related sections)
-    - `do-conventions` skill
+    - `.claude/rules/durable-objects.md` ("Keep methods synchronous" + related sections)
+    - `.claude/rules/mesh.md`
     - `packages/mesh/**/*.mdx` files that emphasize sync over async
     - `MEMORY.md` and feedback memories (esp. update with the evolution context — input-gate correctness was a useful early learning that doesn't *replace* explicit-mechanism thinking, just sets the floor)
   - **What softening looks like**: Don't drop the guidance — input gates ARE great for simple cases. Reframe as: "for simple workloads, input gates carry you a long way; for moderately complex distributed systems, you'll need explicit mechanisms (eTags, two-phase commits, version vectors) in addition." The Actor model inspiration still holds — it just has more in its toolbox than 'don't await.'
@@ -184,7 +189,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Audit docs for over-emphasis on "wall-clock billing in the DO is the deciding factor"
   - **Context**: We've already softened one instance (see `feedback_short_settimeout_billing.md` — short setTimeouts in DOs aren't worth fretting about). Likely others remain.
-  - **Where to audit**: `CLAUDE.md` ("Wall-Clock Billing" section), do-conventions skill, mesh docs, `lumenize-do.mdx`, etc.
+  - **Where to audit**: `.claude/rules/durable-objects.md` ("Wall-clock billing" section), `.claude/rules/mesh.md`, mesh docs, `lumenize-do.mdx`, etc.
   - **What softening looks like**: Don't drop the guidance — wall-clock billing IS real. But avoid framing it as the SOLE deciding factor. Correctness, simplicity, throughput, and maintainability often outweigh wall-clock cost in moderately complex systems.
   - **Discovered during**: writing the do-throughput-misread blog post.
 
@@ -323,6 +328,12 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **Discovered during**: Phase 5.3.3b retro (typed-error fragility in the permission refactor).
 
 ## Nebula Auth
+
+- [ ] Promote `activeScope` (`aud`) and `authScopePattern` to named, typed scope accessors instead of ad-hoc `originAuth.claims.*` lookups
+  - **What**: every Nebula authorization site currently fishes the two scopes out of untyped `originAuth.claims` by hand — `originAuth.claims.aud` for the active scope, `originAuth.claims.access.authScopePattern` for the grant (e.g. `NebulaClientGateway.onBeforeCallToClient` [apps/nebula/src/nebula-client-gateway.ts:14](../apps/nebula/src/nebula-client-gateway.ts:14), `dag-tree.ts`, `subscriptions.ts`). Replace with a typed Nebula-side view (a helper/getter pair) so each check has to *name* which axis it consults.
+  - **Why**: the two scopes mean different things — **active** (`aud`) = the star you're bound to *right now*; **auth** (`authScopePattern`) = the grant of *which stars you may bind to*. Conflating them is a security bug in both directions: check the grant where you meant the active scope and a star-A session receives star-B's data (downscoping defeated); check the active scope where you meant the grant and you reject legitimate access. The broadcast-origin-transparency review (below) showed how easy this is to get wrong — the delivery check is correctly exact-`aud`, but nothing structural stops a future site from reaching for the wrong field. Named, typed accessors force intent and make the next feature reason about scope correctly by construction.
+  - **Layering constraint** (this is why it's a Nebula task, not a mesh one): mesh's `OriginAuth` is generic (`{ sub?, claims? }`) and **must stay that way** — the dependency-direction rule forbids `@lumenize/mesh` importing Nebula concepts like `aud`/`authScopePattern`. So this is a Nebula-side typed wrapper over `originAuth.claims`, **not** new fields on mesh's `OriginAuth`.
+  - **Discovered during**: the 2026-06-08 trust/scope review. Would directly de-risk [tasks/nebula-do-scope-isolation.md](nebula-do-scope-isolation.md) Fix 1 (the structural `onBeforeCall` check reads `aud` + `authScopePattern` out of untyped `claims` — typed accessors make its intent unambiguous). Also referenced from [tasks/broadcast-origin-transparency.md](broadcast-origin-transparency.md). Not a blocker for either; the generalized explicitness win.
 
 - [ ] Integrate Cloudflare Account Abuse Protection for disposable email and email risk detection
   - **Ref**: https://blog.cloudflare.com/account-abuse-protection/

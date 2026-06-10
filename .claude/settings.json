@@ -8,6 +8,7 @@
       "Bash(npm run:*)",
       "Bash(npm test:*)",
       "Bash(npm install:*)",
+      "Bash(npx -y @probelabs/probe search:*)",
       "WebFetch(domain:vite.dev)",
       "WebFetch(domain:tailwindcss.com)",
       "WebFetch(domain:daisyui.com)",

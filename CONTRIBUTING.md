@@ -33,13 +33,12 @@ Thank you for your interest in contributing to Lumenize! This document provides 
 
 ### AI-Assisted Development
 
-Lumenize is designed for AI-assisted development using [Cursor](https://cursor.com) or similar AI pair programming tools. The repository includes structured rules and commands to guide AI assistants:
+Lumenize is designed for AI-assisted development with Claude Code or similar AI pair-programming tools. The repository includes structured rules and skills to guide AI assistants:
 
-- **`.cursor/rules/`** - Project rules for coding standards, patterns, and workflows
-- **`.cursor/commands/`** - Reusable workflow commands:
-  - `/task-management` - Choose docs-first vs implementation-first workflow
+- **`.claude/rules/`** - Project rules for coding standards, patterns, and workflows (auto-loaded; domain rules are path-scoped so they apply only to matching files). `CLAUDE.md` indexes them.
+- **`.claude/skills/`** - Reusable multi-step commands, e.g. `/task-management` (choose docs-first vs task-file-first workflow).
 
-**Key Principle:** For user-facing features, use the **docs-first workflow** - design the API in documentation before writing code. See `.cursor/commands/task-management.md` for details.
+**Key Principle:** For user-facing features, use the **docs-first workflow** - design the API in documentation before writing code. Run `/task-management` for details.
 
 ### Project Structure
 
@@ -105,8 +104,8 @@ cd packages/rpc && npm run type-check
 
 ### TypeScript Style
 - Never use `private` keyword - use JavaScript `#` prefix for private fields
-- Use TypeScript types for in-memory structures
-- Use TypeBox schemas for anything crossing boundaries (network, persistence, process)
+- Use TypeScript `interface`/`type` definitions as the single source of truth — no second schema language (no Zod, TypeBox, or JSON Schema)
+- For runtime validation at wire/persistence boundaries (e.g. Resources over the wire), validate against those same TS types with `@lumenize/ts-runtime-parser-validator`
 
 ### Testing
 - Aim for high branch coverage (80%+)
@@ -115,7 +114,7 @@ cd packages/rpc && npm run type-check
 - Each package has a `test/` directory with `.test.ts` files
 
 ### Documentation
-- All user-facing docs go in `/website/docs/` as hand-written `.mdx` files
+- All user-facing docs go in `/website/docs/` as hand-written `.md` files (`.mdx` only with human approval)
 - Be sure to update `sidebars.ts` when you add or remove a doc file. We have Docusaurus set to not auto-populate the sidebar
 - Package README.md files should be minimal with link to docs
 - Use `@check-example` annotations to link code blocks to passing tests in `test/for-docs/`

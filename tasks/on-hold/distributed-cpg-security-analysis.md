@@ -14,7 +14,7 @@ Code Property Graphs (CPGs — AST ∪ CFG ∪ PDG, queryable; Joern is the refe
 
 Mesh provides, by construction, the three things needed to fill the gap:
 
-1. **Typed `@mesh()` surfaces** — every cross-DO callable is explicitly declared in source, with TypeBox schemas at the boundary. Static enumeration of "every reachable surface" is trivial.
+1. **Typed `@mesh()` surfaces** — every cross-DO callable is explicitly declared in source, with TypeScript types at the boundary (runtime data validation via `@lumenize/ts-runtime-parser-validator`). Static enumeration of "every reachable surface" is trivial.
 2. **`callContext.callChain`** — runtime-witnessed evidence of which call paths actually fire. Confirms / prunes static edges.
 3. **Monorepo source access** — all code on both sides of every edge is reachable to the analyzer.
 
@@ -37,14 +37,14 @@ Nebula's positioning is "enterprise-grade security, on by default." "Every Mesh 
 Two things worth noting before picking this back up:
 
 - **"Implemented in TS" ≠ "better for TS."** Joern's TS frontend already uses TypeScript code for the parsing layer; what's in Scala is CPG construction and Cypher-like query, which is language-agnostic. A Scala-hosted CPG with a TS-aware parser isn't structurally disadvantaged on TS quality.
-- **Jelly specifically would lose Mesh's signal.** It discards TypeScript types. The whole `@mesh()` + `ctn<X>().method(...)` + TypeBox boundary scheme depends on type info to know what is reachable from what. Run Jelly on a Mesh DO and `this.lmz.call(env.STAR, id, ctn<Star>().handleX(...))` becomes "some function value points to some other function values" — the cross-binary edge is gone.
+- **Jelly specifically would lose Mesh's signal.** It discards TypeScript types. The whole `@mesh()` + `ctn<X>().method(...)` + typed-boundary scheme depends on type info to know what is reachable from what. Run Jelly on a Mesh DO and `this.lmz.call(env.STAR, id, ctn<Star>().handleX(...))` becomes "some function value points to some other function values" — the cross-binary edge is gone.
 
 ## Architectural direction (the load-bearing decision)
 
 **Do not adopt a TS-native CPG tool.** Build on Joern's TS frontend for per-binary CPG (only one with a real query DSL + community + ongoing dev; Scala is an analysis-time dependency, not a runtime one), and add a **Mesh-aware lowering pass** as the novel artifact:
 
 - Written in TypeScript using ts-morph / the TypeScript Compiler API
-- Extracts `@mesh()` surfaces and their TypeBox schemas
+- Extracts `@mesh()` surfaces and their TypeScript boundary types
 - Resolves `ctn<X>()` proxy targets through the type system
 - Resolves `lmz.call(BINDING, instance, ctn<X>().method(args))` to (binding → DO class → method) edges
 - Emits virtual edges in a Joern-CPG-compatible format
@@ -61,7 +61,7 @@ Rough sizing: **1–2k LOC** for the lowering pass. Building a Joern competitor 
 ## Honest concerns to revisit when picked up
 
 1. **TS CPG quality is the bottleneck, not the stitching.** Joern's TS frontend is weaker than its JVM/C ones. The dynamic surfaces Mesh adds (`ctn()` proxies, decorator-mediated dispatch, `@lumenize/structured-clone` post-processing on the wire) will look opaque to AST-based CPG generation unless lowered. The lowering pass is where the work is.
-2. **Coverage = exploitability gap.** `callChain` stitches only paths witnessed in production. Attacker paths are unwitnessed by definition. A Mesh-aware fuzzer (TypeBox at boundaries gives schema-guided input gen) is doable but is its own multi-week subproject. Static + dynamic union is probably the right answer.
+2. **Coverage = exploitability gap.** `callChain` stitches only paths witnessed in production. Attacker paths are unwitnessed by definition. A Mesh-aware fuzzer (TS types at boundaries give schema-guided input gen) is doable but is its own multi-week subproject. Static + dynamic union is probably the right answer.
 3. **AI quality is inverse to scope.** "LLM finds vulns" → vague. "LLM generates Joern-style taint queries parameterized by the auth-check pattern in this codebase, runs them across the cross-binary graph, ranks findings" → useful.
 
 ## Open questions

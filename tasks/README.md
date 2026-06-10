@@ -1,32 +1,28 @@
-# Tasks Directory
+# Task File Templates & Conventions
 
-## Structure
-
-- **`backlog.md`** - Small tasks and ideas
-- **`[project-name].md`** - Active multi-phase projects
-- **`archive/`** - Completed projects (for reference)
+**Process lives in the `/task-management` skill** (`.claude/skills/task-management/SKILL.md`) — workflow selection, review → go, phase retros. Folder structure is in `.claude/rules/workflow.md`. This file holds only the **templates** and **phrasing conventions** for the task files themselves.
 
 ## Templates
 
 ### Docs-First Task File
 
-For user-facing API changes. MDX documentation dominates; task file holds implementation details.
+For user-facing API changes. The docs dominate; task file holds implementation details.
 
 ```markdown
 # [Project Name]
 
 **Status**: Design Complete | In Progress | Complete
-**Design Document**: `/website/docs/[package]/[feature].mdx`
+**Design Document**: `/website/docs/[package]/[feature].md`
 
 ## Goal
 [One sentence - what capability are we adding?]
 
-## Design Principles (See MDX for Details)
+## Design Principles (See docs for Details)
 1. [Key principle 1]
 2. [Key principle 2]
 
 ## Prerequisites
-- [ ] Design documented in MDX
+- [ ] Design documented in the website docs
 - [ ] API finalized with maintainer
 
 ## Implementation Phases
@@ -44,13 +40,13 @@ For user-facing API changes. MDX documentation dominates; task file holds implem
 ### Final Verification (every phase)
 - [ ] All tests pass (`npx vitest run` in package dir)
 - [ ] Type-check clean (`npm run type-check`)
-- [ ] Docs match implementation: grep `.mdx` files for keywords from changed APIs
+- [ ] Docs match implementation: grep `website/docs/[package]/` for keywords from changed APIs
 - [ ] JSDoc comments in source reflect current behavior
 ```
 
-### Implementation-First Task File
+### Task-File-First Task File
 
-For internal work (refactoring, bug fixes, tooling).
+For internal work (refactoring, bug fixes, tooling) — the task file is the sole design artifact.
 
 ```markdown
 # [Project Name]
@@ -86,10 +82,3 @@ Counts are written-time snapshots. They go stale (someone adds a 6th file before
 If you need a count for scoping ("this is small, ~5 files"), include it as commentary, not as the inventory:
 
 > "Migrate all files matching `grep -l 'X' test/` (\~5 files at time of writing)."
-
-## Completing a Project
-
-Move to archive:
-```bash
-mv tasks/completed-feature.md tasks/archive/
-```

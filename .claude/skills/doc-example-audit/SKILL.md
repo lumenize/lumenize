@@ -1,22 +1,22 @@
 ---
 name: doc-example-audit
-description: Audit @skip-check annotations in .mdx files — categorize each block and produce a prioritized conversion plan. Use before starting Phase 2 doc work.
+description: Audit @skip-check annotations in website docs (.md/.mdx) — categorize each block and produce a prioritized conversion plan. Use before starting Phase 2 doc work.
 context: fork
 agent: Explore
 model: haiku
-argument-hint: [mdx-file-path or package-name]
+argument-hint: [doc-file-path or package-name]
 ---
 
 # Doc Example Audit
 
-Audit `@skip-check` annotations in `.mdx` files and produce a categorized report for interactive conversion.
+Audit `@skip-check` annotations in website doc files (`.md` and `.mdx` — new docs are `.md`; `.mdx` is legacy) and produce a categorized report for interactive conversion.
 
 ## Input
 
-`$ARGUMENTS` is an optional `.mdx` file path or package name.
+`$ARGUMENTS` is an optional doc file path or package name.
 
 - If a **file path** is provided (e.g., `website/docs/auth/api-reference.mdx`), audit only that file.
-- If a **package name** is provided (e.g., `auth`), audit all `.mdx` files under `website/docs/{package-name}/`.
+- If a **package name** is provided (e.g., `auth`), audit all `.md`/`.mdx` files under `website/docs/{package-name}/`.
 - If **no argument** is provided, audit all `@skip-check` annotations across `website/docs/`.
 
 ## Audit Procedure

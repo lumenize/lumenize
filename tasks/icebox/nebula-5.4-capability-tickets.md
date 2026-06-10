@@ -1,7 +1,14 @@
 # Nebula Resource Capability Tickets
 
 **Phase**: 5.4
-**Status**: Pending
+**Status**: **Iceboxed (2026-06-08) — premise superseded.** This task exists to let
+clients talk **directly** to per-resource `ResourceHistory` DOs (authorized by HMAC
+tickets so it isn't security-through-obscurity). That whole shape is abandoned:
+resource **history** now lives in **R2**, accessed single-hop through the Star — there
+are no per-resource history DOs to talk to, so there is nothing for capability tickets
+to authorize. See `tasks/on-hold/nebula-resource-history-r2.md`. Kept for reference in
+case a future "client bypasses the Star singleton" need resurfaces (the HMAC-ticket
+mechanism would transfer), but do not implement as written.
 **App**: `apps/nebula/`
 **Depends on**: Phase 5.1 (Storage Engine), Phase 3 (DAG Tree Access Control)
 
