@@ -1,5 +1,7 @@
 # Tuple-based `$lmz` Format Recommendation
 
+> **Superseded (2026-05-16):** The shipped wire format is the W4 **object-based** format, not the tuple format recommended below — see [structured-clone-object-based-wire-format.md](structured-clone-object-based-wire-format.md). Preserved as format-research history.
+
 **Date**: 2025-01-28  
 **Decision**: Proceed with Tuple-based `$lmz` format for `@lumenize/structured-clone`
 

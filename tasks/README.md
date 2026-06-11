@@ -2,6 +2,10 @@
 
 **Process lives in the `/task-management` skill** (`.claude/skills/task-management/SKILL.md`) — workflow selection, review → go, phase retros. Folder structure is in `.claude/rules/workflow.md`. This file holds only the **templates** and **phrasing conventions** for the task files themselves.
 
+## Archive is frozen
+
+A file moved to `tasks/archive/` is a point-in-time record — it starts going stale immediately, and that's by design. **Never update archived files**: no link fixups when referenced files move, no terminology syncs, no corrections when code drifts. Sole exception: a dated one-line status/superseded banner at the top when a later decision overturns one — added at the moment of supersession, touching nothing else. If a decision in an archived file must stay *live* (still constrains new work), its home is an ADR (`docs/adr/README.md` has the bar) or a rule, not edits to the archive.
+
 ## Templates
 
 ### Docs-First Task File

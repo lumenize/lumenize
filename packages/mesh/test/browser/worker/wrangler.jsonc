@@ -54,6 +54,9 @@
     // admin-approved (isAdmin in JWT). Required for our test, which uses
     // a brand-new subject each run — without this, the JWT's
     // `adminApproved: false` makes the auth gate 403 the WS upgrade.
+    // DOCUMENTED EXCEPTION (packaging.md § env vars): bootstrap knobs belong in
+    // vitest miniflare.bindings, but this worker is a DEPLOYED test harness with
+    // no bindings channel. Do not copy this pattern to non-harness workers.
     "LUMENIZE_AUTH_BOOTSTRAP_EMAIL": "test@lumenize.io"
   }
 }

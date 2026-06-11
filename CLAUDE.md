@@ -2,7 +2,7 @@
 
 Lumenize is two things:
 1. A de✨light✨ful suite of MIT-licensed packages any developer can use on Cloudflare's Workers Development Platform, with particular focus on Durable Objects.
-2. A SaaS platform, Nebula, for solopreneurs and intrapreneurs to agenticly build products that are secure by default. Nebula's developer-users are domain experts but often have no coding experience. Opinionated where it matters, flexible where it counts; no foot-guns — even when we let you break a rule, you're loudly warned. Nebula code is `UNLICENSED` until external launch.
+2. A SaaS platform, Nebula, for solopreneurs and intrapreneurs to agenticly build products that are secure by default. Nebula's **user-developers** (always this term — never "vibe-coder") are domain experts who may not be experienced coders. Opinionated where it matters, flexible where it counts; no foot-guns — even when we let you break a rule, you're loudly warned. Nebula code is `UNLICENSED` until external launch.
 
 Nebula is the **only app** and the packages' **first consumer** — building Nebula is dogfooding Mesh and friends. When Nebula code fights a package API (missing capability *or* awkward ergonomics), that's product feedback for the package: surface it (backlog item, or extend the package), don't quietly work around it in Nebula.
  
@@ -17,7 +17,7 @@ Detailed conventions live in **`.claude/rules/`** (auto-discovered — no refere
 | Rule | Loads when | Covers |
 |---|---|---|
 | `critical.md` | always | non-negotiable guardrails (npm, sync storage, generated `Env`, compat date, secrets, docs `.md`) |
-| `workflow.md` | always | task files, no-build-in-dev, experiments, dependencies, releases, semantic search |
+| `workflow.md` | always | task files, ADR index, no-build-in-dev, experiments, dependencies, releases, semantic search |
 | `coding-style.md` | editing `*.ts` | TS-types-as-schema, imports, IDs, JSDoc |
 | `workers-projects.md` | `packages/**`, `apps/**` `*.ts` | **layer map** — which of the three DO files below apply, by layer (utility / raw-DO infra / mesh framework / mesh lib / Nebula) |
 | `durable-objects.md` | `packages/**`, `apps/**` `*.ts` | *writing a DO* (every layer, incl. Nebula): storage, initialization (`onStart`), sync methods, no instance state, IDs, billing, DO class registration, Worker Loader, SQL naming + write costs |
@@ -36,5 +36,6 @@ Detailed conventions live in **`.claude/rules/`** (auto-discovered — no refere
 
 - `.dev.vars.example` — env var template
 - `tasks/README.md` — task templates and conventions
+- `docs/adr/` — architecture decision records (repo-shaping commitments; one-liner index in the `workflow.md` rule, full files read during `/review-task`)
 - Cloudflare MCP — direct access to CF APIs and documentation search
 - https://lumenize.com — published docs (single source of truth for user-facing content)

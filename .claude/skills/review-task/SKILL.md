@@ -15,6 +15,8 @@ Replaces the expensive serial "run the task file through fresh contexts repeated
 ### 1. Scout the spec (inline, before any fan-out)
 Read the task file **and everything it depends on**: linked sub-task files, referenced `/website/docs/*` pages, and any pseudo-code/interface it cites. Concatenate into one spec string. Reviewers can't review what they can't see, and a fan-out over a half-read spec wastes agents.
 
+Also read `docs/adr/*.md` (architecture commitments) and append them to the spec under an `ADRs:` heading. Design review is where ADR conflicts get caught — `/build-task` deliberately does not re-check them. A design that conflicts with an ADR is a blocker unless the task file explicitly proposes superseding that ADR.
+
 If the user pasted "already caught" findings from a prior loop, collect them as `priorFindings` so reviewers don't repeat them.
 
 ### 2. Run the review panel (Workflow)
@@ -45,7 +47,7 @@ const LENSES = [
   { key: 'test-strategy', rules: '.claude/rules/testing.md',
     lens: 'WHAT to test, not whether tests follow patterns. Are success criteria testable? for-docs mini-app vs isolated test? Untestable claims in pseudo-code? Missing scenarios the task file omits: error paths, concurrent access, eviction recovery.' },
   { key: 'product', rules: 'CLAUDE.md (repo root — project intro/principles) + tasks/README.md',
-    lens: 'Nebula vision & ergonomics for vibe coders. Walled-garden violations (escape hatches, more than one right way, footguns left in), API-surface ergonomics, scope creep / premature generalization, task-file template conformance, phases that are step-lists instead of goals + success criteria.' },
+    lens: 'Nebula vision & ergonomics for user-developers. Walled-garden violations (escape hatches, more than one right way, footguns left in), API-surface ergonomics, scope creep / premature generalization, task-file template conformance, phases that are step-lists instead of goals + success criteria.' },
 ]
 
 const FINDINGS = {
@@ -78,6 +80,8 @@ const reviewed = await pipeline(
   l => agent(
     `You are the ${l.key} reviewer for a Lumenize task file (design review, before implementation).\n` +
     `Read ${l.rules} and use it as your checklist. Your lens: ${l.lens}\n` +
+    `The spec ends with the repo's ADRs (architecture commitments) — flag any conflict with an ADR as a ` +
+    `blocker unless the task file explicitly proposes superseding it.\n` +
     `The LINKED SPEC below has the task file + key excerpts; ALSO read the cited source files from disk ` +
     `(the task references files with line numbers) to verify premises rather than trusting the summary.\n` +
     `Already caught in earlier loops — do NOT repeat: ${PRIOR || '(none)'}\n\n` +

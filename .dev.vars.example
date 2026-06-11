@@ -74,7 +74,7 @@ JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY---
 JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KEY-----\n"
 JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
 
-PRIMARY_JWT_KEY="BLUE"
+# PRIMARY_JWT_KEY (the BLUE/GREEN selector) lives in each worker's wrangler.jsonc "vars" — not here.
 
 # Optional — only needed if you use ResendEmailSender (see https://lumenize.com/docs/auth/using-resend-instead).
 # CloudflareEmailSender (the default) uses the EMAIL binding and needs no secret.

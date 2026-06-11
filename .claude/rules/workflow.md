@@ -4,12 +4,19 @@
 Work is tracked in `tasks/`:
 - `tasks/backlog.md` — small tasks and ideas
 - `tasks/[project-name].md` — active multi-phase projects
-- `tasks/decisions/` — research findings and technical decisions
 - `tasks/on-hold/` — designed but paused, expected to resume
 - `tasks/icebox/` — parked indefinitely, no planned return (colder than on-hold)
-- `tasks/archive/` — completed projects
+- `tasks/archive/` — completed projects + point-in-time decision/research records (`decision-*.md`). **Frozen on entry — never update an archived file** (no link fixups, no terminology syncs, no code-drift corrections); sole exception: a dated superseded banner at the top. See `tasks/README.md`.
 
 Use `/task-management` to choose docs-first vs task-file-first when starting a project. When the plan changes mid-stream from what you learn in earlier steps, propose updates to the task file, and summarize what changed after each step. **Not every change needs a task file** — process/organizing tweaks (editing rules, moving content) can be done directly. See `tasks/README.md` for templates.
+
+## Architecture commitments (ADRs)
+`docs/adr/` holds the few repo-shaping commitments — decisions that span packages and survive mechanism swaps (`docs/adr/README.md` has the bar; adding an ADR means adding its one-liner here). `/review-task` reads the full files; these one-liners are the always-loaded constraints:
+- **ADR-001** — TypeScript types ARE the schema language; never introduce a second schema language (Zod, JSON Schema, …). The mechanism is typia now; the principle is the commitment.
+- **ADR-002** — every surface (wire, storage, validation, diff/patch, history) round-trips the full structured-clone value space, incl. cycles, aliases with identity, Errors, Web API types. A JSON-only surface is never acceptable.
+- **ADR-003** — mesh flows are one-way messages + continuations; nothing depends on request/response across hops (the per-hop awaited Workers RPC is transport, not architecture). No RpcTarget/Cap'n Web sessions.
+- **ADR-004** — resources are Snodgrass-style snapshot sequences; history is the substrate. No destructive writes; "current" queries honor the `END_OF_TIME` sentinel.
+- **ADR-005** — optimistic concurrency: forward-only eTags prove currency AND provide idempotency (`newETag` replay detection); no locks, no dedupe ledger; non-monotonic checks (permissions, not-found) stay inside the transaction.
 
 ## Related skills
 - `/task-management` — docs-first vs task-file-first

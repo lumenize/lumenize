@@ -47,7 +47,7 @@ Aim for ≥ 8 of these green before moving to D1.
 
 ## Phase D1 — Design (~half-day)
 
-Output: a state diagram (Mermaid or ASCII) committed at `tasks/decisions/debounce-state-machine.md` or as an inline block in this file (whichever the team prefers post-spike).
+Output: a state diagram (Mermaid or ASCII) as an inline block in this file.
 
 States per resource:
 - `Idle` — no writes, no timers, no in-flight tx.
