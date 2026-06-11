@@ -33,6 +33,9 @@ Use `/task-management` to choose docs-first vs task-file-first when starting a p
 - **Ask before installing any npm package.** Favor copy-paste-with-attribution over a dependency for <1000 SLOC (add an entry to `ATTRIBUTIONS.md` *and* a comment above the copied code).
 - Permissive licenses only (MIT, Apache-2.0, BSD-3-Clause, ISC). Prefer smallest built footprint over fastest, and strongest Cloudflare Workers compatibility. Never install globally.
 
+## Sequential implementation — no parallel worktrees
+One long-running branch, implemented sequentially. Never parallelize code-writing across worktrees, parallel PRs, or concurrent write-agents — in this solo workflow, merge/conflict cost exceeds any speedup. Parallel agents are for reading and verifying (review panels, verifiers), never for writing code concurrently. Worktree isolation is fine only for self-contained experiments whose code never merges back (next section); if a worktree's code would need to come back, don't use a worktree.
+
 ## Experiments
 `experiments/*` are point-in-time spikes, not maintained artifacts. Results live in the experiment's `RESULTS.md` / `FINDINGS.md` / blog post, not in keeping the code runnable. An experiment commonly breaks soon after it runs because we change the source it depended on — **that's fine; don't fix it.**
 - **New experiment**: create `experiments/<name>/` (own `package.json`, `wrangler.jsonc`, etc.), add `"experiments/<name>"` as an **individual** entry (not a glob) to the root `package.json` `workspaces` list, then `npm install` at the repo root. Individual entries are load-bearing — `experiments/*` would break `npm install` the moment one experiment references a renamed/deleted package.
