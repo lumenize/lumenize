@@ -26,7 +26,7 @@ Writers are browsers with debounced auto-submit (and LLM agents) that disconnect
 | Pessimistic locks / leases | A disconnected browser holding a lock blocks everyone; lease tuning just trades that against spurious lock loss. Optimism holds no state that can leak. |
 | Last-write-wins | Silent data destruction, invisible to the user-developer it happens to. |
 | Server version numbers + separate idempotency keys (dedupe ledger) | Two concepts where one suffices, plus a guaranteed extra write per transaction to dedupe rare replays. |
-| CRDTs | Convergence without authority doesn't fit schema-validated resources behind permission checks; the Star's single-threaded ordering already provides authority — merge policy belongs in handlers, not in the data type. |
+| CRDTs (as the concurrency model) | Convergence without authority doesn't fit schema-validated resources behind permission checks; the Star's single-threaded ordering already provides authority. Not a ban: field-level CRDTs (e.g. large collaborative text) may layer in later — a CRDT-merged field would still commit through an eTag'd snapshot write. |
 
 ## Consequences
 
@@ -36,6 +36,6 @@ Writers are browsers with debounced auto-submit (and LLM agents) that disconnect
 - User-developers see outcomes and handlers; eTags stay under the hood of the frontend factory.
 
 ### Negative
-- Replay idempotency is load-bearing on every write path; a path that misses the `newETag` short-circuit turns honest retries into spurious errors (the B3 class of bug — create-replay verified, full replay matrix tracked in the 5.3.8 checklist).
-- Distinct concurrent creates (different `newETag`s) racing on the same resource are *not* replays and need disambiguation — read-then-create plus re-read-on-failure today; a typed already-exists outcome is flagged for v3.
-- Client-generated `newETag`s put a correctness obligation on every client/SDK (the factory owns it for Nebula UIs).
+- Replay idempotency is load-bearing on every write path; a path that misses the `newETag` short-circuit turns honest retries into spurious "already exists"/conflict errors. Exactly this was found and fixed in the 2026-06-10 design review — create-replay is now test-verified, and the full replay matrix is tracked in `tasks/nebula-frontend.md` § Phase 5.3.8.
+- Replay detection recognizes "the same transaction, retried" but not "two writers creating the same resource" — distinct concurrent creates carry different `newETag`s, so the loser surfaces as a failure the client surface must disambiguate. An inherent limit of eTag-as-idempotency, not a bug.
+- Replay protection depends on `newETag` *stability*: the same value must be reused across retry attempts. Regenerating per attempt downgrades a would-be replay into a conflict/already-exists outcome — still safe (forward-only eTags prevent silent double-commit), just noisier. The TS signature makes omission fail fast at compile time; the frontend factory owns stability for Nebula UIs.
