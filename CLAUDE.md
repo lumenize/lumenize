@@ -18,15 +18,15 @@ Detailed conventions live in **`.claude/rules/`** (auto-discovered — no refere
 |---|---|---|
 | `critical.md` | always | non-negotiable guardrails (npm, sync storage, generated `Env`, compat date, secrets, docs `.md`) |
 | `workflow.md` | always | task files, ADR index, sequential implementation (no parallel worktrees), no-build-in-dev, experiments, dependencies, releases, semantic search |
-| `coding-style.md` | editing `*.ts` | TS-types-as-schema, imports, IDs, JSDoc |
+| `coding-style.md` | editing `*.ts` | TS-types-as-schema, imports, IDs, optional-over-nullable, JSDoc |
 | `workers-projects.md` | `packages/**`, `apps/**` `*.ts` | **layer map** — which of the three DO files below apply, by layer (utility / raw-DO infra / mesh framework / mesh lib / Nebula) |
 | `durable-objects.md` | `packages/**`, `apps/**` `*.ts` | *writing a DO* (every layer, incl. Nebula): storage, initialization (`onStart`), sync methods, no instance state, IDs, billing, DO class registration, Worker Loader, SQL naming + write costs |
 | `mesh.md` | `mesh`, `fetch`, `nebula-frontend`, `apps/nebula` | *talk on Mesh*: `lmz.call`/`ctn` over raw RPC, routing rule, two-one-way, multi-hop, result handler, alarms, structured-clone errors + typed-error design, Gateway, Nebula-never-raw, dep direction |
 | `raw-comm.md` | `auth`, `nebula-auth`, `testing`, `ts-runtime-parser-validator`, `mesh` | *talk without Mesh*: `fetch()` routing, raw Workers RPC gotchas + error behavior, hibernation WS, raw alarms |
-| `testing.md` | test files, `vitest.config.*` | integration-first philosophy, capable-of-failing, mesh pyramid, for-docs mini-apps, `vi.waitFor`, initiators vs public API |
+| `testing.md` | test files, `vitest.config.*` | integration-first philosophy, capable-of-failing, `it.skip` for deferrals, debug-sink log assertions, mesh pyramid, for-docs mini-apps, `vi.waitFor`, initiators vs public API, browser same-origin proxy |
 | `packaging.md` | `package.json`, `wrangler.jsonc`, `tsconfig*`, `vitest.config.*`, `.dev.vars*` | package structure, global `Env`, env vars/secrets, self-ref bindings, cross-platform `cloudflare:workers` |
 | `security.md` | auth + nebula `*.ts` | secrets, test-mode flags, JWT/scope, permission checks, parameterized SQL, trust boundaries |
-| `documentation.md` | `website/**`, `*.mdx`, for-docs | hand-written docs, `@check-example`, skip-check annotations, sidebars |
+| `documentation.md` | `website/**`, `*.mdx`, for-docs | hand-written docs, `@check-example`, skip-check annotations, admonitions, sidebars |
 
 **Skills** (multi-step procedures you invoke) live in `.claude/skills/`. The task-file cycle pair (both `/task-management` tracks converge on it): **`/review-task`** fans out a reviewer panel over a task file before "go"; **`/build-task`** implements the reviewed task file phase-by-phase then fans out verifiers checking each phase against its own success criteria. Plus `/task-management`, `/refactor-efficiently`, `/release-workflow`. **Permissions** in `.claude/settings.json` (committed) and `.claude/settings.local.json` (gitignored, wins).
 

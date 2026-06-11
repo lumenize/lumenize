@@ -12,6 +12,7 @@ paths:
 - **Unit testing only** for algorithmically tricky pure functions and UI components (and occasionally during development to confirm behavior before building a dependent part).
 - **Coverage**: Branch >80%, Statement >90%. Defensive exception conditions that are hard to reach in tests may stay uncovered.
 - Tests enable refactoring, not prevent it. Remove functionality and its tests rather than ossifying tests for deprecated behavior. Never create aliases or backward-compatible signatures just to avoid updating a test — fix it properly. Leave working integration tests alone when adding doc-validation tests; create separate minimal `test/for-docs/` projects instead.
+- **Deferring ≠ deleting.** When a test exposes a real issue whose fix is deferred, use `it.skip` with the original assertions intact + a one-line comment naming the blocker + a task-file/TODO entry — never delete the test or weaken its assertions to ship green (false confidence). Removal is only for tests of deprecated behavior (previous bullet); `it.skip` shows up as `↓ skipped` in every run, keeping the deferral visible.
 
 ## Tests must be capable of failing
 A test that passes regardless of the implementation's correctness is worse than no test. Before considering a test done, ask: **"If I gutted the code under test, would this assertion fail?"** If not, it checks the wrong thing. Common ways tests pass for the wrong reason:
@@ -25,6 +26,9 @@ When introducing a new test pattern (harness, fixture, mock layer), write a prob
 
 ## vitest reports handled rejections as "errors"
 A green run can still print `Errors N` — vitest-pool-workers counts workerd-level rejection events even when the test caught them (`.rejects.toThrow`, `.catch()`). Common with intentionally-erroring fire-and-forget mesh calls. It's reporting noise with **no JS-level fix** — don't try to shrink the count (e.g. `log.error`→`log.warn` doesn't change it, only hides real errors). What matters: **`failed` is 0** and none of the N messages are *new* ones from the code under test (grep the output for your error strings). A steady baseline (hundreds) is fine; a jump between commits (124→500) is worth investigating.
+
+## Asserting on `@lumenize/debug` log output
+Use `setDebugSink((entry) => entries.push(entry))` in `beforeEach` + `clearDebugSink()` in `afterEach`; filter captured entries by `entry.namespace` / `level` / `message`. `vi.spyOn(console, 'warn')` catches nothing — `@lumenize/debug` routes **every** level through `console.debug` and gates on the `DEBUG` env var; an installed sink replaces default output and bypasses that filter ("sink installed implies capture everything"). Canonical: `apps/nebula/test/test-apps/baseline/nebula-client-bindtostate.test.ts`. The API is exported from `@lumenize/debug` but intentionally undocumented in website docs (internal testing primitive) — use it in our tests; don't recommend it to end users in docs or PRs.
 
 ## Mesh testing pyramid
 - **Integration** (`LumenizeClient` + `createTestRefreshFunction`) — full production path Client → Worker fetch → auth hooks → Gateway → DO. The `refresh` callback mints JWTs locally; auth hooks verify them normally. No test-mode infrastructure.
@@ -84,3 +88,6 @@ vitest-pool-workers tests can make real external `fetch()` calls and `new WebSoc
 **Prefer the real loop over test-mode bypasses.** The trained instinct "external service = slow and flaky, mock it or flip a test-mode flag" is miscalibrated here: the email loop stays entirely on Cloudflare infrastructure and completes in 1–3 s. Test-mode bypasses are for suites where the real loop is genuinely unavailable, not a default for saving test time.
 
 **First-run-after-idle failures are cold starts, not bugs.** An external service that sat idle (e.g. Resend) adds latency on the first run after a gap; the same test passes on re-run. Fix = generous `vi.waitFor`/test timeouts on these suites (e2e-email-resend runs 60 s `testTimeout` / 45 s `waitForEmail`) — not mocking, skipping, or hunting a phantom race.
+
+## Real-browser tests: same-origin proxy first
+When a chromium test (`@vitest/browser-playwright`) must reach a self-signed-TLS server (`wrangler dev --local-protocol https`) or cross-origin to a `SameSite=Strict`-cookie endpoint, use a **same-origin Vite proxy plugin** — not chromium launch flags, server-side cookie-attribute rewrites, or CORS plumbing. The proxy terminates TLS server-side (`secure: false` skips Node cert checks; the browser never sees the upstream cert) and puts the test page and the worker on one origin, so `Secure; SameSite=Strict` cookies flow untouched. Canonical implementation: `dynamicEnvProxyPlugin` in `packages/mesh/vitest.config.js`; adoption checklist: `packages/mesh/test/browser/README.md`.
