@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
-# Run tests for all packages in packages/ that have a test script
-# Auto-discovers packages - no need to maintain an explicit list
+# Run tests for all packages in packages/, apps/, and tooling/ that have a
+# test script. Auto-discovers packages - no need to maintain an explicit list.
+# tooling/* is included because those suites guard deployed test
+# infrastructure (test-endpoints, email-test) that other packages' e2e
+# tests depend on.
 
 echo "🧪 Running package tests..."
 
@@ -17,7 +20,7 @@ echo ""
 
 # Find all packages with test scripts
 PACKAGES=()
-for pkg_json in packages/*/package.json apps/*/package.json; do
+for pkg_json in packages/*/package.json apps/*/package.json tooling/*/package.json; do
   if [ -f "$pkg_json" ]; then
     # Check if package has a test script
     if node -e "const pkg = require('./$pkg_json'); process.exit(pkg.scripts?.test ? 0 : 1);" 2>/dev/null; then

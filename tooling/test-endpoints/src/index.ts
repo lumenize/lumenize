@@ -26,7 +26,10 @@ export { TestEndpointsDO, EnvTestDO };
 export { createTestEndpoints, buildTestEndpointUrl } from './client';
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  // DEBUG widened structurally: it's a var in this package's wrangler.jsonc,
+  // but consumer programs (e.g. packages/fetch tests) compile this source
+  // with their own generated Env, which lacks it.
+  async fetch(request: Request, env: Env & { DEBUG?: string }): Promise<Response> {
     const url = new URL(request.url);
     
     // Worker-level env test endpoint (no DO involved)
@@ -49,10 +52,3 @@ export default {
     return response ?? new Response('Not Found', { status: 404 });
   }
 };
-
-interface Env {
-  TEST_TOKEN?: string;
-  DEBUG?: string;
-  TEST_ENDPOINTS_DO: DurableObjectNamespace;
-  ENV_TEST_DO: DurableObjectNamespace;
-}

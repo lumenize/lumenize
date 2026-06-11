@@ -16,7 +16,7 @@ echo ""
 errors=0
 
 # Find all packages with tsconfig.json
-for tsconfig in packages/*/tsconfig.json apps/*/tsconfig.json; do
+for tsconfig in packages/*/tsconfig.json apps/*/tsconfig.json tooling/*/tsconfig.json; do
   pkg_dir="$(dirname "$tsconfig")"
   pkg_name="$(basename "$pkg_dir")"
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
+import { parse, RequestSync } from '@lumenize/structured-clone';
 import { TestEndpointsDO } from './test-harness';
-// @ts-expect-error - cloudflare:test types not available at compile time
 import { env } from 'cloudflare:test';
 
 describe('TestEndpointsDO Basic Functionality', () => {
@@ -28,11 +28,13 @@ describe('TestEndpointsDO Basic Functionality', () => {
     const count = await client.ctx.storage.kv.get('stats:count');
     expect(count).toBe(1);
 
-    // Verify last request was stored and auto-deserialized by RPC
-    const lastRequest = await client.ctx.storage.kv.get('request:last');
-    expect(lastRequest).toBeDefined();
-    expect(lastRequest).toBeInstanceOf(Request);
-    expect(lastRequest!.url).toContain('/uuid');
+    // Verify last request was stored — the DO stores a stringify()'d
+    // RequestSync, so revive it with parse()
+    const stored = await client.ctx.storage.kv.get('request:last');
+    expect(stored).toBeDefined();
+    const lastRequest = parse(stored as string) as RequestSync;
+    expect(lastRequest).toBeInstanceOf(RequestSync);
+    expect(lastRequest.url).toContain('/uuid');
   });
 
   it('respects stopTracking() and resetTracking()', async () => {
