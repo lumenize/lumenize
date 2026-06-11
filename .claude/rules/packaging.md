@@ -37,6 +37,8 @@ export function createRoutes(env: Env, options: Config) { /* ... */ }
 ```
 **Use `object` instead of `Env`** only for code in shared packages (`@lumenize/rpc`, `@lumenize/testing`) called by *multiple* packages with different generated `Env`s. If the function lives in the same package as the `wrangler.jsonc` defining the bindings it accesses, use `Env`.
 
+**Widen with an intersection** for the in-between case: source that lives in the same package as its `wrangler.jsonc` but is *also compiled under consumer packages' programs* (a workspace dep points at `src/`, so TS type-checks your source against the consumer's generated `Env`). If the consumer's `Env` lacks a binding you access, don't reintroduce a local `interface Env` (and don't add the var to the consumer's `wrangler.jsonc`) — keep the generated global as the base and widen only at the signature: `env: Env & { DEBUG?: string }` (alias it with a comment if used more than once). Canonical: `tooling/test-endpoints/src/EnvTestDO.ts`, compiled by `packages/fetch` tests whose `Env` has no `DEBUG`.
+
 ## Environment variables & secrets
 | Location | Committed? | Scope | Best for |
 |---|---|---|---|
