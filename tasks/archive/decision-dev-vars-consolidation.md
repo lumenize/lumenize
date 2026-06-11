@@ -33,7 +33,7 @@ lumenize/
 
 ```bash
 # Test token for test-endpoints service
-TEST_TOKEN=8b169d0d-0ad0-4a62-ad64-79d218508041
+TEST_TOKEN=<redacted — real value lives only in the gitignored root .dev.vars>
 
 # Test endpoints URL (allows contributors to use their own deployment)
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
