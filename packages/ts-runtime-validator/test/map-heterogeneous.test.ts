@@ -5,7 +5,7 @@
  * Homogeneous Maps (single value type) validate correctly.
  * Heterogeneous Maps (union value types) are a known tsc limitation —
  * tsc infers V from the first entry and rejects subsequent entries with
- * different types. Vibe coders should use Map<string, any> or homogeneous types.
+ * different types. User-developers should use Map<string, any> or homogeneous types.
  */
 import { describe, it, expect } from 'vitest';
 import { validate } from '../src/validate';

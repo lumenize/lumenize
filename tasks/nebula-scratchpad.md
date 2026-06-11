@@ -72,7 +72,7 @@ Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in 
 ### DAG Tree Enhancements (from Phase 3.x)
 
 - **`getSubtreePermissions(nodeId, sub)`**: Summary of what a subject can access in a subtree. Convenience method — no phase depends on it.
-- **Bulk operations for tree setup (import/export)**: Needed for Phase 9 (Vibe Coding IDE) to load ontology definitions. Not needed before then.
+- **Bulk operations for tree setup (import/export)**: Needed for Phase 9 (Studio) to load ontology definitions. Not needed before then.
 - **Materialized closure table**: Alternative to in-memory ancestor walks if cache proves insufficient at scale. Phase 3.0 experiment showed in-memory is fast (p95 < 0.2ms for 500 nodes), so this is unlikely to be needed.
 - **Performance regression tests**: Very deep trees (depth 10), wide trees (100+ children), dense DAGs (many diamonds). Pull in if performance becomes a concern.
 
@@ -139,12 +139,12 @@ The pure `validate()` function in `apps/nebula/src/validate.ts` (Phase 5.2.2) is
 
 Old-school npm `lumenize` aggregations over temporal data. The star DO will keep the most recent copy of every entity and a small cache of history snapshots. Snapshots other than the latest are lazily copied to a DO for that entity which can grow indefinitely.
 
-### Vibe Coding IDE Follow-On
+### Studio Follow-On
 
 - Training pipeline for Nebula-specialized small language model
 - Prompt engineering library (system prompts, few-shot examples, output validation)
 - Code validation pipeline (generated code → `tsc` check → DWL deploy → integration test)
-- Version control for vibe-coded applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
+- Version control for user-developer-built applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
 
   **Three timelines exist in the platform; git would address the missing one.**
   - **Source authoring** (every AI iteration of ontology + UI code) — *not currently addressed; this is what git would cover*.
@@ -162,24 +162,24 @@ Old-school npm `lumenize` aggregations over temporal data. The star DO will keep
   - **AI-as-git-client surface.** Letting the AI issue git commands against its iteration history is powerful but a real surface to design — what subset is exposed, how it composes with `deploy_to_dev`, etc.
 
   **Why we're not doing this for the demo**: "the AI's working memory IS the history" works fine for a 5-minute demo. Git becomes valuable when iteration spans days/weeks across sessions. Captured here so the idea isn't lost.
-- Collaboration features (multiple vibe coders on the same application)
+- Collaboration features (multiple user-developers on the same application)
 - Marketplace / templates (pre-built application patterns)
 
 ---
 
-## Vibe Coder Testing & Migration Workflow
+## User-Developer Testing & Migration Workflow
 
-Vibe coders need a way to test their work and migrate their applications over time. Two key challenges: (1) validating that changes work before going live, and (2) evolving the data model without breaking existing data.
+User-developers need a way to test their work and migrate their applications over time. Two key challenges: (1) validating that changes work before going live, and (2) evolving the data model without breaking existing data.
 
 ### Wizard-Style Authoring Flow
 
-The IDE should guide vibe coders through a structured flow, not dump them into a blank canvas:
+The IDE should guide user-developers through a structured flow, not dump them into a blank canvas:
 
 1. **Ontology first** — Define the data model (resource types, fields, relationships, DAG tree structure) before touching UI. The wizard validates the ontology is coherent before proceeding.
-2. **Migration validation gate** — When evolving the ontology, the vibe coder must write (or have the LLM generate) migration code and validate it passes before moving on to UI changes. No skipping ahead with a broken data model.
+2. **Migration validation gate** — When evolving the ontology, the user-developer must write (or have the LLM generate) migration code and validate it passes before moving on to UI changes. No skipping ahead with a broken data model.
 3. **UI second** — Build the end-user UI against the validated ontology.
 
-However, this isn't strictly linear in practice — nobody gets the data model perfect on the first try. The vibe coder will revisit their ontology as they evolve their UI. The wizard should support this back-and-forth while still enforcing the validation gate: ontology change → migration validated → UI can use the new fields.
+However, this isn't strictly linear in practice — nobody gets the data model perfect on the first try. The user-developer will revisit their ontology as they evolve their UI. The wizard should support this back-and-forth while still enforcing the validation gate: ontology change → migration validated → UI can use the new fields.
 
 ### Database Branching for Test Isolation
 
@@ -191,7 +191,7 @@ Key idea: leverage lazy migrations to create isolated test branches of the Resou
 - **DAG tree**: Trickier, but may "just work" if we store the DAG tree structure in one or two resource entries (rather than as separate SQL tables). Then the DAG tree itself can be branched the same way as any other resource. This is worth exploring.
 
 **Use cases**:
-- Vibe coder changes their ontology → creates a test branch → validates migrations run correctly against real-ish data → promotes the changes (deploys new DWL code) → production instances lazy-migrate on next read
+- User-developer changes their ontology → creates a test branch → validates migrations run correctly against real-ish data → promotes the changes (deploys new DWL code) → production instances lazy-migrate on next read
 - Automated test runs in CI-like flows get their own ephemeral branches
 - Demo/staging environments that don't pollute production data
 

@@ -341,7 +341,7 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **Ref**: https://blog.cloudflare.com/account-abuse-protection/
   - **What**: Cloudflare's fraud detection computes `cf.fraud_detection.disposable_domain` (boolean) and `cf.fraud.email_risk` (low/medium/high/unknown) on eligible requests. These can be injected as request headers via Managed Transform Rules, then read in the Worker — no client-side widget needed, no siteverify API call. Simpler than Turnstile integration.
   - **Where in nebula-auth**: `src/router.ts`, alongside the existing Turnstile check on public unauthenticated endpoints (`claim-universe`, `claim-star`, `email-magic-link`). Read injected headers, reject disposable emails, escalate high-risk emails to require admin approval.
-  - **Graceful degradation**: If the headers aren't present (vibe-coder hasn't configured Transform Rules), skip the check — same pattern as Turnstile being optional when `TURNSTILE_SECRET_KEY` isn't set.
+  - **Graceful degradation**: If the headers aren't present (user-developer hasn't configured Transform Rules), skip the check — same pattern as Turnstile being optional when `TURNSTILE_SECRET_KEY` isn't set.
   - **Caveat**: Currently Early Access for Bot Management Enterprise customers only. As of March 2026, this appears to require paid WAF/Bot Management — there is no free-tier or standalone API equivalent. If Cloudflare opens this up more broadly (GA expected later in 2026), it becomes a natural addition. Until then, a lightweight disposable-domain blocklist (MIT-licensed lists exist) could serve as a free stopgap.
 
 ## Blocked / Maybe later

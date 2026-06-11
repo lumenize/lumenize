@@ -2,7 +2,7 @@
 
 **Status**: Planned — gates on Phase 5.3 (subscriptions) shipping
 **Output**: `tasks/reference/vibesdk-llm-patterns.md` — a topic-organized pattern playbook
-**Why it slots here**: The patterns inform both Studio's own design AND the in-app chat-feature building block we'll ship to vibe coders. Doing this read before the pre-Studio milestone means the milestone's prompts and tool surface are designed against accumulated production wisdom, not first-principles guessing.
+**Why it slots here**: The patterns inform both Studio's own design AND the in-app chat-feature building block we'll ship to user-developers. Doing this read before the pre-Studio milestone means the milestone's prompts and tool surface are designed against accumulated production wisdom, not first-principles guessing.
 **Estimated effort**: 2–3 hours of focused reading + writing.
 
 ## Goal
@@ -45,7 +45,7 @@ For each section: a short prose summary + a code excerpt or two + a "what to con
 ## Where the output applies
 
 - **Studio's own AI design**: cold-start interview prompts, the wizard-flow state machine, the tool surface (`get_current_ontology`, `subscribe_debug_namespace`, `deploy_to_dev`, etc.), model selection per task. See `tasks/nebula-studio.md`.
-- **In-app chat features for vibe-coded products**: vibe coders won't author LLM orchestration; they'll use a platform-provided chat-agent building block. Same patterns transfer.
+- **In-app chat features for user-developer-built products**: user-developers won't author LLM orchestration; they'll use a platform-provided chat-agent building block. Same patterns transfer.
 - **Future LLM-touching features** anywhere on the platform.
 
 ## Caveats

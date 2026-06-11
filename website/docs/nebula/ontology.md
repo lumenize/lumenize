@@ -10,7 +10,7 @@ draft: true
 This page is a stub outlining planned content. Sections list what they'll cover but bodies are not yet written. Drafting begins after the `coding-your-ui.md` manual review pass and a separate review of `resources.md` and `api-reference.md`.
 :::
 
-The **ontology** is the single declaration of what resource types exist in your Nebula app, what shape each one has, how it references other types, and how it behaves under conflict. It's the first conversation Studio has with a vibe coder — before any UI work happens, you and Studio agree on the data model. From the LLM's point of view, the ontology is the cornerstone context for everything else.
+The **ontology** is the single declaration of what resource types exist in your Nebula app, what shape each one has, how it references other types, and how it behaves under conflict. It's the first conversation Studio has with a user-developer — before any UI work happens, you and Studio agree on the data model. From the LLM's point of view, the ontology is the cornerstone context for everything else.
 
 ## What an ontology is
 
@@ -52,7 +52,7 @@ Two categories of annotation, named consistently within each category:
 - **Pure-config annotations** — named after the knob they set. Example: `@debounce(quietMs, maxWaitMs)`.
 - **Semantic field-shape annotations** — named after what the field IS. Effects derive from the shape and may span multiple concerns. Example: `@longform`.
 
-The asymmetry is intentional. Config-named annotations are unambiguous about scope ("ah, this sets debounce"). Semantic-named annotations let the framework decide what behaviors that shape implies, so the vibe coder declares intent once and gets multiple right defaults across resolver registration, debounce timing, UI rendering, etc.
+The asymmetry is intentional. Config-named annotations are unambiguous about scope ("ah, this sets debounce"). Semantic-named annotations let the framework decide what behaviors that shape implies, so the user-developer declares intent once and gets multiple right defaults across resolver registration, debounce timing, UI rendering, etc.
 
 ### Inventory
 
@@ -67,7 +67,7 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 
 ### Type-derived defaults (no annotation needed)
 
-Most fields get sensible debounce config from their type. Studio's LLM relies on these so the vibe coder doesn't have to think about timing for routine fields:
+Most fields get sensible debounce config from their type. Studio's LLM relies on these so the user-developer doesn't have to think about timing for routine fields:
 
 | Field type | Default debounce |
 |---|---|
@@ -99,7 +99,7 @@ interface Todo {
 }
 ```
 
-Studio's LLM, when generating the ontology, picks annotations from a small rule table (covered in [tasks/nebula-studio.md § Code Generation](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md#code-generation)). The vibe coder typically only sees explicit annotations during review.
+Studio's LLM, when generating the ontology, picks annotations from a small rule table (covered in [tasks/nebula-studio.md § Code Generation](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md#code-generation)). The user-developer typically only sees explicit annotations during review.
 
 ### How annotations reach the runtime
 
@@ -123,7 +123,7 @@ Will cover:
   - **Deferred-review conflicts** — `'human-in-the-loop'`; app stashes for later review.
 - Resolver-as-property-of-type philosophy: when you change a type's shape, you may also need to change its resolver. Co-locating reduces the chance of drift.
 
-> **Resolved direction (2026-05-18)**: per the [Annotations](#annotations) section above, per-type config (debounce, resolver registration, default UI rendering) flows from the ontology. For resolvers specifically, the cleanest endpoint is **annotation-driven registration** — the same compile-time pass that emits debounce config also emits resolver registration for fields/types that carry semantic annotations (`@longform` auto-registers a text-merge resolver, etc.). Custom resolvers that need code (a domain-specific merge function, a modal flow) get a sibling `resolvers.ts` (or `ontology/resolvers.ts`) that the bootstrap imports. The vibe coder rarely sees this file — annotations cover the common cases. Implementation detail to settle during v3; the API surface (`client.resources.onTransactionResourceResolution(rt, handler)`) stays as-is, just with fewer direct callers now that annotations handle the typical patterns.
+> **Resolved direction (2026-05-18)**: per the [Annotations](#annotations) section above, per-type config (debounce, resolver registration, default UI rendering) flows from the ontology. For resolvers specifically, the cleanest endpoint is **annotation-driven registration** — the same compile-time pass that emits debounce config also emits resolver registration for fields/types that carry semantic annotations (`@longform` auto-registers a text-merge resolver, etc.). Custom resolvers that need code (a domain-specific merge function, a modal flow) get a sibling `resolvers.ts` (or `ontology/resolvers.ts`) that the bootstrap imports. The user-developer rarely sees this file — annotations cover the common cases. Implementation detail to settle during v3; the API surface (`client.resources.onTransactionResourceResolution(rt, handler)`) stays as-is, just with fewer direct callers now that annotations handle the typical patterns.
 
 ## Default permissions and DAG attachment
 
@@ -159,7 +159,7 @@ Will cover:
 
 Will cover:
 
-- Studio's typical conversation flow: the vibe coder describes their app, Studio asks clarifying questions about entities and relationships, Studio drafts the ontology, the vibe coder reviews in chat (no file editor — per [nebula-studio.md § Chat-first UI direction](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md)).
+- Studio's typical conversation flow: the user-developer describes their app, Studio asks clarifying questions about entities and relationships, Studio drafts the ontology, the user-developer reviews in chat (no file editor — per [nebula-studio.md § Chat-first UI direction](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md)).
 - How the LLM consults this doc when generating ontology files.
 - What gets generated alongside: per-type resolvers (per the Q1 decision above), default attachment configuration, Studio's seed data for the dev preview.
-- Iteration: when the vibe coder asks for a behavior change that requires a schema change, Studio updates the ontology AND the dependent code in lock-step.
+- Iteration: when the user-developer asks for a behavior change that requires a schema change, Studio updates the ontology AND the dependent code in lock-step.

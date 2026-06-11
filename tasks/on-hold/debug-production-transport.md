@@ -46,7 +46,7 @@ Each is a real fork worth thinking through before writing code; rough leanings n
 ## Phase 3 — Docs + canonical example
 
 - New page `website/docs/debug/transports.md` covering: what a transport is, the install pattern (Worker entry + DO ctor), the test-sink precedence, the cross-isolate caveat, and a worked example.
-- Worked example: a ~30-line Sentry forwarder transport. Real enough that vibe coders can copy/paste.
+- Worked example: a ~30-line Sentry forwarder transport. Real enough that user-developers can copy/paste.
 - Update the LumenizeDO error-handling section of the mesh docs to mention transports as the answer to "how do I forward errors to my monitoring."
 
 ## Out of scope

@@ -2,8 +2,8 @@
 
 **Phase**: 9
 **Status**: Active — end-of-line goal for the demo
-**App**: `apps/nebula/` (Studio is the authoring experience for vibe coders)
-**Depends on**: Phase 5 (Resources + branch-local lazy migrations), `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`), the Nebula frontend stack (Phase 5.3 + 7 + 8, consolidated in `tasks/nebula-frontend.md`). Vibe-coder-facing API surface lives in `website/docs/nebula/coding-your-ui.md`.
+**App**: `apps/nebula/` (Studio is the authoring experience for user-developers)
+**Depends on**: Phase 5 (Resources + branch-local lazy migrations), `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`), the Nebula frontend stack (Phase 5.3 + 7 + 8, consolidated in `tasks/nebula-frontend.md`). User-developer-facing API surface lives in `website/docs/nebula/coding-your-ui.md`.
 **Master task file**: `tasks/nebula.md`
 
 > Was previously titled "Nebula Vibe Coding IDE." Renamed during the demo-focus refactor (historical context in `tasks/archive/nebula-task-files-refactor.md`). Drop the "vibe coding IDE" wording — it's just **Studio** now.
@@ -12,7 +12,7 @@
 
 The conversational interface where Nebula users describe what they want, the AI generates their product (ontology + UI), and the result runs live in DWL isolates with real access control. Studio is the wow moment for the demo — investors see "I want to build X" → working app on screen.
 
-The vibe coder never opens a code editor. They describe in natural language, the AI generates, the preview updates, they iterate. The IDE provides the feedback loop: describe → generate → preview → adjust.
+The user-developer never opens a code editor. They describe in natural language, the AI generates, the preview updates, they iterate. The IDE provides the feedback loop: describe → generate → preview → adjust.
 
 > **Demo-narrative detailing is deferred** — fill in the storyboard after the prerequisite work (Resources, subscribe, `@lumenize/ui`, and the **pre-Studio milestone** described below) is done. We don't want to over-invest in narrative before code generation has been validated end-to-end.
 
@@ -114,7 +114,7 @@ What we get for free by leaning on Resources instead of building a separate virt
 **What we explicitly DON'T build:**
 
 - A separate VFS abstraction layer (e.g., a `FileSystem` class wrapping DO storage).
-- ~~A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility.~~ Reasoning was about a *hand-rolled* WASM git on DO; reconsider in light of `@cloudflare/shell` (see TBD bullet below) — Cloudflare now ships an official `isomorphic-git`-on-DO implementation via `@cloudflare/shell/git` that runs against the same `Workspace` (DO SQL + optional R2) we'd otherwise build by hand. The pure-JS git cost claim is worth re-litigating against *that* implementation specifically before deciding. Versioning + diffing + branching still fall out of resources + branches for the vibe-coder UX (see § "Checkpoint UX over true git"), but the file-resource *storage layer* underneath is now an active decision.
+- ~~A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility.~~ Reasoning was about a *hand-rolled* WASM git on DO; reconsider in light of `@cloudflare/shell` (see TBD bullet below) — Cloudflare now ships an official `isomorphic-git`-on-DO implementation via `@cloudflare/shell/git` that runs against the same `Workspace` (DO SQL + optional R2) we'd otherwise build by hand. The pure-JS git cost claim is worth re-litigating against *that* implementation specifically before deciding. Versioning + diffing + branching still fall out of resources + branches for the user-developer UX (see § "Checkpoint UX over true git"), but the file-resource *storage layer* underneath is now an active decision.
 - A parallel "files" storage path distinct from resources.
 
 **What stays open / TBD:**
@@ -127,7 +127,7 @@ What we get for free by leaning on Resources instead of building a separate virt
     - It defines a runtime-neutral `StateBackend` interface with two implementations today: `InMemoryFs` (ephemeral) + `WorkspaceFileSystem` (durable, DO SQL + R2). The forthcoming Artifacts integration is almost certainly a third `StateBackend` impl behind the same API — i.e., FS surface stays the same; storage swaps underneath.
     - `@cloudflare/shell/git` is `isomorphic-git` reading/writing through that `FileSystem`. Real `git.clone({url})` / `git.commit` / `git.push({token})` over HTTPS to real remotes (GitHub etc.). MIT-licensed.
 - **The reframe:** the original "file-resource backend" question isn't "DO SQL vs Artifacts" anymore — it's "**do we adopt `@cloudflare/shell`'s `Workspace` API for our file resources?**" Adopting `Workspace` today gets us a filesystem + working git layer on DO SQL + R2; the Artifacts question reduces to "swap to the Artifacts-backed `StateBackend` when it ships" — a much smaller decision than picking a new storage product.
-- **Vibe-coder UX is unchanged:** checkpoints-as-branches (§ "Checkpoint UX over true git" below) — we don't expose git/FS at the chat surface either way. The motivation for adopting `Workspace` is what it unlocks *underneath*.
+- **User-developer UX is unchanged:** checkpoints-as-branches (§ "Checkpoint UX over true git" below) — we don't expose git/FS at the chat surface either way. The motivation for adopting `Workspace` is what it unlocks *underneath*.
 - **What it unlocks: enterprise BYO-agent.** Power users and enterprises required to use their own agentic coding agents (Claude Code, Cursor, etc.) will expect a real git + filesystem surface, not the checkpoint metaphor. Concrete worked example: an enterprise standardized on GitHub Enterprise + Claude Code installs a webhook (or our GitHub Action) on push-to-`main` → Nebula calls `git.clone({url})` into a build-DO's `Workspace` → the build pipeline operates via the `state.*` FS API → pushes the built bundle to Galaxy for lazy deploy to Stars. This pipeline could in principle run today with `WorkspaceFileSystem` on DO SQL + R2 — no Artifacts dependency required.
 - **Re-litigate the original cost claim against `@cloudflare/shell` specifically.** The "WASM git is heavy/slow in Workers" reasoning above targeted a hand-rolled implementation. Now that Cloudflare ships an official `isomorphic-git`-on-DO impl with auth injection and a proper FS layer, the relevant question is: how does *that bundle* perform inside our DO budget? Probably YAGNI for the demo, but a focused evaluation once the package stabilizes (it's marked Experimental at 0.3.x) is worth doing before we lock in our own file-resource backend design.
 
@@ -144,7 +144,7 @@ The desktop-first angle deserves explicit consideration. Wins (raised 2026-05-14
 2. **Real preview** — run actual `vite dev` with HMR for the user's app. The preview IS the production-faithful Vue runtime minus the deploy. No need to invent a browser-side preview environment. Pairs with the Galaxy-side template pre-compile path (see `tasks/nebula-frontend.md` § "Phase 5.3.7" → "CSP `unsafe-eval`"): two compile sites (local vite for dev preview, Galaxy for production deploy) with the same purity guarantee.
 3. **Shell access for tooling extension** — let users run prettier/eslint/custom build steps. Plugins become "things that run in a child process," not browser-API-sandboxed approximations.
 4. **No CSP/CORS fighting in the editor** — `'unsafe-eval'` requirement is moot for the dev experience; only matters for what Galaxy serves to end users of the deployed app.
-5. **The "vibe coder" persona is increasingly AI-assisted-IDE-shaped** — Cursor / Windsurf / Claude Code are all desktop apps with file-system context. Studio fits the same mental shape if it's a desktop app; sits awkwardly between IDE and web tool if it's a browser-only thing.
+5. **The "user-developer" persona is increasingly AI-assisted-IDE-shaped** — Cursor / Windsurf / Claude Code are all desktop apps with file-system context. Studio fits the same mental shape if it's a desktop app; sits awkwardly between IDE and web tool if it's a browser-only thing.
 
 Tradeoffs:
 
@@ -155,7 +155,7 @@ Tradeoffs:
 
 **Tech-pick gut take** (when the decision lands):
 
-- **Electron** is the safest bet for the wrapper/distribution layer. TS/Node-native stack matches the rest of Lumenize; mature update/notarization tooling; biggest LLM training corpus (vibe-coder reference material). VS Code is Electron and that's the closest analog for what Studio is.
+- **Electron** is the safest bet for the wrapper/distribution layer. TS/Node-native stack matches the rest of Lumenize; mature update/notarization tooling; biggest LLM training corpus (user-developer reference material). VS Code is Electron and that's the closest analog for what Studio is.
 - **Tauri** is technically prettier (smaller, faster, native webview) but introduces Rust to the toolchain. Worth it only if bundle size or perf becomes a real customer ask.
 - **Runtime layer (Node vs Bun) is independently swappable from the wrapper.** Anthropic acquired Bun and Claude Code is already Bun-based — the bun-flavored tooling (electron-bun, webview-bun, Bun.serve + native webview) is more credible than "indie experiment" framing suggested earlier. Claude Desktop is Electron-on-Node today; if it migrates to a Bun-based shell, that's the strongest signal for Lumenize to follow.
 - **Strategic forward-look**: ship Studio on Electron + Node when implementation lands (lowest risk, fastest path), but pin "swap to Bun runtime when Claude Desktop or equivalent validates it" as a deliberate option. Maturity of the wrapper/distribution layer is the load-bearing concern; the runtime under it can move with the ecosystem.
@@ -197,7 +197,7 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 
   **Studio's field-type → annotation rule table** (demo-scope, kept small):
 
-  | Vibe coder intent → | LLM picks → | Effects (derived by framework) |
+  | User-developer intent → | LLM picks → | Effects (derived by framework) |
   |---|---|---|
   | "boolean toggle" → `field: boolean` | no annotation | `@debounce(0)` implied; eager commit |
   | "small set of choices" → `field: 'a' \| 'b' \| 'c'` | no annotation | `@debounce(0)` implied; eager commit |
@@ -206,7 +206,7 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
   | "counter / amount / score" → `field: number` | no annotation | type default |
   | explicit custom timing | `@debounce(quietMs, maxWaitMs)` | exact override |
 
-  The LLM consults this table during ontology generation; the vibe coder typically only sees explicit annotations (`@longform`, `@debounce(...)`) during chat-based review.
+  The LLM consults this table during ontology generation; the user-developer typically only sees explicit annotations (`@longform`, `@debounce(...)`) during chat-based review.
 
 ### Nebula API Schema Definitions for LLM Context
 
@@ -214,7 +214,7 @@ The Nebula API surface (resource operations, DAG tree operations, permission mod
 
 This reuses the Phase 5.2 tsc-in-DWL capability (`docs/adr/001-typescript-as-schema.md`) — the same TypeScript types that validate data at runtime also serve as API documentation for the code-generation model. Single source of truth: the types ARE the documentation.
 
-For the vibe coder's ontology specifically (their resource type definitions, not the Nebula API itself), see `tasks/nebula-resource-metadata.md` for the annotation conventions (`@title`, `@description`, `@inverse`) and the rule that Galaxy serves the raw `.d.ts` source verbatim — no bespoke metadata JSON shape; the AI reads TypeScript natively.
+For the user-developer's ontology specifically (their resource type definitions, not the Nebula API itself), see `tasks/nebula-resource-metadata.md` for the annotation conventions (`@title`, `@description`, `@inverse`) and the rule that Galaxy serves the raw `.d.ts` source verbatim — no bespoke metadata JSON shape; the AI reads TypeScript natively.
 
 ## Editor / Preview
 
@@ -227,11 +227,11 @@ For the vibe coder's ontology specifically (their resource type definitions, not
 
 The user spends ~90% of their time in chat. The agent occasionally pulls up files for review in **read-only mode** — never an editable code editor. The user's recourse for "wrong code" is to talk to the agent, not to fix it themselves. Counter-intuitive but right: the moment the user can edit, the LLM's mental model can desync from the file state, and recovery is painful. Better to invest in agent reliability than in an editor fallback.
 
-The vibe coder cares about **behavior**, not code. Chat surfaces behavior; files surface implementation. Gating files behind "agent pulls them up when relevant" keeps the user in behavior-mode by default.
+The user-developer cares about **behavior**, not code. Chat surfaces behavior; files surface implementation. Gating files behind "agent pulls them up when relevant" keeps the user in behavior-mode by default.
 
 **Two highlight modes** (both feed selection context back to the agent):
 
-1. **Preview-element highlight** — user clicks an element in the running preview (the blue button, that paragraph, this row). The agent maps the click to source range; user describes the change in natural language. *This is the vibe-coder-native highlight* — they don't know what file the blue button is in; the preview is their mental model.
+1. **Preview-element highlight** — user clicks an element in the running preview (the blue button, that paragraph, this row). The agent maps the click to source range; user describes the change in natural language. *This is the user-developer-native highlight* — they don't know what file the blue button is in; the preview is their mental model.
 2. **File-text highlight** — when the agent has already opened a file for review, user can select a text span to disambiguate ("this prop should be `done: boolean`"). Fallback for precision cases inside already-opened code.
 
 **Layout:**
@@ -243,7 +243,7 @@ The vibe coder cares about **behavior**, not code. Chat surfaces behavior; files
 
 - STT errors propagate fast. Show the transcribed message in an editable field before send.
 - Optional auto-send after N seconds of silence post-utterance, but with cancel + edit available before send.
-- Speak-don't-type is a real differentiator for vibe coders (faster than typing for natural language).
+- Speak-don't-type is a real differentiator for user-developers (faster than typing for natural language).
 
 **Checkpoint UX over true git:**
 
@@ -251,7 +251,7 @@ The vibe coder cares about **behavior**, not code. Chat surfaces behavior; files
 - "Go back to when it worked" rolls the dev branch's state back to that named branch.
 - No git commits, no diffs, no merge conflicts visible to the user. Just named checkpoints. Branch-as-checkpoint is one of the nicer consequences of the existing branches design.
 
-**No "drop down to the editor" escape hatch.** If the agent is wrong, the recourse is "explain again" — not user-edit. If we add an editor later as a power-user toggle, it's in a deliberate **debug/inspect mode**, NOT the default. Power-user toggle is aimed at internal dev + advanced customers; not the vibe-coder default and not on the demo path.
+**No "drop down to the editor" escape hatch.** If the agent is wrong, the recourse is "explain again" — not user-edit. If we add an editor later as a power-user toggle, it's in a deliberate **debug/inspect mode**, NOT the default. Power-user toggle is aimed at internal dev + advanced customers; not the user-developer default and not on the demo path.
 
 **Open questions to resolve during implementation:**
 
@@ -328,10 +328,10 @@ Cold-start interview is the demo wow moment. Optimize for it.
 
 ### Wizard-Style Authoring Flow
 
-The IDE guides vibe coders through a structured flow, not a blank canvas:
+The IDE guides user-developers through a structured flow, not a blank canvas:
 
 1. **Ontology first** — Define the data model (resource types, fields, relationships, DAG tree structure) before touching UI. Wizard validates the ontology is coherent before proceeding.
-2. **Migration validation gate** — When evolving the ontology, the vibe coder must write (or have the LLM generate) migration code that passes before moving to UI changes. No skipping ahead with a broken data model.
+2. **Migration validation gate** — When evolving the ontology, the user-developer must write (or have the LLM generate) migration code that passes before moving to UI changes. No skipping ahead with a broken data model.
 3. **UI second** — Build the end-user UI against the validated ontology.
 
 Not strictly linear — nobody gets the data model right on the first try. The wizard supports back-and-forth while still enforcing the validation gate: ontology change → migration validated → UI can use the new fields.
@@ -368,20 +368,20 @@ Not strictly linear — nobody gets the data model right on the first try. The w
 - Demo narrative shape: full cold start vs. jump-in partway? Leaning cold start for impact. Confirm during storyboard work after prereqs.
 - Does the pinned ontology view live in the UI alongside the chat?
 - Editor component: Monaco, CodeMirror, custom, or no code editor at all (pure natural language)?
-- How much generated code should the vibe coder see vs. be hidden behind the natural language interface?
+- How much generated code should the user-developer see vs. be hidden behind the natural language interface?
 - When does session context get archived/summarized vs. kept verbatim?
 - Hosting decision (Workers Assets vs Galaxy-served): see § Studio UI hosting above.
 - **Built-artifact (compiled UI bundle) storage & versioning**: serving is still a Galaxy- or Star-hosted web-server-like interface either way (to set MIME types, CSP headers, branch-routing, etc.) — the question is what storage layer sits behind it. Candidates: Galaxy's own SQLite, Workers KV, R2, a `@cloudflare/shell` `Workspace` (DO SQL + optional R2 via the same library we're considering for the file-resource backend), or Cloudflare Artifacts once its content API and `@cloudflare/shell` Artifacts-backend ship (Aron on Discord 2026-06-04, preview "next week"). Decide this jointly with the file-resource backend question above — picking `@cloudflare/shell`'s `Workspace` for *both* layers would let the entire file pipeline (source files + built bundles) share one storage abstraction, and the eventual swap to an Artifacts-backed `StateBackend` would apply uniformly. Design Galaxy's version management API without coupling to a specific backend so this decision stays deferrable.
 
 ## Follow-On Work (post-demo)
 
-See `tasks/nebula-scratchpad.md` § "Vibe Coding IDE Follow-On" for the full list (training pipeline, prompt engineering, code validation pipeline, version control for vibe-coded apps, collaboration features, marketplace/templates).
+See `tasks/nebula-scratchpad.md` § "Studio Follow-On" for the full list (training pipeline, prompt engineering, code validation pipeline, version control for user-developer-built apps, collaboration features, marketplace/templates).
 
 ## Success Criteria
 
 Rough shape — refine during storyboard work:
 
-- [ ] Vibe coder can describe a data model in natural language and get a working `ResourcesWorker`
+- [ ] User-developer can describe a data model in natural language and get a working `ResourcesWorker`
 - [ ] Generated code deploys to the session's branch (typically `.dev`) Star and passes schema validation
 - [ ] Preview shows live UI components backed by real Resources
 - [ ] Edit → regenerate → preview cycle is under 5 seconds
