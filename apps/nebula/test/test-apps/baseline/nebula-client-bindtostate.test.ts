@@ -349,14 +349,18 @@ describe('bindToState — rollback', () => {
     reader[Symbol.dispose]();
   });
 
-  it("ontology-stale: optimistic write reverts to pre-write value via source: 'rollback'", async () => {
+  it('ontology-stale: optimistic write is NOT rolled back — reload is the response, not a revert', async () => {
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
     const rid = generateUuid();
+    // The hook the framework fires on ontology-stale; here it also serves as the
+    // settle signal (the opt-out caller would pass null and own the response).
+    const refreshHookSpy = vi.fn();
 
-    // Build a v1-pinned client.
+    // Build a v1-pinned client with the staleness hook.
     const a = await createAuthenticatedClient(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com', 'v1',
+      { onShouldRefreshUI: refreshHookSpy },
     );
     a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: TEST_TYPES });
     await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
@@ -372,14 +376,26 @@ describe('bindToState — rollback', () => {
     await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
     await a.client.resources.read('TestResource', rid, { ontologyVersion: 'v2' });
 
+    // Installing v2 push-on-clears the subscribed client → fires the hook once.
+    // Wait for that, then clear, so the next hook call is unambiguously from the
+    // setState transaction below (not push-on-clear).
+    await vi.waitFor(() => expect(refreshHookSpy).toHaveBeenCalled());
+    refreshHookSpy.mockClear();
+
     // Optimistic write via the v1-pinned client — server returns
     // ontology-stale because Star is at v2.
     state.setState(`resources.TestResource.${rid}.value.title`, 'V1writeAttempt');
     expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1writeAttempt');
 
-    await vi.waitFor(() => {
-      expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1value');
-    });
+    // The hook firing AGAIN proves the setState transaction's ontology-stale
+    // outcome was processed (and #processMiddlewareOutcome ran).
+    await vi.waitFor(() => expect(refreshHookSpy).toHaveBeenCalled());
+
+    // No rollback: the optimistic value stays painted. ontology-stale is a
+    // "your client is stale, reload" signal, not a rejection of this write —
+    // reverting would be moot under the default reload and wrong for opt-out
+    // callers. A rollback impl would revert to 'V1value' here (capable-of-failing).
+    expect(state.getState(`resources.TestResource.${rid}.value.title`)).toBe('V1writeAttempt');
 
     a.client[Symbol.dispose]();
   });

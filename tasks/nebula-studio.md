@@ -41,26 +41,34 @@ Both artifacts must stay coherent: the UI must reference entity names, field nam
 
 ### Bootstrap files (auto-scaffolded, not LLM-authored)
 
-Separately from LLM code generation, Studio **auto-populates** a small fixed set of bootstrap files when an app is first created. These files are identical across every app (with one Studio-controlled difference between dev and prod, see below) and are NEVER touched by the LLM during the conversation — they live in the app's file space (per § "Files as resources") but are seeded by Studio's app-creation flow, not by code generation. This keeps the LLM's attention focused on the `.vue` components and the ontology, which is what the doc at [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) is tuned for (the coding-your-ui doc explicitly omits the bootstrap files because the LLM doesn't generate them).
+Separately from LLM code generation, Studio **auto-populates** a small fixed set of bootstrap files when an app is first created. These files are identical across every app (with one Studio-controlled difference between dev and prod, see below) and are not **authored** by the LLM — they're seeded by Studio's app-creation flow, not by code generation. (One exception: the LLM may later **extend** `nebula.ts` with per-type resolvers and first-run bootstrap — see below; `main.ts` and `index.html` are never touched after scaffolding.) They live in the app's file space (per § "Files as resources"). This keeps the LLM's attention focused on the `.vue` components and the ontology, which is what the doc at [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) is tuned for (the coding-your-ui doc explicitly omits the bootstrap files because the LLM doesn't generate them).
 
 The three bootstrap files:
 
 ```typescript
-// store.ts — initialize the client + store once. Per-type conflict resolvers
+// nebula.ts — initialize the client + store once. Per-type conflict resolvers
 // and terminal-outcome reactions registered alongside (the LLM CAN add these
 // later as it builds out app behavior — they belong in this file).
 import { createNebulaClient } from '@lumenize/nebula-frontend';
 
-export const { client, store } = createNebulaClient({
+export const { client, store, ready } = createNebulaClient({
   appVersion: __APP_VERSION__,  // Studio substitutes at deploy time
 });
+
+// Top-level await: main.ts imports this module, so the app mounts only after
+// the first connection — client.claims is non-null by the time any component
+// renders (the pinned contract in api-reference.md § client.claims).
+// `ready` rejects only on terminal auth failure (logged-out visitor) — redirect
+// to login; transient failures stay pending and retry. See api-reference
+// § createNebulaClient.
+try { await ready; } catch { window.location.assign('/login'); }
 ```
 
 ```typescript
 // main.ts — Vue entrypoint.
 import { createApp } from 'vue';
 import App from './App.vue';
-import './store';
+import './nebula';
 
 createApp(App).mount('#app');
 ```
@@ -73,9 +81,9 @@ createApp(App).mount('#app');
 
 **The dev-vs-prod difference is in `__APP_VERSION__` substitution only.** During dev iteration, Studio injects `'dev'` (or a build-stamped value); at deploy time Studio injects the version that matches the deployed ontology bundle so the server can enforce app/ontology lock-step.
 
-All other `createNebulaClient` config fields auto-detect from the browser environment (see [tasks/nebula-frontend.md](nebula-frontend.md) § Phase 5.3.7-v3 "Make all createNebulaClient config fields optional"). The `store.ts` shown above is therefore the entire bootstrap contract — Studio doesn't need to choose between many config shapes; it just substitutes one variable.
+All other `createNebulaClient` config fields auto-detect from the browser environment (see [tasks/nebula-frontend.md](nebula-frontend.md) § Phase 5.3.7-v3 "Make all createNebulaClient config fields optional"). The `nebula.ts` shown above is therefore the entire bootstrap contract — Studio doesn't need to choose between many config shapes; it just substitutes one variable.
 
-**`store.ts` is the one bootstrap file the LLM may extend.** Per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) belong here. The LLM appends them as it implements app behavior; Studio's initial scaffold leaves the file ready to receive these additions. `main.ts` and `index.html` should never be edited after scaffolding.
+**`nebula.ts` is the one bootstrap file the LLM may extend.** Per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) and first-run resource bootstrap (e.g. read-then-create of per-user containers, after `await ready`) belong here. The LLM appends them as it implements app behavior; Studio's initial scaffold leaves the file ready to receive these additions. `main.ts` and `index.html` should never be edited after scaffolding.
 
 ## Architecture
 
@@ -88,14 +96,14 @@ All other `createNebulaClient` config fields auto-detect from the browser enviro
 
 Captured 2026-05-15 during the post-SFC-pivot Studio design discussion. **Application source files are resources of type `file`** (or potentially more granular types per extension), stored on the session's `.dev` branch's Star alongside the user's data resources.
 
-Value is the content directly; mime-type lives on `meta` as a framework-owned field (see [tasks/nebula-frontend.md](nebula-frontend.md) § "Snapshot meta fields" for the broader meta shape):
+Value is the content directly; mime-type lives on `meta` as a framework-owned field (see [api-reference.md § Snapshot](../website/docs/nebula/api-reference.md#snapshot) for the broader meta shape — the docs are the contract; the spec's type block is nebula-frontend.md § Types `SnapshotMeta`):
 
 ```
 store.resources.file['App.vue'].value      = '<template>...'      // content directly
 store.resources.file['App.vue'].meta       = { eTag, validFrom, mimeType: 'text/x-vue', ... }
 
-store.resources.file['store.ts'].value     = 'import { ... } ...'
-store.resources.file['store.ts'].meta      = { eTag, validFrom, mimeType: 'application/typescript', ... }
+store.resources.file['nebula.ts'].value    = 'import { ... } ...'
+store.resources.file['nebula.ts'].meta     = { eTag, validFrom, mimeType: 'application/typescript', ... }
 
 store.resources.file['index.html'].value   = '<!doctype html>...'
 store.resources.file['index.html'].meta    = { eTag, validFrom, mimeType: 'text/html', ... }
@@ -188,8 +196,8 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 
 ## Code Generation
 
-- Language model generates `ResourcesWorker` subclasses (resource config, guards, validation, migrations).
-- Language model generates UI artifacts as plain HTML + Alpine-flavored `x-*` directives bound to `@lumenize/state` paths. No ObjectDOM port (decision pinned 2026-05-09; LLM training-data alignment favored Alpine syntax). NebulaClient stays out of the UI layer — bindings target the StateManager. Generation patterns documented in `website/docs/nebula/coding-your-ui.md`.
+- Language model generates the **ontology** — a `.d.ts` file with TypeScript types + annotations (validation, debounce, conflict resolvers; see the per-field annotation bullet below) — processed by the existing upload pipeline onto the branch Star. (There is no `ResourcesWorker` class; resources are served by the platform's `Resources` engine, configured entirely by the ontology.)
+- Language model generates UI artifacts as `.vue` Single-File Components (TypeScript, `<script setup>`) bound to the factory's Vue-reactive store (`store.resources.*` / `store.ui.*`), per the 2026-05-15 SFC pivot (§ Studio-Generated Artifacts above). NebulaClient stays out of component code — components import `{ store, client }` from the Studio-scaffolded `nebula.ts` bootstrap (§ Bootstrap files). Generation patterns documented in `website/docs/nebula/coding-your-ui.md`. (History: the 2026-05-09 "plain HTML + Alpine `x-*` directives on `@lumenize/state` paths" decision was superseded by the SFC pivot; `@lumenize/state`/StateManager is deleted in 5.3.7-v3.)
 - **Styling: DaisyUI** (Tailwind component library, MIT). Pure CSS, framework-free. Strong LLM training coverage; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo.
 - Generated code is TypeScript strings deployed to DWL isolates.
 - Schema validation via tsc-in-DWL (already shipped as `@lumenize/ts-runtime-parser-validator`).
@@ -210,7 +218,7 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 
 ### Nebula API Schema Definitions for LLM Context
 
-The Nebula API surface (resource operations, DAG tree operations, permission model, subscription patterns) is documented as TypeScript type definitions (`.d.ts` files) provided to Studio's language model as context. The LLM gets precise method signatures, operation descriptors, return types, and error conditions in the language it already understands.
+The Nebula API surface (resource operations, org/permission tree operations (`client.orgTree.*`), permission model, subscription patterns) is documented as TypeScript type definitions (`.d.ts` files) provided to Studio's language model as context. The LLM gets precise method signatures, operation descriptors, return types, and error conditions in the language it already understands.
 
 This reuses the Phase 5.2 tsc-in-DWL capability (`docs/adr/001-typescript-as-schema.md`) — the same TypeScript types that validate data at runtime also serve as API documentation for the code-generation model. Single source of truth: the types ARE the documentation.
 
@@ -353,7 +361,7 @@ Not strictly linear — nobody gets the data model right on the first try. The w
 
 - **Short term**: Prompt engineering against general-purpose models (Claude, GPT) with Nebula-specific system prompts and few-shot examples.
 - **Medium term**: Fine-tuned small model specialized for Nebula UI and Nebula Resources patterns.
-- **Training data**: Nebula's own documentation, example apps, the `ResourcesWorker` API surface, Nebula UI component library.
+- **Training data**: Nebula's own documentation, example apps, the Resources + `client.orgTree` API surface, Nebula UI component library.
 
 ## Out of Scope (For Demo)
 
@@ -381,7 +389,7 @@ See `tasks/nebula-scratchpad.md` § "Studio Follow-On" for the full list (traini
 
 Rough shape — refine during storyboard work:
 
-- [ ] User-developer can describe a data model in natural language and get a working `ResourcesWorker`
+- [ ] User-developer can describe a data model in natural language and get a working ontology + resources on the branch Star
 - [ ] Generated code deploys to the session's branch (typically `.dev`) Star and passes schema validation
 - [ ] Preview shows live UI components backed by real Resources
 - [ ] Edit → regenerate → preview cycle is under 5 seconds

@@ -14,6 +14,7 @@
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { deepEquals, type StateManager } from '@lumenize/state';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
@@ -224,11 +225,29 @@ export interface BindToStateOptions {
   getBindings?: (path: string) => HTMLElement[];
 }
 
-export class NebulaClient extends LumenizeClient {
+export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
   #ontologyVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+
+  /**
+   * Decoded JWT payload — **non-null on NebulaClient**.
+   *
+   * Base `LumenizeClient` types `claims` as `Readonly<NebulaJwtPayload> | null`
+   * (a genuine null window before the first token refresh). NebulaClient
+   * narrows it to non-null: the factory's `ready` promise resolves only after
+   * that first refresh populates claims, so by the time component / app code
+   * runs, `client.claims` is always present — which is what lets the blessed
+   * examples write `client.claims.sub` without `!`/`?.` under strict TS.
+   *
+   * Behaviorally-neutral re-declaration: the runtime getter is the inherited
+   * one (this only drops `| null` from the type). Code that runs **before**
+   * `ready` — admin tools, scripts — must still guard with `?.`.
+   */
+  get claims(): Readonly<NebulaJwtPayload> {
+    return super.claims as Readonly<NebulaJwtPayload>;
+  }
 
   /** Bound StateManager — set by `bindToState()`. `handleResourceUpdate` is a
    *  no-op for state when null (Promise correlation still works). */
@@ -500,6 +519,10 @@ export class NebulaClient extends LumenizeClient {
    * `'use-server'`: nothing to do here — `#useServerOutcome` already wrote
    * the server snapshot through and `#applyFlash` already kicked off the
    * field-diff flash. Idem `'human-in-the-loop'` (optimistic stays painted).
+   * `'ontology-stale'`: also a no-op — the response is a page reload via
+   * `onShouldRefreshUI`, NOT a revert (it's a "your client is stale" signal,
+   * not a rejection of this write's merits); reverting would be moot under the
+   * default reload and wrong for `onShouldRefreshUI: null` opt-out callers.
    */
   #processMiddlewareOutcome(
     outcome: TransactionResolution,
@@ -514,10 +537,10 @@ export class NebulaClient extends LumenizeClient {
         return;
       case 'use-server':
       case 'human-in-the-loop':
+      case 'ontology-stale':
         return;
       case 'validation-failed':
       case 'permission-denied':
-      case 'ontology-stale':
       case 'timeout':
       case 'retries-exhausted':
         state.setState(`${basePath}.value`, preWriteValue, { source: 'rollback' });

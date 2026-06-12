@@ -1,0 +1,1059 @@
+{
+  "summary": "Third independent review round of Nebula 5.3.7-v1 spec bundle \u2014 hunt whats left after two applied panels",
+  "agentCount": 112,
+  "logs": [
+    "Fanning out 8 review lenses (pipeline: each lens verifies as it finishes)",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "[verify:architecture] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage",
+    "Raised 103, survived 94, dropped 9",
+    "[synthesize] failed: You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage"
+  ],
+  "result": {
+    "byLens": [
+      {
+        "lens": "architecture",
+        "raised": 17,
+        "survived": 8
+      },
+      {
+        "lens": "security",
+        "raised": 2,
+        "survived": 2
+      },
+      {
+        "lens": "test-strategy",
+        "raised": 14,
+        "survived": 14
+      },
+      {
+        "lens": "product",
+        "raised": 19,
+        "survived": 19
+      },
+      {
+        "lens": "rename-orgtree",
+        "raised": 14,
+        "survived": 14
+      },
+      {
+        "lens": "code-docs-contract",
+        "raised": 5,
+        "survived": 5
+      },
+      {
+        "lens": "cross-artifact",
+        "raised": 15,
+        "survived": 15
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "raised": 17,
+        "survived": 17
+      }
+    ],
+    "raised": 103,
+    "survived": 94,
+    "survivors": [
+      {
+        "lens": "architecture",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md + website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:772 (m12 checklist item); api-reference.md:509-511 (\u00a7 client.claims)",
+        "finding": "The pinned m12 claims-narrowing cannot type-check as specced \u2014 verified empirically with strict tsc. Two independent failures: (1) a 'type-only' override of an inherited accessor does not exist in TypeScript \u2014 both `declare readonly claims: ...` and class-interface declaration merging fail with TS2610 ('claims is defined as an accessor in class LumenizeClient, but is overridden here as an instance property'); the only compiling form is a getter re-declaration WITH a body (`get claims(): T { return super.claims as T }`), contradicting the spec's 'the runtime getter is unchanged'. (2) Even that getter fails TS2416: `Readonly<NebulaJwtPayload>` is not assignable to the base's `Readonly<JwtPayload> | null` because base JwtPayload (packages/auth/src/types.ts:69) requires `emailVerified: boolean`, which NebulaJwtPayload (packages/nebula-auth/src/types.ts:50) does not declare (it has `email`/`access` instead). The covariant narrowing the docs' strict-TS examples depend on is structurally impossible against the current type pair.",
+        "suggestion": "Pin one of: (a) make LumenizeClient generic over the claims payload \u2014 `class LumenizeClient<TClaims extends object = JwtPayload>` with `get claims(): Readonly<TClaims> | null` \u2014 and have NebulaClient extend `LumenizeClient<NebulaJwtPayload>` plus re-declare the getter (with trivial `super.claims!` body) to drop the `| null`; (b) reconcile the payload interfaces (e.g. NebulaJwtPayload extends a shared base, or add the missing fields) so the narrowing is structural. Either way, reword 'type-only' in nebula-frontend.md:772 and api-reference.md:509 to 'behaviorally-neutral getter re-declaration' and note the mesh-side change if (a) is chosen."
+      },
+      {
+        "lens": "architecture",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md + tasks/factory-conflict-outcome.md + tasks/debounce-serial-queue.md",
+        "location": "nebula-frontend.md:709 ('Capture pre-write snapshots per (rt, rid) at transaction-submit time') and :892 ('captured at transaction-submit time ... the value local diverged from'); factory-conflict-outcome.md invariants 3 & 5; debounce-serial-queue.md D1 'txResultRollback ... pre-write value restored'",
+        "finding": "The B4 fix's capture point contradicts the pinned optimistic-write model on the primary write path. Optimistic writes land in the store on EVERY keystroke (Decisions pinned :90; debounce-serial-queue.md:19), while transaction submission is debounced 500\u20132000 ms later. A 'pre-write snapshot' captured from the store AT TRANSACTION-SUBMIT TIME therefore already contains the user's edits \u2014 it equals `local`, not 'the value local diverged from'. Consequences: (a) `base === local`, which re-introduces the exact B4 degeneration through the back door (3-way merge collapses; concurrent server edits silently dropped for the flagship v-model/@longform path); (b) rollback on validation-failed/permission-denied/timeout 'restores' the unconfirmed optimistic value \u2014 a no-op revert. The wording is only correct for explicit `transaction()` calls where the store hasn't been pre-modified. The isolation detour will encode the wrong semantics into its property tests if built from this text.",
+        "suggestion": "Redefine the capture point in all three files: the pre-write/base snapshot is taken when a resource's optimistic state FIRST diverges from last-confirmed \u2014 i.e., the synced-state middleware captures `oldValue` (full resource value) on the first local write of a debounce window \u2014 OR the factory maintains a last-confirmed snapshot per (rt,rid), updated on `committed`/`use-server`/remote write-through. 'At submit time' applies only to explicit transaction() calls with no pending middleware writes. Add a capable-of-failing test: type via the middleware path, conflict, assert base equals the pre-typing value (a submit-time-capture impl yields base===local and fails)."
+      },
+      {
+        "lens": "architecture",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.8, line 972 (idempotency replay matrix)",
+        "finding": "The replay matrix specs unimplementable assertions: 'retry the identical ops with the same newETag across {create, put, delete, create+put} \u00d7 {no churn, third-party churn ...}, asserting committed (NOT infrastructure-error/already exists)'. eTag-based replay detection (resources.ts Steps 4.5a/6.5) works only while at least one batch resource still carries `newETag`. When a third party churns EVERY written resource between original and retry, the evidence is gone by design (forward-only eTags, ADR-005, no dedupe ledger): a singleton put\u00d7churn or delete\u00d7churn replay returns a CONFLICT (Step 4.5b/9), and a singleton create\u00d7churn replay still throws 'already exists' at Step 7 \u2014 the very outcome the matrix forbids. Only the create+put\u00d7partial-churn cell is rescued by `.some`. As written, three of the eight cells cannot pass, and an implementer may 'fix' the tests by weakening the monotonic-pre-check discipline the B3 fix just established.",
+        "suggestion": "Replace the blanket 'asserting committed' with per-cell expected outcomes: committed when \u22651 batch resource still carries newETag (no churn; partial churn); conflict (resolver fires, never 'already exists'/infrastructure-error... note create\u00d7full-churn currently DOES throw \u2014 needs its own pin, tied to the M11 create-on-existing taxonomy alternative) when all written resources were churned. Document full-churn replay-as-conflict as the known residual limit of eTag idempotency \u2014 it is also the precise thing the mesh-overload task's 'verify server replay-idempotency of newETag' ship-blocker must verify."
+      },
+      {
+        "lens": "architecture",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md + website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:775 (pin 1) and :779 (pin 5); api-reference.md \u00a7 client.orgTree / OrgTreeState (no coverage)",
+        "finding": "The landed M8 namespace-enforcement pins leave two holes the original deep-review fix ('transaction path rejects creates on reserved rids (or key Subscribers by (rt, rid))') covered. (a) Pin 5(b) rejects only `create` with `typeName === 'lmz'` \u2014 nothing reserves the resourceId `orgTree` under OTHER types. Subscribers' PK is `(resourceId, clientId)` with no rt column (task :155-162), so an app resource ('todo','orgTree') shares rows with the framework tree subscription: a mutation to that app resource broadcasts its snapshot to every universal-tree subscriber WITHOUT a permission check (a cross-user value leak in the same class as B2, requiring only that some user created a resource with rid 'orgTree'), plus unsubscribe cross-kill and INSERT-OR-REPLACE clobber. (b) `transaction()` addressing the whitelisted ('lmz','orgTree') itself is unspecified \u2014 pin 1 only errors rids NOT on the allow-list, and pin 5(b) only covers `create`, so put/move/delete with typeName 'lmz' on rid 'orgTree' falls through to the normal Resources path and dies with an incidental 'not found' rather than a deliberate reserved-namespace rejection.",
+        "suggestion": "Extend the pins: (i) `transaction()` rejects rt === 'lmz' for ALL rids \u2014 including whitelisted ones; the tree mutates only via client.orgTree.*; (ii) reserve the framework resourceId list across every type at create time (reject `create` whose resourceId is on the reserved list, any typeName), OR re-key Subscribers by (rt, rid) \u2014 the two alternatives deep-review M8 originally named. Add the security probe: create ('todo','orgTree') as user A, subscribe ('lmz','orgTree') as user B, mutate A's resource \u2192 assert B receives nothing."
+      },
+      {
+        "lens": "architecture",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Lists with v-for, first-run bootstrap example, lines 302-313 (check at :310)",
+        "finding": "The read-then-create bootstrap treats `outcome.kind !== 'ok'` as the only failure signal, but by the spec's own atomicity invariant (api-reference \u00a7 TransactionOutcome), per-resource failures arrive UNDER `kind: 'ok'` \u2014 a create that resolves `permission-denied` or `validation-failed` yields `outcome.kind === 'ok'` with the failure in `outcome.resources[sub]`. The example then proceeds as if the list exists: the UI subscribes to a never-created resource (a server-side error) and renders a permanently blank list with no surfaced message. The founder demo can't hit it (admin on root), but the example explicitly generalizes ('In a multi-user app, attach under whatever node the user was granted'), so the Studio LLM will replicate the broken success check into exactly the flows where permission-denied is live. This is a new gap in how the M11 re-read fix landed \u2014 the re-read disambiguates infrastructure-error, not per-resource denial.",
+        "suggestion": "Strengthen the success check: treat the create as landed only when `outcome.kind === 'ok' && outcome.resources[sub]?.kind === 'committed'`; otherwise re-read, and if still absent surface the per-resource failure (permission-denied \u2192 'request access' guidance). One-line change to the example condition plus a sentence in the race comment."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Forms: explicit save, line 363",
+        "finding": "'A per-call handler takes precedence over the per-type one for every resource in that call' reads as replace semantics \u2014 the exact misreading M9 fixed. It contradicts the same section's example comment 35 lines later ('layers in front of (does not replace) the per-type handlers', :397-401) and api-reference \u00a7 Precedence. The Studio LLM consuming this sentence first could conclude a per-call handler suppresses sibling per-type handlers.",
+        "suggestion": "Reword to match the pinned layering: 'A per-call handler is consulted first for every resource in the call; returning undefined falls through to the per-type handler (terminal reactions are additive) \u2014 see API reference \u00a7 Precedence.'"
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 3",
+        "finding": "Invariant 3 lists `ontology-stale` inside the 'roll back ALL' parenthetical ('Rollback outcomes (timeout, infrastructure-error, ontology-stale \u2192 roll back ALL ...)') and then states the opposite in its own next sentence ('ontology-stale does NOT roll back (page reload expected)'). The master spec (nebula-frontend.md:696, api-reference.md:608) pins no-rollback. An implementer building the isolation tests from the parenthetical encodes the wrong behavior.",
+        "suggestion": "Remove `ontology-stale` from the roll-back-ALL list in the parenthetical; keep the trailing no-rollback sentence."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/debounce-serial-queue.md",
+        "location": "Phase D2, line 83",
+        "finding": "D2 still wires flush-on-blur via 'focus/blur event handlers attached by the v-model directive wrapper' \u2014 but the custom-directive design was retired by the same m3 fix that updated this file's pin (line 16: 'NOT a v-model.eager modifier (that design was retired)'). No directive-free blur mechanism is stated anywhere, yet flush-on-blur is a published contract (coding-your-ui.md:87, api-reference.md:371). The factory has no DOM hook of its own; without a stated mechanism the contract is unimplementable as specced.",
+        "suggestion": "Replace the stale D2 bullet with a directive-free mechanism \u2014 simplest: a single capture-phase `focusout` listener registered by the factory at document level that flushes pending debounced writes (resource-level granularity makes 'flush everything pending on any blur' acceptable); or explicitly add 'pick the blur hook' to the D1 open-questions list."
+      },
+      {
+        "lens": "security",
+        "severity": "blocker",
+        "fixType": "decision",
+        "artifact": "apps/nebula/src/resources.ts",
+        "location": "transaction() Step 4.5b, lines 324-334 (pre-conflict fast-fail); delivered via star.ts:276-281 doTransaction",
+        "finding": "The B3 conflict pre-check returns the full `currentSnapshot` (value + meta.changedBy.sub + meta.nodeId + eTag) to the caller BEFORE any permission check runs. An authenticated tenant user with NO read permission on resource R can submit `transaction({ R: { op:'put', eTag:'<any-wrong-uuid>', value:{} } })`; Step 1 reads R's snapshot with `#getCurrentSnapshot` (no permission gate, unlike the public `read()` at :248-254), Step 4.5b sees `current.meta.eTag !== op.eTag` and returns `{ ok:false, errors:{ R:{ type:'conflict', currentSnapshot:<full R> } } }`, and Star delivers it straight to the attacker's client where it lands as `server.value` in the store. This is a cross-user resource-read bypass of the DAG read-permission gate \u2014 the same class of hole as prior-round B2, but via a NEW path the B3 fix created. Pre-B3 the conflict was detected only inside transactionSync at Step 9, AFTER the Step 8 permission check, so an unauthorized caller received `permission-denied` and never the snapshot. The fix's monotonic-pre-check reasoning is correct about VERDICT correctness (replay/conflict are monotonic) but overlooked that the conflict pre-check DISCLOSES permission-gated data; note the idempotency pre-check (Step 4.5a) returns only `eTags` and leaks nothing, so the asymmetry is precisely the snapshot disclosure. This also makes resources.md:95's central promise ('Resource values are still gated by permission at every read and write') factually false in code.",
+        "suggestion": "Gate the pre-conflict disclosure behind a permission check: before adding a resource to `preConflicts`, call `this.#dagTree.requirePermission(current.meta.nodeId, 'write')` and only disclose the snapshot on success (a denial there is non-monotonic but is a legitimate disclosure precondition \u2014 it will be re-decided authoritatively at Step 8). Simplest safe alternative: drop the Step 4.5b conflict pre-check entirely and keep only the Step 4.5a idempotency pre-check (which discloses no snapshot); conflicts then fall through to the in-txn Step 9 check, which already runs after the Step 8 permission gate. Either way, add the permission ordering to the Step 4.5 comment so the next reader sees that disclosure must follow permission."
+      },
+      {
+        "lens": "security",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "apps/nebula/test/test-apps/baseline/nebula-client-read-transaction.test.ts",
+        "location": "'permission-denied: non-admin user write resolves with permission-denied' (lines 165-191)",
+        "finding": "The only permission-boundary test submits the unauthorized put with the CORRECT eTag (`createOutcome.eTag`, line 183), so the write never conflicts and the path runs into transactionSync where Step 8 returns permission-denied \u2014 it cannot catch the Step 4.5b pre-conflict disclosure. There is no capable-of-failing probe for 'unauthorized caller submits a put with a wrong/stale eTag must NOT receive the resource snapshot.' As written, the B3 disclosure regression ships green.",
+        "suggestion": "Add a probe mirroring this test but with a deliberately wrong eTag: a non-permitted user submits `{ op:'put', eTag:'<random-uuid>' }` against a resource at a private node, then assert the outcome does NOT carry the resource value/meta (it must resolve as `permission-denied`, or at minimum must not return `currentSnapshot`). Gut the pre-check guard and the probe should fail (snapshot leaks)."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "apps/nebula/test/test-apps/baseline/dag-tree.test.ts",
+        "location": "describe 'authorization enforcement' \u2192 'addEdge requires admin on the child' (L901-948)",
+        "finding": "The B1 fix is a conjunction \u2014 addEdge requires write@newParent AND admin@child (dag-tree.ts:205-211) \u2014 but only the admin@child half has capable-of-failing coverage. In both probes Mallory holds admin on the parent (homeId), so admin\u2287write satisfies the parent check implicitly. No test in the file exercises addEdge by an actor lacking write on the new parent (all other callStarAddEdge sites at L161/315/319/341/721/931/940 run as admins). Gut `this.requirePermission(parentNodeId, 'write')` from addEdge and the entire suite stays green \u2014 half of a security permission check is unverified. removeEdge's write@parent check (dag-tree.ts:233) is similarly uncovered.",
+        "suggestion": "Add two probes: (a) user with admin on the child but zero grant on the prospective parent calls addEdge \u2192 expect 'write permission required'; (b) user with no grant on the parent calls removeEdge on an existing edge \u2192 denied. Both are five-line variants of the existing Mallory test."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Phase 5.3.8, idempotency replay matrix bullet (~L972)",
+        "finding": "The matrix instruction \u2014 \"retry the identical ops with the same newETag across {create, put, delete, create+put} \u00d7 {no churn, third-party churn}, asserting committed (NOT infrastructure-error/already exists)\" \u2014 asserts outcomes the (correct) implementation cannot deliver for 3 of 8 cells. Once a third party churns the SAME resource, its current eTag moves past newETag, making the replay undetectable (intrinsic to ADR-005's forward-only-eTag, no-dedupe-ledger design): put\u00d7churn-on-self and delete\u00d7churn-on-self replay resolve as `conflict` (resources.ts Step 4.5b), and create\u00d7churn-on-self still throws 'already exists' at Step 7 \u2192 infrastructure-error. Only the no-churn column and multi-resource partial-churn (the `.some` path, already shipped in nebula-client-read-transaction.test.ts:230-268) can assert committed. As written, a 5.3.8 implementer either writes tests that fail against correct code, weakens assertions to ship green (the exact testing.md anti-pattern), or 'fixes' the server with a dedupe ledger \u2014 an ADR-005 violation.",
+        "suggestion": "Rewrite the matrix with per-cell expected outcomes: no-churn column \u2192 committed; churn defined as churn-on-a-batch-sibling \u2192 committed via .some; churn-on-the-replayed-resource-itself \u2192 put/delete expect conflict (document this as the ADR-005 boundary of 'retry-safe'), create expects the M11 create-on-existing outcome (tie this cell to the already-exists taxonomy decision flagged for Larry at v3 L773 \u2014 don't pin committed)."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "website/docs/nebula/coding-your-ui.md + tasks/debounce-serial-queue.md + tasks/factory-conflict-outcome.md",
+        "location": "coding-your-ui.md L170-174 (disconnected banner) vs factory-conflict-outcome.md invariant 3 / api-reference.md L609 ('timeout' \u2192 roll back ALL) vs debounce-serial-queue.md flush-trigger list (L17) and D1 transitions (L60-67)",
+        "finding": "The blessed banner says \"Disconnected \u2014 your changes are queued. Reconnecting\u2026\" (comment: \"Optimistic writes still queue in the background\"), but the spec'd machinery contradicts it for any disconnect longer than the 5\u201310 s in-flight timeout: the conflict/outcome engine rolls back ALL optimistic writes on 'timeout', and for middleware-submitted debounced v-model writes there is no app await-site to retry from (the 5.3.4 'left as-is, app retries' pin predates framework-submitted writes; the Phase -1 #9 retryPolicy is explicitly deferred). Net: a >10 s blip silently reverts text the banner just promised was queued. No test obligation anywhere covers this seam: debounce-serial-queue.md has no disconnect flush/suspend trigger, zero timeout-path property assertions (the D0 harness supports 'timeout' outcomes but no probe uses them), and no InFlightWithBuffer \u00d7 rollback/timeout transition (D1 only enumerates InFlight \u2192 Idle); factory-conflict-outcome's hold-pending-fanouts test covers a mid-edit fanout but not the reconnect re-subscribe initial-snapshot push clobbering pending optimistic state; 5.3.8's disconnect probe only checks re-subscribe delivery.",
+        "suggestion": "Pin the disconnected-write contract before the detours build: most consistent with the banner is (a) suspend debounce flush + the in-flight timeout timer while lmz.connection is not 'connected', flush on reconnect (idempotent via newETag), OR (b) keep timeout-rollback and fix the banner text to be honest. Then add probes: D0 \u2014 flush fires while disconnected \u2192 no submission until reconnect, eTag chain intact; conflict-outcome \u2014 timeout/infrastructure-error while InFlightWithBuffer (what happens to buffered keystrokes); hold-pending-fanouts \u2014 reconnect initial-snapshot push arrives while a resource has pending optimistic state \u2192 held and merged, pre-disconnect keystrokes survive."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md + tasks/nebula-star-root-admin.md",
+        "location": "nebula-frontend.md \u00a75.3.7-v3 Prerequisite line (~L676) and First-run container create item (~L773); coding-your-ui.md L297-316",
+        "finding": "The flagship bootstrap (coding-your-ui L297-299: founder \"holds admin on the root node (granted when the Star was created)\") and the v3 two-tab race test both presuppose nebula-star-root-admin.md Part 1 (founder seeding) \u2014 which is spec'd, not started, and NOT in v3's prerequisite list (L676 names only the four detours). Two test-strategy consequences: (1) v3 can ship 'complete' with the first code path of every generated app broken for real founders; (2) the race test as worded will almost certainly run with scope-admin test users (claims.access.admin bypass, like every existing baseline admin client), which passes even if founder seeding is absent or broken \u2014 not capable of failing for the documented path (DAG admin grant on root, no JWT bypass). Additionally the cross-reference at L773 \"see root-admin bootstrap below\" dangles \u2014 no such section exists in nebula-frontend.md.",
+        "suggestion": "Add nebula-star-root-admin.md Part 1 to the v3 prerequisite list (or an explicit v3 checklist dependency); fix L773's dangling reference to link tasks/nebula-star-root-admin.md; amend the race-test spec to require a seeded founder WITHOUT claims.access.admin (create-under-ROOT must succeed via the DAG grant alone, and fail if seeding is gutted)."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "apps/nebula/test/test-apps/baseline/nebula-client-read-transaction.test.ts",
+        "location": "vs resources.ts Step 4.5b (L324-334) and nebula-frontend.md 5.3.8 ~L972 (co-occurrence probe)",
+        "finding": "The conflict+invalid-value co-occurrence probe (conflict wins, not validation-failed) is the ONLY test capable of failing if the landed Step-4.5b pre-check regresses \u2014 the shipped 'use-server' conflict test (L315-348) uses a valid value, so it passes whether the conflict is caught at 4.5b or at the post-validator Step 9. The code change is in the working tree NOW, but its one observable regression guard is scheduled in 5.3.8, a future phase. Same pattern for Step 6.5: in the partial-churn test the replay is caught at 4.5a, so 6.5 individually has no failing-mode coverage (acceptable as the optimization-layer framing, but worth a comment).",
+        "suggestion": "Pull the co-occurrence probe into nebula-client-read-transaction.test.ts now: submit a put with a stale eTag AND an invalid value \u2192 expect resolution 'use-server'/conflict carrying currentSnapshot, not 'validation-failed'. ~15 lines using the existing two-client setup."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/factory-collection-sync.md",
+        "location": "\u00a7 Approach (L14-22) vs the 'Parity with property writes' test bullet (L30); api-reference.md \u00a7 Middleware (L682-706)",
+        "finding": "Option A's implementation note says the wrapper \"runs the mutation and then triggers the same debounced submission\" \u2014 but Option B was rejected precisely because it \"fires *after* the mutation, so collection edits couldn't run the abort-capable middleware.\" Mutate-first makes abort prevent only the submission, not the local mutation \u2014 exactly the local-only divergence M10 exists to fix \u2014 and the abort-parity test would fail (or get weakened) against an implementation that follows the note literally. Separately, api-reference \u00a7 Middleware never defines what a mutator-driven write delivers to middleware (path = the collection's path? oldValue/newValue = pre/post-mutation collection clones? what does throw-to-abort restore?), so the 'transform/abort sees collection mutations the same as property writes' assertion has no pinned expected shape to assert against.",
+        "suggestion": "Reword the Approach: the wrapper computes the post-mutation value, runs the middleware chain BEFORE applying (abort \u21d2 no local mutation, substitute \u21d2 substituted value applied), then applies + triggers submission. Pin the middleware args for mutator calls in api-reference \u00a7 Middleware (path of the owning collection, oldValue = pre-mutation snapshot, newValue = post-mutation value)."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-collection-sync.md",
+        "location": "\u00a7 Tests (L24-34)",
+        "finding": "Two edge cases the test list omits: (1) mutation during iteration \u2014 `for (const k of map.keys()) map.delete(k)` mixes a raw-bound iterator with the wrapped mutator; legal per Map semantics, but the wrapping + per-mutation submission path is exactly where it could misbehave (N submissions mid-iteration, or iterator invalidation through the proxy); (2) no-op mutators \u2014 `set.add(existingElement)`, `map.set(k, sameValue)`, `delete(absentKey)`, `clear()` on an empty collection. The set-trap path deep-equals-dedups identical writes; whether no-op mutators submit a transaction is unspecified and untested (a per-no-op transaction would be a silent write-cost leak given v-for-driven renders calling collection methods).",
+        "suggestion": "Add two probes: delete-all-during-iteration coalesces to one submitted transaction and leaves the collection empty locally and on the mock; no-op mutators produce zero submissions (pin parity with the set-trap deep-equals skip in the file's 'One submission model' note)."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-textmerge.md",
+        "location": "\u00a7 Property tests, 'Overlap is bounded' bullet (L21) vs 'Identity / degeneration' (L19) and 'Empty/edge' (L22)",
+        "finding": "\"never an empty string\" contradicts the file's own identity rule and edge cases: local === server === '' \u21d2 the result MUST be '' (identity rule: local===server \u21d2 that value \u2014 e.g. both sides deleted all of base), and base='x', local='', server='' is the legitimate both-deleted-everything merge. An implementer writing the overlap assertion as stated produces a test that fails against a correct merge, or special-cases the merge to never return '' (corrupting the both-deleted case).",
+        "suggestion": "Scope the never-empty assertion to overlap cases where at least one side's post-edit text is non-empty; keep 'never a crash' unconditional and add the both-sides-deleted-everything \u21d2 '' case to the Empty/edge list explicitly."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a75.3.7-v3 connection-state replay item (~L768, no test bullet) + \u00a75.3.8 connection-state probe (~L975); spike apps/nebula/spike/alpine-adapter/test/factory-basics.test.ts L326-345",
+        "finding": "The replay-at-creation behavior that supersedes the old order-invariant has no capable-of-failing probe anywhere: the spike's connection tests and the 5.3.8 probe both create the factory first and then trigger transitions, so an implementation that wires only the transition observer (no creation-time capture) passes every enumerated test. The replay IS the documented contract (api-reference.md L57) and a regression target this round.",
+        "suggestion": "Add to the v3 item (or 5.3.8) an explicit probe: drive the mock client to 'connected' BEFORE calling createNebulaClient, then assert store.lmz.connection.state === 'connected' / connected === true / lastConnectedAt set, with no transition fired after creation."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Forms: explicit save, end of the handler-placement paragraph (L363): \"A per-call handler takes precedence over the per-type one for every resource in that call.\"",
+        "finding": "This closing sentence contradicts the pinned M9 semantics one paragraph before the example whose inline comment states them correctly (\"layers in front of (does not replace)\", L398-401) and api-reference \u00a7 Precedence: for terminal branches the per-type handler STILL fires (per-call reactions are additive), and for 'conflict-pending' undefined falls through. \"Takes precedence\" is the exact pre-fix shadow mental model the Studio LLM must not pattern-match \u2014 a new defect in how the M9 wording-sync landed.",
+        "suggestion": "Replace with: \"A per-call handler layers in front of the per-type one for every resource in that call \u2014 undefined falls through on 'conflict-pending', and per-type terminal reactions still fire (see API reference \u00a7 Precedence).\""
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "apps/nebula/test/test-apps/baseline/dag-tree.test.ts",
+        "location": "L805 ('Star admin bypasses DAG checks'), L809 comment, L1085-1086 ('universe admin bypasses all DAG checks via Star admin flag'), L1105 comment",
+        "finding": "dag-tree.ts:158 was corrected this round to \"Galaxy/Universe-scope admin bypass (NOT a Star admin \u2014 that's a DAG `admin` grant on root)\", and nebula-star-root-admin.md pins that 'Star admin' now means a DAG admin grant on ROOT_NODE_ID. But this same-round-modified test file still names the claims.access.admin bypass \"Star admin\" in four places \u2014 the next reader (or the flag-#5 reconciliation task) inherits the contradicting vocabulary from the tests that pin the behavior.",
+        "suggestion": "Rename to 'scope admin (claims.access.admin) bypasses DAG checks' / 'universe admin bypasses all DAG checks via the scope-admin claim' and fix the two inline comments to match the dag-tree.ts:158 wording."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "apps/nebula/test/test-apps/baseline/nebula-client-read-transaction.test.ts",
+        "location": "'serial queue: concurrent transactions are applied in submit order' (L270-313)",
+        "finding": "The test name (and the 'Fire three updates concurrently' comment) promises a concurrency probe, but the body await-chains each transaction (the inline comment at L288-291 admits it), so it passes with the serial queue entirely gutted \u2014 it actually proves sequential eTag chaining. The true concurrency property (buffered writes chain off the in-flight tx's resulting eTag) is owned by debounce-serial-queue.md D0, so this test just needs honest naming.",
+        "suggestion": "Rename to 'sequential transactions chain eTags in order' and drop the 'concurrently' comments; optionally add a pointer comment that the concurrent-buffering property lands with D0/v3."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "\u00a7 Tests (use-this/retries-exhausted bullets) vs api-reference.md TransactionOptions L243 + OnTransactionResourceResolutionOptions L306",
+        "finding": "maxRetries is pinned with two sources and a precedence (per-call > per-type registered > default 5), but every enumerated exhaustion probe (detour + 5.3.8) exercises only the default-5 path. The precedence is one off-by-one away from silently using the wrong cap.",
+        "suggestion": "Add one table-test row to the detour: per-type registered with maxRetries 10, per-call maxRetries 3, always-conflicting use-this \u2192 'retries-exhausted' with attempts: 3."
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "website/docs/nebula/api-reference.md + tasks/nebula-frontend.md",
+        "location": "api-reference.md \u00a7 Reserved state paths L474 (\"store.lmz.* is framework-written only (user writes dropped)\") vs v3 test bullets (L683-685, L784, L782 test f)",
+        "finding": "Test obligations exist for meta.* writes (warned, pass through), ui/app pre-seed (m13a), and rt==='lmz' resource writes skipping middleware (orgTree test f) \u2014 but nothing covers user writes to the non-resource lmz paths (e.g. store.lmz.connection.connected = true): 'dropped' is asserted in the contract doc with no probe, and whether the drop is silent or debug-warned is unspecified.",
+        "suggestion": "Add to the m13 test-gap fill: a user write to store.lmz.connection.* is dropped (path value unchanged) and emits a debug-sink warning (assert via setDebugSink per testing.md), and pin silent-vs-warned in api-reference \u00a7 Reserved state paths."
+      },
+      {
+        "lens": "product",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-studio.md",
+        "location": "\u00a7 Code Generation (L199-201) + \u00a7 Success Criteria (L392)",
+        "finding": "The Code Generation section still specs the pre-pivot stack: \"Language model generates `ResourcesWorker` subclasses\" (no such class exists anywhere \u2014 only `Resources` in apps/nebula/src/resources.ts), \"UI artifacts as plain HTML + Alpine-flavored `x-*` directives bound to `@lumenize/state` paths\" with \"decision pinned 2026-05-09\", and \"bindings target the StateManager\". All three contradict the same file's \u00a7 Studio-Generated Artifacts (Vue 3 SFCs per the 2026-05-15 pivot), the v1 docs the LLM consumes (coding-your-ui.md is pure Vue SFC), and the pinned deletion of @lumenize/state. Success criterion L392 repeats \"working ResourcesWorker\". Anyone implementing Studio from this file gets two incompatible generation targets in one document.",
+        "suggestion": "Rewrite the two stale bullets to the current stack (ontology .d.ts + .vue SFCs importing { store, client } from './nebula'; reactivity via the factory store, no @lumenize/state, no Alpine) or replace them with a pointer to \u00a7 Studio-Generated Artifacts; update L392's success criterion to \"working ontology + resources on the branch Star\" or equivalent."
+      },
+      {
+        "lens": "product",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Lists with v-for, first-run bootstrap snippet (L302-313)",
+        "finding": "The race-safe check `if (outcome.kind !== 'ok' && await read(...) === null) throw` has a blind spot the M11 fix introduced: under the pinned v3 contract, per-resource failures (`validation-failed`, `permission-denied`) arrive as `outcome.kind === 'ok'` with a non-committed entry in `outcome.resources` \u2014 so a create denied by permissions sails through both conditions and the app proceeds with no list, no error, and a forever-empty v-for (the same silent-blank-app class as M1/M5). The founder demo can't hit it (admin on root, trivially valid value), but this is the first-run pattern Studio's LLM replicates for multi-user apps where permission-denied is reachable (the snippet's own comment points non-founders at \"whatever node the user was granted\").",
+        "suggestion": "Make the success condition explicit: `const created = outcome.kind === 'ok' && outcome.resources[sub]?.kind === 'committed';` then `if (!created && await client.resources.read('todoList', sub) === null) throw ...`. One extra line; closes the silent path and teaches the LLM that per-resource outcomes live under kind 'ok'."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/resources.md",
+        "location": "\u00a7 Text fields specifically \u2014 don't leave the default (L518)",
+        "finding": "\"The shipped `textMerge` helper uses a sensible default; you can swap in `diff-match-patch` or similar\" invites the Studio LLM to add an external npm dependency \u2014 not possible in a generated Nebula app (deps are substrate-controlled: vue, @lumenize/nebula-frontend, DaisyUI) and contrary to the one-right-way posture. The build-vs-borrow question is an internal implementation decision (factory-textmerge.md owns it), not a consumer option. Same paragraph says \"three-way merge (libdiff-based)\" while api-reference.md L550 says \"LCS-based\" \u2014 terminology drift for the same function.",
+        "suggestion": "Delete the \"you can swap in diff-match-patch or similar\" clause (custom merge = hand-written handler logic, already covered) and align \"libdiff-based\" to \"LCS-based\" to match api-reference \u00a7 textMerge."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Summary table (L32 and L40)",
+        "finding": "The summary table now has two rows for the same surface \u2014 \"`Snapshot` / `SnapshotMeta` (what reads, subscribes, and store entries hold) | implemented-in-spike\" (L32) and \"`Snapshot` / `SnapshotMeta` | implemented-in-spike (`meta.mimeType` new-in-v3)\" (L40) \u2014 both linking #snapshot with different tag detail. Looks like the prior-round fix that added the Snapshot section appended a row without removing the earlier one. Since the tag column IS the v3 contract, duplicated rows with diverging tags are exactly the ambiguity the legend forbids (\"Each surface below carries one tag\").",
+        "suggestion": "Delete one row; keep the more precise tag \"implemented-in-spike (`meta.mimeType` new-in-v3)\" on the surviving row."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 client.orgTree / \u00a7 OrgTreeState (L401, L454-468) + Summary table",
+        "finding": "`ROOT_NODE_ID` is imported from `@lumenize/nebula-frontend` in three coding-your-ui examples (L206, L294, L525) and is load-bearing for the admin-gating and bootstrap patterns, but api-reference never declares it an export \u2014 it appears only parenthetically (\"`nodeId === 1` (`ROOT_NODE_ID`)\") with no section, no summary row, no export statement. This violates the v1 contract rule pinned at tasks/nebula-frontend.md L614 (\"Every signature mentioned in coding-your-ui resolves to a section in api-reference\"), and the v3 pin (task L780) lists ROOT_NODE_ID among the package exports.",
+        "suggestion": "Add ROOT_NODE_ID to \u00a7 OrgTreeState (e.g. \"`ROOT_NODE_ID` (`= 1`) is exported from `@lumenize/nebula-frontend`\") and a Summary-table row tagged new-in-v3 alongside the other orgTree exports."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 3 (L11)",
+        "finding": "Invariant 3 lists `ontology-stale` inside the roll-back-ALL group \u2014 \"(`timeout`, `infrastructure-error`, `ontology-stale` \u2192 roll back ALL; \u2026)\" \u2014 then ends the same invariant with \"`ontology-stale` does NOT roll back (page reload expected).\" The authoritative contract (api-reference \u00a7 TransactionOutcome table, nebula-frontend.md L696) is no-rollback. A state-machine spec built to be implemented verbatim in isolation shouldn't carry a contradictory transition; the test at L33 pins the right behavior, but the invariant text is what D-phase code gets written from.",
+        "suggestion": "Remove `ontology-stale` from the roll-back-ALL parenthetical so invariant 3 reads: timeout/infrastructure-error \u2192 roll back ALL; ontology-stale \u2192 no rollback (page reload expected)."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 9 + \u00a7 Harness (L17, L21)",
+        "finding": "Invariant 9 and the harness say the isolation tests assert \"flash classes toggled\", but the detour harness is headless (mock client, no DOM/Vue) and the pinned 5.3.6 decision says \"Headless tests pass nothing \u2014 flash is a no-op.\" As written, the flash assertions are either untestable in this harness or require an unstated fake-bindings injection \u2014 the kind of ambiguity the isolation detour exists to remove.",
+        "suggestion": "Pin one: (a) the harness injects a fake `getBindings` and asserts class-add/remove calls, or (b) the detour asserts only the flash *dispatch decision* (which class would apply per resolution) and defers DOM toggling to v4's browser probes. State the choice in the file."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/debounce-serial-queue.md",
+        "location": "Phase D2 (L83)",
+        "finding": "Deep-review m3's fix retired `v-model.eager` from the pin (L16, done) and asked that D2's blur-flush be restated \"in the directive-free mechanism\" \u2014 but L83 still reads \"focus/blur event handlers attached by the `v-model` directive wrapper for blur.\" There is no v-model directive wrapper in the pinned design (no custom Vue directive; nebula-frontend L581 says blur flush \"when reachable\"). D2 is supposed to be a mechanical port; it currently names a mechanism that doesn't exist.",
+        "suggestion": "Reword L83 to the directive-free reality, e.g. \"blur flush via the mechanism v3 picks (no custom directive \u2014 e.g. a factory-installed capture-phase focusout listener); see nebula-frontend \u00a7 v-model debouncing, trigger (d) 'input blur (when reachable)'.\""
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Reserved state paths (L474-487) + \u00a7 OrgTreeState (L454-468)",
+        "finding": "The M15 rewrite correctly states \"`store.resources.<rt>.<rid>.value.*` is the primary write surface\", but neither \u00a7 Reserved state paths nor \u00a7 OrgTreeState carries the pinned M8(c) exception: the synced-state middleware excludes `rt === 'lmz'`, so writes to `store.resources.lmz.orgTree.value.*` never become transactions (tree mutations go through `client.orgTree.*` only). As documented, the LLM can reasonably generate `store.resources.lmz.orgTree.value.nodes.get(id).label = ...` expecting auto-sync and get a silent local-only divergence \u2014 the exact footgun class the pin closes server-side but the contract doc never mentions.",
+        "suggestion": "Add one clause to \u00a7 Reserved state paths (or \u00a7 OrgTreeState): \"Exception: `store.resources.lmz.*` is read-only \u2014 writes are excluded from the synced-state middleware and never become transactions; mutate the tree via `client.orgTree.*`.\""
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-star-root-admin.md",
+        "location": "Model-context blockquote (L9)",
+        "finding": "The note \"Open: reconcile the existing `claims.access.admin` bypass at dag-tree.ts:158 (`// Star admin bypass`) \u2026 is it a higher Galaxy/universe-operator tier (keep, relabel) or a leftover (remove)?\" is stale on both counts in this working tree: the comment at dag-tree.ts:158 was already relabeled (\"Galaxy/Universe-scope admin bypass (NOT a Star admin\u2026)\" with the soundness argument), and \"remove\" is foreclosed \u2014 resources.md L98 and coding-your-ui \u00a7 Gating admin-only UI now pin scope admins as having effective admin everywhere, which depends on that bypass existing. Leaving it phrased as open invites re-litigating a decision the docs already shipped.",
+        "suggestion": "Replace the blockquote with a resolved note: \"Resolved 2026-06-10/11: keep \u2014 it's the Galaxy/Universe scope-admin tier; dag-tree.ts comment relabeled and the model is pinned in resources.md \u00a7 Access control / coding-your-ui \u00a7 Gating admin-only UI.\""
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.8 framework-agnostic probe list (L962-980)",
+        "finding": "M14's fix added the six-test sub-list under the v3 `('lmz','orgTree')` item (L782, done) but the second half \u2014 \"a dag probe in 5.3.8's framework-agnostic list\" \u2014 never landed: the 5.3.8 list has probes for every other flagship surface (idempotency matrix, fall-through, flash, staleness\u2026) but nothing exercising the orgTree delivery the worked example is built on (subscribe \u2192 synthesized snapshot with Maps/Sets intact; mutation \u2192 both subscribers' stores update, originator included).",
+        "suggestion": "Add one bullet to the 5.3.8 framework-agnostic list: subscribe ('lmz','orgTree') \u2192 synthesized snapshot (Map/Set fidelity); client A mutates via orgTree.* \u2192 both A's and B's `store.resources.lmz.orgTree` update (no originator exclusion)."
+      },
+      {
+        "lens": "product",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 v-model.lazy \u2014 commit on blur (L96-101)",
+        "finding": "The `v-model.lazy` example binds `store.resources.todo[id].value.title` with no `v-if` guard \u2014 the same defect class the prior round fixed in the flagship example 50 lines earlier (the fix wrapped L51 but didn't touch this sibling). Per the doc's own rule (L70-79), `value` is undefined pre-snapshot and v-model needs a real writable path; an LLM pattern-matching the lazy variant copies the unguarded form.",
+        "suggestion": "Wrap the input in `<template v-if=\"store.resources.todo[id]?.value\">` or add the guard comment used at L50 referencing the rule."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 resources.transaction, multi-resource example (L256-263)",
+        "finding": "The multi-resource batch example still keys the container as `'list-main'` \u2014 the pre-unification singleton the doc-unification decision replaced with per-user keying (`client.claims.sub`) everywhere else. The prior m14 fix updated the value shape (status/openCount) but left the rid, so the contract doc and the narrative doc now demonstrate two different keying conventions for the same todoList pattern.",
+        "suggestion": "Use `[client.claims.sub]` (with a one-line comment \"per-user keying \u2014 see coding-your-ui \u00a7 Lists\") or a neutral variable like `[listId]` so no second convention is established."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Three handlers, three control flows (L103)",
+        "finding": "The live reference table says fanout pushes come \"from `Star.#fanout`\" \u2014 the shipped symbol is `Star.#broadcast` (apps/nebula/src/star.ts:513, with `onBroadcastResult`), renamed per the mesh.md broadcast-vs-fanout vocabulary rule. The shipped-phase records (L528-532, L1012, L1047) keeping the old names are acceptable point-in-time history, but L103 is a live always-consulted section. Relatedly, api-reference/resources still use \"fanout\" as the user-facing concept in a few spots (api-reference L131/148/700, resources L16/100) while coding-your-ui says \"broadcast\" \u2014 optional sweep.",
+        "suggestion": "Change L103 to `Star.#broadcast`; optionally sweep user-facing \"fanout update/server fanout\" \u2192 \"broadcast\" in api-reference.md and resources.md per the mesh.md vocabulary rule."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 5 (L13)",
+        "finding": "\"`base` is never a server history lookup \u2014 it's client-held (see nebula-frontend.md M10/B4 notes)\" cites M10, which is the Map/Set collection-sync finding; the base-threading record is B4 only (nebula-frontend.md L892 + api-reference \u00a7 textMerge). A builder chasing the citation lands on the wrong design record.",
+        "suggestion": "Change \"M10/B4 notes\" to \"B4 notes (the 'Mid-edit fanout contract' item + api-reference \u00a7 textMerge)\"."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Worked example \u2014 tree.ts (L541-549) and App.vue (L620-623)",
+        "finding": "The flagship example names the OrgTreeState local/parameter `dag` (`deriveTreeWithVirtuals(dag: OrgTreeState, \u2026)`, `const dag = store.resources.lmz.orgTree?.value`, `buildOrgTreeView(dag)` at L511). API surfaces are all correctly orgTree-named, and prose explaining \"the underlying structure is a DAG\" is pinned-correct \u2014 but the LLM copies variable names from canonical examples, re-propagating `dag` onto the renamed client surface.",
+        "suggestion": "Rename the local/param to `tree` or `orgTree` in tree.ts, App.vue, and the L511 prose call `buildOrgTreeView(tree)`."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.7-v3 carry-forward tests item (L783)",
+        "finding": "\"Carry-forward tests: 24 Phase 0a factory-basics + 3 Phase 0b e2e \u2026 + 5 Vue probes (Q1\u2013Q5 from spike), total 32 tests\" uses bare counts as the inventory \u2014 the exact anti-pattern tasks/README.md \u00a7 Phrasing Conventions forbids (counts go stale; \"All 32 migrated\" passes even when the count was wrong on entry).",
+        "suggestion": "Rephrase per convention: \"Carry forward all tests under apps/nebula/spike/alpine-adapter/test/** (enumerate with `ls`/grep at port time; ~32 at time of writing)\"."
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "decision",
+        "artifact": "tasks/debounce-serial-queue.md",
+        "location": "Phase D0 (L45)",
+        "finding": "\"Aim for \u2265 8 of these green before moving to D1\" lets up to 3 of the 11 property assertions stay red without saying which \u2014 but several are load-bearing (eTag chaining L37, multi-resource batch m9 L43, cross-client conflict L38). An implementer can satisfy the gate while the invariants the detour exists for are the failing ones.",
+        "suggestion": "Either name the must-pass subset (eTag-chain, unique newETags, multi-resource m9, conflict-per-conflict) for the D0\u2192D1 gate, or restate the gate as \"all 11 green by end of D2; D0 may proceed to D1 with timing-flake stragglers only.\""
+      },
+      {
+        "lens": "product",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 createNebulaClient prose (L57)",
+        "finding": "\"the security gates are `ready`, `client.claims`, and server-side permission checks\" lists two client-side constructs as security gates. `ready` and claims-gated rendering are UX gates; only server-side permission checks are security. For the Studio LLM this phrasing risks teaching that hiding UI behind `client.claims.access?.admin` is a security mechanism.",
+        "suggestion": "Reword: \"\u2026not an authorization boundary; authorization is enforced server-side on every operation \u2014 `ready` and `client.claims` only control what UI renders.\""
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-studio.md",
+        "location": "\u00a7 Code Generation, line 200",
+        "finding": "The second Code Generation bullet still specs the pre-pivot UI stack: \"Language model generates UI artifacts as plain HTML + Alpine-flavored x-* directives bound to @lumenize/state paths... bindings target the StateManager.\" This is superseded by the pinned 2026-05-15 Vue SFC pivot (same file, lines 38/44/271-280 already say .vue SFCs) and by the pinned deletion of @lumenize/state (nebula-frontend.md \u00a7 5.3.7 pinned table). It also cites coding-your-ui.md as documenting these patterns \u2014 that doc now documents Vue SFC + store patterns. An implementer reading \u00a7 Code Generation cold gets the wrong framework for everything Studio's LLM generates.",
+        "suggestion": "Rewrite the bullet to the pinned stack: LLM generates .vue SFCs (script setup + template) bound to the factory's Vue-reactive store (store.resources.* / store.ui.*); NebulaClient stays out of component code (imported via the nebula.ts bootstrap). Keep the 2026-05-09 ObjectDOM rejection as history with a superseded note if desired."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Worked example \u2014 lines 511 (prose), 535/542/546-548 (tree.ts example), 621-623 (App.vue example)",
+        "finding": "The client-facing worked-example code still names its local variable/parameter `dag` (`buildOrgTreeView(dag)`, `deriveTreeWithVirtuals(dag: OrgTreeState, ...)`, `const dag = store.resources.lmz.orgTree?.value`). The purpose-naming pin (nebula-frontend.md:780) renamed the whole client surface to orgTree precisely because Studio's LLM replicates these examples verbatim \u2014 teaching it to call the binding `dag` re-leaks the retired vocabulary into generated app code. It is also internally inconsistent: api-reference.md:468 shows the same call as `buildOrgTreeView(state)`.",
+        "suggestion": "Rename the local binding to `orgTree` (or `state`, matching api-reference.md:468) in the line-511 prose and both code examples. Prose explaining \"the underlying structure is a DAG\" stays per the pin; only the identifier changes."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 5.3.7-v3 ('lmz','orgTree') delivery item, lines 777, 778, 780",
+        "finding": "Markdown links added by the 2026-06-10 fix wave are missing the `../` prefix: `[star.ts:535-536](apps/nebula/src/star.ts:535)` (L777), `[star.ts:533](apps/nebula/src/star.ts:533)` (L778), `[apps/nebula/src/dag-ops.ts](apps/nebula/src/dag-ops.ts)` and `[dag-tree.test.ts](apps/nebula/test/test-apps/baseline/dag-tree.test.ts)` (L780). Relative to tasks/, these resolve to tasks/apps/... which does not exist; sibling links in the same file correctly use `../apps/...` (e.g. L681, L618). (Older lines 53-55/493/520-538 share the pattern but predate this round.)",
+        "suggestion": "Prefix the four in-scope link targets with `../` (e.g. `../apps/nebula/src/star.ts:535`). Optionally sweep the older same-pattern instances in a separate hygiene pass."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "lines 804 and 829",
+        "finding": "Both link `../website/docs/mesh/lumenize-client.md` \u2014 the file is `lumenize-client.mdx`; the .md path does not exist (verified on disk). This is the same .md-vs-.mdx class the docs-panel fixed in the three website docs, but these two task-file instances were missed; line 829 sits inside the still-live unchecked doc-unification item, so a v3 implementer following it hits a dead link.",
+        "suggestion": "Change both targets to `../website/docs/mesh/lumenize-client.mdx`."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Lists with v-for, lines 298-301 (code comment) and line 316",
+        "finding": "Text added by the M1/M11 bootstrap fix claims invite/request-access flows are \"shown in the org-tree worked example\" and links #worked-example-rendering-the-built-in-tree (L316: \"being invited or by requesting access, both shown in the [org-tree worked example]\"). The worked example (L503-644) only renders the tree (derivation, recursion, search); the grant/share flows live in \u00a7 Mutating the org/permission tree (L461-501) and Resources \u00a7 Access control. Request-access exists only as a conceptual sentence (L505), not a shown flow. The Studio LLM following this pointer finds no invite/request-access pattern.",
+        "suggestion": "Retarget both references to [Mutating the org/permission tree](#mutating-the-orgpermission-tree) (for grants/invites) and soften \"both shown in\" to e.g. \"see ... for granting access; requesting access is resolved client-side from the tree (\u00a7 Worked example)\"."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Types, SnapshotMeta (lines 292-332) vs website/docs/nebula/api-reference.md:529",
+        "finding": "api-reference.md SnapshotMeta now includes `nodeId?: number` with the rename-aware note \"absent on framework resources like ('lmz', 'orgTree')\" (added by the prior-wave Snapshot fix), but the task file's \u00a7 Types SnapshotMeta \u2014 the spec v3 implements \u2014 omits nodeId entirely (lists eTag, typeName, validFrom, deleted, mimeType only). The doc's Atomic-append pattern (`listSnap.meta.nodeId`, coding-your-ui:338) depends on the field the task-file type doesn't declare.",
+        "suggestion": "Add `nodeId?: number` (org/permission-tree attachment; absent on framework resources like ('lmz','orgTree')) to the SnapshotMeta block in \u00a7 Types, or add a one-line note that api-reference \u00a7 Snapshot is authoritative for the field list."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 5.3.7-v1, line 629",
+        "finding": "The live unchecked item \"Rewrite template-string-dependent doc chapters ... against .vue SFCs\" names target sections by pre-rename/pre-rewrite titles that no longer exist: \"Recursive components (e.g., tree views)\" (now \"Recursive components\"), \"the DAG-tree worked example\" (now \"Worked example: rendering the built-in tree\"), \"Read-only and editable views\" (now \"Forms: explicit save\"). The described work also appears already done in the working tree (TodoForm.vue/OrgTreeNode.vue/App.vue are SFCs; no \"Component tag case\" bullet or runtime-compiler discussion remains in the doc).",
+        "suggestion": "Either check the item off (with a dated note) or, if any sub-part is genuinely outstanding, update the stale section names \u2014 \"the DAG-tree worked example\" in particular should read \"the org-tree worked example (\u00a7 Worked example: rendering the built-in tree)\" per the T1 rename."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 5.3.7-v3 doc-unification item, lines 808-883 (esp. addTodo example L845-853)",
+        "finding": "The unchecked doc-unification item's content has shipped in coding-your-ui.md, but its embedded addTodo example reads `nodeId: list.nodeId` off `value` (L848) \u2014 contradicting both the shipped doc (`listSnap.meta.nodeId`, coding-your-ui:338) and the SnapshotMeta contract (nodeId is server-managed meta, never on the ontology value). It also lacks the `if (!list) return` guard the doc gained (deep-review m7). Left unchecked, this stale example reads as live spec and re-teaches the wrong nodeId location.",
+        "suggestion": "Check the item off as shipped (dated), or annotate that the doc text is authoritative and the embedded examples are historical; minimally fix `list.nodeId` \u2192 `listSnap.meta.nodeId` so the task file can't be copied wrong."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md + website/docs/nebula/api-reference.md",
+        "location": "coding-your-ui.md:511 and api-reference.md:468",
+        "finding": "Both say \"build a `OrgTreeView`\" \u2014 the DagTreeView\u2192OrgTreeView rename turned a correct \"a DagTreeView\" into \"a OrgTreeView\" (needs \"an\").",
+        "suggestion": "\"build an `OrgTreeView`\" in both places."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Three handlers, three control flows table, line 103 (also historical mentions at 528-532, 1012, 1047, 1077, 1083)",
+        "finding": "The live surface table says fanout pushes come from `Star.#fanout`, but the method in apps/nebula/src/star.ts is now `#broadcast` (star.ts:513; renamed in the committed terminology sweep). The v3 checklist (L777) and api-reference.md:456 already say `Star.#broadcast`, so the file disagrees with itself and with code.",
+        "suggestion": "Update line 103 to `Star.#broadcast`. Leave the dated/historical [x] records and the superseded exploration section as point-in-time text."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 5.3.8 Vue-specific probes, line 994",
+        "finding": "References \"api-reference.md \u00a7 Resolver bindings\" \u2014 the section was renamed; it is now \"Handler bindings\" (api-reference.md:558, anchor #handler-bindings).",
+        "suggestion": "Change to \"api-reference.md \u00a7 Handler bindings\"."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 OrgTreeState tag, line 456",
+        "finding": "The new-in-v3 tag points at \"Option 0 in tasks/nebula-frontend.md \u00a7 DAG-tree-as-special-resource\" \u2014 the historical exploration section that the task file itself marks superseded (L1109: \"treat the v3 checklist item as authoritative\"). The authoritative spec is the \u00a7 Phase 5.3.7-v3 \"('lmz', 'orgTree') delivery\" checklist item.",
+        "suggestion": "Point the tag at \"tasks/nebula-frontend.md \u00a7 Phase 5.3.7-v3 \u2192 ('lmz', 'orgTree') delivery\" (optionally keeping a parenthetical that the design-space record is \u00a7 DAG-tree-as-special-resource)."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-studio.md",
+        "location": "line 221 (\u00a7 above Code Generation)",
+        "finding": "\"The Nebula API surface (resource operations, DAG tree operations, permission model, ...) is documented as TypeScript type definitions provided to Studio's language model\" \u2014 the operations surface handed to the LLM is now purpose-named `client.orgTree.*`; calling it \"DAG tree operations\" in the description of the LLM's context uses the retired client-surface vocabulary (prose about the underlying structure being a DAG is fine per the pin; this names the API surface).",
+        "suggestion": "\"org/permission tree operations (client.orgTree)\" or similar."
+      },
+      {
+        "lens": "rename-orgtree",
+        "severity": "nit",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 5.3.7-v3 pin 6 (Client-surface naming), line 780",
+        "finding": "The pin enumerates the renamed exports (OrgTreeState/OrgTreeView/buildOrgTreeView/OrgTreeNodeData + ROOT_NODE_ID) but apps/nebula/src/client-index.ts today also re-exports `PermissionTier` and `EdgeKey` (client-facing, no dag in the name, used inline by OrgTreeState's shape). The pin is silent on whether they ride the move to @lumenize/nebula-frontend, leaving the v3 export surface ambiguous for two types the renamed types depend on.",
+        "suggestion": "Add one clause to pin 6: PermissionTier and EdgeKey move as-is (no rename needed), or state they're folded inline and dropped \u2014 implementer needs the decision either way."
+      },
+      {
+        "lens": "code-docs-contract",
+        "severity": "major",
+        "fixType": "decision",
+        "artifact": "apps/nebula/src/dag-tree.ts + website/docs/nebula/api-reference.md + website/docs/nebula/resources.md",
+        "location": "dag-tree.ts:245-277 (reparentNode); api-reference.md:421-423 + :439 (\"Structural mutations (require write)\"); resources.md:163 (addEdge rationale)",
+        "finding": "The B1 fix hardened addEdge (write@newParent AND admin@child) on the explicit rationale that \"adding a parent edge is an access grant in structural clothing \u2014 everyone with grants on/above the new parent gains cascaded access to the child's subtree\" (dag-tree.ts:206-211, resources.md:163). reparentNode ALSO adds a parent edge \u2014 it deletes oldParent\u2192child and inserts newParent\u2192child (dag-tree.ts:266-273) \u2014 so it has the identical access-widening property: every user holding a grant on/above newParent gains cascaded access to child's subtree that they did not have before. But reparentNode only checks write@oldParent + write@newParent (dag-tree.ts:255-256); it never checks admin@child. A user with write on two sibling subtrees can graft a child node from one into a subtree where OTHER (third-party) collaborators on newParent gain admin-via-cascade on that child \u2014 the exact escalation B1 closed for addEdge, left open on reparentNode. The docs reinforce the gap: api-reference.md:439 lists reparentNode under \"require write\" with no admin@child caveat, and :423's comment says only \"Requires write on BOTH the old and the new parent.\" This is the move-via-reparent variant of the self-service privilege-escalation the B1 finding addressed.",
+        "suggestion": "Decide whether reparentNode should also require admin@child (consistent with addEdge \u2014 the structural-clothing argument applies identically) or whether the asymmetry is intentional (e.g. because reparent removes the old edge so the actor's own access is net-neutral). If kept asymmetric, add a one-line justification to api-reference.md:421-423 and resources.md explaining why moving an edge doesn't demand admin@child while adding one does; if hardened, add this.requirePermission(childNodeId, 'admin') to reparentNode and update the docs' permission table + a dag-tree.test.ts case."
+      },
+      {
+        "lens": "code-docs-contract",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md + apps/nebula/test/test-apps/baseline/nebula-client-read-transaction.test.ts",
+        "location": "nebula-frontend.md:972 (Phase 5.3.8 B3 matrix bullet); test file lines 230-268 (\"partial-churn multi-resource replay\")",
+        "finding": "The task file \u00a7972 states the B3 replay matrix is \"{create, put, delete, create+put} \u00d7 {no churn, third-party churn}\" and names \"The create and create+put-with-churn cases are the regression guards \u2014 they throw against the pre-fix ordering,\" framed as \"baseline coverage already shipped in nebula-client-read-transaction.test.ts.\" The shipped baseline actually covers two shapes: (1) single create, no churn (line 193); (2) create+CREATE with third-party churn on one (lines 237-240 are BOTH op:'create'). There is no create+PUT case, no delete-replay case, and no put-with-churn case in the file. The \"create+put-with-churn\" regression guard the task file claims is shipped does not exist; the actual second test is create+create-with-churn. The .some/.every distinction IS validated (by the two-create case), so the fix is covered \u2014 but the specific case-shape inventory in \u00a7972 mis-describes what shipped.",
+        "suggestion": "Either correct \u00a7972 to say the shipped baseline covers {create-no-churn, create+create-with-churn} (and the rest of the matrix \u2014 put, delete, create+put \u2014 broadens in 5.3.8), or rename the second baseline test's intent to reflect it is create+create not create+put. Don't leave the task file asserting a regression guard that isn't in the tree."
+      },
+      {
+        "lens": "code-docs-contract",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "api-reference.md:401 (client.orgTree idempotent-no-op nuance)",
+        "finding": "The \u00a7401 nuance lists the idempotent-no-op-before-permission cases as exactly three: \"adding an edge that exists, removing one that doesn't, revoking an absent grant.\" The code has FIVE such short-circuit-before-permission paths: addEdge edge-exists (dag-tree.ts:203), removeEdge edge-absent (:231), revokePermission grant-absent (:366), deleteNode already-deleted (:285), and undeleteNode not-deleted (:302). The deleteNode/undeleteNode already-in-target-state cases also return success before requirePermission and are documented as \"Idempotent\" at api-reference.md:425/:428, but they're omitted from the \u00a7401 nuance's exhaustive-sounding list. This is a follow-on to prior finding n1 (which cited \"existing edge, already-deleted node, absent grant\" \u2014 already-deleted node WAS in n1's scope but didn't make the doc clause).",
+        "suggestion": "Broaden the \u00a7401 parenthetical to cover all five \u2014 e.g. \"adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one \u2014 short-circuits to success before the permission check.\""
+      },
+      {
+        "lens": "code-docs-contract",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "apps/nebula/test/test-apps/baseline/dag-tree.test.ts",
+        "location": "dag-tree.test.ts:901-948 (\"addEdge requires admin on the child\")",
+        "finding": "The B1 test verifies the admin@child half of the new AND requirement (write@victim insufficient \u2192 admin@victim sufficient), with write@newParent satisfied throughout because Mallory holds admin (hence write) on her home node. It never independently exercises the write@newParent half \u2014 a caller holding admin@child but lacking write@newParent should still be rejected. That half is not a regression (addEdge always checked write@parent), but the test as written cannot distinguish \"requires write@parent AND admin@child\" from \"requires admin@child only,\" so the documented AND is only half-covered by a capable-of-failing assertion. If reparentNode's admin@child gap (separate finding) is fixed by copying addEdge's pattern, this gap matters more.",
+        "suggestion": "Add an assertion (or a sibling case) where the actor holds admin@child but no write on the new parent and confirm addEdge rejects with 'write permission required' \u2014 making the AND fully capable-of-failing on both conjuncts."
+      },
+      {
+        "lens": "code-docs-contract",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:773 (\"the loser's create currently throws 'already exists' \u2192 infrastructure-error\")",
+        "finding": "\u00a7773 says the M11 first-create race loser \"currently throws 'already exists' \u2192 infrastructure-error, indistinguishable from an outage.\" The CURRENT shipped client has no infrastructure-error resolution \u2014 #mapSynchronousOutcome (nebula-client.ts:878-888) maps any thrown Error (other than OntologyStale) to { resolution: 'timeout' }. infrastructure-error is a new-in-v3 resolution (task \u00a7698). The prior M11 finding stated this precisely as \"infrastructure-error (v3) / timeout (today)\"; the \u00a7773 wording dropped the \"(today=timeout)\" qualifier when the fix landed, so the task file now mis-states the current code's behavior for the race loser.",
+        "suggestion": "Restore the M11 precision in \u00a7773: \"the loser's create currently throws 'already exists' which the shipped client surfaces as 'timeout' (v3: 'infrastructure-error') \u2014 indistinguishable from an outage either way.\""
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-studio.md",
+        "location": "\u00a7 Code Generation, bullet 2 (~line 200)",
+        "finding": "The Code Generation section still instructs: \"Language model generates UI artifacts as plain HTML + Alpine-flavored x-* directives bound to @lumenize/state paths. No ObjectDOM port (decision pinned 2026-05-09...). NebulaClient stays out of the UI layer \u2014 bindings target the StateManager.\" This contradicts (a) the same file's \u00a7 Studio-Generated Artifacts (line 38: UI = .vue SFCs per the 2026-05-15 pivot), (b) the same file's \u00a7 Bootstrap files (createNebulaClient + Vue store), (c) coding-your-ui.md end-to-end (Vue SFC, store bindings), and (d) the pinned deletion of @lumenize/state/StateManager (nebula-frontend.md \u00a7 Deletions). The bullet even cites the superseded 2026-05-09 pin without noting the 2026-05-15 reversal, while claiming its patterns are \"documented in website/docs/nebula/coding-your-ui.md\" \u2014 which now documents the opposite framework.",
+        "suggestion": "Rewrite the bullet to the pinned reality: LLM generates .vue SFCs (TypeScript, <script setup>) bound to the factory store (store.resources.* / store.ui.*), compiled by the dev Star / Galaxy pipeline; drop the Alpine/x-*/@lumenize/state/StateManager sentences (or demote them to an explicit \"superseded 2026-05-15\" history note)."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 3 (line 11)",
+        "finding": "Invariant 3 is internally contradictory: the parenthetical groups ontology-stale into the roll-back-ALL set \u2014 \"Rollback outcomes (timeout, infrastructure-error, ontology-stale \u2192 roll back ALL; ...)\" \u2014 and then the same bullet ends \"ontology-stale does NOT roll back (page reload expected).\" The corrected behavior (no rollback) is what nebula-frontend.md line 696, api-reference.md \u00a7 TransactionOutcome effect table, and this file's own test list (line 33) all pin; the parenthetical looks like the m14/no-rollback correction was appended without removing ontology-stale from the rollback list.",
+        "suggestion": "Change the parenthetical to \"(timeout, infrastructure-error \u2192 roll back ALL; ...)\" so the invariant the property tests validate states the no-rollback rule exactly once, consistently."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/debounce-serial-queue.md",
+        "location": "Phase D2, third checklist bullet (line 83)",
+        "finding": "m3's fix landed on lines 16 and 42 (v-model.eager pin and probe replaced with @debounce(0)/quietMs:0), but the third clause \u2014 \"restate D2's blur-flush in the directive-free mechanism\" \u2014 did not land: line 83 still wires blur via \"focus/blur event handlers attached by the v-model directive wrapper\", machinery the retired custom-directive design owned. The pinned design (nebula-frontend.md line 581: \"input blur (when reachable)\"; api-reference.md \u00a7 transactionDebounce: flush on \"input blur\") has no directive wrapper, so the D2 implementer has no specified mechanism for blur detection.",
+        "suggestion": "Replace the directive-wrapper reference with the actual directive-free mechanism (and if none is pinned yet, add it as a D1 open design question \u2014 e.g., factory-attached blur listeners on elements bound under the resource path, or a documented best-effort \"when reachable\" contract)."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Types \u2192 SnapshotMeta interface (lines 292-332)",
+        "finding": "The task file's SnapshotMeta declares eTag, typeName, validFrom, deleted, mimeType \u2014 but NOT nodeId. api-reference.md \u00a7 Snapshot pins `nodeId?: number` (\"always present on app resources; absent on framework resources like ('lmz','orgTree')\") and coding-your-ui.md \u00a7 Atomic append depends on it (`nodeId: listSnap.meta.nodeId`). Since the v1 docs are the spec v3 implements, the task file's authoritative type block omits a field the flagship addTodo pattern requires.",
+        "suggestion": "Add `nodeId?: number` (with the app-resource-present / framework-resource-absent JSDoc) to the SnapshotMeta interface in \u00a7 Types."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Phase 5.3.7-v3 \u2192 \"Nebula coding-your-ui.md doc unification\" item, addTodo/saveTodo sketches (lines 841-877)",
+        "finding": "The doc-unification item's inline sketches have drifted from what coding-your-ui.md actually ships: (1) addTodo reads `nodeId: list.nodeId` where `list = store.resources.todoList[client.claims.sub]?.value` \u2014 nodeId is not on value (TodoList = items + openCount only); the doc's final version (coding-your-ui.md:329-338) correctly uses `listSnap.meta.nodeId` and adds an `if (!list) return` guard; (2) the saveTodo sketch lacks the `if (delta !== 0 && !list) return` guard (deep-review m7) and the per-call onTransactionResourceResolution handler the final doc pins as the form pattern. The item also remains unchecked even though the doc work it describes is done, so a v3 implementer reading it as live instructions would regress the doc.",
+        "suggestion": "Either mark the item executed with a one-line pointer to the doc (preferred), or sync the sketches: listSnap/meta.nodeId, the !list guards, and the per-call handler."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md (+ tasks/nebula-frontend.md)",
+        "location": "coding-your-ui.md \u00a7 Lists with v-for, bootstrap snippet line 310; nebula-frontend.md line 773",
+        "finding": "The race-safe first-create guard `if (outcome.kind !== 'ok' && await read(...) === null) throw` only catches transaction-wide failures. Under the pinned outcome taxonomy, per-resource failures (permission-denied, validation-failed) arrive under top-level `kind: 'ok'` with the failure in `outcome.resources[sub]` \u2014 so a user without write on the target node passes the guard silently, no list is created, no error surfaces, and the subsequent subscribe hits the auto-subscribe error path (path stays undefined \u2192 perpetual loading). The doc explicitly tells non-founder apps to reuse this pattern (\"attach under whatever node the user was granted\"). Both the doc and the task file (line 773) tell the same incomplete story, so this is a defect in how the M1/M11 fix landed, not a restatement of it.",
+        "suggestion": "Extend the guard to also re-read when the create's per-resource resolution isn't 'committed': e.g. `const failed = outcome.kind !== 'ok' || outcome.resources[sub]?.kind !== 'committed'; if (failed && await read(...) === null) throw ...`. Mirror the same sentence in nebula-frontend.md line 773."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-star-root-admin.md",
+        "location": "blockquote \"Open:\" note (line 9)",
+        "finding": "The note quotes dag-tree.ts:158 as `// Star admin bypass` and asks whether the claims.access.admin bypass is \"a higher Galaxy/universe-operator tier (keep, relabel) or a leftover (remove)\". The working tree has already answered both halves: dag-tree.ts:158's comment now reads \"Galaxy/Universe-scope admin bypass (NOT a Star admin \u2014 that's a DAG admin grant on root)... trusting it here is sound\", and the decided two-source admin model (nebula-frontend.md \u00a7 Decisions pinned line 84; coding-your-ui.md \u00a7 Gating admin-only UI; resources.md Access control note) pins it as keep+relabel. Leaving it framed as open invites relitigation of a pinned decision.",
+        "suggestion": "Rewrite the note as a resolution record: \"Resolved (deep-review flag #5, 2026-06-10/11): kept as the Galaxy/Universe scope-admin tier; comment at dag-tree.ts:158 relabeled accordingly\" \u2014 keep only any genuinely-remaining residue (none apparent) as open."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Internal mechanics \u2192 Middleware (line 695)",
+        "finding": "\u00a7 Middleware states the chain \"Fires on every write through the Proxy `set` trap.\" factory-collection-sync.md (Option A, decided 2026-06-11) requires Map/Set mutator calls \u2014 which never hit a `set` trap \u2014 to run \"the same middleware chain, same submission, same ability for user middleware to transform/abort\" (its 'Parity with property writes' test depends on it). As written, the contract doc teaches the Studio LLM (and a v3 implementer) that `value.tags.add('x')` bypasses user middleware, contradicting the detour that v3 ports.",
+        "suggestion": "Add one clause to \u00a7 Middleware (and optionally \u00a7 Reserved state paths' set-trap note): collection mutator calls (Map.set/delete/clear, Set.add/delete/clear) on values under store.resources.* are intercepted and run the identical middleware chain as property writes (see factory-collection-sync). Note what `path`/`newValue` carry for a mutator-driven invocation, or mark that detail as pinned-during-D0."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Summary table (lines 32 and 40)",
+        "finding": "`Snapshot` / `SnapshotMeta` appears twice in the Summary table: row at line 32 tagged plain `implemented-in-spike`, row at line 40 tagged `implemented-in-spike (meta.mimeType new-in-v3)`. The split-tag row matches the section body (line 517); the plain row is a leftover from before the split-tag fix and reports a different contract for the same surface.",
+        "suggestion": "Delete the line-32 row, keeping the split-tagged line-40 row."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md + tasks/factory-collection-sync.md",
+        "location": "factory-conflict-outcome.md line 13; factory-collection-sync.md line 16",
+        "finding": "Two cross-references cite findings that don't live where claimed: (1) factory-conflict-outcome.md invariant 5 ends \"see nebula-frontend.md M10/B4 notes\" \u2014 base threading is deep-review B4 (nebula-frontend.md line 892); M10 is the unrelated Map/Set collection-sync finding. (2) factory-collection-sync.md says Option B's rejection rationale is in \"nebula-frontend.md deep-review M10 notes\" \u2014 nebula-frontend.md contains no M10 rationale (its only M10 mention is the line-671 parenthetical naming this very file); the Option A-vs-B record lives in factory-collection-sync.md itself and the findings JSON.",
+        "suggestion": "(1) Change \"M10/B4\" to \"B4\" (pointing at nebula-frontend.md's 'base in the conflict-pending payload' sub-item, ~line 892). (2) Change the Option-B citation to point at this file's own \u00a7 Approach paragraph or tasks/nebula-frontend-deep-review-findings-2026-06-10.json (M10)."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Three handlers, three control flows \u2014 handleResourceUpdate row (line 103)",
+        "finding": "The live contract table says fanout pushes come \"from `Star.#fanout`\", but the method in apps/nebula/src/star.ts is `#broadcast` (line 513), and the authoritative v3 orgTree checklist item in the same file (lines 777-778) cites `Star.#broadcast`. The historical 5.3.5 phase records legitimately keep #fanout (the name at ship time), but line 103 is current-contract prose.",
+        "suggestion": "Change line 103 to `Star.#broadcast` (leave the shipped-phase history sections as-is)."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase -1 \u00a7 7, 2026-05-16 update blockquote (line 1105)",
+        "finding": "The link `[tasks/nebula-dag-normalize.md](nebula-dag-normalize.md)` is broken \u2014 the file now lives at tasks/archive/nebula-dag-normalize.md (verified: no tasks/nebula-dag-normalize.md exists). The sibling link in the same sentence (on-hold/wire-merge-patch-sync.md) resolves fine.",
+        "suggestion": "Update to `[tasks/archive/nebula-dag-normalize.md](archive/nebula-dag-normalize.md)`."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-studio.md",
+        "location": "\u00a7 Files as resources (line 99)",
+        "finding": "\"mime-type lives on `meta` ... (see [tasks/nebula-frontend.md](nebula-frontend.md) \u00a7 \\\"Snapshot meta fields\\\" for the broader meta shape)\" \u2014 nebula-frontend.md has no heading or section named \"Snapshot meta fields\" (verified by grep); the meta shape lives in \u00a7 Types as the SnapshotMeta interface, and the published contract is api-reference.md \u00a7 Snapshot.",
+        "suggestion": "Point at nebula-frontend.md \u00a7 Types (SnapshotMeta) or, better, website/docs/nebula/api-reference.md \u00a7 Snapshot \u2014 the docs are the contract."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Phase 5.3.7 Pinned decisions \u2192 \"v-model debouncing\" row (line 581)",
+        "finding": "The pinned row lists flush triggers \"(a) quiet window elapse, (b) maxWait elapse, (c) component unmount, (d) input blur (when reachable)\" \u2014 omitting `client.dispose()`, which debounce-serial-queue.md (line 17), api-reference.md \u00a7 transactionDebounce/\u00a7 dispose, and coding-your-ui.md \u00a7 Write timing all include; the m9 multi-resource clause (explicit transaction() flushes pending debounced writes for resources it touches) is likewise pinned only in the detour file, not in the row.",
+        "suggestion": "Add \"(e) client.dispose()\" to the row (and optionally a pointer to debounce-serial-queue.md's explicit-transaction flush clause) so the pinned table matches the docs and detour exactly."
+      },
+      {
+        "lens": "cross-artifact",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 OrgTreeState (lines 460-468) vs tasks/nebula-frontend.md pin 6 (line 780)",
+        "finding": "Pin 6 of the ('lmz','orgTree') v3 item names `OrgTreeNodeData` among the renamed @lumenize/nebula-frontend exports (alongside OrgTreeState/OrgTreeView/buildOrgTreeView/ROOT_NODE_ID), but no doc mentions it \u2014 api-reference inlines its shape as `Map<number, { slug; label; deleted }>`. Per the task file's own rule (line 948: anything exported that the doc doesn't mention is a deletion candidate; the doc IS the spec post-v1), the pin and the contract doc disagree about whether this export exists.",
+        "suggestion": "Name the type in api-reference \u00a7 OrgTreeState (`nodes: Map<number, OrgTreeNodeData>` plus a one-line shape, matching dag-ops.ts DagTreeNodeData {slug, label, deleted}) \u2014 or drop OrgTreeNodeData from pin 6's export list."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "major",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Lists with v-for \u2014 first-run bootstrap example, lines 302-313 (and the matching framing in tasks/nebula-frontend.md:773 'on a not-ok outcome re-read')",
+        "finding": "The flagship read-then-create bootstrap guards only on the transaction-wide outcome: `if (outcome.kind !== 'ok' && await client.resources.read('todoList', sub) === null) throw ...`. But per the doc's own contract (api-reference \u00a7 TransactionOutcome / TransactionResourceResolution), per-resource failures land INSIDE `kind: 'ok'` \u2014 a create that fails `permission-denied` (or `validation-failed`) returns `{ kind: 'ok', resources: { [sub]: { kind: 'permission-denied' } } }` (confirmed against resources.ts Step 8, which returns `{ ok: false, errors: { [rid]: { type: 'permission' } } }` \u2192 per-resource resolution, not a transaction-wide failure). The example's own comment invites reuse beyond the founder ('In a multi-user app, attach under whatever node the user was granted'), and for any user without write on the chosen node the code silently falls through with no list and no error \u2014 the subsequent todoList read in templates stays '...' forever. The re-read disambiguation (T4/M11 fix) only fires for the `infrastructure-error` race path; the per-resource failure path was left uncovered when the fix landed.",
+        "suggestion": "Gate on per-resource success, not transaction-wide success: `const committed = outcome.kind === 'ok' && outcome.resources[sub]?.kind === 'committed';` then `if (!committed && await client.resources.read('todoList', sub) === null) throw new Error(...)`. Apply the same correction to the 'on a not-ok outcome re-read' wording in tasks/nebula-frontend.md:773 so the v3 two-client test also covers the permission-denied-inside-ok path."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Forms: explicit save, line 363 (last sentence of the second paragraph)",
+        "finding": "\"A per-call handler takes precedence over the per-type one for every resource in that call.\" contradicts the pinned T7/M9 layering semantics stated everywhere else \u2014 api-reference \u00a7 Precedence (\"does **not replace** the per-type handler \u2014 it **layers in front of it**\"; terminal branches: per-type fires for every resource, per-call is additive), resources.md:337, and the example's own inline comment 40 lines later (\"layers in front of (does not replace) the per-type handlers\"). \"Takes precedence\" reads as replacement \u2014 exactly the misreading M9 was fixed to prevent; an LLM pattern-matching this sentence would conclude the per-type handler is suppressed when a per-call handler is present.",
+        "suggestion": "Replace with layering language: \"A per-call handler is consulted first for every resource in that call; returning `undefined` falls through to the per-type handler (terminal reactions are additive \u2014 see API reference \u00a7 Precedence).\""
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/resources.md",
+        "location": "\u00a7 Text fields specifically \u2014 don't leave the default, numbered steps 2-4 (lines 491-495)",
+        "finding": "The race narrative says \"Server fans out the new snapshot. The resource-update handler writes it to the store unconditionally.\" and \"Their `v-model` input snaps to the other client's value mid-keystroke.\" This contradicts the pinned hold-pending-fanouts contract: api-reference \u00a7 textMerge (line 556) states \"the synced-state middleware holding fanouts while a resource has pending optimistic writes (shipped alongside this helper in v3)\", and tasks/factory-conflict-outcome.md invariant 8 pins that incoming fanouts for a resource with pending optimistic state (debounced write outstanding OR transaction in flight) are HELD until the next submit's resolver merges. Under the v3 contract a mid-typing user never sees the mid-keystroke snap; the clobber risk is at conflict-resolution time (default 'use-server' rollback). The motivation for @longform still holds, but the doc teaches the Studio LLM the wrong timing model of the substrate.",
+        "suggestion": "Rewrite steps 2-4 to the v3 contract: (2) another client commits; the fanout is held while this resource has pending optimistic writes; (3) the debounced submit conflicts (stale eTag) and the resolver sees both the full local state and the buffered server snapshot; (4) under the default 'use-server' the user's typing is rolled back to the server value at resolution time \u2014 which is why text-bearing types need @longform/textMerge."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Internal mechanics \u2192 Middleware (lines 684-706) and \u00a7 Reserved state paths set-trap note (line 487)",
+        "finding": "\"Fires on every write through the Proxy `set` trap\" is now incomplete given the decided M10/T8 design: tasks/factory-collection-sync.md (Option A) pins that Map/Set mutator calls (`map.set/delete/clear`, `set.add/delete/clear`) are intercepted in the `get` trap and run \"the **same** middleware chain, same submission, same ability for user middleware to transform/abort\" (its tests assert middleware parity with property writes). A middleware author reading the published contract would conclude collection mutations bypass the chain. Additionally, the middleware payload for an intercepted mutator call (`path` = the collection's path? `oldValue`/`newValue` = pre/post-mutation collection?) is specified in neither artifact.",
+        "suggestion": "Add a sentence to \u00a7 Middleware (and align the \u00a7 Reserved state paths set-trap note): writes include intercepted Map/Set mutator calls on collections under `store.resources.*.value`, which run the same middleware chain as property assignments. Decide and document the payload shape middleware receives for a mutator call (suggested: path = the collection path, oldValue/newValue = pre/post-mutation collection snapshots)."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Summary table, lines 32 and 40",
+        "finding": "`Snapshot` / `SnapshotMeta` appears as TWO rows with divergent tags: line 32 \"implemented-in-spike\" vs line 40 \"implemented-in-spike (`meta.mimeType` new-in-v3)\". The \u00a7 Snapshot section itself carries the split tag, so line 32 under-reports. Looks like the m14 split-tag fix added the corrected row without removing the original \u2014 a duplication the prior findings did not contain.",
+        "suggestion": "Delete the line-32 row (keep the line-40 row with the split tag), or merge into one row matching the \u00a7 Snapshot section tag."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 client.claims, line 509",
+        "finding": "The m12/T10 fix pins \"NebulaClient narrows the getter to non-null \u2014 `get claims(): Readonly<NebulaJwtPayload>`\" but `NebulaJwtPayload` is defined nowhere in any doc (api-reference is 'the contract'; the field shape exists only as prose in coding-your-ui line 184: sub, aud, access = { authScopePattern, admin? }). This mirrors the already-fixed m8 OntologyStaleInfo defect: a type name introduced by a fix with no shape definition. An LLM generating typed admin/scripting code against this page cannot resolve the type.",
+        "suggestion": "Inline the shape at \u00a7 client.claims: `interface NebulaJwtPayload { sub: string; aud: string; access: { authScopePattern: string; admin?: boolean }; [claim: string]: unknown }` (or whatever nebula-auth mints), or `@see`-link the authoritative definition once it exists in packages."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/nebula-client.md",
+        "location": "Constructor example, lines 13-19",
+        "finding": "The published companion page shows `new NebulaClient({ baseUrl, authScope, activeScope })` with NO `appVersion` \u2014 contradicting api-reference \u00a7 createNebulaClient where `appVersion` is the one REQUIRED field (and the v3 rename item in nebula-frontend.md:715 makes it a required NebulaClient constructor arg, auto-attached to every call). It also predates the factory/auto-detect contract (it presents explicit authScope/activeScope as the normal path; api-reference pins auto-detect as the default and explicit scopes as admin/scripting escape hatches). The v5 phase has a 'update nebula-client.md' sweep item, but v1 is the surface-locking round and this page is live prompt material today \u2014 the example as written would not type-check against the locked config shape.",
+        "suggestion": "Add `appVersion` to the example, note that browser apps use `createNebulaClient` (link api-reference \u00a7 createNebulaClient) and that direct construction is the admin/scripting path with explicit scopes."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Surface \u2014 implementation signatures \u2192 'NebulaClient handlers + client.resources.*', lines 202-244",
+        "finding": "The signature block is internally inconsistent \u2014 partially updated to v3, partially the shipped 5.3.3 shape: `subscribe(rt, rid, options?: { ontologyVersion?: string }): Promise<Snapshot | null>` (v3 reshapes to a Disposable `ResourceSubscription` and renames to `appVersion`), `read`/`transaction` options carry `ontologyVersion` (v3: `appVersion`), yet the same `transaction` signature already includes the v3-only `onTransactionResourceResolution` per-call option and returns the v3 `TransactionOutcome`. The block self-describes as 'API contracts only', so an implementer cross-reading it against api-reference (the authoritative doc) hits direct contradictions on subscribe shape and option names.",
+        "suggestion": "Either update the block fully to the v3 surface (Disposable subscribe, appVersion) or prepend a one-line banner: 'Shipped 5.3.3 shape \u2014 superseded by api-reference.md for the v3 surface (subscribe\u2192Disposable, ontologyVersion\u2192appVersion)' and leave it as history."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Types \u2192 SnapshotMeta JSDoc block, lines 292-332",
+        "finding": "The spec's `SnapshotMeta` omits `nodeId` while api-reference \u00a7 Snapshot includes `nodeId?: number` as a documented, load-bearing field (coding-your-ui \u00a7 Atomic append attaches new resources at `listSnap.meta.nodeId`, and resources.ts Step 8 reads `current.meta.nodeId` for permission checks \u2014 so the server meta demonstrably carries it). The api-reference addition (panel fix) never back-propagated to the spec's Types block that v3 implementers read.",
+        "suggestion": "Add `nodeId?: number` (with the 'always present on app resources; absent on framework resources' note) to the spec's SnapshotMeta, or annotate the Types block as superseded by api-reference \u00a7 Snapshot."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.7-v3 \u2192 ('lmz','orgTree') delivery pin #6, line 780",
+        "finding": "Pin #6 lists `OrgTreeNodeData` among the v3 exports from `@lumenize/nebula-frontend`, but no website doc mentions it \u2014 the worked example app-defines its own `TreeNodeData` in tree.ts (coding-your-ui lines 527-533) for the derived-tree shape. By the spec's own rule ('anything exported that the doc doesn't mention is a candidate for deletion \u2014 the doc IS the spec post-v1', line 948), this pin instructs v3 to ship an export the contract never uses.",
+        "suggestion": "Decide: drop `OrgTreeNodeData` from pin #6 (the derived shape is app code, which the worked example demonstrates), or \u2014 if it's meant to be the framework-blessed derived-node type \u2014 export it and have tree.ts import it instead of defining TreeNodeData locally."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Three layers table (line 27) and \u00a7 Package picture table (line 43)",
+        "finding": "Both tables say the package contains 'composables (`useNebula(...)`)', but `useNebula` appears in no website doc \u2014 not in api-reference's summary table, not in coding-your-ui. Every documented pattern works through `{ store, client }` imports with zero composables. Under the doc-is-spec rule, v3 would either build an undocumented surface or the tables are stale.",
+        "suggestion": "Decide: remove `useNebula` from both tables (the factory + store cover every documented pattern), or define what useNebula is for and add it to api-reference with a status tag."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-star-root-admin.md",
+        "location": "Open-question blockquote, line 9 (and Out of scope, line 37)",
+        "finding": "The note still frames `claims.access.admin` as unresolved: 'is it a higher Galaxy/universe-operator tier (keep, relabel) or a leftover (remove)?'. The T5/M6 decision is now pinned everywhere else as KEEP \u2014 dag-tree.ts:158's comment ('Galaxy/Universe-scope admin bypass (NOT a Star admin\u2026)'), coding-your-ui \u00a7 Gating admin-only UI, resources.md's 'map shows DAG grants only' note, and nebula-frontend.md Decisions-pinned line 84 all present scope admin as a settled tier. An implementer acting on the 'remove?' branch would break the published two-source admin-gating pattern.",
+        "suggestion": "Rewrite the note to record the decision: the bypass IS the Galaxy/Universe scope-admin tier (keep); residual work is at most relabeling the old 'Star admin bypass' vocabulary anywhere it survives \u2014 and drop the matching 'reconciliation' bullet from Out of scope or repoint it at the relabel-only residual."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "decision",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Atomic append, line 324 (pattern also relied on at coding-your-ui:400, api-reference:346, and the 5.3.8 M9 probe)",
+        "finding": "The todoList per-type set-union/openCount handler is MANDATED ('register a handler on the list type that returns 'use-this' with a set-union of items (and an openCount recomputed for the merged set)') and is the load-bearing counterpart in three other places (the Forms per-call fall-through example, api-reference \u00a7 Precedence's concrete example, the M9 shadow-regression probe) \u2014 yet no doc ever shows it. The nearest establishing example (resources.md's assignees set-union) merges value sets, not an ID container, and the openCount-recompute-for-merged-items step is genuinely nontrivial (counting open items among the union requires the todos' statuses, which live in sibling resources, not the container). The Studio LLM is told four times to rely on a handler it must invent, including its hardest part.",
+        "suggestion": "Establish the handler once \u2014 a short registered-in-nebula.ts example in \u00a7 Atomic append (or resources.md \u00a7 'use-this' verdict) showing items = set-union and the openCount recompute strategy (e.g. recount from `store.resources.todo[id]?.value?.status` over the merged ids, with the fallback when a status isn't loaded). The recompute semantics need an actual decision before they can be written."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "minor",
+        "fixType": "mechanical",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.7-v3 first-run container-create item, line 773",
+        "finding": "'(who holds `admin` on root, seeded at Star creation \u2014 see root-admin bootstrap below)' dangles: no 'root-admin bootstrap' section exists anywhere in nebula-frontend.md (grep confirms this is the only occurrence), and the file never links tasks/nebula-star-root-admin.md, where the seeding actually lives. Compounding it: the v3 prerequisite list (line 676) names only the four isolation detours, yet the flagship bootstrap example, its two-client race test, and coding-your-ui's 'the founder gets one \u2014 admin on root \u2014 at Star creation' claim (lines 298-299, 316) all hard-depend on Part 1 of the unstarted root-admin task. Without it sequenced, v3's own test for this item cannot pass.",
+        "suggestion": "Fix the reference to '[tasks/nebula-star-root-admin.md](nebula-star-root-admin.md) Part 1' and add it to the v3 prerequisite note (at least Part 1 \u2014 founder seeding \u2014 must land before the first-run bootstrap test can run)."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Worked example \u2014 lines 511 (`buildOrgTreeView(dag)`), 541-548 (`dag: OrgTreeState` param + comments), 621-623 (`const dag = ...`)",
+        "finding": "The blessed worked-example code names the OrgTreeState value `dag` throughout tree.ts and App.vue. The T1 rename pinned purpose-naming (`orgTree`) for everything client-facing, reserving 'DAG' for prose explaining the graph structure; a local variable in copy-paste-grade example code is exactly what the Studio LLM propagates.",
+        "suggestion": "Rename the example variable/parameter to `orgTree` (or `treeState`) in tree.ts and App.vue; keep the prose mentions of 'DAG' as the structural explanation."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 resources.transaction \u2192 Example \u2014 multi-resource atomic batch, lines 256-263",
+        "finding": "The m14 fix updated this example's ontology fields (status enum, openCount now present) but left the `'list-main'` resourceId \u2014 the last surviving instance of the pre-unification singleton-list keying; every other artifact keys the container per-user via `client.claims.sub`.",
+        "suggestion": "Change `'list-main'` to `[client.claims.sub]` (matching coding-your-ui \u00a7 Atomic append), or \u2014 if the contract page intentionally stays context-free \u2014 to a neutral `[listId]` with a one-word comment."
+      },
+      {
+        "lens": "docs-llm-fitness",
+        "severity": "nit",
+        "fixType": "mechanical",
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "Invariant 5 (base threading), line 13",
+        "finding": "\"`base` is never a server history lookup \u2014 it's client-held (see nebula-frontend.md M10/B4 notes)\" cites M10, which is the Map/Set collection-sync finding; base threading is B4 (the relevant spec text lives under nebula-frontend.md's 'Mid-edit fanout contract' item, line 892).",
+        "suggestion": "Change the citation to 'B4 notes' (optionally pointing at nebula-frontend.md \u00a7 Mid-edit fanout contract)."
+      }
+    ],
+    "dropped": [
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "tasks/nebula-frontend.md + website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:770-771; api-reference.md:78",
+        "finding": "Two loose ends on the M5 ready-reject fix. (1) The spec invents `AuthRequiredError`, defined nowhere, while mesh already has `LoginRequiredError` delivered via the existing `onLoginRequired` config hook (packages/mesh/src/lumenize-client.ts:121, :203) \u2014 two names for the same terminal-auth condition across adjacent layers (violates the minimize-new-vocabulary convention). (2) The required change is inside `packages/mesh/src/lumenize-client.ts` (surfacing the first-connect refresh-401 that today dies in `catch \u2192 #scheduleReconnect`), i.e., a mesh-package work item, but it appears only as prose inside a nebula-frontend checklist bullet \u2014 the m14 'track by checklists' estimate method will miss it, exactly as it missed the nebula-auth global-refresh endpoint before the estimate revision."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Phase 5.3.7-v3 checklist (no bullet); api-reference.md:391-453 tags the surface new-in-v3",
+        "finding": "`client.orgTree.*` \u2014 nine mutation methods with reject-on-failure Promise correlation against Star's `@mesh dagTree()` entry point (star.ts:193), plus the documented idempotent-no-op nuance \u2014 is tagged `new-in-v3` in api-reference ('The client-facing namespace is built in v3') but has NO implementation bullet in the v3 checklist. The orgTree delivery item covers only the resource read/subscribe/broadcast pins (1-6) and export renames. Since the pinned method is 'track by the detour + wiring checklists', this client namespace is currently invisible to v3 scope/estimate."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "\u00a7 Surface \u2014 implementation signatures, lines 202-244 (client.resources block) and 292-332 (SnapshotMeta)",
+        "finding": "The Surface/Types section is a half-migrated hybrid that matches neither the shipped code nor the v3 contract: it carries the v3-target handler surface (`onTransactionResourceResolution`, `flashClass`, `maxRetries` \u2014 shipped code still has `onETagConflict`) while keeping superseded shapes \u2014 `subscribe(rt, rid): Promise<Snapshot | null>` (v3 pins a `ResourceSubscription` Disposable handle, :726-733) and `options.ontologyVersion` on subscribe/read/transaction (v3 renames the user-facing option to `appVersion`, :715; api-reference documents `appVersion`). Separately, its `SnapshotMeta` omits `nodeId?`, which api-reference.md:529 pins and coding-your-ui's atomic-append depends on (`listSnap.meta.nodeId`) \u2014 residual drift from the fix that added nodeId to api-reference only."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "tasks/nebula-star-root-admin.md",
+        "location": "Line 9 ('Open: reconcile the existing claims.access.admin bypass ...')",
+        "finding": "The 'Open' note quotes a code comment that no longer exists \u2014 dag-tree.ts:158 was rewritten this round to 'Galaxy/Universe-scope admin bypass (NOT a Star admin \u2014 that's a DAG admin grant on root)' \u2014 and presents as unresolved a question the pinned admin model already answers (Decisions pinned :84 + resources.md:98 + coding-your-ui \u00a7 Gating admin-only UI: keep the bypass; it IS the scope-admin tier, parallel to DAG grants, deliberately absent from the permissions map). Leaving it 'open' invites a future session to relitigate or remove a load-bearing, already-reconciled path."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "website/docs/nebula/coding-your-ui.md + apps/nebula/src/resources.ts",
+        "location": "coding-your-ui.md:302 (read-then-create keyed on `=== null`); resources.ts:194-197 (`put` preserves `deleted`)",
+        "finding": "The first-run bootstrap and the tombstone contract corner each other: `read()` returns non-null for a soft-deleted todoList (tombstone with last value), so the bootstrap skips create; `create` on the existing (deleted) row would throw 'already exists' anyway; and `put` preserves `deleted: true` (resources.ts:197), so no client surface can ever resurrect a deleted resource \u2014 resources have no undelete op (unlike orgTree nodes). A user whose container was ever deleted is permanently stuck rendering a tombstone, and the docs nowhere state that resource deletion is irreversible from the client."
+      },
+      {
+        "lens": "architecture",
+        "severity": "minor",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "\u00a7 Internal mechanics \u2192 Middleware (lines 684-706)",
+        "finding": "With the Option A decision (factory-collection-sync.md), Map/Set mutator calls run the same middleware chain as property writes ('indistinguishable from property writes', incl. user-middleware abort/transform). But \u00a7 Middleware still says it 'fires on every write through the Proxy set trap' and never mentions collection mutators \u2014 and the `path`/`oldValue`/`newValue` shape for a `map.set('k', v)` is defined nowhere. A user-middleware author (or the Studio LLM) cannot derive the new-in-v3 behavior from the contract doc."
+      },
+      {
+        "lens": "architecture",
+        "severity": "nit",
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "Line 103 (live 'Three handlers' table: 'fanout pushes from Star.#fanout'); line 80 (Decisions pinned row named 'Fan-out path')",
+        "finding": "The code symbol is `Star.#broadcast` (+ `onBroadcastResult`) \u2014 star.ts:513/:558 \u2014 and the v3 pins (M3/M4, :777-778) correctly say `Star.#broadcast`, but the live Three-handlers table still names `Star.#fanout`, and the pinned-decision row is titled 'Fan-out path'. Per the mesh.md vocabulary rule, broadcast is the primitive name in live spec text (shipped-history checklists in 5.3.5/Phase -1 that say #fanout/onFanoutDelivered can stay as historical record)."
+      },
+      {
+        "lens": "architecture",
+        "severity": "nit",
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "Summary table, lines 32 and 40",
+        "finding": "`Snapshot` / `SnapshotMeta` appears twice in the summary table with diverging tag detail \u2014 line 32 plain 'implemented-in-spike', line 40 'implemented-in-spike (meta.mimeType new-in-v3)'. Likely introduced when the m14 split-tag fix added the richer row without removing the original."
+      },
+      {
+        "lens": "architecture",
+        "severity": "nit",
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "\u00a7 Worked example \u2014 :511 (`buildOrgTreeView(dag)`), tree.ts example :541-548 (param `dag: OrgTreeState`, comments `dag.nodes`/`dag.edges`), App.vue example :621-623 (`const dag = store.resources.lmz.orgTree?.value`)",
+        "finding": "The client-facing examples consistently name the OrgTreeState local variable `dag`. The purpose-naming pin (nebula-frontend.md:780) renamed every client surface to orgTree and reserves 'dag' for prose explaining the structure and server internals \u2014 but the Studio LLM patterns on example variable names, so `dag` will propagate into generated client code."
+      }
+    ],
+    "coverage": [
+      "[architecture] T1: dag\u2192orgTree rename verified clean on all client-facing surfaces \u2014 grep of website/docs/nebula/*.md found zero stale `lmz.dag` / `client.dag` / `DagTreeState` / `buildDagTreeView` tokens; store.resources.lmz.orgTree, client.orgTree.*, OrgTreeState/buildOrgTreeView used consistently in coding-your-ui.md, api-reference.md, resources.md; server internals (dag-tree.ts, dag-ops.ts, DagTree class) deliberately keep dag per pin 6; task-file historical sketches (:1082, :1109) carry explicit supersede banners. Only residual: example local-variable naming (filed as nit).",
+      "[architecture] T2: B1 verified end-to-end \u2014 dag-tree.ts:198-224 addEdge requires write@newParent AND admin@child with the idempotent existing-edge short-circuit before the permission check (matching api-reference's no-op nuance at :401); capable-of-failing test exists (dag-tree.test.ts:901 'write grant cannot self-promote via grafting'); resources.md:159-167 Approach 2 is the two-party share-accept (offer admin \u2192 recipient addEdge \u2192 optional revoke), consistent with coding-your-ui.md:482-498 and the api-reference.md:411-416 addEdge comment.",
+      "[architecture] T3: B3 verified against code \u2014 resources.ts Step 4.5a (replay `.some` fast-fail) and 4.5b (eTag-conflict fast-fail) run before the validator and are both monotonic per ADR-005; Step 6.5 is the authoritative in-txn replay re-check before op-validation; op-existence (Step 7) and permissions (Step 8, PermissionDeniedError-only catch) stay in-txn; conflict+invalid co-occurrence resolves as conflict (4.5b precedes Step 5). Tests cover identical-create replay and partial-churn `.some` (nebula-client-read-transaction.test.ts:193-262). Docs match (resources.md:240-249 dual-purpose eTag; coding-your-ui race comment notes different newETags \u21d2 no replay short-circuit). Exception filed: the 5.3.8 matrix overstates churn-cell outcomes (finding).",
+      "[architecture] T4: ready-reject consistency verified across artifacts \u2014 api-reference.md:78 (reject on terminal 401/403, pending on transient), nebula-studio.md bootstrap (try/catch \u2192 /login), coding-your-ui.md:33/:186, nebula-frontend.md:770-771 all agree; first-create race handled by re-read in both the checklist and the doc example. Feasibility caveats filed as findings (AuthRequiredError vs existing LoginRequiredError; unlisted mesh-side change; 'ok'\u2260committed gap in the bootstrap example).",
+      "[architecture] T5: admin model verified \u2014 dag-tree.ts:158 comment now correctly labels the JWT bypass as Galaxy/Universe scope admin (not Star admin); coding-your-ui \u00a7 Gating admin-only UI computes both sources (claims.access?.admin OR admin grant on ROOT_NODE_ID via the orgTree); resources.md:98 states the permissions map is DAG-grants-only with scope admins absent; no per-user home node anywhere \u2014 bootstrap attaches the founder under ROOT_NODE_ID and routes everyone else through invite/request-access; nebula-star-root-admin.md matches the model (one stale 'Open' note filed as finding).",
+      "[architecture] T6: full-ACL broadcast honesty verified consistent \u2014 Decisions pinned :84, resources.md:95-97 (universal structure AND grant table, opaque-UUID keys, label/slug as the real identity surface, accepted-risk framing, tenant segmentation), coding-your-ui.md:505 all state it plainly; no surviving 'only structure is universal' claim anywhere.",
+      "[architecture] T7: M9 layering verified \u2014 api-reference \u00a7 Precedence (:339-348) pins per-call \u2192 per-type \u2192 framework default with undefined fall-through and additive terminal reactions; TransactionOptions row :242 matches; task 5.3.8 probe :970(a-c) including the mixed-type shadow regression; factory-conflict-outcome.md invariant 6 matches; coding-your-ui's saveTodo example (:397-409) correctly filters by rid and falls through. One stale replace-semantics sentence at coding-your-ui:363 filed as finding.",
+      "[architecture] T8: M10/Option A verified \u2014 factory-collection-sync.md specs mutator-method interception (Option A, with the Option B rejection rationale), receiver-binding, deep nesting, one-submission-model, no-echo; nebula-frontend.md:671 sequences it as detour 2 sharing the D0 harness; resources.md:8's transparent-rich-types promise is consistent with making method mutations sync; arrays-already-sync covered as regression test. api-reference Middleware-section gap filed as finding.",
+      "[architecture] T9: B4 base threading verified consistent \u2014 base = client-side pre-write snapshot, threaded through 'conflict-pending' (types at nebula-frontend.md:376, api-reference.md:626) and the use-this chain (re-conflict base = previous conflict's server snapshot: api-reference.md:552, nebula-frontend.md:892, factory-conflict-outcome invariant 5); never a server-side history lookup (892 explicitly decouples from R2 history); @longform auto-resolver merges base.value (factory-textmerge.md:28, resources.md:507, the degeneration property test at textmerge:19). Exception filed: the capture-point ('at transaction-submit time') contradiction (finding).",
+      "[architecture] T10: NOT clean \u2014 verified by isolated strict-tsc runs that the pinned 'type-only' narrowing fails TS2610 (declare/interface-merge over an accessor) and that even a getter re-declaration fails TS2416 (NebulaJwtPayload lacks base JwtPayload's required emailVerified). Filed as major finding with resolution options.",
+      "[architecture] T11: m2 replay verified \u2014 the superseded order-invariant is struck through with the replay decision at nebula-frontend.md:578 and re-pinned at :88 and :768; api-reference.md:57 says 'captures the client's current connection state at creation (replay) and then tracks transitions ... registration order doesn't matter'; grep across all four nebula docs + nebula-studio.md found zero surviving 'create factory before connect' requirements.",
+      "[security] T2: addEdge B1 fix \u2014 dag-tree.ts:205-211 requires write@newParent AND admin@child; stated identically in api-reference.md:413-415/439, coding-your-ui.md:463/489, resources.md:163. B1 genuinely closed (admin@child means a grafter must already fully control the child, so no escalation \u2014 not merely moved). Approach 2 rewritten as a consistent two-party share-accept (Alice offers admin grant \u2192 Bob accepts via addEdge \u2192 optional revoke cleanup) across resources.md:159-167 and coding-your-ui.md:482-498; the offer cannot be accepted by a non-recipient (admin@child satisfied only by Alice's targeted grant), revocation before acceptance closes the window (addEdge then fails admin@child), and neither co-owner can evict the other (removeEdge needs write@own-parent only).",
+      "[security] T5: admin model two-part \u2014 isAppAdmin = claims.access.admin (scope admin via JWT) OR orgTree admin grant on ROOT_NODE_ID (app admin); stated identically in coding-your-ui.md:197-213 (computed at :209-213 uses access?.admin || permissions.get(ROOT_NODE_ID).get(sub)==='admin'), resources.md:98, nebula-frontend.md:84, nebula-star-root-admin.md:5; the computed's exact-grant-on-root check correctly captures app-wide admin (root has no ancestors). grep found NO 'home node'/'per-user node' reintroduction in any doc or code \u2014 new users hold zero grants.",
+      "[security] T6: ('lmz','orgTree') broadcast full-ACL \u2014 resources.md:95-97, api-reference.md:456, nebula-frontend.md:84, coding-your-ui.md:200 all state honestly and consistently that the entire tree (structure + every node's full sub\u2192tier permissions map + labels/slugs) ships to every client by design, with opaque-UUID grant keys and tenant segmentation as the accepted-risk boundary, and that scope admins ride the JWT (not the map).",
+      "[security] Last-admin protection (nebula-star-root-admin.md Part 2): add-before-remove + LastRootAdminError is consistent with the admin model and leaves no lockout/escalation path \u2014 the only two admin-on-root mutation points (setPermission demote / revokePermission on ROOT_NODE_ID) are both guarded; root cannot be deleted/renamed; the guard is caller-independent (enforced in dag-tree so it blocks even a claims.access.admin scope-admin caller who passes the dag-tree.ts:158 bypass), and counting from #cached.permissions.get(ROOT_NODE_ID) is correct because scope admins are deliberately absent from the map.",
+      "[security] No test-mode flags or sandbox escapes ride the new surfaces \u2014 grep of resources.md/api-reference.md/coding-your-ui.md/dag-tree.ts/resources.ts found no LUMENIZE_*_TEST / TEST_MODE / _test=true / auth-bypass flag on the orgTree, B1, or B3 paths; the orgTree read/subscribe skip drops only the per-node PERMISSION check by design while DagTree.getState() still calls #requireAuth() (authentication remains required); the dag-tree.ts:158 claims.access.admin bypass is scoped to a Star provably inside the admin's authScopePattern per the in-line trust-boundary rationale.",
+      "[security] T3-partial: the IDEMPOTENCY half of B3 landed clean \u2014 Step 4.5a pre-check + authoritative Step 6.5 in-txn re-check use .some (resources.ts:310, :418), create-on-existing throws only at in-txn Step 7 (:429-431), and conflict-over-validation precedence (Step 4.5b before the validator) matches the doc contract at nebula-frontend.md 5.3.8:972. (The CONFLICT half of B3 did NOT land clean \u2014 see the blocker finding on snapshot disclosure.)",
+      "[test-strategy] T1: client-facing surfaces use orgTree everywhere in the three docs (store.resources.lmz.orgTree, client.orgTree.*, OrgTreeState/OrgTreeView/buildOrgTreeView at api-reference.md L391-468, coding-your-ui.md L503-643, resources.md L95); server internals deliberately keep dag (dag-tree.ts/dag-ops references at api-reference L393/456 and resources.md L221 are correct per the v3 pin item 6); remaining 'dag' tokens in docs are local variable names or the-structure-is-a-DAG prose, both sanctioned; #orgtreestate anchors resolve",
+      "[test-strategy] T2: dag-tree.ts addEdge (L198-214) enforces write@newParent then admin@child with the rationale comment; resources.md Approach 2 (L159-221) is the two-party share-accept flow (offer setPermission admin \u2192 recipient addEdge \u2192 optional revoke cleanup) and coding-your-ui L482-498 + api-reference L410-416/L439 match it exactly; dag-tree.test.ts covers the admin@child conjunct both ways (deny write@child, allow admin@child) \u2014 the uncovered write@newParent conjunct reported as a finding",
+      "[test-strategy] T3: resources.ts implements idempotency (Step 4.5a, .some) and eTag-conflict (Step 4.5b) as monotonic pre-validator fast-fails plus the authoritative in-txn re-check (Step 6.5 before Step 7's op-existence throw), with the monotonicity rationale comment; resources.md L242-249 retry contract matches the code's dual-role-eTag semantics; nebula-client-read-transaction.test.ts covers identical-create replay (L193-228, asserts no rewrite via validFrom) and partial-churn multi-resource .some replay (L230-268) \u2014 the 5.3.8 matrix over-breadth and the deferred co-occurrence probe reported as findings",
+      "[test-strategy] T4: no home-node permissions scan anywhere (grep clean); coding-your-ui L290-316 bootstrap is read-then-create with re-read disambiguation after a not-ok outcome; founder attaches under ROOT_NODE_ID; ready resolve/reject/pending semantics pinned at api-reference L78 with the bootstrap catch\u2192/login example (L97-103) mirrored in nebula-studio.md L61-64; v3 carries tests for ready-resolves-with-claims, 401-rejects, transient-stays-pending (L771) and the two-client first-create race (L773) \u2014 the undeclared founder-seeding dependency reported as a finding",
+      "[test-strategy] T5: admin model consistent \u2014 claims.access.admin (scope admin, JWT) OR orgTree admin grant on root (app admin) at coding-your-ui \u00a7Gating admin-only UI (L195-218, isAppAdmin checks both), resources.md L98 (scope admins NOT in the permissions map), api-reference L507; no per-user home node in any artifact; dag-tree.ts:158 comment corrected \u2014 stale 'Star admin' test names reported as a finding",
+      "[test-strategy] T6: full opaque-UUID-keyed ACL broadcast stated honestly and consistently in all four places (Decisions pinned L84, resources.md L95-98 incl. accepted-risk + label-surface nuance, coding-your-ui L505, api-reference L456 'universally visible by design'); wire-fidelity test obligation for the permissions nested Map exists (v3 orgTree test c)",
+      "[test-strategy] T7: M9 layering pinned identically at api-reference \u00a7Precedence (L339-348), coding-your-ui Forms example (rid filter + fall-through comment L397-403), resources.md L337, factory-conflict-outcome invariant 6 + its M9 test, and the 5.3.8 shadow regression probe (L970b) is genuinely capable of failing (mixed-type batch, per-type set-union observable vs framework use-server) \u2014 one residual 'takes precedence' sentence reported as a finding",
+      "[test-strategy] T9: base = client-side pre-write snapshot threaded everywhere \u2014 api-reference \u00a7textMerge L552 (pass base.value, never server; chain re-conflict base = previous server snapshot) + \u00a7TransactionResourceResolution L626, resources.md use-this example merges description against base.value.description (L319), factory-textmerge.md B4 degeneration traps + @longform resolver shape, factory-conflict-outcome invariant 5 + chain test (second base = first conflict's server snapshot), nebula-frontend L892 BOTH-sides-changed capable-of-failing test and the explicit 'never a server-side history lookup' pin",
+      "[test-strategy] T10: NebulaClient claims getter narrowed to non-null as type-only override \u2014 api-reference L509-511 (base keeps | null, narrowing justified by ready, outside-contract code guards with ?.), nebula-frontend L772 includes the TS-error sweep; doc examples (client.claims.sub unguarded) rely on it consistently in coding-your-ui L184-193 with the outside-bootstrap caveat",
+      "[test-strategy] T11: replay-at-creation pinned consistently (Decisions L88, 5.3.6 pinned table, v3 L768, api-reference L57 'captures current state at creation'); the old create-factory-before-connect order-invariant appears nowhere as a live requirement (L578 is an explicit strikethrough-superseded history record; grep across docs + detours clean) \u2014 the missing capable-of-failing replay probe reported as a finding",
+      "[test-strategy] T8: collection sync = Map/Set mutator-method interception, Option A, consistently per factory-collection-sync.md (referenced from nebula-frontend L671 detour list); arrays-already-sync regression test and rich-type round-trip invariant present \u2014 the mutate-before-middleware wording contradiction and two missing edge probes reported as findings",
+      "[product] T1: dag\u2192orgTree rename verified across coding-your-ui/api-reference/resources via grep \u2014 zero stale client-facing dag surfaces (only deliberate server-internal refs to dag-tree.ts/DagTree.#onChanged at api-reference L393/L456); client.orgTree, OrgTreeState/OrgTreeView/buildOrgTreeView, store.resources.lmz.orgTree, rid 'orgTree' consistent; all \u00a7/anchor links resolve; server files correctly keep dag per pin 6 (local-variable naming nit filed separately)",
+      "[product] T2: B1 landed \u2014 dag-tree.ts addEdge L205-211 requires write@newParent AND admin@child with rationale comment; capable-of-failing probe at dag-tree.test.ts L901-948 (write-only graft denied, admin-on-child accepted); resources.md Approach 2 L159-167 rewritten as two-party offer/accept/cleanup; api-reference L410-416+L439 and coding-your-ui L483-498 match the code exactly, incl. idempotent-no-op-before-permission nuance (api-reference L401 = code L202-231)",
+      "[product] T3: B3 landed \u2014 resources.ts Step 4.5a (idempotency) precedes Step 4.5b (eTag conflict) precedes validator; authoritative Step 6.5 in-txn replay re-check runs before Step 7's already-exists throw; .some not .every with correct rationale comments; tests cover identical-create replay (L193-228) and partial-churn .some (L230-268) with no-rewrite assertions; docs' retry-safe contract (resources.md \u00a7 What's an eTag, api-reference newETag option) matches; conflict+invalid co-occurrence resolves as conflict per Step 4.5b ordering, consistent with 5.3.8 L972",
+      "[product] T4: no permissions-scan/home-node remains anywhere (grep \u2014 only correction-note mentions); founder attaches under ROOT_NODE_ID (coding-your-ui L294-316, seeding owned by nebula-star-root-admin.md Part 1); ready rejects AuthRequiredError on terminal auth / stays pending on transient, consistent across api-reference L78, studio bootstrap try/catch, nebula-frontend L770; race re-read after not-ok at coding-your-ui L307-313; the M11 typed already-exists alternative is explicitly flagged \"flag for Larry\" at nebula-frontend L773 (not silently defaulted) and the v1 re-read dance is ergonomically defensible for an LLM consumer (4 self-explanatory lines) \u2014 but see the major finding on the per-resource-failure blind spot in that same snippet",
+      "[product] T5: admin model consistent \u2014 isAppAdmin = client.claims.access?.admin OR permissions.get(ROOT_NODE_ID)?.get(sub)==='admin' (coding-your-ui L204-218); scope admins explicitly NOT in the map (resources.md L98, pin nebula-frontend L84); claims.access shape matches nebula-auth types.ts (admin?: boolean omitted when false); dag-tree.ts:158 bypass comment relabeled to Galaxy/Universe-scope; no flat isAdmin claim anywhere in the nebula docs (auth-flows.md isAdmin is an unrelated discovery-response field)",
+      "[product] T6: full opaque-UUID-keyed ACL + all labels universal-by-design stated honestly and identically in resources.md L95-98 (incl. label-as-identity-surface caveat + tenant-segmentation accepted risk), coding-your-ui L505, and pin nebula-frontend L84; no surviving \"only structure is universal\" claim",
+      "[product] T7: per-call handler layers in front (never replaces), undefined falls through per-call \u2192 per-type \u2192 framework default, consulted for every resource \u2014 identical in api-reference \u00a7 Precedence L339-347 + TransactionOptions L242, coding-your-ui L363 + saveTodo comment L397-403, resources.md L337, factory-conflict-outcome invariant 6, and the 5.3.8 shadow-regression probe L970",
+      "[product] T8: M10 = Option A Map/Set mutator interception per factory-collection-sync.md (receiver-binding, deep nesting, single submission path, no-echo, array regression); nebula-frontend L671 references it; no doc anywhere claims collection mutations don't sync (consistent with the make-the-promise-true decision); api-reference \u00a7 Middleware's set-trap-only wording is the one residual touchpoint (not filed \u2014 internal-mechanics section, behavior identical post-interception)",
+      "[product] T9: B4 base threading consistent everywhere \u2014 base = client-side pre-write snapshot captured at submit, on use-this re-conflict base = previous conflict's server snapshot, never a server-side history lookup (api-reference \u00a7 textMerge L552 + \u00a7 TransactionResourceResolution L626, nebula-frontend L376 + L892, factory-textmerge.md, factory-conflict-outcome invariant 5); @longform auto-handler merges against base.value (resources.md L507, factory-textmerge L28); degeneration trap (base===server \u21d2 local-wins) is the named capable-of-failing test",
+      "[product] T10: m12 narrowing pinned as type-only \u2014 api-reference L509-511 (NebulaClient getter non-null, base LumenizeClient keeps | null, runtime unchanged, outside-bootstrap ?. caveat) and nebula-frontend L772 (incl. the TS-error cleanup sweep); doc examples (client.claims.sub / access?.admin unguarded) rely on it coherently",
+      "[product] T11: m2 replay landed \u2014 factory captures current connection state at creation and tracks transitions (api-reference L57, 5.3.6 pin table L556, v3 item L768); old order-invariant appears only as the struck-through superseded pin at nebula-frontend L578; no live create-before-connect requirement anywhere (grep)",
+      "[rename-orgtree] T1: client surface says orgTree everywhere it counts \u2014 `client.orgTree.*`, `store.resources.lmz.orgTree`, resourceId 'orgTree' (camelCase consistent; zero lowercase 'orgtree' variants), OrgTreeState/OrgTreeView/buildOrgTreeView consistent across coding-your-ui.md, api-reference.md, resources.md, and the task-file pin (nebula-frontend.md:780); residuals reported are local-variable naming, grammar, and stale cross-refs, not boundary violations",
+      "[rename-orgtree] T1 (server side): server internals correctly KEEP dag \u2014 DagTree class, dag-tree.ts/dag-ops.ts, DagTreeState/DagTreeView/buildDagTreeView exports in client-index.ts:54-57, and dag-tree.test.ts's `DagTreeState` import all unchanged per the rename-rides-v3 pin; grep confirmed zero 'orgTree' occurrences anywhere in apps/nebula/src or apps/nebula/test (no premature rename)",
+      "[rename-orgtree] T1 (historical sections): the ('lmz','dag') / store.resources.lmz.dag / client.dag mentions at nebula-frontend.md:1071-1109 are all inside the exploration record explicitly marked superseded (L1082 \u26a0\ufe0f correction + L1109 'treat the v3 checklist item as authoritative'); adjudicated correct, not stale",
+      "[rename-orgtree] T1 (anchors): every orgTree-related markdown anchor resolves \u2014 #clientorgtree (api-reference:391), #orgtreestate (api-reference:454), #mutating-the-orgpermission-tree, #worked-example-rendering-the-built-in-tree, #access-control, #gating-admin-only-ui, #per-resource-behavior--the-ontransactionresourceresolution-handler, #text-fields-specifically--dont-leave-the-default, #human-in-the-loop-verdict-non-blocking--defer-to-the-app, #custom-flash-visuals, #subscription-lifecycle (prior n4 fix landed at nebula-frontend.md:744), #code-generation (nebula-studio.md:197), ontology.md#annotations, and /docs/mesh/lumenize-client#client-identity-clientclaims (heading at lumenize-client.mdx:92); plus all link-target files in the 5.3.7 section exist on disk except the two .md-vs-.mdx and four missing-../ instances reported as findings",
+      "[rename-orgtree] T2 (doc-side naming consistency only, incidental to the sweep): write@newParent AND admin@child stated identically at coding-your-ui.md:463/489-490, api-reference.md:410-416/439, resources.md:163-167, and verified matching the actual checks in dag-tree.ts addEdge (requirePermission(parent,'write') + requirePermission(child,'admin'), idempotent no-op before the checks matching api-reference:401's nuance)",
+      "[rename-orgtree] T5 (as touched by the T1 sweep): isAppAdmin = claims.access.admin OR orgTree admin grant on ROOT_NODE_ID consistent at coding-your-ui.md:195-218, resources.md:98, api-reference.md:507; permissions map documented as DAG-grants-only (scope admins absent) in all three plus the task pin L84; no per-user home node or permissions-scan remains anywhere in the three docs (bootstrap attaches under ROOT_NODE_ID, coding-your-ui:290-316)",
+      "[rename-orgtree] T6: full opaque-UUID-keyed ACL + all labels to every client stated honestly and consistently at resources.md:95-98, coding-your-ui.md:505, api-reference.md:456 ('universally visible by design'), and the pin at nebula-frontend.md:84",
+      "[rename-orgtree] T10: non-null claims narrowing consistent \u2014 api-reference.md:509-511 (NebulaClient narrows; base LumenizeClient keeps | null), task item nebula-frontend.md:772, and doc examples (coding-your-ui:186-193, 209-213) rely on it with the outside-bootstrap `?.` caveat present",
+      "[rename-orgtree] T11: no live 'create factory before connect' requirement anywhere in the three docs or the task file's live sections \u2014 api-reference.md:57 says captures-current-state-at-creation (replay), pin at nebula-frontend.md:88 says replay, old order-invariant at L578 is struck through and marked superseded",
+      "[code-docs-contract] T2: resources.md \u00a7163-167 Approach 2 two-party share-accept flow (Alice setPermission admin@list \u2192 Bob addEdge holding write@user-bob + admin@list \u2192 optional revoke) matches dag-tree.ts addEdge requirePermission(parent,'write')+requirePermission(child,'admin') at lines 205/211 exactly; api-reference.md:416/:439 and coding-your-ui.md:463/:485-490 describe the same flow consistently",
+      "[code-docs-contract] T3: resources.ts B3 ordering verified line-by-line \u2014 Step 4.5a idempotency .some fast-fail (line 310) BEFORE Step 4.5b eTag-conflict (324-334) BEFORE validator (Step 5, 336+); authoritative in-txn replay re-check Step 6.5 (.some, line 418) BEFORE Step 7 op-validation; conflict-wins-over-invalid co-occurrence holds because 4.5b returns the whole batch before the validator runs; .some (not .every) confirmed at both 310 and 418",
+      "[code-docs-contract] T3: docs retry-safe + create-on-existing contract matches code \u2014 create-on-existing (non-replay) falls to Step 7 throw (line 431) \u2192 Star catch (star.ts:282) \u2192 client maps thrown Error to a not-ok outcome; coding-your-ui.md:308-313 read-then-create-then-reread-on-not-ok is consistent with the v3 outcome.kind!=='ok' shape",
+      "[code-docs-contract] T3: idempotency tests in nebula-client-read-transaction.test.ts (lines 193-228 single-create replay, 230-268 .some-vs-.every two-create replay) assert committed (not 'already exists'/infrastructure-error) and that the replay writes nothing (validFrom + value unchanged) \u2014 capable-of-failing against the pre-fix ordering; no it.skip",
+      "[code-docs-contract] T2/B1: dag-tree.ts addEdge requires write@newParent (line 205) AND admin@child (line 211), checked AFTER the idempotent-edge-exists short-circuit (line 203) and node-existence (199-200); removeEdge checks write@parent only (233) consistent with api-reference.md:439; reparentNode checks write on both parents (255-256); createNode write@parent (175); setPermission/revokePermission admin@node (349/368); all match the documented permission table EXCEPT the reparentNode admin@child gap reported above",
+      "[code-docs-contract] B1: dag-tree.test.ts:901-948 asserts write@child insufficient (PermissionDeniedError 'admin permission required on node N', message confirmed in errors.ts:57) then admin@child sufficient \u2014 the privilege-escalation half of B1 is covered by a capable-of-failing assertion",
+      "[code-docs-contract] T1: client-facing surfaces in the three docs use orgTree consistently (client.orgTree, store.resources.lmz.orgTree, OrgTreeState/OrgTreeView/buildOrgTreeView, resourceId 'orgTree'); remaining 'dag' tokens in coding-your-ui.md:542/548/621 are local variable names (dag/buildOrgTreeView(dag)), not API surface; server internals (dag-tree.ts, dag-ops.ts DagTreeState/DagTreeView/buildDagTreeView, detectCycle) deliberately keep dag naming per the v3 plan \u2014 correct, not a bug",
+      "[code-docs-contract] T1: cross-doc anchors resolve \u2014 #clientorgtree, #orgtreestate, #gating-admin-only-ui, #mutating-the-orgpermission-tree, #worked-example-rendering-the-built-in-tree, #human-in-the-loop-verdict-non-blocking--defer-to-the-app all match real {#...} or auto-generated headings in the target docs",
+      "[cross-artifact] T1: dag\u2192orgTree rename \u2014 grep of website/docs/nebula/*.md found zero client-facing 'lmz.dag'/'DagTreeState'/'client.dagTree'/'buildDagTreeView'; client surface is orgTree everywhere (api-reference \u00a7client.orgTree + \u00a7OrgTreeState, coding-your-ui worked example with OrgTreeNode.vue/buildOrgTreeView, store.resources.lmz.orgTree); server internals correctly keep dag (dag-tree.ts/dag-ops.ts DagTreeState, test imports \u2014 pinned to ride v3); all orgTree-related anchors resolve. (Residual nit: stale Star.#fanout name at nebula-frontend.md:103, reported.)",
+      "[cross-artifact] T2: B1 \u2014 verified in code (dag-tree.ts:205 write@newParent + :211 admin@child with self-promotion rationale; idempotent-no-op-before-permission matches api-reference's n1 clause), in the capable-of-failing test (dag-tree.test.ts:901 Mallory graft probe), and told identically in api-reference \u00a7client.orgTree (addEdge comment + :439 summary), coding-your-ui \u00a7Mutating the org tree (two-party steps 1-3), and resources.md Approach 2 (share-accept flow, 'neither party holds both').",
+      "[cross-artifact] T3: B3 \u2014 verified in resources.ts: Step 4.5a idempotency fast-fail (.some) and Step 4.5b eTag-conflict fast-fail both precede the Step-5 validator (so conflict+invalid co-occurrence resolves as conflict); Step 6.5 authoritative in-txn replay re-check precedes Step-7 op-validation (create replay returns committed, not 'already exists'); permissions stay in-txn at Step 8 (ADR-005 monotonic rule honored). Tests cover identical-create replay (nebula-client-read-transaction.test.ts:193) and partial-churn .some (:230). resources.md \u00a7What's an eTag idempotency wording and api-reference newETag option match the code.",
+      "[cross-artifact] T4: Bootstrap \u2014 ready reject-on-terminal/pending-on-transient told identically in api-reference \u00a7createNebulaClient return table (AuthRequiredError), nebula-studio.md \u00a7Bootstrap files nebula.ts (try/await/catch\u2192/login), and nebula-frontend.md:769-771; founder-attaches-under-ROOT_NODE_ID + zero-grants model consistent across coding-your-ui \u00a7Lists bootstrap, nebula-star-root-admin.md Part 1, and nebula-frontend.md:773; no home-node permissions scan survives anywhere (grep clean); two-tab race disambiguated by re-read after not-ok in both doc and task file. (One new minor reported: the guard misses per-resource failures under kind 'ok'.)",
+      "[cross-artifact] T5: Admin model \u2014 isAppAdmin = claims.access?.admin OR root-node admin grant, consistently in coding-your-ui \u00a7Gating admin-only UI (the computed), api-reference \u00a7client.claims, resources.md (map is DAG-grants-only; scope admins ride the JWT), nebula-frontend.md Decisions pinned :84, and the relabeled code comment at dag-tree.ts:158; no per-user home node anywhere. (Stale 'Open' note in nebula-star-root-admin.md:9 reported.)",
+      "[cross-artifact] T6: M7 \u2014 full opaque-UUID-keyed ACL + all labels in the universal ('lmz','orgTree') broadcast stated honestly and identically in resources.md:95-98 (with opaque-key/label/tenant-segmentation caveats), coding-your-ui:505, nebula-frontend.md Decisions pinned :84, and implied by api-reference \u00a7OrgTreeState's permissions field; no surviving 'only structure is universal' claim.",
+      "[cross-artifact] T7: M9 \u2014 per-call layers in front of per-type, consulted for every resource, undefined falls through per-call\u2192per-type\u2192framework default, terminal per-type-fires-for-all + per-call-additive: identical in api-reference \u00a7Precedence, coding-your-ui \u00a7Forms prose + saveTodo rid-filter example, factory-conflict-outcome.md invariant 6 + M9 test, and nebula-frontend.md 5.3.8 fall-through probe (:970).",
+      "[cross-artifact] T8: M10 \u2014 Option A (Map/Set mutator interception, recursion into nested collections, receiver-binding via raw-collection bind, single submission path, no-echo) pinned in factory-collection-sync.md and referenced as such from nebula-frontend.md:671; resources.md's transparent rich-type write promise is consistent with it. (One minor reported: api-reference \u00a7Middleware's 'set trap only' wording predates Option A.)",
+      "[cross-artifact] T9: B4 \u2014 textMerge(server, local, base) signature identical in factory-textmerge.md:8, api-reference \u00a7textMerge, and nebula-frontend.md:891; base = client-side pre-write snapshot, re-conflict base = previous conflict's server snapshot, never a server history lookup \u2014 identical in nebula-frontend.md:892, api-reference:552, factory-conflict-outcome invariant 5; conflict-pending payload carries base:{value,eTag} in task \u00a7Types, api-reference \u00a7TransactionResourceResolution and \u00a7Handler bindings; @longform auto-handler merges against base.value in factory-textmerge.md:28 and resources.md:498-512 (arg order server, local, base in both doc examples).",
+      "[cross-artifact] T10: m12 \u2014 type-only non-null narrowing (get claims(): Readonly<NebulaJwtPayload>; base stays | null) pinned in api-reference \u00a7client.claims with the ready-based soundness argument and outside-contract caveat, matching nebula-frontend.md:772 (including TS-error cleanup note); coding-your-ui examples use unguarded client.claims.sub with an explicit pointer to the pinned contract and a ?.-guard instruction for non-Studio contexts.",
+      "[cross-artifact] T11: m2 \u2014 replay supersedes the order-invariant: api-reference \u00a7createNebulaClient says capture-at-creation + observer with no order caveat; nebula-frontend.md marks the old pin superseded (:578) and repeats replay at :88/:259/:768; grep of website/docs/nebula found no surviving 'create factory before connect' requirement; coding-your-ui \u00a7Connection state relies only on initial seeds.",
+      "[docs-llm-fitness] T1: client surface uses orgTree throughout all three website docs (grep over coding-your-ui/api-reference/resources/nebula-client found zero stale client-facing dag surfaces; client.orgTree/OrgTreeState/buildOrgTreeView/store.resources.lmz.orgTree consistent; all #orgtreestate/#clientorgtree/#worked-example anchors resolve); server internals correctly keep dag (dag-tree.ts, api-reference:393/456 describe them as server-side); remaining ('lmz','dag') text is confined to nebula-frontend.md Phase -1 \u00a77, explicitly banner-marked superseded \u2014 only residue is the example-variable nit reported above",
+      "[docs-llm-fitness] T2: dag-tree.ts:198-211 requires write@newParent AND admin@child with the self-promotion rationale; idempotent no-op short-circuit at :203 precedes permission checks exactly as api-reference:401 states; resources.md Approach 2 is the two-party share-accept (offer admin \u2192 recipient addEdge \u2192 optional revoke) and coding-your-ui \u00a7 Mutating mirrors the same three steps with consistent tier statements",
+      "[docs-llm-fitness] T3: resources.ts Step 4.5a idempotency replay (.some) and Step 4.5b eTag-conflict run as monotonic pre-checks before the validator; Step 6.5 authoritative in-txn replay re-check precedes Step 7's create-on-existing throw; conflict+invalid co-occurrence resolves as conflict (4.5b before Step 5); docs' idempotency contract (resources.md \u00a7 What's an eTag, api-reference newETag row) and the bootstrap's 'create comes back not-ok' claim match this code exactly",
+      "[docs-llm-fitness] T5: isAppAdmin = claims.access?.admin OR direct admin grant on ROOT_NODE_ID, consistent across coding-your-ui \u00a7 Gating admin-only UI, resources.md 'map shows DAG grants only' note, dag-tree.ts:158 comment, and Decisions-pinned; no per-user home node anywhere; scope admins correctly absent from the permissions map (one stale open-question in nebula-star-root-admin.md reported as a finding)",
+      "[docs-llm-fitness] T6: full opaque-UUID-keyed ACL + all labels to every client stated honestly and identically in resources.md:95-98, coding-your-ui:505, and the Decisions-pinned M7 row, including the tenant-segmentation accepted-risk framing and the optional opaque-slug hardening",
+      "[docs-llm-fitness] T7: per-call layers-in-front/fall-through semantics consistent in api-reference \u00a7 Precedence + TransactionOptions row, resources.md:337, the Forms example's inline comment and rid filter, factory-conflict-outcome.md invariant 6, and the 5.3.8 M9 shadow probe (one contradicting prose sentence at coding-your-ui:363 reported as a finding)",
+      "[docs-llm-fitness] T8: factory-collection-sync.md pins Option A mutator-method interception (Vue mutableCollectionHandlers reference, receiver binding, deep nesting, no-double-submit) and the docs' transparent rich-type sync promise is consistent with it (the api-reference \u00a7 Middleware set-trap-only wording gap reported as a finding)",
+      "[docs-llm-fitness] T9: textMerge(server, local, base) with base = client-held common ancestor (pre-write snapshot; previous conflict's server snapshot on use-this re-conflict; never a server history lookup) is identical across api-reference \u00a7 textMerge + \u00a7 TransactionResourceResolution, resources.md both merge examples (base.value.description / resolution.base.value.body), factory-textmerge.md (signature + B4 degeneration tests + @longform auto-resolver merging against base), factory-conflict-outcome.md invariant 5, and nebula-frontend.md:892",
+      "[docs-llm-fitness] T10: api-reference \u00a7 client.claims pins the type-only non-null narrowing (base LumenizeClient keeps | null) with the ready-based soundness argument; coding-your-ui examples (claims.sub keying, access?.admin gating) rely on it without ! or ?.; spec item at nebula-frontend.md:772 matches (the undefined NebulaJwtPayload type name reported as a finding)",
+      "[docs-llm-fitness] T11: api-reference:57 pins capture-at-creation + transition tracking (replay), explicitly 'registration order doesn't matter'; nebula-frontend.md:578 strikes through the old order-invariant as superseded; no live 'create factory before connect' requirement found in any doc or task file",
+      "[docs-llm-fitness] T4: no home-node permissions scan anywhere (bootstrap attaches under ROOT_NODE_ID with request-access/invite framing for other users); ready resolves-after-first-connect / rejects-AuthRequiredError-on-terminal / stays-pending-on-transient is identical in api-reference:78, the bootstrap examples (api-reference:97-103, nebula-studio.md:58-64), and spec :770; race re-read after not-ok present in both doc and spec \u2014 the one NEW gap (per-resource failure inside kind:'ok' escaping the guard) is reported as the major finding"
+    ],
+    "synthesis": null
+  },
+  "note": "Round-3 review (2026-06-11). 112 agents, 8 lenses. CAVEAT: 9 architecture verify agents + the synthesize agent died on a spend limit \u2014 the 9 findings in \"dropped\" are UNVERIFIED (not refuted), and synthesis was done inline by the main session. Mechanical fixes were applied to the working tree the same day; decisions were surfaced to Larry in-session."
+}

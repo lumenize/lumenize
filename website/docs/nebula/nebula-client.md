@@ -11,12 +11,16 @@ description: Client-side class for connecting to Nebula
 - **Active scope** — the specific universe, galaxy, or star the client is targeting. Baked into the JWT `aud` claim. For regular users, same as auth scope; for admins with wildcard access, can differ.
 
 ```typescript @skip-check
+// Direct construction — admin/scripting path with explicit scopes.
 const client = new NebulaClient({
   baseUrl: 'https://my-app.example.com',
   authScope: 'acme.app.tenant-a',
   activeScope: 'acme.app.tenant-a',
+  appVersion: 'v42',                  // required — lock-step with the server's ontology version
 });
 ```
+
+Browser apps don't construct `NebulaClient` directly — they use [`createNebulaClient`](./api-reference.md#createnebulaclient), where every field except `appVersion` auto-detects and the explicit scopes above are the admin/scripting escape hatch.
 
 Switching active scope means creating a new `NebulaClient` with a different `activeScope`. The refresh cookie (scoped to the auth scope path) carries over automatically.
 

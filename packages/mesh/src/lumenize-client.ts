@@ -370,7 +370,7 @@ interface QueuedMessage {
  * });
  * ```
  */
-export abstract class LumenizeClient {
+export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayload> {
   // ============================================
   // Private Fields
   // ============================================
@@ -381,7 +381,7 @@ export abstract class LumenizeClient {
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
-  #claims: Readonly<JwtPayload> | null = null;
+  #claims: Readonly<TClaims> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -429,7 +429,9 @@ export abstract class LumenizeClient {
       this.#accessToken = config.accessToken;
       const parsed = parseJwtUnsafe(config.accessToken);
       if (parsed) {
-        this.#claims = Object.freeze(parsed.payload);
+        // Trust boundary: parseJwtUnsafe returns the raw JwtPayload; the
+        // subclass asserts the concrete claim shape via TClaims.
+        this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
       }
     }
 
@@ -479,8 +481,13 @@ export abstract class LumenizeClient {
    *
    * Use `client.claims.sub` for per-user keying, `client.claims.aud` for the
    * audience claim, etc. — same shape as `originAuth.claims` on the server side.
+   *
+   * Typed `Readonly<TClaims> | null` — `TClaims` defaults to `JwtPayload`. A
+   * subclass scoped to a richer payload (e.g. `LumenizeClient<NebulaJwtPayload>`)
+   * may re-declare this getter to drop the `| null` once its lifecycle
+   * guarantees claims are populated before any caller runs.
    */
-  get claims(): Readonly<JwtPayload> | null {
+  get claims(): Readonly<TClaims> | null {
     return this.#claims;
   }
 
@@ -927,7 +934,8 @@ export abstract class LumenizeClient {
     if (!parsed) {
       throw new Error('Refresh returned a malformed access_token');
     }
-    this.#claims = Object.freeze(parsed.payload);
+    // Trust boundary: see the constructor's claims assignment.
+    this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
   }
 
   /**

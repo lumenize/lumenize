@@ -190,17 +190,79 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     user[Symbol.dispose]();
   });
 
-  it('idempotency: retry with the same newETag returns committed without double-write', async () => {
+  it('no-disclosure: unauthorized put with a WRONG eTag resolves permission-denied — never a snapshot', async () => {
+    const star = uniqueStar();
+    const { client: admin, accessToken } = await setupAdminClient(star);
+    const resourceId = generateUuid();
+
+    // Resource at a private node the user holds no grant on
+    admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
+    await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
+    const nodeId = admin.lastResult as number;
+
+    const createOutcome = await admin.resources.transaction({
+      [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret-v1' } },
+    });
+    if (createOutcome.resolution !== 'committed') throw new Error('Expected committed');
+
+    // Unauthorized user probes with a deliberately WRONG eTag. A conflict
+    // decided before the permission gate (an early-return at Step 4.5b) would
+    // hand back the full currentSnapshot — a permission-free read. Correct
+    // behavior: permission wins (Step 8 precedes Step 9) and the outcome
+    // carries no resource value/meta.
+    const { client: user } = await setupUserClient(star, accessToken);
+    const outcome = await user.resources.transaction({
+      [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: { title: 'probe' } },
+    });
+    expect(outcome.resolution).toBe('permission-denied');
+    if (outcome.resolution !== 'permission-denied') throw new Error('Expected permission-denied, never conflict/use-server');
+    expect(JSON.stringify(outcome)).not.toContain('Secret-v1');
+
+    admin[Symbol.dispose]();
+    user[Symbol.dispose]();
+  });
+
+  it('conflict + invalid value co-occurring resolves as conflict (use-server), not validation-failed', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const resourceId = generateUuid();
+
+    const created = await client.resources.transaction({
+      [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
+    });
+    if (created.resolution !== 'committed') throw new Error('Expected committed');
+    const eTag1 = created.eTag;
+
+    const update = await client.resources.transaction({
+      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 'V2' } },
+    });
+    if (update.resolution !== 'committed') throw new Error('Expected committed');
+
+    // STALE eTag AND an invalid value (title must be a string). The Step-4.5b
+    // skip-hint excludes the doomed op from the validator batch, so the
+    // conflict surfaces at Step 9 and the resolver (default use-server)
+    // decides — not validation-failed. Gut the skip and this test fails.
+    const outcome = await client.resources.transaction({
+      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 42 as unknown as string } },
+    });
+    expect(outcome.resolution).toBe('use-server');
+    if (outcome.resolution !== 'use-server') throw new Error('Expected use-server (conflict wins over validation)');
+    expect(outcome.resources[resourceId].value.title).toBe('V2');
+
+    client[Symbol.dispose]();
+  });
+
+  it('idempotency: retrying the identical create op with the same newETag returns committed (not "already exists")', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
     const sharedETag = crypto.randomUUID();
 
-    // First submission with explicit newETag
-    const first = await client.resources.transaction(
-      { [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } } },
-      { newETag: sharedETag },
-    );
+    // The identical op the client replays on a dropped-response retry.
+    const createOp = { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } };
+
+    // First submission with explicit newETag → creates the resource at sharedETag.
+    const first = await client.resources.transaction({ [resourceId]: createOp }, { newETag: sharedETag });
     expect(first.resolution).toBe('committed');
     if (first.resolution !== 'committed') throw new Error('Expected committed');
     expect(first.eTag).toBe(sharedETag);
@@ -209,19 +271,17 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     expect(snap1!.meta.validFrom).toBeDefined();
     const firstValidFrom = snap1!.meta.validFrom;
 
-    // Retry with the SAME newETag. Server should detect "current eTag equals
-    // client's newETag" and short-circuit to committed without writing.
-    // (Note: create op would normally fail with "already exists" — the
-    // idempotency check runs BEFORE the existence/eTag checks.)
-    const second = await client.resources.transaction(
-      { [resourceId]: { op: 'put', eTag: sharedETag, value: { title: 'V1-attempted-rewrite' } } },
-      { newETag: sharedETag },
-    );
+    // Retry the IDENTICAL create with the SAME newETag — the real network-drop
+    // replay shape (B3). Idempotency (the pre-validator fast-fail + the
+    // authoritative in-txn re-check) must short-circuit to committed BEFORE op
+    // validation, which would otherwise throw "Resource already exists" and
+    // surface as infrastructure-error, rolling back a write that landed.
+    const second = await client.resources.transaction({ [resourceId]: createOp }, { newETag: sharedETag });
     expect(second.resolution).toBe('committed');
-    if (second.resolution !== 'committed') throw new Error('Expected committed (idempotent)');
+    if (second.resolution !== 'committed') throw new Error('Expected committed (idempotent create replay)');
     expect(second.eTag).toBe(sharedETag);
 
-    // Verify no actual rewrite happened — value unchanged, validFrom unchanged
+    // No rewrite happened — value + validFrom unchanged.
     const snap2 = await client.resources.read('TestResource', resourceId);
     expect(snap2!.value.title).toBe('V1');
     expect(snap2!.meta.validFrom).toBe(firstValidFrom);
@@ -229,7 +289,47 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     client[Symbol.dispose]();
   });
 
-  it('serial queue: concurrent transactions are applied in submit order', async () => {
+  it('idempotency: partial-churn multi-resource replay still returns committed (.some, not .every)', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const idA = generateUuid();
+    const idB = generateUuid();
+    const batchETag = crypto.randomUUID();
+
+    const batch = {
+      [idA]: { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A1' } },
+      [idB]: { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'B1' } },
+    };
+
+    // Original atomic batch lands → both A and B at batchETag.
+    const first = await client.resources.transaction(batch, { newETag: batchETag });
+    expect(first.resolution).toBe('committed');
+
+    // A third party mutates B alone, moving B's eTag off batchETag.
+    const churn = await client.resources.transaction(
+      { [idB]: { op: 'put', eTag: batchETag, value: { title: 'B2-by-other' } } },
+      { newETag: crypto.randomUUID() },
+    );
+    expect(churn.resolution).toBe('committed');
+
+    // Retry the IDENTICAL original batch with the same batchETag. A is still at
+    // batchETag, B is not. `.some` detects the replay via A (the whole batch
+    // committed atomically); `.every` would miss it and the create on A would
+    // throw "already exists".
+    const replay = await client.resources.transaction(batch, { newETag: batchETag });
+    expect(replay.resolution).toBe('committed');
+    if (replay.resolution !== 'committed') throw new Error('Expected committed (partial-churn replay)');
+
+    // The replay wrote nothing — B keeps the third party's value, A unchanged.
+    const snapB = await client.resources.read('TestResource', idB);
+    expect(snapB!.value.title).toBe('B2-by-other');
+    const snapA = await client.resources.read('TestResource', idA);
+    expect(snapA!.value.title).toBe('A1');
+
+    client[Symbol.dispose]();
+  });
+
+  it('sequential transactions chain eTags in order', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
@@ -241,9 +341,10 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     if (created.resolution !== 'committed') throw new Error('Expected committed');
     let currentETag = created.eTag;
 
-    // Fire three updates concurrently. The serial queue ensures they're
-    // applied in submit order; each receives the next-in-line eTag.
-    // Because resolves happen sequentially, we can compose:
+    // Three sequential updates, each chaining off the previous outcome's eTag.
+    // This proves sequential eTag chaining only — the true concurrent-buffering
+    // property (submit-before-resolve buffers and chains) lands with the
+    // per-resource serial queue (tasks/debounce-serial-queue.md D0 / v3).
     const out1Promise = client.resources.transaction({
       [resourceId]: { op: 'put', eTag: currentETag, value: { title: 'Update 1' } },
     });

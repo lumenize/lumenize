@@ -648,9 +648,9 @@ describe('dag-tree', () => {
       client.callStarRevokePermission(star, nodeId, adminSub);
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      // Star admin still bypasses DAG check
+      // Scope admin (claims.access.admin) still bypasses DAG check
       client.callStarCheckPermission(star, nodeId, 'admin');
-      // Note: checkPermission doesn't use Star admin bypass (it delegates to resolvePermission)
+      // Note: checkPermission doesn't use the scope-admin bypass (it delegates to resolvePermission)
       // so with no grant this should return false for DAG check
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
@@ -802,11 +802,11 @@ describe('dag-tree', () => {
   // ─── Authorization Enforcement ────────────────────────────────────
 
   describe('authorization enforcement', () => {
-    it('Star admin bypasses DAG checks', async () => {
+    it('scope admin (claims.access.admin) bypasses DAG checks', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      // Star admin can create nodes without any DAG grants
+      // Scope admin can create nodes without any DAG grants
       client.callStarCreateNode(star, ROOT_NODE_ID, 'admin-created', 'Admin');
       await vi.waitFor(() => {
         expect(client.lastResult).toBeDefined();
@@ -897,6 +897,108 @@ describe('dag-tree', () => {
       admin[Symbol.dispose]();
       writer[Symbol.dispose]();
     });
+
+    it('addEdge requires admin on the child — write grant cannot self-promote via grafting', async () => {
+      const star = uniqueStar();
+      const { client: admin } = await adminClient(star);
+
+      // Build: root → mallory-home; root → victim
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'mallory-home', 'Mallory Home');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const homeId = admin.lastResult as number;
+
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'victim', 'Victim');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const victimId = admin.lastResult as number;
+
+      // Mallory: non-admin, admin on her own node, write (Approach-1
+      // collaborator tier) on victim
+      const adminBrowser = new Browser();
+      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const malloryBrowser = new Browser();
+      await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
+      const { client: mallory, payload: malloryPayload } = await createAuthenticatedClient(
+        NebulaClientTest, malloryBrowser, star, star, 'mallory@example.com',
+      );
+
+      admin.callStarSetPermission(star, homeId, malloryPayload.sub, 'admin');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      admin.callStarSetPermission(star, victimId, malloryPayload.sub, 'write');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      // write on the child is NOT enough — the graft would cascade Mallory's
+      // admin on mallory-home onto victim's subtree (write → admin promotion)
+      mallory.callStarAddEdge(star, homeId, victimId);
+      await vi.waitFor(() => {
+        expect(mallory.lastError).toContain('admin permission required');
+      });
+
+      // admin on the child IS enough (the share-accept flow's accept step)
+      admin.callStarSetPermission(star, victimId, malloryPayload.sub, 'admin');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      mallory.callStarAddEdge(star, homeId, victimId);
+      await vi.waitFor(() => {
+        expect(mallory.callCompleted).toBe(true);
+        expect(mallory.lastError).toBeUndefined();
+      });
+
+      admin[Symbol.dispose]();
+      mallory[Symbol.dispose]();
+    });
+
+    it('reparentNode requires admin on the child — same access-widening as addEdge', async () => {
+      const star = uniqueStar();
+      const { client: admin } = await adminClient(star);
+
+      // Build: root → mallory-home; root → src → child
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'mallory-home', 'Mallory Home');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const homeId = admin.lastResult as number;
+
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'src', 'Source');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const srcId = admin.lastResult as number;
+
+      admin.callStarCreateNode(star, srcId, 'child', 'Child');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const childId = admin.lastResult as number;
+
+      const adminBrowser = new Browser();
+      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const malloryBrowser = new Browser();
+      await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
+      const { client: mallory, payload: malloryPayload } = await createAuthenticatedClient(
+        NebulaClientTest, malloryBrowser, star, star, 'mallory@example.com',
+      );
+
+      // Mallory: admin on her home (the new parent — admin ⊇ write), write on
+      // the old parent. write@child cascades from write@src; she lacks admin@child.
+      admin.callStarSetPermission(star, homeId, malloryPayload.sub, 'admin');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      admin.callStarSetPermission(star, srcId, malloryPayload.sub, 'write');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      // write on both parents is NOT enough — the move would cascade Mallory's
+      // admin on mallory-home onto child's subtree (write → admin promotion).
+      mallory.callStarReparentNode(star, childId, srcId, homeId);
+      await vi.waitFor(() => {
+        expect(mallory.lastError).toContain('admin permission required');
+      });
+
+      // admin on the child IS enough.
+      admin.callStarSetPermission(star, childId, malloryPayload.sub, 'admin');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      mallory.callStarReparentNode(star, childId, srcId, homeId);
+      await vi.waitFor(() => {
+        expect(mallory.callCompleted).toBe(true);
+        expect(mallory.lastError).toBeUndefined();
+      });
+
+      admin[Symbol.dispose]();
+      mallory[Symbol.dispose]();
+    });
   });
 
   // ─── Traversal ────────────────────────────────────────────────────
@@ -979,11 +1081,11 @@ describe('dag-tree', () => {
   // ─── Bootstrap Flow ───────────────────────────────────────────────
 
   describe('bootstrap flow', () => {
-    it('Star admin builds tree and delegates via setPermission', async () => {
+    it('scope admin builds tree and delegates via setPermission', async () => {
       const star = uniqueStar();
       const { client: admin } = await adminClient(star);
 
-      // Star admin creates structure (no DAG grants needed — JWT admin bypasses)
+      // Scope admin creates structure (no DAG grants needed — the claims.access.admin bypass)
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'org', 'Organization');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       const orgId = admin.lastResult as number;
@@ -1001,7 +1103,7 @@ describe('dag-tree', () => {
         NebulaClientTest, userBrowser, star, star, 'lead@example.com',
       );
 
-      // Star admin grants admin on team to lead
+      // Scope admin grants admin on team to lead
       admin.callStarSetPermission(star, teamId, leadPayload.sub, 'admin');
       await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
 
@@ -1034,7 +1136,7 @@ describe('dag-tree', () => {
   // ─── Universe Admin Cross-Access ──────────────────────────────────
 
   describe('universe admin (wildcard JWT) has full DAG access', () => {
-    it('universe admin bypasses all DAG checks via Star admin flag', async () => {
+    it('universe admin bypasses all DAG checks via the scope-admin claim', async () => {
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
@@ -1053,7 +1155,7 @@ describe('dag-tree', () => {
         NebulaClientTest, uniBrowser, universe, star, 'universe-admin@example.com',
       );
 
-      // Universe admin can create nodes (Star admin bypass)
+      // Universe admin can create nodes (scope-admin bypass)
       uniAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'uni-node', 'Universe Node');
       await vi.waitFor(() => {
         expect(uniAdmin.lastResult).toBeDefined();

@@ -149,6 +149,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Calibrate `/review-task` against real task files (carried over from archived [task-review-panel](archive/task-review-panel.md))
   - Run the panel against a recent task file AND a *completed* one where we know what the manual loops found — does it surface the same issues? Findings must be actionable, not generic advice.
+  - **First data point (2026-06-10, coding-your-ui.md panel — [findings](nebula-frontend-docs-panel-findings-2026-06-10.json))**: calibration probe re-reviewed the half Larry had hand-reviewed line-by-line and found 7 standing issues (3 source-verified majors), with **zero false positives across all 45 findings panel-wide**. Missed-major density: ~1.4/100 lines in the reviewed half vs ~1.8/100 unreviewed — human line-by-line review only modestly beat no review on *cross-artifact contract accuracy* (the misses all required tracing prose into source). Conclusion so far: trust the panel for factual/contract checking; human review's edge is intent/scope/audience altitude.
   - **Lens subsetting**: the skill says to drop irrelevant lenses (e.g. security on a pure refactor) — confirm manual subsetting is enough or whether it should auto-pick from task content.
   - **Product lens depth**: how much "vision coherence" is reviewable mechanically vs. needs a human? Sharpen the `product` lens prompt if it returns generic advice.
 

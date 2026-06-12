@@ -289,12 +289,54 @@ export class Resources {
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
 
-    // Note: single-phase eTag check by design — the authoritative check
-    // happens at Step 9 inside transactionSync. The originally-designed
-    // optimistic pre-facet check (see tasks/nebula-5-resources.md) was
-    // dropped: it would only fast-fail on stale writes, saving the ~1.4 ms
-    // facet call. eTag conflicts are rare in practice and the pessimistic
-    // check inside transactionSync is sufficient for correctness.
+    // Step 4.5: Monotonic pre-checks (before the validator). Run against
+    // `currentSnapshots` (already read at Step 1 — no extra reads) so a doomed
+    // or already-applied transaction skips the ~1.4 ms validator facet call.
+    // They may ONLY act on a conclusion a concurrent commit can't reverse
+    // between the Step-1 read and the txn: a replay (commit is irreversible)
+    // and an eTag conflict (eTags are forward-only, so `current ≠ op.eTag`
+    // stays true). Op-existence and permissions are NOT monotonic (a
+    // concurrent create/grant could flip them), so they stay authoritative
+    // inside transactionSync. Everything here is re-decided authoritatively in
+    // the txn — optimization, not correctness. Only 4.5a may fast-fail
+    // (early-return), and it discloses nothing but eTags. 4.5b deliberately
+    // returns NOTHING to the caller: disclosing a snapshot must wait for the
+    // Step-8 permission gate (an early conflict return carrying
+    // `currentSnapshot` would hand any authenticated user a permission-free
+    // read via a wrong-eTag put). Idempotency MUST precede the conflict scan:
+    // a replay has `current.eTag === newETag` while `op.eTag` is the old
+    // baseline, which the conflict scan would otherwise mis-flag.
+
+    // Step 4.5a — Idempotency replay: any resource already at `newETag` means
+    // this exact transaction committed (newETag is a fresh per-attempt UUID
+    // written to the whole batch atomically at Step 10; `.some`, not `.every`,
+    // so a sibling since-mutated by a third party doesn't hide the replay).
+    if (entries.some(([resourceId]) => currentSnapshots.get(resourceId)?.meta.eTag === newETag)) {
+      const eTags: Record<string, string> = {};
+      for (const [resourceId] of entries) eTags[resourceId] = newETag;
+      return { ok: true, eTags };
+    }
+
+    // Step 4.5b — eTag-conflict validation skip (a hint, never a verdict): a
+    // present resource whose current eTag mismatches the op's baseline can't
+    // revert, so it WILL conflict at Step 9 — skip its validator work (on the
+    // use-this path the value gets superseded by the merge anyway). The
+    // conflict verdict — and the `currentSnapshot` disclosure — happens ONLY
+    // at Step 9, after the Step-8 permission gate. Skipping validation here is
+    // also what makes conflict win over an invalid value when both co-occur on
+    // one resource (its validation never runs). In a batch mixing a
+    // conflict-suspect with an invalid SIBLING, the sibling's validation
+    // failure still fails the batch first; the suspect's conflict surfaces on
+    // the retry. Absent `current` (not-found) is deferred to the authoritative
+    // Step 7; it isn't monotonic.
+    const conflictSuspects = new Set<string>();
+    for (const [resourceId, op] of entries) {
+      if (op.op === 'create') continue;
+      const current = currentSnapshots.get(resourceId);
+      if (current && current.meta.eTag !== (op as { eTag?: string }).eTag) {
+        conflictSuspects.add(resourceId);
+      }
+    }
 
     // Step 5: Parse + validate via facet (one batch call). `parse()` fills
     // `@default` values into a fresh object per item; on success we write
@@ -302,6 +344,7 @@ export class Resources {
     // Skip ops where validation can't or shouldn't run — Step 7 catches them.
     const requests = new Map<string, ParseRequest>();
     for (const [resourceId, op] of entries) {
+      if (conflictSuspects.has(resourceId)) continue; // doomed to conflict at Step 9 — don't validate
       if (op.op === 'create') {
         if (op.value == null) continue;
         requests.set(resourceId, { value: op.value, typeName: op.typeName });
@@ -370,6 +413,21 @@ export class Resources {
         authoritative.set(resourceId, this.#getCurrentSnapshot(resourceId));
       }
 
+      // Step 6.5: Authoritative idempotency replay check. The Step-4.5a
+      // pre-check catches most replays before the validator, but two retries
+      // with the same newETag can interleave at the validator's await — the
+      // first commits between this retry's Step-1 read and its Step-6 re-read,
+      // so only the authoritative re-read here sees `newETag` and stops Step 7
+      // from throwing "already exists" on a legitimate retry. Must run before
+      // op-validation, permissions, and the eTag check (a landed write must not
+      // be retroactively denied/conflicted on replay).
+      if (entries.some(([resourceId]) => authoritative.get(resourceId)?.meta.eTag === newETag)) {
+        const eTags: Record<string, string> = {};
+        for (const [resourceId] of entries) eTags[resourceId] = newETag;
+        result = { ok: true, eTags };
+        return;
+      }
+
       // Step 7: Validate operations
       for (const [resourceId, op] of entries) {
         const current = authoritative.get(resourceId)!;
@@ -434,22 +492,14 @@ export class Resources {
         return;
       }
 
-      // Step 9a: Idempotency short-circuit. If every existing resource is
-      // already at `newETag` (and creates are no-ops via "current exists
-      // with newETag"), the client's previous attempt landed — return as
-      // committed without writing again.
-      const allAtNewETag = entries.every(([resourceId, op]) => {
-        const current = authoritative.get(resourceId);
-        return current?.meta.eTag === newETag;
-      });
-      if (allAtNewETag) {
-        const eTags: Record<string, string> = {};
-        for (const [resourceId] of entries) eTags[resourceId] = newETag;
-        result = { ok: true, eTags };
-        return;
-      }
-
-      // Step 9b: Check eTags — conflicts produce { ok: false }
+      // Step 9: Check eTags — conflicts produce { ok: false }. This is the
+      // ONLY place a conflict is decided or a `currentSnapshot` disclosed —
+      // deliberately AFTER the Step-8 permission gate (the Step-4.5b scan only
+      // skips doomed validator work; it returns nothing to the caller). Runs
+      // against the in-txn snapshot, so it also catches conflicts that
+      // appeared during the validator's await and returns the freshest
+      // currentSnapshot for the resolver. Idempotency replays already
+      // returned at Step 6.5, so no resource here is at `newETag`.
       const errors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         if (op.op === 'create') continue;
