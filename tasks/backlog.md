@@ -330,6 +330,12 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **Scope**: small. dag-tree.ts changes ~10 LOC; resources.ts catch block ~5 LOC; backlog because not urgent but worth doing before the next major change to either file.
   - **Discovered during**: Phase 5.3.3b retro (typed-error fragility in the permission refactor).
 
+- [ ] **EU data residency for Stars (DO `jurisdiction`) — product feature, deferred**
+  - **What**: `env.STAR.jurisdiction('eu').getByName(name)` hard-guarantees the DO runs and persists only in-jurisdiction — a compliance feature, distinct from best-effort `locationHint` placement ([mesh-origin-request.md](mesh-origin-request.md) / [nebula-star-root-admin.md](nebula-star-root-admin.md) Part 1b). `eu`, `fedramp`, `fedramp-high` exist in the API; only `eu` has a plausible customer near-term.
+  - **The architectural cost (why deferred)**: a jurisdictioned namespace derives a DIFFERENT `DurableObjectId` for the same name — so every name→stub resolution site must know the instance's jurisdiction, forever: `getDOStub` (packages/routing), Gateway resolution ([lumenize-client-gateway.ts:586](../packages/mesh/src/lumenize-client-gateway.ts)), mesh `callRawImpl` ([lmz-api.ts:301](../packages/mesh/src/lmz-api.ts)), nebula-auth router `getByName` calls. A mismatch silently talks to a different (empty) DO.
+  - **Design options to evaluate**: (a) encode jurisdiction in the instance-name grammar (e.g., a reserved universe segment) so it's deterministic from the name at every site — currently favored, since the name already IS the address everywhere; (b) Registry lookup + per-node cache.
+  - **Constraints learned 2026-06-12**: jurisdiction IGNORES `locationHint` when both are given (no weur/eeur refinement inside `eu`; first-touch locality still applies within the jurisdiction). Must be an explicit signup choice, never auto-detected (compliance; at most pre-suggest via `request.cf.isEUCountry === '1'`). Existing Stars can't convert in place (different ID + DOs never relocate) — migration = history-substrate copy to a new DO, which ADR-004 makes well-defined. miniflare doesn't enforce jurisdictions → deployed-only verification ([tasks/archive/playwright-test-template.md](archive/playwright-test-template.md)).
+
 ## Nebula Auth
 
 - [ ] Promote `activeScope` (`aud`) and `authScopePattern` to named, typed scope accessors instead of ad-hoc `originAuth.claims.*` lookups
