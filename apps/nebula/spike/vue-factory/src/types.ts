@@ -62,11 +62,16 @@ export type TransactionOutcome =
 export interface FactoryResult {
   store: Record<string, any>;
   client: ClientLike;
-  /** Test/observability: register an additional middleware (synced-state is
-   *  always-on; user-supplied are layered on). */
+  /** Test/observability: register an additional middleware. User middlewares
+   *  run in registration order; the built-in synced-state middleware always
+   *  runs after them (an abort therefore also aborts the submission). */
   use(middleware: Middleware): () => void;
-  /** Stop the factory and any internal scopes (test cleanup). */
-  dispose(): void;
+  /** Flush pending writes, wait for open submissions; nothing submits after. */
+  dispose(): Promise<void>;
+  /** External flush trigger (unmount / blur). No args flushes everything. */
+  flush(rt?: string, rid?: string): void;
+  /** Per-resource-type debounce config. */
+  transactionDebounce(rt: string, opts: { quietMs?: number; maxWaitMs?: number }): void;
 }
 
 export interface ResourceReadEvent {

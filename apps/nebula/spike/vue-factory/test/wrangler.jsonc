@@ -1,5 +1,5 @@
 {
-  "name": "spike-alpine-adapter-test",
+  "name": "spike-vue-factory-test",
   "main": "./test-harness.ts",
   "compatibility_date": "2026-04-01",
   "compatibility_flags": ["nodejs_compat_v2"],
@@ -32,7 +32,7 @@
   "services": [
     {
       "binding": "AUTH_EMAIL_SENDER",
-      "service": "spike-alpine-adapter-test",
+      "service": "spike-vue-factory-test",
       "entrypoint": "NebulaEmailSender"
     }
   ],

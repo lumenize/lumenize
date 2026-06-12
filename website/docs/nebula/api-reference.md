@@ -11,7 +11,7 @@ This page is the contract for the `@lumenize/nebula-frontend` factory + NebulaCl
 
 Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** state and is the contract for what 5.3.7-v3 implements.
 
-- **`implemented-in-spike`** — the Vue-in-DOM spike at `apps/nebula/spike/alpine-adapter/` validated this surface. v3 ports it to `packages/nebula-frontend/`.
+- **`implemented-in-spike`** — the Vue-in-DOM spike at `apps/nebula/spike/vue-factory/` validated this surface. v3 ports it to `packages/nebula-frontend/`.
 - **`new-in-v3`** — the spike didn't cover this. v3 designs and implements.
 - **`deferred-post-5.3.7`** — referenced for completeness but explicitly NOT shipping in 5.3.7. v3 must not pretend these exist.
 
@@ -688,7 +688,7 @@ type ConflictResolverVerdict =
 ```
 
 - `'use-server'` — accept the server's value, abandon local changes for this resource.
-- `'use-this'` — re-submit with `value` and the server's new `eTag`. Bounded by `maxRetries` — on cap, the resource lands at `'retries-exhausted'`.
+- `'use-this'` — re-submit with `value` and the server's new `eTag`. The verdict `value` is also painted optimistically (it's a fresh optimistic write at the server baseline — the merged text is visible while the re-submission is in flight and stays painted when it commits). Bounded by `maxRetries` — on cap, the resource lands at `'retries-exhausted'`.
 - `'human-in-the-loop'` — defer to the user. Optimistic state stays painted; the handler (or app code outside it) is responsible for any follow-up `transaction()`.
 
 The handler can be sync or async. The in-flight queue's 5–10 s timeout is **suspended** during handler execution at `'conflict-pending'` — a modal can sit open for minutes without triggering `'timeout'`.
@@ -714,7 +714,7 @@ type Middleware = (args: {
 type WriteContext = { source: 'local' | 'remote' | 'rollback' | 'computed' };
 ```
 
-Fires on every write through the Proxy `set` trap — and on intercepted collection-mutator calls (`Map.set/delete/clear`, `Set.add/delete/clear`) on values under `store.resources.*.value`, which run the identical middleware chain as property assignments (see [tasks/factory-collection-sync.md](https://github.com/lumenize/lumenize/blob/main/tasks/factory-collection-sync.md); the exact `path`/`oldValue`/`newValue` shape for a mutator-driven invocation is pinned during that detour). Return a value to substitute for `newValue`; return `undefined` to leave `newValue` unchanged; throw to abort the write entirely.
+Fires on every write through the Proxy `set` trap — and on intercepted collection-mutator calls (`Map.set/delete/clear`, `Set.add/delete/clear`) on values under `store.resources.*.value`, which run the identical middleware chain as property assignments (see [tasks/factory-collection-sync.md](https://github.com/lumenize/lumenize/blob/main/tasks/factory-collection-sync.md)). For a mutator-driven invocation: `path` is the owning collection's path (e.g. `resources.todo.t1.value.tags`), `oldValue` is a pre-mutation snapshot of the collection, and `newValue` is the post-mutation value; returning a substitute collection applies it in place of the mutation. No-op mutations (`add` of an existing element, `set` to a deep-equal value, `delete` of an absent key, `clear` on empty) skip the chain entirely — parity with the `set` trap's deep-equal dedup. Return a value to substitute for `newValue`; return `undefined` to leave `newValue` unchanged; throw to abort the write entirely.
 
 `context.source` discriminates origin:
 
@@ -723,6 +723,6 @@ Fires on every write through the Proxy `set` trap — and on intercepted collect
 - `'rollback'` — framework restoring a pre-write value after a failed transaction. Synced-state middleware skips.
 - `'computed'` — framework vivifying intermediate containers under `store.resources.*` so descendant access works before snapshot arrival. Synced-state middleware skips.
 
-Register additional middleware via `use()` from the factory return. Synced-state middleware is always-on and runs first.
+Register additional middleware via `use()` from the factory return. Synced-state middleware is always-on and runs LAST, after the user chain: a user middleware abort (throw) therefore also aborts the submission, and synced-state sees the final post-substitution value.
 
 **Contract**: a middleware MUST NOT write to its own path inside its callback (would re-enter the `set` trap). Cross-path writes from inside a middleware ARE allowed and fire their own middleware chains.

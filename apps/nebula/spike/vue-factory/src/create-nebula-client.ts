@@ -34,11 +34,11 @@ import {
   type EffectScope,
 } from '@vue/reactivity';
 import { deepEquals } from './deep-equals';
+import { createDebounceQueue } from './debounce-queue';
 import type {
   ClientLike,
   FactoryResult,
   Middleware,
-  TransactionOutcome,
   WriteContext,
 } from './types';
 
@@ -64,6 +64,12 @@ export interface CreateNebulaClientOptions {
   unsubscribeGraceMs?: number;
   /** Initial state (deep-cloned into the reactive root). */
   initialState?: Record<string, any>;
+  /**
+   * Submission debounce defaults (see src/debounce-queue.ts). Production
+   * defaults are quietMs 500 / maxWaitMs 2000; tests that pin per-write
+   * submission timing pass `{ quietMs: 0 }` (eager microtask submit).
+   */
+  debounce?: { quietMs?: number; maxWaitMs?: number; timeoutMs?: number };
 }
 
 const DEFAULT_UNSUBSCRIBE_GRACE_MS = 2000;
@@ -85,6 +91,10 @@ export function createNebulaClient(
     seed[k] = userInitial[k];
   }
   const root = reactive(seed);
+  // User middlewares only. The built-in synced-state middleware runs LAST,
+  // after the user chain (see runMiddlewareChain): a user abort (throw) must
+  // stop the submission too, and synced-state should see the final
+  // post-substitution value.
   const middlewares: Middleware[] = [];
 
   // Module-scope sidecar: currentContext threads write context through the
@@ -187,6 +197,79 @@ export function createNebulaClient(
     }
   }
 
+  // ─── Middleware chain runner ─────────────────────────────────────────────
+  // User middlewares in registration order. The built-in synced-state
+  // middleware runs AFTER this chain (and after the post-substitution dedup),
+  // invoked explicitly at each write site: a user abort (throw) aborts the
+  // submission too, and synced-state sees the final substituted value.
+  function runUserMiddlewares(path: string, oldValue: unknown, newValue: unknown): unknown {
+    let finalValue = newValue;
+    for (const mw of middlewares) {
+      const result = mw({ path, oldValue, newValue: finalValue, context: currentContext });
+      if (result !== undefined) finalValue = result;
+    }
+    return finalValue;
+  }
+
+  function notifySyncedState(path: string, oldValue: unknown, newValue: unknown): void {
+    syncedStateMiddleware({ path, oldValue, newValue, context: currentContext });
+  }
+
+  // ─── Map/Set mutator interception (M10, Option A) ────────────────────────
+  // Collection METHOD mutations never hit the `set` trap, so the `get` trap
+  // hands out wrappers that make them indistinguishable from property writes:
+  // compute the post-mutation value, run the middleware chain BEFORE applying
+  // (abort ⇒ no local mutation; substitute ⇒ the substituted collection is
+  // applied), then apply via Vue's instrumented method (reactivity fires) —
+  // the synced-state middleware funnels into the same debounced submission.
+  const MAP_MUTATORS = new Set(['set', 'delete', 'clear']);
+  const SET_MUTATORS = new Set(['add', 'delete', 'clear']);
+
+  function isNoOpMutation(raw: Map<unknown, unknown> | Set<unknown>, method: string, args: unknown[]): boolean {
+    const k0 = args[0];
+    const rawK0 = k0 !== null && typeof k0 === 'object' ? toRaw(k0) : k0;
+    if (raw instanceof Map) {
+      if (method === 'set') {
+        const key = raw.has(k0 as never) ? k0 : rawK0;
+        if (!raw.has(key as never)) return false;
+        const existing = raw.get(key as never);
+        return existing === args[1] || deepEquals(existing, toRawDeepArg(args[1]));
+      }
+      if (method === 'delete') return !raw.has(k0 as never) && !raw.has(rawK0 as never);
+      return raw.size === 0; // clear
+    }
+    if (method === 'add') return raw.has(k0) || raw.has(rawK0);
+    if (method === 'delete') return !raw.has(k0) && !raw.has(rawK0);
+    return raw.size === 0; // clear
+  }
+
+  function toRawDeepArg(v: unknown): unknown {
+    return v !== null && typeof v === 'object' ? toRaw(v) : v;
+  }
+
+  function applyMutationToClone(
+    cloned: Map<unknown, unknown> | Set<unknown>,
+    method: string,
+    args: unknown[],
+  ): Map<unknown, unknown> | Set<unknown> {
+    const cleanArgs = args.map((a) => {
+      const raw = toRawDeepArg(a);
+      return raw !== null && typeof raw === 'object' ? structuredClone(raw) : raw;
+    });
+    (cloned as never as Record<string, (...a: unknown[]) => unknown>)[method](...cleanArgs);
+    return cloned;
+  }
+
+  /** Replace a live collection's contents with `next` through Vue's instrumented methods. */
+  function applyCollectionValue(vueColl: any, next: unknown): void {
+    vueColl.clear();
+    if (next instanceof Map) {
+      for (const [k, v] of next.entries()) vueColl.set(k, v);
+    } else if (next instanceof Set) {
+      for (const v of next.values()) vueColl.add(v);
+    }
+  }
+
   // ─── Recursive path-aware Proxy ──────────────────────────────────────────
   // Wraps `target` (which is a Vue reactive) with a custom Proxy that knows
   // its path. Each level wraps lazily on read; nested objects are wrapped on
@@ -194,8 +277,20 @@ export function createNebulaClient(
   // beneath ours.
   const wrapperCache = new WeakMap<object, Map<string, any>>();
 
+  // Mirror Vue's targetTypeMap: only plain objects, arrays, Maps, and Sets
+  // get a path wrapper. Dates, RegExps, errors, class instances pass through
+  // raw — a Proxy around them breaks internal-slot methods ("this is not a
+  // Date object"), and Vue leaves them unreactive for the same reason.
+  function isWrappable(v: object): boolean {
+    const raw = toRaw(v);
+    if (Array.isArray(raw) || raw instanceof Map || raw instanceof Set) return true;
+    const proto = Object.getPrototypeOf(raw);
+    return proto === Object.prototype || proto === null;
+  }
+
   function wrap(target: any, path: string[]): any {
     if (target === null || typeof target !== 'object') return target;
+    if (!isWrappable(target)) return target;
     // Cache wrappers by (parent target, path-suffix) so re-reads return
     // identity-stable wrappers. Important for Vue's dep-tracking which keys
     // by identity.
@@ -227,6 +322,40 @@ export function createNebulaClient(
         if (key.startsWith('__v_')) return Reflect.get(t, key);
 
         console.log(`[proxy get] path=${JSON.stringify(path)} key=${key}`);
+
+        // Map/Set mutator interception (M10): the collection's own path is
+        // this wrap level's path. Non-mutating reads (get/has/forEach/
+        // iterators/size) flow through untouched — Vue's instrumentation
+        // resolves `this.__v_raw` through our `__v_` pass-through above.
+        const rawTarget = toRaw(t);
+        if (
+          (rawTarget instanceof Map && MAP_MUTATORS.has(key)) ||
+          (rawTarget instanceof Set && SET_MUTATORS.has(key))
+        ) {
+          const collection = rawTarget as Map<unknown, unknown> | Set<unknown>;
+          return (...args: unknown[]) => {
+            const chainable = key === 'set' || key === 'add';
+            if (isNoOpMutation(collection, key, args)) {
+              // Parity with the set trap's deep-equal dedup: middleware never
+              // runs, no submission.
+              return chainable ? proxy : key === 'delete' ? false : undefined;
+            }
+            const oldValue = structuredClone(collection);
+            const newValue = applyMutationToClone(structuredClone(collection), key, args);
+            const finalValue = runUserMiddlewares(path.join('.'), oldValue, newValue);
+            notifySyncedState(path.join('.'), oldValue, finalValue);
+            if (finalValue === newValue) {
+              // No substitution: apply the original mutation through Vue's
+              // instrumented method so reactivity triggers normally.
+              const fn = Reflect.get(t, key) as (...a: unknown[]) => unknown;
+              const result = fn.apply(t, args);
+              return chainable ? proxy : result;
+            }
+            // Substituted: the substituted collection is what gets applied.
+            applyCollectionValue(t, finalValue);
+            return chainable ? proxy : key === 'delete' ? true : undefined;
+          };
+        }
 
         // Vivification: under `resources.*`, ensure intermediate containers
         // exist so descendant access works (and auto-subscribe tracking can
@@ -265,20 +394,12 @@ export function createNebulaClient(
         // Top-level deep-equal dedup: skip the write entirely if equal.
         if (deepEquals(oldValue, newValue)) return true;
 
-        // Run middleware chain. A middleware may substitute by returning a value.
-        let finalValue = newValue;
-        for (const mw of middlewares) {
-          const result = mw({
-            path: fullPath,
-            oldValue,
-            newValue: finalValue,
-            context: currentContext,
-          });
-          if (result !== undefined) finalValue = result;
-        }
+        // User middlewares first; a middleware may substitute.
+        const finalValue = runUserMiddlewares(fullPath, oldValue, newValue);
         // Re-dedup after middleware substitution.
         if (deepEquals(oldValue, finalValue)) return true;
 
+        notifySyncedState(fullPath, oldValue, finalValue);
         return Reflect.set(t, key, finalValue);
       },
     });
@@ -288,89 +409,87 @@ export function createNebulaClient(
 
   const store = wrap(root, []);
 
+  // ─── Submission queue (debounce + serial-per-resource) ───────────────────
+  // The synced-state middleware no longer submits directly: it notifies the
+  // queue, which owns WHEN a transaction goes out and WHAT eTag/newETag/base
+  // it carries (quiet/maxWait windows, serial per resource with buffering,
+  // connection gating, B4 base re-anchoring). See src/debounce-queue.ts.
+  const queue = createDebounceQueue({
+    quietMs: options.debounce?.quietMs,
+    maxWaitMs: options.debounce?.maxWaitMs,
+    timeoutMs: options.debounce?.timeoutMs,
+    // `structuredClone` refuses Vue Proxies (DataCloneError); `toRaw()`
+    // strips the outer Proxy and the raw tree beneath is Proxy-free (Vue
+    // toRaw's values on write), so it clones cleanly — preserving Dates,
+    // Maps, Sets, cycles.
+    clone: (v) => (v === undefined ? undefined : structuredClone(toRaw(v as object))),
+    submit: async ([s]) => {
+      const outcome = await client.transaction({
+        rt: s!.rt,
+        rid: s!.rid,
+        eTag: s!.eTag,
+        value: s!.value,
+        newETag: s!.newETag,
+      });
+      return [outcome];
+    },
+    readResource: (rt, rid) => {
+      const entry = (root as any)?.resources?.[rt]?.[rid];
+      return { value: entry?.value, eTag: entry?.meta?.eTag as string | undefined };
+    },
+    onCommitted: (s, eTag) => {
+      // Write meta.eTag through with 'remote' context (skips middleware).
+      withContext({ source: 'remote' }, () => {
+        internalDeepWrite(['resources', s.rt, s.rid, 'meta', 'eTag'], eTag);
+      });
+    },
+    onNonCommit: (outcome, s, api) => {
+      const parts = ['resources', s.rt, s.rid];
+      const o = outcome as import('./types').TransactionOutcome;
+      if (o.resolution === 'use-server') {
+        withContext({ source: 'remote' }, () => {
+          internalDeepWrite([...parts, 'value'], o.snapshot.value);
+          internalDeepWrite([...parts, 'meta'], o.snapshot.meta);
+        });
+        api.accept(o.snapshot);
+        return;
+      }
+      // validation-failed / timeout: roll back to the merge base — the value
+      // at the asserted baseline (the same capture B4 re-anchors; for a
+      // single write this is the pre-write value).
+      withContext({ source: 'rollback' }, () => {
+        internalDeepWrite([...parts, 'value'], s.base);
+      });
+      api.fail();
+    },
+  });
+
   // ─── Built-in synced-state middleware ────────────────────────────────────
   // Routes writes under resources.<rt>.<rid>.value.* with context.source ===
-  // 'local' to client.transaction(). Optimistic apply: write lands; rollback
-  // on terminal failure restores pre-write value.
-  const syncedStateMiddleware: Middleware = ({ path, context, newValue }) => {
+  // 'local' to the submission queue. Optimistic apply: the write lands
+  // immediately (debounce gates only the submission); rollback on terminal
+  // failure restores the baseline value.
+  const syncedStateMiddleware: Middleware = ({ path, context }) => {
     if (context.source !== 'local') return undefined;
     const match = /^resources\.([^.]+)\.([^.]+)\.value(?:\.|$)/.exec(path);
     if (!match) return undefined;
     const rt = match[1];
     const rid = match[2];
-    const basePath = `resources.${rt}.${rid}`;
-    // Read current meta.eTag from the underlying root (read-only access; we
-    // skip our Proxy's auto-subscribe by reading directly).
     const eTag = (root as any)?.resources?.[rt]?.[rid]?.meta?.eTag as string | undefined;
     if (!eTag) {
-      // Treat as "user editing never-subscribed resource"; no transaction.
+      // "User editing never-subscribed resource"; no transaction.
       // Production would log/warn here. Spike: silent.
       return undefined;
     }
-    // Deep-clone the pre-write value: Vue mutates the underlying object
-    // in place on nested writes, so capturing a reference here would yield
-    // the post-write value by the time rollback runs. `structuredClone`
-    // refuses Vue Proxies directly (DataCloneError), but `toRaw()` strips
-    // the Proxy and returns the underlying POJO which clones cleanly.
-    // Preserves Dates / RegExps / typed arrays correctly — handy if any
-    // resource type stores those.
+    // First-divergence base capture (B4 site a): the queue uses this only
+    // when the resource has no baseline yet — i.e. the value at the eTag the
+    // next submission asserts.
     const liveValue = (root as any)?.resources?.[rt]?.[rid]?.value;
-    const preWriteFullValue = liveValue === undefined
-      ? undefined
-      : structuredClone(toRaw(liveValue));
-
-    // Schedule the transaction after the optimistic write has landed.
-    // Microtask defer is the standard pattern; the user's write has already
-    // returned by the time the txn submits.
-    queueMicrotask(async () => {
-      // Re-read full value after the optimistic write applied.
-      const submitValue = (root as any)?.resources?.[rt]?.[rid]?.value;
-      const outcome = await client.transaction({
-        rt,
-        rid,
-        eTag,
-        value: submitValue,
-        newETag: cryptoRandomUUID(),
-      });
-      handleTransactionOutcome(outcome, basePath, preWriteFullValue);
-    });
-
-    // Don't substitute; the optimistic write proceeds.
-    void newValue;
+    const preWriteFullValue =
+      liveValue === undefined ? undefined : structuredClone(toRaw(liveValue));
+    queue.write(rt, rid, { preWriteValue: preWriteFullValue });
     return undefined;
   };
-
-  function handleTransactionOutcome(
-    outcome: TransactionOutcome,
-    basePath: string,
-    preWriteFullValue: unknown,
-  ): void {
-    const parts = basePath.split('.');
-    switch (outcome.resolution) {
-      case 'committed': {
-        // Write meta.eTag through with 'remote' context (skips middleware).
-        withContext({ source: 'remote' }, () => {
-          internalDeepWrite([...parts, 'meta', 'eTag'], outcome.eTag);
-        });
-        return;
-      }
-      case 'use-server': {
-        withContext({ source: 'remote' }, () => {
-          internalDeepWrite([...parts, 'value'], outcome.snapshot.value);
-          internalDeepWrite([...parts, 'meta'], outcome.snapshot.meta);
-        });
-        return;
-      }
-      case 'validation-failed':
-      case 'timeout': {
-        // Rollback optimistic write.
-        withContext({ source: 'rollback' }, () => {
-          internalDeepWrite([...parts, 'value'], preWriteFullValue);
-        });
-        return;
-      }
-    }
-  }
 
   // Internal write that walks via the outer Proxy so context flows through
   // middleware checks (middleware reads context.source and skips
@@ -397,8 +516,6 @@ export function createNebulaClient(
     cursor[path[path.length - 1]] = value;
   }
 
-  middlewares.push(syncedStateMiddleware);
-
   // ─── Wire client → store: fanout, connection state ───────────────────────
   client.onResourceUpdate((rt, rid, snapshot) => {
     withContext({ source: 'remote' }, () => {
@@ -411,6 +528,8 @@ export function createNebulaClient(
         internalDeepWrite([...basePath, 'meta'], snapshot.meta);
       }
     });
+    // An idle resource adopts the fanout snapshot as its new baseline.
+    queue.noteRemoteSnapshot(rt, rid);
   });
 
   client.onConnectionStateChange((state) => {
@@ -421,6 +540,8 @@ export function createNebulaClient(
         internalDeepWrite(['lmz', 'connection', 'lastConnectedAt'], Date.now());
       }
     });
+    // Connection gate: not-'connected' suspends flush + all queue timers.
+    queue.setConnectionState(state);
   });
 
   // ─── Public API ──────────────────────────────────────────────────────────
@@ -432,23 +553,23 @@ export function createNebulaClient(
     };
   }
 
-  function dispose(): void {
+  async function dispose(): Promise<void> {
     for (const t of pendingUnsubscribes.values()) clearTimeout(t);
     pendingUnsubscribes.clear();
     refcount.clear();
+    // Flush pending writes; resolves once open submissions settle. Nothing
+    // submits after this resolves.
+    await queue.dispose();
   }
 
-  return { store, client, use, dispose };
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-function cryptoRandomUUID(): string {
-  // Node 20+ exposes globalThis.crypto.randomUUID; tolerate older runtimes.
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID();
-  }
-  // Fallback: time-based, not collision-proof; spike-only.
-  return `spike-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    store,
+    client,
+    use,
+    dispose,
+    flush: queue.flush,
+    transactionDebounce: queue.transactionDebounce,
+  };
 }
 
 // Re-export for tests

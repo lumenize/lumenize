@@ -2,7 +2,7 @@
  * Phase 0a — Factory mechanics against a mock client.
  *
  * Each test targets a pinned-semantic invariant from
- * `tasks/alpine-adapter-spike.md`'s "Pinned semantics" table. Real-Star
+ * `tasks/archive/alpine-adapter-spike.md`'s "Pinned semantics" table. Real-Star
  * integration happens in Phase 0b.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -12,7 +12,13 @@ import { MockClient } from './mock-client';
 
 function setup(initialState: Record<string, any> = {}) {
   const client = new MockClient();
-  const factory = createNebulaClient(client, { initialState, unsubscribeGraceMs: 50 });
+  // quietMs 0 = eager microtask submission — these tests pin per-write
+  // submission mechanics, not debounce timing (that's debounce-queue.test.ts).
+  const factory = createNebulaClient(client, {
+    initialState,
+    unsubscribeGraceMs: 50,
+    debounce: { quietMs: 0 },
+  });
   return { client, factory, store: factory.store };
 }
 

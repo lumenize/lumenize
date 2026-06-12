@@ -1,5 +1,5 @@
 {
-  "name": "@lumenize/spike-alpine-adapter",
+  "name": "@lumenize/spike-vue-factory",
   "version": "0.0.0",
   "private": true,
   "type": "module",

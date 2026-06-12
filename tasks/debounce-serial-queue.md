@@ -1,8 +1,16 @@
 # Debounce + serial-per-resource queue (detour task for nebula-frontend Phase 5.3.7-v3)
 
-**Status**: not started. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v3.
+**Status**: **D0 + D1 complete in spike 2026-06-12**; D2 (production port) remains, rides v3. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v3.
 
-**Why it's a detour**: the design has more correctness invariants than the rest of v3 combined — eTag-race correctness, in-flight buffering, flush-on-(unmount|blur|dispose), transaction-result triggering buffered submits. The spike factory at [apps/nebula/spike/alpine-adapter/src/create-nebula-client.ts](../apps/nebula/spike/alpine-adapter/src/create-nebula-client.ts) does NONE of this — it just `queueMicrotask`s a single transaction per write. Building the full state machine inline with the rest of v3 risks "the doc says debouncing works, the implementation has subtle bugs nobody caught" — exactly the failure mode the docs-first sequencing was meant to avoid.
+**Where it landed** (in `apps/nebula/spike/vue-factory/`, NOT the originally-planned `spike/debounce/` — the queue had to share the factory + MockClient harness with the collection-sync detour, and the spike factory itself needed the queue wired in so collection mutations could share the submission path):
+- `src/debounce-queue.ts` — the state machine, standalone module with injected `submit`/`readResource`/`onCommitted`/`onNonCommit`.
+- `test/debounce-queue.test.ts` — 20 property tests (fake timers), the D0 isolation harness.
+- `src/create-nebula-client.ts` — the spike factory now submits THROUGH the queue (synced-state middleware → `queue.write`; `queueMicrotask`-per-write is gone). Factory-level integration covered by factory-basics (at `quietMs: 0`) + collection-sync suites; e2e (phase-0b) + Vue (phase-1) re-verified green.
+- Conflict resolution stays OUT: every non-committed outcome delegates to `onNonCommit(outcome, submission, api)` with `api.accept/fail/resubmit` — the `factory-conflict-outcome.md` machine plugs in there; the key stays occupied (and its timeout cancelled) while a resolver deliberates, so async-resolver-suspends-timeout falls out of the occupancy design.
+
+**Capable-of-failing verified 2026-06-12** (gut → observe failures → restore): (a) removing the commit-boundary base re-anchor fails exactly the B4 test; (b) removing the disconnect suspend block fails exactly the two connection-gate tests ("submits-then-times-out before reconnect" and "timeout fires while disconnected"). One test was strengthened when a probe survived: the offline-write assertion now advances time before asserting zero submissions (an impl that arms timers offline would otherwise slip through).
+
+**Why it's a detour**: the design has more correctness invariants than the rest of v3 combined — eTag-race correctness, in-flight buffering, flush-on-(unmount|blur|dispose), transaction-result triggering buffered submits. The spike factory at [apps/nebula/spike/vue-factory/src/create-nebula-client.ts](../apps/nebula/spike/vue-factory/src/create-nebula-client.ts) does NONE of this — it just `queueMicrotask`s a single transaction per write. Building the full state machine inline with the rest of v3 risks "the doc says debouncing works, the implementation has subtle bugs nobody caught" — exactly the failure mode the docs-first sequencing was meant to avoid.
 
 Derisking with a spike + property-style tests BEFORE the production port lets us validate the state machine against the invariants in isolation, then port the validated design.
 
@@ -21,9 +29,9 @@ Derisking with a spike + property-style tests BEFORE the production port lets us
 
 ---
 
-## Phase D0 — Spike (~half-day)
+## Phase D0 — Spike (~half-day) — DONE 2026-06-12
 
-Goal: validate the state machine against the correctness invariants in a minimal harness. Lives in `apps/nebula/spike/debounce/` (deleted post-merge per the standard experiment lifecycle).
+Goal: validate the state machine against the correctness invariants in a minimal harness. Lives in `apps/nebula/spike/vue-factory/` (see Status above; deleted post-merge per the standard experiment lifecycle).
 
 Harness shape:
 - A factory of the spike's `createNebulaClient` shape with a mocked `client.transaction` that captures every submitted `{ rt, rid, eTag, newETag, value }` tuple and answers with controlled outcomes (commit, conflict, timeout).
@@ -32,27 +40,65 @@ Harness shape:
 
 Property assertions (use vitest's table tests + `vi.useFakeTimers` for determinism; cross-check a subset under real timers):
 
-- [ ] N keystrokes within `quietMs` produce exactly 1 transaction.
-- [ ] N keystrokes spread over T ms (T > maxWaitMs) produce ≤ `ceil(T / maxWaitMs) + 1` transactions.
-- [ ] All submitted transaction `newETag`s are unique (no idempotency collision).
-- [ ] Across a chain of debounced submissions for a single resource, the `eTag` of each submission equals the `newETag` (or server-returned eTag) of the previous successful submission. No stale-eTag submissions, no double-submission with the same `eTag`.
-- [ ] **Base re-anchors with the eTag at the commit boundary (B4 site b):** a buffered write that chains onto a cleanly-committed transaction carries that transaction's committed value as its merge `base`, not the original pre-write value. Capable-of-failing: T1 commits, a buffered write becomes T2, a third party moved the server → T2 conflicts; assert the resolver's `base` = T1's committed value (a base-not-re-anchored impl carries the stale original and the merge double-counts T1's edit).
-- [ ] Cross-client commit landing while local tx in-flight: exactly one conflict-resolver invocation per conflict, not one per buffered write.
-- [ ] Flush on unmount: a write within the quiet window that gets unmounted before quiet elapse submits exactly once (via flush).
-- [ ] Flush on blur: same property, blur trigger.
-- [ ] Flush on dispose: pending writes flush before dispose resolves; no transactions submitted after dispose returns.
-- [ ] A `@debounce(0)` / `quietMs: 0` field submits on the next microtask (no quiet window); flushing it also flushes any pending debounced writes on the **same** resource (shortest-active-timer-wins).
-- [ ] **Multi-resource batch (deep-review m9):** a transaction touching N resources occupies all N per-`(rt, rid)` queues; buffered writes to any of those resources chain off the batch's resulting eTag; an explicit `transaction()` call flushes pending debounced writes for the resources it touches first. D0 race probe: interleave a debounced write and an explicit multi-resource batch on overlapping resources; assert no lost write and correct eTag chaining.
-- [ ] **Disconnect suspends the write path (decided 2026-06-11):** drive the mock to a non-`'connected'` state; a write that would normally flush (quiet/maxWait elapse, blur) produces **no** submission and arms **no** timeout timer while disconnected; on reconnect, exactly one submission goes out carrying the latest coalesced value, eTag chain intact. Capable-of-failing: an impl that flushes regardless of connection submits-then-times-out (or rolls back) before reconnect.
-- [ ] **In-flight at disconnect re-submits on reconnect (idempotent):** a transaction in flight when the connection drops is NOT rolled back by the disconnect, and its timeout timer is suspended; on reconnect it re-submits with the *same* `newETag` (server replay short-circuits to `committed` if it had landed). Capable-of-failing: an impl that lets the 10 s timeout fire while disconnected rolls back the optimistic write the banner promised was queued.
+- [x] N keystrokes within `quietMs` produce exactly 1 transaction.
+- [x] N keystrokes spread over T ms (T > maxWaitMs) produce ≤ `ceil(T / maxWaitMs) + 1` transactions.
+- [x] All submitted transaction `newETag`s are unique (no idempotency collision). (Across *logical* submissions — a reconnect replay of the same in-flight submission intentionally reuses its `newETag`; a conflict re-submission gets a fresh one.)
+- [x] Across a chain of debounced submissions for a single resource, the `eTag` of each submission equals the `newETag` (or server-returned eTag) of the previous successful submission. No stale-eTag submissions, no double-submission with the same `eTag`.
+- [x] **Base re-anchors with the eTag at the commit boundary (B4 site b):** a buffered write that chains onto a cleanly-committed transaction carries that transaction's committed value as its merge `base`, not the original pre-write value. Capable-of-failing VERIFIED: gutting the re-anchor fails exactly this test.
+- [x] Cross-client commit landing while local tx in-flight: exactly one conflict-resolver invocation per conflict, not one per buffered write.
+- [x] Flush on unmount: a write within the quiet window that gets unmounted before quiet elapse submits exactly once (via flush). (Queue-level `flush(rt, rid)`; the Vue `onScopeDispose` wiring is D2.)
+- [x] Flush on blur: same property, blur trigger (queue-level `flush()`; the focusout listener is D2).
+- [x] Flush on dispose: pending writes flush before dispose resolves; no transactions submitted after dispose returns. (Design decision recorded below: writes buffered *behind an in-flight transaction* at dispose time are dropped — submitting them would violate "nothing after dispose"; the in-flight one itself settles normally.)
+- [x] A `@debounce(0)` / `quietMs: 0` field submits on the next microtask (no quiet window); flushing it also flushes any pending debounced writes on the **same** resource (shortest-active-timer-wins; the submission reads the full resource value, so both edits ride one transaction).
+- [x] **Multi-resource batch (deep-review m9):** a transaction touching N resources occupies all N per-`(rt, rid)` queues; buffered writes to any of those resources chain off the batch's resulting eTag; an explicit `transaction()` call flushes pending debounced writes for the resources it touches first (folded into the batch — their coalesced value rides it; no separate submission, no lost write). Race probe green incl. parking the batch behind an in-flight single.
+- [x] **Disconnect suspends the write path (decided 2026-06-11):** capable-of-failing VERIFIED (suspend block gutted → both gate tests fail).
+- [x] **In-flight at disconnect re-submits on reconnect (idempotent):** same `newETag`, `attempt` bumped, timeout suspended while offline, stale first-attempt responses ignored (attempt-counter guard). Capable-of-failing VERIFIED (same gut).
 
-Aim for ≥ 8 of these green before moving to D1.
+All 13 green (20 tests incl. per-type config, infra-timeout-while-connected, stale-attempt race, and the use-this resubmit plumbing for detour #4).
 
 ---
 
-## Phase D1 — Design (~half-day)
+## Phase D1 — Design (~half-day) — DONE 2026-06-12 (diagram below reflects the built machine)
 
-Output: a state diagram (Mermaid or ASCII) as an inline block in this file.
+```
+Per (rt, rid) key — two orthogonal axes: dirty? (a local edit awaits submission)
+and occupied? (a submission for this key is in flight / awaiting resolver).
+Timers exist only when dirty ∧ free ∧ connected.
+
+                         write (effQuiet>0: restart quiet; arm maxWait once/burst)
+                         write (effQuiet=0: microtask flush)
+            ┌────────┐ ───────────────────────────────────────►  ┌──────────────────┐
+            │  Idle   │                                          │ Pending (dirty,  │◄─┐
+            │ (clean) │ ◄─── txResult committed (no buffer) ───  │ timers running)  │──┘ write:
+            └────────┘      [baseline+base advance together]     └──────────────────┘    restart quiet
+                ▲                                                   │
+                │                                  quietFire / maxWaitFire / flush(unmount|blur|dispose)
+                │                                  [reads store value NOW; eTag=baseline; base=baseValue]
+                │                                                   ▼
+                │              write ⇒ dirty (buffer; latest-value) ┌──────────────────┐
+                │            ┌───────────────────────────────────► │ InFlight          │
+                │            │                                     │ (occupied; 10 s   │
+                │            └──────────────────────────────────── │ timeout armed)    │
+                │                                                  └──────────────────┘
+                │                     txResult committed ∧ dirty:      │         │
+                │                     re-enter Pending (fresh quiet/   │         │ non-commit outcome:
+                │                     maxWait) — flushOnRelease ⇒      │         │ key STAYS occupied;
+                │                     submit immediately               │         │ onNonCommit(outcome, sub, api)
+                │                                                      ▼         ▼
+                │                                            api.accept(snapshot) → baseline=snapshot, release
+                └─────────────────────────────────────────── api.fail()           → drop dirty, release
+                                                              api.resubmit({...})  → new submission (fresh newETag)
+
+Connection gate (orthogonal): state ≠ 'connected' ⇒ all timers cancelled
+(dirty persists), in-flight timeout cancelled + batch marked suspended; NOTHING
+rolls back. Reconnect ⇒ suspended in-flight replays (SAME newETag, attempt+1,
+stale earlier-attempt responses ignored), then dirty free keys flush
+immediately, then parked batches re-checked.
+
+Explicit multi-resource batch (m9): occupies ALL its keys; folds those keys'
+pending writes (their timers cancel; values read at submit); parks FIFO until
+every key is free ∧ connected.
+```
 
 States per resource:
 - `Idle` — no writes, no timers, no in-flight tx.
@@ -72,17 +118,17 @@ Transitions to enumerate:
 - `connectionLost` (`lmz.connection.state` leaves `'connected'`; any state → **suspended**: hold buffered writes, do NOT submit, suspend the quiet/maxWait timers AND any in-flight timeout timer — no rollback from a disconnect)
 - `connectionRestored` (→ `'connected'`: re-submit any transaction that was in flight at disconnect with its *same* `newETag` (idempotent — server short-circuits if it had committed), then flush held writes; eTag chain intact)
 
-Open design questions to resolve in D1:
-- **Coalescing during InFlight**: when a write arrives during InFlight, does the buffer hold the latest *value*, or a queue of *writes*? Likely just-the-latest-value — the optimistic store update is the source of truth; the buffered submit just needs to capture "whatever the store says when we go to submit."
-- **maxWait timer reset semantics**: does maxWait start on first-write-after-Idle and never reset, OR does it reset on transaction-result-success (allowing the next "burst" its own 2 s window)? Likely the latter — the user perceives each successful submission as a fresh starting point.
-- **Cross-resource ordering**: are timers per-resource or global? Per-resource — different resources are independent, their submissions can interleave freely.
-- **Flush priority during conflict resolution**: if a conflict resolver is awaiting (e.g., `human-in-the-loop` modal), do flushes for that resource block, or do they queue behind the resolver? The doc says "transaction queue parks while the modal is open" — so flushes for the conflicted resource queue; flushes for other resources proceed.
+Open design questions — ALL RESOLVED in the built machine:
+- **Coalescing during InFlight**: just-the-latest-value, as suspected — the buffer is a `dirty` flag; the submission re-reads the store at submit time. ✔ built + tested.
+- **maxWait timer reset semantics**: the latter — maxWait anchors at each burst's first write and a post-commit buffered burst gets a fresh window (release re-enters the debounce cycle; an external flush or `@debounce(0)` write during flight sets `flushOnRelease` ⇒ immediate submit on release instead). ✔ built + tested (the continuous-typing cap test depends on it).
+- **Cross-resource ordering**: per-resource timers; independent interleaving. ✔ tested (occupied `t1` does not block `t2`).
+- **Flush priority during conflict resolution**: the key stays occupied from non-commit outcome until the handler concludes via `api.accept/fail/resubmit` — flushes for that resource buffer behind it (the in-flight timeout is already cancelled when the outcome arrives, so an open modal can't trigger `'timeout'`); other resources proceed. ✔ built; the resolver-side behavior tests live in factory-conflict-outcome.
 
 ---
 
 ## Phase D2 — Production port (~1 day)
 
-Ports the validated state machine into `packages/nebula-frontend/src/debounce.ts` as part of `tasks/nebula-frontend.md` Phase 5.3.7-v3. By this point the design is locked; D2 is mechanical translation + integration with the synced-state middleware.
+Ports the validated state machine into `packages/nebula-frontend/src/debounce.ts` as part of `tasks/nebula-frontend.md` Phase 5.3.7-v3. By this point the design is locked; D2 is mechanical translation + integration with the synced-state middleware. **Head start from D0**: the spike factory already wires the queue end-to-end (middleware → `queue.write`, `onConnectionStateChange` → `setConnectionState`, fanout → `noteRemoteSnapshot`, `dispose` → `queue.dispose`, `flush`/`transactionDebounce` exposed on the factory result) — the port translates that wiring too, leaving only the Vue/DOM triggers (`onScopeDispose`, focusout) and the real `client.resources.transaction` adapter genuinely new.
 
 - [ ] Implement the state machine per the D1 diagram.
 - [ ] Wire into synced-state middleware (the middleware enqueues into the debouncer; the debouncer calls `client.resources.transaction(...)` when it's time to submit).
@@ -97,4 +143,4 @@ Ports the validated state machine into `packages/nebula-frontend/src/debounce.ts
 
 This file gets archived to `tasks/archive/debounce-serial-queue.md` once D2 lands. The state-machine diagram + invariants list survive there as historical record.
 
-The `apps/nebula/spike/debounce/` directory gets removed alongside `apps/nebula/spike/alpine-adapter/` in the 5.3.7 post-merge cleanup.
+The `apps/nebula/spike/debounce/` directory gets removed alongside `apps/nebula/spike/vue-factory/` in the 5.3.7 post-merge cleanup.

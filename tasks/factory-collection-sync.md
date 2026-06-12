@@ -1,6 +1,12 @@
 # Factory collection-sync — Map/Set mutations through the store (v3 isolation detour)
 
-**Status**: spec'd 2026-06-11, not started. Pre-v3 isolation detour for `tasks/nebula-frontend.md` Phase 5.3.7-v3, resolving deep-review **M10**. Build + property-test in isolation **before** the bulk of v3 wiring, reusing the [debounce-serial-queue.md](debounce-serial-queue.md) D0 harness (the mock `client.transaction` that captures every submitted `{ rt, rid, eTag, newETag, value }`).
+**Status**: spec'd 2026-06-11; **implemented + tested in spike 2026-06-12**. Pre-v3 isolation detour for `tasks/nebula-frontend.md` Phase 5.3.7-v3, resolving deep-review **M10**. Lives in `apps/nebula/spike/vue-factory/`: the mutator interception in `src/create-nebula-client.ts` (the `MAP_MUTATORS`/`SET_MUTATORS` block in the `get` trap), tests at `test/collection-sync.test.ts` (15 tests, sharing the [debounce-serial-queue.md](debounce-serial-queue.md) harness — MockClient capture + the debounce queue at `quietMs: 0` so rapid mutations coalesce on a microtask). **Capable-of-failing verified**: reintroducing the M10 gap (interception disabled) fails 11/15 — the 4 survivors are the read-only/array/no-echo tests that don't depend on interception.
+
+**Pinned during D0** (and synced to api-reference § Middleware):
+- Mutator-driven middleware args: `path` = the owning collection's path, `oldValue` = pre-mutation snapshot, `newValue` = post-mutation value (the spec's suggested shape, confirmed).
+- **Middleware ordering changed for parity**: user middlewares run first, the built-in synced-state middleware runs LAST — a user abort (throw) now aborts the submission too (previously synced-state ran first and a queued submission could leak past a later abort), and synced-state sees the final substituted value. Applies to property writes and mutator calls identically.
+- Adjacent fixes the tests forced: (a) the path-Proxy now wraps only plain objects/arrays/Maps/Sets (mirroring Vue's targetTypeMap) — it used to wrap `Date` etc., breaking internal-slot methods ("this is not a Date object"); (b) `deepEquals` got a cycle/alias pair-memo guard (two structurally-equal cyclic values used to recurse to stack overflow — ADR-002 requires cycles to work).
+- **Known gap deferred to v3 wiring**: property writes on objects retrieved FROM collection entries (`map.get('k').name = 'x'`) don't path-route through the wrapper — Vue's instrumentation hands back its own reactive, not our path proxy. Mutating the collection itself syncs; mutating an entry's interior does not. Decide treatment during the v3 port (recurse the wrapping through instrumented `get`, or document as assign-the-entry).
 
 ## The gap
 
@@ -21,19 +27,19 @@ In the factory's `get` trap, when handing out a `Map`/`Set` mutator (`set`/`add`
 - **One submission model**: the wrapped mutator funnels into the existing microtask-defer → read full `value` → submit `put` path, so it inherits debounce, serial-per-`(rt,rid)` queue, and remote/rollback `context.source` discrimination for free. Do NOT add a second submission trigger.
 - **No double-submit**: a single mutator call submits once; a remote fanout that writes a collection through `{ source: 'remote' }` must NOT re-submit (same skip as the `set` trap).
 
-## Tests (property-style, against the captured-transaction harness)
+## Tests (property-style, against the captured-transaction harness) — ALL GREEN
 
-- [ ] `Map.set` / `Map.delete` / `Map.clear` on a resource value each produce exactly one submitted transaction carrying the full post-mutation `value`; round-trips through the mock and writes back.
-- [ ] `Set.add` / `Set.delete` / `Set.clear` — same.
-- [ ] **Receiver-binding**: non-mutating reads (`map.get`, `map.has`, `set.has`, `forEach`, `for…of`, `.size`) work through the factory Proxy without throwing.
-- [ ] **Deep nesting**: a `Map` at `value.meta.labels` and a `Set` inside an array element both sync (proves the wrapping recurses).
-- [ ] **Parity with property writes**: a user middleware that aborts/transforms sees collection mutations the same as property writes (the abort-ability A buys over B).
-- [ ] **Debounce coalescing**: N rapid collection mutations on one resource coalesce to ~1 transaction (shares the debounce path).
-- [ ] **No echo**: a remote fanout writing a collection value does not trigger a resubmit.
-- [ ] **Array regression**: `arr.push`/`splice` still sync via the `set` trap (no regression from the collection work).
-- [ ] **Mutation during iteration**: `for (const k of map.keys()) map.delete(k)` (raw-bound iterator + wrapped mutator) coalesces to one submitted transaction and leaves the collection empty locally and on the mock — no iterator invalidation through the Proxy, no N mid-iteration submissions.
-- [ ] **No-op mutators**: `set.add(existingElement)`, `map.set(k, sameValue)`, `delete(absentKey)`, `clear()` on an empty collection produce **zero** submissions (parity with the set-trap deep-equals skip in "One submission model").
-- [ ] Round-trip rich-type invariant: a resource whose value contains `Map`, `Set`, `Date`, and a cycle survives mutate → submit → fanout → re-render (the Phase 5 testing invariant, now exercised through the factory).
+- [x] `Map.set` / `Map.delete` / `Map.clear` on a resource value each produce exactly one submitted transaction carrying the full post-mutation `value`; round-trips through the mock and writes back (committed eTag lands in `meta.eTag`).
+- [x] `Set.add` / `Set.delete` / `Set.clear` — same.
+- [x] **Receiver-binding**: non-mutating reads (`map.get`, `map.has`, `set.has`, `forEach`, `for…of`, `.size`, `keys()`) work through the factory Proxy without throwing. (Vue's instrumentation resolves `this.__v_raw` through the wrapper's `__v_` pass-through — no explicit binding needed; mutators are wrapped anyway.)
+- [x] **Deep nesting**: a `Map` at `value.meta.labels` and a `Set` inside an array element both sync (proves the wrapping recurses).
+- [x] **Parity with property writes**: a middleware abort (throw) prevents the local mutation AND the submission for both mutators and property writes; a transform substitutes the applied and submitted collection.
+- [x] **Debounce coalescing**: 10 rapid mutations → 1 transaction (shares the debounce path).
+- [x] **No echo**: a remote fanout writing a collection value does not trigger a resubmit.
+- [x] **Array regression**: `arr.push`/`splice` still sync via the `set` trap.
+- [x] **Mutation during iteration**: `for (const k of map.keys()) map.delete(k)` coalesces to one submitted transaction; collection empty locally and on the mock.
+- [x] **No-op mutators**: all four shapes produce **zero** submissions AND never run the middleware chain (asserted directly).
+- [x] Round-trip rich-type invariant: `Map` + `Set` + `Date` + cycle survive mutate → submit → fanout → re-read, cycle identity intact (`sent.self === sent`), no echo.
 
 ## Port
 

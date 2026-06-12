@@ -25,13 +25,22 @@ export default defineConfig({
   test: {
     globals: true,
     projects: [
-      // Phase 0a — factory mechanics with mock client. Plain Node mode.
+      // Phase 0a — factory mechanics with mock client, plus the pre-v3
+      // isolation-detour suites (pure helpers + cores per
+      // tasks/nebula-frontend.md § Pre-v3 isolation detours). Plain Node mode.
       {
         extends: true,
         plugins: [swcPlugin],
         test: {
           name: 'phase-0a',
-          include: ['test/factory-basics.test.ts'],
+          include: [
+            'test/factory-basics.test.ts',
+            'test/text-merge.test.ts',
+            'test/deep-equals.test.ts',
+            'test/debounce-queue.test.ts',
+            'test/collection-sync.test.ts',
+            'test/conflict-outcome.test.ts',
+          ],
         },
       },
       // Phase 0b — end-to-end against real Star DO via vitest-pool-workers.

@@ -1,6 +1,6 @@
 /**
  * NebulaClient — SPIKE COPY. Reshaped from
- * `apps/nebula/src/nebula-client.ts` for the alpine-adapter spike:
+ * `apps/nebula/src/nebula-client.ts` for the vue-factory spike (formerly alpine-adapter):
  *   - `bindToState` and all its supporting machinery REMOVED — the factory
  *     in `create-nebula-client.ts` owns the integration with Vue reactivity
  *     and consumes this client's events via `onResourceUpdate(handler)`.

@@ -1,6 +1,6 @@
 # textMerge — 3-way text merge helper (v3 isolation detour)
 
-**Status**: spec'd 2026-06-11, not started. Pre-v3 isolation detour for [nebula-frontend.md](nebula-frontend.md) Phase 5.3.7-v3. A **pure function** — the cleanest possible thing to build and property-test in isolation, with zero factory/mesh/Vue deps. Build first (the conflict/outcome state machine's `@longform` auto-resolver depends on it). Tagged `new-in-v3` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge).
+**Status**: spec'd 2026-06-11; **implemented + tested in spike 2026-06-12**. Pre-v3 isolation detour for [nebula-frontend.md](nebula-frontend.md) Phase 5.3.7-v3. Lives at `apps/nebula/spike/vue-factory/src/text-merge.ts` (impl + `@longform` resolver shape) and `test/text-merge.test.ts` (28 property tests, phase-0a vitest project); the sibling pure helper `deepEquals` (same detour) got its pinning suite at `test/deep-equals.test.ts`. Tagged `new-in-v3` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge). Remaining work: the v3 port (below).
 
 ## Signature
 
@@ -10,23 +10,27 @@ function textMerge(server: string, local: string, base: string): string;
 
 3-way merge: `base` is the common ancestor; `local` and `server` each diverged from it. Returns a merge preserving both sides' non-overlapping edits. `base` is **required and load-bearing** (deep-review B4): with `base === server` the server→base diff is empty and the result collapses to `local` (server's edit silently dropped) — that degeneration is the regression these tests must catch. This function is agnostic to *where* `base` comes from — its three client-side re-anchor sites (first-divergence, commit-boundary, use-this) are owned by [factory-conflict-outcome.md](factory-conflict-outcome.md) invariant 5; `textMerge` just consumes whatever common ancestor it's handed.
 
-## Build vs borrow
+## Build vs borrow — DECIDED: hand-rolled
 
-LCS-based 3-way merge, ~100–300 LOC hand-rolled, OR pull in `diff-match-patch` (Apache-2.0 — permissive, allowed per CLAUDE.md; add to ATTRIBUTIONS.md). Decide in D0; if borrowing, wrap it so the exported signature + degeneration semantics are ours and stable.
+Hand-rolled (~190 LOC including the resolver shape), no `diff-match-patch` dependency. Mechanism: word-level tokenization (alternating whitespace / non-whitespace runs, so `tokens.join('') === input` exactly) → two LCS passes (base↔local, base↔server; common prefix/suffix trim + O(n·m) DP on the divergent middle) → diff3-style chunking on base tokens matched on both sides. A divergent middle past 4M DP cells degrades to "whole middle is one conflict span" (deterministic, never a crash).
 
-## Property tests (the whole point of isolating this)
+**Documented overlap behavior** (the known limitation that motivates CRDT being out of scope): a conflicting span resolves to the **local side wholesale**, except a pure local *deletion* (empty local side) never erases a non-empty server *edit* — the server side wins that span. Same-point concurrent insertions count as overlap (local's insertion wins). Net guarantee: result is `''` only when `local === server === ''` or an identity rule mandates it.
 
-- [ ] **Identity / degeneration (the B4 trap):** `server === base` ⇒ result `=== local` (only local changed). `local === base` ⇒ result `=== server` (only server changed). `local === server` ⇒ that value.
-- [ ] **Both edits preserved (non-overlapping):** base `"the cat sat"`; local edits the start, server edits the end → result contains both edits.
-- [ ] **Overlap is bounded, not silent:** when local and server edit the *same* span, the result is one side or a documented garble — never a crash; never an empty string when at least one side's post-edit text is non-empty (both-sides-deleted-everything legitimately yields `''` — see Empty/edge). (Document the exact overlap behavior; it's the known limitation that motivates CRDT being out of scope.)
-- [ ] **Empty/edge:** empty base, empty local, empty server, all-identical, single-char; both sides deleted everything (`local === server === ''`, base non-empty) ⇒ `''` per the identity rule.
-- [ ] **No-PII / determinism:** pure function of its three args; same inputs ⇒ same output (no clock/random).
-- [ ] **Round-trip in a resolver:** wired into a `'use-this'` handler shape (`textMerge(server.value.body, local.value.body, base.value.body)`), the merged value is what gets re-submitted.
+## Property tests — ALL IMPLEMENTED (test/text-merge.test.ts)
+
+- [x] **Identity / degeneration (the B4 trap):** `server === base` ⇒ result `=== local` (only local changed). `local === base` ⇒ result `=== server` (only server changed). `local === server` ⇒ that value. Plus a permanent trap-demonstration test: a `base=server`-anchored impl returns `local` and drops the server edit.
+- [x] **Both edits preserved (non-overlapping):** base `"the cat sat"`; local edits the start, server edits the end → `"a cat stood"`; plus insert+append, delete+edit, and longer-sentence variants.
+- [x] **Overlap is bounded, not silent:** same-word double-replace → local side; same-point double-insert → local side; local-deletes-span-server-edited → server edit survives; local-deleted-everything-server-edited → full server text (never empty); server-deleted-everything-local-edited → local survives.
+- [x] **Empty/edge:** empty base (both typed / one typed), all-identical, single-char (one-side + both-sides), both-deleted ⇒ `''`, local-deleted-server-unchanged ⇒ `''`, whitespace-only edits, multi-line.
+- [x] **No-PII / determinism:** pure function of its three args; fixed case battery re-run after interleaved calls ⇒ identical outputs.
+- [x] **Round-trip in a resolver:** `makeLongformResolver('body')` on a `'conflict-pending'` resolution returns `{ kind: 'use-this', value: { ...server.value, body: textMerge(server, local, base) } }`; non-`conflict-pending` kinds fall through as `undefined` (M9); never-set optional field merges as `''`.
+
+**Capable-of-failing verified 2026-06-12**: gutting the impl with `base = server` (the B4 trap) failed 14/28 tests — every degeneration, both-edits-preserved, and resolver round-trip property — then restored to green (70/70 across phase-0a).
 
 ## Auto-registration (the `@longform` hook)
 
-A field annotated `@longform` auto-registers a per-type resolver that, on `'conflict-pending'`, returns `{ kind: 'use-this', value: { ...server.value, [field]: textMerge(server.value[field], local.value[field], base.value[field]) } }`. The annotation→resolver compile pass lives in the ontology pipeline; this detour owns only the merge function + the resolver *shape*. Test: a `@longform` field with concurrent non-overlapping edits → both survive (a `base=server` impl drops the server edit — capable-of-failing).
+A field annotated `@longform` auto-registers a per-type resolver that, on `'conflict-pending'`, returns `{ kind: 'use-this', value: { ...server.value, [field]: textMerge(server.value[field], local.value[field], base.value[field]) } }`. The annotation→resolver compile pass lives in the ontology pipeline; this detour owns only the merge function + the resolver *shape* — shipped as `makeLongformResolver(field)` in the same spike file (v3 `ConflictResolverVerdict` shape with the `kind:` discriminant, NOT the spike client's old `ConflictResolution`/`resolution:` shape). Test: a `@longform` field with concurrent non-overlapping edits → both survive (a `base=server` impl drops the server edit — capable-of-failing, verified above).
 
 ## Port
 
-Export from `@lumenize/nebula-frontend` top level during v3. Delete this detour after the port.
+Export from `@lumenize/nebula-frontend` top level during v3 (function, resolver factory, and both test suites move over). Delete this detour after the port.
