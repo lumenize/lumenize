@@ -129,7 +129,7 @@ If the user arrives via a bookmarked URL that encodes the scope (e.g. `https://a
 
 ## Scope Switching
 
-An admin (or any user with access to multiple scopes) wants to switch from one star to another. Scope switching is a **full re-login, not an in-place reconnect** — the old `NebulaClient` is destroyed and a new one is created.
+An admin (or any user with access to multiple scopes) wants to switch from one star to another. Scope switching is a **full re-login, not an in-place reconnect** — the old `NebulaClient` is destroyed and a new one is created. This section's diagram covers **separately-held** scopes (each with its own path-scoped cookie); admins with a wildcard grant use the lighter flow in [Admin active-scope switching](#admin-active-scope-switching-within-a-wildcard-grant) below.
 
 The key insight: `NebulaClient` is ephemeral; the refresh cookie is the durable credential. Each access token has a single `aud` (active scope), so switching scope requires a new token.
 
@@ -181,6 +181,52 @@ sequenceDiagram
 
 :::note When refresh fails
 If the refresh call returns 401 (cookie expired or doesn't exist for the new scope's path), the flow falls back to magic link — same as the [first-time login](#first-time-login) flow starting at step 3. The old client stays alive until the magic link completes.
+:::
+
+### Admin active-scope switching (within a wildcard grant)
+
+A **Galaxy or Universe admin** holds a single wildcard grant covering the parent scope *and every scope beneath it*, so switching the active scope needs neither discovery nor a new cookie — only a refresh with a different `activeScope`.
+
+An admin logged in at the Galaxy `acme.app`:
+
+- holds **one** refresh cookie, path-scoped to `/auth/acme.app`;
+- has scope pattern `acme.app.*` (Galaxy → wildcard), which `matchAccess` resolves to the Galaxy itself **and** every Star under it.
+
+Every switch is the *same* request — `POST /auth/acme.app/refresh-token`, **same cookie** — varying only the body's `activeScope`:
+
+| Goal | `activeScope` | `matchAccess("acme.app.*", …)` |
+| --- | --- | --- |
+| Work directly in the Galaxy (Studio) | `acme.app` | ✓ (wildcard matches its own prefix) |
+| Activate a child Star | `acme.app.tenant-a` | ✓ |
+| Switch to a different child Star | `acme.app.tenant-b` | ✓ |
+| Return to the Galaxy | `acme.app` | ✓ |
+
+The admin's **`authScope` never changes** (the cookie stays at `/auth/acme.app`); only **`activeScope`** (the JWT `aud`) moves. Each new `aud` is a new token, so the old `NebulaClient` is destroyed and a new one created — but there is **no magic link and no discovery**: the admin's cookie already authorizes the whole subtree. (A Universe admin is the same one tier up: cookie at `/auth/acme`, pattern `acme.*`, reaching any Galaxy or Star beneath.)
+
+```mermaid
+sequenceDiagram
+    participant UI as Studio (scope picker)
+    participant NC1 as NebulaClient (Galaxy)
+    participant NC2 as NebulaClient (Star)
+    participant W as Worker (entrypoint)
+    participant NA as NebulaAuth DO (acme.app)
+
+    Note over NC1: Connected to acme.app<br/>(aud: "acme.app")
+
+    Note over UI: Admin picks Star "tenant-a"
+    UI->>W: POST /auth/acme.app/refresh-token<br/>{ activeScope: "acme.app.tenant-a" }
+    W->>NA: same cookie (path /auth/acme.app)
+    Note over NA: matchAccess("acme.app.*",<br/>"acme.app.tenant-a") ✓
+    NA-->>UI: { access_token } (aud: "acme.app.tenant-a")
+    UI->>NC1: destroy()
+    Note over NC2: new client, aud = tenant-a
+    Note over UI: "Return to Galaxy" / pick another Star<br/>= same call, activeScope = acme.app / tenant-b
+```
+
+**UI shape (Studio).** A Galaxy admin sees a scope picker showing the current active scope plus the selectable children (the Stars under the Galaxy, with a "Galaxy (Studio)" entry to return to the parent). Selecting one re-creates the client at that `aud`. Most of the time the admin works directly in the Galaxy, where Studio lives; activating a Star is for inspecting or operating inside a tenant's data.
+
+:::note[Switching scope ≠ acting as another user]
+Activating a Star gives the admin a token whose **`aud`** is that Star, but the **`sub` stays the admin's own** — actions are attributed to the admin, with their admin rights cascading. "Act as another user" (carry a different `sub`) is a **separate** mechanism — the `delegated-token` endpoint with an `actFor` subject and an actor allowlist — not active-scope switching.
 :::
 
 ## Security Layers During Connection

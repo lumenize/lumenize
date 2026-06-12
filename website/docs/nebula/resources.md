@@ -330,11 +330,11 @@ Per-type or per-call override:
 
 ```js @skip-check
 client.resources.onTransactionResourceResolution('todo', handler, { maxRetries: 10 });
-// or per-call:
-await client.resources.transaction(ops, { onTransactionResourceResolution: handler, maxRetries: 3 });
+// or per-call — a map keyed by resourceId:
+await client.resources.transaction(ops, { onTransactionResourceResolution: { 'task-42': handler }, maxRetries: 3 });
 ```
 
-A per-call handler **layers in front of** the per-type handlers (it does not replace them) and is consulted for every resource in the batch — so a per-call handler that cares about one resource should filter by `resourceId` and `return` for the rest, letting their per-type handlers run. See [API reference § Precedence](./api-reference.md#resourcesontransactionresourceresolution).
+The per-call override is a **map keyed by `resourceId`**: each entry **layers in front of** its own resource's per-type handler (it does not replace it), and any resource not in the map falls through to its per-type handler automatically — so a per-call handler can't shadow a sibling it didn't name. See [API reference § Precedence](./api-reference.md#resourcesontransactionresourceresolution).
 
 #### `'use-this'` verdict — async modal
 
@@ -521,6 +521,8 @@ What "right merge" looks like depends on the data:
 Set fields (assignees, tags) typically want set-union; enums want last-write-wins (server is fine); IDs want last-write-wins (server is fine).
 
 ### Awaiting `transaction()` at the call-site
+
+**Three nouns, one `.kind` discriminant — anchor them once:** `TransactionOutcome` = the whole transaction's fate (what `await transaction()` resolves with); `TransactionResourceResolution` = one resource's fate within it (what the per-type handler receives); `ConflictResolverVerdict` = what you *return* from a `'conflict-pending'` resolution to steer it. Outcome and Resolution are reported *to* you; Verdict is your reply.
 
 Two patterns, depending on whether you call `transaction()` yourself.
 

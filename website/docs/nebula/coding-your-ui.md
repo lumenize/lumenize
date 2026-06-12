@@ -224,6 +224,8 @@ const isAppAdmin = computed(() =>
 <button v-if="isAppAdmin" class="btn">Admin settings</button>
 ```
 
+`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; the JWT `aud`-lock on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
+
 `client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
 
 ## Subscription lifecycle
@@ -370,7 +372,7 @@ Stock Vue. The one Nebula-relevant note: subscriptions inside an unmounted branc
 
 For multi-field forms that should commit together (rather than per-keystroke transactions), bind inputs to a local draft path and submit on click. Each form keeps its draft under its own `store.ui.<formName>.draft` path.
 
-Form-scoped reactions — clear the draft on commit, surface validation errors next to fields — belong in a **per-call handler** passed to that save's `transaction()` call, NOT in the per-type handler: the per-type handler fires on *every* transaction touching the type (debounced `v-model` edits, other forms, list mutations), so form state wired there gets clobbered by unrelated commits. Keep the per-type handler (registered once in `nebula.ts`) for type-wide policy — conflict verdicts, custom flashes; see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler). A per-call handler is consulted first for every resource in that call; returning `undefined` falls through to the per-type handler, and per-type terminal reactions still fire (it layers in front — it does not replace; see [API reference § Precedence](./api-reference.md#precedence)).
+Form-scoped reactions — clear the draft on commit, surface validation errors next to fields — belong in a **per-call handler** passed to that save's `transaction()` call, NOT in the per-type handler: the per-type handler fires on *every* transaction touching the type (debounced `v-model` edits, other forms, list mutations), so form state wired there gets clobbered by unrelated commits. Keep the per-type handler (registered once in `nebula.ts`) for type-wide policy — conflict verdicts, custom flashes; see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler). Per-call handlers are **keyed by `resourceId`** — `{ 'task-42': handler }` — so each handles only its own resource, and any sibling in the batch falls through to its per-type handler automatically (the per-call entry layers in front of its resource's per-type handler — it does not replace it; see [API reference § Precedence](./api-reference.md#precedence)).
 
 Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the eTag auto-derive matches, so no conflict fires to stop it).
 
@@ -404,18 +406,18 @@ async function saveTodo() {
                              value: { ...list, openCount: list.openCount + delta } },
     }),
   }, {
-    // Per-call handler — scoped to this save. It's consulted for EVERY resource
-    // in the batch and layers in front of (does not replace) the per-type
-    // handlers, so it MUST filter by rid: returning for the todoList lets its
-    // per-type set-union/openCount handler run (fall-through), instead of
-    // shadowing it. See API reference § Precedence.
-    onTransactionResourceResolution: (rid, resolution) => {
-      if (rid !== 'task-42') return;   // fall through to todoList's per-type handler
-      switch (resolution.kind) {
-        case 'committed':         store.ui.todoForm.draft = undefined; break;
-        case 'validation-failed': store.ui.todoForm.validationErrors = resolution.errors; break;
-        case 'permission-denied': store.ui.todoForm.saveError = { kind: 'permission-denied', rid }; break;
-      }
+    // Per-call handlers are keyed by resourceId — this one handles only
+    // 'task-42'. The sibling todoList isn't a key here, so it falls through to
+    // its per-type set-union/openCount handler automatically — no rid filtering,
+    // no risk of shadowing it. See API reference § Precedence.
+    onTransactionResourceResolution: {
+      'task-42': (rid, resolution) => {
+        switch (resolution.kind) {
+          case 'committed':         store.ui.todoForm.draft = undefined; break;
+          case 'validation-failed': store.ui.todoForm.validationErrors = resolution.errors; break;
+          case 'permission-denied': store.ui.todoForm.saveError = { kind: 'permission-denied', rid }; break;
+        }
+      },
     },
   });
   // transaction-wide failures (timeout, infrastructure-error) handled here
