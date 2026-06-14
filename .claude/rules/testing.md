@@ -24,6 +24,8 @@ A test that passes regardless of the implementation's correctness is worse than 
 
 When introducing a new test pattern (harness, fixture, mock layer), write a probe that *should fail* (feed a value the path can't preserve) and verify it fails, then fix the path to make it pass. If you can't write a failing probe, the test layer isn't testing anything.
 
+**Mutation-check added tests, not just new harnesses.** A test added to an already-green or ported suite can be vacuous — a redundant guard or unrelated path already forces its assertion, and the green neighbors hide it. Comment out the exact code path the new test targets, confirm *that* test goes red, then restore. Ported tests inherit prior mutation-validation; tests added during a port do not. (Mutation proves a test is capable of failing — it does NOT prove a mock is faithful to real behavior; for that, back the unit suite with a real integration/e2e test.)
+
 ## vitest reports handled rejections as "errors"
 A green run can still print `Errors N` — vitest-pool-workers counts workerd-level rejection events even when the test caught them (`.rejects.toThrow`, `.catch()`). Common with intentionally-erroring fire-and-forget mesh calls. It's reporting noise with **no JS-level fix** — don't try to shrink the count (e.g. `log.error`→`log.warn` doesn't change it, only hides real errors). What matters: **`failed` is 0** and none of the N messages are *new* ones from the code under test (grep the output for your error strings). A steady baseline (hundreds) is fine; a jump between commits (124→500) is worth investigating.
 
