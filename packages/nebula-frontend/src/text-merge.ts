@@ -143,11 +143,14 @@ function lcsMatches(a: string[], b: string[]): Map<number, number> {
 
 // ──────────────────────────────────────────────────────────────────────────
 // `@longform` auto-resolver shape. The annotation→resolver compile pass lives
-// in the ontology pipeline; this file owns the merge function and this resolver
-// shape (factory-textmerge detour § Auto-registration). The local verdict types
-// below are a minimal structural slice; they are reconciled with the canonical
-// ConflictResolverVerdict / TransactionResourceResolution from the conflict-
-// outcome engine when that ports (Phase 5.3.7-v3 conflict-outcome phase).
+// in the ontology pipeline; this file owns the merge function + this resolver
+// shape (factory-textmerge detour § Auto-registration). `ConflictResolverVerdict`
+// is canonical HERE — the conflict-outcome engine imports it from this module
+// (text-merge is the lower layer; importing it here would cycle). The local
+// `ConflictPendingResolution` is a minimal structural slice of the engine's full
+// `'conflict-pending'` branch (which carries `local`/`server`/`base`/`context`);
+// `makeLongformResolver` reads only `.{local,server,base}.value`, so it accepts
+// the full resolution at runtime.
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Minimal structural slice of `TransactionResourceResolution`'s non-terminal branch. */

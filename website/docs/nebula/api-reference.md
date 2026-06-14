@@ -700,7 +700,7 @@ Effect on the optimistic store, per branch:
 
 The `'use-this'` verdict from the handler is intermediate — never appears as a `TransactionResourceResolution` branch — it triggers a recursive re-submission with the handler-returned value at the server's current eTag. A successful chain terminates in `'committed'`; a failed one terminates in `'retries-exhausted'`.
 
-**Atomicity invariant**: a transaction's top-level `TransactionOutcome` is `'ok'` whenever the server responded; the per-resource breakdown reveals what each resource's final state is. Even when a resource lands at `'use-server'` (server's value won, data is consistent), the user's original `value` for that resource didn't land — but the transaction as a whole still completed normally (`'ok'`).
+**Atomicity invariant**: the server is atomic (all-or-nothing), so there is no mixed top-level outcome. A transaction's top-level [`TransactionOutcome`](#transactionoutcome) is `'committed'` whenever every op landed — even when a resource lands at `'use-server'` (the server's value won and the user's original `value` didn't, but the data is consistent and the op committed) — and `'rejected'` when an op failed for a per-op reason (`'permission-denied'` / `'validation-failed'` / `'human-in-the-loop'` / `'retries-exhausted'`). The per-resource breakdown in `resources` reveals each resource's final state.
 
 ## `ConflictResolverVerdict` {#conflictresolververdict}
 
