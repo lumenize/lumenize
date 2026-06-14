@@ -40,7 +40,7 @@ describe('dag-tree', () => {
   describe('schema and root node', () => {
     it('root node exists with nodeId 1, slug root, label Root after onStart', async () => {
       const star = uniqueStar();
-      const { client } = await adminClient(star);
+      const { client, payload } = await adminClient(star);
 
       client.callStarDagTreeGetState(star);
       await vi.waitFor(() => {
@@ -60,8 +60,11 @@ describe('dag-tree', () => {
       expect(state.edges).toBeInstanceOf(Set);
       expect(state.edges.size).toBe(0);
 
+      // The connecting admin is the scope-admin founder, auto-seeded as `admin`
+      // on root at first provision (see § founder root-admin seeding).
       expect(state.permissions).toBeInstanceOf(Map);
-      expect(state.permissions.size).toBe(0);
+      expect(state.permissions.size).toBe(1);
+      expect(state.permissions.get(ROOT_NODE_ID)?.get(payload.sub)).toBe('admin');
 
       client[Symbol.dispose]();
     });
@@ -104,6 +107,34 @@ describe('dag-tree', () => {
       await vi.waitFor(() => {
         const state = client.lastResult as DagTreeState;
         expect(state.nodes.get(ROOT_NODE_ID)!.label).toBe('My Root');
+      });
+
+      client[Symbol.dispose]();
+    });
+  });
+
+  // ─── Founder root-admin seeding (nebula-star-root-admin.md Part 1) ──
+
+  describe('founder root-admin seeding', () => {
+    it('seeds the founder (scope-admin) as admin on ROOT_NODE_ID at first provision', async () => {
+      const star = uniqueStar();
+      const { client, payload } = await adminClient(star);
+      const founderSub = payload.sub;
+
+      // checkPermission resolves the grant via the permission climb (NOT the
+      // scope-admin bypass — that lives only in requirePermission). So a true
+      // result proves a real DAG grant exists, and gutting the seed flips it.
+      client.callStarCheckPermission(star, ROOT_NODE_ID, 'admin', founderSub);
+      await vi.waitFor(() => {
+        expect(client.lastResult).toBe(true);
+      });
+
+      // ...and the grant is in the permissions map, so the request-access climb
+      // can discover the founder as the admin to ask.
+      client.callStarDagTreeGetState(star);
+      await vi.waitFor(() => {
+        const state = client.lastResult as DagTreeState;
+        expect(state.permissions.get(ROOT_NODE_ID)?.get(founderSub)).toBe('admin');
       });
 
       client[Symbol.dispose]();
@@ -612,46 +643,47 @@ describe('dag-tree', () => {
   describe('permission CRUD', () => {
     it('setPermission, checkPermission, getEffectivePermission, revokePermission', async () => {
       const star = uniqueStar();
-      const { client, payload } = await adminClient(star);
-      const adminSub = payload.sub;
+      const { client } = await adminClient(star);
+      // Resolve for a distinct, non-founder subject so the founder's seeded
+      // root-admin grant (which rolls down to every node) doesn't shadow the
+      // tier under test. The founder (caller) still performs the grants.
+      const testSub = generateUuid();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'secured', 'Secured');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
       const nodeId = client.lastResult as number;
 
       // Grant read
-      client.callStarSetPermission(star, nodeId, adminSub, 'read');
+      client.callStarSetPermission(star, nodeId, testSub, 'read');
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);
         expect(client.lastError).toBeUndefined();
       });
 
-      // Check permission (self, no targetSub)
-      client.callStarCheckPermission(star, nodeId, 'read');
+      client.callStarCheckPermission(star, nodeId, 'read', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(true));
 
-      client.callStarCheckPermission(star, nodeId, 'write');
+      client.callStarCheckPermission(star, nodeId, 'write', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
-      // Get effective (self)
-      client.callStarGetEffectivePermission(star, nodeId);
+      client.callStarGetEffectivePermission(star, nodeId, testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe('read'));
 
       // Upgrade to write via upsert
-      client.callStarSetPermission(star, nodeId, adminSub, 'write');
+      client.callStarSetPermission(star, nodeId, testSub, 'write');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      client.callStarCheckPermission(star, nodeId, 'write');
+      client.callStarCheckPermission(star, nodeId, 'write', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(true));
 
       // Revoke
-      client.callStarRevokePermission(star, nodeId, adminSub);
+      client.callStarRevokePermission(star, nodeId, testSub);
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      // Scope admin (claims.access.admin) still bypasses DAG check
-      client.callStarCheckPermission(star, nodeId, 'admin');
-      // Note: checkPermission doesn't use the scope-admin bypass (it delegates to resolvePermission)
-      // so with no grant this should return false for DAG check
+      // No grant → checkPermission resolves false (it delegates to
+      // resolvePermission and does NOT use the scope-admin bypass; the
+      // founder-seeding test proves that direction capable-of-failing).
+      client.callStarCheckPermission(star, nodeId, 'admin', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
       client[Symbol.dispose]();
@@ -677,20 +709,22 @@ describe('dag-tree', () => {
 
     it('setPermission replaces existing tier (upsert)', async () => {
       const star = uniqueStar();
-      const { client, payload } = await adminClient(star);
+      const { client } = await adminClient(star);
+      // Distinct subject — see the CRUD test above (founder rolls down admin).
+      const testSub = generateUuid();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'upsert-test', 'Upsert');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
       const nodeId = client.lastResult as number;
 
       // Grant admin, then downgrade to read
-      client.callStarSetPermission(star, nodeId, payload.sub, 'admin');
+      client.callStarSetPermission(star, nodeId, testSub, 'admin');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      client.callStarSetPermission(star, nodeId, payload.sub, 'read');
+      client.callStarSetPermission(star, nodeId, testSub, 'read');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      client.callStarGetEffectivePermission(star, nodeId);
+      client.callStarGetEffectivePermission(star, nodeId, testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe('read'));
 
       client[Symbol.dispose]();
@@ -702,8 +736,10 @@ describe('dag-tree', () => {
   describe('permission rolldown', () => {
     it('grant on root → all descendants, highest from any path wins', async () => {
       const star = uniqueStar();
-      const { client, payload } = await adminClient(star);
-      const sub = payload.sub;
+      const { client } = await adminClient(star);
+      // Resolve for a distinct subject — the founder's seeded root-admin grant
+      // would otherwise roll down and shadow the rolldown under test.
+      const sub = generateUuid();
 
       // Build: root → A → C, root → B → C (diamond), C → D
       client.callStarCreateNode(star, ROOT_NODE_ID, 'branch-a', 'A');
@@ -733,18 +769,18 @@ describe('dag-tree', () => {
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
       // C: write via A (highest), read via B → effective: write
-      client.callStarGetEffectivePermission(star, cId);
+      client.callStarGetEffectivePermission(star, cId, sub);
       await vi.waitFor(() => expect(client.lastResult).toBe('write'));
 
       // D: write rolls down from A through C
-      client.callStarGetEffectivePermission(star, dId);
+      client.callStarGetEffectivePermission(star, dId, sub);
       await vi.waitFor(() => expect(client.lastResult).toBe('write'));
 
       // Grant on root → all descendants
       client.callStarSetPermission(star, ROOT_NODE_ID, sub, 'admin');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
-      client.callStarGetEffectivePermission(star, dId);
+      client.callStarGetEffectivePermission(star, dId, sub);
       await vi.waitFor(() => expect(client.lastResult).toBe('admin'));
 
       client[Symbol.dispose]();
@@ -752,17 +788,19 @@ describe('dag-tree', () => {
 
     it('no grant on any ancestor → denied', async () => {
       const star = uniqueStar();
-      const { client, payload } = await adminClient(star);
+      const { client } = await adminClient(star);
+      // Distinct subject — the founder has a seeded root-admin grant.
+      const testSub = generateUuid();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'isolated', 'Isolated');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
       const nodeId = client.lastResult as number;
 
       // No grants at all → null effective, false check
-      client.callStarGetEffectivePermission(star, nodeId);
+      client.callStarGetEffectivePermission(star, nodeId, testSub);
       await vi.waitFor(() => expect(client.lastResult).toBeNull());
 
-      client.callStarCheckPermission(star, nodeId, 'read');
+      client.callStarCheckPermission(star, nodeId, 'read', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
       client[Symbol.dispose]();

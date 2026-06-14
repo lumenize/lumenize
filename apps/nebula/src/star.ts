@@ -18,12 +18,14 @@ import {
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { DagTree } from './dag-tree';
+import { ROOT_NODE_ID } from './dag-ops';
 import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
@@ -52,6 +54,34 @@ export class Star extends NebulaDO {
       this.#dagTree,
       this.#resources,
     )
+  }
+
+  /**
+   * Seed the founder as a DAG `admin` grant on root at first provision.
+   *
+   * Stars are lazy DOs with no explicit `createStar`; the founder is the
+   * scope-admin (`claims.access.admin`) who first touches this Star. We grant
+   * them `admin` on `ROOT_NODE_ID` so the request-access climb has a findable
+   * terminus *inside the tree* — a scope-level bypass admin isn't in the
+   * permissions map and so can't be discovered by the climb (it terminates at
+   * root only because the founder's grant lives there). The `setPermission`
+   * call satisfies its own `admin` gate via the scope-admin bypass
+   * (dag-tree.ts `requirePermission`), so no un-guarded path is needed. Runs
+   * exactly once; a non-admin first caller leaves root adminless until an admin
+   * connects.
+   *
+   * TODO(self-signup): revisit when the Galaxy gains a real Star-provisioning
+   * entry point — the founder's identity should come from the signup flow, not
+   * "first scope-admin to connect". See tasks/nebula-star-root-admin.md Part 1.
+   */
+  onBeforeCall() {
+    super.onBeforeCall() // locks the active scope (aud) on first call
+    if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
+    const auth = this.lmz.callContext.originAuth
+    const claims = auth?.claims as NebulaJwtPayload | undefined
+    if (!claims?.access?.admin || !auth?.sub) return
+    this.#dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
+    this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────

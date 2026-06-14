@@ -1,0 +1,11 @@
+{
+  // e2e test harness — placeholder. The real harness re-exports the Nebula DO
+  // stack (NebulaClientGateway, Universe, Galaxy, Star, ResourceHistory,
+  // NebulaAuth, NebulaAuthRegistry) + email sender and declares their bindings,
+  // mirroring apps/nebula/spike/vue-factory/test/wrangler.jsonc. Filled in when
+  // the e2e suites are ported (Phase 5.3.7-v3).
+  "name": "lumenize-nebula-frontend-e2e",
+  "main": "./test-harness.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat_v2"]
+}

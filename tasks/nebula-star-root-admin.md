@@ -8,12 +8,18 @@ This is the prerequisite the docs' founder-demo bootstrap leans on (coding-your-
 
 > Resolved (deep-review flag #5, 2026-06-10/11): the `claims.access.admin` bypass at [dag-tree.ts:158](../apps/nebula/src/dag-tree.ts:158) is **kept** — it IS the Galaxy/Universe scope-admin tier, parallel to DAG grants and deliberately absent from the permissions map. The code comment is already relabeled ("Galaxy/Universe-scope admin bypass (NOT a Star admin — that's a DAG `admin` grant on root)"), and the two-source admin model is pinned in nebula-frontend.md § Decisions pinned, resources.md § Access control, and coding-your-ui § Gating admin-only UI. Residual: relabel any surviving "Star admin" vocabulary (e.g. old test names).
 
-## Part 1 — Seed the founder as root admin at Star provisioning
+## Part 1 — Seed the founder as root admin at Star provisioning — **DONE 2026-06-14** (nebula-frontend v3 Phase 0)
 
 When the Galaxy provisions a Star for a new tenant, the founder's `sub` gets `admin` on `ROOT_NODE_ID` of that Star's orgTree: `dagTree.setPermission(ROOT_NODE_ID, founderSub, 'admin')`, run as part of the provisioning path (Stars are currently lazy DO instances — the seed happens on the first-provision flow, wherever the self-signup lands it; **no explicit `createStar` mesh method exists yet** — `apps/nebula/src/galaxy.ts` has config/ontology methods only).
 
-- [ ] Identify/establish the Star-provisioning entry point (self-signup → Galaxy → Star). Seed `setPermission(ROOT_NODE_ID, founderSub, 'admin')` there, exactly once, at first provision.
-- [ ] **Test (the concrete ask):** provision a Star with a known `founderSub` → assert that user holds `admin` on `ROOT_NODE_ID` (e.g. `checkPermission(ROOT_NODE_ID, 'admin')` true for the founder, and `getState().permissions` carries the grant). This is the minimal proof that "create a Star with a known user as the root admin" works.
+**Chosen entry point (lazy first-touch): `Star.onBeforeCall()`** ([apps/nebula/src/star.ts](../apps/nebula/src/star.ts)). On the first authenticated touch, if the caller is the scope-admin founder (`claims.access.admin`, minted iff `subject.isAdmin` — nebula-auth.ts:1359), seed `setPermission(ROOT_NODE_ID, callerSub, 'admin')`, guarded exactly-once by a `__nebula_rootAdminSeeded` KV flag. No un-guarded path needed: `setPermission`'s own `admin` gate is satisfied by the scope-admin bypass in `requirePermission` (dag-tree.ts:158). A non-admin first caller leaves root adminless until an admin connects.
+
+**TODO at self-signup:** the founder's identity should come from the signup flow, not "first scope-admin to connect" — revisit Part 1b's entry-point split then (this lands the "provisioning rides an authenticated mesh flow" case → derive `locationHint` in place, zero schema change).
+
+**Blast radius handled:** auto-seed gives the founder a root-admin grant that rolls down to every node, so dag-tree permission-resolution tests that resolved the *founder's own* permission were switched to a distinct synthetic subject (their real intent). 5 tests touched in `dag-tree.test.ts`; full baseline (177 tests) green.
+
+- [x] Identify/establish the Star-provisioning entry point (self-signup → Galaxy → Star). Seed `setPermission(ROOT_NODE_ID, founderSub, 'admin')` there, exactly once, at first provision. → `Star.onBeforeCall()`.
+- [x] **Test (the concrete ask):** provision a Star with a known `founderSub` → assert that user holds `admin` on `ROOT_NODE_ID` (`checkPermission(ROOT_NODE_ID, 'admin', founderSub)` true via the resolve path — capable-of-failing, no bypass — and `getState().permissions` carries the grant). → `dag-tree.test.ts` § "founder root-admin seeding".
 
 ## Part 1b — Place the Star near the tenant (locationHint)
 
