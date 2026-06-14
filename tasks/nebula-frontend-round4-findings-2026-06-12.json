@@ -1,0 +1,1126 @@
+{
+  "summary": "73 round-4 findings deduplicate to 60 distinct issues. The single most-flagged issue (6 lenses) is api-reference.md:78 still naming the nonexistent `AuthRequiredError` for `ready` rejection — a half-applied prior fix where the spec was corrected to mesh's `LoginRequiredError` but the contract doc was not. The `onShouldRefreshUI: null` opt-out footgun (3 lenses) is its sibling: the example does the opposite of its comment.\n\nSix issues are flagged as blockers for v3 \"go\", clustering around two unresolved design holes plus three contract-doc data-incorrectness bugs:\n1. The atomic-batch / per-resource-conflict-resolution mapping is genuinely undefined (ranks 1-2): the server transaction is all-or-nothing, but the client conflict engine resolves per resource and the spec validates a mixed-fate {use-server, permission-denied, committed} batch that all-or-nothing makes impossible. This is the load-bearing question for the flagship atomic addTodo and must be pinned before the engine is wired. maxRetries granularity (rank 18) is the same hole's third face.\n2. Three contract docs (ranks 3, 4, 5) instruct a v3 implementer to build wrong/nonexistent behavior: the retries-exhausted rollback target contradicts the validated spike (restores an unrecoverable stale value), `AuthRequiredError` doesn't exist, and the headline default-flash feature has no decided DOM-element-discovery mechanism (its only binding API is deferred-post-5.3.7 and always-empty).\n3. Two cross-package/cross-channel contracts are unspecified (ranks 6, 7, 8): the orgTree store envelope (`store.lmz.orgTree.value` reads vs bare-path writes — breaks the flagship tree example), the per-field debounce config wire format (\"TBD during implementation\" with a test already depending on it), and client.orgTree.* disconnect behavior (not connection-gated; non-idempotent createNode risks duplicate-on-replay).\n\nThe remaining majors/minors are mostly contract-doc self-contradictions (authScope derivation source, ready-terminal-state vs first-paint 'connecting' computed) and test-strategy gaps where probes aren't capable-of-failing (replay matrix in the MockClient list, rich-type e2e mis-labeled carry-forward, context.bindings empty-Map placeholder, held-fanout matrix asserting a provisional rule). Nits are stale spike line citations (file grew to 576 lines), the dag→orgTree rename residual, phantom spike/debounce/ directory, and anchor/typing drift.",
+  "agentCount": 130,
+  "date": "2026-06-12",
+  "runId": "wf_f07ceb37-596",
+  "round": 4,
+  "scope": "Nebula-frontend Phase 5.3.7-v3 mini-spec + Decisions-pinned + v3-linked factory docs (factory-conflict-outcome, factory-textmerge, debounce-serial-queue, factory-collection-sync, api-reference, coding-your-ui) + docs/adr/001-005",
+  "priorFindings": [
+    "tasks/nebula-frontend-docs-panel-findings-2026-06-10.json",
+    "tasks/nebula-frontend-deep-review-findings-2026-06-10.json",
+    "tasks/nebula-frontend-round3-findings-2026-06-11.json",
+    "tasks/nebula-frontend-skill-panel-findings-2026-06-12.json"
+  ],
+  "logs": [
+    "9 finder lenses (architecture-mesh, security, test-strategy, product-ergonomics, cross-doc-contradiction, spec-code-drift, adr-conformance, state-machine-correctness, completeness-critic) pipelined into adversarial per-finding verification, then dedup + ranked synthesis.",
+    "Run 1 (34 agents): 7 of 9 finder lenses died on a transient server-side rate-limit ('Server is temporarily limiting requests · Rate limited') during the initial fan-out; only product-ergonomics + state-machine-correctness completed.",
+    "Run 2 (96 agents, resume from cache): the 2 completed lenses + their 24 verifiers returned from cache; the 7 throttled lenses re-ran clean; synthesis re-ran over the full 9-lens set.",
+    "Raised 86, kept 73, dropped 13, deduped to 60 ranked."
+  ],
+  "note": "Verification bias was toward keeping (skeptics tried to refute; uncertain findings kept). isBlocker=true on ranks 1-10 marks the synthesis's must-fix-before-go set; only rank 1 carries severity 'blocker' (the others are go-gating majors/minors). Prior digest tasks/.round4-prior-digest.md was given to every finder as the do-not-re-report baseline; re-raises of half-applied prior fixes are flagged in-finding. Pass this whole file as priorFindings to any round 5.",
+  "result": {
+    "byLens": [
+      {
+        "lens": "architecture-mesh",
+        "raised": 8,
+        "survived": 6
+      },
+      {
+        "lens": "security",
+        "raised": 5,
+        "survived": 5
+      },
+      {
+        "lens": "test-strategy",
+        "raised": 13,
+        "survived": 10
+      },
+      {
+        "lens": "product-ergonomics",
+        "raised": 9,
+        "survived": 9
+      },
+      {
+        "lens": "cross-doc-contradiction",
+        "raised": 9,
+        "survived": 9
+      },
+      {
+        "lens": "spec-code-drift",
+        "raised": 10,
+        "survived": 9
+      },
+      {
+        "lens": "adr-conformance",
+        "raised": 6,
+        "survived": 5
+      },
+      {
+        "lens": "state-machine-correctness",
+        "raised": 14,
+        "survived": 9
+      },
+      {
+        "lens": "completeness-critic",
+        "raised": 12,
+        "survived": 11
+      }
+    ],
+    "raised": 86,
+    "kept": 73,
+    "survived": 73,
+    "rankedCount": 60,
+    "droppedCount": 13,
+    "survivors": [
+      {
+        "rank": 1,
+        "title": "Per-resource use-this re-submission in an atomic multi-resource batch is unspecified — re-submit the whole batch or only the conflicting resource?",
+        "severity": "blocker",
+        "confidence": "high",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/nebula-frontend.md; tasks/factory-conflict-outcome.md; tasks/debounce-serial-queue.md",
+        "location": "nebula-frontend.md:353; factory-conflict-outcome.md:22 (invariant 4) + :20 (invariant 2 mixed-fate); debounce-serial-queue.md:100-103 (m9)",
+        "finding": "The server transaction is atomic (api-reference.md:267 'if either op fails, neither commits'), but the client conflict engine resolves per resource (invariant 2 resolves each independently; invariant 4 drives a use-this re-submit 'at the server's current eTag'). The spec never states whether a use-this re-submit reconstructs the FULL original batch (with already-resolved members folded in) or submits only the conflicting resource. For the flagship atomic addTodo (create todo + put todoList): re-submitting only the conflicting todoList put orphans the just-created todo's relationship if the todo didn't actually commit. This is the load-bearing question of the whole conflict engine and is currently undefined.",
+        "suggestion": "Pin the re-submit batch composition: either (a) use-this re-submits the FULL batch with resolved values for already-decided members (preserving atomicity), or (b) document that an atomic batch conflicts/commits as a unit so use-this re-submits everything. Add a multi-resource-batch-with-one-conflicting-resource test asserting the re-submit carries all batch members and remains atomic. Tie to rank 2.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 2,
+        "title": "Atomicity invariant vs mixed-fate batch example contradict each other — {use-server, permission-denied, committed} in one atomic batch violates all-or-nothing",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/factory-conflict-outcome.md",
+        "location": "api-reference.md:675 (Atomicity invariant) + :267; factory-conflict-outcome.md:20 + :37 (mixed-fate {A: use-server, B: permission-denied, C: committed})",
+        "finding": "Two pinned statements conflict on what a multi-resource batch's atomicity means. api-reference.md:267 says all-or-nothing ('if either op fails, neither commits'), but factory-conflict-outcome.md:37 validates a mixed-fate batch where C committed while B was permission-denied — which is impossible if the batch is atomic (B's denial must fail the whole batch, so C cannot commit). Either the per-resource resolutions are CLIENT-side optimistic-state dispositions that don't map to atomic server commits (and 'C committed' is a misnomer), or the batch is not atomic and api-reference.md:267 is wrong. Same hole as rank 1 from the outcome-vocabulary angle: the per-resource client resolution → atomic server commit/reject mapping is never stated.",
+        "suggestion": "Pin the relationship: if the server batch is atomic, a permission-denied on ANY resource means NO resource committed, so the example must be {A: use-server, B: permission-denied, C: permission-denied}, OR the per-resource resolutions describe the CLIENT's optimistic-state disposition after a whole-batch server outcome, not independent commits. Rewrite invariant 2's example and the atomicity invariant to be mutually consistent; add a test that a permission-denied on one resource leaves the others NOT committed. Decide jointly with rank 1.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 3,
+        "title": "Retries-exhausted (and validation/permission) rollback target contradicts validated spike: api-reference says 'pre-write value', spike says the B4 baseline snapshot (last conflict's server snapshot)",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/factory-conflict-outcome.md",
+        "location": "api-reference.md:669 (+ :670, :671) vs factory-conflict-outcome.md:9 (Build findings) and :21 (invariant 3)",
+        "finding": "api-reference.md:669 says 'retries-exhausted' rolls back to the 'pre-write value', but retries-exhausted is by definition the terminal of a use-this chain. The validated spike (factory-conflict-outcome.md:9) pins: rollback target is the unified B4 capture (value at the baseline eTag the failed submission asserted), and for a use-this chain 'the original pre-write value is unrecoverable AND stale' — same rule for timeout/infra/validation/permission/retries-exhausted. The contract therefore tells a v3 implementer to restore a value the spike says is wrong and unrecoverable. This is data-incorrectness in the rollback path, contradicting the implemented-and-tested behavior.",
+        "suggestion": "Change api-reference.md:669 (and the matching :670 validation-failed / :671 permission-denied) from 'Roll back to pre-write value' to the unified B4 rule: 'Roll back to the value at the baseline eTag the failed submission asserted (B4-captured snapshot — for a use-this chain, the last conflict's server snapshot).' Cross-ref factory-conflict-outcome.md invariant 5 / Build findings.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 4,
+        "title": "api-reference.md:78 still names `AuthRequiredError` for `ready` rejection — the contract mandates a type that exists nowhere; spec + probes require mesh's `LoginRequiredError`",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "security",
+          "product-ergonomics",
+          "cross-doc-contradiction",
+          "spec-code-drift",
+          "adr-conformance",
+          "completeness-critic"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:78 (`ready` return-shape row); also :97-103 bootstrap example comment) vs nebula-frontend.md:415, :419, :535",
+        "finding": "Six lenses independently flagged this. The contract doc (api-reference.md:78, declared 'the docs ARE the contract') says `ready` 'Rejects with an AuthRequiredError on terminal auth failure.' The M1/SP-13/R3-DROP-1 resolution (nebula-frontend.md:415) explicitly forbids that name: 'do NOT invent AuthRequiredError; LoginRequiredError + the onLoginRequired hook already exist.' AuthRequiredError is defined nowhere in packages/ or apps/; the real type is LoginRequiredError (packages/mesh/src/lumenize-client.ts:126, on globalThis at :139, onLoginRequired at :203/:793/:822). A v3 implementer building to the contract would mint the nonexistent type — the terminal-auth/logged-out-visitor path — silently breaking instanceof/err.name checks and the onLoginRequired redirect flow, and failing the 5.3.8 probe at :535. Prior fix landed in the task file but never propagated to the contract doc.",
+        "suggestion": "Change api-reference.md:78 'AuthRequiredError' → 'LoginRequiredError' (mesh's existing type, surfaced via onLoginRequired), and align the bootstrap example comment at :97-103. Grep the whole docs tree for any other AuthRequiredError occurrence and replace. If a Nebula alias is wanted, define it as a re-export of LoginRequiredError, not a new class.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 5,
+        "title": "Default conflict flash classes are a v3 headline feature in 3 docs, but the DOM-element-discovery mechanism they require is tagged `deferred-post-5.3.7` and always returns an empty Map",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; website/docs/nebula/resources.md; website/docs/nebula/coding-your-ui.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:329-338 (Default flashes) + :578-600 (Handler bindings, deferred-post-5.3.7); resources.md:275-304; nebula-frontend.md:336-358 + :258 + :472",
+        "finding": "Three docs present zero-code default flash classes as working v3 behavior ('the framework adds CSS classes to bound DOM elements at fields the resolution affected'). But the ONLY mechanism to map a resolved (rt,rid,field) to actual HTMLElement[] — client.bindings(rt,rid,field) vs a v-flash directive — is tagged deferred-post-5.3.7 (api-reference.md:580), 'always an empty Map' in 5.3.7 (:595), 'Pick during implementation' (nebula-frontend.md:258), and pushed to v4 (:472, :499). The conflict-outcome detour harness is headless, so flash LOGIC was validated but never DOM application. Net: the headline feature has no decided way to find the elements to flash — a v3 implementer either picks the binding mechanism in v3 (contradicting the deferral) or ships default flashes that silently do nothing on real DOM (contradicting three docs).",
+        "suggestion": "Resolve explicitly: either (a) move the binding-discovery decision (a vs b) INTO v3 with an owner, since default flash depends on it; or (b) re-tag default-flash-on-DOM as deferred-to-v4 in api-reference §Default flashes + resources.md §Custom flash visuals, stating that 5.3.7 default flash is class-application-without-element-targeting (or class on a known root). Pick one and align all three docs.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 6,
+        "title": "orgTree store shape is ambiguous — read sites use `store.lmz.orgTree.value`, write/reserved-path spec uses bare `store.lmz.orgTree`; the envelope is undecided and breaks the flagship tree example",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; website/docs/nebula/coding-your-ui.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:398/461/523 (`store.lmz.orgTree.value`) + :482 (bare) vs nebula-frontend.md:422/427/432/436/542 (bare); coding-your-ui.md:218/634 read `.value`",
+        "finding": "Whether the org tree is delivered wrapped in a `{ value: OrgTreeState }` envelope (Snapshot-like) or written as bare OrgTreeState is never pinned, and the docs disagree. Read examples dereference `.value` everywhere (coding-your-ui.md:218/634, api-reference.md:461); the design-B handler and reserved-paths spec write the bare path (nebula-frontend.md:432 'handleOrgTreeUpdate writes store.lmz.orgTree'; api-reference.md:482; every test bullet asserts arrival at bare store.lmz.orgTree). If the handler writes bare OrgTreeState, every `.value` read in the worked tree-rendering example returns undefined.",
+        "suggestion": "Pin the envelope in the design-B item + api-reference §OrgTreeState: state whether handleOrgTreeUpdate writes `store.lmz.orgTree = { value: state }` (and what meta, if any) or `= state`. Make every read site and the handler-write description match. The read examples imply the `{ value }` envelope is intended — say so explicitly and note whether it carries meta.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 7,
+        "title": "Per-field debounce config WIRE FORMAT is 'TBD during implementation' — a load-bearing cross-package contract (typia/ontology compile pass → factory) with a test that already depends on it",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md; tasks/debounce-serial-queue.md",
+        "location": "nebula-frontend.md:334 (last sentence) + :561 (probe asserting the bundle carries per-field quietMs/maxWaitMs)",
+        "finding": "The factory consumes per-field quietMs/maxWaitMs 'emitted by the typia/ontology compile pass'; merge/precedence rules are fully pinned but the actual wire format (key shape, where it attaches to the validator bundle) is deferred inline. This contract spans two packages (nebula-studio compile pass producer vs nebula-frontend factory consumer) — the kind a v3 implementer gets wrong by guessing and can't unilaterally fix later. The 5.3.8 probe at :561 asserts 'validator bundle carries per-field quietMs/maxWaitMs' — a test depending on a format nobody has defined — and the producer side isn't in the v3 checklist as a co-owned item.",
+        "suggestion": "Either pin a concrete shape now (e.g. `{ debounce: { [fieldPath]: { quietMs, maxWaitMs } } }` on the validator bundle) with an owner spanning the compile pass + factory, or explicitly scope v3 to read from a stub/fixture and track the real compile-pass emission as a named nebula-studio dependency (like the nebula-star-root-admin Part 1 prerequisite). Don't leave a cross-package wire format as inline TBD.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 8,
+        "title": "`client.orgTree.*` mutations are not connection-gated like resource writes — disconnect behavior (reject vs queue vs gate) is unspecified, and non-idempotent createNode risks duplicate-on-replay",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic",
+          "architecture-mesh"
+        ],
+        "artifact": "tasks/nebula-frontend.md; packages/mesh/src/lumenize-client.ts; tasks/factory-conflict-outcome.md",
+        "location": "nebula-frontend.md:441 (client.orgTree.* wiring, reject-on-failure) + :90/:341-342 (connection-gated resource path); lumenize-client.ts:306-313 (callRaw queues with timeout when disconnected); factory-conflict-outcome.md invariant 10",
+        "finding": "The resource write path is exhaustively connection-gated (hold, no timeout, no rollback, in-flight re-submit on reconnect). client.orgTree.* is a SEPARATE awaited callRaw path (reject-on-failure, no optimistic write-through). The spec never says what a client.orgTree mutation does while disconnected: callRaw's own contract queues behind an unbounded reconnect or rejects on timeout — surfacing the exact 'what happened to my write during a blip' failure the resource gate eliminated. Worse, orgTree ops aren't newETag-idempotent: createNode always inserts a new nodeId, so a blind reconnect replay of a queued createNode creates a DUPLICATE node, unlike resource writes which newETag replay short-circuits. The reconnect ordering of subscribeTree vs held-write replay is also unstated.",
+        "suggestion": "Pin the disconnected-mutation contract for client.orgTree.*: either (a) it rejects immediately while not connected (document the rejection + that app code must handle it, unlike resource writes), or (b) gate it like resources but WITHOUT replay (no newETag idempotency for tree ops). Document the chosen behavior and the contrast with the gated resource path so the asymmetry is intentional. Add it to the namespace-wiring item, api-reference §client.orgTree, coding-your-ui error handling, and a probe.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 9,
+        "title": "use-this re-conflict re-anchors base to the server snapshot, but counter/aggregate handlers (openCount +1) double-count across the chain — the flagship 'why atomic transactions matter' handler silently corrupts the denormalized aggregate",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md; website/docs/nebula/resources.md; website/docs/nebula/coding-your-ui.md",
+        "location": "factory-conflict-outcome.md:23 (invariant 5 site c) + :39; resources.md:319-320 (set-union/textMerge); coding-your-ui.md:336 (openCount recompute)",
+        "finding": "Invariant 5(c) re-anchors base to the prior server snapshot on use-this re-conflict — correct for textMerge and idempotent set-union, but the value the handler SUBMITTED on the first use-this was already a merge. On re-conflict, new local = the merged value (already +1), new base = prior server snapshot, and `openCount: list.openCount + 1` re-applies +1 every round. A resource that conflicts twice ends with openCount inflated by the retry count. The spec validates delta semantics only for textMerge; the canonical openCount/counter handler (api-reference's flagship 'why atomic transactions matter' example) has no base-relative recompute guidance and no test, so it silently corrupts the aggregate under a 2+ round race.",
+        "suggestion": "Pin that counter/aggregate handlers MUST recompute from base+server (e.g. `openCount = server.value.openCount + (countOpen(local.items) - countOpen(base.items))`), not from `local.value.openCount + 1`; or state use-this handlers must be idempotent under re-invocation and show the base-relative recompute in the worked example. Add a 2-round use-this chain test asserting openCount is correct (capable-of-failing: a local+1 impl inflates it).",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 10,
+        "title": "createNebulaClient example passes `onShouldRefreshUI: null` to 'opt out', but the pinned Mn2 sentinel semantics make null fall back to the DEFAULT window.location.reload() — the example does the opposite of its comment, in an admin/scripting context",
+        "severity": "major",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction",
+          "product-ergonomics",
+          "security"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:116 (admin/scripting example) vs :69 (config table) and nebula-frontend.md:367 (Mn2)",
+        "finding": "The admin/scripting example writes `onShouldRefreshUI: null, // opt out of auto-reload — caller handles staleness`. The same file's config table (:69) and Mn2 (:367) pin the opposite: both undefined and null fall back to the default `() => window.location.reload()`; the ONLY opt-out is an explicit no-op `() => {}`. So the canonical 'all overrides explicit' example does NOT opt out — it triggers a full page reload on staleness, in a headless/scripting context where there is no browser to reload. An LLM author copies this verbatim. The contract contradicts itself within ~50 lines, and the ontology-stale→forced-reload is the default so the surprise is a real footgun.",
+        "suggestion": "Change the example to `onShouldRefreshUI: () => {}, // opt out of auto-reload — caller handles staleness` (the real opt-out per :69). If an explicit-disable sentinel is genuinely wanted for scripting, reconsider the Mn2 decision — but as pinned, only `() => {}` opts out.",
+        "adrConflict": false,
+        "isBlocker": true
+      },
+      {
+        "rank": 11,
+        "title": "`onShouldRefreshUI` typed `((info) => void) | null` despite null/undefined being behaviorally identical — dangling nullable on an opt-out field fights coding-style optional-over-nullable and re-creates the two-falsy-sentinel footgun",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "product-ergonomics",
+          "security",
+          "cross-doc-contradiction"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:69 (Type column `((info: OntologyStaleInfo) => void) | null`) vs nebula-frontend.md:367 (Mn2); coding-style.md:13",
+        "finding": "The Mn2 resolution deliberately collapsed null and undefined to the same meaning to remove the two-falsy-sentinel footgun, yet the published type keeps `| null`, reintroducing a meaningless distinction that invites callers (and the LLM) to pass null expecting it to disable the reload (it re-enables the default). coding-style.md:13 keeps `| null` only when present-but-null is semantically distinct from absent — which Mn2 explicitly removed. The type also omits the `?`/`| undefined` the prose relies on, so transcribing it literally excludes the undefined value the default-fallback depends on.",
+        "suggestion": "Drop `| null` and make the field optional: `onShouldRefreshUI?: (info: OntologyStaleInfo) => void`. Document opt-out as `() => {}` only. Removes the trap rank 10 exploits and aligns with coding-style.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 12,
+        "title": "api-reference summary contradicts its own config table on authScope/activeScope derivation — names cookie+JWT (both explicitly ruled out) vs deployment URL",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:106 vs :67-68 and nebula-frontend.md:362-364",
+        "finding": "api-reference.md:106 says authScope/activeScope derive 'from the auth-discovery cookie + JWT.' Lines 67-68 say the opposite: authScope from the deployment URL (window.location), 'NOT readable from the refresh cookie (it's HttpOnly)', and activeScope defaults to authScope and is sent in the refresh body (spec :364: 'NOT parsed from the response aud; the client supplies it'). A v3 implementer reading the summary would build cookie/JWT parsing that line 67 says is impossible.",
+        "suggestion": "Rewrite api-reference.md:106 to match :67-68: authScope from the deployment URL (window.location), activeScope defaulting to authScope. Drop 'cookie + JWT' as the derivation source.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 13,
+        "title": "ready terminal-auth fix sets state 'disconnected' with lastConnectedAt unset, but the canonical first-paint computed keys 'connecting' off `!lastConnectedAt` → every Studio app renders 'Connecting…' forever on the logged-out blank page",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/nebula-frontend.md; website/docs/nebula/coding-your-ui.md",
+        "location": "nebula-frontend.md:417-418 + :535 (probe asserts state==='disconnected'); coding-your-ui.md:147 (`if (!store.lmz.connection.lastConnectedAt) return 'connecting'`); nebula-frontend.md:533 (Mn14)",
+        "finding": "On terminal first-connect auth failure the ready fix sets connection state to 'disconnected', but lastConnectedAt is never set on a first-connect failure, and the canonical first-paint computed keys 'connecting' off `!lastConnectedAt`. So a logged-out terminal failure makes every status computed resolve to 'connecting' and render 'Connecting…' indefinitely, even though state is 'disconnected'. The redirect is the bootstrap's job, but the window before redirect (and any app that skips ready.catch, which the always-resolve philosophy trains LLMs to do) shows a misleading 'Connecting…'. Mn14 guards only the post-first-connect blip case, not never-connected terminal failure.",
+        "suggestion": "Pin the interaction: either the first-paint computed checks `state === 'disconnected'` (terminal) distinctly from `!lastConnectedAt` (cold start in progress), or document that the bootstrap's ready.catch MUST redirect before first paint. Add to the ready terminal-auth probe an assertion of what the status computed yields when state is 'disconnected' && !lastConnectedAt.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 14,
+        "title": "subscribeTree @mesh entry specced to 'return the synth snapshot' — a cross-hop request/response over the client↔Star WS leg, contradicting ADR-003 and the spec's own one-way client side",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "adr-conformance"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/star.ts; website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:426 ('registers the subscriber and returns the synth snapshot'); star.ts:371/:399-430 (doSubscribe one-way delivery)",
+        "finding": "ADR-003 forbids awaited request/response across the WS legs (one-way messages + continuations only). The shipped resource subscribe obeys this: Star.subscribe returns void and the initial snapshot is delivered one-way via lmz.call(...handleResourceUpdate(...)). But the v3 tree spec says subscribeTree 'registers the subscriber and returns the synth snapshot' — if coded literally as a return value to the client, that's a cross-hop request/response on the WS leg. The spec's own client side contradicts this (step 6 delivers via handleOrgTreeUpdate; tests assert the snapshot ARRIVES at store.lmz.orgTree via the delivery channel). 'Returns the synth snapshot' is at minimum self-contradictory.",
+        "suggestion": "Restate step 2 to match the shipped subscribe pattern: subscribeTree registers the TreeSubscribers row and PUSHES the initial synth snapshot one-way via lmz.call(subscriberBinding, clientId, ctn<NebulaClient>().handleOrgTreeUpdate(snapshot)) — it does NOT return the snapshot. Make the initial-snapshot delivery test assert arrival via handleOrgTreeUpdate, not as subscribeTree's resolved value.",
+        "adrConflict": true,
+        "isBlocker": false
+      },
+      {
+        "rank": 15,
+        "title": "Infrastructure-error 5.3.8 probe says 'simulate a network drop' + 'rolls back' — directly contradicts the connection-gate (invariant 10); a verifier would write a probe that must NOT roll back or can never fire",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md; tasks/factory-conflict-outcome.md",
+        "location": "nebula-frontend.md:539 vs :342 + factory-conflict-outcome.md invariant 10 (:28); spike conflict-outcome.test.ts:458-468",
+        "finding": "The probe reads 'simulate a network drop mid-transaction... Optimistic state rolls back.' But the pinned contract is that infrastructure-error fires ONLY for a while-connected transport failure, and a disconnect must NEVER roll back (the write path suspends and re-submits on reconnect). The spike's passing test deliberately uses a while-connected throw ('mesh exploded'), NOT a network drop. An implementer following 'network drop' literally builds a test that either asserts rollback on disconnect (violating invariant 10) or can never reach infrastructure-error (non-capable-of-failing). Only the 'mesh crash' parenthetical is the correct trigger.",
+        "suggestion": "Rewrite the probe to drop 'network drop': 'simulate a while-connected transport failure (mesh crash / thrown Error while lmz.connection.state === \"connected\")'. Add a contrast assertion that a plain disconnect (state leaves 'connected', no throw) does NOT resolve infrastructure-error and does NOT roll back — pairing it with the connection-gate probe so the two are mutually capable-of-failing.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 16,
+        "title": "'Subscriber identity' pinned decision keys instanceName off callChain.at(-1), contradicting shipped code (callChain[0]) and the Mn6 subscribeTree spec — would collide all clients behind one Gateway onto one registry row",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "architecture-mesh",
+          "security"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/star.ts",
+        "location": "nebula-frontend.md:81 (Subscriber identity) + :228 (unsubscribe) vs :426 (Mn6) / :580 and star.ts:370-376",
+        "finding": "The always-loaded pinned-decisions table (:81) and the unsubscribe row (:228) say instanceName derives from callChain.at(-1). The shipped resource subscribe (star.ts:370) derives clientId = callChain[0].instanceName (origin) and only subscriberBinding from callChain.at(-1).bindingName; the v3 subscribeTree spec (Mn6, :426) and :580 agree with the code. instanceName at callChain.at(-1) is the Gateway's name, so an implementer following the authoritative-looking pinned table would key TreeSubscribers (and could mis-key Subscribers) such that all clients behind one Gateway collide on one row. Harmless today only because callChain[0] and at(-1) coincide in the single-hop topology; breaks the moment any intermediate mesh hop is introduced.",
+        "suggestion": "Fix nebula-frontend.md:81 and :228 to read: instanceName (clientId) from callChain[0] (origin); bindingName (subscriberBinding) from callChain.at(-1) — matching star.ts:370-376 and Mn6 at :426. One canonical statement referenced everywhere.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 17,
+        "title": "orgTree mutation Promise resolves before its own store update lands — `await client.orgTree.createNode(...)` then reading store.lmz.orgTree can observe the pre-mutation tree",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "architecture-mesh"
+        ],
+        "artifact": "tasks/nebula-frontend.md; website/docs/nebula/api-reference.md; apps/nebula/src/star.ts",
+        "location": "nebula-frontend.md:§5.3.7-v3 steps 3+8 (~427,434) + :441; api-reference.md:400; star.ts:484 (#onDagChanged)",
+        "finding": "client.orgTree.* methods are awaited request/response calls that resolve on the synchronous mesh-RPC unwind, but the actor's own store.lmz.orgTree is updated ONLY by the broadcast echo (no optimistic local write-through). Nothing orders the broadcast-echo delivery before the method resolve, and the method return value carries no snapshot and does not write the store (unlike handleTransactionResult for resources). So await-then-read store.lmz.orgTree is a documented-looking pattern that can observe the PRE-mutation tree. This is the orgTree analogue of deep-review M4; including the originator in the broadcast guarantees eventual update, not update-before-resolve.",
+        "suggestion": "Pin the ordering contract: either (a) document that orgTree mutation Promises resolve on server-ack and the store reflects the change only after the subsequent broadcast echo (app code must NOT await-then-read store.lmz.orgTree, only react to it), with a probe asserting the gap; or (b) carry the post-mutation OrgTreeState back on the correlated response and write it through before resolving (parallels handleTransactionResult). Add a capable-of-failing probe.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 18,
+        "title": "maxRetries is a single transaction-wide TransactionOptions field but the use-this chain is per-resource — exhaustion accounting across a mixed-fate batch is undefined (per-resource vs shared)",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/factory-conflict-outcome.md",
+        "location": "api-reference.md:243 (TransactionOptions.maxRetries, one number) + :307 (per-type); factory-conflict-outcome.md:22 (invariant 4)",
+        "finding": "maxRetries is registered per-type (api-reference.md:307, naturally per-resource against rt) AND per-call as a single top-level number on TransactionOptions (:243, sitting above all resources). With invariant 4 bounding use-this per resource, it's unspecified whether the per-call cap is per-resource (each gets 5) or shared (the batch gets 5 total, so a noisy resource starves a sibling's retries). The precedence note (per-call > per-type > default 5) doesn't resolve granularity, so an implementer will likely make per-call shared-batch-wide and per-type per-resource — two semantics for the same conceptual cap.",
+        "suggestion": "Either move per-call maxRetries into the keyed handler-map entries (per-resource, matching per-type) or explicitly pin that the per-call top-level number is a per-resource cap applied to every batch member. Add the cell to the maxRetries precedence test with a 2-resource batch where one conflicts repeatedly and the other commits. Resolve jointly with ranks 1/2.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 19,
+        "title": "Explicit transaction() folds pending debounced writes for the resources it touches, but value precedence when explicit op and pending debounced write target the same resource with different values is undefined",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/debounce-serial-queue.md; website/docs/nebula/coding-your-ui.md",
+        "location": "debounce-serial-queue.md:54 + :100-101 (m9 'values read at submit'); coding-your-ui.md:371 (Forms-explicit-save)",
+        "finding": "When an explicit transaction() touches resource R that also has a pending debounced write, the spec says the debounced write is 'folded — coalesced value rides it' and 'values read at submit'. But an explicit op carries its OWN value for R. If both target R with different values (debounced title edit pending + explicit Save submitting a different title), which wins is undefined: 'values read at submit' (from store) would ignore the explicit op's intentionally-submitted value; if the explicit value wins, the debounced edit is silently dropped. The flagship Forms-explicit-save example is exactly this collision.",
+        "suggestion": "Pin value precedence: the explicit op's value wins (and the pending debounced write is considered satisfied by it), OR the store value wins and the explicit op merges. Show it in the Forms-explicit-save example. Add a test: pending debounced title edit + explicit put with a different title → assert which value the single submitted transaction carries.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 20,
+        "title": "Held-fanout per-conclusion-kind matrix (Mn7) is mandated as a v3-port probe but the disposition rule is flagged 'Re-review during the v3 port' and at least one cell (human-in-the-loop) is contested (SP-DROP-1) — asserting a provisional rule ossifies it prematurely",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md",
+        "location": "factory-conflict-outcome.md:44 (Mn7 v3-port add) + :11 (Build findings 'Re-review this rule during the v3 port')",
+        "finding": "The Mn7 matrix probe enumerates a fixed DROP/APPLY split across nine conclusion kinds, but the same file (:11) closes the disposition rule with 'Re-review this rule during the v3 port.' A verifier checking Mn7 cannot tell whether a deviation is a bug or the planned re-review changing the rule, and writing nine capable-of-failing assertions against a provisional rule risks ossifying it (testing.md: tests enable refactoring, not prevent it). human-in-the-loop is grouped DROP here but SP-DROP-1 records disagreement about whether HITL drops or holds — so at least one cell is contested.",
+        "suggestion": "Sequence Mn7 AFTER the v3 re-review decision: 'decide the disposition rule, THEN add the per-kind matrix probe matching the decision.' Until then keep the two spike-validated cases (one DROP, one APPLY) as the gate and mark the matrix probe blocked-on-decision. Reconcile the HITL cell with SP-DROP-1 first.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 21,
+        "title": "Replay-matrix probe (B3) is placed in the framework-agnostic (MockClient) list, but its distinguishing assertions depend on server-side .some-over-.every logic that the MockClient cannot exercise — a verifier could satisfy the bullet with a scripted mock",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:526-530 (idempotency replay matrix under 'Framework-agnostic probes')",
+        "finding": "The replay matrix asserts per-cell outcomes that depend entirely on server-side logic (Step 4.5a/6.5 .some(resource still carries newETag), Step 9 conflict-after-permission-gate disclosure, create 'already exists' throw). None exists in the MockClient (it records tx and returns a scripted result). Placed in the framework-agnostic list, a verifier could satisfy the bullet with a MockClient probe scripting the outcomes — passing regardless of whether resources.ts implements .some over .every, which is the entire point of B3.",
+        "suggestion": "Move the replay-matrix probe out of the framework-agnostic list and anchor it to the real-Star suite (nebula-client-read-transaction.test.ts), or tag it 'e2e-only'. State the capable-of-failing oracle (R3-3/R3-12): revert resources.ts to .every → the create-no-churn and create+put-partial-churn cells must flip to non-committed. A MockClient cannot exercise this.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 22,
+        "title": "ready terminal-auth probe (5.3.8 :535) hard-depends on a separate packages/mesh change the item admits 'the factory CANNOT fix alone', but is listed with no blocked-on marker — a v3 verifier would see it hang and mis-attribute it to the factory",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:535 (ready terminal-auth probe) + :416-418 (mesh sub-task)",
+        "finding": "The probe asserts first-connect refresh 401/403 → ready rejects with LoginRequiredError, onLoginRequired fires, state === 'disconnected'. The owning item (:416-418) states mesh today emits NO signal on first-connect terminal failure and goes to 'reconnecting' not 'disconnected', and 'the factory CANNOT fix this alone' — the fix is a separate packages/mesh change with its own success criterion. The probe is in the flat 5.3.8 list with no blocked-on annotation (unlike :440f/:461 which flag their tooling dependency), so a factory built before the mesh sub-task lands shows this probe hanging — the exact failure mode the item describes.",
+        "suggestion": "Annotate the :535 probe with its hard dependency on the mesh sub-task (as Mn5/:440f flags the WS-disconnect dependency), and pair it explicitly with the named mesh capable-of-failing probe ('first-connect 401 classified terminal, not swallowed into #scheduleReconnect') so a hang is attributed to the missing mesh change, not the factory.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 23,
+        "title": "Multiple reconnect/disconnect probes (440f, 541, Mn8) ride WS-disconnect tooling that §5.3.6 'Still open' says doesn't exist and no checklist item delivers — MockClient fakes the transition, so coverage is over-claimed",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:440 (test f, Mn5) + :234 + :469 + :541",
+        "finding": "At least three probes assert reconnect/disconnect behavior (440f tree re-subscribe after WS drop; 541 client B re-subscribes; Mn8 connection-gate 'disconnected' literals). Line 234 records the 'subscribe → WS-drop → grace → reconnect' test 'needs WS-disconnect tooling' as STILL OPEN from 5.3.6. testing.md names the canonical way (ctx.getWebSockets()[0].close(code) via createTestingClient), but the spike uses MockClient.simulateConnectionState/simulateFanout — a faked transition, not a real socket close. Every disconnect/reconnect probe either runs against the fake (can't catch real-socket reconnect bugs) or is blocked on tooling no checklist item delivers.",
+        "suggestion": "Add an explicit v3-or-v4 checklist item to build the WS-disconnect tooling (real ctx.getWebSockets()[0].close() via createTestingClient, or a Browser-harness socket-kill), and make every disconnect/reconnect probe reference it as a prerequisite. Until then, label the MockClient-driven connection probes 'fake-transition only — does not exercise real socket reconnect' so coverage isn't over-claimed.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 24,
+        "title": "Rich-type round-trip (Mn15, ADR-002) is mandated as a real-Star e2e but framed as 'carry-forward' — zero existing e2e round-trips a rich type, and the spike MockClient returns the OLD outcome shape, so a degradation probe could pass for the wrong reason",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/spike/vue-factory/test/mock-client.ts",
+        "location": "nebula-frontend.md:540 (Mn15) + :442 (carry-forward); spike e2e/* and mock-client.ts:18",
+        "finding": "Mn15 upgrades the rich-type round-trip to a real-Star degradation probe, but none of the three existing e2e tests round-trips a rich type (zero Date/Map/Set/cycle hits) — the only rich-type round-trip is against the MockClient. So 'carry-forward tests' (:442) carry ZERO rich-type e2e coverage; Mn15 is net-new, not a port. And the spike MockClient.transaction returns the OLD single-level shape `{ resolution, eTag }` (mock-client.ts:18), not the v3 TransactionOutcome — a degradation probe written against this mock validates round-trip through a shape v3 replaces and can pass for the wrong reason.",
+        "suggestion": "Make Mn15 an explicit NEW e2e deliverable under packages/nebula-frontend/test/e2e/: create a resource whose value contains a Map, a Date, and a self-cycle, mutate+submit through the factory against a real Star, re-read from the server, assert instanceof Map/Date and re.self === re. State the capable-of-failing check (JSON path degrades Date→string/Map→{}/cycle→throw). Note the MockClient outcome-shape mismatch as a port hazard so the e2e isn't accidentally written against the mock.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 25,
+        "title": "Disconnected banner promises 'your changes are queued' but the data-loss caveat (reload-while-offline drops unsent writes) is buried in a strippable code comment, not surfaced as a loud warning — violates the no-foot-guns principle",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "coding-your-ui.md:174-181 (Connection state, blessed disconnected banner) + api-reference.md:632",
+        "finding": "The blessed banner says 'Disconnected — your changes are queued.' The honesty caveat ('held writes live in memory only — a page reload while offline drops anything unsent') appears only inside an HTML comment above the banner and parenthetically in api-reference.md:632. Per CLAUDE.md's core principle ('no foot-guns — even when we let you break a rule, you're loudly warned'), this is a real data-loss boundary the user-facing narrative does not loudly flag. An LLM copying the banner ships the reassuring promise without the caveat.",
+        "suggestion": "Add a short prose admonition near the banner in the Connection state section stating the in-memory-only boundary explicitly (held writes survive reconnect but NOT a reload/tab-close while offline), so the warning rides with the pattern rather than in a strippable comment.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 26,
+        "title": "Flagship saveTodo form clears its own draft on commit while the form is v-if-gated on that draft — the form unmounts permanently with no re-seed path; LLM reproduces the vanish as a 'feature'",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "coding-your-ui.md:416 (committed branch clears draft) + :428 (`<form v-if=\"store.ui.todoForm?.draft\">`) + :389-392 (onMounted re-seed)",
+        "finding": "On successful save the committed branch sets store.ui.todoForm.draft = undefined (:416), but the form mounts only v-if=\"store.ui.todoForm?.draft\" (:428), so clearing the draft immediately unmounts the whole form. The only re-seed is in onMounted (:389-392), which fires once when the parent first mounts. After commit the form vanishes and never returns unless the parent re-mounts. The section frames this as an inline edit form, not a close-on-save modal, so the disappearing form reads as an unintended bug an LLM author will faithfully reproduce.",
+        "suggestion": "Either re-seed the draft after commit (re-run the :391 seed in the committed branch) so the form stays editable, or explicitly frame this as a close-on-save pattern and show the parent re-mounting it, saying so in prose so the LLM doesn't treat the vanish as a bug to 'fix'.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 27,
+        "title": "'timeout'/'infrastructure-error' await-site tells callers to 'Decide retry policy' but no retry helper exists and safe idempotent replay requires manually reusing newETag — bare re-call risks double-write on the timeout-but-landed case",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; website/docs/nebula/resources.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:629-630 (TransactionOutcome timeout/infra rows) + :241; resources.md:247; nebula-frontend.md Open Questions §9 (retryPolicy deferred)",
+        "finding": "On timeout/infrastructure-error the await-site says 'Decide retry / surface to user', but a safe manual retry must re-submit with the SAME newETag for idempotent replay. The docs never show how to capture and reuse newETag; the only retry example is a human-prompting toast, and TransactionOptions.retryPolicy is deferred. An LLM told to 'decide retry policy' will likely re-call transaction() with a fresh auto-generated newETag, defeating the idempotency guard and risking a double-write on the timeout-but-it-actually-landed case.",
+        "suggestion": "Add a short worked retry snippet (capture options.newETag, re-submit with the same value on timeout/infra-error) to resources.md's await-site switch, or note prominently that bare re-call is unsafe and idempotent retry requires reusing newETag. Keeps the deferred retryPolicy honest.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 28,
+        "title": "Auto-detect positive test (authScope derivation) is not capable-of-failing for a wrong derivation — a permissive mock passes even if the factory hardcodes/empties the scope",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:370 (auto-detect test + Mn11 failure-mode probes)",
+        "finding": "The positive test asserts createNebulaClient({ appVersion: 'v1' }) 'connects with authScope derived from the deployment URL.' Mn11 adds negative probes (malformed token, explicit override) but none catches a derived-but-wrong authScope: a jsdom test with a mocked URL and a permissive mock refresh endpoint passes even if the factory ignores the URL and uses a hardcoded/empty scope. The capable-of-failing oracle is to assert the derived authScope MATCHES a known-distinct value embedded in the mocked URL (e.g. scope 'acme.app.x' → refresh path /auth/acme.app.x/refresh-token), so a no-op derivation fails.",
+        "suggestion": "Strengthen the positive probe: embed a distinctive scope in the mocked deployment URL and assert the outgoing refresh request path contains exactly that derived authScope (and that activeScope defaults to it in the body), so a hardcoded/empty-scope factory fails. Pair with Mn11's malformed-token probe.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 29,
+        "title": "Re-entrancy carve-out (Mn12) and same-path-loop probe are in one checklist line with no joint success criterion — the line is satisfiable by the same-path half alone (which an over-broad global guard passes)",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:450 (Re-entrancy guard + Mn12 carve-out probe)",
+        "finding": "The item asks for two opposing probes in one bullet: same-path write-back must NOT loop (guard present) and Mn12 cross-path write DOES fire that path's chain exactly once (guard not over-broad). A global inFlight flag passes the first and fails the second; no guard passes the second and fails the first. The bullet states no requirement that BOTH be green, so a verifier could mark it satisfied on the same-path probe alone, missing that per-path Set correctness is only proven by the carve-out half. Mn12's 'exactly once' count is the load-bearing assertion.",
+        "suggestion": "State the joint success criterion: 'both probes must pass — the same-path probe alone is satisfiable by an over-broad global guard that the Mn12 cross-path probe (exactly-once submit) rejects; a v3 verifier must run both.' Make Mn12's 'exactly once' the capable-of-failing assertion of record.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 30,
+        "title": "orgTree no-collision security probe (440a) asserts cross-channel non-delivery, but its capable-of-failing oracle ('shared-table impl leaks') guards a design (Option 0) that design B structurally cannot drift into — the real plausible regressions are untested",
+        "severity": "minor",
+        "confidence": "low",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:440 (Tests a — no-collision probe + Mn5 positive control)",
+        "finding": "Probe (a) asserts an app resource ('todo','orgTree') and the tree channel deliver nothing to each other ('capable-of-failing: a shared-table impl leaks'). Under design B the tree uses a separate TreeSubscribers table + handleOrgTreeUpdate writing store.lmz.orgTree; the app resource uses Subscribers + handleResourceUpdate writing store.resources.todo.orgTree — no shared table, no shared prefix. The 'shared-table impl' the probe claims to catch is not a regression design B can drift into without a wholesale rewrite. The real design-B regressions are different: handleOrgTreeUpdate writing the wrong store path, or the `^resources\\.` matcher seeing the tree write.",
+        "suggestion": "Re-aim the probe's oracle at a design-B-plausible regression: force handleOrgTreeUpdate to write store.resources.lmz.orgTree (wrong prefix) and assert the test fails; or assert the synced-state middleware never fires for a tree write (the M8(c)-deletion guarantee). Keep the Mn5 positive control. Drop the 'shared-table leak' framing (Option-0 carryover).",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 31,
+        "title": "context.bindings probe asserts an 'empty-Map placeholder' for a deferred-post-5.3.7 surface — passes against any impl returning an empty Map, so it is not capable of failing",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "test-strategy"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:557 (Vue-specific probes — Resolver context.bindings)",
+        "finding": "The probe verifies 'the empty-Map placeholder until the real mechanism lands.' A test asserting the placeholder is an empty Map passes against (a) the real mechanism not being built, (b) the field undefined-coerced, or (c) any stub returning new Map(). Gutting the unbuilt bindings mechanism changes nothing — the assertion still passes (testing.md anti-pattern: toBeGreaterThan(-1) class). It gives false confidence the deferred surface is 'covered.'",
+        "suggestion": "Either drop the probe until the real mechanism lands (it's deferred anyway), or convert it to a capable-of-failing contract-shape assertion — assert 'bindings' in context and that it is a Map instance (catches removal/type-change), explicitly noting it tests the contract surface, not behavior. Do not assert emptiness as the success criterion.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 32,
+        "title": "Auto-derived per-op eTag trusts a client-supplied typeName to locate the store entry, but the server addresses by resourceId alone and ignores op typeName on put — a typeName mismatch yields a phantom conflict or opaque throw rather than a clear diagnostic",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "security"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/resources.ts",
+        "location": "nebula-frontend.md:392-412 (auto-derive per-op eTag) vs resources.ts:355 + :530",
+        "finding": "The v3 OperationDescriptor adds required typeName so the factory can auto-derive eTag via store.resources.<typeName>[<resourceId>].meta.eTag. The server addresses resources by resourceId alone and uses current.meta.typeName for put validation/write, ignoring the op's typeName. If a caller passes a typeName not matching the stored type, the factory looks up the wrong/empty slot — deriving a stale eTag (phantom conflict) or the 'can't auto-derive' throw. Not a server-authority bypass (re-checked in-txn), but the failure is opaque and the spec doesn't pin which.",
+        "suggestion": "Pin the contract: auto-derive only from (typeName, resourceId), and when the local slot's stored meta.typeName disagrees with the op's typeName, surface a distinct client-side error rather than deriving a cross-type eTag. Add a probe to the eTag auto-derive test set (:412) for the typeName-mismatch case.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 33,
+        "title": "Every spike line citation in the v3-port checklist is stale — create-nebula-client.ts grew to 576 lines; all cited line numbers point at unrelated code, and the outcome-port item mis-describes the spike's actual three-vocabulary state",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/spike/vue-factory/src/{create-nebula-client,conflict-outcome,nebula-client,types}.ts",
+        "location": "nebula-frontend.md:325-328, :336, :353, :463 (spike-port cleanup + outcome-port items)",
+        "finding": "All cited spike line numbers are stale (file is now 576 lines): [proxy get] cited :229 is at :324; unsubscribe .catch cited :182 is at :192; lmz.connection seed cited :82 is at :88; syncedState no-eTag drop cited :305-309 is at :472-483; wrapperCache cited :195 is at :278; preWriteValue/rollback at :488/:461. The outcome-port item (:336) claims a single-level 4-branch return at :343-373, but :343-373 is the Map/Set mutator-interception block (no outcome code), and the spike actually has THREE coexisting outcome vocabularies: create-nebula-client.ts queue callbacks consuming types.ts's simplified {resolution}, nebula-client.ts still shipping the old 8-branch {resolution}+onETagConflict, and conflict-outcome.ts the full v3 {kind} engine — imported ONLY by its own isolation test. The v3 'port' is 'wire the already-built conflict-outcome.ts engine in', not 'replace a 4-branch shape'.",
+        "suggestion": "Re-derive every spike line reference against the current file (or replace numbers with symbol names: the [proxy get] log, the decrementRefcount unsubscribe, the seed const, syncedStateMiddleware, the wrapperCache WeakMap). Rewrite :336 to reflect reality: the kind-based engine already exists at src/conflict-outcome.ts (validated in isolation); the v3 port WIRES it into the factory/NebulaClient, replacing the simplified types.ts {resolution} shape and the old onETagConflict-based nebula-client.ts. Drop the :343-373 citation.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 34,
+        "title": "v3 'Handler merger' item frames the change as a 'one-line delta' but the spike's nebula-client.ts still ships the entire OLD onETagConflict/ConflictResolver machinery that the port must rip out — under-scopes the NebulaClient reshape",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/spike/vue-factory/src/nebula-client.ts",
+        "location": "nebula-frontend.md:354 (Handler merger) + :316 (detour-port intro)",
+        "finding": "The Handler-merger item describes the per-call delta as a 'one-line change in dispatchConflictVerdict/deliverTerminal' — accurate IN conflict-outcome.ts (perCallHandler at :109/:296/:315/:388). But the spike's nebula-client.ts still carries the full OLD machinery the port must remove: onETagConflict config (:72,:181), ConflictResolver/ConflictResolution types (:93-95), the #perTypeResolvers-style registry (:237), DEFAULT_RESOLVER (:133), per-call precedence comment (:400-403). The conflict-outcome engine is unwired and NebulaClient is the integration point; the dead-code-audit item at :498 even flags #perTypeResolvers → #perTypeHandlers as 'likely RESHAPED', confirming more than one line.",
+        "suggestion": "Clarify that the 'one-line' delta applies to the already-built conflict-outcome.ts engine, and that wiring it in additionally requires removing the old onETagConflict/ConflictResolver surface from nebula-client.ts. Cross-link the dead-code-audit bullet at :498.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 35,
+        "title": "conflict-outcome.ts detour doc claims the engine 'is the queue's onCommitted/onNonCommit consumer' — true only in its isolation test, not in the integrated spike factory; the v3-port items treat it as already integrated",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md; apps/nebula/spike/vue-factory/src/{conflict-outcome,create-nebula-client}.ts",
+        "location": "factory-conflict-outcome.md:5 ('Where it landed')",
+        "finding": "factory-conflict-outcome.md:5 says the engine 'is the queue's onCommitted/onNonCommit consumer.' Grep shows conflict-outcome.ts is imported ONLY by its isolation test, never by create-nebula-client.ts or nebula-client.ts. The integrated factory uses its OWN onCommitted/onNonCommit callbacks (create-nebula-client.ts:440-465) consuming the simplified types.ts {resolution} shape — the engine is wired to the queue only inside the test harness. The doc reads as if the engine is the live factory's outcome path, which the v3-port items (nebula-frontend.md:316/336) then treat as already integrated.",
+        "suggestion": "Add a clause to factory-conflict-outcome.md:5 clarifying the engine is wired to the queue inside its isolation TEST harness; the v3 port is what wires it into the production factory + NebulaClient (replacing the spike factory's simplified onNonCommit and nebula-client.ts's onETagConflict registry).",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 36,
+        "title": "Task file still lists `useNebula(...)` composable as a package export, but it appears nowhere in the contract docs — a claimed v3 surface with no api-reference or coding-your-ui backing (R3-88 unapplied)",
+        "severity": "minor",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction",
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:27 (Three-layers table) and :43 (Package-picture table)",
+        "finding": "The layer table (:27) and package-picture table (:43) say @lumenize/nebula-frontend contains 'composables (useNebula(...))', but useNebula is documented nowhere: api-reference never lists it (createNebulaClient returns { client, store, ready, use, dispose }), coding-your-ui never uses it. Per the spec's own rule ('the doc IS the spec post-v1'), an export the docs don't mention is a deletion candidate, yet the task file presents it as a real surface a v3 implementer is expected to build. Prior R3-88 raised exactly this; it remains unapplied.",
+        "suggestion": "Either drop useNebula from :27/:43 and the package layout (if it isn't a real v3 surface), or add it to api-reference.md with a signature and tag. Don't leave a package export claimed in the plan but absent from the contract.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 37,
+        "title": "`OntologyStaleInfo` is referenced as a type but has no summary-table entry, no dedicated section, and no stated export — a custom onShouldRefreshUI handler has no importable type, and its relationship to the 'ontology-stale' TransactionOutcome variant (reason vs kind discriminant) is unstated",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "completeness-critic",
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md; tasks/nebula-frontend.md",
+        "location": "api-reference.md:69 (`OntologyStaleInfo = { clientVersion; currentVersion; reason: 'ontology-stale' }`) vs :616 (`{ kind: 'ontology-stale'; clientVersion; currentVersion }`); nebula-frontend.md:532",
+        "finding": "OntologyStaleInfo is named as the onShouldRefreshUI parameter type and inlined, but has no summary-table entry, no ### section, and no stated export — a user-developer/LLM typing a custom handler has no importable type or canonical link. The same staleness event is described by two near-identical shapes with DIFFERENT discriminants: the hook uses { reason: 'ontology-stale' } while the transaction() outcome uses { kind: 'ontology-stale' } with no reason. An LLM switching on outcome.kind who then writes a custom onShouldRefreshUI (or vice versa) will guess the wrong discriminant.",
+        "suggestion": "Add an OntologyStaleInfo entry (export from @lumenize/nebula-frontend) with a dedicated anchor, or — if intentionally inline-only — drop the type name and write the literal shape inline. Either unify the discriminant (kind in both, or reason in both) or add a one-line cross-note that the hook's reason and the outcome's kind describe the same staleness signal at two surfaces.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 38,
+        "title": "M11 create-on-existing taxonomy is deferred to a v3 decision, but the same phase ships the first-run read-then-create bootstrap (and Mn10/the matrix cell) built AROUND the throw behavior — ordering between 'decide M11' and 'ship the dependent bootstrap' is unspecified",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:421 ('Heavier alternative to weigh in v3') + :530 (matrix create-churn-of-self cell) + :421 (first-create race)",
+        "finding": "The M11 create-on-existing taxonomy (typed already-exists/conflict vs throw→infrastructure-error) is deferred to a v3 'flag for Larry' decision, and the matrix cell stays M11-agnostic — fine. But the same phase ALSO ships the first-run read-then-create bootstrap and the published coding-your-ui bootstrap, both designed around the throw behavior (the re-read disambiguation exists because create-on-existing throws). If M11 lands as a typed resolution during v3, the read-then-create guidance, the Mn10 loser-non-committed probe, and the matrix cell all change shape — yet they're implemented and doc-locked in the SAME phase as the open decision.",
+        "suggestion": "Sequence it: resolve the M11 taxonomy decision BEFORE the first-run-container-create item in the v3 order (so the bootstrap is built against final behavior), or explicitly note the bootstrap ships against throw-behavior with the M11 decision post-bootstrap (accepting possible rework). State the chosen order in the v3 checklist.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 39,
+        "title": "Connection-gated timeout-timer suspend/resume semantics across the gate transition are unspecified — pause vs reset determines whether a genuinely-stuck server transaction can be indefinitely deferred by intermittent connectivity or times out instantly on reconnect",
+        "severity": "minor",
+        "confidence": "low",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md; tasks/debounce-serial-queue.md",
+        "location": "factory-conflict-outcome.md:28 (invariant 10) + :47; debounce-serial-queue.md:120 (connectionLost: 'suspend any in-flight timeout timer — no rollback')",
+        "finding": "The gate 'suspends' the in-flight timeout timer on disconnect and the reconnect 're-submits with same newETag', but suspend/resume semantics are unspecified. If RESET, a transaction in flight 9s then a 1s blip gets a fresh 10s on reconnect — a genuinely-stuck server transaction's timeout is indefinitely deferrable by intermittent connectivity, never surfacing 'timeout'. If PAUSE, resume fires 'timeout' immediately after reconnect for the still-unanswered replay — but the replay just went out fresh, so instant timeout is wrong. The spike test (:47) only checks '120s with no timeout' and 'reconnect resolves committed', never reconnect-then-still-no-response.",
+        "suggestion": "Pin the timer semantic: on reconnect the in-flight replay starts a FRESH timeout (debounce-serial-queue already says 'fresh timeout starts on each post-resolver re-submit' — apply the same to reconnect-replay). Add a test: in-flight at disconnect → reconnect → server still never responds → 'timeout' fires after a fresh window post-reconnect, not instantly and not never.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 40,
+        "title": "ontology-stale held-fanout DROP relies on reload re-syncing, but ontology-stale is no-rollback AND the reload is once-guarded — a guarded-out reload leaves the dropped fanout permanently lost with stale optimistic data and no re-sync path",
+        "severity": "minor",
+        "confidence": "low",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md; tasks/nebula-frontend.md",
+        "location": "factory-conflict-outcome.md:11 ('ontology-stale drops it (reload re-syncs)'); nebula-frontend.md:367 (Mn2 sessionStorage once-guard)",
+        "finding": "ontology-stale's held-fanout disposition is DROP, justified by 'reload re-syncs.' But Mn2's sessionStorage once-guard makes a SECOND ontology-stale show a banner INSTEAD of reloading. In that case the reload does NOT happen, so 'reload re-syncs' fails — the held server snapshot was dropped AND no reload occurs AND ontology-stale doesn't roll back, so the user sees stale optimistic data with no path to the dropped server news until manual reload. The interaction of drop-on-ontology-stale + once-guarded-reload is unhandled.",
+        "suggestion": "When the reload is suppressed by the once-guard (banner shown instead), do NOT drop the held fanout — apply it (source:remote) so the store reflects the latest server snapshot under the banner. Or note that a suppressed-reload path must re-sync subscriptions. Add a test: two ontology-stale in succession with a held fanout → after the guarded banner, the store reflects the held server snapshot.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 41,
+        "title": "'shortest active timer wins' merge rule is silent on maxWait anchoring when a @debounce(0)/@longform field arrives mid-burst — can defeat the maxWait cap (re-anchor extends to 5000) or lose the earlier field's elapsed anchor",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "state-machine-correctness"
+        ],
+        "artifact": "tasks/debounce-serial-queue.md; tasks/nebula-frontend.md",
+        "location": "debounce-serial-queue.md:24 + :125 (maxWait anchors at burst's first write); nebula-frontend.md:334",
+        "finding": "The merge rule 'shortest active timer wins for both quietMs and maxWaitMs' is a flush-soon semantic for quietMs but contradictory for maxWait, which is a CAP anchored at the burst's first write, not a per-field countdown. If a @longform field (maxWait 5000) arrives mid-burst while a short field (maxWait 2000) is already counting, the rule could either extend (defeats the 2000 cap — continuous typing produces zero transactions until 5000) or lose the 2000 field's already-elapsed anchor. The spec doesn't say whether 'shortest maxWait wins' re-anchors the timer or picks the minimum remaining against the EXISTING anchor. The maxWait cap test (:44) only exercises a single field.",
+        "suggestion": "Pin that the merged maxWait is min(remaining maxWait across pending fields) computed against EACH field's own anchor (never re-anchored), so the earliest-anchored field's cap always holds. Add a mixed-field test: a @longform field (maxWait 5000) touched after a short field (maxWait 2000) at t=0 → a transaction still fires by t=2000.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 42,
+        "title": "base/local/server snapshot identity and ownership contract for 3-way merge is unstated (ADR-002) — a handler that mutates the value it's handed could corrupt the rollback baseline; cycle/alias identity across client-held capture+re-anchor is unverified",
+        "severity": "minor",
+        "confidence": "low",
+        "lenses": [
+          "adr-conformance"
+        ],
+        "artifact": "tasks/factory-conflict-outcome.md; website/docs/nebula/api-reference.md",
+        "location": "factory-conflict-outcome.md:23 (invariant 5, three re-anchor sites); api-reference.md:590 (`base: { value: unknown; eTag: string }`)",
+        "finding": "ADR-002 requires identity preserved across every surface and full structured-clone (Map/Set/Date/cycle). The engine hands the handler local/server/base as client-held values; base re-anchors to a prior server snapshot on use-this re-conflict. Two unspecified hazards: (1) when base IS the same object reference as a prior server snapshot (or the rollback snapshot), a handler mutating the handed value could corrupt the rollback baseline or next base — the spec never says these are frozen/cloned; (2) for cycle/alias-bearing values, whether base/local/server each preserve internal identity after client-side capture/re-anchor is unverified (the spike round-tripped these only in-process; Mn15 covers the wire, not the client-held base path).",
+        "suggestion": "Pin the ownership/identity contract for local/server/base in api-reference §Handler bindings: state whether they are frozen/cloned before the handler sees them. Add a capable-of-failing probe that a base/rollback snapshot containing a cycle survives a use-this re-conflict re-anchor with identity intact (extending the Mn15 rich-type probe to the client-held base path, not just the wire).",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 43,
+        "title": "Step 4.5b eTag-conflict kept in-transaction is intentionally STRICTER than ADR-005's monotonic-pre-check allowance (security: avoids snapshot disclosure to an unauthorized caller) but the divergence is undocumented — a future ADR-literal reading could reintroduce the leaky pre-check (re-opens R3-9)",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "adr-conformance"
+        ],
+        "artifact": "tasks/nebula-frontend.md; docs/adr/005-optimistic-concurrency-etags.md",
+        "location": "nebula-frontend.md:530 (conflict verdict + currentSnapshot only at Step 9, after Step-8 permission gate)",
+        "finding": "ADR-005's monotonic-pre-check corollary lists BOTH replay-already-committed AND eTag-conflict as permitted fast-fail pre-checks. The v3 spec correctly (for the R3-9 cross-user-read fix) keeps the eTag-conflict VERDICT + currentSnapshot disclosure in-txn at Step 9 after the permission gate — only the conflict-suspect skip-hint is computed early. This is stricter than ADR-005 requires and is the right call, but the spec never flags it as an intentional divergence, so a future implementer reading ADR-005 alone could reintroduce the early currentSnapshot return, re-opening R3-9.",
+        "suggestion": "Add a one-line cross-reference at the Step 4.5b spec (and ideally a note in ADR-005's corollary) stating that although ADR-005 PERMITS eTag-conflict as a monotonic pre-check, Nebula's resources path deliberately defers the conflict verdict + currentSnapshot to Step 9 because the pre-check would disclose a snapshot to an unauthorized caller (making it effectively non-monotonic-safe). Pins the security choice against an ADR-literal regression.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 44,
+        "title": "#onDagChanged broadcast can exceed directThreshold and route through the tier worker — the N3 note singles out only the cleanup handler for @mesh, risking an implementer reading 'the payload handler doesn't need it'",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "architecture-mesh"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/star.ts; packages/mesh/src/broadcast.ts",
+        "location": "nebula-frontend.md:427 (step 3, N3) + :432 (handleOrgTreeUpdate); star.ts:535-540",
+        "finding": "Step 3 (N3) flags that the drop-on-failed-broadcast cleanup handler needs @mesh() because the tree broadcast can exceed directThreshold and take the tier-worker path. The same reasoning applies to the PAYLOAD continuation handleOrgTreeUpdate (specced as a dedicated @mesh handler at :432, so it IS covered), mirroring handleResourceUpdate on the resource path. But singling out ONLY the cleanup handler in the N3 note could read to an implementer as 'the payload handler doesn't need it.'",
+        "suggestion": "In step 3's N3 note, state the tier-worker @mesh requirement covers BOTH the broadcast payload continuation (handleOrgTreeUpdate, already @mesh at :432) and the onResult cleanup continuation — same rationale as handleResourceUpdate + onBroadcastResult. Add a 5.3.8 assertion that an orgTree broadcast forced over the tree path (directThreshold=0) still delivers to a second client AND runs cleanup.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 45,
+        "title": "Commit-boundary base re-anchor (B4 site b) interaction with delete tombstones (meta.deleted:true, last value intact) is unspecified — a buffered edit chaining onto a tombstone commit could 3-way-merge against a value the server already considers deleted",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "adr-conformance"
+        ],
+        "artifact": "tasks/debounce-serial-queue.md; tasks/nebula-frontend.md",
+        "location": "debounce-serial-queue.md:117 (txResultSuccess re-anchors base to committed value); nebula-frontend.md:330 (tombstone contract)",
+        "finding": "Site (b) re-anchors base to 'the committed value' when a buffered write chains onto a clean commit. The tombstone contract says a delete commits as a real Snapshot with meta.deleted:true and the last value intact. Edge case unaddressed: if a debounced burst includes a delete that commits, then a buffered follow-up edit chains on, site (b) re-anchors base to the tombstone's last-value-intact snapshot. Whether that is the correct common ancestor for an edit on a logically-deleted resource is unspecified — a subsequent conflict could 3-way-merge against a value the server already considers deleted.",
+        "suggestion": "Add a sentence to invariant 5 site (b) / the txResultSuccess transition clarifying base re-anchor behavior when the committed snapshot is a tombstone (meta.deleted:true): either the follow-up write re-creates (base is the tombstone value, correct) or it is rejected/flushed differently. Add a probe: delete commits, a buffered edit chains on, assert the merge base used is the documented one.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 46,
+        "title": "onShouldRefreshUI once-guard uses a sessionStorage sentinel with no specified key/value/clear semantics, and api-reference 'shows nothing' contradicts task-file 'shows a banner' (the config-default path has no banner surface)",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md; website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:367 (Mn2 reload-storm guard) + api-reference.md:69 ('once-guarded (a sessionStorage sentinel)')",
+        "finding": "The Mn2 reload-storm guard never specifies the sentinel key (collision risk if two apps share an origin/scope), what it stores, or WHEN it clears. If it never clears, a legitimate later deploy in the same session is suppressed, stranding the user on a stale bundle; if it clears too eagerly, the loop returns. api-reference promises 'shows nothing rather than looping' but the task file says 'shows a banner' — and no banner mechanism is specified for the config-default reload path (the default handler only reloads). An implementer must invent the key, the clear-trigger, and reconcile 'nothing' vs 'banner.'",
+        "suggestion": "Specify the sentinel: a scoped key (include appVersion or scope), what it stores, and the clear condition (e.g. cleared on a successful connect at the new version, or keyed by currentVersion so a different version reloads again). Reconcile api-reference 'shows nothing' with task-file 'shows a banner' — the config-default path has no banner, so it should say 'does not reload again' unless a banner surface is actually specified.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 47,
+        "title": "subscribeTree gates only on aud-lock + presence-of-sub; the full-tenant-ACL universal broadcast means a revoked-mid-session user keeps receiving every node's grant table (Open-Question-1 no-revoke-on-fanout, but with whole-ACL blast radius) — undocumented for the tree channel",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "security"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/dag-tree.ts",
+        "location": "nebula-frontend.md:426 (Mn4 auth gating) + :438 (M7 caveat); dag-tree.ts:409-412; nebula-frontend.md:576 (Open Question 1)",
+        "finding": "By design the tree channel has no node-level read check — subscribeTree's only gates are onBeforeCall's aud-lock and getState()'s #requireAuth (mere presence of a valid in-scope sub). The accepted risk is documented, but NOT the revocation-mid-subscription interaction already flagged for resources (Open Question 1): a fully-revoked user retains their live tree subscription (keyed by clientId, never re-checked on fanout) and keeps receiving the ENTIRE ACL — every node's sub→tier table — including grants made AFTER revocation, until disconnect/reload. For a resource this is one node's data; for the tree it's the whole tenant's permission graph.",
+        "suggestion": "Add one sentence to the design-B item (or the M7 caveat at :438) acknowledging the tree channel inherits Open-Question-1's no-revoke-on-fanout behavior and that, because the payload is the full tenant ACL, production should revisit per-mutation re-gating or subscription invalidation on permission revocation — same as the resource path, but with larger blast radius.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 48,
+        "title": "Auto-resubscribe-on-reconnect for the tree singleton bypasses #resubscribeAll, but reconnect ordering of subscribeTree vs held-write replay and the handling of an in-flight/queued non-idempotent orgTree mutation across the disconnect are unspecified",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "architecture-mesh"
+        ],
+        "artifact": "tasks/nebula-frontend.md; tasks/debounce-serial-queue.md; tasks/factory-conflict-outcome.md",
+        "location": "nebula-frontend.md:433 (step 7 — subscribe-on-connect, not via #resubscribeAll) + factory-conflict-outcome.md invariant 8 + debounce-serial-queue.md:121",
+        "finding": "On reconnect the tree re-subscribes directly on the reconnecting→connected transition (step 7), separate from resource #resubscribeAll. Three reconnect-driven actions contend on one transition: tree subscribeTree, resource auto-resubscribe + initial-snapshot holds, and held-write flush + in-flight replay. The spec never orders subscribeTree relative to resource replay, nor states whether a tree mutation awaited-but-unresolved at disconnect is replayed. createNode is non-idempotent (always inserts a new nodeId), so a blind callRaw replay of a queued createNode creates a DUPLICATE — unlike resource writes which newETag replay short-circuits. (Tightly coupled to rank 8.)",
+        "suggestion": "Add a decision to the orgTree item on how an in-flight/queued client.orgTree mutation is handled across a disconnect: createNode is non-idempotent, so a blind replay risks duplicates — either let it reject on disconnect (app re-issues deliberately) or gate orgTree mutations like resources but WITHOUT replay (no newETag idempotency exists for tree ops). Tie to rank 8. Add a probe.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 49,
+        "title": "Stale LOC estimates: 'port factory ~290 LOC' / '~300 LOC factory + ~50 LOC debounce' understate the spike (factory 576, debounce-queue 540, conflict-outcome 440, text-merge 194) and under-scope the port",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/spike/vue-factory/src/create-nebula-client.ts",
+        "location": "nebula-frontend.md:323 (Port factory ~290 LOC) + :43 (package-picture ~300 LOC factory + ~50 LOC debounce)",
+        "finding": "The port item says '~290 LOC' but the actual file is 576 lines, carrying real code the port must carry (M10 MAP_MUTATORS/SET_MUTATORS, queue wiring, internalDeepWrite, collection-value apply helpers). The package-picture says '~300 LOC factory + ~50 LOC debounce' but debounce-queue.ts alone is 540 lines. The estimates under-scope the port.",
+        "suggestion": "Update the LOC estimates to reflect the current spike (factory ~576, debounce-queue ~540, conflict-outcome ~440, text-merge ~194), or drop the bare-count estimates per tasks/README.md's anti-bare-count guidance.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 50,
+        "title": "nebula-client-adapter.ts fold-or-keep is 'decision during implementation', but the target package layout and factory LOC already silently assume the fold; the headless-mode pin (Vue-aware factory) implies fold but it's never stated",
+        "severity": "minor",
+        "confidence": "medium",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:332 (adapter fold-or-keep) vs :264-278 (package layout, no adapter file) vs :323 (port factory) + :77 (headless mode)",
+        "finding": "nebula-frontend.md:332 leaves open whether nebula-client-adapter.ts is its own file or folded into the factory, but the target package layout (:264-278) lists no adapter file and the factory port (:323) folds adapter responsibilities into the factory — the layout presumes the fold without the decision being made. The headless-mode pin (:77, factory imports from @vue/reactivity + @vue/runtime-core) implies a Vue-aware factory (→ fold), but it's never stated, so the 'decision' and the layout disagree about whether the question is open.",
+        "suggestion": "Either decide now (the headless-mode pin already implies a Vue-aware factory → fold the adapter; say so) or, if genuinely open, add the adapter file to the target layout as a conditional and note the LOC impact, so the layout doesn't pre-commit to one branch of an undecided fork.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 51,
+        "title": "flashClass 5.3.8 Vue probe still tests the old scalar `flashClass: null` form, which no longer exists — the contract is the object form {committed, rolledBack}",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md; website/docs/nebula/api-reference.md",
+        "location": "nebula-frontend.md:556 ('custom class, and flashClass: null disabled') vs :525 + api-reference.md:311-314 (object form only)",
+        "finding": "The pinned flashClass shape is an object with optional committed/rolledBack keys (api-reference.md:311-314; framework-agnostic probe :525 uses { committed: null, rolledBack: null }). But the Vue-specific 5.3.8 probe at :556 still says 'Test default class, custom class, and flashClass: null disabled' — the scalar form that no longer exists. An implementer writing that probe to the literal text would test a non-existent option shape.",
+        "suggestion": "Update :556 to the object form: 'custom per-type flashClass: { committed, rolledBack }, and flashClass: { committed: null, rolledBack: null } disabling both' — matching :525 and api-reference §311.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 52,
+        "title": "Stale `dag.nodes` in a deriveTreeWithVirtuals doc-comment after the parameter was renamed to orgTree — references a variable that no longer exists (R3-45 residual)",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction"
+        ],
+        "artifact": "website/docs/nebula/coding-your-ui.md",
+        "location": "coding-your-ui.md:547 (comment) vs :554 (param orgTree: OrgTreeState) and :558-559",
+        "finding": "The deriveTreeWithVirtuals doc-comment at :547 reads 'Walks from ROOT_NODE_ID through dag.nodes...', but the parameter (:554) is orgTree: OrgTreeState and the body comment (:558-559) correctly uses orgTree.edges/orgTree.nodes. dag.nodes refers to a variable that no longer exists — the last residual of the dag→orgTree rename in the worked example.",
+        "suggestion": "Change dag.nodes → orgTree.nodes in the coding-your-ui.md:547 comment.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 53,
+        "title": "debounce-serial-queue.md deletion step references a phantom spike/debounce/ directory the same file says was never used",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "cross-doc-contradiction"
+        ],
+        "artifact": "tasks/debounce-serial-queue.md; tasks/nebula-frontend.md",
+        "location": "debounce-serial-queue.md:148 vs :5 and :34; nebula-frontend.md:487",
+        "finding": "debounce-serial-queue.md:148 says 'the apps/nebula/spike/debounce/ directory gets removed alongside spike/vue-factory/', but the same file's Status (:5) and Phase D0 (:34) state the work landed in spike/vue-factory/, 'NOT the originally-planned spike/debounce/'. So spike/debounce/ does not exist; nebula-frontend.md:487 lists only spike/vue-factory/ for deletion. An implementer following :148 would chase a non-existent directory.",
+        "suggestion": "Delete or correct debounce-serial-queue.md:148 — there is no spike/debounce/ directory; the only deletion target is spike/vue-factory/, already owned by nebula-frontend.md:487.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 54,
+        "title": "client.dispose() and the factory's dispose() are described with different behaviors (WS-disconnect vs not), leaving it ambiguous whether they're the same function; bootstrap example omits dispose",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/api-reference.md",
+        "location": "api-reference.md:80 (factory dispose() — no WS disconnect) vs :379-390 (client.dispose, step 4 'Disconnect the underlying LumenizeClient WebSocket')",
+        "finding": "The factory return-shape row (:80) describes dispose() as flushing pending writes, clearing refcount + timers, disposing scopes — no WebSocket disconnect. The client.dispose section (:379-390) lists a 4th step 'Disconnect the underlying LumenizeClient WebSocket' and says it's 'also available on the factory return as dispose().' The two disagree on whether teardown disconnects the socket, and the bootstrap example (:90) destructures { client, store, ready } without dispose, so an LLM is unsure which dispose to call and what it tears down — significant for a long-running SPA navigating away.",
+        "suggestion": "Make the two descriptions identical (state factory dispose() === client.dispose() and both perform all four steps including the WS disconnect), or split them if they genuinely differ. Add dispose to the bootstrap example's exports if apps are expected to call it.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 55,
+        "title": "Tombstone client-half write-through for the orgTree/lmz channel is unspecified — meta.deleted contract is resource-only; tree node deletes likely ride the full-snapshot rebroadcast but it's never tied together",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "completeness-critic"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:330 (tombstone contract — resources) vs :422-440 (orgTree channel, OrgTreeState carries deleted per node)",
+        "finding": "The tombstone contract (deletions arrive as real Snapshots with meta.deleted:true, never null) is pinned for the resource channel. The orgTree channel is separate and OrgTreeState nodes carry their own deleted flag. The spec never states whether a node deletion on the tree flows as a full-snapshot rebroadcast with the node's deleted flipped (the design-B 'synthesize getState() and broadcast' implies yes) — likely a non-issue given the full-snapshot-per-mutation model, but unstated, so an implementer might wonder if tree node deletion needs meta.deleted-style handling on the lmz channel.",
+        "suggestion": "Add a one-line note in the design-B item that tree node deletes/undeletes ride the normal full-snapshot getState() rebroadcast (the per-node deleted flag in OrgTreeState carries it) — no meta.deleted tombstone semantics apply to the lmz channel, confirming the resource tombstone contract is resource-only.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 56,
+        "title": "Shipped-item m4 claims-getter cited at lumenize-client.ts:384 (the #claims field decl); the getter is at :490 — off-target line citation",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; packages/mesh/src/lumenize-client.ts",
+        "location": "nebula-frontend.md:444 (Expose client.claims ✅ SHIPPED)",
+        "finding": "The shipped bullet cites lumenize-client.ts:384 for the 'frozen getter, populate-on-refresh' claims surface, but :384 is the private field declaration; the get claims() getter is at :490, with freeze in #refreshToken at :938 and the constructor at :434. The rest of the claim is correct (no #sub field — dropped in favor of claims.sub).",
+        "suggestion": "Point the citation at the getter (:490) or the freeze sites (constructor :434 / #refreshToken :938) rather than the field declaration.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 57,
+        "title": "Shipped-item m12 narrowing-getter cited at nebula-client.ts:227 (above the class); the re-declared getter is at :248 — off-target line citation",
+        "severity": "nit",
+        "confidence": "high",
+        "lenses": [
+          "spec-code-drift"
+        ],
+        "artifact": "tasks/nebula-frontend.md; apps/nebula/src/nebula-client.ts",
+        "location": "nebula-frontend.md:420 (Narrow claims to non-null ✅ DONE)",
+        "finding": "The m12 bullet cites nebula-client.ts:227 for the 'behaviorally-neutral getter re-declaration dropping | null', but :227 is blank/above the class; class NebulaClient extends LumenizeClient<NebulaJwtPayload> is at :228 and the re-declared getter is at :248-250. The underlying claim is correct (generic base at lumenize-client.ts:373, override at :248) — only the line number is off.",
+        "suggestion": "Update the citation from :227 to :248 (the getter), or :228 (the extends declaration).",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 58,
+        "title": "TreeSubscribers keyed by clientId-alone is sound only for a single-Star singleton tree; the per-branch caveat is noted but the activeScope 4-tuple makes branch a real near-term axis — a one-line confirmation that branch isolation is structural (Star-instance-per-branch) would remove the ambiguity",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "architecture-mesh"
+        ],
+        "artifact": "tasks/nebula-frontend.md",
+        "location": "nebula-frontend.md:425 (TreeSubscribers clientId PRIMARY KEY) + :438 (per-branch caveat) + :64-65 (activeScope 4-tuple includes branch)",
+        "finding": "The TreeSubscribers PK is clientId alone (one tree per Star). The caveat at :438 acknowledges a future per-branch tree would need revisiting, but the active-scope model already carries a branch segment in the aud, and a Star is addressed by activeScope. Almost certainly fine today (branch is part of the Star instanceName, so each branch is a distinct DO with its own TreeSubscribers table), but the spec asserts 'one tree per Star' without stating that branch isolation is achieved by Star-instance-per-branch rather than by the tree key.",
+        "suggestion": "In the M7-caveat paragraph (:438), add that branch isolation today is structural (each branch is a distinct Star DO instance via the 4-tuple activeScope→instanceName), so clientId-alone keying is correct per-DO; the per-branch revisit only applies if a single Star ever hosts multiple branch trees. One sentence; removes ambiguity.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 59,
+        "title": "isAppAdmin example reads `client.claims.access?.admin` while the pinned type declares access as required (only .admin optional) — the ?. signals false uncertainty to the LLM",
+        "severity": "nit",
+        "confidence": "low",
+        "lenses": [
+          "product-ergonomics"
+        ],
+        "artifact": "website/docs/nebula/coding-your-ui.md; website/docs/nebula/api-reference.md",
+        "location": "coding-your-ui.md:217 (`client.claims.access?.admin`) vs api-reference.md:523 (`access: { authScopePattern: string; admin?: boolean }`)",
+        "finding": "NebulaJwtPayload.access is typed as a required object and client.claims is narrowed non-null on NebulaClient, so client.claims.access is always present; only .admin is optional. The example's access?.admin optional-chains on access, which under the pinned types can never be undefined — harmless defensively but teaches the LLM that access may be absent (it isn't); the idiomatic form is client.claims.access.admin.",
+        "suggestion": "Use client.claims.access.admin to match the pinned type (only .admin is optional). If pre-ready admin/scripting safety is the reason for the chain, note that explicitly.",
+        "adrConflict": false,
+        "isBlocker": false
+      },
+      {
+        "rank": 60,
+        "title": "resources.md 'Precedence' link targets the parent section anchor, not the #precedence sub-heading the api-reference's own cross-refs use",
+        "severity": "nit",
+        "confidence": "medium",
+        "lenses": [
+          "cross-doc-contradiction"
+        ],
+        "artifact": "website/docs/nebula/resources.md; website/docs/nebula/api-reference.md",
+        "location": "resources.md:337 (link target #resourcesontransactionresourceresolution) vs api-reference.md:340 (### Precedence → #precedence)",
+        "finding": "resources.md:337 says 'See [API reference § Precedence](./api-reference.md#resourcesontransactionresourceresolution)' — the link text says Precedence but the anchor targets the parent onTransactionResourceResolution section. api-reference has a dedicated ### Precedence sub-heading (:340, #precedence) that its own internal cross-refs use. The link resolves but lands at the top of a long section rather than the named sub-heading.",
+        "suggestion": "Change resources.md:337's anchor to ./api-reference.md#precedence to match the named sub-heading and api-reference's own cross-references.",
+        "adrConflict": false,
+        "isBlocker": false
+      }
+    ],
+    "dropped": [
+      {
+        "lens": "architecture-mesh",
+        "severity": "nit",
+        "location": "tasks/nebula-frontend.md:427 (step 3 — #onDagChanged synthesizes getState() and svc.broadcasts); dag-tree.ts:194/228/etc (#onChanged() called inside/after each mutation); star.ts:42,484",
+        "title": "#onDagChanged fires svc.broadcast synchronously inside the SQL-mutating dagTree() traversal — opening an input gate / interleaving hazard not addressed",
+        "finding": "Each DagTree mutation calls this.#onChanged() (dag-tree.ts:194,228,289,...) which the constructor wires to () => this.#onDagChanged() (star.ts:42). Design B makes #onDagChanged call dagTree.getState() (which calls #requireAuth, dag-tree.ts:410) and svc.broadcast to ALL TreeSubscribers — all within the synchronous unwind of the single @mesh dagTree() call, after the storage.transactionSync block but before the awaited method returns to the client. The resource broadcast (#broadcast, star.ts:513) runs from a DIFFERENT place: after `await this.#resources.transaction(...)` in the async doTransaction handler (star.ts:276-277), i.e. at a well-defined post-commit point in an async handler. The orgTree broadcast instead fires mid-traversal from a sync mutation method. svc.broadcast fires one-way lmz.calls; whether issuing them from inside the still-executing mesh-method body (vs after it returns) is safe — re: input-gate opening, callContext liveness during the one-way dispatch, and ordering relative to the method's own response delivery — is not analysed anywhere in the spec. durable-objects.md warns that await/setTimeout inside a DO opens input gates; svc.broadcast's dispatch mechanics relative to the enclosing sync method should be confirmed.",
+        "why": "The finding's structural description is accurate (verified: dag-tree.ts mutation methods are synchronous — `createNode(...): number` at :173, no `async`; each calls `this.#onChanged()` AFTER its `transactionSync` block at :194/228/247/289/etc; star.ts:42 wires that to `#onDagChanged()`, currently an empty no-op at :484-486; the resource `#broadcast` instead fires via `onMutations` AFTER the `transactionSync` closes inside the *async* `Resources.transaction`, resources.ts:545-547 / star.ts:277). But the load-bearing hazard claim is REFUTABLE on read. The finder fears `svc.broadcast` \"opens an input gate that lets a concurrent dagTree() mutation interleave before the broadcast's getState() snapshot is serialized.\" I read `packages/mesh/src/broadcast.ts` (the `broadcast()` factory, :131-186): the dispatch is FULLY SYNCHRONOUS — it loops over targets and calls `doInstance.lmz.call(...)` fire-and-forget (3-arg, or 4-arg with `onErrorOnly`), with NO `await`, `setTimeout`, or `setInterval` anywhere. `getState()` (dag-tree.ts:409-412) just reads `this.#cached` synchronously. So the entire `#onDagChanged → getState() → svc.broadcast → lmz.call` sequence runs with zero yield points; per durable-objects.md, input gates open only on await/setTimeout/setInterval — none exist here, so no gate opens and nothing can interleave before the snapshot is dispatched. The finder hedges (\"whether ... is safe ... is not analysed\") and the suggestion is merely \"confirm ... is safe\" — a confirm-during-build ask, not a demonstrated defect. The residual \"please document the dispatch-from-inside-a-sync-mesh-method safety\" point is near-nil value: this is exactly the blessed pattern the resource `#broadcast` already uses (a synchronous callback firing `svc.broadcast` from inside an enclosing mesh method), and `svc.broadcast` is explicitly DESIGNED for synchronous fire-and-forget dispatch (broadcast.ts header + BroadcastFn returns void). Not in the prior digest as a hazard — SP-14/SP-DROP-2/SP-DROP-3 cover the same step-3 design but are test-coverage / trigger-naming / live-snapshot-not-cloned, none touching concurrency safety — so it is NEW, but the asserted mechanism is factually wrong and the leftover is already answered by an existing approved pattern.",
+        "dropReason": "factually-wrong"
+      },
+      {
+        "lens": "architecture-mesh",
+        "severity": "nit",
+        "location": "dag-tree.ts:409-411 (getState returns this.#cached) + :83-103 (#cached/#invalidate); nebula-frontend.md:427-428 (synth from dagTree.getState())",
+        "title": "getState() returns the live #cached object — orgTree broadcast serializes shared mutable state; confirm no mutation between synth and structured-clone",
+        "finding": "getState() returns this.#cached directly (dag-tree.ts:411) — the live cached DagTreeState (nodes Map, edges Set, nested permissions Map), not a clone, and #invalidate() nulls it on the next mutation (:100-103). The orgTree broadcast synthesizes the snapshot from getState() and hands it to svc.broadcast, which structured-clones at dispatch. In the single-mutation-then-broadcast flow this is fine (the broadcast reads the freshly-rebuilt cache). But the design includes the originator and broadcasts to ALL clients on EVERY change; if any future code path (or a batched/multi-op tree mutation) were to mutate-invalidate-rebuild between the getState() call and svc.broadcast's serialization, subscribers could receive a different generation than the one the mutation produced. Prior digest SP-DROP-3 noted the same 'live cached object, not a clone' fact but it was dropped in verification; re-raising narrowly as: the design relies on svc.broadcast serializing synchronously before the next mutation can rebuild #cached, and that assumption is unstated.",
+        "why": "This re-raises SP-DROP-3 (prior digest line 152), which was already DROPPED in skill-panel verification, and the re-raise does not meet the \"prior fix is wrong / half-applied\" bar — the prior drop was correct and nothing has changed to invalidate it.\n\nFacts verified by reading the cited files:\n- dag-tree.ts:411 getState() does return this.#cached (the live cached object, not a clone), and #invalidate() (lines 100-103) nulls #_cached so #buildState() (105-141) rebuilds fresh Maps/Sets on next access. The finder's factual premise is accurate.\n- nebula-frontend.md:427 (design-B step 3) does specify #onDagChanged synthesizing dagTree.getState() then svc.broadcast. star.ts:484-486 confirms #onDagChanged is currently an empty no-op (the design isn't built yet — this is in-scope v3 spec).\n\nWhy the concern does not survive: I read packages/mesh/src/broadcast.ts:131-185. The broadcast(...) function body is fully synchronous — the direct path (targets ≤ directThreshold) immediately loops doInstance.lmz.call(...) for every target with NO await, and the tree path is a single synchronous lmz.call to the tier worker. Structured-clone serialization happens inside that synchronous lmz.call envelope construction. Per JS run-to-completion plus the DO \"keep methods synchronous\" rule (durable-objects.md), control cannot return to another tree mutation between the getState() read and the synchronous svc.broadcast dispatch — there is no await, no input-gate-opening boundary. So the \"mutate-invalidate-rebuild between getState() and serialization\" race the finder posits is structurally impossible in the specced flow, not merely \"fine for now.\" The finder themselves concede \"the single-mutation-then-broadcast flow this is fine\" and rate it minor/medium.\n\nThe \"unstated invariant\" the suggestion asks to document (svc.broadcast snapshots synchronously before the next mutation) is a structural guarantee of the mesh transport (synchronous one-way lmz.call dispatch, ADR-003) and JS run-to-completion — not a fragile assumption the design rests on. The hypothetical that could break it (\"a future batched/multi-op tree mutation that mutates between getState() and broadcast\") is a non-existent code path the current design (synth once, broadcast once per #onDagChanged) does not contain. The suggested probe (\"two rapid mutations deliver two distinct generations\") is also already substantially covered: nebula-frontend.md:440 test (c) and :542 assert mutation→broadcast fidelity reaching second client + originator, and each broadcast serializes a fresh #buildState() rebuild. This is speculative defensive hardening against a future refactor, re-raising an already-dropped finding without demonstrating the prior drop was wrong.",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "nit",
+        "location": "tasks/nebula-frontend.md:525 (Default flash classes) + :556 (Vue Flash class) vs :258 (flashClass 'Defer concrete design to 5.3.7 implementation') + :472 (v4: 'Flash-class design implemented + tested per chosen approach')",
+        "title": "Flash-class 5.3.8 probes (lines 525, 556) depend on a flash mechanism that is explicitly 'Defer concrete design to 5.3.7 implementation / pick during v4' — a v3 verifier cannot check these against any chosen mechanism",
+        "finding": "Two 5.3.8 probes assert flash classes 'added to bound elements' and 'removed after flashDuration ms', and line 556 even says 'Implementation depends on the chosen flash mechanism (see api-reference.md § Handler bindings).' But the flash mechanism is doubly-deferred: the pinned decision (line 258) says 'Defer concrete design to 5.3.7 implementation. Two viable options ... Pick during implementation', and v4 (line 472) owns 'Flash-class design implemented + tested per chosen approach.' The spike's conflict-outcome tests assert flash via an injected `flash: (rt,rid,cls)=>...` callback (conflict-outcome.test.ts:52) — i.e. the engine-level flash dispatch, NOT DOM-element class toggling. So the 5.3.8 probes that assert 'class added to bound elements' have no v3 mechanism to run against (the DOM-binding half is v4), and a v3 verifier checking 'flash class added to bound elements' against the engine-callback impl would find the success criterion unsatisfiable. The two altitudes (engine flash dispatch vs DOM class toggle) are conflated.",
+        "why": "Substantially the same issue as the already-reported R3-31 (\"Invariant 9 + § Harness say the isolation tests assert 'flash classes toggled', but the detour harness is headless — no DOM/Vue\"), which the prior digest marks resolved/considered (digest L331 \"flash-on-use-server-only row superseded — all four rollback outcomes flash\"; L387 flash comment fix). The substantive defect both raise is identical: flash assertions stated at the DOM-element altitude where only the engine-level callback exists. Current finding just re-targets it at the 5.3.8 probe list (nebula-frontend.md:525/:556) instead of factory-conflict-outcome.md Inv9/Harness, plus a v3/v4-deferral-timing framing.\n\nAll cited facts verified: nebula-frontend.md:525 says \"'committed' resolution adds lumenize-commit-success class to bound elements ... removed after flashDuration ms\"; :556 says \"framework flashes bound elements... Implementation depends on the chosen flash mechanism (see api-reference.md § Handler bindings)\"; :258 \"Defer concrete design to 5.3.7 implementation ... Pick during implementation\"; :472 (v4) \"Flash-class design implemented + tested per chosen approach\"; conflict-outcome.test.ts:52 uses `flash: (rt,rid,cls)=>flashes.push(...)` (engine callback, not DOM toggle). All confirmed.\n\nBut the finding's own remedy — \"split flash probes by altitude\" — is largely ALREADY DONE in the spec: :525 lives under \"Framework-agnostic probes (run in headless / Node)\" (header at :516) and :556 lives under \"Vue-specific probes (need component lifecycle + real-browser for some)\" (header at :544). So the two altitudes are already in separate sections, and :556 already carries the \"depends on the chosen flash mechanism\" caveat tying it to the deferred (v4) DOM work — a v3 verifier reading the section header knows :556 is Vue/real-browser scope. The only genuine residue is a wording wart: :525's phrase \"bound elements\" inside the *headless* section (where the engine emits only a `flash(rt,rid,cls)` callback, no DOM). That is a nit and the tail of the already-resolved R3-31 — below the keep bar and not a new defect.",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "nit",
+        "location": "tasks/factory-conflict-outcome.md:48 (Mn8) + :47 (invariant-10 test drives 'reconnecting') ; tasks/debounce-serial-queue.md:57 (Mn8) + :55-56",
+        "title": "Mn8 'drive the gate via the disconnected literal' is filed in two detour files but the connection-gate gut-verification only proves 'reconnecting' — no probe exercises a 'disconnected'-driven in-flight, the one state LumenizeClient treats as terminal elsewhere",
+        "finding": "I verified against the spike: every connection-gate test drives only setConnectionState('reconnecting') (conflict-outcome.test.ts:500/522, debounce-queue.test.ts:353/376/402) — confirmed zero 'disconnected'/'connecting' drivers. Mn8 correctly flags this in both detour files as an unchecked v3-port add. The added test-strategy risk a verifier should weigh: the gate predicate is `state !== 'connected'`, but LumenizeClient's own mid-session close path (lines 416-418) treats 'disconnected' as the TERMINAL state where onLoginRequired fires and the app should NOT silently retry — i.e. 'disconnected' has special hard-stop meaning elsewhere in the codebase. An impl that, for the write path, treated 'disconnected' as 'roll back / give up' (consistent with the close-path semantics) instead of 'suspend like reconnecting' would be a plausible regression that ONLY a 'disconnected'-driven in-flight probe catches. Mn8 names the probe but doesn't call out this specific collision (write-path 'disconnected' = suspend, auth-path 'disconnected' = terminal), which is the reason the 'disconnected' literal is the dangerous one, not just an enumeration completeness nit.",
+        "why": "This is substantially SP-11 (= skill-panel Mn8) re-raised, and that finding's resolution is already in the working tree at the exact lines cited. I read both detour files: factory-conflict-outcome.md:48 (the Mn8 v3-port obligation) already says \"drive the gate via the 'disconnected' (and 'connecting') literals too, so an impl that special-cases 'reconnecting' — OR treats 'disconnected' as a hard-rollback state (LumenizeClient's enum includes it) — is caught.\" debounce-serial-queue.md:57 already says \"a 'disconnected'-driven in-flight must neither time out nor roll back, then replay the same newETag on reconnect.\" The round-4 suggestion — \"explicitly require a 'disconnected'-driven in-flight probe asserting NO rollback + NO timeout + same-newETag replay, and note 'disconnected' carries terminal semantics\" — is therefore already satisfied by the Mn8 obligations as written: they single out 'disconnected' as the dangerous hard-rollback case AND specify the no-rollback/no-timeout/same-newETag-replay probe. The finding's factual basis is sound (I confirmed lumenize-client.ts #handleClose at :786-822 sets state to 'disconnected' and fires onLoginRequired on 4400/4403/refresh-failed, so 'disconnected' does carry terminal/login-required semantics on the close path; the cited \"lines 416-418\" are stale but the substance holds, and mesh.md corroborates). But the only delta over SP-11 is sharper prose for the *rationale* (write-path-suspend vs auth-path-terminal collision) — it adds no new, unaddressed test obligation, since the capable-of-failing probe that catches exactly that collision is already pinned. The finder set priorOverlap=SP-11 but did NOT claim the prior fix was wrong/half-applied; it is neither. Drop as already-reported.",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "test-strategy",
+        "severity": "nit",
+        "location": "tasks/nebula-frontend.md:442 (Carry-forward tests: ~32) vs actual spike (collection-sync 15 + conflict-outcome 20 + debounce-queue 20 + deep-equals 22 + factory-basics 24 + text-merge 28 = 129, plus e2e 3 + Vue Q1-Q5)",
+        "title": "Carry-forward test inventory uses bare counts ('~32 at time of writing') against a spike that now has ~129 tests across six suites — the success criterion 'enumerate with ls/grep at port time' lets a port silently drop coverage",
+        "finding": "The carry-forward item says '~32 at time of writing — Phase 0a factory-basics + Phase 0b e2e + Vue probes Q1-Q5' and defers the real inventory to 'enumerate with ls/grep at port time.' I counted the spike: the detour suites alone are 129 tests (collection-sync 15, conflict-outcome 20, debounce-queue 20, deep-equals 22, factory-basics 24, text-merge 28), plus 3 e2e and 5 Vue probes. The '~32' figure predates all four detours and is now off by ~4x; it names only factory-basics + e2e + Q1-Q5 and omits the entire detour suite (which the SAME phase says is 'ALL GREEN' and must port). A verifier checking 'carry-forward tests ported' against the literal '~32' would pass while ~97 detour tests silently failed to port. tasks/README.md (per SP-DROP-5/SP-DROP-10) already calls bare-count inventories an anti-pattern.",
+        "why": "Substantially identical to a prior-wave finding the finder itself cites (priorOverlap SP-DROP-5), and not a valid \"prior fix was wrong\" re-raise. SP-DROP-5 (skill-panel, 2026-06-12) is at the EXACT same location (tasks/nebula-frontend.md carry-forward-tests item, the \"~32 ... enumerate with ls/grep at port time\" text) with the IDENTICAL mechanism (\"the actual spike now has more suites than that summary implies (conflict-outcome 20, te...)\") — the same per-suite enumeration this finding presents as its discovery. SP-DROP-10 separately raised the same bare-count anti-pattern across the v3 inventory items, and R3-41 raised it yet again. SP-DROP-5 and SP-DROP-10 were both DROPPED-in-verification in the prior skeptic pass — so this is a duplicate of an already-adjudicated drop, not a half-applied fix. There was no fix to be incomplete: the \"~32 ... enumerate with ls/grep at port time\" text remains verbatim at nebula-frontend.md:442 because the prior wave decided the ls/grep instruction is the binding deliverable and the count is permissible parenthetical commentary. I verified the live line 442: it says \"all tests under `apps/nebula/spike/vue-factory/test/**` (enumerate with `ls`/grep at port time; ~32 at time of writing ...)\" — the deliverable IS \"all tests under .../test/**\" via ls/grep, exactly the \"count as commentary, not inventory\" pattern tasks/README.md:86 explicitly allows (\"If you need a count for scoping ... include it as commentary, not as the inventory\"). I confirmed the spike counts (collection-sync 15, conflict-outcome 20, debounce-queue 20, deep-equals 22, factory-basics 24, text-merge 28 = 129; e2e 3; vue probes Q1-Q5 across 5 files) and tasks/README.md §\"Inventories: prefer 'all files matching' over counts\" (lines 77-86) — the finding is factually true, but it is the same issue, at the same line, already raised and dropped. The finder offers no new information the prior skeptic lacked and does not argue a landed fix is defective.",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "spec-code-drift",
+        "severity": "nit",
+        "location": "tasks/nebula-frontend.md:426 (subscribeTree registry-keys Mn6 sub-bullet)",
+        "title": "Mn6 cites star.ts:372-379 for the clientId/subscriberBinding split, but the split is at :378-385 (:372-379 is the doSubscribe dispatch)",
+        "finding": "The subscribeTree item says registry keys use 'the same split resource subscribe uses, [star.ts:372-379]'. In the live file, the `subscribe` @mesh method starts at :377; `clientId = callContext.callChain[0]?.instanceName` is at :378 and `subscriberBinding = callContext.callChain.at(-1)?.bindingName` is at :385. Line range :372-379 lands partly on the preceding method's closing brace and the subscribe-section comment, only catching the first of the two reads. The described semantics (callChain[0].instanceName / callChain.at(-1).bindingName) are exactly correct — only the cited range is slightly off.",
+        "why": "The finding's own line numbers do not match the live file. I read apps/nebula/src/star.ts:365-399 directly: @mesh() is at :370, subscribe() opens at :371, `const clientId = this.lmz.callContext.callChain[0]?.instanceName` is at :372, and `const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName` is at :376 (with throw guards at 374-375 and 377-378). The finding claims subscribe starts at :377, clientId at :378, subscriberBinding at :385 — none of those match the actual file. The spec at tasks/nebula-frontend.md:426 cites [star.ts:372-379], and that range correctly spans BOTH reads (line 372 = clientId, line 376 = subscriberBinding, both inside 372-379). The citation is accurate, not off-by-six; the finding's premise that the range \"only catches the first of the two reads\" is false (line 376 is well within 372-379). Item is factually wrong and the suggested fix (:378-385) would actually make the citation incorrect.",
+        "dropReason": "factually-wrong"
+      },
+      {
+        "lens": "adr-conformance",
+        "severity": "nit",
+        "location": "tasks/nebula-frontend.md:427-428 (broadcast synthesizes `dagTree.getState()`); digest SP-DROP-3 (getState returns live `this.#cached`, not a clone)",
+        "title": "orgTree getState() synth is broadcast by-reference (live #cached) — Map/Set/nested-Map mutation-vs-wire-snapshot identity needs an ADR-002 guarantee at the broadcast boundary",
+        "finding": "ADR-002 requires every surface (incl. the wire) to round-trip the full structured-clone value space — here `nodes: Map`, `edges: Set`, `permissions: Map<number, Map<...>>`. The digest (SP-DROP-3) notes getState() returns the live cached DagTreeState (Maps/Sets), not a clone. The broadcast carries it across `svc.broadcast` → structured-clone encode → each client's handleOrgTreeUpdate. Two ADR-002 concerns the v3 spec leaves implicit: (1) the structured-clone wire path must encode/decode the nested `Map<number, Map<string, tier>>` faithfully (the 5.3.8 probe (b)/:542 asserts this — good), but (2) because getState() hands out the LIVE cached object, a broadcast in flight while DagTree mutates again could encode a half-mutated Map (the broadcast encode is not guaranteed atomic w.r.t. a subsequent synchronous mutation). The single-threaded DO makes this safe in practice if the broadcast encode completes synchronously before returning to the event loop, but the spec never states that the synth must snapshot/clone before broadcasting, and an async broadcast path would expose torn reads of the live Maps.",
+        "why": "Substantially the same as prior digest item SP-DROP-3, which the finder's own `location` field explicitly cites. I verified the facts: nebula-frontend.md:427-428 does synthesize `dagTree.getState()` and broadcast to TreeSubscribers; dag-tree.ts:409-412 `getState()` returns the live `this.#cached` (not a clone) and DagTreeState is indeed nodes:Map / edges:Set / permissions:Map<number,Map<string,tier>>; and the 5.3.8 probe at line 542 already asserts wire fidelity for exactly those nested Map/Set types. SP-DROP-3 made the identical observation (\"getState() returns this.#cached, the live cached DagTreeState... not a clone. The broadcast carries...\") and was DROPPED in verification by the skill-panel wave. The finding's one new angle — a \"torn read\"/non-atomic-encode risk from broadcasting the live object — is refuted by the DO single-thread model, which the finding itself concedes (\"The single-threaded DO makes this safe in practice\"): per durable-objects.md, DagTree mutations are synchronous methods, structured-clone encode runs synchronously inside the same mesh-call turn with no await between getState() and svc.broadcast, and a concurrent client's fanout is a separate dispatch that cannot interleave mid-encode — so \"half-mutated Map\" is unreachable. The finder does not invoke the wrong-resolution re-raise exception (priorOverlap is null; SP-DROP-3 is cited as support, not as a flawed fix), and the only suggested action is a doc note for a non-bug. This is a duplicate of an already-considered-and-dropped item.",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "state-machine-correctness",
+        "severity": "minor",
+        "location": "factory-conflict-outcome.md:10 (human-in-the-loop advances baseline via api.accept) + :11 (held-fanout disposition: human-in-the-loop in the DROP set) + :26 (invariant 8: hold covers reconnect snapshot 'if the resource still has pending optimistic state')",
+        "title": "human-in-the-loop both DROPS the held fanout and advances the baseline, but the resource keeps pending optimistic state the app owes a submit for — a later reconnect snapshot may not be re-held",
+        "finding": "human-in-the-loop is specified to (a) advance the baseline via `api.accept(snapshot)` and release the queue key (build finding, :10), AND (b) DROP any held fanout (:11, it's in the 'incorporated server state or committed' DROP set). But the resource's optimistic paint STAYS (the user's edit is still on screen) and the app owes a follow-up resolution transaction (api-reference.md:668). So after human-in-the-loop the resource is in a hybrid state: queue key idle, baseline advanced, BUT local store still diverges from server (painted optimistic value ≠ accepted server snapshot). Invariant 8's reconnect-snapshot hold is gated on 'the resource still has pending optimistic state (debounced write outstanding OR transaction in flight)' — after human-in-the-loop there is NEITHER (key released, no debounced write), yet the store still holds an un-submitted divergent value. A reconnect (or a fresh fanout) would therefore NOT be held and would clobber the painted-but-unsubmitted human-in-the-loop value via the unconditional write-through (Three handlers table: handleResourceUpdate 'yes, unconditional'). The 'review later' banner value silently vanishes on the next fanout/reconnect. The held-fanout DROP for human-in-the-loop is inconsistent with keeping the paint.",
+        "why": "Substantially the same as the already-reported-and-dropped SP-DROP-1 (prior digest line 150), which raised exactly this concern — `human-in-the-loop` sits in the held-fanout DROP set (factory-conflict-outcome.md:11) yet \"did NOT incorporate or commit server state,\" so dropping the hold \"silently discards a real concurrent change the user is being asked to reconcile.\" The current finding adds a reconnect/later-fanout refinement (the hybrid state: key idle + baseline advanced per :10, paint still divergent, invariant-8 hold at :26 gated on \"debounced write outstanding OR transaction in flight\" so a later fanout isn't held), but that refinement falls to the same refutation.\n\nThe cited spec text is factually accurate (I read :10 h-i-t-l advances baseline via api.accept; :11 h-i-t-l in the DROP set; invariant 8 :26 gated on pending optimistic state). The defect claim, however, misreads the canonical stash pattern. The finding's headline harm — \"the 'review later' banner value silently vanishes on the next fanout/reconnect\" — is false: the documented h-i-t-l pattern (resources.md:405-430) stashes BOTH local and server (`store.app.conflicts[eTag] = { local: resolution.local, server: resolution.server }`) into an app-owned structure, NOT into `store.resources.{rt}[{rid}].value`. A resource fanout's unconditional write-through (Three handlers, nebula-frontend.md:103) only touches `store.resources.*.value`/`.meta`, never `store.app.conflicts`, so the parked conflict (incl. the user's un-submitted local edit) is untouchable by clobber. The banner reads `store.app.conflicts`, not the reactive paint.\n\nThe finding's own suggestion (\"pin that human-in-the-loop's stash lives outside the reactive store (a separate conflict-stash structure)\") is ALREADY exactly the documented design. And the residual clobber (the reactive paint being overwritten by a later fanout) is anticipated/intended, not a bug: api-reference.md:274 explicitly says of the h-i-t-l resolution submit \"The local store may have moved on; the stashed eTag is the right baseline\" — the resolution deliberately resubmits using the stashed `conflict.server.meta.eTag` + stashed value via the Explicit eTag override (api-reference.md:269-285, resources.md:447-461), not the live store. So \"store moved on\" is the documented expected condition. The added reconnect angle changes nothing: SP-DROP-1's verifier rationale (concurrent change surfaced via stashed `resolution.server`, edit via stashed `resolution.local`) holds identically for a later reconnect snapshot. Net: a re-raise of a dropped item whose premise (divergent value lives only in the clobberable reactive paint) is a misreading; no new defect.</reason>\n</invoke>\n",
+        "dropReason": "already-reported"
+      },
+      {
+        "lens": "state-machine-correctness",
+        "severity": "minor",
+        "location": "factory-conflict-outcome.md:11 (validation-failed/permission-denied/timeout/infrastructure-error APPLY the held snapshot once the key is idle) + :21 (invariant 3 rollback restores pre-write snapshot)",
+        "title": "Held-fanout APPLY-when-idle on rollback conclusions can re-submit a server value the user never typed via the synced-state middleware",
+        "finding": "On a pure-rejection rollback (validation-failed / permission-denied / timeout / infrastructure-error) the resource first rolls its optimistic value back to the pre-write snapshot (invariant 3), then APPLIES the held fanout snapshot 'once the key is idle' (:11). The held snapshot must be applied via the remote write-through path with `source:'remote'` so the synced-state middleware skips submission (factory-collection-sync.md:28 / debounce-serial-queue.md skip). But the timing — rollback writes the pre-write value through the store (a write that itself must be source-tagged to not submit), THEN applies the held snapshot — is two store writes in sequence on a now-idle key. If either the rollback restore or the held-snapshot apply is NOT source-tagged remote (the spec describes rollback as 'restore from snapshot' without naming the source tag), it re-enters the set-trap middleware and queues a fresh transaction submitting either the rolled-back value or the server's value back to the server as if the user typed it. The spec never states that the rollback-restore write carries `source:'remote'`.",
+        "why": "The finding's core premise — that the rollback-restore and held-fanout-apply writes are NOT source-tagged, so they re-enter the set-trap middleware and re-submit the rolled-back/server value — is refuted by the contract surface. api-reference.md:714 defines `type WriteContext = { source: 'local' | 'remote' | 'rollback' | 'computed' }`, and :719-724 spell out exactly the two cases the finding worries about: (1) `'rollback'` = \"framework restoring a pre-write value after a failed transaction. Synced-state middleware skips.\" (2) `'remote'` = \"server fanout. Synced-state middleware skips.\" So the rollback restore IS source-tagged (as `'rollback'`, a dedicated tag for precisely this purpose, NOT untagged) and the held-fanout apply — being a server snapshot delivered through the framework write-through (nebula-frontend.md:432 \"existing framework write-through (`source:'remote'`)\"; :455 \"the `{ source: 'remote' }` bypass\"; factory-collection-sync.md:28 \"a remote fanout that writes a collection through `{ source: 'remote' }` must NOT re-submit\") — also skips submission. The finding's literal phrasing (\"the spec never states the rollback-restore carries `source:'remote'`\") is true only because the spec uses the MORE specific `'rollback'` tag that also skips; the substantive re-submission risk does not exist. The suggested fix (\"pin that BOTH are `source:'remote'`\") is itself slightly wrong (rollback is `'rollback'`). The test gap it raises is also already pinned: factory-conflict-outcome.md:43 has the green \"held news released after a rollback conclusion\" test, line 44's Mn7 v3-port obligation is the per-conclusion-kind held-fanout DROP-vs-APPLY matrix probe, and factory-collection-sync.md's \"No echo\" test asserts a remote write never re-submits. Not in the prior digest as such, but it's a misreading of the source-tag mechanism that the contract docs explicitly define.",
+        "dropReason": "already-addressed-in-spec"
+      },
+      {
+        "lens": "state-machine-correctness",
+        "severity": "minor",
+        "location": "debounce-serial-queue.md:97-98 ('Reconnect ⇒ suspended in-flight replays (SAME newETag...), then dirty free keys flush'); factory-conflict-outcome.md:26 (invariant 8: reconnect snapshot held while pending optimistic state)",
+        "title": "Reconnect replays the in-flight transaction AND flushes held writes, but the order vs. the held reconnect-snapshot creates a window where the replay commits against a baseline the snapshot already superseded",
+        "finding": "On reconnect the sequence is: (1) re-submit the in-flight transaction with its same newETag, (2) flush held dirty writes, while (3) auto-resubscribe pushes a fresh initial snapshot that invariant 8 says is HELD because the resource has pending optimistic state. The ordering of (1) replay vs (3) snapshot-push-and-hold is unspecified relative to each other across the two detour docs. If the auto-resubscribe snapshot arrives and is processed BEFORE the in-flight replay completes, the held snapshot sits buffered; the replay returns committed (idempotent short-circuit) — and then what releases/merges the held snapshot? Invariant 8 says 'the flushed write commits-or-conflicts-and-merges' — but a replay that idempotently short-circuits to committed did NOT go through the conflict resolver, so the held snapshot's merge step (which only runs on conflict) never fires. The held pre-disconnect-keystrokes-vs-reconnect-snapshot merge is only guaranteed when the flush CONFLICTS; when the replay commits clean the held snapshot is just dropped (committed is in the DROP set, :11), discarding the reconnect snapshot — which is correct only if the replay's committed value is actually newer than the held snapshot, which isn't guaranteed if a third party committed during the disconnect.",
+        "why": "The finding's central data-loss scenario — \"the replay commits clean (idempotent short-circuit) AND the held reconnect snapshot is dropped, discarding a third party's commit that landed during the disconnect\" — is impossible under the pinned semantics, so its conclusion is factually wrong even though it quotes real spec text.\n\nKey refutation, from the pinned idempotency replay matrix in nebula-frontend.md:526-530 (ADR-005, forward-only eTags, no dedupe ledger): a replay resolves `committed` ONLY IF the replayed resource still carries the client's `newETag` at retry. Line 529 pins exactly the third-party-during-disconnect case: \"**put / delete, churn-of-the-replayed-resource-itself**: `conflict` (current eTag != the op's baseline -> resolver fires with the third party's `currentSnapshot`), NOT `committed`.\" So a third-party commit during the disconnect churns the eTag, which forces the replay to resolve `conflict`, NOT the idempotent-`committed` short-circuit. The finding's two preconditions (\"replay commits clean\" and \"a third party committed during the disconnect\") are therefore mutually exclusive.\n\nOn the conflict path, the held snapshot is correctly handled: factory-conflict-outcome.md invariant 8 (line 26) explicitly specifies the reconnect ordering the finding claims is \"unspecified\" — \"auto-resubscribe delivers a fresh server snapshot; if the resource still has pending optimistic state ... that snapshot is held too, then the flushed write commits-or-CONFLICTS-AND-MERGES.\" The held-fanout disposition rule (line 11) drops the hold on `committed` and supersedes/merges it via the conflict's server snapshot on `conflict` — which is precisely the third party's `currentSnapshot`. The merge step the finding says \"never fires\" DOES fire, because the replay resolves `conflict`, not `committed`, in exactly the scenario it worries about.\n\nOn the clean-`committed` path (no third party), dropping the held auto-resubscribe snapshot is correct: with the client's `newETag` still current, the server snapshot equals the client's own committed value — never newer. The finding even concedes the drop is \"correct only if a third party did not commit during the disconnect\"; since a third-party commit forces `conflict`, the unsafe conjunction never arises.\n\nThe ordering concern (snapshot processed before replay settles) is also covered: invariant 8 + invariant 10 hold the auto-resubscribe snapshot for ANY resource with pending optimistic state (writes held through the disconnect / in-flight replay), so it cannot be applied-then-dropped ahead of the replay's resolution. Adjacent prior items exist (R3-13 banner honesty; SP-18 held-fanout per-kind disposition test gap) but neither overlaps this specific claim; regardless, the claim is refuted on the merits, not merely already-reported.",
+        "dropReason": "factually-wrong"
+      },
+      {
+        "lens": "state-machine-correctness",
+        "severity": "nit",
+        "location": "debounce-serial-queue.md:74-75 (Idle on committed: 'baseline+base advance together') + :117 (txResultSuccess InFlightWithBuffer→InFlight re-anchors base); factory-conflict-outcome.md:23 (invariant 5 sites a + b)",
+        "title": "First-divergence base capture fires on the first keystroke of a burst, but the burst boundary after a 'committed' transition (Idle→Pending) re-anchors base at commit — a keystroke arriving in the same tick as the commit settle has an ambiguous base",
+        "finding": "Two base-capture sites can race at a commit boundary: site (a) first-divergence captures base = pre-first-keystroke value when a write hits an Idle key; site (b) commit-boundary re-anchors base to the committed value when a buffered write chains onto a clean commit. The state diagram shows two distinct paths out of InFlight on a committed result: (1) 'committed (no buffer)' → Idle [baseline+base advance together], and (2) 'committed ∧ dirty' → re-enter Pending [re-anchor base to committed value]. The hazard: a keystroke that arrives in the same microtask as the commit settle but is processed via the Idle path (because the buffer flag wasn't set yet) would capture base via site (a) = the OLD pre-burst value rather than the committed value, double-counting the user's own committed text on a later conflict (exactly the failure site (b) exists to prevent). Whether a write is classified as 'buffered during InFlight' (→ site b) vs 'fresh write to a just-Idled key' (→ site a) depends on the precise ordering of (commit-settle store write) vs (keystroke set-trap), which the microtask-defer middleware makes nondeterministic.",
+        "why": "Refuted against the validated spike (apps/nebula/spike/vue-factory/src/debounce-queue.ts), which is the reference design the v3 port translates, plus the cited docs. The claimed intra-tick race does not exist and the proposed fix is already implemented:\n\n1) No JS-level race. The commit settle (onSettle, lines 356-371) runs as one synchronous, run-to-completion body that sets `ks.baselineETag = committedETag; ks.baseValue = submission.value;` (lines 362-363) BEFORE calling `config.onCommitted?.()` and BEFORE `releaseKey`. A keystroke `write()` cannot interleave into the middle of a synchronous forEach body — either the whole settle runs first or the whole write runs first. The finding conflates async dispatch *between* operations (the microtask-defer middleware) with interleaving *within* a single synchronous operation; the latter cannot happen.\n\n2) Site (a) is structurally unreachable post-commit. `ensureBaseline` (lines 185-193) early-returns `if (ks.baselineETag !== undefined)`. After the first write to a key, `baselineETag` is set and never reset to undefined except by `noteRemoteSnapshot` (line 509), which deletes the key ONLY when `!ks.dirty && isFree(ks)` (an idle key adopting a *remote* fanout snapshot — not a commit boundary, and it re-inits from the *current* store, never the 'OLD pre-burst value'). So a same-tick post-commit keystroke hits the early-return and chains off the just-committed baseline; it cannot re-capture the stale pre-burst base via site (a). The finding's failure premise ('a keystroke processed via the Idle path would capture base via site (a) = the OLD pre-burst value') is impossible.\n\n3) The suggested fix is already the implementation. 'Update base/baseline synchronously with the committed write-through' = exactly lines 362-363, set synchronously before any callback. There is ONE commit handler (the onSettle forEach); the diagram's two committed branches (debounce-serial-queue.md:74 no-buffer→Idle and :85 committed∧dirty→Pending) differ only in what releaseKey does afterward (re-arm timers vs go idle), NOT in base capture — base advances with baseline uniformly. The diagram annotation the finder cites ('[baseline+base advance together]', :75) literally states the guarantee the finder claims is missing.\n\nNot a duplicate of prior B4 / R3-2 (those concern capture-*point* semantics — submit-time vs first-divergence — not a commit-boundary intra-tick race), in scope (v3 detour files), no ADR conflict (consistent with ADR-004/005 client-held base). The B4 commit-boundary re-anchor was even capable-of-failing verified (debounce-serial-queue.md:11,47). Distinct but factually wrong/misreading.",
+        "dropReason": "misreading"
+      },
+      {
+        "lens": "state-machine-correctness",
+        "severity": "nit",
+        "location": "nebula-frontend.md:404 ('Race window: between auto-derive at call time and actual server submission, a fanout could update the local store... Same outcome as the previous manual-lookup pattern'); debounce-serial-queue.md:27 (flush submits using the in-flight tx's resulting eTag, not the pre-submit eTag)",
+        "title": "Auto-derived eTag is read 'at call time' but the debounce queue submits later — the documented race claim ('same outcome as manual lookup') understates a new same-actor staleness the serial queue introduces",
+        "finding": "The auto-derive item says eTag is derived 'at call time' and treats the call-time-to-submission race as identical to the old manual pattern. But the serial queue explicitly overrides the pre-submit eTag: a buffered write submits with the IN-FLIGHT transaction's resulting eTag (debounce-serial-queue.md:27), NOT the eTag captured at call time. So for the debounced v-model path the call-time auto-derived eTag is frequently DISCARDED and replaced by the queue's chained eTag — meaning the 'derive at call time' description in the auto-derive item is wrong for the dominant (debounced) path, and the 'same outcome as manual lookup' claim doesn't hold (the queue's eTag-chaining is a different, better mechanism). The contradiction is between two pinned items: auto-derive says 'call time', the queue says 'in-flight resulting eTag, not pre-submit'. An implementer reading only the auto-derive item would capture and submit the call-time eTag, breaking the serial-queue eTag chain and causing spurious self-conflicts on rapid typing.",
+        "why": "The finding's core premise — that the auto-derive item (nebula-frontend.md:392-404) and the serial-queue eTag-chaining (debounce-serial-queue.md:27) are \"two pinned items\" describing the SAME submission path and therefore contradict — is false. They describe disjoint paths.\n\n(1) The auto-derive item governs the EXPLICIT `client.resources.transaction()` API (the OperationDescriptor shape at nebula-frontend.md:395-399 + api-reference.md:225-285; explicit-override cases = admin/scripting and human-in-the-loop). For a caller who omits `eTag`, the factory wrapper does a `store.resources.<typeName>[<rid>]?.meta?.eTag` lookup at call time (~20 LOC, :402). For THAT path the \"Race window ... Same outcome as the previous manual-lookup pattern\" claim (:404) is correct — auto-derive replicates the exact boilerplate lookup the caller used to write by hand; the fanout-between-lookup-and-submit race is genuinely identical.\n\n(2) The serial-queue eTag-chaining governs the DEBOUNCED v-model path: synced-state middleware -> `queue.write` -> the queue tracks its OWN `baselineETag`, captured at first-divergence and advanced on commit/accept/resubmit, then submits via `client.transaction({ eTag: queueBaseline })`. Verified in the spike (the design is \"implemented + tested\"): apps/nebula/spike/vue-factory/src/create-nebula-client.ts:472-490 — the synced-state middleware calls `queue.write(...)`, NOT `client.resources.transaction()` with an OperationDescriptor; :426-432 — the queue's `submit` passes the queue baseline as an EXPLICIT `eTag: s.eTag`; debounce-queue.ts:188-189/:299/:362 — `baselineETag` is captured at first-divergence, submitted explicitly, advanced on commit. So the debounced path never invokes the auto-derive OperationDescriptor mechanism; there is no \"call-time auto-derived eTag\" on that path to discard.\n\nBecause the paths are disjoint, there is no contradiction between two pinned items, and the \"implementer reading only the auto-derive item would capture/submit the call-time eTag and break the chain\" scenario can't occur — whoever wires the debounced path follows debounce-serial-queue.md (its own detour file/state machine). The exact test the finding \"suggests adding\" (two rapid debounced writes -> second submits with the first's resulting eTag) already exists as a green D0 invariant (debounce-serial-queue.md:46: \"the eTag of each submission equals the newETag ... of the previous successful submission\"). The multi-resource \"chain off batch eTag\" angle was already reported as prior finding m9 (.round4-prior-digest.md:306-308). Net: a misreading that conflates two deliberately-separate submission paths.",
+        "dropReason": "misreading"
+      },
+      {
+        "lens": "completeness-critic",
+        "severity": "minor",
+        "location": "tasks/nebula-frontend.md:417 (\"Mesh sub-task (separate `packages/mesh` change — track with its own success criterion ...)\")",
+        "title": "Mesh sub-task for `ready` terminal-auth classification has no tracked owner/task file — a v3-blocking cross-package change is buried in a sub-bullet",
+        "finding": "The `ready`-rejects-on-terminal-auth feature is explicitly stated to be UNACHIEVABLE in the factory alone: nebula-frontend.md:417/:418 say \"the factory CANNOT fix this alone, since on first-connect terminal failure mesh emits no signal and goes to 'reconnecting', not 'disconnected'\" — it requires a `packages/mesh` change (classify 401/403 in `#refreshToken` + `#connectInternal` catch). The item says to \"track with its own success criterion,\" but no mesh task file is created/named, no checklist item exists in any tracked mesh work, and MEMORY/the task index has no entry for it. By contrast, the OTHER hard prerequisite (nebula-star-root-admin Part 1) IS a named task file (nebula-frontend.md:320). A v3 implementer reading the v3 checklist will try to wire `ready` rejection in the factory, find mesh emits no signal, and be blocked with no tracked mesh work to point to. Three 5.3.8 probes (nebula-frontend.md:535-536) depend on this mesh change landing.",
+        "why": "FACTUALLY TRUE but ALREADY REPORTED (not a valid \"prior fix wrong\" re-raise). I verified nebula-frontend.md:417 — it does label \"Mesh sub-task (separate `packages/mesh` change — track with its own success criterion; the factory CANNOT fix this alone...)\" and there is genuinely no mesh task file or backlog entry for it (the three mesh task files — mesh-origin-request.md, mesh-active-callcontext-guard.md, mesh-call-tracing-and-ids.md — cover unrelated work; backlog.md §Lumenize Mesh has only a *successful-refresh test* item, not the first-connect 401 classification). So the underlying observation is real. BUT this exact concern was already raised TWICE in prior waves and is in the digest: (1) round-3 finding nebula-frontend-round3-findings-2026-06-11.json:917 part (2), digested as R3-DROP-1 — \"The required change is inside packages/mesh/src/lumenize-client.ts ... a mesh-package work item, but it appears only as prose inside a nebula-frontend checklist bullet — the m14 'track by checklists' estimate method will miss it, exactly as it missed the nebula-auth global-refresh endpoint\" — this was a deliberate DROP (\"also already-considered\"), not a fix that later drifted; (2) skill-panel SP-13 (digest L132) whose suggestion was literally \"name the mesh lumenize-client.ts change as an explicit v3 sub-task with its own success criterion.\" The current :417 text IS the spec's response to those (it elevated the prose into a labeled sub-task with a named success criterion and promoted the three probes into 5.3.8, per the round-3 verifier note at JSON:997). The round-4 finding restates the same cross-package-work-buried-in-a-bullet concern and merely escalates the remedy from \"named in-bullet sub-task\" to \"must be a separate file like nebula-star-root-admin Part 1.\" It does not invoke the prior-fix-wrong exception (priorOverlap claimed null) and presents no new evidence that the prior wave's deliberate choice — in-bullet tracking with a success criterion was acceptable — was mistaken. Substantially the same issue as R3-DROP-1/SP-13 → drop as already-reported.",
+        "dropReason": "already-reported"
+      }
+    ],
+    "synthesis": {
+      "summary": "73 round-4 findings deduplicate to 60 distinct issues. The single most-flagged issue (6 lenses) is api-reference.md:78 still naming the nonexistent `AuthRequiredError` for `ready` rejection — a half-applied prior fix where the spec was corrected to mesh's `LoginRequiredError` but the contract doc was not. The `onShouldRefreshUI: null` opt-out footgun (3 lenses) is its sibling: the example does the opposite of its comment.\n\nSix issues are flagged as blockers for v3 \"go\", clustering around two unresolved design holes plus three contract-doc data-incorrectness bugs:\n1. The atomic-batch / per-resource-conflict-resolution mapping is genuinely undefined (ranks 1-2): the server transaction is all-or-nothing, but the client conflict engine resolves per resource and the spec validates a mixed-fate {use-server, permission-denied, committed} batch that all-or-nothing makes impossible. This is the load-bearing question for the flagship atomic addTodo and must be pinned before the engine is wired. maxRetries granularity (rank 18) is the same hole's third face.\n2. Three contract docs (ranks 3, 4, 5) instruct a v3 implementer to build wrong/nonexistent behavior: the retries-exhausted rollback target contradicts the validated spike (restores an unrecoverable stale value), `AuthRequiredError` doesn't exist, and the headline default-flash feature has no decided DOM-element-discovery mechanism (its only binding API is deferred-post-5.3.7 and always-empty).\n3. Two cross-package/cross-channel contracts are unspecified (ranks 6, 7, 8): the orgTree store envelope (`store.lmz.orgTree.value` reads vs bare-path writes — breaks the flagship tree example), the per-field debounce config wire format (\"TBD during implementation\" with a test already depending on it), and client.orgTree.* disconnect behavior (not connection-gated; non-idempotent createNode risks duplicate-on-replay).\n\nThe remaining majors/minors are mostly contract-doc self-contradictions (authScope derivation source, ready-terminal-state vs first-paint 'connecting' computed) and test-strategy gaps where probes aren't capable-of-failing (replay matrix in the MockClient list, rich-type e2e mis-labeled carry-forward, context.bindings empty-Map placeholder, held-fanout matrix asserting a provisional rule). Nits are stale spike line citations (file grew to 576 lines), the dag→orgTree rename residual, phantom spike/debounce/ directory, and anchor/typing drift.",
+      "themes": [
+        "Half-applied prior fixes never propagated to api-reference.md (the declared contract): AuthRequiredError→LoginRequiredError, onShouldRefreshUI null-sentinel, retries-exhausted rollback target, authScope derivation source — the task-file narrative was corrected, the contract doc was not",
+        "Atomic server batch vs per-resource client conflict resolution mapping undefined — surfaces as re-submit batch composition (blocker), mixed-fate atomicity contradiction (blocker), and maxRetries granularity",
+        "orgTree dedicated channel under-specified vs the resource path it parallels: store envelope (.value vs bare), connection-gating asymmetry, non-idempotent-mutation replay, await-then-read ordering, subscriber-identity callChain end, @mesh-dispatch of both continuations",
+        "Default conflict-flash feature depends on a DOM-binding-discovery mechanism that is deferred-post-5.3.7 and always-empty — headline behavior with no decided way to find the elements to flash",
+        "Cross-package wire-format contracts left as inline 'TBD during implementation' with tests already depending on them (per-field debounce config; the nebula-studio compile-pass producer isn't a co-owned v3 item)",
+        "Connection-gate edge interactions under-specified: timeout-timer suspend/resume semantics, ontology-stale-drop vs once-guarded-reload, commit-boundary base re-anchor vs tombstones, explicit-transaction fold value precedence",
+        "Probes not capable-of-failing or mis-homed: replay matrix in the MockClient list (server-only logic), rich-type e2e mis-labeled carry-forward (zero existing coverage + old mock outcome shape), context.bindings empty-Map placeholder, held-fanout matrix asserting a rule the spec says will be re-reviewed",
+        "ready/auth-failure plumbing spans two packages — the 5.3.8 factory probe hard-depends on an unscheduled packages/mesh first-connect-401 classification change with no blocked-on marker, and the terminal 'disconnected' state collides with the first-paint 'connecting' computed",
+        "Stale spike references after the spike grew to 576 lines — every v3-port line citation off-target, the outcome-port item mis-describes the three coexisting outcome vocabularies, and LOC estimates under-scope the port",
+        "use-this re-conflict base re-anchoring is validated only for textMerge — counter/aggregate handlers (openCount +1) double-count across the chain, and the base/local/server snapshot identity/ownership contract (ADR-002) is unstated",
+        "Reconnect/disconnect test coverage rides WS-disconnect tooling that §5.3.6 says doesn't exist and no checklist item delivers — MockClient fakes the transition, over-claiming coverage",
+        "Residual rename/citation drift: dag→orgTree comment, phantom spike/debounce/ directory, useNebula composable claimed but undocumented, flashClass scalar-vs-object probe, precedence anchor"
+      ]
+    }
+  }
+}

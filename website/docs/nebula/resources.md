@@ -530,34 +530,38 @@ Two patterns, depending on whether you call `transaction()` yourself.
 
 **Explicit transactions** — when you call `client.resources.transaction(ops)` yourself (programmatic save, batch resolution, action handlers), `await` is right when you need to react to transaction-wide failures (infrastructure, timeout, ontology-stale). **Per-resource outcomes are NOT handled here** — they're handled in the per-type [`onTransactionResourceResolution`](./api-reference.md#resourcesontransactionresourceresolution) handler.
 
-`transaction()` **always resolves** with a `TransactionOutcome` — never rejects. Infrastructure failures (network drops, mesh crashes) come back as `{ kind: 'infrastructure-error', error }`. The top-level shape has four branches; the await-site `switch` only needs to handle the three failure cases:
+`transaction()` **always resolves** with a `TransactionOutcome` — never rejects. Infrastructure failures (network drops, mesh crashes) come back as `{ kind: 'infrastructure-error', error }`. The top-level shape has five kinds; the await-site's one decision — "do I resubmit?" — is answered by `outcome.retryable`:
 
 ```js @skip-check
 const outcome = await client.resources.transaction(ops);
 switch (outcome.kind) {
-  case 'ok':
-    // Transaction completed. The per-type handler has already fired for each
-    // resource (navigation, draft-clearing, validation-error display, etc.).
-    // outcome.resources carries the per-resource breakdown if you need it
-    // for aggregate decisions, but most callers don't.
+  case 'committed':
+    // Every op landed (after any below-the-bucket conflict resolution). The per-type
+    // handler has already fired for each resource (navigation, draft-clearing,
+    // validation-error display, etc.). outcome.resources has the per-resource breakdown
+    // if you need it, but most callers don't.
     break;
 
-  case 'ontology-stale':
-    // The framework's onShouldRefreshUI hook typically fires too; usually a
-    // page reload is the right response. Nothing extra to do here.
+  case 'rejected':
+    // The server processed it but nothing committed, for a per-op reason. outcome.retryable
+    // is the resubmit verdict: an exhausted conflict → true; permission/validation → false.
+    // The per-type handler has already surfaced each op's reason from outcome.resources
+    // ('permission-denied' → request access via the orgTree, 'validation-failed' → fix input,
+    // 'human-in-the-loop' → optimistic paint stays; the app owns the follow-up).
+    if (outcome.retryable) showToast('Save problem — retry?');
     break;
 
   case 'timeout':
-    // No server response within 5–10 s. Optimistic state rolled back; you
-    // decide retry policy.
-    showToast('Save timed out — retry?');
+  case 'infrastructure-error':
+    // Transaction-wide failure; optimistic state rolled back (connection-gated — a mere
+    // disconnect never lands here). An idempotent resubmit (same newETag) can land.
+    showToast('Connection problem — retry?');
+    if (outcome.kind === 'infrastructure-error') console.error(outcome.error);
     break;
 
-  case 'infrastructure-error':
-    // Network drop, mesh crash, or other plumbing failure. outcome.error is
-    // the underlying Error. Optimistic state rolled back.
-    showToast('Connection problem — retry?');
-    console.error(outcome.error);
+  case 'ontology-stale':
+    // The client's app version is stale; onShouldRefreshUI usually fires (page reload).
+    // Optimistic state untouched. Nothing extra to do here.
     break;
 }
 ```
@@ -566,7 +570,7 @@ For most form-save flows where the per-type handler does the work, the entire `s
 
 ```js @skip-check
 const outcome = await client.resources.transaction(ops);
-if (outcome.kind !== 'ok') {
+if (outcome.kind !== 'committed') {
   showToast('Save problem — retry?');
 }
 ```
@@ -576,9 +580,9 @@ The per-type handler has already done navigation / draft-clearing on `'committed
 If you need aggregate decisions at the await-site (e.g., "only navigate if EVERY resource committed, not just some"), iterate `outcome.resources`:
 
 ```js @skip-check
-if (outcome.kind === 'ok') {
+if (outcome.kind === 'committed') {
   const allCommitted = Object.values(outcome.resources)
-    .every(r => r.kind === 'committed');
+    .every(r => r.kind === 'committed');   // an op may have resolved to 'use-server' — committed, but your value was reverted
   if (allCommitted) {
     store.app.activeView = 'list';
   }
@@ -589,7 +593,13 @@ Why discriminated unions over `try`/`catch`? Studio-generated UIs are LLM-author
 
 ### Custom flash visuals
 
-Both default classes — `lumenize-commit-success` (green) on commit and `lumenize-conflict-revert` (red) on rollback — are configurable per type:
+:::note[Deferred to v4]
+
+DOM flash ships in v4 — 5.3.7 has no element-flash mechanism (it needs a binding-discovery step Vue doesn't provide for free; a compiler-injected directive is the leading v4 candidate). The `flashClass` / `flashDuration` options below are reserved so the API stays stable; they have no effect yet.
+
+:::
+
+Both default classes — `lumenize-commit-success` (green) on commit and `lumenize-conflict-revert` (red) on rollback — are configurable per type (once flash lands):
 
 ```js @skip-check
 client.resources.onTransactionResourceResolution('todo', handler, {

@@ -137,23 +137,26 @@ A resource's `?.value` is `undefined` until the initial server push lands (typic
 <div v-else class="card skeleton"></div>
 ```
 
-**3. Multi-state status via `computed`** — distinguishes loading from deleted and folds connection state in. A deleted resource is **not** falsy: tombstones arrive as a real snapshot with `meta.deleted: true` and the last value still present, so the `meta.deleted` check must run *before* any `value` truthiness test. Patterns 1 and 2 don't cover deletion — they'd render a tombstone as if it were alive. (`meta.deleted` is `undefined` only for never-loaded resources.)
+**3. Multi-state status via `computed`** — distinguishes loading from deleted (connection state is shown separately — see the reconnect banner below). A deleted resource is **not** falsy: tombstones arrive as a real snapshot with `meta.deleted: true` and the last value still present, so the `meta.deleted` check must run *before* any `value` truthiness test. Patterns 1 and 2 don't cover deletion — they'd render a tombstone as if it were alive. (`meta.deleted` is `undefined` only for never-loaded resources.)
 
 ```typescript @skip-check
 import { computed } from 'vue';
 
 const todoStatus = computed(() => {
   const snap = store.resources.todo['task-42'];
-  if (!store.lmz.connection.lastConnectedAt) return 'connecting';  // never connected yet (cold start)
-  if (snap?.meta?.deleted)                   return 'deleted';
-  if (!snap?.value)                          return 'loading';
+  // No 'connecting' state here: the app mounts only after `await ready` (so it's
+  // connected by first render). First-connect "Connecting…" lives in the static
+  // pre-mount shell; a later drop shows the reconnect banner (below) over the
+  // painted data while this stays 'ready'. A logged-out visitor never reaches
+  // this — `ready` rejects and the bootstrap redirects before mount.
+  if (snap?.meta?.deleted) return 'deleted';
+  if (!snap?.value)        return 'loading';
   return 'ready';
 });
 ```
 
 ```html @skip-check
-<div v-if="todoStatus === 'connecting'" class="alert">Connecting…</div>
-<div v-else-if="todoStatus === 'deleted'" class="alert alert-warning">This todo was deleted.</div>
+<div v-if="todoStatus === 'deleted'" class="alert alert-warning">This todo was deleted.</div>
 <div v-else-if="todoStatus === 'loading'" class="card skeleton"></div>
 <div v-else class="card">
   <h2>{{ store.resources.todo['task-42'].value.title }}</h2>
@@ -171,13 +174,14 @@ The factory mirrors `NebulaClient`'s connection state onto the store under `stor
 | `store.lmz.connection.lastConnectedAt` | `number \| undefined` | `Date.now()` from the most recent `'connected'` transition. |
 
 ```html @skip-check
-<!-- Banner while disconnected. This promise is real: while disconnected the
-     framework suspends submission and holds writes (the optimistic store already
-     shows them), flushing on reconnect (idempotent), so nothing rolls back from
-     a blip. Held writes live in memory only — a page reload while offline drops
-     anything unsent. -->
-<div v-if="!store.lmz.connection.connected" class="alert alert-warning">
-  Disconnected — your changes are queued. Reconnecting…
+<!-- Banner while reconnecting (was connected, socket dropped). The promise is
+     real: while not connected the framework suspends submission and holds writes
+     (the optimistic store already shows them), flushing on reconnect (idempotent),
+     so nothing rolls back from a blip. Held writes live in memory only — a page
+     reload while offline drops anything unsent. (A terminal auth failure instead
+     fires onLoginRequired → redirect; it does not show this banner.) -->
+<div v-if="store.lmz.connection.state === 'reconnecting'" class="alert alert-warning">
+  Reconnecting — your changes are queued.
 </div>
 
 <!-- Disable a button while not connected. -->
@@ -214,7 +218,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula-frontend';
 import { store, client } from './nebula';
 
 const isAppAdmin = computed(() =>
-  client.claims.access?.admin ||                                    // Galaxy/Universe scope admin
+  client.claims.access.admin ||                                     // Galaxy/Universe scope admin
   store.lmz.orgTree?.value?.permissions
     .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
 );
@@ -274,7 +278,6 @@ For lists of resources, use a **container resource** whose value holds an array 
 // Ontology (.d.ts-style file)
 interface TodoList {
   items: string[];        // IDs of Todo resources, in display order
-  openCount: number;      // denormalized count where status === 'open'
 }
 
 interface Todo {
@@ -296,6 +299,19 @@ interface Todo {
 </ul>
 ```
 
+A count like "open todos" is a **client-side computed**, derived from the subscribed todos — not a stored field. It recomputes automatically on any change (a local edit, a server fanout, or a committed transaction all mutate the reactive store), so it always matches what's on screen:
+
+```typescript @skip-check
+import { computed } from 'vue';
+
+const openCount = computed(() =>
+  (store.resources.todoList[client.claims.sub]?.value?.items ?? [])
+    .filter(id => store.resources.todo[id]?.value?.status === 'open').length
+);
+```
+
+(Storing such an aggregate on the resource — for cross-view display without loading the items, or for time-series analytics over history — needs a server-enforced derived-field invariant, a future ontology capability. Until then, keep aggregates client-computed.)
+
 The container is keyed per user — `('todoList', client.claims.sub)` — so each user has their own list, looked up by their JWT subject. Subscribing to a resource that doesn't exist yet is a server-side error, so the app creates the list on first visit: read, then create if absent. This runs in `nebula.ts` after `await ready` (claims are populated, and module evaluation finishes before any component renders):
 
 ```typescript @skip-check
@@ -311,14 +327,15 @@ const sub = client.claims.sub;
 if (await client.resources.read('todoList', sub) === null) {
   const outcome = await client.resources.transaction({
     [sub]: { op: 'create', typeName: 'todoList', nodeId: ROOT_NODE_ID,
-             value: { items: [], openCount: 0 } },
+             value: { items: [] } },
   });
-  // Success means the CREATE committed, not just that the server responded:
-  // per-resource failures (permission-denied, validation-failed) arrive UNDER
-  // kind 'ok' in outcome.resources. Race-safe: if another tab created the list
-  // first, re-read to disambiguate — the list now exists (someone won the
-  // race), or it genuinely doesn't (a real failure to surface).
-  const created = outcome.kind === 'ok' && outcome.resources[sub]?.kind === 'committed';
+  // A single-resource create commits iff the top-level outcome is 'committed'
+  // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
+  // 'committed': permission/validation → 'rejected'; a lost first-create race
+  // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
+  // Race-safe: when not created, re-read to disambiguate — the list now exists (a
+  // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+  const created = outcome.kind === 'committed';
   if (!created && await client.resources.read('todoList', sub) === null) {
     throw new Error('Could not create your list — check your connection and reload.');
   }
@@ -333,7 +350,7 @@ This works up to ~hundreds of items. Beyond that, a query language is the right 
 
 ### Atomic append — adding to a collection
 
-Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a set-union of `items` (and an `openCount` recomputed for the merged set — the locally-added open items shift it) — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
+Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a **set-union of `items`** — so neither client's just-added id is dropped (a plain `'use-server'` would orphan the loser's new todo) — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
 
 ```typescript @skip-check
 async function addTodo(title: string) {
@@ -350,8 +367,7 @@ async function addTodo(title: string) {
     [newId]:             { op: 'create', typeName: 'todo', nodeId: listSnap.meta.nodeId,
                            value: { title, description: '', status: 'open' } },
     [client.claims.sub]: { op: 'put',    typeName: 'todoList',
-                           value: { ...list, items: [...list.items, newId],
-                                    openCount: list.openCount + 1 } },
+                           value: { ...list, items: [...list.items, newId] } },
   });
   // error handling on outcome goes here
 }
@@ -393,23 +409,16 @@ onMounted(() => {
 
 async function saveTodo() {
   const draft = store.ui.todoForm.draft;
-  const currentStatus = store.resources.todo['task-42']?.value?.status;
-  const list = store.resources.todoList[client.claims.sub]?.value;
-  // Status changes shift openCount; title/description-only edits don't.
-  const delta = (draft.status === 'open' ? 1 : 0) - (currentStatus === 'open' ? 1 : 0);
-  if (delta !== 0 && !list) return;   // openCount update needs the list snapshot — bail until it's loaded
-
+  // A status change needs no coordinated write — openCount is a client computed —
+  // so saving a todo is a single-resource put.
   const outcome = await client.resources.transaction({
     'task-42': { op: 'put', typeName: 'todo', value: draft },
-    ...(delta !== 0 && {
-      [client.claims.sub]: { op: 'put', typeName: 'todoList',
-                             value: { ...list, openCount: list.openCount + delta } },
-    }),
   }, {
-    // Per-call handlers are keyed by resourceId — this one handles only
-    // 'task-42'. The sibling todoList isn't a key here, so it falls through to
-    // its per-type set-union/openCount handler automatically — no rid filtering,
-    // no risk of shadowing it. See API reference § Precedence.
+    // Per-call handlers are keyed by resourceId — this one handles 'task-42'.
+    // (In a multi-resource batch, any resource not listed here falls through to
+    // its per-type handler automatically — no rid filtering, no shadowing. See
+    // API reference § Precedence; e.g. addTodo lets todoList fall through to its
+    // per-type set-union handler.)
     onTransactionResourceResolution: {
       'task-42': (rid, resolution) => {
         switch (resolution.kind) {

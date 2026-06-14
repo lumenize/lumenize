@@ -27,6 +27,7 @@ Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** sta
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
 | `client.resources.transactionDebounce(rt, opts)` (runtime override) | new-in-v3 | [resources.transactionDebounce](#resourcestransactiondebounce) |
 | `client.dispose()` | new-in-v3 | [client.dispose](#clientdispose) |
+| `client.logout()` | new-in-v3 | [client.logout](#clientlogout) |
 | `client.orgTree.*` (org/permission tree mutations) | new-in-v3 | [client.orgTree](#clientorgtree) |
 | org/permission tree at `store.lmz.orgTree` (dedicated channel, not a resource) | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | `ROOT_NODE_ID` (`= 1`) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
@@ -34,7 +35,7 @@ Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** sta
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
 | `textMerge(server, local, base)` helper | new-in-v3 | [textMerge](#textmerge) |
 | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
-| `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (new shape with `'ok'`, `'infrastructure-error'`) | [TransactionOutcome](#transactionoutcome) |
+| `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (kinds `'committed'` / `'rejected'` / `'timeout'` / `'infrastructure-error'` / `'ontology-stale'`, `retryable` flag on failures) | [TransactionOutcome](#transactionoutcome) |
 | `TransactionResourceResolution` discriminated union (per-resource, what the handler receives) | new-in-v3 | [TransactionResourceResolution](#transactionresourceresolution) |
 | `ConflictResolverVerdict` (what the handler returns for `'conflict-pending'`) | implemented-in-spike (under old `ConflictResolution` name) | [ConflictResolverVerdict](#conflictresolververdict) |
 | `Snapshot` / `SnapshotMeta` (what reads, subscribes, and store entries hold) | implemented-in-spike (`meta.mimeType` new-in-v3) | [Snapshot](#snapshot) |
@@ -66,7 +67,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
 | `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
 | `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A wildcard-grant admin (Galaxy/Universe) sets it to any scope under their pattern to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-a-wildcard-grant)). Sent in the refresh body; the server gates it with `matchAccess`. Differs from `authScope` by at least the active branch once branches exist. |
-| `onShouldRefreshUI` | `((info: OntologyStaleInfo) => void) \| null` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale (`OntologyStaleInfo` = `{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). To opt out, pass an explicit no-op `() => {}` — **both `undefined` and `null` fall back to the default reload** (so an optional-field `undefined` doesn't silently disable it; staleness still surfaces via `{ kind: 'ontology-stale' }` regardless). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
+| `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/nebula-frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
 | `unsubscribeGraceMs` | `number` | `2000` | Grace period (ms) between binding-refcount reaching zero and `client.resources.unsubscribe` firing. New bindings inside the window cancel the pending unsubscribe. |
 
 ### Return shape
@@ -75,9 +76,9 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | --- | --- | --- |
 | `client` | `NebulaClient` | Lower-level API. Use for explicit subscriptions, reads, transactions, resolver registration. |
 | `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz.connection`, and empty `ui` / `app` objects. |
-| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with an `AuthRequiredError` on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor); the bootstrap catches it and redirects to the login / auth-discovery flow. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
+| `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor); the bootstrap catches it and redirects to the login / auth-discovery flow. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
-| `dispose()` | `() => void` | Tear down. Flushes any pending debounced writes, clears refcount + pending-unsubscribe timers, disposes internal scopes. |
+| `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `LumenizeClient` WebSocket. |
 
 ### Example
 
@@ -103,7 +104,7 @@ try {
 }
 ```
 
-All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScope`/`activeScope` from the auth-discovery cookie + JWT, `onShouldRefreshUI` from the default reload.
+All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScope` from the deployment URL (`window.location`) with `activeScope` defaulting to it, `onShouldRefreshUI` from the default reload.
 
 Admin/scripting form with all overrides explicit:
 
@@ -113,7 +114,7 @@ const { client, store } = createNebulaClient({
   authScope: 'acme.app.tenant-a',
   activeScope: 'acme.app.tenant-a',
   appVersion: 'v42',
-  onShouldRefreshUI: null,        // opt out of auto-reload — caller handles staleness
+  onShouldRefreshUI: () => {},    // opt out of auto-reload (null/undefined both KEEP the default reload)
 });
 ```
 
@@ -240,7 +241,7 @@ Multi-resource transactions are atomic: every op commits or none do.
 | `appVersion` | `string` | constructor's `appVersion` | Override for admin/scripting calls. |
 | `newETag` | `string` | `crypto.randomUUID()` | One `newETag` shared across every op in the batch. Override for the idempotency-retry pattern (a dropped response is retried with the same `newETag` to avoid double-write). |
 | `onTransactionResourceResolution` | `Record<string, ResourceHandler>` | per-type registered, else framework default | Per-call handlers, **keyed by `resourceId`** — e.g. `{ 'task-42': handler }`. Each entry handles only its own resource; resources NOT in the map fall through to their per-type handler automatically (no defensive `rid` filtering needed). A listed resource's entry **layers in front of** its per-type handler — verdict-returning on `'conflict-pending'`, additive on terminal branches. See [Precedence](#precedence). |
-| `maxRetries` | `number` | per-type registered, else `5` | Cap on recursive `'use-this'` retries before that resource lands at `'retries-exhausted'`. |
+| `maxRetries` | `number` | per-call value, else min across involved per-type values, else `5` | **Batch-level** cap on the conflict resolve-and-resubmit loop. On exhaustion the batch lands at top-level `{ kind: 'rejected', retryable: true }` with that resource at `'retries-exhausted'`. The retry budget is client-side policy (the server stays stateless + `newETag`-idempotent). In a multi-type batch the per-call value wins, else the **min** across the involved per-type values. |
 
 ### Example — single resource
 
@@ -260,7 +261,7 @@ const outcome = await client.resources.transaction({
              value: { title, description: '', status: 'open' } },
   // per-user keying — see Coding your UI § Lists with v-for
   [client.claims.sub]: { op: 'put', typeName: 'todoList',
-             value: { ...list, items: [...list.items, newId], openCount: list.openCount + 1 } },
+             value: { ...list, items: [...list.items, newId] } },
 });
 ```
 
@@ -304,10 +305,13 @@ type ResourceHandler = (
   | void;
 
 interface OnTransactionResourceResolutionOptions {
-  /** Cap on recursive `'use-this'` retries before `'retries-exhausted'`. Default 5. */
+  /** Per-type contribution to the **batch-level** `'use-this'` retry cap (the min across a
+   *  batch's involved types is used; a per-call `maxRetries` overrides). On exhaustion the
+   *  batch lands at top-level `{ kind: 'rejected', retryable: true }` with this resource at
+   *  `'retries-exhausted'`. Default 5. */
   maxRetries?: number;
-  /** Default flash classes applied to bound DOM elements when this resource resolves.
-   *  `null` disables the corresponding default. */
+  /** Default flash classes for this resource's resolution. **Reserved — DOM flash is deferred
+   *  to v4**; no effect in 5.3.7. `null` disables the corresponding default once flash lands. */
   flashClass?: {
     committed?: string | null;    // default 'lumenize-commit-success' (green outline animation)
     rolledBack?: string | null;   // default 'lumenize-conflict-revert' (red outline animation)
@@ -326,7 +330,7 @@ The same handler can fire multiple times for a single resource in a single trans
 
 ### Default flashes
 
-When no handler is registered for a type (or when registered with default `flashClass`), the framework adds CSS classes to bound DOM elements at fields the resolution affected:
+**Deferred to v4** — no DOM-flash mechanism ships in 5.3.7. Finding the bound elements needs a binding-discovery mechanism Vue doesn't provide for free, so the decision (a compiler-injected flash directive is the leading candidate) is deferred. The class vocabulary and the `flashClass` / `flashDuration` options are **reserved** so the API stays stable; they have no DOM effect in 5.3.7. When flash lands, the framework will add these classes to the affected fields' elements:
 
 | Resolution branch | Default class | Intent |
 | --- | --- | --- |
@@ -335,7 +339,7 @@ When no handler is registered for a type (or when registered with default `flash
 | `'human-in-the-loop'` | (none — app handles UX explicitly) | — |
 | `'conflict-pending'` | (none — handler is deciding) | — |
 
-The user-facing CSS lives in app stylesheets — the framework just toggles class names. See [Resources § Custom flash visuals](./resources.md#custom-flash-visuals) for example CSS.
+When it lands, the framework will just toggle class names (the user-facing CSS lives in app stylesheets). See [Resources § Custom flash visuals](./resources.md#custom-flash-visuals).
 
 ### Precedence
 
@@ -344,7 +348,7 @@ The per-call `options.onTransactionResourceResolution` is a **map keyed by `reso
 - **`'conflict-pending'`** (verdict-returning): the resource's per-call entry first; returning `undefined` falls through to the per-type handler; *its* `undefined` falls through to the framework default (`{ kind: 'use-server' }`). The first non-`undefined` verdict wins.
 - **Terminal branches** (return ignored): the per-type handler fires for every resource; a per-call entry's terminal reaction layers on top (additive) for its own resource.
 
-Concretely: a form's `transaction(ops, { onTransactionResourceResolution: { 'task-42': handler } })` handles `task-42` and leaves a sibling `todoList` in the same batch to its per-type set-union / `openCount` handler — the override **can't** shadow it, because `todoList` isn't a key in the map. (The map values are ordinary `ResourceHandler`s; the `resourceId` first arg equals the key.)
+Concretely: a form's `transaction(ops, { onTransactionResourceResolution: { 'task-42': handler } })` handles `task-42` and leaves a sibling `todoList` in the same batch to its per-type set-union handler — the override **can't** shadow it, because `todoList` isn't a key in the map. (The map values are ordinary `ResourceHandler`s; the `resourceId` first arg equals the key.)
 
 See [TransactionResourceResolution](#transactionresourceresolution) for the input shape and [ConflictResolverVerdict](#conflictresolververdict) for the return shape on `'conflict-pending'`.
 
@@ -389,6 +393,18 @@ Tear down the factory:
 
 After dispose, the store remains readable (Vue reactivity is independent) but writes no longer trigger transactions and no new subscribes fire. Typically called only in tests or at full page teardown.
 
+## `client.logout` {#clientlogout}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+client.logout(): Promise<void>;
+```
+
+User-initiated **sign-out**: revokes + clears the (HttpOnly, path-scoped) refresh cookie via the auth logout endpoint, drops the in-memory access token, and sets `store.lmz.connection.state` to `'disconnected'`. The app then redirects to login — typically the same redirect the `ready` / `onLoginRequired` terminal-auth path uses.
+
+Distinct from [`client.dispose()`](#clientdispose), which tears down the client/connection **without** revoking the session (a disposed client could reconnect with the same valid cookie; a logged-out one cannot). The server-side logout endpoint is a nebula-auth concern added alongside this method.
+
 ## `client.orgTree` {#clientorgtree}
 
 **Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/dag-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-tree.ts).
@@ -398,6 +414,8 @@ Mutations to the app's **org/permission tree** (the DAG that resources attach to
 **Reads do not go through this namespace.** The full tree is delivered on a dedicated channel to `store.lmz.orgTree.value` (an [`OrgTreeState`](#orgtreestate)) — under the framework-reserved `store.lmz.*` prefix, not `store.resources.*` (the tree isn't a resource). Bind to it reactively rather than polling a query method. `client.orgTree.*` is mutations only.
 
 **Unlike [`transaction()`](#resourcestransaction), these reject the returned Promise on failure.** Each method is a request/response mesh call, Promise-correlated client-side: a permission failure, cycle violation, slug collision, or unknown node rejects the returned Promise. There is no `TransactionOutcome` wrapper — `try`/`catch` (or `.catch`) at the call site. (Tree mutations are infrequent and individually meaningful, so a plain reject is the right ergonomics here; the always-resolve `TransactionOutcome` is for the high-frequency resource-write path.)
+
+**While disconnected:** there is no connection-gating here (unlike the resource write path — tree mutations hold no optimistic store state to roll back, and the await-site handles the reject). A call issued while offline is queued and sent on reconnect (or rejects on timeout); a call already in flight when the socket drops is **not** auto-resubmitted — it times out and rejects.
 
 Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are integers; `sub` is a JWT subject claim — a bare UUID as minted by nebula-auth (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `nodeId === 1` (`ROOT_NODE_ID`) cannot be deleted, undeleted, or renamed. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
 
@@ -440,6 +458,8 @@ relabelNode(nodeId: number, newLabel: string): Promise<void>;
 ```
 
 The `write` permission is checked on the node being changed — for `createNode`/`removeEdge` that's the parent; for the node-targeting methods it's the node itself. Both edge-*adding* operations also require **`admin` on the child** because they widen who has cascaded access to it: `addEdge` checks `write` on the new parent **plus `admin` on the child**, and `reparentNode` checks `write` on **both** parents **plus `admin` on the child** (see the comments above).
+
+**`createNode` is the one non-idempotent method** — it assigns a fresh server-side id, where the others are idempotent no-ops on replay. A same-slug replay *errors* on sibling-slug-uniqueness rather than creating a duplicate (no silent double-create), but an **ambiguous in-flight disconnect** (the create landed, the response was lost) rejects *without* returning the new id — the node exists and reappears in `store.lmz.orgTree` after the client reconnects. Until `createNode` becomes idempotent (a planned move to client-supplied node ids), treat a `createNode` rejection as "may or may not have landed — reload to re-sync" rather than blindly retrying (a retry with a *different* slug could duplicate).
 
 ### Permission management (require `admin`)
 
@@ -592,30 +612,37 @@ type ConflictPending = {
 };
 ```
 
-**Status in 5.3.7**: `context.bindings` is always an empty `Map`. Vue doesn't have an Alpine-style DOM-binding registry out of the box, so the implementation needs either:
-
-- A `v-flash` custom directive that elements opt into (handler pushes flash events through a registry the directive subscribes to), or
-- A `client.bindings(rt, rid, field)` API that queries Vue's `useTemplateRef` map (factory tracks ref names during render).
+**Status in 5.3.7**: `context.bindings` is always an empty `Map`; DOM flash + binding discovery are **deferred to v4**. Vue has no element→path map for free, so v4 decides the mechanism — a **compiler-injected flash directive** is the leading candidate (the SFC compile pass we own injects it, so the author writes nothing). Earlier options weighed and not chosen: an author-written `v-flash` directive (authors would later have to remove it — fails the no-churn principle) and a `client.bindings(rt, rid, field)` runtime registry (most code, brittle).
 
 Decision deferred to post-5.3.7. The argument's shape is locked so handler signatures don't churn when it lands.
 
 ## `TransactionOutcome` {#transactionoutcome}
 
-**Tag**: `implemented-in-spike` for `'committed'` happy path (under old shape); **`new-in-v3`** for the new top-level shape with `'ok'`, `'infrastructure-error'`, and the move of per-resource detail into the handler.
+**Tag**: `implemented-in-spike` for the `'committed'` happy path (under the old single-level shape); **`new-in-v3`** for the five-kind top-level shape (`'committed'` / `'rejected'` / `'timeout'` / `'infrastructure-error'` / `'ontology-stale'`) and the move of per-resource detail into the handler.
 
 `transaction()` **always resolves** with a `TransactionOutcome` — never rejects. Top-level handles transaction-wide concerns only; per-resource detail is delivered to the per-type [`onTransactionResourceResolution`](#resourcesontransactionresourceresolution) handler (or its per-call override) and is also available on `outcome.resources` for inspection at the await-site.
 
 ```typescript @skip-check
-type TransactionOutcome =
-  // Transaction completed — per-resource handlers have fired. `resources` carries
-  // each resource's final TransactionResourceResolution for callers that want to
-  // inspect at the await-site (rarely needed; the handler is the primary place).
-  | { kind: 'ok'; resources: Record<string, TransactionResourceResolution> }
+type ResourceMap = Record<string, TransactionResourceResolution>;
 
-  // Transaction-wide failures.
-  | { kind: 'ontology-stale';       clientVersion: string; currentVersion: string }
-  | { kind: 'timeout' }
-  | { kind: 'infrastructure-error'; error: Error };
+// The await-site's one decision is "do I resubmit?" — answered by `retryable`. `kind` says
+// what happened; per-op detail lives in `resources` (committed/rejected only). The union
+// shows which extra fields each kind carries.
+type TransactionOutcome =
+  // Every op landed (atomicity ⟹ a committed batch committed every op; an op may still
+  // show 'use-server' in `resources` — committed, but the server's value, not yours).
+  | { kind: 'committed';            resources: ResourceMap }
+
+  // The server processed it but nothing committed, for a per-op reason — see `resources`
+  // (permission-denied / validation-failed / conflict-retries-exhausted / human-in-the-loop).
+  // `retryable` is the framework's verdict on whether a blind resubmit can help (an exhausted
+  // conflict → true; a permission/validation failure → false).
+  | { kind: 'rejected';             retryable: boolean; resources: ResourceMap }
+
+  // Transaction-wide failures — no per-op detail.
+  | { kind: 'timeout';              retryable: true }
+  | { kind: 'infrastructure-error'; retryable: true;  error: Error }
+  | { kind: 'ontology-stale';       retryable: false; clientVersion: string; currentVersion: string };
 ```
 
 The discriminant key is `kind` (same as on the per-resource [`TransactionResourceResolution`](#transactionresourceresolution) below). The variable name (`outcome` for transaction-wide, `resolution` for per-resource) carries the level distinction; the discriminant is uniformly `.kind`. (The three-level vocabulary — `TransactionOutcome` / `TransactionResourceResolution` / `ConflictResolverVerdict` — is deliberate over a flatter single type: each names a different altitude, and collapsing them would lose the await-site-vs-handler distinction. One-line anchor in [Resources § Awaiting transaction()](./resources.md#awaiting-transaction-at-the-call-site).)
@@ -624,12 +651,13 @@ Effect on the optimistic store, per branch:
 
 | Outcome | Optimistic store | Caller responsibility |
 | --- | --- | --- |
-| `'ok'` | Per-resource — see [`TransactionResourceResolution`](#transactionresourceresolution). Default flash classes already applied by the framework; per-type handler already fired. | Usually nothing; the handler is the primary place. Inspect `outcome.resources` only if you need aggregate decisions at the await-site (e.g., navigate-only-if-everything-committed). |
-| `'ontology-stale'` | Optimistic state untouched. The `onShouldRefreshUI` hook fires (typically reloads the page). | Usually nothing; page reload handles it. |
-| `'timeout'` | Roll back all optimistic writes for this transaction. No server response within 5–10 s **while connected**. | Decide retry policy. |
-| `'infrastructure-error'` | Roll back all optimistic writes for this transaction. `error` carries the underlying `Error` (network drop, mesh crash, etc.). | Decide retry / surface to user. |
+| `'committed'` | Per-resource — see [`TransactionResourceResolution`](#transactionresourceresolution) (an op may be `'use-server'`: committed, but the server's value). Per-type handler already fired (DOM flash is v4). | Usually nothing; the handler is the primary place. Inspect `outcome.resources` only for aggregate decisions (e.g., did every op commit *your* value, or did some resolve to `'use-server'`). |
+| `'rejected'` | Per-resource, per each op's [`TransactionResourceResolution`](#transactionresourceresolution): `'permission-denied'` / `'validation-failed'` / `'retries-exhausted'` → rolled back; `'human-in-the-loop'` → optimistic paint stays. | `outcome.retryable` is the resubmit verdict (an exhausted conflict → `true`; permission/validation → `false`). Per-op detail in `outcome.resources`: `'permission-denied'` → climb the orgTree to the nearest admin → request-access; `'validation-failed'` → surface per-field errors to fix. |
+| `'timeout'` | Roll back all optimistic writes. No server response within 5–10 s **while connected**. **Connection-gated** — a mere disconnect never produces it. | `retryable: true` — an idempotent resubmit (same `newETag`) can land. |
+| `'infrastructure-error'` | Roll back all optimistic writes. **Connection-gated.** `error` carries the underlying `Error` (network drop, mesh crash). | `retryable: true` — resubmit (idempotent) or surface to user. |
+| `'ontology-stale'` | Optimistic state untouched. The `onShouldRefreshUI` hook fires (typically reloads). | Usually nothing; page reload handles it. |
 
-Both `'timeout'` and `'infrastructure-error'` fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and re-submitted on reconnect (idempotent via `newETag`) — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
+The `'timeout'` and `'infrastructure-error'` outcomes fire only for failures that occur **while the client is connected**. A plain disconnect does *not* produce them: the write path suspends while `store.lmz.connection.connected` is `false` — writes are held and re-submitted on reconnect (idempotent via `newETag`) — so a transient blip never rolls anything back. That is what makes the "your changes are queued" disconnected banner honest. (Held writes live in memory only; a full page reload while offline drops anything unsent.)
 
 ## `TransactionResourceResolution` {#transactionresourceresolution}
 
@@ -666,9 +694,9 @@ Effect on the optimistic store, per branch:
 | `'committed'` | `meta.eTag` updated to the new value. Framework adds default `lumenize-commit-success` flash class. | The user's write landed. |
 | `'use-server'` | Server's `value` + `meta` already written through. Framework adds default `lumenize-conflict-revert` flash class at diff fields. | The user's write was reverted to the server's authoritative value. |
 | `'human-in-the-loop'` | Optimistic stays painted; no flash class. | App owns the eventual resolution submission (typically a "review later" UI). |
-| `'retries-exhausted'` | Roll back to pre-write value. Framework adds default `lumenize-conflict-revert` flash. `snapshot` is the latest server snapshot; `attempts` is how many `'use-this'` re-submits ran. | Surface to user. |
-| `'validation-failed'` | Roll back to pre-write value. Framework adds default `lumenize-conflict-revert` flash. `errors` carries the server's per-field messages. | Surface validation messages. |
-| `'permission-denied'` | Roll back to pre-write value. Framework adds default `lumenize-conflict-revert` flash. | Surface "not authorized" message. |
+| `'retries-exhausted'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `snapshot` is the latest server snapshot; `attempts` is how many `'use-this'` re-submits ran. | Surface to user. |
+| `'validation-failed'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. `errors` carries the server's per-field messages. | Surface validation messages. |
+| `'permission-denied'` | Roll back to the B4 baseline (the value at the eTag the failed submission asserted; for a `use-this` chain, the last conflict's server snapshot). Framework adds default `lumenize-conflict-revert` flash. | Surface "not authorized" message. |
 
 The `'use-this'` verdict from the handler is intermediate — never appears as a `TransactionResourceResolution` branch — it triggers a recursive re-submission with the handler-returned value at the server's current eTag. A successful chain terminates in `'committed'`; a failed one terminates in `'retries-exhausted'`.
 

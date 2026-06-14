@@ -105,6 +105,8 @@ Studio's LLM, when generating the ontology, picks annotations from a small rule 
 
 The compiler (typia or our extension) reads the .d.ts at deploy time and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
 
+*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 500 ms quiet / 2000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform`'s resolver + UI effects are on their own tracks, independent of this.)*
+
 Precedence: runtime override > ontology annotation > type-based default > framework default.
 
 ## Per-type conflict resolvers

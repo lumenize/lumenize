@@ -322,6 +322,8 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 - [ ] **Typed relationships** — promote DAG edges (or add a parallel relationship graph) to carry `relationshipType` with its own schema, navigable bidirectionally with `@inverse` already sketched in [website/docs/nebula/ontology.md](../website/docs/nebula/ontology.md). Without this the relationship story reads as "we have a DAG" rather than "we have an ontology graph." Cheap on top of the 5.3-shipped DAG normalization (`{nodes, edges, permissions}`).
 
+- [ ] **Derived / denormalized-field invariants** — a declarative way to specify a stored field as a function of others (e.g. an annotation `@derived count(items where status === 'open')`) that the **server computes, stores, enforces, and lands in snapshot history** for time-series analytics — provably consistent, no client drift. The real fix for *stored* aggregates: round-4 (#9, 2026-06-14) made `openCount` a **client-computed view-only** value precisely because this doesn't exist yet (see [tasks/nebula-frontend.md](nebula-frontend.md) Out-of-scope + the round-4 decision). Extends the typia/JSDoc annotation vocabulary (ADR-001); feeds the temporal/analytics substrate (ADR-004). Likely pairs with **Action types** (the verb that maintains the invariant) and the **introspection endpoint** (exposing the derivation).
+
 ### Other Nebula backlog
 
 - [ ] Refactor `dag-tree.ts` `requirePermission` to throw typed errors (`PermissionDeniedError`, `NodeNotFoundError`, `AuthenticationRequiredError`)
