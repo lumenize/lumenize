@@ -275,7 +275,7 @@ Implements the API surface fixed by the docs. The doc is the spec; this phase ma
 
 **Pre-v3 isolation detours — all four built + property-tested** in `apps/nebula/spike/vue-factory/` against one shared harness; key invariants gut-verified capable-of-failing; findings synced to api-reference (mutator middleware args; synced-state-runs-LAST so a user abort also aborts the submission; `use-this` paints its verdict value). **Read each detour file for the validated design + build findings — their production ports ARE part of v3:**
 
-1. [factory-textmerge.md](factory-textmerge.md) — 3-way LCS merge (hand-rolled, no dep) + cycle-safe `deep-equals` → `src/text-merge.ts`.
+1. [factory-textmerge.md](factory-textmerge.md) — 3-way LCS merge (hand-rolled, no dep) + cycle-safe `deep-equals` → `src/text-merge.ts`. **(v3-Phase-2 DONE 2026-06-14: `src/text-merge.ts` (`textMerge` + `makeLongformResolver`, both top-level exports) + `src/deep-equals.ts` ported verbatim; 50 property tests in `test/unit/{text-merge,deep-equals}.test.ts`; unit project 52/52, `tsc` clean. The local `ConflictResolverVerdict`/`ConflictPendingResolution` in `text-merge.ts` are a minimal slice to reconcile with the canonical conflict-outcome types when that engine ports.)**
 2. [debounce-serial-queue.md](debounce-serial-queue.md) (D2 = the port) + [factory-collection-sync.md](factory-collection-sync.md) (Map/Set mutator interception) → `src/debounce-queue.ts` + the spike factory's `get`-trap block; the spike factory submits through the queue.
 3. [factory-conflict-outcome.md](factory-conflict-outcome.md) — the TransactionOutcome/Resolution engine over the real queue → `src/conflict-outcome.ts`.
 

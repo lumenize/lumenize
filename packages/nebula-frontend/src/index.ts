@@ -8,4 +8,4 @@
 export { createNebulaClient } from './create-nebula-client';
 export type { CreateNebulaClientConfig, FactoryResult } from './create-nebula-client';
 export type { Middleware, WriteContext } from './types';
-export { textMerge } from './text-merge';
+export { textMerge, makeLongformResolver } from './text-merge';

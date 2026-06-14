@@ -31,6 +31,6 @@ Hand-rolled (~190 LOC including the resolver shape), no `diff-match-patch` depen
 
 A field annotated `@longform` auto-registers a per-type resolver that, on `'conflict-pending'`, returns `{ kind: 'use-this', value: { ...server.value, [field]: textMerge(server.value[field], local.value[field], base.value[field]) } }`. The annotation→resolver compile pass lives in the ontology pipeline; this detour owns only the merge function + the resolver *shape* — shipped as `makeLongformResolver(field)` in the same spike file (v3 `ConflictResolverVerdict` shape with the `kind:` discriminant, NOT the spike client's old `ConflictResolution`/`resolution:` shape). Test: a `@longform` field with concurrent non-overlapping edits → both survive (a `base=server` impl drops the server edit — capable-of-failing, verified above).
 
-## Port
+## Port — DONE 2026-06-14 (nebula-frontend v3 Phase 2)
 
-Export from `@lumenize/nebula-frontend` top level during v3 (function, resolver factory, and both test suites move over). Delete this detour after the port.
+`textMerge` + `makeLongformResolver` exported from `@lumenize/nebula-frontend` top level (`packages/nebula-frontend/src/text-merge.ts`); `deepEquals` ported to `src/deep-equals.ts` (internal). Both test suites moved to `packages/nebula-frontend/test/unit/{text-merge,deep-equals}.test.ts` (50 tests; unit project 52/52, `tsc` clean). The local `ConflictResolverVerdict`/`ConflictPendingResolution` slice in `text-merge.ts` reconciles with the canonical conflict-outcome engine types when that detour ports. Spike source (`apps/nebula/spike/vue-factory/`) stays until the remaining detours port (deleted in the 5.3.7 post-merge cleanup). This detour file can be archived once the spike dir is removed.
