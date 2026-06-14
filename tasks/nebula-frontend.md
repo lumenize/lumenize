@@ -2,6 +2,7 @@
 
 **Status**: Active — demo critical path. Phase sequence: v1 (docs-first) ✓ → v2 (prerequisites unblock) ✓ → **v3 (factory port — next)** → v4 (real-browser harness, builds on `packages/mesh/test/browser/` template) → v5 (doc polish).
 **Depends on**: Phase 5.1 (Storage Engine) + Phase 5.2 (Validation/Ontology) — both shipped.
+**Hard prerequisite — build this FIRST**: [nebula-star-root-admin.md](nebula-star-root-admin.md) **Part 1** (seed the founder as `admin` on `ROOT_NODE_ID` at Star provisioning — one `setPermission` call + its test). The first-run-create bootstrap and its two-client race test hard-depend on it (detail at § Phase 5.3.7-v3). Parts 1b (locationHint placement) and 2 (last-admin protection) are NOT v3 blockers. That file is "spec'd, not reviewed" — but Part 1 is small and self-contained enough to build directly, no full `/review-task` cycle needed.
 **Framework target**: Vue 3.5+ with `.vue` SFCs (per-save compile in the user-local dev Star for dev iteration, in Galaxy for production deploy). (Rejected: Vue 3 in-DOM mode + template strings — required the runtime compiler + CSP `'unsafe-eval'` and HTML-in-JS-strings ergonomics. SFC compile is spike-validated in Workers/DOs: `@vue/compiler-sfc` runs cleanly, sub-50 ms per-save round-trip globally.)
 
 **Companion docs** — defer to these for the user-facing surface; **the docs are the contract**:
