@@ -626,6 +626,22 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   /**
+   * Drop the in-memory access token and its decoded claims.
+   *
+   * The mesh half of a sign-out: afterwards `client.claims` is `null` and the
+   * next `connect()` must `refresh` again to obtain a token. Unlike
+   * `disconnect()` (which tears down the connection but keeps the token so a
+   * reconnect succeeds), this forgets *who* the client is. It does NOT close
+   * the connection and does NOT revoke the server-side refresh cookie — a
+   * higher-level `logout()` composes this with `disconnect()` and an
+   * app/auth-level cookie-revocation endpoint.
+   */
+  clearAccessToken(): void {
+    this.#accessToken = null;
+    this.#claims = null;
+  }
+
+  /**
    * Symbol.dispose for `using` keyword support
    */
   [Symbol.dispose](): void {
@@ -733,8 +749,26 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws.onmessage = (event) => this.#handleMessage(event.data);
 
     } catch (error) {
-      // Connection failed - schedule reconnect
-      this.#scheduleReconnect();
+      // Classify the first-connect failure, symmetric with #handleClose's
+      // close-code classification. A terminal auth failure (LoginRequiredError
+      // from #refreshToken on a 401/403) must surface as login-required +
+      // 'disconnected' so a logged-out visitor is redirected — NOT swallowed
+      // into unbounded reconnect (which left onLoginRequired un-fired and the
+      // factory's `ready` Promise pending forever). Any other failure (transient
+      // refresh error, WebSocket construction, tab-id generation) is transient →
+      // reconnect with backoff, as before.
+      //
+      // `instanceof` (not the err.name check mesh.md prescribes) is intentional:
+      // this error is thrown in #refreshToken and caught here within the same
+      // class/module/realm — it never crosses a structured-clone or RPC hop, so
+      // mesh.md's wire-round-trip precondition doesn't apply, and instanceof is
+      // the more precise (un-spoofable) test with the safer transient default.
+      if (error instanceof LoginRequiredError) {
+        this.#setConnectionState('disconnected');
+        this.#config.onLoginRequired?.(error);
+      } else {
+        this.#scheduleReconnect();
+      }
     }
   }
 
@@ -917,6 +951,18 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       });
 
       if (!response.ok) {
+        // Classify so the first-connect path (#connectInternal's catch) can be
+        // symmetric with the mid-session close path (#handleClose): a 401/403
+        // from the refresh endpoint means the (HttpOnly, path-scoped) refresh
+        // cookie is expired/invalid → terminal, the user must re-login; any
+        // other status (5xx, gateway) is transient → reconnect with backoff.
+        if (response.status === 401 || response.status === 403) {
+          throw new LoginRequiredError(
+            `Token refresh failed: ${response.status}`,
+            response.status,
+            'Refresh token expired or invalid'
+          );
+        }
         throw new Error(`Token refresh failed: ${response.status}`);
       }
 

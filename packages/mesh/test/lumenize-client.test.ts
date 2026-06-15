@@ -600,6 +600,42 @@ describe('LumenizeClient', () => {
     });
   });
 
+  describe('clearAccessToken', () => {
+    it('drops the in-memory token and claims so the next connect re-refreshes', async () => {
+      // P9: the mesh half of logout. disconnect() keeps the token (reconnect
+      // works); clearAccessToken() forgets it — claims go null AND the next
+      // connect() must call refresh again.
+      let refreshCount = 0;
+      const client = new TestClient({
+        instanceName: 'user.tab1',
+        baseUrl: 'wss://example.com',
+        accessToken: createFakeJwt({ sub: 'user' }),
+        WebSocket: createMockWebSocketClass(),
+        refresh: async () => {
+          refreshCount++;
+          return { access_token: createFakeJwt({ sub: 'user', n: refreshCount }) };
+        },
+      });
+
+      // accessToken supplied → claims populated, no refresh on initial connect.
+      expect(client.claims).not.toBeNull();
+      expect(refreshCount).toBe(0);
+
+      client.disconnect();          // tear down; token + claims still held
+      client.clearAccessToken();    // now forget them
+      // Asserts the #claims = null line (without it, claims stays populated).
+      expect(client.claims).toBeNull();
+
+      // Asserts the #accessToken = null line: with the token gone, connect()
+      // must re-refresh; if the token weren't cleared, #connectInternal skips
+      // refresh and refreshCount stays 0.
+      client.connect();
+      await vi.waitFor(() => expect(refreshCount).toBe(1));
+
+      client.disconnect();
+    });
+  });
+
   describe('Default onBeforeCall', () => {
     it('rejects calls from LumenizeClient origins by default', () => {
       const client = new TestClient({
@@ -1368,19 +1404,60 @@ describe('Token refresh edge cases', () => {
     client.disconnect();
   });
 
-  it('throws when refresh URL returns non-ok response', async () => {
-    let loginRequiredCalled = false;
+  // Both terminal statuses, mirroring the mid-session 4400/4403 pair: the
+  // first-connect path is now symmetric with the mid-session close path — a
+  // 401 OR 403 from the refresh endpoint is a terminal auth failure, so
+  // onLoginRequired fires and state goes 'disconnected'. The OLD behavior
+  // swallowed the refresh throw into #scheduleReconnect (state 'reconnecting',
+  // onLoginRequired never fired, factory `ready` hung forever). Parameterizing
+  // over both statuses keeps the `|| response.status === 403` disjunct guarded:
+  // dropping it would otherwise leave every probe green.
+  it.each([401, 403])('first-connect refresh %d surfaces as terminal (onLoginRequired + disconnected), not reconnect', async (status) => {
+    let loginErr: LoginRequiredError | null = null;
+    const states: ConnectionState[] = [];
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      // No accessToken → first-connect calls #refreshToken before any WS exists.
+      WebSocket: createMockWebSocketClass(),
+      refresh: '/auth/refresh-token',
+      fetch: async () => new Response('Auth failed', { status }),
+      onLoginRequired: (e) => { loginErr = e; },
+      onConnectionStateChange: (s) => states.push(s),
+    });
+
+    await vi.waitFor(() => {
+      expect(loginErr).not.toBeNull();
+    });
+    expect(loginErr!.name).toBe('LoginRequiredError');
+    expect(loginErr!.code).toBe(status);
+    expect(client.connectionState).toBe('disconnected');
+    // Capable-of-failing: the swallow-into-reconnect regression would push
+    // 'reconnecting' and never reach a WS.
+    expect(states).not.toContain('reconnecting');
+    expect(createdWebSockets.length).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('first-connect refresh 500 is transient → reconnect, not login-required', async () => {
+    // Companion to the 401 probe: only 401/403 are terminal. A 5xx is transient,
+    // so we keep retrying with backoff and never fire onLoginRequired. This
+    // catches a too-broad classification that would treat every non-ok as terminal.
+    let loginCalled = false;
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
       WebSocket: createMockWebSocketClass(),
       refresh: '/auth/refresh-token',
-      fetch: async () => new Response('Unauthorized', { status: 401 }),
-      onLoginRequired: () => { loginRequiredCalled = true; },
+      fetch: async () => new Response('Server error', { status: 500 }),
+      onLoginRequired: () => { loginCalled = true; },
     });
 
-    // Wait for async connect
-    await new Promise(r => setTimeout(r, 50));
+    await vi.waitFor(() => {
+      expect(client.connectionState).toBe('reconnecting');
+    });
+    expect(loginCalled).toBe(false);
 
     client.disconnect();
   });
