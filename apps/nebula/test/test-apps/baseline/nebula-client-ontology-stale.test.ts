@@ -64,7 +64,7 @@ async function setupStaleScenario() {
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Force Star to install v2 by issuing any v2 op (per-call override)
-  await a.client.resources.read('TestResource', resourceId, { ontologyVersion: 'v2' });
+  await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
   // Star's cache is now at v2; refreshHookSpy hasn't been called yet because
   // this op didn't trigger mismatch — we explicitly used v2.
   expect(refreshHookSpy).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
-    await a.client.resources.read('TestResource', resourceId, { ontologyVersion: 'v2' });
+    await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
 
     // No hook registered — should still get the structured outcome without
     // any error from the framework

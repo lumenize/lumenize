@@ -52,8 +52,8 @@ export type TransactionResolution =
 
 /** Per-call options for `client.resources.transaction()`. */
 export interface TransactionOptions {
-  /** Override the constructor's `ontologyVersion` for this call (admin/scripting only). */
-  ontologyVersion?: string;
+  /** Override the constructor's `appVersion` for this call (admin/scripting only). */
+  appVersion?: string;
   /** Override the auto-generated `newETag` (idempotency-probe / retry scenarios). */
   newETag?: string;
   /**
@@ -129,8 +129,8 @@ const DEFAULT_FLASH_DURATION_MS = 1000;
 
 /** Per-call options for `client.resources.read()`. */
 export interface ReadOptions {
-  /** Override the constructor's `ontologyVersion` for this call. */
-  ontologyVersion?: string;
+  /** Override the constructor's `appVersion` for this call. */
+  appVersion?: string;
 }
 
 export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
@@ -139,10 +139,11 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
   /** Active scope — baked into JWT aud claim AND Star DO instance name (e.g., 'acme.app.tenant-a') */
   activeScope: string;
   /**
-   * Ontology version this client was built against. Auto-attached to every
-   * `client.resources.*` call. Studio bakes this in at app build time.
+   * App version this client was built against (lock-step with the server's
+   * ontology version). Auto-attached to every `client.resources.*` call.
+   * Studio bakes this in at app build time.
    */
-  ontologyVersion: string;
+  appVersion: string;
   /**
    * Optional hook invoked when the server signals the client's ontology
    * version is stale (deploys happened since this client started). Typical
@@ -168,7 +169,7 @@ interface PendingRead {
 interface QueuedTransaction {
   ops: Record<string, OperationDescriptor>;
   newETag: string;
-  ontologyVersion: string;
+  appVersion: string;
   /** Caller's resolver override (highest precedence). */
   onETagConflict?: ConflictResolver;
   /** Caller's maxRetries override; per-type or default if unset. */
@@ -228,7 +229,7 @@ export interface BindToStateOptions {
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
-  #ontologyVersion: string;
+  #appVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
 
   /**
@@ -313,7 +314,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const {
       authScope,
       activeScope,
-      ontologyVersion,
+      appVersion,
       onShouldRefreshUI,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
@@ -370,7 +371,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     this.#authScope = authScope;
     this.#activeScope = activeScope;
-    this.#ontologyVersion = ontologyVersion;
+    this.#appVersion = appVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
   }
 
@@ -396,7 +397,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #resubscribeAll(): void {
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
       this.lmz.call('STAR', this.#activeScope,
-        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     }
   }
 
@@ -748,7 +749,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingSubscribes.set(key, { resolve, reject });
       this.lmz.call('STAR', this.#activeScope,
-        this.ctn<Star>().subscribe(this.#ontologyVersion, resourceType, resourceId));
+        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     });
   }
 
@@ -763,7 +764,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // subscribe/transaction and for future addressing changes.
     void resourceType;
     const requestId = crypto.randomUUID();
-    const version = options?.ontologyVersion ?? this.#ontologyVersion;
+    const version = options?.appVersion ?? this.#appVersion;
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingReads.set(requestId, { resolve, reject });
       this.lmz.call('STAR', this.#activeScope,
@@ -779,7 +780,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       const queued: QueuedTransaction = {
         ops,
         newETag: options?.newETag ?? crypto.randomUUID(),
-        ontologyVersion: options?.ontologyVersion ?? this.#ontologyVersion,
+        appVersion: options?.appVersion ?? this.#appVersion,
         onETagConflict: options?.onETagConflict,
         maxRetries: options?.maxRetries,
         attempt: 1,
@@ -808,7 +809,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }, TRANSACTION_TIMEOUT_MS);
 
     this.lmz.call('STAR', this.#activeScope,
-      this.ctn<Star>().transaction(next.ontologyVersion, next.newETag, next.ops));
+      this.ctn<Star>().transaction(next.appVersion, next.newETag, next.ops));
   }
 
   /**
@@ -877,7 +878,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     try {
       this.#onShouldRefreshUI({
         reason: 'ontology-stale',
-        clientVersion: clientVersion || this.#ontologyVersion,
+        clientVersion: clientVersion || this.#appVersion,
         currentVersion,
       });
     } catch (err) {
@@ -1074,7 +1075,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           this.#pumpTxnQueue();
         }, TRANSACTION_TIMEOUT_MS);
         this.lmz.call('STAR', this.#activeScope,
-          this.ctn<Star>().transaction(inFlight.ontologyVersion, inFlight.newETag, inFlight.ops));
+          this.ctn<Star>().transaction(inFlight.appVersion, inFlight.newETag, inFlight.ops));
         return;
       }
     }

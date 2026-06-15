@@ -113,7 +113,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     // Star's cache is at v1 → cache miss → Galaxy returns v2 state → doRead
     // sees fetchedState.row.version === ontologyVersion (both v2) → installState
     // → Subscribers cleared + push-on-clear fires.
-    await a.client.resources.read('TestResource', resourceIds[0], { ontologyVersion: 'v2' });
+    await a.client.resources.read('TestResource', resourceIds[0], { appVersion: 'v2' });
 
     // The push-on-clear arrives via handleResourceUpdate(sentinel-rt, sentinel-rid,
     // OntologyStaleError). The client's #dispatchOntologyStale substitutes the

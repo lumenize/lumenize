@@ -149,7 +149,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
       baseUrl: ORIGIN,
       authScope: star,
       activeScope: star,
-      ontologyVersion: ONTOLOGY_VERSION,
+      appVersion: ONTOLOGY_VERSION,
       instanceName: aInstanceName,
       accessToken: a.accessToken,
       fetch: browserB.fetch,

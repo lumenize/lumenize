@@ -121,7 +121,7 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
       baseUrl,
       authScope: galaxyScope,
       activeScope: galaxyScope,
-      ontologyVersion: 'v1',
+      appVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,

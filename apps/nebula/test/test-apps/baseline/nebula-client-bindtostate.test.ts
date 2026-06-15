@@ -374,7 +374,7 @@ describe('bindToState — rollback', () => {
     // Append v2 and force Star to install v2 — client stays pinned at v1.
     a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => expect(a.client.callCompleted).toBe(true));
-    await a.client.resources.read('TestResource', rid, { ontologyVersion: 'v2' });
+    await a.client.resources.read('TestResource', rid, { appVersion: 'v2' });
 
     // Installing v2 push-on-clears the subscribed client → fires the hook once.
     // Wait for that, then clear, so the next hook call is unambiguously from the
