@@ -480,6 +480,14 @@ export function createNebulaStore(
   }
 
   // ─── Built-in synced-state middleware ────────────────────────────────────
+  // flush-on-blur (pinned debounce trigger (d), §5.3.7): maps a focused editable
+  // element → the resource its v-model writes target, so a `focusout` can flush
+  // THAT resource's pending debounced write immediately (without waiting for the
+  // quiet window). Populated in the synced-state middleware from
+  // `document.activeElement` at write time — the input driving a v-model write IS
+  // the active element. WeakMap: entries clear when the element is GC'd.
+  const boundEditTargets = new WeakMap<EventTarget, { rt: string; rid: string }>();
+
   // Routes writes under resources.<rt>.<rid>.value.* with context.source ===
   // 'local' to the client's debounce queue. Optimistic apply: the write lands
   // immediately (the `set` trap's Reflect.set fires AFTER this); debounce gates
@@ -499,6 +507,9 @@ export function createNebulaStore(
       log.warn('synced-state write dropped: no meta.eTag (resource not subscribed)', { rt, rid, path });
       return undefined;
     }
+    // Remember which input is driving this edit so its blur can flush precisely.
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (active) boundEditTargets.set(active, { rt, rid });
     // First-divergence base capture (B4 site a): the queue uses this only when
     // the resource has no baseline yet — the value the store held BEFORE this
     // optimistic write lands (the `set` trap's Reflect.set runs after us).
@@ -609,7 +620,25 @@ export function createNebulaStore(
     client.flush(rt, rid);
   }
 
+  // flush-on-blur: a delegated `focusout` listener flushes the pending debounced
+  // write of whichever resource the blurred input was editing (mapping from the
+  // synced-state middleware). `focusout` bubbles, so one document-level listener
+  // covers every bound input; the per-factory WeakMap means concurrent factories
+  // only flush their own resources. Guarded for headless/no-DOM (Node tests).
+  const onFocusOut = (e: Event): void => {
+    const target = e.target as EventTarget | null;
+    if (!target) return;
+    const bound = boundEditTargets.get(target);
+    if (bound) flush(bound.rt, bound.rid);
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('focusout', onFocusOut);
+  }
+
   async function dispose(): Promise<void> {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('focusout', onFocusOut);
+    }
     for (const t of pendingUnsubscribes.values()) clearTimeout(t);
     pendingUnsubscribes.clear();
     refcount.clear();

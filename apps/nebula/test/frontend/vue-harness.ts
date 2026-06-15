@@ -33,8 +33,9 @@ export function setupVueStore(opts: {
   initialState?: Record<string, any>;
   unsubscribeGraceMs?: number;
   quietMs?: number;
+  maxWaitMs?: number;
 } = {}) {
-  const client = new MockClient({ quietMs: opts.quietMs ?? 0 });
+  const client = new MockClient({ quietMs: opts.quietMs ?? 0, maxWaitMs: opts.maxWaitMs });
   const factory = createNebulaStore(client, {
     initialState: opts.initialState,
     unsubscribeGraceMs: opts.unsubscribeGraceMs ?? 100,
