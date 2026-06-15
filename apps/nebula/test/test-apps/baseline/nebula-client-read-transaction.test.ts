@@ -1,24 +1,28 @@
 /**
- * NebulaClient.resources.read + .transaction — Phase 5.3.3b
+ * NebulaClient.resources.read + .transaction — v3 (engine-wired).
  *
  * Covers:
  *   - `client.resources.read(rt, rid)` Promise correlation via requestId
  *   - `client.resources.transaction(ops, options?)` always-resolve contract
- *     with `TransactionResolution` (committed / validation-failed /
- *     permission-denied / use-server / timeout)
- *   - Serial in-flight queue (sequential transactions applied in order)
- *   - Idempotency: retrying with the same `newETag` returns `committed`
- *     without double-writing
- *   - Per-transaction `newETag` (lifted from internal to API surface in 5.3.3b)
+ *     with the two-level `TransactionOutcome` (top-level `committed` / `rejected`
+ *     + per-resource `committed` / `validation-failed` / `permission-denied` /
+ *     `use-server`)
+ *   - Sequential transactions chain eTags in order
  *
- * Conflict-resolver-driven outcomes (`use-this`, `retries-exhausted`,
- * `human-in-the-loop`) land in Phase 5.3.3c.
+ * Drives a REAL Star (the no-mock backing for the engine's unit suite).
+ *
+ * NOTE: the explicit-`newETag` idempotency-replay probes from the 5.3.3b shape
+ * are removed — `newETag` is engine-internal in v3 (the queue generates it; a
+ * reconnect re-sends the SAME one). That replay path is unit-tested by the
+ * engine's connection-gated-rollback test (Mn8, "reconnect replays the SAME
+ * newETag → committed") and the server short-circuit by star-resources Step
+ * 4.5a; the full real-Star idempotency matrix is rebuilt in §5.3.8 (P10).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot } from '@lumenize/nebula';
+import type { Snapshot, TransactionOutcome } from '@lumenize/nebula';
 import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -27,6 +31,22 @@ const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
   return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+}
+
+/** Pull the committed eTag for `rid` out of a committed outcome. */
+function committedETag(outcome: TransactionOutcome, rid: string): string {
+  if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
+  const r = outcome.resources[rid];
+  if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
+  return r.eTag;
+}
+
+/** Server snapshot from a per-resource `use-server` resolution. */
+function useServerSnapshot(outcome: TransactionOutcome, rid: string): Snapshot {
+  if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
+  const r = outcome.resources[rid];
+  if (r?.kind !== 'use-server') throw new Error(`Expected use-server, got ${r?.kind}`);
+  return r.snapshot as unknown as Snapshot;
 }
 
 async function setupAdminClient(star: string) {
@@ -50,24 +70,22 @@ async function setupUserClient(star: string, adminAccessToken: string, email = '
   return createAuthenticatedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
-describe('nebula-client.resources.read (5.3.3b)', () => {
+describe('nebula-client.resources.read (v3)', () => {
 
   it('read() resolves with the snapshot for an existing resource', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
 
-    // Use the new client.resources.transaction to create
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Read me' } },
     });
-    expect(created.resolution).toBe('committed');
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
+    const eTag = committedETag(created, resourceId);
 
     const snap = await client.resources.read('TestResource', resourceId);
     expect(snap).not.toBeNull();
-    expect(snap!.value.title).toBe('Read me');
-    expect(snap!.meta.eTag).toBe(created.eTag);
+    expect((snap!.value as { title: string }).title).toBe('Read me');
+    expect(snap!.meta.eTag).toBe(eTag);
 
     client[Symbol.dispose]();
   });
@@ -96,17 +114,17 @@ describe('nebula-client.resources.read (5.3.3b)', () => {
       client.resources.read('TestResource', resourceId),
       client.resources.read('TestResource', resourceId),
     ]);
-    expect(a!.value.title).toBe('Concurrent');
-    expect(b!.value.title).toBe('Concurrent');
-    expect(c!.value.title).toBe('Concurrent');
+    expect((a!.value as { title: string }).title).toBe('Concurrent');
+    expect((b!.value as { title: string }).title).toBe('Concurrent');
+    expect((c!.value as { title: string }).title).toBe('Concurrent');
 
     client[Symbol.dispose]();
   });
 });
 
-describe('nebula-client.resources.transaction (5.3.3b)', () => {
+describe('nebula-client.resources.transaction (v3)', () => {
 
-  it('committed: happy-path create resolves with committed outcome + eTag', async () => {
+  it('committed: happy-path create resolves top-level committed + per-resource eTag', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
@@ -114,19 +132,17 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const outcome = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Hi' } },
     });
-    expect(outcome.resolution).toBe('committed');
-    if (outcome.resolution !== 'committed') throw new Error('Expected committed');
-    expect(outcome.eTag).toBeDefined();
+    expect(outcome.kind).toBe('committed');
+    const eTag = committedETag(outcome, resourceId);
 
-    // Verify by reading back
     const snap = await client.resources.read('TestResource', resourceId);
-    expect(snap!.value.title).toBe('Hi');
-    expect(snap!.meta.eTag).toBe(outcome.eTag);
+    expect((snap!.value as { title: string }).title).toBe('Hi');
+    expect(snap!.meta.eTag).toBe(eTag);
 
     client[Symbol.dispose]();
   });
 
-  it('validation-failed: bad value resolves with validation-failed', async () => {
+  it('validation-failed: bad value resolves rejected + per-resource validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
@@ -135,14 +151,15 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const outcome = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 42 as unknown as string } },
     });
-    expect(outcome.resolution).toBe('validation-failed');
-    if (outcome.resolution !== 'validation-failed') throw new Error('Expected validation-failed');
-    expect(outcome.errors[resourceId]).toBeDefined();
+    expect(outcome.kind).toBe('rejected');
+    expect(outcome.kind === 'rejected' && outcome.resources[resourceId]?.kind).toBe('validation-failed');
+    const r = outcome.kind === 'rejected' ? outcome.resources[resourceId] : undefined;
+    expect(r?.kind === 'validation-failed' && r.errors).toBeDefined();
 
     client[Symbol.dispose]();
   });
 
-  it('validation-failed: bad value on put resolves with validation-failed (regression probe for hypothesis 1)', async () => {
+  it('validation-failed: bad value on put resolves rejected + validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
@@ -150,24 +167,22 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Valid' } },
     });
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
+    const eTag = committedETag(created, resourceId);
 
     const outcome = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: created.eTag, value: { title: 42 as unknown as string } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 42 as unknown as string } },
     });
-    expect(outcome.resolution).toBe('validation-failed');
-    if (outcome.resolution !== 'validation-failed') throw new Error('Expected validation-failed');
-    expect(outcome.errors[resourceId]).toBeDefined();
+    expect(outcome.kind).toBe('rejected');
+    expect(outcome.kind === 'rejected' && outcome.resources[resourceId]?.kind).toBe('validation-failed');
 
     client[Symbol.dispose]();
   });
 
-  it('permission-denied: non-admin user write resolves with permission-denied', async () => {
+  it('permission-denied: non-admin user write resolves rejected + permission-denied', async () => {
     const star = uniqueStar();
     const { client: admin, accessToken } = await setupAdminClient(star);
     const resourceId = generateUuid();
 
-    // Create resource at private node
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
     const nodeId = admin.lastResult as number;
@@ -175,16 +190,14 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret' } },
     });
-    if (createOutcome.resolution !== 'committed') throw new Error('Expected committed');
+    const eTag = committedETag(createOutcome, resourceId);
 
-    // User with no permission tries to overwrite
     const { client: user } = await setupUserClient(star, accessToken);
     const outcome = await user.resources.transaction({
-      [resourceId]: { op: 'put', eTag: createOutcome.eTag, value: { title: 'Hacked' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'Hacked' } },
     });
-    expect(outcome.resolution).toBe('permission-denied');
-    if (outcome.resolution !== 'permission-denied') throw new Error('Expected permission-denied');
-    expect(outcome.resources).toContain(resourceId);
+    expect(outcome.kind).toBe('rejected');
+    expect(outcome.kind === 'rejected' && outcome.resources[resourceId]?.kind).toBe('permission-denied');
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();
@@ -195,7 +208,6 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const { client: admin, accessToken } = await setupAdminClient(star);
     const resourceId = generateUuid();
 
-    // Resource at a private node the user holds no grant on
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
     const nodeId = admin.lastResult as number;
@@ -203,26 +215,25 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret-v1' } },
     });
-    if (createOutcome.resolution !== 'committed') throw new Error('Expected committed');
+    committedETag(createOutcome, resourceId);
 
     // Unauthorized user probes with a deliberately WRONG eTag. A conflict
-    // decided before the permission gate (an early-return at Step 4.5b) would
-    // hand back the full currentSnapshot — a permission-free read. Correct
-    // behavior: permission wins (Step 8 precedes Step 9) and the outcome
-    // carries no resource value/meta.
+    // decided before the permission gate (Step 4.5b early-return) would hand
+    // back the full currentSnapshot — a permission-free read. Correct behavior:
+    // permission wins (Step 8 precedes Step 9) and the outcome carries no value.
     const { client: user } = await setupUserClient(star, accessToken);
     const outcome = await user.resources.transaction({
-      [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: { title: 'probe' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: crypto.randomUUID(), value: { title: 'probe' } },
     });
-    expect(outcome.resolution).toBe('permission-denied');
-    if (outcome.resolution !== 'permission-denied') throw new Error('Expected permission-denied, never conflict/use-server');
+    expect(outcome.kind).toBe('rejected');
+    expect(outcome.kind === 'rejected' && outcome.resources[resourceId]?.kind).toBe('permission-denied');
     expect(JSON.stringify(outcome)).not.toContain('Secret-v1');
 
     admin[Symbol.dispose]();
     user[Symbol.dispose]();
   });
 
-  it('conflict + invalid value co-occurring resolves as conflict (use-server), not validation-failed', async () => {
+  it('conflict + invalid value co-occurring resolves committed via use-server, not validation-failed', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
@@ -230,101 +241,22 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
-    const eTag1 = created.eTag;
+    const eTag1 = committedETag(created, resourceId);
 
     const update = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 'V2' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: eTag1, value: { title: 'V2' } },
     });
-    if (update.resolution !== 'committed') throw new Error('Expected committed');
+    if (update.kind !== 'committed') throw new Error('Expected committed');
 
-    // STALE eTag AND an invalid value (title must be a string). The Step-4.5b
-    // skip-hint excludes the doomed op from the validator batch, so the
-    // conflict surfaces at Step 9 and the resolver (default use-server)
-    // decides — not validation-failed. Gut the skip and this test fails.
+    // STALE eTag AND an invalid value. The Step-4.5b skip-hint excludes the
+    // doomed op from validation, so the conflict surfaces at Step 9 and the
+    // default resolver (use-server) decides — not validation-failed.
     const outcome = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 42 as unknown as string } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: eTag1, value: { title: 42 as unknown as string } },
     });
-    expect(outcome.resolution).toBe('use-server');
-    if (outcome.resolution !== 'use-server') throw new Error('Expected use-server (conflict wins over validation)');
-    expect(outcome.resources[resourceId].value.title).toBe('V2');
-
-    client[Symbol.dispose]();
-  });
-
-  it('idempotency: retrying the identical create op with the same newETag returns committed (not "already exists")', async () => {
-    const star = uniqueStar();
-    const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
-    const sharedETag = crypto.randomUUID();
-
-    // The identical op the client replays on a dropped-response retry.
-    const createOp = { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } };
-
-    // First submission with explicit newETag → creates the resource at sharedETag.
-    const first = await client.resources.transaction({ [resourceId]: createOp }, { newETag: sharedETag });
-    expect(first.resolution).toBe('committed');
-    if (first.resolution !== 'committed') throw new Error('Expected committed');
-    expect(first.eTag).toBe(sharedETag);
-
-    const snap1 = await client.resources.read('TestResource', resourceId);
-    expect(snap1!.meta.validFrom).toBeDefined();
-    const firstValidFrom = snap1!.meta.validFrom;
-
-    // Retry the IDENTICAL create with the SAME newETag — the real network-drop
-    // replay shape (B3). Idempotency (the pre-validator fast-fail + the
-    // authoritative in-txn re-check) must short-circuit to committed BEFORE op
-    // validation, which would otherwise throw "Resource already exists" and
-    // surface as infrastructure-error, rolling back a write that landed.
-    const second = await client.resources.transaction({ [resourceId]: createOp }, { newETag: sharedETag });
-    expect(second.resolution).toBe('committed');
-    if (second.resolution !== 'committed') throw new Error('Expected committed (idempotent create replay)');
-    expect(second.eTag).toBe(sharedETag);
-
-    // No rewrite happened — value + validFrom unchanged.
-    const snap2 = await client.resources.read('TestResource', resourceId);
-    expect(snap2!.value.title).toBe('V1');
-    expect(snap2!.meta.validFrom).toBe(firstValidFrom);
-
-    client[Symbol.dispose]();
-  });
-
-  it('idempotency: partial-churn multi-resource replay still returns committed (.some, not .every)', async () => {
-    const star = uniqueStar();
-    const { client } = await setupAdminClient(star);
-    const idA = generateUuid();
-    const idB = generateUuid();
-    const batchETag = crypto.randomUUID();
-
-    const batch = {
-      [idA]: { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A1' } },
-      [idB]: { op: 'create' as const, typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'B1' } },
-    };
-
-    // Original atomic batch lands → both A and B at batchETag.
-    const first = await client.resources.transaction(batch, { newETag: batchETag });
-    expect(first.resolution).toBe('committed');
-
-    // A third party mutates B alone, moving B's eTag off batchETag.
-    const churn = await client.resources.transaction(
-      { [idB]: { op: 'put', eTag: batchETag, value: { title: 'B2-by-other' } } },
-      { newETag: crypto.randomUUID() },
-    );
-    expect(churn.resolution).toBe('committed');
-
-    // Retry the IDENTICAL original batch with the same batchETag. A is still at
-    // batchETag, B is not. `.some` detects the replay via A (the whole batch
-    // committed atomically); `.every` would miss it and the create on A would
-    // throw "already exists".
-    const replay = await client.resources.transaction(batch, { newETag: batchETag });
-    expect(replay.resolution).toBe('committed');
-    if (replay.resolution !== 'committed') throw new Error('Expected committed (partial-churn replay)');
-
-    // The replay wrote nothing — B keeps the third party's value, A unchanged.
-    const snapB = await client.resources.read('TestResource', idB);
-    expect(snapB!.value.title).toBe('B2-by-other');
-    const snapA = await client.resources.read('TestResource', idA);
-    expect(snapA!.value.title).toBe('A1');
+    expect(outcome.kind).toBe('committed'); // use-server is below the bucket
+    expect(outcome.kind === 'committed' && outcome.resources[resourceId]?.kind).toBe('use-server');
+    expect((useServerSnapshot(outcome, resourceId).value as { title: string }).title).toBe('V2');
 
     client[Symbol.dispose]();
   });
@@ -334,78 +266,57 @@ describe('nebula-client.resources.transaction (5.3.3b)', () => {
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
 
-    // Create resource first (serial — wait for completion)
     const created = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'Initial' } },
     });
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
-    let currentETag = created.eTag;
+    let currentETag = committedETag(created, resourceId);
 
-    // Three sequential updates, each chaining off the previous outcome's eTag.
-    // This proves sequential eTag chaining only — the true concurrent-buffering
-    // property (submit-before-resolve buffers and chains) lands with the
-    // per-resource serial queue (tasks/debounce-serial-queue.md D0 / v3).
-    const out1Promise = client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: currentETag, value: { title: 'Update 1' } },
+    const out1 = await client.resources.transaction({
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: 'Update 1' } },
     });
-    // out2 uses the eTag from out1's outcome — but we want concurrency, so
-    // we'd need the eTag *after* out1. With serial queueing, out2 submitted
-    // before out1 resolves would carry the original eTag and conflict.
-    // For this test we verify ordering through await-then-await chaining.
-    const out1 = await out1Promise;
-    expect(out1.resolution).toBe('committed');
-    if (out1.resolution !== 'committed') throw new Error('Expected committed');
-    currentETag = out1.eTag;
+    currentETag = committedETag(out1, resourceId);
 
     const out2 = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: currentETag, value: { title: 'Update 2' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: 'Update 2' } },
     });
-    expect(out2.resolution).toBe('committed');
-    if (out2.resolution !== 'committed') throw new Error('Expected committed');
-    currentETag = out2.eTag;
+    currentETag = committedETag(out2, resourceId);
 
     const out3 = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: currentETag, value: { title: 'Update 3' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: 'Update 3' } },
     });
-    expect(out3.resolution).toBe('committed');
+    expect(out3.kind).toBe('committed');
 
     const final = await client.resources.read('TestResource', resourceId);
-    expect(final!.value.title).toBe('Update 3');
+    expect((final!.value as { title: string }).title).toBe('Update 3');
 
     client[Symbol.dispose]();
   });
 
-  it('use-server (5.3.3b default): eTag conflict resolves with use-server + writes server.value to bound state', async () => {
+  it('default resolver: eTag conflict resolves committed via use-server (server value wins)', async () => {
     const star = uniqueStar();
     const { client: a, accessToken } = await setupAdminClient(star);
     const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const resourceId = generateUuid();
 
-    // a creates and gets eTag-1
     const created = await a.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
-    const eTag1 = created.eTag;
+    const eTag1 = committedETag(created, resourceId);
 
-    // a updates → eTag-2
     const update = await a.resources.transaction({
-      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 'V2-by-A' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: eTag1, value: { title: 'V2-by-A' } },
     });
-    if (update.resolution !== 'committed') throw new Error('Expected committed');
+    if (update.kind !== 'committed') throw new Error('Expected committed');
 
-    // b tries to update with the STALE eTag-1 — should conflict
+    // b tries to update with the STALE eTag-1 — should conflict → use-server.
     const outcome = await b.client.resources.transaction({
-      [resourceId]: { op: 'put', eTag: eTag1, value: { title: 'V2-by-B' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag: eTag1, value: { title: 'V2-by-B' } },
     });
-    expect(outcome.resolution).toBe('use-server');
-    if (outcome.resolution !== 'use-server') throw new Error('Expected use-server');
-    expect(outcome.resources[resourceId]).toBeDefined();
-    expect(outcome.resources[resourceId].value.title).toBe('V2-by-A');
+    expect(outcome.kind).toBe('committed');
+    expect(outcome.kind === 'committed' && outcome.resources[resourceId]?.kind).toBe('use-server');
+    expect((useServerSnapshot(outcome, resourceId).value as { title: string }).title).toBe('V2-by-A');
 
-    // Track that accessToken is unused; just verify b has same admin scope
     void accessToken;
-
     a[Symbol.dispose]();
     b.client[Symbol.dispose]();
   });

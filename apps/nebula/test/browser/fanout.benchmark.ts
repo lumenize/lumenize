@@ -39,6 +39,18 @@ const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; count: number; }`;
 
+// v3: the engine generates the per-transaction `newETag`, so the originator no
+// longer pre-knows it — it reads the committed eTag back off the outcome (which
+// equals the eTag every subscriber's fanout snapshot carries).
+function committedETag(outcome: unknown, rid: string): string {
+  const o = outcome as { kind?: string; resources?: Record<string, { kind?: string; eTag?: string }> };
+  const r = o?.resources?.[rid];
+  if (o?.kind !== 'committed' || r?.kind !== 'committed' || !r.eTag) {
+    throw new Error(`expected committed for ${rid}: ${JSON.stringify(outcome)}`);
+  }
+  return r.eTag;
+}
+
 const BASELINE_ITERATIONS = parseInt(process.env.FANOUT_BASELINE_ITERS ?? '20', 10);
 const WARMUP_ITERATIONS = parseInt(process.env.FANOUT_WARMUP_ITERS ?? '5', 10);
 const FANOUT_TIMEOUT_MS = parseInt(process.env.FANOUT_TIMEOUT_MS ?? '30000', 10);
@@ -141,9 +153,8 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
             value: { title: 'warmup', count: 0 },
           },
         },
-        { newETag: crypto.randomUUID() },
       );
-      if (warmupOutcome.resolution !== 'committed') {
+      if (warmupOutcome.kind !== 'committed') {
         throw new Error(`warmup did not commit: ${JSON.stringify(warmupOutcome)}`);
       }
     } finally {
@@ -171,7 +182,6 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       // we can subscribe to it. The first eTag is auto-generated for the
       // create op; we capture it from the transaction outcome.
       const resourceId = crypto.randomUUID();
-      const createETag = crypto.randomUUID();
       const createOutcome = await originator.resources.transaction(
         {
           [resourceId]: {
@@ -181,11 +191,8 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
             value: { title: 'fanout-base', count: 0 },
           },
         },
-        { newETag: createETag },
       );
-      if (createOutcome.resolution !== 'committed') {
-        throw new Error(`create did not commit: ${JSON.stringify(createOutcome)}`);
-      }
+      const createETag = committedETag(createOutcome, resourceId);
       console.log(`[fanout-bench Phase 1] resource created — id=${resourceId} eTag=${createETag.slice(0, 8)}`);
 
       // Step 2: subscriber subscribes. Initial snapshot arrives via
@@ -199,12 +206,10 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       // Step 3: warmup iterations — let the hot path settle before measurement.
       let currentETag = createETag;
       for (let i = 0; i < WARMUP_ITERATIONS; i++) {
-        const newETag = crypto.randomUUID();
         const out = await originator.resources.transaction(
-          { [resourceId]: { op: 'put', eTag: currentETag, value: { title: `warmup-${i}`, count: i } } },
-          { newETag },
+          { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `warmup-${i}`, count: i } } },
         );
-        if (out.resolution !== 'committed') throw new Error(`warmup put ${i} did not commit: ${JSON.stringify(out)}`);
+        const newETag = committedETag(out, resourceId);
         await subscriber.waitForFanoutArrival(newETag, FANOUT_TIMEOUT_MS);
         currentETag = newETag;
       }
@@ -222,16 +227,12 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       const samples: IterSample[] = [];
 
       for (let i = 0; i < BASELINE_ITERATIONS; i++) {
-        const newETag = crypto.randomUUID();
         const tBeforeCommit = performance.now();
         const out = await originator.resources.transaction(
-          { [resourceId]: { op: 'put', eTag: currentETag, value: { title: `measured-${i}`, count: i + 1000 } } },
-          { newETag },
+          { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `measured-${i}`, count: i + 1000 } } },
         );
         const tAfterCommit = performance.now();
-        if (out.resolution !== 'committed') {
-          throw new Error(`measured put ${i} did not commit: ${JSON.stringify(out)}`);
-        }
+        const newETag = committedETag(out, resourceId);
         const tArrived = await subscriber.waitForFanoutArrival(newETag, FANOUT_TIMEOUT_MS);
         samples.push({ iter: i, eTag: newETag, tBeforeCommit, tAfterCommit, tArrived });
         currentETag = newETag;
@@ -361,7 +362,6 @@ async function runRampStep(args: {
 
   // Fresh resource per N so prior-step subscriptions don't leak in.
   const resourceId = crypto.randomUUID();
-  const createETag = crypto.randomUUID();
   const createOutcome = await originator.resources.transaction(
     {
       [resourceId]: {
@@ -371,11 +371,8 @@ async function runRampStep(args: {
         value: { title: `ramp-N=${N}`, count: 0 },
       },
     },
-    { newETag: createETag },
   );
-  if (createOutcome.resolution !== 'committed') {
-    throw new Error(`N=${N} create did not commit: ${JSON.stringify(createOutcome)}`);
-  }
+  const createETag = committedETag(createOutcome, resourceId);
 
   // All N subscribers subscribe in parallel. Each subscribe() resolves when
   // the subscriber sees the initial snapshot.
@@ -391,16 +388,12 @@ async function runRampStep(args: {
   const commits: CommitMeasurement[] = [];
 
   for (let c = 0; c < RAMP_COMMITS_PER_N; c++) {
-    const newETag = crypto.randomUUID();
     const tBeforeCommit = performance.now();
     const out = await originator.resources.transaction(
-      { [resourceId]: { op: 'put', eTag: currentETag, value: { title: `ramp-N=${N}-c=${c}`, count: c + 1 } } },
-      { newETag },
+      { [resourceId]: { op: 'put', typeName: 'TestResource', eTag: currentETag, value: { title: `ramp-N=${N}-c=${c}`, count: c + 1 } } },
     );
     const tAfterCommit = performance.now();
-    if (out.resolution !== 'committed') {
-      throw new Error(`N=${N} commit ${c} did not commit: ${JSON.stringify(out)}`);
-    }
+    const newETag = committedETag(out, resourceId);
 
     // Wait for all subscribers' arrivals in parallel. Each Promise resolves
     // with the per-subscriber t_arrived. Failed (timeout) Promises go to the
@@ -565,9 +558,8 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
             value: { title: 'warmup', count: 0 },
           },
         },
-        { newETag: crypto.randomUUID() },
       );
-      if (warmupOutcome.resolution !== 'committed') {
+      if (warmupOutcome.kind !== 'committed') {
         throw new Error(`Phase 3 warmup did not commit: ${JSON.stringify(warmupOutcome)}`);
       }
       console.log(`[fanout-bench Phase 3] ontology registered + bundle pre-warmed`);

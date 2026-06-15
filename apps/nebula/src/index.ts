@@ -14,7 +14,12 @@ export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from '.
 
 // Resources
 export { Resources, END_OF_TIME } from './resources';
-export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult, TransactionError } from './resources';
+export type { SnapshotMeta, Snapshot, TransactionResult, TransactionError } from './resources';
+// The server-internal wire op shape (eTag-required put/move/delete, no typeName
+// on those — the server reads it from the current snapshot). Distinct from the
+// public client `OperationDescriptor` (typeName on every op, eTag auto-derived).
+// Exposed for harnesses/tests that drive `Star.transaction` directly.
+export type { OperationDescriptor as WireOperationDescriptor } from './resources';
 
 // Subscriptions
 export { Subscriptions } from './subscriptions';
@@ -51,12 +56,14 @@ export { NebulaClient } from './nebula-client';
 export type {
   NebulaClientConfig,
   OntologyStaleInfo,
-  TransactionResolution,
   TransactionOptions,
   ReadOptions,
-  ConflictResolver,
-  ConflictResolution,
-  ETagConflictOptions,
+  OperationDescriptor,
+  NebulaStoreAdapter,
+  TransactionOutcome,
+  TransactionResourceResolution,
+  ResourceHandler,
+  ConflictResolverVerdict,
 } from './nebula-client';
 
 // Entrypoint

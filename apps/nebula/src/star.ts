@@ -479,8 +479,9 @@ export class Star extends NebulaDO {
 
   /**
    * Drop the caller's subscriber row for `(resourceType, resourceId)`. Called
-   * by NebulaClient's refcount loop in `bindToState` after the grace period
-   * expires for a 1→0 transition. PK-targeted delete.
+   * via `client.resources.unsubscribe` — the factory's effect-scope refcount
+   * loop issues it after the grace period expires for a 1→0 transition.
+   * PK-targeted delete.
    *
    * `resourceType` is currently unused — `Subscribers` rows key on
    * `(resourceId, clientId)` only; the type lives on the resource snapshot.
