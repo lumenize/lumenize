@@ -9,11 +9,11 @@ This page is the contract for the `@lumenize/nebula/frontend` factory + NebulaCl
 
 ## Status legend
 
-Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** state and is the contract for what 5.3.7-v3 implements.
+Each surface below carries one tag describing its provenance. The tags captured the **as-of-5.3.7-v1** state and the contract for what 5.3.7-v3 would implement; v3 has since shipped them — the surfaces below now live in `apps/nebula/src/frontend/` + NebulaClient (`apps/nebula/src/nebula-client.ts`).
 
-- **`implemented-in-spike`** — the Vue-in-DOM spike at `apps/nebula/spike/vue-factory/` validated this surface. v3 ports it to `apps/nebula/src/frontend/`.
-- **`new-in-v3`** — the spike didn't cover this. v3 designs and implements.
-- **`deferred-post-5.3.7`** — referenced for completeness but explicitly NOT shipping in 5.3.7. v3 must not pretend these exist.
+- **`implemented-in-spike`** — validated in the Vue-in-DOM spike, then ported to `apps/nebula/src/frontend/` in v3. (The spike — `apps/nebula/spike/vue-factory/` — was removed after the port, in 5.3.7/P11.)
+- **`new-in-v3`** — the spike didn't cover this; v3 designed and implemented it.
+- **`deferred-post-5.3.7`** — referenced for completeness but explicitly NOT shipping in 5.3.7 (v4/post-demo). These do not exist yet.
 
 ## Summary
 
