@@ -17,6 +17,8 @@ The fan-out at "go". Its reliable win is **verification**, not parallelizing the
 ### 1. Read the task file
 Read the task file + linked sub-tasks + referenced docs + the relevant `.claude/rules/`. Enumerate the phases as `{ id, goal, successCriteria }` from the task file's own phase structure.
 
+**Exploratory phases.** Most phases are transcription of a pinned design — they carry decisions + concrete, testable success criteria, and the verifier checks conformance to them. But some phases are inherently *empirical*: real-infra harnesses, browser/WS tooling, network-failure simulation — work whose mechanism you can only learn by running it (the §5.3.7-v4 WS-disconnect tooling took three tries: `ws.close()` hangs through the http-proxy → CDP offline hangs the whole vitest-browser run → synthetic `CloseEvent` works; none of that was pin-able in advance). Such a phase should be **explicitly tagged exploratory** in the task file (per `tasks/README.md`). When a phase has only `"works"`-grade bullets and no pinned decisions, do NOT silently hold it to transcription-grade conformance — that degrades its verifier to a rubber stamp. Instead treat it as exploratory: its deliverable is **(a)** capable-of-failing tests for the discovered behavior and **(b)** a captured findings note recording the mechanism that worked *and the alternatives that failed* (harvest it into a reference memory or the right rule — v4's findings became the `vitest-browser-ws-disconnect` memory). If a phase is thin and is *neither* tagged exploratory nor pinned, that's a spec gap — flag it before building, don't paper over it.
+
 ### 2. Implement
 Phase by phase, sequentially, in the current branch, following `.claude/rules/` (path-scoped rules auto-load as you touch files). After each phase, run the narrowest type-check / tests for the files you touched. Update the task file as you go when reality diverges from the plan. Don't commit.
 
@@ -25,7 +27,7 @@ Phase by phase, sequentially, in the current branch, following `.claude/rules/` 
 ### 3. Verify (the always-worth-it fan-out)
 First run the affected packages' full test suites once, inline — verifiers *read* code, they don't run it, so runtime regressions must be caught here (and a green suite is itself a success criterion for most phases). Don't push test runs into the parallel verifiers: concurrent vitest runs in one working tree thrash.
 
-Then fan out one adversarial verifier per phase against the **current working tree**. This checks **task-conformance** — does the code satisfy *this task file's* success criteria — which `/code-review` cannot, since it doesn't know the task.
+Then fan out one adversarial verifier per phase against the **current working tree**. This checks **task-conformance** — does the code satisfy *this task file's* success criteria — which `/code-review` cannot, since it doesn't know the task. For an **exploratory phase** (step 1), the verifier's bar shifts: rather than conformance to a (nonexistent) pinned spec, it confirms the empirical deliverables landed — capable-of-failing tests for the discovered behavior plus a captured findings note (the mechanism that worked + the alternatives that failed). Pass a phase's `exploratory: true` into its verifier so it applies the right bar instead of failing on missing pinned criteria.
 
 ```javascript
 export const meta = {
@@ -80,4 +82,6 @@ Capture anything reusable (patterns, conventions, gotchas) in the appropriate pl
 - Trivial single-file changes — just make the edit (and skip the verifier fan-out).
 
 ## Calibration
-Tracked in `tasks/on-hold/task-review-panel.md`. Tune verifier strictness against real builds.
+Tracked in `tasks/backlog.md` § Testing & Quality (the design record `tasks/archive/task-review-panel.md` is frozen — don't write there). Tune verifier strictness against real builds.
+
+**Data point — §5.3.7 Nebula-frontend (v1–v5, the largest single-batch build, 2026-06-15 retro).** The build validated the skill's core premise: after deep review, implementation was near-transcription — **~0.46 mid-build design decisions per phase, zero behavior churn, one structural reversal** (a separate-package → subpath repackaging caught during scaffolding). The verifier fan-out earned its keep beyond rubber-stamping at least once: a P9 verify panel surfaced an unguarded HTTP-403 operand that became a permanent rule (`testing.md` "mutation-check each operand of a compound condition"). Friction was NOT in task-writing — it was empirical test-infra discovery in the thin-spec **v4** phase (WS-disconnect tooling took 3 tries). See the exploratory-phase handling below.

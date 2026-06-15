@@ -86,3 +86,14 @@ Counts are written-time snapshots. They go stale (someone adds a 6th file before
 If you need a count for scoping ("this is small, ~5 files"), include it as commentary, not as the inventory:
 
 > "Migrate all files matching `grep -l 'X' test/` (\~5 files at time of writing)."
+
+### Multi-version (vN) phases: pinned decisions OR an explicit exploratory tag
+
+A phase carries one of two kinds of spec, and it should be obvious which:
+
+- **Pinned** — decisions are settled; the phase has a decisions table (Decision | Choice | Rationale) and concrete, testable success criteria. `/build-task` transcribes it and the verifier checks conformance.
+- **Exploratory** — the mechanism is *empirically discoverable* (real-infra harnesses, browser/WS tooling, network-failure simulation) and genuinely can't be pinned in advance. Tag it `**Exploratory — mechanism TBD**` and name the candidate prior-art template to adopt. Its deliverable is capable-of-failing tests for the discovered behavior **plus a captured findings note** (the mechanism that worked + the alternatives that failed, harvested into a reference memory or rule).
+
+A vN phase that is **thin but neither** — only `"works"`-grade bullets, no decisions, no exploratory tag — is a smell: either the decisions exist and should be written, or the work is a spike and should say so. Don't leave "thin because genuinely exploratory" indistinguishable from "thin because under-thought."
+
+This is the §5.3.7 lesson: at the `/build-task` handoff, v3 carried 34 pinned decisions and shipped as transcription; v4 carried 0 and was where every under-specified call landed (the WS-disconnect tooling took three tries to discover). v4 still shipped clean *because* the work was inherently empirical — but tagging it exploratory up front would have set the right expectation and verifier bar instead of looking like an oversight.

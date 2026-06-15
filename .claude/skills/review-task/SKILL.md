@@ -47,7 +47,7 @@ const LENSES = [
   { key: 'test-strategy', rules: '.claude/rules/testing.md',
     lens: 'WHAT to test, not whether tests follow patterns. Are success criteria testable? for-docs mini-app vs isolated test? Untestable claims in pseudo-code? Missing scenarios the task file omits: error paths, concurrent access, eviction recovery.' },
   { key: 'product', rules: 'CLAUDE.md (repo root — project intro/principles) + tasks/README.md',
-    lens: 'Nebula vision & ergonomics for user-developers. Walled-garden violations (escape hatches, more than one right way, footguns left in), API-surface ergonomics, scope creep / premature generalization, task-file template conformance, phases that are step-lists instead of goals + success criteria.' },
+    lens: 'Nebula vision & ergonomics for user-developers. Walled-garden violations (escape hatches, more than one right way, footguns left in), API-surface ergonomics, scope creep / premature generalization, task-file template conformance, phases that are step-lists instead of goals + success criteria. SPEC-DENSITY: flag any phase (esp. a later vN version) that has only "works"-grade bullets and is NEITHER pinned (decisions + testable success criteria) NOR explicitly tagged exploratory/spike. The fix is to make the author choose: pin the decisions (naming candidate mechanism + the prior-art template to adopt), OR tag it exploratory so /build-task verifies it on captured-findings, not transcription. A thin phase that is silently neither is the gap — empirically the §5.3.7-v4 phase had 0 pinned decisions vs v3’s 34, and that is exactly where the under-specified calls landed.' },
 ]
 
 const FINDINGS = {
@@ -130,4 +130,4 @@ Present the synthesized list. Also surface the `dropped` list briefly — the ve
 - Tiny task files — a single inline read is cheaper than spinning up agents.
 
 ## Calibration
-The first time, run it against a *completed* task file where you remember what the loops found — confirm it surfaces the same issues. If a lens returns only generic advice, sharpen its `lens` prompt or its rule checklist. Tracked in `tasks/on-hold/task-review-panel.md`.
+The first time, run it against a *completed* task file where you remember what the loops found — confirm it surfaces the same issues. If a lens returns only generic advice, sharpen its `lens` prompt or its rule checklist. Tracked in `tasks/backlog.md` § Testing & Quality (the design record `tasks/archive/task-review-panel.md` is frozen — don't write there).
