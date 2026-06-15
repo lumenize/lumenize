@@ -37,13 +37,38 @@ Will show:
 
 ## References between types
 
-Will show:
+A field whose type is another ontology type is a **relationship**, and Nebula models relationships **by id (foreign key) — never by embedding**. This is a hard contract ([ADR-006](https://github.com/lumenize/lumenize/blob/main/docs/adr/006-resources-reference-by-id.md)):
 
-- Foreign-key fields: an `id`-of-another-resource pattern with type-level enforcement.
-- When to use embedded objects vs separate referenced resources (cardinality, sharing, update frequency).
+- **A reference field holds the *id* of the related resource, not the resource itself.** You write the related *type* in the schema (`list: TodoList`); on the wire and in storage that field is the related resource's id `string` — Nebula derives this "write shape" automatically. A to-many reference (`members: User[]`) is an array of ids (`string[]`).
+- **Related resources are created and updated as separate ops in one transaction.** A `transaction(...)` is a map of independent ops that commit atomically, so "create a parent and its children together" is several ops in a single call — each with its own client-supplied id, each reference field pointing at a sibling's id. The client owns every id (Nebula never generates them) and wires the relationships explicitly.
+- **Embedding is for composition *within* one resource, not for references.** Inline object/array fields (`address: { city: string }`) are part of that one resource's value and its single snapshot. A resource's value round-trips the full structured-clone space — `Map`, `Date`, cycles, shared (aliased) sub-objects — but that richness lives *inside* one value; it does not reach *across* resource references, which are always ids.
+- **Embedding an object where an id belongs is rejected loudly.** Passing the related object (or a nested/cyclic object) into a reference field fails validation with a message that names the field and its target type and tells you to reference by id — not a cryptic type error.
+
+Example — a todo that references its list by id, created with the list in one atomic transaction:
+
+```typescript @skip-check
+// ontology
+interface TodoList { title: string }
+interface Todo {
+  title: string;
+  list: TodoList;     // a relationship — sent/stored as the TodoList's id string
+  done: boolean;
+}
+
+// client: create the list and a todo that references it, atomically
+const listId = crypto.randomUUID();
+const todoId = crypto.randomUUID();
+await client.resources.transaction({
+  [listId]: { op: 'create', typeName: 'TodoList', nodeId, value: { title: 'Groceries' } },
+  [todoId]: { op: 'create', typeName: 'Todo',     nodeId, value: { title: 'Milk', list: listId, done: false } },
+});
+```
+
+Still to document (mechanism, not yet settled):
+
 - The `@inverse` annotation for declaring back-references (e.g., `User.todos` is the inverse of `Todo.ownerId`).
 - One-to-one, one-to-many, many-to-many — how each shows up in the ontology and on the store.
-- Reference integrity: the server enforces "referenced resource exists" at transaction time; how that surfaces as a `'validation-failed'` resolution.
+- **Reference integrity is deferred.** Today validation checks only that a reference is a well-formed id `string` — it does **not** verify the referenced resource exists, so a dangling id is accepted. Enforcing "the referenced resource exists, or is created in the same transaction" is a planned, **intra-Star, same-transaction**-scoped feature (cross-Star references are ids that can't be checked at write time and stay eventually-consistent). Tracked in the backlog.
 
 ## Annotations
 

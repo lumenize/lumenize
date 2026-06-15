@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { generateParseModule } from '../src/generate-parse-module';
+import { extractTypeMetadata } from '../src/extract-type-metadata';
 import { getParserValidatorFacet, type ParserValidator } from '../src/facet-helper';
 import type { ParseRequest, ParseResult } from '../src/facet-helper';
 
@@ -48,6 +49,25 @@ export class PrimaryDO extends DurableObject<Env> {
   ): Promise<Map<string, ParseResult>> {
     const facet = this.#getFacetForBundle(typeDefinitions, bundleId);
     return await facet.parseBatch(items);
+  }
+
+  /**
+   * Mirror Nebula's real ontology flow: take RAW types, extract metadata,
+   * generate the validator from the *write shape* (relationship refs → id
+   * strings) and pass the relationship map for loud-warning enrichment. This
+   * is the path `Galaxy.compileOntologyVersion()` uses — tests exercise it to
+   * cover the write-shape + relationship-error behavior end to end.
+   */
+  async parseWriteShape(
+    rawTypeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId: string = 'ws-default',
+  ): Promise<ParseResult> {
+    const md = extractTypeMetadata(rawTypeDefinitions);
+    const moduleSource = generateParseModule(md.writeShapeTypeDefinitions, md.relationships);
+    const facet = getParserValidatorFacet(this.ctx, this.env.LOADER, bundleId, () => moduleSource);
+    return await facet.parse(value, typeName);
   }
 }
 

@@ -17,6 +17,7 @@ Use `/task-management` to choose docs-first vs task-file-first when starting a p
 - **ADR-003** — mesh flows are one-way messages + continuations; nothing depends on request/response across hops (the per-hop awaited Workers RPC is transport, not architecture). No RpcTarget/Cap'n Web sessions.
 - **ADR-004** — resources are Snodgrass-style snapshot sequences; history is the substrate. No destructive writes; "current" queries honor the `END_OF_TIME` sentinel.
 - **ADR-005** — optimistic concurrency: forward-only eTags prove currency AND provide idempotency (`newETag` replay detection); no locks, no dedupe ledger; non-monotonic checks (permissions, not-found) stay inside the transaction.
+- **ADR-006** — resources reference each other by id (FK), never by embedding; a field typed as another ontology type is a relationship rewritten to `string`/`string[]` in the write shape. Related resources are separate ops in one atomic transaction (client supplies every id). Nesting is composition *within* one resource's value only. Embedding an object in a reference field is a loud error. FK referential integrity is deferred (intra-Star, same-transaction scope).
 
 ## Related skills
 - `/task-management` — docs-first vs task-file-first

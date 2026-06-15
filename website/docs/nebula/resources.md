@@ -5,14 +5,14 @@ description: The core data model in Nebula — JavaScript objects addressed by (
 
 Resources are the heart of this system. They are both simple and powerful. You use them when developing your app in Nebula Studio. Your users use them when they interact with your app because they are the only place for them to store anything.
 
-From your UI's perspective, each resource is a JavaScript object — fully supporting everything the structured-clone algorithm supports: `Map`, `Date`, cycles, etc. The framework handles the conversion to/from a storable representation transparently. You write to the resource the same way you'd write any in-memory JavaScript object, and the rich types round-trip correctly.
+From your UI's perspective, each resource is a JavaScript object — fully supporting everything the structured-clone algorithm supports: `Map`, `Date`, cycles, etc. The framework handles the conversion to/from a storable representation transparently. You write to the resource the same way you'd write any in-memory JavaScript object, and the rich types round-trip correctly. (This richness — including cycles and shared/aliased sub-objects — lives *within* a single resource's value. A field that points at *another* resource is a reference held by id, not an embedded object; see [Ontology § References between types](./ontology.md#references-between-types).)
 
 Each resource also carries a client-generated `eTag` (UUID) attached on every write — the eTag does double duty as both the optimistic-concurrency token and the idempotency key for safe retries. The shape of each resource type is defined by your ontology — a TypeScript `.d.ts`-style file that Nebula compiles into a runtime parser-validator. See [TS Runtime Parser-Validator](../ts-runtime-parser-validator/index.md) for how the ontology becomes the validator.
 
 Think of Nebula's resource layer as a document database with inter-resource relationships, real-time sync, and structural access control:
 
 - **Document database** — each resource is a JavaScript object addressed by `(type, id)`.
-- **With references** — fields can point to other resources by id; the ontology declares which fields are references and to what type.
+- **With references** — a field typed as another resource is a relationship held **by id** (a foreign key), never an embedded object. Create related resources as separate ops in one atomic `transaction(...)`, each with a client-supplied id, wiring the references explicitly. See [Ontology § References between types](./ontology.md#references-between-types).
 - **Real-time sync** — clients subscribe to resources they care about; mutations fan out to all subscribers automatically.
 - **Structural access control** — every resource is attached at create time to a node in your app's **org/permission tree**. Each node has a per-user permissions table; permissions cascade additively from ancestors. See [Access control](#access-control) below.
 
