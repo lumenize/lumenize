@@ -28,7 +28,9 @@ describe('nebula frontend scaffold', () => {
     expect(typeof makeLongformResolver).toBe('function');
   });
 
-  it('the factory skeleton throws until its v3 port lands', () => {
-    expect(() => createNebulaClient({ appVersion: 'dev' })).toThrow(/not yet ported/);
+  it('createNebulaClient throws clearly when authScope cannot be auto-detected (deferred)', () => {
+    // authScope URL auto-detect is deferred (Studio-hosting decision); omitting
+    // it must fail loudly rather than connect to a wrong/undefined scope.
+    expect(() => createNebulaClient({ appVersion: 'dev' })).toThrow(/authScope/);
   });
 });

@@ -44,7 +44,8 @@ import { getCurrentInstance } from '@vue/runtime-core';
 import { debug } from '@lumenize/debug';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
-import type { NebulaStoreAdapter, ResourceSubscription } from '../nebula-client';
+import { NebulaClient } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
 import type { Snapshot } from '../resources';
 
 const log = debug('lumenize.nebula-frontend');
@@ -614,49 +615,157 @@ export { effectScope, vueComputed as computed };
 
 /**
  * Configuration for {@link createNebulaClient}. Only `appVersion` is required;
- * every other field auto-detects from the deployment URL / defaults at runtime
- * (finalized in Phase 7 — api-reference § createNebulaClient).
+ * `baseUrl` / `activeScope` / `onShouldRefreshUI` auto-detect, and all the
+ * inherited `NebulaClient` fields (`fetch`, `sessionStorage`, `onLoginRequired`,
+ * `onConnectionStateChange`, …) stay available as escape hatches for
+ * admin/scripting/tests. api-reference § createNebulaClient is the contract.
+ *
+ * **`authScope` is currently required-in-practice** — its URL auto-detect is
+ * deferred (coupled to the open Studio-hosting/deployment-URL decision; see
+ * tasks/backlog.md). Omitting it throws a clear error at call time.
  */
-export interface CreateNebulaClientConfig {
-  /** App/ontology version. The one field Studio's bootstrap substitutes at deploy time. Auto-attached to every `client.resources.*` op. */
-  appVersion: string;
-  /** API origin. Defaults to `window.location.origin`. */
-  baseUrl?: string;
-  /** Cookie-path auth scope. Defaults from the deployment URL. */
+export interface CreateNebulaClientConfig
+  extends Omit<NebulaClientConfig, 'authScope' | 'activeScope' | 'onShouldRefreshUI'> {
+  /** Cookie-path auth scope. Auto-detect deferred — pass explicitly for now. */
   authScope?: string;
   /** JWT `aud` active scope. Defaults to `authScope`. */
   activeScope?: string;
-  /** Called on `ontology-stale`. `undefined`/`null` → default `window.location.reload()`; pass `() => {}` to opt out. */
-  onShouldRefreshUI?: ((info: { clientVersion: string; currentVersion: string; reason: string }) => void) | null;
+  /** Called on `ontology-stale`. `undefined`/`null` → default once-guarded
+   *  `window.location.reload()`; pass an explicit `() => {}` to opt out. */
+  onShouldRefreshUI?: ((info: OntologyStaleInfo) => void) | null;
+  /** Grace before auto-unsubscribe after the binding refcount hits zero (default 2000ms). */
+  unsubscribeGraceMs?: number;
 }
 
 /**
  * What {@link createNebulaClient} returns. `store` is the Vue-reactive,
  * path-aware Proxy; `client` exposes the NebulaClient surface; `ready` resolves
- * after the first successful connection (claims populated).
+ * after the first successful connection (claims populated) and rejects with a
+ * `LoginRequiredError` on terminal auth failure (api-reference § createNebulaClient).
  */
 export interface FactoryResult {
-  client: unknown;
-  store: Record<string, unknown>;
+  client: NebulaClient;
+  store: Record<string, any>;
   ready: Promise<void>;
   use(middleware: Middleware): () => void;
   flush(resourceType?: string, resourceId?: string): void;
   dispose(): Promise<void>;
 }
 
+const RELOAD_STORM_SENTINEL = 'lmz.ontology-stale-reloaded';
+
 /**
- * Integration entry point — constructs a NebulaClient and wraps it in a
+ * Default `onShouldRefreshUI`: fetch the new bundle via a full reload, guarded
+ * by a `sessionStorage` sentinel so an immediate re-stale right after the reload
+ * doesn't loop. (Set-once per session: a much-later staleness across the same
+ * long-lived tab won't auto-reload — accepted; the app can pass a custom
+ * handler. See tasks/nebula-frontend.md.)
+ */
+function defaultOnShouldRefreshUI(_info: OntologyStaleInfo): void {
+  try {
+    if (typeof sessionStorage !== 'undefined') {
+      if (sessionStorage.getItem(RELOAD_STORM_SENTINEL)) return; // already reloaded once for staleness
+      sessionStorage.setItem(RELOAD_STORM_SENTINEL, '1');
+    }
+    if (typeof window !== 'undefined') window.location.reload();
+  } catch {
+    // non-browser / storage blocked — nothing to reload.
+  }
+}
+
+/**
+ * Pure config resolution (auto-detect + defaults), split out so it's unit-testable
+ * without opening a connection. Throws on a missing `appVersion` or `authScope`
+ * (the latter's URL auto-detect is deferred — see {@link CreateNebulaClientConfig}).
+ */
+export function resolveNebulaClientConfig(config: CreateNebulaClientConfig): {
+  baseUrl?: string;
+  authScope: string;
+  activeScope: string;
+  appVersion: string;
+  onShouldRefreshUI: (info: OntologyStaleInfo) => void;
+} {
+  if (!config.appVersion) {
+    throw new Error('createNebulaClient: `appVersion` is required.');
+  }
+  if (config.authScope === undefined) {
+    throw new Error(
+      'createNebulaClient: `authScope` auto-detect from the deployment URL is not yet implemented ' +
+        '(coupled to the open Studio-hosting / deployment-URL decision — see tasks/backlog.md). ' +
+        'Pass `authScope` explicitly for now.',
+    );
+  }
+  const baseUrl = config.baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : undefined);
+  const authScope = config.authScope;
+  const activeScope = config.activeScope ?? authScope;
+  // `?? ` coalesces both `undefined` and `null` to the default reload (by design —
+  // there is no "disable" sentinel; opt out with an explicit `() => {}`).
+  const onShouldRefreshUI = config.onShouldRefreshUI ?? defaultOnShouldRefreshUI;
+  return { baseUrl, authScope, activeScope, appVersion: config.appVersion, onShouldRefreshUI };
+}
+
+/**
+ * Integration entry point — constructs a {@link NebulaClient} and wraps it in a
  * Vue-reactive store (via {@link createNebulaStore}) with optimistic writes,
  * debounced transactions, conflict resolution, and effect-scope-tied
- * auto-subscribe.
+ * auto-subscribe. Returns `{ client, store, ready, use, flush, dispose }`.
  *
- * Phase 7 lands the client construction + config auto-detection + `ready`. P6
- * builds the store layer (`createNebulaStore`); this entry still throws.
+ * `ready` resolves on the first `'connected'` transition (token refresh complete
+ * → `client.claims` populated) and **rejects** with a `LoginRequiredError` on a
+ * terminal `onLoginRequired` before that — the bootstrap top-level-awaits it.
+ * (The *first-connect* terminal-reject becomes fully exercisable once P9 makes
+ * mesh classify first-connect auth failures; mid-session terminal works today.)
  *
  * @see https://lumenize.com/docs/nebula/api-reference#createnebulaclient
  */
-export function createNebulaClient(_config: CreateNebulaClientConfig): FactoryResult {
-  throw new Error(
-    'createNebulaClient: not yet ported (nebula-frontend v3 — see tasks/nebula-frontend.md § Phase 5.3.7-v3, Phase 7)',
-  );
+export function createNebulaClient(config: CreateNebulaClientConfig): FactoryResult {
+  const resolved = resolveNebulaClientConfig(config);
+
+  // Pull the user's own connection/auth observers (if any) so we can chain ours
+  // in front of them rather than shadowing them.
+  const { onConnectionStateChange: userOnConnectionStateChange, onLoginRequired: userOnLoginRequired } = config;
+
+  let resolveReady!: () => void;
+  let rejectReady!: (err: unknown) => void;
+  const ready = new Promise<void>((res, rej) => {
+    resolveReady = res;
+    rejectReady = rej;
+  });
+  let readySettled = false;
+
+  const client = new NebulaClient({
+    ...config,
+    baseUrl: resolved.baseUrl,
+    authScope: resolved.authScope,
+    activeScope: resolved.activeScope,
+    appVersion: resolved.appVersion,
+    onShouldRefreshUI: resolved.onShouldRefreshUI,
+    onConnectionStateChange: (state) => {
+      if (state === 'connected' && !readySettled) {
+        readySettled = true;
+        resolveReady();
+      }
+      userOnConnectionStateChange?.(state);
+    },
+    onLoginRequired: (err) => {
+      // Terminal auth failure. Before `ready` resolves (a logged-out visitor on
+      // first connect), reject it so the bootstrap can redirect rather than hang.
+      if (!readySettled) {
+        readySettled = true;
+        rejectReady(err);
+      }
+      userOnLoginRequired?.(err);
+    },
+  });
+
+  const storeResult = createNebulaStore(client, { unsubscribeGraceMs: config.unsubscribeGraceMs });
+
+  return {
+    client,
+    store: storeResult.store,
+    ready,
+    use: storeResult.use,
+    flush: storeResult.flush,
+    dispose: storeResult.dispose,
+  };
 }
