@@ -13,7 +13,7 @@ This page is the narrative reference Nebula Studio's hosted LLM consults when ge
 
 **Resources are the heart of this system. They are both simple and powerful. You use them when developing your app on the Nebula platform. Your users indirectly use them when they interact with your app because they are the only place you have to store user data.**
 
-Resources also handle [**access control**](./resources.md#access-control). Every resource is attached at create time (movable later) to a node in your app's **org/permission tree**. Each node carries a per-user permissions table. A permission grant on a node flows down to every descendant.
+Resources also handle [**access control**](./access-control.md). Every resource is attached at create time (movable later) to a node in your app's **org/permission tree**. Each node carries a per-user permissions table. A permission grant on a node flows down to every descendant.
 
 Each resource is a JavaScript object (not just JSON, but rather rich types like Map, Date, cycles, etc.) addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
@@ -212,7 +212,7 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 "Admin" has **two** independent sources, and admin-only UI checks both:
 
 - **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
-- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./resources.md#access-control)). So you can't discover them from the tree; you read the claim.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
 
 A `computed` that covers both:
 
@@ -525,13 +525,13 @@ await client.orgTree.revokePermission(listShoppingId, bobsSub);
 await client.orgTree.removeEdge(userBobNodeId, listShoppingId);
 ```
 
-The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [API reference § client.orgTree](./api-reference.md#clientorgtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./resources.md#access-control).
+The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [API reference § client.orgTree](./api-reference.md#clientorgtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./access-control.md).
 
 ## Worked example: rendering the built-in tree
 
-**Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./resources.md#access-control) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
+**Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./access-control.md) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
 
-The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./resources.md#access-control) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
 
 ### The tree shape
 

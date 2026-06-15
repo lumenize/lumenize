@@ -409,7 +409,7 @@ Distinct from [`client.dispose()`](#clientdispose), which tears down the client/
 
 **Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/dag-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-tree.ts).
 
-Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./resources.md#access-control); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
+Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./access-control.md); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
 
 **Reads do not go through this namespace.** The full tree is delivered on a dedicated channel to `store.lmz.orgTree.value` (an [`OrgTreeState`](#orgtreestate)) — under the framework-reserved `store.lmz.*` prefix, not `store.resources.*` (the tree isn't a resource). Bind to it reactively rather than polling a query method. `client.orgTree.*` is mutations only.
 

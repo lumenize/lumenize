@@ -1,7 +1,6 @@
 ---
 title: Ontology
 description: How you define resource types in Nebula — the .d.ts schema, per-type configuration, references, and how the ontology becomes a runtime parser-validator.
-draft: true
 ---
 
 # Ontology
@@ -156,7 +155,7 @@ Will cover:
 
 Will cover:
 
-- Every resource has a `nodeId` at create time — which DAG (org/permission) tree node it attaches to. See [Resources § Access control](./resources.md#access-control) for the conceptual model.
+- Every resource has a `nodeId` at create time — which DAG (org/permission) tree node it attaches to. See [Resources § Access control](./access-control.md) for the conceptual model.
 - The ontology can declare a **default attachment pattern** per type. Common patterns:
   - **Per-user subtree** — every `Todo` attaches under the creating user's `user-<sub>` node (the consumer SaaS pattern from the todo-list sharing example in resources.md).
   - **Shared workspace** — every `Document` attaches under a `workspace-<id>` node specified at create time (the team-collab pattern).
@@ -180,7 +179,7 @@ Will cover:
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
 - **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `appVersion` bump.
 - The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
-- Migrations: link to wherever the migration story ultimately lives (`tasks/nebula-5.5-branch-migrations.md` references this; the user-facing doc TBD).
+- Migrations: link to wherever the migration story ultimately lives (`tasks/branch-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio
 

@@ -355,10 +355,11 @@ const sidebars: SidebarsConfig = {
       label: 'Nebula',
       items: [
         'nebula/nebula-client',
-        'nebula/coding-your-ui',
         'nebula/using-vue',
         'nebula/ontology',
         'nebula/resources',
+        'nebula/access-control',
+        'nebula/coding-your-ui',
         'nebula/api-reference',
         'nebula/auth-flows',
       ],
