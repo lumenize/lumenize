@@ -394,3 +394,11 @@ Rough shape — refine during storyboard work:
 - [ ] Preview shows live UI components backed by real Resources
 - [ ] Edit → regenerate → preview cycle is under 5 seconds
 - [ ] Cold-start interview produces a usable draft ontology in under 5 minutes (demo target)
+
+## Build sequencing — next branch: `feat/nebula-studio`
+
+**Branch plan (decided 2026-06-15, closing the §5.3.7 v1–v5 batch):** merge `feat/nebula-ui` → `main` and close it (the Vue frontend v1–v5 + ADR-006 land there), then start `feat/nebula-studio` for the work below, in order:
+
+1. **Client-bundle deploy/compile pipeline** (first — it unblocks the rest). Compile `.vue` SFCs in the **dev Star** (the Star fork — the designated compile site AND the gating prerequisite) → publish the bundle to the **Galaxy, versioned alongside the ontology** → lazy-pull to Stars via the SAME mechanism the ontology already uses (shipped: `galaxy.ts`/`star.ts` cache-miss → `getLatestOntologyVersion`). Largely mapped already — see § "Dev-mode Star: SFC compile + reload broadcast", § "Architecture" (two compile sites: local vite for dev preview, Galaxy for production deploy, same purity guarantee), and the validated spike `apps/nebula/spike/sfc-devstar-loop/`. This wires the compile→bundle into the Galaxy/Star deploy path that §5.3.7-v5 punted to "Studio's deploy work."
+2. **Remaining WAIT `@check-example` conversions** (follow-up to #1). Once the pipeline serves a real bundle, convert `using-vue.md`'s CDN-load + CSP/template-compilation examples from `@skip-check` to `@check-example` — the deferred phase-2 from [nebula-frontend.md](nebula-frontend.md) § Phase 5.3.7-v5. (Phase-1, the runtime-behavior examples, runs on its own nebula-frontend session and does NOT depend on this.)
+3. **Studio LLM evals — fork to eval (system prompt) × (model) combinations** on real code-generation tasks, once the generation surface exists. **Default: start with Kimi 2.7 Code** (already chosen for Studio 2026-06-12 — live use is the eval) and only consider another model if K2.7 proves problematic; don't front-load a model bake-off. Builds on § "Model and Orchestration" / § "Language Model Strategy".

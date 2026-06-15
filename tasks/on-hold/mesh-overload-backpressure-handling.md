@@ -146,9 +146,14 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
       shed when they spike. Honors CF's "retrying an overloaded DO worsens it" at scale.
 
 ### Phase 3: VERIFY server-side replay-idempotency of `newETag` (correctness lynchpin)
-- [ ] Confirm the Star transaction handler treats a resubmit of an **already-applied** `newETag` as a
+- [x] Confirm the Star transaction handler treats a resubmit of an **already-applied** `newETag` as a
       success-returning no-op (the "committed but response was lost" `.retryable` case) — not a
       double-apply and not a spurious conflict. **Retry is unsafe to ship until this holds.**
+      - **VERIFIED 2026-06-15** (review pass on the Nebula Star path): two-layer replay detection, both
+        returning `{ ok: true }` → client `committed`: pre-validator fast path (`apps/nebula/src/resources.ts:314`)
+        + authoritative in-txn re-check (`resources.ts:424`, Step 6.5, ordered before the conflict scan, uses
+        `.some` so a sibling mutation can't hide the replay). No double-apply, no spurious conflict. This
+        lynchpin is satisfied on the Nebula path; a raw-mesh `callRaw` retry would still need its own check.
 
 ### Phase 4: Transport / thundering-herd (orthogonal — clean win regardless)
 - [ ] Add jitter to reconnect backoff (`lumenize-client.ts:824`) and wake-up reconnect (`:840`).
