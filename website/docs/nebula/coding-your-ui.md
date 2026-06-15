@@ -344,7 +344,7 @@ if (await client.resources.read('todoList', sub) === null) {
 
 (A node the user can write to is the only prerequisite; the founder gets one — `admin` on root — at Star creation. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
 
-Inline arrays of embedded objects (e.g., `assignees`) iterate the same way without auto-subscribing per item — the embedded object's fields are right there.
+By contrast, a field whose elements are **inline objects** — composition *within* this one resource, e.g. a todo's `checklist: { text, done }[]` — iterates the same way but without auto-subscribing per item; the fields are right there in the value. The distinction is by type: a field typed as **another ontology type** (e.g. `assignees: User[]`) is a *relationship*, stored by id and read like `items` above — one auto-subscribe per id — never an embedded object; nesting is for inline composition only (see [Resources](./resources.md)).
 
 This works up to ~hundreds of items. Beyond that, a query language is the right tool — deferred for now.
 

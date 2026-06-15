@@ -20,7 +20,7 @@ const RICH_TYPES = `interface RichResource {
   when: Date;
   counts: Map<string, number>;
   tags: Set<string>;
-  self?: RichResource;
+  blob?: unknown;
 }`;
 
 function uniqueStar(): string {
@@ -68,27 +68,26 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
     client[Symbol.dispose]();
   });
 
-  // SKIP — surfaced a real ADR-002 gap: a CYCLIC resource value is rejected at
-  // server-side ontology validation. The validator reports `$input.self expected
-  // "(string | undefined)"` and the cycle is not short-circuited — even though
-  // (a) Nebula validation uses @lumenize/ts-runtime-parser-validator, which bundles
-  // the visit-tracking typia fork that ships cycle support, (b) a NON-cyclic nested
-  // `self: { ... }` of the same recursive type validates fine, and (c) Date/Map/Set
-  // round-trip (the sibling tests). So it's isolated to cyclic values + appears to
-  // be a recursive-type-extraction or fork-engagement issue on the ontology path,
-  // NOT the wire (the W4 surface preserves cycles). Tracked in tasks/backlog.md
-  // ("cyclic resource value rejected by ontology validation") + the iceboxed
-  // tasks/icebox/typia-visit-tracking.md. Assertions kept intact for when it's fixed.
-  it.skip('a cyclic value survives create → re-read with reference identity intact', async () => {
+  // A cycle WITHIN a single resource value round-trips with reference identity.
+  // ADR-002 scopes the full structured-clone space (cycles, aliases, Map/Date/Set)
+  // to what lives INSIDE one value; ADR-006 scopes references BETWEEN resources to
+  // ids (a relationship field is rewritten to `string` in the write shape, so an
+  // embedded object there is a loud by-id error — that's NOT a cycle gap, and is
+  // covered by ts-runtime-parser-validator's relationship-write-shape.test.ts). So
+  // the cycle here lives in a loosely-typed `blob` value field (NOT a relationship),
+  // exercising the wire + storage + read surfaces end-to-end (the validator surface
+  // is covered by that unit test; this is the no-mock ADR-002 within-value proof).
+  it('a within-value cycle survives create → real wire → storage → re-read with identity', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
     const resourceId = generateUuid();
 
+    const blob: any = { tag: 'inner' };
+    blob.loop = blob; // direct cycle inside the value's `blob` field (within-value, not a reference)
     const value: Record<string, unknown> = {
       label: 'cyclic', when: new Date('2026-01-02T03:04:05.678Z'),
-      counts: new Map<string, number>(), tags: new Set<string>(),
+      counts: new Map<string, number>(), tags: new Set<string>(), blob,
     };
-    value.self = value; // direct cycle — structured-clone preserves it via identity
 
     const outcome = await client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'RichResource', nodeId: ROOT_NODE_ID, value },
@@ -96,9 +95,10 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
     expect(outcome.kind).toBe('committed');
 
     const snap = await client.resources.read('RichResource', resourceId);
-    const v = snap!.value as { label: string; self: unknown };
+    const v = snap!.value as { label: string; blob: { tag: string; loop: unknown } };
     expect(v.label).toBe('cyclic');
-    expect(v.self).toBe(v); // cycle re-anchored to the same object after the round-trip
+    expect(v.blob.tag).toBe('inner');
+    expect(v.blob.loop).toBe(v.blob); // cycle re-anchored to the same object after the round-trip
 
     client[Symbol.dispose]();
   });
