@@ -1,4 +1,5 @@
 # Conflict / outcome state machine (v3 isolation detour)
+> **ARCHIVED 2026-06-15 — COMPLETE (frozen).** v3 spike + production port both shipped (ported to `apps/nebula/src/frontend/`); the `apps/nebula/spike/vue-factory/` source this referenced was removed in 5.3.7/P11, and 5.3.7 (v1–v5) merged to `main` (`87c66c1`). Any unchecked `[ ]` boxes below are the port/D2 tasks — done in v3. Kept as the design+test record cited by ADR-004/005 + the factory source.
 
 **Status**: spec'd 2026-06-11; **implemented + tested in spike 2026-06-12**. Pre-v3 isolation detour for [nebula-frontend.md](nebula-frontend.md) Phase 5.3.7-v3. **Load-bearing for the demo** (every transaction resolves through it). Depends on: the submission queue ([debounce-serial-queue.md](debounce-serial-queue.md)) and [factory-textmerge.md](factory-textmerge.md) (for the `@longform` auto-resolver) — both also done in spike.
 

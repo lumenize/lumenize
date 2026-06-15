@@ -1,4 +1,5 @@
 # Debounce + serial-per-resource queue (detour task for nebula-frontend Phase 5.3.7-v3)
+> **ARCHIVED 2026-06-15 — COMPLETE (frozen).** v3 spike + production port both shipped (ported to `apps/nebula/src/frontend/`); the `apps/nebula/spike/vue-factory/` source this referenced was removed in 5.3.7/P11, and 5.3.7 (v1–v5) merged to `main` (`87c66c1`). Any unchecked `[ ]` boxes below are the port/D2 tasks — done in v3. Kept as the design+test record cited by ADR-004/005 + the factory source.
 
 **Status**: **D0 + D1 complete in spike 2026-06-12**; D2 (production port) remains, rides v3. Prerequisite for `tasks/nebula-frontend.md` Phase 5.3.7-v3.
 

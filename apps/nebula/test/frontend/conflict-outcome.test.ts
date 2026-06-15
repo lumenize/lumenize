@@ -1,6 +1,6 @@
 /**
  * Conflict / outcome state machine — property tests ported from the isolation
- * detour (tasks/factory-conflict-outcome.md § Tests; the vue-factory spike was
+ * detour (tasks/archive/factory-conflict-outcome.md § Tests; the vue-factory spike was
  * removed in 5.3.7/P11). The harness is a scripted mock
  * server + captured store effects / flash classes, with the REAL debounce queue
  * underneath (so occupancy, timeout, and connection-gate behavior are the

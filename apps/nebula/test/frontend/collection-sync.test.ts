@@ -1,6 +1,6 @@
 /**
  * Collection-sync (M10, Option A) — property tests per
- * `tasks/factory-collection-sync.md`, ported to the jsdom `frontend` project.
+ * `tasks/archive/factory-collection-sync.md`, ported to the jsdom `frontend` project.
  * The MockClient runs the real conflict-outcome engine (quietMs 0 so rapid
  * mutations coalesce on a microtask); the factory injects its store adapter via
  * `bindStore`. Each `it` maps to one item of the spec's checklist.

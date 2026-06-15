@@ -1,4 +1,5 @@
 # textMerge — 3-way text merge helper (v3 isolation detour)
+> **ARCHIVED 2026-06-15 — COMPLETE (frozen).** v3 spike + production port both shipped (ported to `apps/nebula/src/frontend/`); the `apps/nebula/spike/vue-factory/` source this referenced was removed in 5.3.7/P11, and 5.3.7 (v1–v5) merged to `main` (`87c66c1`). Any unchecked `[ ]` boxes below are the port/D2 tasks — done in v3. Kept as the design+test record cited by ADR-004/005 + the factory source.
 
 **Status**: spec'd 2026-06-11; **implemented + tested in spike 2026-06-12**. Pre-v3 isolation detour for [nebula-frontend.md](nebula-frontend.md) Phase 5.3.7-v3. Lives at `apps/nebula/spike/vue-factory/src/text-merge.ts` (impl + `@longform` resolver shape) and `test/text-merge.test.ts` (28 property tests, phase-0a vitest project); the sibling pure helper `deepEquals` (same detour) got its pinning suite at `test/deep-equals.test.ts`. Tagged `new-in-v3` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge). Remaining work: the v3 port (below).
 

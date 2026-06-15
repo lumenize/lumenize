@@ -1,4 +1,5 @@
 # Think→Nebula shim hardening
+> **ARCHIVED 2026-06-15 — OBE / superseded (frozen).** Superseded by the browser-client Nebula Studio architecture ([nebula-studio.md](../nebula-studio.md)): the in-DO Think→Nebula WS-client shim this targets was the bake-off's surviving artifact, but it lives only in the `feat/think-vs-cma-bakeoff` worktree (never ported to a live branch; `@cloudflare/think` is not a dependency), and the live Studio plan drives generation via a browser/external client over the existing mesh WS, not an in-DO agent. The decision bake-off is itself archived ([think-vs-cma-bakeoff.md](think-vs-cma-bakeoff.md)). Reopen only if a server-side in-DO agent is revived.
 
 **Status**: Not started — kickoff for a new session.
 **Background / analysis**: [`tasks/think-nebula-shim-security-review.md`](think-nebula-shim-security-review.md) (read first — it frames the design + multi-tenant-security questions). Decision context: [`tasks/think-vs-cma-bakeoff.md`](think-vs-cma-bakeoff.md) + `experiments/think-vs-cma/results/RESULTS.md`.
