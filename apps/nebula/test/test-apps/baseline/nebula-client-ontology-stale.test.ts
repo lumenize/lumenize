@@ -19,12 +19,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { OntologyStaleInfo } from '@lumenize/nebula';
+import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/nebula';
 import { isOntologyStaleError } from '@lumenize/nebula';
 import { createAuthenticatedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TEST_TYPES = `interface TestResource { title: string; }`;
+
+/** Pull the committed eTag for `rid` out of a committed outcome. */
+function committedETag(outcome: TransactionOutcome, rid: string): string {
+  if (outcome.kind !== 'committed') throw new Error(`Expected committed, got ${outcome.kind}`);
+  const r = outcome.resources[rid];
+  if (r?.kind !== 'committed') throw new Error(`Expected committed resource, got ${r?.kind}`);
+  return r.eTag;
+}
 
 function uniqueStar(): string {
   return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
@@ -56,15 +64,14 @@ async function setupStaleScenario() {
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1-resource' } },
   });
-  if (created.resolution !== 'committed') throw new Error('Expected committed');
-  const eTag = created.eTag;
+  const eTag = committedETag(created, resourceId);
 
   // Register v2 on Galaxy
   a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Force Star to install v2 by issuing any v2 op (per-call override)
-  await a.client.resources.read('TestResource', resourceId, { ontologyVersion: 'v2' });
+  await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
   // Star's cache is now at v2; refreshHookSpy hasn't been called yet because
   // this op didn't trigger mismatch — we explicitly used v2.
   expect(refreshHookSpy).not.toHaveBeenCalled();
@@ -79,11 +86,11 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
 
     // Constructor-pinned v1 transaction — Star has v2 cached, mismatch fires
     const outcome = await client.resources.transaction({
-      [resourceId]: { op: 'put', eTag, value: { title: 'V1-write-attempt' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'V1-write-attempt' } },
     });
 
-    expect(outcome.resolution).toBe('ontology-stale');
-    if (outcome.resolution !== 'ontology-stale') throw new Error('Expected ontology-stale');
+    expect(outcome.kind).toBe('ontology-stale');
+    if (outcome.kind !== 'ontology-stale') throw new Error('Expected ontology-stale');
     expect(outcome.clientVersion).toBe('v1');
     expect(outcome.currentVersion).toBe('v2');
 
@@ -126,7 +133,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     const { client, resourceId, refreshHookSpy } = await setupStaleScenario();
 
     try {
-      await client.resources.subscribe('TestResource', resourceId);
+      await client.resources.subscribe('TestResource', resourceId).snapshot;
       throw new Error('Expected ontology-stale rejection');
     } catch (err) {
       expect(isOntologyStaleError(err)).toBe(true);
@@ -164,20 +171,19 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     const created = await a.client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
-    if (created.resolution !== 'committed') throw new Error('Expected committed');
-    const eTag = created.eTag;
+    const eTag = committedETag(created, resourceId);
 
     a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
-    await a.client.resources.read('TestResource', resourceId, { ontologyVersion: 'v2' });
+    await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
 
     // No hook registered — should still get the structured outcome without
     // any error from the framework
     const outcome = await a.client.resources.transaction({
-      [resourceId]: { op: 'put', eTag, value: { title: 'V1-write' } },
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'V1-write' } },
     });
-    expect(outcome.resolution).toBe('ontology-stale');
+    expect(outcome.kind).toBe('ontology-stale');
 
     a.client[Symbol.dispose]();
   });

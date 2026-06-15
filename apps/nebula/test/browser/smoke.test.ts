@@ -131,7 +131,7 @@ describe('browser harness', () => {
       baseUrl,
       authScope: scope,
       activeScope: scope,
-      ontologyVersion: 'v1',
+      appVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,
       BroadcastChannel: ctx.BroadcastChannel,
@@ -164,10 +164,11 @@ describe('browser harness', () => {
           value: { title: 'smoke-test resource' },
         },
       });
-      expect(outcome.resolution).toBe('committed');
-      if (outcome.resolution === 'committed') {
-        expect(outcome.eTag).toBeDefined();
-        expect(typeof outcome.eTag).toBe('string');
+      expect(outcome.kind).toBe('committed');
+      if (outcome.kind === 'committed') {
+        const r = outcome.resources[resourceId];
+        expect(r?.kind).toBe('committed');
+        expect(typeof (r?.kind === 'committed' ? r.eTag : undefined)).toBe('string');
       }
     } finally {
       // Dispose the client so the WS closes and the test process can exit.

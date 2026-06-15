@@ -1,4 +1,5 @@
 import { isDurableObjectId } from './is-durable-object-id';
+import { isDONamespace } from './is-do-namespace';
 
 /**
  * Create a Durable Object stub from a namespace and instance identifier.
@@ -20,6 +21,12 @@ import { isDurableObjectId } from './is-durable-object-id';
  * ```
  */
 export function getDOStub(doNamespace: any, doInstanceNameOrId: string): any {
+  if (!isDONamespace(doNamespace)) {
+    throw new Error(
+      `getDOStub expected a DurableObjectNamespace but received a binding without ` +
+      `idFromName/getByName (likely a Worker/service binding). Check the binding name.`
+    );
+  }
   if (isDurableObjectId(doInstanceNameOrId)) {
     // Unique ID: convert to DurableObjectId and get stub
     const id = doNamespace.idFromString(doInstanceNameOrId);

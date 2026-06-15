@@ -67,7 +67,12 @@ export function compileOntologyVersion(
   versionConfig: OntologyVersionConfig,
 ): OntologyVersionRow {
   const md = extractTypeMetadata(versionConfig.types);
-  const validatorBundle = generateParseModule(md.writeShapeTypeDefinitions);
+  // Pass the original relationship map so the generated validator can emit a
+  // loud, actionable error when a caller embeds an object in a relationship
+  // field instead of referencing the related resource by id (the write shape
+  // types relationships as `string`, which otherwise yields an opaque
+  // "expected (string | undefined)").
+  const validatorBundle = generateParseModule(md.writeShapeTypeDefinitions, md.relationships);
   return {
     version: versionConfig.version,
     types: versionConfig.types,

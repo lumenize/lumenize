@@ -1,1 +1,0 @@
-../../../packages/structured-clone/cloudflare-test-env.d.ts

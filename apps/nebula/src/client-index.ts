@@ -40,8 +40,12 @@ export type {
   TransactionError,
 } from './resources';
 
-// DAG ontology types and constants. dag-ops.ts is pure logic with no
-// runtime dependencies on the Cloudflare Workers runtime.
+// Org/permission-tree types + helpers. The underlying structure IS a DAG and
+// the server internals keep the `dag`-prefixed names (the `DagTree` class,
+// dag-ops.ts, detectCycle); the CLIENT surface is purpose-named `OrgTree*` so no
+// `dag`-flavored name leaks to user-developers. dag-ops.ts is pure logic with no
+// Cloudflare Workers runtime dependency. (The server entry `@lumenize/nebula`
+// still exports the `Dag*` names for platform internals.)
 export {
   ROOT_NODE_ID,
   validateSlug,
@@ -51,10 +55,16 @@ export {
   getEffectivePermission,
   getNodeAncestors,
   getNodeDescendants,
-  buildDagTreeView,
+  buildDagTreeView as buildOrgTreeView,
   makeEdgeKey,
 } from './dag-ops';
-export type { PermissionTier, DagTreeState, DagTreeView, DagTreeNodeData, EdgeKey } from './dag-ops';
+export type {
+  PermissionTier as OrgTreePermissionTier,
+  DagTreeState as OrgTreeState,
+  DagTreeView as OrgTreeView,
+  DagTreeNodeData as OrgTreeNodeData,
+  EdgeKey as OrgTreeEdgeKey,
+} from './dag-ops';
 
 // Ontology config types — shape contract for callGalaxyAppendOntologyVersion.
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';

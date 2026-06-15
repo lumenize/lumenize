@@ -11,7 +11,7 @@
 
 Lumenize Nebula is a SaaS vibe coding deployment product built on Lumenize Mesh.
 
-Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, wire up their own routing, swap in their own auth, choose their own UI framework. Nebula is the opposite — it's a **product, not a toolkit**. The vibe coder never touches the back end. They provide an ontology (data model) and Nebula does everything else: auth, routing, storage, real-time sync, access control. On the client side, they use NebulaClient and NebulaUI (derived from JurisJS) — no React, no Svelte, no choice. User-provided server-side logic (guards, migrations, validation) runs in sandboxed Cloudflare Dynamic Worker Loader (DWL) isolates or Cloudflare Containers sandbox. Data extraction integrations get clear REST endpoints but nothing more.
+Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, wire up their own routing, swap in their own auth, choose their own UI framework. Nebula is the opposite — it's a **product, not a toolkit**. The user-developer never touches the back end. They provide an ontology (data model) and Nebula does everything else: auth, routing, storage, real-time sync, access control. On the client side, they use NebulaClient and NebulaUI (derived from JurisJS) — no React, no Svelte, no choice. User-provided server-side logic (guards, migrations, validation) runs in sandboxed Cloudflare Dynamic Worker Loader (DWL) isolates or Cloudflare Containers sandbox. Data extraction integrations get clear REST endpoints but nothing more.
 
 **This matters for design decisions.** When writing Nebula task files, don't offer escape hatches, configuration alternatives, or "the developer can do X instead." If there's one right way, that's the only way. Guard against footguns by removing the footgun, not by documenting it.
 
@@ -82,7 +82,8 @@ Each phase produces testable, working code that only depends on prior phases. De
 | 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
 | 5.2 | TypeScript Validation & Ontology | **Complete** | `tasks/archive/nebula-5.2-tsc-validation.md` (overview); ORM-flavored follow-on (M:N relationships, `query()`, JSDoc constraints) extracted to `tasks/on-hold/nebula-orm-and-queries.md` |
 | 5.3 | Subscriptions & Fanout | Active — demo critical path (single-resource only) | `tasks/nebula-frontend.md` (consolidated with Phases 7 + 8 — 2026-05-11) |
-| 5.4 | Capability Tickets | **On Hold — demo focus** | `tasks/on-hold/nebula-5.4-capability-tickets.md` |
+| 5.4 | Capability Tickets | **Iceboxed — premise superseded by R2 history** | `tasks/icebox/nebula-5.4-capability-tickets.md` |
+| 5.4b | Resource history on R2 (not per-resource DOs) | On Hold — design captured | `tasks/on-hold/nebula-resource-history-r2.md` |
 | 5.5 (branch-local) | In-Place Lazy Migrations | Active — demo critical path | `tasks/nebula-5.5-branch-migrations.md` |
 | 5.5 (production polish) | Schema Evolution | **On Hold — demo focus** | `tasks/on-hold/nebula-5.5-schema-evolution.md` |
 | 5.6 | HTTP Transport | **On Hold — demo focus** | `tasks/on-hold/nebula-5.6-http-transport.md` |
@@ -104,9 +105,11 @@ DAG tree inside each Star for organizing resources and controlling access. Phase
 
 Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, validation, schema evolution, and migrations. Inverted DWL architecture — DO calls out to DWL for guard decisions, resource config, and validation. Key APIs: `transaction()`, `subscribe()`, `read()`/`reads()`. Full design in `tasks/nebula-5-resources.md`.
 
+**Resource history storage — decided: R2, not per-resource DOs (2026-06-08).** The unbounded-over-time growth axis (old snapshot blobs) moves off Star SQLite onto **R2**, keyed `<resourceId>/<validFrom>`, with Star keeping the small metadata rows as the eTag source of truth. This **abandons** the earlier "one `ResourceHistory` DO per resourceId" plan (capacity ceiling, map/reduce fan-out across instances, and DO write cost all argued against it). Design: `tasks/on-hold/nebula-resource-history-r2.md`. The `ResourceHistory` class (`apps/nebula/src/resource-history.ts`) survives only as the tenant-scoped-helper test fixture for `tasks/nebula-do-scope-isolation.md`.
+
 ### Phases 5.3, 5.5 (branch-local subset) — demo critical path
 
-5.3 single-resource subscriptions and 5.5's branch-local in-place lazy migration runner are active. Production polish on 5.4, 5.5 (full), 5.6, 5.7 is on hold (see Demo Roadmap).
+5.3 single-resource subscriptions and 5.5's branch-local in-place lazy migration runner are active. Production polish on 5.5 (full), 5.6, 5.7 is on hold (see Demo Roadmap). 5.4 (capability tickets) is **iceboxed** — its per-resource-DO premise was superseded by R2 history storage (above).
 
 ### Phase 7: Nebula Client
 
@@ -123,7 +126,7 @@ No LLM-generation spike — direction resolved without it. Design consolidated i
 
 ### Phase 9: Nebula Studio
 
-Conversational interface where vibe coders describe their product and the AI generates ontology + UI. Studio is the demo's end-of-line goal. Design in `tasks/nebula-studio.md`. See `tasks/nebula-scratchpad.md` for follow-on ideas.
+Conversational interface where user-developers describe their product and the AI generates ontology + UI. Studio is the demo's end-of-line goal. Design in `tasks/nebula-studio.md`. See `tasks/nebula-scratchpad.md` for follow-on ideas.
 
 ---
 
@@ -152,4 +155,4 @@ See Phase 4.0 (`tasks/archive/nebula-isolation-blog.md`) for detailed notes on D
 
 ## Deferred Items & Scratchpad
 
-See `tasks/nebula-scratchpad.md` for deferred items, early-stage ideas (database branching, vibe coder testing workflow), and notes captured during planning.
+See `tasks/nebula-scratchpad.md` for deferred items, early-stage ideas (database branching, user-developer testing workflow), and notes captured during planning.

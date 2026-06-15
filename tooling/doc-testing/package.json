@@ -9,9 +9,7 @@
     ".": "./src/index.js",
     "./package.json": "./package.json"
   },
-  "scripts": {
-    "test": "vitest"
-  },
+  "scripts": {},
   "dependencies": {
     "fs-extra": "^11.2.0",
     "remark-frontmatter": "^5.0.0",

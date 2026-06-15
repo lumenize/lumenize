@@ -8,7 +8,7 @@
 
 Make branches a **first-class concept at the URL level**. A Star's main timeline lives at `/{universe}.{galaxy}.{star}/...`; any other branch lives at `/{universe}.{galaxy}.{star}.{branch}/...`. Each branch is an independent Star instance with its own SQLite, DAG tree, ontology version pointer, and subscriptions. Branches are uniformly handled by the platform — there is no separate "dev mode" code path. "Dev" is just the slug of a pre-created branch.
 
-This is the foundation that lets Studio's iteration loop run safely (vibe coder changes ontology mid-session without blowing away the running prototype) AND positions the platform for real branching post-demo (cross-branch data copy, "promote to main," etc.) without a back-end rearchitecture.
+This is the foundation that lets Studio's iteration loop run safely (user-developer changes ontology mid-session without blowing away the running prototype) AND positions the platform for real branching post-demo (cross-branch data copy, "promote to main," etc.) without a back-end rearchitecture.
 
 ## URL and identity model
 
@@ -24,7 +24,7 @@ This is the foundation that lets Studio's iteration loop run safely (vibe coder 
 - **`main` never appears in the URL.** A URL without a branch slug normalizes to `.main` at the entrypoint. This keeps end-user URLs short and gives us URL-level access gating (see below).
 - **Auth scope stays 3-tuple; active scope is 4-tuple.** Auth scope is an identity-and-permission concern (which Star you're admin of); branch is a runtime-routing concern (which timeline you're acting on). Asymmetric by design.
 - **Cookie at `/{u}.{g}.{s}/auth/refresh-token` (no branch).** One login per auth scope; refresh produces JWTs for any branch the user has rights to. Don't need per-branch logins.
-- **URL-level admin gating.** Because `main` never appears in the URL, the entrypoint can require admin claims for *any* URL containing a 4th-level slug. End users of a vibe-coded product see only `/{u}.{g}.{s}/...` (main); the vibe coder's Studio session sees `/{u}.{g}.{s}.dev/...` and only they can reach it. Permission and routing align cleanly without extra ACL plumbing.
+- **URL-level admin gating.** Because `main` never appears in the URL, the entrypoint can require admin claims for *any* URL containing a 4th-level slug. End users of a user-developer-built product see only `/{u}.{g}.{s}/...` (main); the user-developer's Studio session sees `/{u}.{g}.{s}.dev/...` and only they can reach it. Permission and routing align cleanly without extra ACL plumbing.
 
 ## Storage model
 
@@ -54,7 +54,7 @@ listBranches(): string[]
 
 Every Star, when it comes into existence, **automatically creates `.main` and `.dev` branches**. No explicit `createBranch` call is needed for these two — they're guaranteed to exist for any Star.
 
-Why both? `.main` is the production timeline (always needed). `.dev` is what Studio's iteration loop binds to (always needed for any vibe coder). Auto-creating both means Studio can assume `.dev` exists without first calling `createBranch`.
+Why both? `.main` is the production timeline (always needed). `.dev` is what Studio's iteration loop binds to (always needed for any user-developer). Auto-creating both means Studio can assume `.dev` exists without first calling `createBranch`.
 
 `createBranch` is for *additional* branches (post-demo).
 

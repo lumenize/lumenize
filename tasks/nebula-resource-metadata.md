@@ -6,7 +6,7 @@
 
 ## Goal
 
-Pin the JSDoc annotation conventions vibe coders use to describe their resource types to the platform AND to the AI generating their UIs, and make sure the platform exposes that information to the AI in the right shape.
+Pin the JSDoc annotation conventions user-developers use to describe their resource types to the platform AND to the AI generating their UIs, and make sure the platform exposes that information to the AI in the right shape.
 
 **Headline decisions:**
 
@@ -125,7 +125,7 @@ The runtime DOES extract the new annotations into a parsed metadata shape — fo
 - `@inverse` is what the post-demo query engine in `tasks/on-hold/nebula-orm-and-queries.md` uses for `getRelationship()` traversals.
 - All three are stored alongside the existing `extractTypeMetadata()` output (default values, optional flags, type info).
 
-This is invisible to the AI and to vibe coders. It's just the runtime's parse of what's already in the `.d.ts`.
+This is invisible to the AI and to user-developers. It's just the runtime's parse of what's already in the `.d.ts`.
 
 ## Implementation
 

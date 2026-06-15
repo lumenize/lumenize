@@ -20,7 +20,19 @@ Key reminders that catch me out:
 - **Imports are stripped.** Don't pad doc blocks to match import lines.
 - **Type parameters are stripped.**
 - **Substring match** after normalization — doc code must appear inside the target file.
-- **Ellipsis wildcards** (`// ...`, `/* ... */`) between lines become regex wildcards.
+- **Ellipsis wildcards** (`// ...`, `/* ... */`) become regex wildcards — they SKIP whatever sits there. Use them ONLY to omit content you're deliberately not showing; NEVER to absorb source that grew (that hides the very drift the tool exists to catch — see the **"A `// ...` wildcard must never absorb drift"** section below).
+
+## A `// ...` wildcard must never absorb drift
+
+**The entire point of `@check-example` is to FAIL when the source changes and the doc hasn't caught up.** A `// ...` / `/* ... */` wildcard makes the matcher skip whatever sits there — so a wildcard placed where the source can *grow* turns the check off for that region. Future additions slip in silently, the doc goes stale, and nobody is warned. A trailing `// ...` on a block that's meant to be complete is, for that region, indistinguishable from having no check at all.
+
+**The trap, by name:** a doc block stops matching because the **source gained** a field / line / param. The path of least resistance is to drop in a `// ...` so the new content is skipped and the check goes green. **Don't.** Add the field / line / param to the doc so it mirrors the source exactly — then the *next* source change breaks the check again, which is the feature. The tell that you're about to make this mistake: you're reaching for `// ...` to turn a red check green *without adding the content the source added*.
+
+Decision rule:
+- **Complete things → exact match.** A small interface, a full signature, a short end-to-end example is *meant* to show everything. List every field / line. **Never** end such a block with a trailing `// ...`.
+- **`// ...` is only for content you are deliberately choosing NOT to show** — stable interior boilerplate between two headline lines, or the middle of a genuinely large type/file you're excerpting. It marks an *intentional omission of content that exists now*, never a placeholder for content that might appear later. Keep the skip as narrow as possible, anchored on both sides by real lines. (The legit truncate-to-a-prefix pattern in [Editing source](#editing-source-to-serve-doc-pedagogy) is this: a deliberate partial view of a real test, not a hedge against change.)
+
+Concrete miss to not repeat: `ResolvedEmail` grew a 7th field (`headers`); the right fix was to add `headers` to the doc (an exact 7-field mirror), NOT to add `headers` *and* a trailing `// ...` (which would let an 8th field drift in unseen).
 
 ## `@check-example` targets: not just tests
 

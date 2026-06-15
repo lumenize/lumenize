@@ -18,12 +18,15 @@ import {
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { DagTree } from './dag-tree';
+import { ROOT_NODE_ID } from './dag-ops';
 import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
+import { TreeSubscriptions } from './tree-subscriptions';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
@@ -32,6 +35,7 @@ export class Star extends NebulaDO {
   #dagTree!: DagTree
   #resources!: Resources
   #subscriptions!: Subscriptions
+  #treeSubscriptions!: TreeSubscriptions
   #row: OntologyVersionRow | null = null
   #facet: ParserValidator | null = null
 
@@ -52,6 +56,35 @@ export class Star extends NebulaDO {
       this.#dagTree,
       this.#resources,
     )
+    this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
+  }
+
+  /**
+   * Seed the founder as a DAG `admin` grant on root at first provision.
+   *
+   * Stars are lazy DOs with no explicit `createStar`; the founder is the
+   * scope-admin (`claims.access.admin`) who first touches this Star. We grant
+   * them `admin` on `ROOT_NODE_ID` so the request-access climb has a findable
+   * terminus *inside the tree* — a scope-level bypass admin isn't in the
+   * permissions map and so can't be discovered by the climb (it terminates at
+   * root only because the founder's grant lives there). The `setPermission`
+   * call satisfies its own `admin` gate via the scope-admin bypass
+   * (dag-tree.ts `requirePermission`), so no un-guarded path is needed. Runs
+   * exactly once; a non-admin first caller leaves root adminless until an admin
+   * connects.
+   *
+   * TODO(self-signup): revisit when the Galaxy gains a real Star-provisioning
+   * entry point — the founder's identity should come from the signup flow, not
+   * "first scope-admin to connect". See tasks/nebula-star-root-admin.md Part 1.
+   */
+  onBeforeCall() {
+    super.onBeforeCall() // locks the active scope (aud) on first call
+    if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
+    const auth = this.lmz.callContext.originAuth
+    const claims = auth?.claims as NebulaJwtPayload | undefined
+    if (!claims?.access?.admin || !auth?.sub) return
+    this.#dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
+    this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────
@@ -213,22 +246,22 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  transaction(ontologyVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
+  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
     }
 
-    if (this.#isCachedVersion(ontologyVersion)) {
+    if (this.#isCachedVersion(appVersion)) {
       // Cache hit — execute directly, skip Galaxy entirely
-      this.doTransaction(null, ontologyVersion, newETag, ops, clientId);
+      this.doTransaction(null, appVersion, newETag, ops, clientId);
     } else {
       // Cache miss — ask Galaxy, carry context in the response handler
       this.lmz.call(
         'GALAXY', this.#galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doTransaction(
-          this.ctn().$result, ontologyVersion, newETag, ops, clientId
+          this.ctn().$result, appVersion, newETag, ops, clientId
         )
       );
     }
@@ -241,7 +274,7 @@ export class Star extends NebulaDO {
    */
   async doTransaction(
     fetchedState: OntologyState | null | Error,
-    ontologyVersion: string,
+    appVersion: string,
     newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
@@ -256,25 +289,25 @@ export class Star extends NebulaDO {
 
       // Cache miss path: install the fetched state, or surface mismatch / "not found"
       if (fetchedState !== null) {
-        if (fetchedState.row.version !== ontologyVersion) {
+        if (fetchedState.row.version !== appVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleTransactionResult(
-              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
+              new OntologyStaleError(appVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(ontologyVersion)) {
+      } else if (!this.#isCachedVersion(appVersion)) {
         // `null` + no matching cache entry = Galaxy fetch returned no ontology
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
           this.ctn<NebulaClient>().handleTransactionResult(
-            new Error(`Ontology version '${ontologyVersion}' not found`)));
+            new Error(`Ontology version '${appVersion}' not found`)));
         return;
       }
       // null + matching cache entry = cache hit; fall through
 
       const { row, facet } = this.#ensureFacet();
       const result = await this.#resources.transaction(ops, row.version, newETag, facet,
-        (mutations) => this.#fanout(mutations, clientId));
+        (mutations) => this.#broadcast(mutations, clientId));
 
       // Deliver result to client
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -282,7 +315,7 @@ export class Star extends NebulaDO {
     } catch (err) {
       debug('nebula.Star.doTransaction').error('handler threw', {
         clientId,
-        ontologyVersion,
+        appVersion,
         bundleId: this.#row ? `${this.#galaxyId}/${this.#row.version}` : undefined,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
@@ -297,20 +330,20 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  read(ontologyVersion: string, resourceId: string, requestId: string) {
+  read(appVersion: string, resourceId: string, requestId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('read requires a client origin with instanceName in callChain[0]');
     }
 
-    if (this.#isCachedVersion(ontologyVersion)) {
-      this.doRead(null, ontologyVersion, resourceId, requestId, clientId);
+    if (this.#isCachedVersion(appVersion)) {
+      this.doRead(null, appVersion, resourceId, requestId, clientId);
     } else {
       this.lmz.call(
         'GALAXY', this.#galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doRead(
-          this.ctn().$result, ontologyVersion, resourceId, requestId, clientId
+          this.ctn().$result, appVersion, resourceId, requestId, clientId
         )
       );
     }
@@ -319,7 +352,7 @@ export class Star extends NebulaDO {
   /** Handler 2: Execute read + deliver result to client via handleReadResponse */
   doRead(
     fetchedState: OntologyState | null | Error,
-    ontologyVersion: string,
+    appVersion: string,
     resourceId: string,
     requestId: string,
     clientId: string,
@@ -332,17 +365,17 @@ export class Star extends NebulaDO {
       }
 
       if (fetchedState !== null) {
-        if (fetchedState.row.version !== ontologyVersion) {
+        if (fetchedState.row.version !== appVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleReadResponse(requestId,
-              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
+              new OntologyStaleError(appVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(ontologyVersion)) {
+      } else if (!this.#isCachedVersion(appVersion)) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
           this.ctn<NebulaClient>().handleReadResponse(requestId,
-            new Error(`Ontology version '${ontologyVersion}' not found`)));
+            new Error(`Ontology version '${appVersion}' not found`)));
         return;
       }
 
@@ -354,7 +387,7 @@ export class Star extends NebulaDO {
       debug('nebula.Star.doRead').error('handler threw', {
         clientId,
         resourceId,
-        ontologyVersion,
+        appVersion,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
@@ -368,7 +401,7 @@ export class Star extends NebulaDO {
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
-  subscribe(ontologyVersion: string, resourceType: string, resourceId: string) {
+  subscribe(appVersion: string, resourceType: string, resourceId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
@@ -378,14 +411,14 @@ export class Star extends NebulaDO {
       throw new Error('subscribe requires a gateway in callChain.at(-1)');
     }
 
-    if (this.#isCachedVersion(ontologyVersion)) {
-      this.doSubscribe(null, ontologyVersion, resourceType, resourceId, clientId, subscriberBinding);
+    if (this.#isCachedVersion(appVersion)) {
+      this.doSubscribe(null, appVersion, resourceType, resourceId, clientId, subscriberBinding);
     } else {
       this.lmz.call(
         'GALAXY', this.#galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doSubscribe(
-          this.ctn().$result, ontologyVersion, resourceType, resourceId, clientId, subscriberBinding
+          this.ctn().$result, appVersion, resourceType, resourceId, clientId, subscriberBinding
         )
       );
     }
@@ -398,7 +431,7 @@ export class Star extends NebulaDO {
    */
   doSubscribe(
     fetchedState: OntologyState | null | Error,
-    ontologyVersion: string,
+    appVersion: string,
     resourceType: string,
     resourceId: string,
     clientId: string,
@@ -412,17 +445,17 @@ export class Star extends NebulaDO {
       }
 
       if (fetchedState !== null) {
-        if (fetchedState.row.version !== ontologyVersion) {
+        if (fetchedState.row.version !== appVersion) {
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-              new OntologyStaleError(ontologyVersion, fetchedState.row.version)));
+              new OntologyStaleError(appVersion, fetchedState.row.version)));
           return;
         }
         this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(ontologyVersion)) {
+      } else if (!this.#isCachedVersion(appVersion)) {
         this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
           this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-            new Error(`Ontology version '${ontologyVersion}' not found`)));
+            new Error(`Ontology version '${appVersion}' not found`)));
         return;
       }
 
@@ -435,7 +468,7 @@ export class Star extends NebulaDO {
         clientId,
         resourceType,
         resourceId,
-        ontologyVersion,
+        appVersion,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
@@ -449,8 +482,9 @@ export class Star extends NebulaDO {
 
   /**
    * Drop the caller's subscriber row for `(resourceType, resourceId)`. Called
-   * by NebulaClient's refcount loop in `bindToState` after the grace period
-   * expires for a 1→0 transition. PK-targeted delete.
+   * via `client.resources.unsubscribe` — the factory's effect-scope refcount
+   * loop issues it after the grace period expires for a 1→0 transition.
+   * PK-targeted delete.
    *
    * `resourceType` is currently unused — `Subscribers` rows key on
    * `(resourceId, clientId)` only; the type lives on the resource snapshot.
@@ -472,67 +506,152 @@ export class Star extends NebulaDO {
     this.#subscriptions.removeSubscriber(resourceId, clientId);
   }
 
+  // ─── OrgTree (dedicated channel) ───────────────────────────────────
+
+  /**
+   * Subscribe the caller to the org/permission tree — a per-Star SINGLETON
+   * delivered on its own channel (NOT a resource; never touches the
+   * `Subscribers`/`Snapshots` tables). Registers the subscriber and pushes the
+   * initial `dagTree.getState()` snapshot via `handleOrgTreeUpdate`.
+   *
+   * **Auth is NOT "parity" with resource subscribe:** the only gates are
+   * `onBeforeCall`'s aud-lock (ran already) + `dagTree.getState()`'s auth check
+   * (a valid in-scope `sub`). There is intentionally **NO node-level read check**
+   * — the tree is universally visible by design. Ontology-version-independent, so
+   * no Handler-1/2 cache dance and no `appVersion` argument.
+   */
+  @mesh()
+  subscribeTree(): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeTree requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeTree requires a gateway in callChain.at(-1)');
+    }
+    // getState() enforces the auth gate (#requireAuth) and is the value source.
+    const state = this.#dagTree.getState();
+    this.#treeSubscriptions.register(clientId, subscriberBinding);
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+      this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }));
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────
 
   /**
-   * DAG mutations don't fan out today. Per the design (Phase 5.3.2):
-   *   "Fanout triggers are upsert and delete only — migration does NOT fan out
-   *    (deploys + lazy ontology model + onShouldRefreshUI handle cross-version
-   *    transitions)"
-   * Kept as a hook so future DAG-mutation-aware logic has a landing spot.
+   * Fired by `DagTree` after every tree mutation. Broadcasts the fresh
+   * `dagTree.getState()` to ALL tree subscribers — **including the originator**
+   * (unlike resource fanout): `client.orgTree.*` has no optimistic local
+   * write-through, so the echo is the only way the actor's own
+   * `store.lmz.orgTree` updates. `getState()` reads the mutating caller's auth
+   * (the mutation that triggered this is always authenticated).
+   *
+   * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
+   * handler keyed by `clientId`, NOT the resourceId path). That handler carries
+   * `@mesh()` because the tree broadcast goes to ALL connected clients and can
+   * exceed `svc.broadcast`'s `directThreshold` → tier-worker dispatch.
    */
   #onDagChanged() {
-    // intentionally empty
+    const subscribers = this.#treeSubscriptions.all();
+    if (subscribers.length === 0) return;
+    const state = this.#dagTree.getState();
+    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
+    const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
   }
 
   /**
-   * Resource-mutation fanout (Phase 5.3.2). Called from
-   * `Resources.transaction` via the `onMutations` callback after a successful
-   * commit. For each mutated resource, look up subscribers and dispatch
-   * `handleResourceUpdate` to each — excluding the originator (they already
-   * receive the authoritative result via `handleTransactionResult`).
+   * Resource-mutation broadcast (Phase 5.3.2 / Phase 5b primitive lift).
+   * Called from `Resources.transaction` via the `onMutations` callback
+   * after a successful commit. For each mutated resource, look up
+   * subscribers and dispatch `handleResourceUpdate` to each — excluding
+   * the originator (they already receive the authoritative result via
+   * `handleTransactionResult`).
    *
    * Per the pinned subscribe-time-only guard semantics, we do NOT re-check
    * DAG read permission per subscriber per push. Permission revocation
    * mid-subscription is accepted for demo (Phase -1 Open Q2).
    *
-   * **Drop-on-failed-fanout (Phase 5.3.5)**: each `lmz.call` is paired with a
-   * `#onFanoutDelivered` handler that fires when the call settles. If the
-   * client's Gateway returned `ClientDisconnectedError` (post-grace-period),
-   * we delete the leaked subscriber row inline. This is the "user closed the
-   * tab" cleanup path — reactive (next mutation triggers it), simpler than
-   * an alarm-driven proactive scheme. Quiet resources leak rows until the
-   * next deploy's `Subscriptions.clear()` + push-on-clear catches them.
+   * Uses `this.svc.broadcast` — the framework primitive that picks between
+   * a direct loop (`targets.length ≤ directThreshold`) and a recursive
+   * Worker tier (`> directThreshold`) automatically. See
+   * `packages/mesh/src/broadcast.ts` and `tasks/fanout-scaling-benchmark.md`.
+   *
+   * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult`
+   * partial continuation that the framework completes by appending the
+   * per-target call result. On `ClientDisconnectedError`, we drop the leaked
+   * subscriber row using `clientInstanceName` carried on the error itself
+   * (no separate target arg needed in the handler signature). For
+   * unavailable Gateway / transient errors we keep the row — over-eager
+   * deletion would over-cleanup.
    */
-  #fanout(mutations: Map<string, Snapshot>, originatorClientId: string) {
+  #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string) {
+    // Per-Star bench overrides. All env vars exist for the fanout-scaling
+    // bench; production sets none.
+    //
+    //   STAR_BROADCAST_DIRECT_THRESHOLD — override svc.broadcast's
+    //     direct-vs-tree cutoff. `Infinity` forces direct (naive loop);
+    //     `0` forces tree; numeric overrides the framework default of 100.
+    //   STAR_BROADCAST_OMIT_ON_RESULT=1 — call svc.broadcast WITHOUT the
+    //     `onResult` partial. Strips drop-on-failed-fanout cleanup. Used
+    //     to isolate the cost of result-handler dispatch.
+    const rawThreshold = (this.env as any)?.STAR_BROADCAST_DIRECT_THRESHOLD;
+    const directThreshold = rawThreshold === undefined
+      ? undefined
+      : rawThreshold === 'Infinity'
+        ? Infinity
+        : parseInt(rawThreshold, 10);
+    const omitOnResult = (this.env as any)?.STAR_BROADCAST_OMIT_ON_RESULT === '1';
     for (const [resourceId, snapshot] of mutations) {
       const subscribers = this.#subscriptions.forResource(resourceId);
-      for (const sub of subscribers) {
-        if (sub.clientId === originatorClientId) continue;
-        const remote = this.ctn<NebulaClient>().handleResourceUpdate(
-          snapshot.meta.typeName, resourceId, snapshot);
-        this.lmz.call(sub.subscriberBinding, sub.clientId, remote,
-          this.ctn().onFanoutDelivered(resourceId, sub.clientId, remote));
-      }
+      const targets = subscribers
+        .filter(sub => sub.clientId !== originatorClientId)
+        .map(sub => ({ bindingName: sub.subscriberBinding, instanceName: sub.clientId }));
+      const remote = this.ctn<NebulaClient>().handleResourceUpdate(
+        snapshot.meta.typeName, resourceId, snapshot);
+      const opts: { directThreshold?: number; onResult?: any } = {};
+      if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
+      if (directThreshold !== undefined) opts.directThreshold = directThreshold;
+      this.svc.broadcast(targets, remote, opts);
     }
   }
 
   /**
-   * Fanout-delivery handler. Fires when the `#fanout`'s `lmz.call` settles —
-   * either with success (the client received the snapshot) or with an error
-   * (most often `ClientDisconnectedError` if the client's Gateway is post-
-   * grace-period). On `ClientDisconnectedError`, drop the leaked subscriber
-   * row inline. Other errors (transient network, Gateway misbehavior) are
-   * logged but the row stays — over-eager deletion would over-cleanup.
+   * Per-target broadcast result handler. Invoked once per subscriber
+   * (success or failure) by `svc.broadcast`'s plumbing. The framework
+   * appends `result` to the partial continuation Star passed via
+   * `opts.onResult`, so this method's signature is
+   * `(resourceId, result)`; the target clientId comes from
+   * `ClientDisconnectedError.clientInstanceName` when delivery fails.
    *
-   * Public visibility because mesh handler-continuations resolve by name on
-   * the local DO; `@mesh()` not required since this is a local execution,
-   * not a remote call surface.
+   * Public visibility because mesh handler-continuations resolve by name
+   * on the local DO; needs `@mesh()` because in the tree branch the tier
+   * worker dispatches this call across the service binding (so the
+   * framework needs to recognize the method as call-callable).
    */
-  onFanoutDelivered(resourceId: string, clientId: string, result: unknown): void {
+  @mesh()
+  onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
-      this.#subscriptions.removeSubscriber(resourceId, clientId);
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
   }
+
+  /**
+   * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
+   * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
+   * the failed client comes from `ClientDisconnectedError.clientInstanceName`,
+   * mirroring `onBroadcastResult`. `@mesh()` because the tree broadcast can take
+   * the tier-worker dispatch path (it fans out to every connected client).
+   */
+  @mesh()
+  onTreeBroadcastResult(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#treeSubscriptions.removeSubscriber(clientId);
+    }
+  }
+
 }

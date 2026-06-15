@@ -195,7 +195,21 @@ function createVirtualHost(
  * typia's internal `instanceof ts.Node` checks don't misfire against a second
  * TS instance.
  */
-export function generateParseModule(typeDefinitions: string): string {
+export function generateParseModule(
+  typeDefinitions: string,
+  /**
+   * Optional relationship map from the *original* schema (before write-shape
+   * rewriting). When a caller pre-transforms relationship refs to id strings
+   * (`extractTypeMetadata().writeShapeTypeDefinitions`), the rewritten types no
+   * longer reveal which `string` fields were relationships. Pass
+   * `extractTypeMetadata(rawTypes).relationships` here so the generated
+   * validator can turn the bare typia error ("expected (string | undefined)")
+   * into a loud, actionable message when a caller embeds an object instead of
+   * referencing by id. Omit it (e.g. when validating the read shape directly)
+   * and enrichment is a no-op.
+   */
+  relationshipHints?: TypeMetadata['relationships'],
+): string {
   // Pass 1: AST walk — collect interface names, `@default` tags, and the
   // type-graph (which fields are typed as named interfaces in this module,
   // and what the target type is). Used by the runtime filler to recurse into
@@ -346,6 +360,10 @@ ${validatorEntries}
   const defaultsJson = JSON.stringify(defaults);
   const typeGraphJson = JSON.stringify(typeGraph);
   const inlineSubtypesJson = JSON.stringify(inlineSubtypes);
+  // `relationshipHints` is the ORIGINAL relationship map (pre-write-shape), used
+  // only to enrich errors. It differs from `typeGraph`, which is derived from
+  // the (possibly already-rewritten) input and drives the default-filler.
+  const relationshipHintsJson = JSON.stringify(relationshipHints ?? {});
   return `
 import { DurableObject } from "cloudflare:workers";
 
@@ -355,6 +373,7 @@ const __typeMetadata = {
   defaults: ${defaultsJson},
   typeGraph: ${typeGraphJson},
   inlineSubtypes: ${inlineSubtypesJson},
+  relationshipHints: ${relationshipHintsJson},
 };
 
 /**
@@ -487,6 +506,40 @@ function __recurseContainer(val, containers, depth, subTypeName, seen) {
   }
 }
 
+/**
+ * Loud-warning enrichment (Nebula "no foot-guns" principle). A relationship
+ * field is a by-id reference: in the write shape it is typed string / string[],
+ * so embedding an object/array instead of an id yields a bare typia error
+ * ("expected (string | undefined)") that gives no hint about WHY. When the
+ * offending field is a known relationship and the value is an object, rewrite
+ * the error description to say so explicitly — reference related resources by
+ * id, do not embed them. No-op when no relationshipHints were supplied.
+ */
+function __enrichRelationshipErrors(errors, typeName) {
+  const rels = __typeMetadata.relationshipHints[typeName];
+  if (!rels || !errors) return errors;
+  for (const err of errors) {
+    const p = err.path || "";
+    if (p.slice(0, 7) !== "$input.") continue;
+    // First path segment after "$input." — handles "$input.self" and the
+    // array-element form "$input.children[0]" alike.
+    const field = p.slice(7).split(".")[0].split("[")[0];
+    const rel = rels[field];
+    if (!rel) continue;
+    const v = err.value;
+    if (v === null || typeof v !== "object") continue;
+    const want = rel.container === "array"
+      ? "an array of '" + rel.target + "' resource id strings"
+      : "a '" + rel.target + "' resource id string";
+    err.description =
+      "Field '" + field + "' is a relationship to '" + rel.target +
+      "' resources, so it expects " + want + " (reference by id) — not an " +
+      "embedded object. Create the related resource separately and reference " +
+      "it by its id.";
+  }
+  return errors;
+}
+
 export class ParserValidator extends DurableObject {
   parse(value, typeName) {
     const v = validators[typeName];
@@ -499,7 +552,7 @@ export class ParserValidator extends DurableObject {
     const filled = __fillDefaults(value, typeName);
     const result = v(filled);
     if (result.success) return { valid: true, data: result.data };
-    return { valid: false, errors: result.errors };
+    return { valid: false, errors: __enrichRelationshipErrors(result.errors, typeName) };
   }
 
   parseBatch(items) {

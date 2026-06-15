@@ -370,7 +370,7 @@ interface QueuedMessage {
  * });
  * ```
  */
-export abstract class LumenizeClient {
+export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayload> {
   // ============================================
   // Private Fields
   // ============================================
@@ -381,7 +381,7 @@ export abstract class LumenizeClient {
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
-  #claims: Readonly<JwtPayload> | null = null;
+  #claims: Readonly<TClaims> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -389,6 +389,15 @@ export abstract class LumenizeClient {
   #currentCallContext: CallContext | null = null;
   #WebSocketClass: typeof WebSocket;
   #lmzApi: LmzApiClient | null = null;
+
+  // The constructor's eager connect() fires the initial 'connecting'
+  // transition synchronously. For a subclass that runs during super(), before
+  // the subclass's field initializers — so delivery of that first
+  // onConnectionStateChange is deferred to a microtask (see the constructor
+  // and #setConnectionState). The WebSocket itself is still created eagerly;
+  // only the subclass-observable callback waits for construction to finish.
+  #deferInitialStateCallback = false;
+  #pendingInitialState: ConnectionState | null = null;
 
   // ============================================
   // Constructor
@@ -420,15 +429,37 @@ export abstract class LumenizeClient {
       this.#accessToken = config.accessToken;
       const parsed = parseJwtUnsafe(config.accessToken);
       if (parsed) {
-        this.#claims = Object.freeze(parsed.payload);
+        // Trust boundary: parseJwtUnsafe returns the raw JwtPayload; the
+        // subclass asserts the concrete claim shape via TClaims.
+        this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
       }
     }
 
     // Set up wake-up sensing (browser only)
     this.#setupWakeUpSensing();
 
-    // Start connection immediately (eager connect)
+    // Eager connect. connect() synchronously creates the WebSocket and sets
+    // state to 'connecting', but delivery of that initial onConnectionStateChange
+    // is deferred to a microtask: for a subclass this constructor runs during
+    // super(), before the subclass's field initializers, so firing the callback
+    // synchronously here would run subclass code (an override, or a closure
+    // capturing `this`) against a half-constructed instance. By the next
+    // microtask, construction is complete.
+    this.#deferInitialStateCallback = true;
     this.connect();
+    this.#deferInitialStateCallback = false;
+
+    const pendingState = this.#pendingInitialState;
+    if (pendingState !== null) {
+      this.#pendingInitialState = null;
+      queueMicrotask(() => {
+        // Skip if a later transition already superseded it — e.g. the caller
+        // synchronously called disconnect() before this microtask ran.
+        if (this.#connectionState === pendingState) {
+          this.#config.onConnectionStateChange?.(pendingState);
+        }
+      });
+    }
   }
 
   // ============================================
@@ -450,8 +481,13 @@ export abstract class LumenizeClient {
    *
    * Use `client.claims.sub` for per-user keying, `client.claims.aud` for the
    * audience claim, etc. — same shape as `originAuth.claims` on the server side.
+   *
+   * Typed `Readonly<TClaims> | null` — `TClaims` defaults to `JwtPayload`. A
+   * subclass scoped to a richer payload (e.g. `LumenizeClient<NebulaJwtPayload>`)
+   * may re-declare this getter to drop the `| null` once its lifecycle
+   * guarantees claims are populated before any caller runs.
    */
-  get claims(): Readonly<JwtPayload> | null {
+  get claims(): Readonly<TClaims> | null {
     return this.#claims;
   }
 
@@ -590,6 +626,22 @@ export abstract class LumenizeClient {
   }
 
   /**
+   * Drop the in-memory access token and its decoded claims.
+   *
+   * The mesh half of a sign-out: afterwards `client.claims` is `null` and the
+   * next `connect()` must `refresh` again to obtain a token. Unlike
+   * `disconnect()` (which tears down the connection but keeps the token so a
+   * reconnect succeeds), this forgets *who* the client is. It does NOT close
+   * the connection and does NOT revoke the server-side refresh cookie — a
+   * higher-level `logout()` composes this with `disconnect()` and an
+   * app/auth-level cookie-revocation endpoint.
+   */
+  clearAccessToken(): void {
+    this.#accessToken = null;
+    this.#claims = null;
+  }
+
+  /**
    * Symbol.dispose for `using` keyword support
    */
   [Symbol.dispose](): void {
@@ -697,8 +749,26 @@ export abstract class LumenizeClient {
       this.#ws.onmessage = (event) => this.#handleMessage(event.data);
 
     } catch (error) {
-      // Connection failed - schedule reconnect
-      this.#scheduleReconnect();
+      // Classify the first-connect failure, symmetric with #handleClose's
+      // close-code classification. A terminal auth failure (LoginRequiredError
+      // from #refreshToken on a 401/403) must surface as login-required +
+      // 'disconnected' so a logged-out visitor is redirected — NOT swallowed
+      // into unbounded reconnect (which left onLoginRequired un-fired and the
+      // factory's `ready` Promise pending forever). Any other failure (transient
+      // refresh error, WebSocket construction, tab-id generation) is transient →
+      // reconnect with backoff, as before.
+      //
+      // `instanceof` (not the err.name check mesh.md prescribes) is intentional:
+      // this error is thrown in #refreshToken and caught here within the same
+      // class/module/realm — it never crosses a structured-clone or RPC hop, so
+      // mesh.md's wire-round-trip precondition doesn't apply, and instanceof is
+      // the more precise (un-spoofable) test with the safer transient default.
+      if (error instanceof LoginRequiredError) {
+        this.#setConnectionState('disconnected');
+        this.#config.onLoginRequired?.(error);
+      } else {
+        this.#scheduleReconnect();
+      }
     }
   }
 
@@ -837,7 +907,13 @@ export abstract class LumenizeClient {
   #setConnectionState(state: ConnectionState): void {
     if (this.#connectionState !== state) {
       this.#connectionState = state;
-      this.#config.onConnectionStateChange?.(state);
+      if (this.#deferInitialStateCallback) {
+        // Captured here; the constructor delivers it on a microtask once
+        // construction (including any subclass) has completed.
+        this.#pendingInitialState = state;
+      } else {
+        this.#config.onConnectionStateChange?.(state);
+      }
     }
   }
 
@@ -875,6 +951,18 @@ export abstract class LumenizeClient {
       });
 
       if (!response.ok) {
+        // Classify so the first-connect path (#connectInternal's catch) can be
+        // symmetric with the mid-session close path (#handleClose): a 401/403
+        // from the refresh endpoint means the (HttpOnly, path-scoped) refresh
+        // cookie is expired/invalid → terminal, the user must re-login; any
+        // other status (5xx, gateway) is transient → reconnect with backoff.
+        if (response.status === 401 || response.status === 403) {
+          throw new LoginRequiredError(
+            `Token refresh failed: ${response.status}`,
+            response.status,
+            'Refresh token expired or invalid'
+          );
+        }
         throw new Error(`Token refresh failed: ${response.status}`);
       }
 
@@ -892,7 +980,8 @@ export abstract class LumenizeClient {
     if (!parsed) {
       throw new Error('Refresh returned a malformed access_token');
     }
-    this.#claims = Object.freeze(parsed.payload);
+    // Trust boundary: see the constructor's claims assignment.
+    this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
   }
 
   /**
@@ -1182,6 +1271,8 @@ export abstract class LumenizeClient {
     );
 
     // 5. Fire-and-forget with handler callbacks (shared helper, no ALS needed).
-    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
+    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
+      onErrorOnly: options?.onErrorOnly,
+    });
   }
 }

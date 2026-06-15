@@ -75,6 +75,20 @@ export function newContinuation<T = any>(): T {
 }
 
 /**
+ * Wrap an existing `OperationChain` (e.g., one received over the wire from
+ * a remote node) back into a Continuation proxy. Useful for framework code
+ * that needs to re-dispatch a serialized chain via `lmz.call` (which only
+ * accepts proxies, not raw chains).
+ *
+ * @typeParam T - The target object type (for type safety at the call site)
+ * @param chain - An existing operation chain to wrap
+ * @returns A continuation proxy that, when serialized, yields the same chain
+ */
+export function continuationFromChain<T = any>(chain: OperationChain): T {
+  return createProxyWithChain(chain) as T;
+}
+
+/**
  * Internal helper to create a proxy with a given operation chain.
  * Supports both chaining (property access) and nesting (proxy arguments).
  * 

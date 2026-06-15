@@ -126,6 +126,7 @@ interface ResolvedEmail {
   from: string;      // bare email address from instance variable
   replyTo: string;   // resolved default or override
   appName: string;   // for providers that use it (e.g., From: display name)
+  headers: Record<string, string>;   // custom headers from per-type hooks; {} by default
 }
 ```
 

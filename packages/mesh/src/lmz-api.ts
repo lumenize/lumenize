@@ -1,5 +1,5 @@
 import { debug } from '@lumenize/debug';
-import { isDurableObjectId, getDOStub } from '@lumenize/routing';
+import { isDurableObjectId, isDONamespace, getDOStub } from '@lumenize/routing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getCurrentCallContext, runWithCallContext } from '#lmz-api-context';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
@@ -155,19 +155,31 @@ export async function executeHandlerWithResult(
  * Shared logic for DO and Client call() methods that return immediately.
  * Worker uses a slightly different async pattern but shares the helpers.
  *
+ * When `opts.onErrorOnly` is true, the success-path `.then` handler-dispatch
+ * is skipped entirely — only the error path can invoke `handlerChain`. This
+ * shaves the per-call success tail off fire-and-forget paths that only care
+ * about failures (e.g. `svc.broadcast` drop-on-failed-fanout cleanup); on
+ * Cloudflare workerd, success-path handler chains attached to outbound
+ * subrequests appear to keep the originating invocation alive until they
+ * settle, so this is also a structural latency lift, not just a CPU one.
+ *
  * @param callPromise - Promise that resolves with the remote call result
  * @param handlerChain - Optional handler continuation for callbacks
  * @param executeHandler - The executor function (from createHandlerExecutor)
+ * @param opts - Optional flags: `onErrorOnly` skips the success-path dispatch
  * @internal
  */
 export function setupFireAndForgetHandler(
   callPromise: Promise<any>,
   handlerChain: OperationChain | undefined,
-  executeHandler: (chain: OperationChain) => Promise<any>
+  executeHandler: (chain: OperationChain) => Promise<any>,
+  opts?: { onErrorOnly?: boolean }
 ): Promise<void> {
   const log = debug('lmz.mesh.lmzApi.setupFireAndForgetHandler');
+  const onErrorOnly = opts?.onErrorOnly === true;
   return callPromise
     .then(async (result) => {
+      if (onErrorOnly) return;
       await executeHandlerWithResult(handlerChain, result, executeHandler);
     })
     .catch(async (error) => {
@@ -296,6 +308,39 @@ async function callRawImpl(
     throw postprocess(response.$error);
   }
   return response?.$result;
+}
+
+/**
+ * Synchronously validate a mesh call target before dispatch, so a misrouted call
+ * fails loudly at the `lmz.call(...)` site instead of being silently dropped as an
+ * unhandled rejection on the fire-and-forget path. Routes by binding shape, not by
+ * instance-name presence alone:
+ * - instance name + non-DO binding  → a Worker/service binding was given an instance name
+ * - no instance name + DO namespace → a DO binding is missing its instance name
+ *
+ * @internal
+ */
+function assertCallTarget(
+  env: any,
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined
+): void {
+  const binding = env?.[calleeBindingName];
+  if (binding == null) {
+    throw new Error(`lmz.call: no binding named '${calleeBindingName}' in env.`);
+  }
+  const isDO = isDONamespace(binding);
+  if (calleeInstanceName !== undefined && !isDO) {
+    throw new Error(
+      `lmz.call: binding '${calleeBindingName}' is a Worker/service binding but an instance name ` +
+      `('${calleeInstanceName}') was supplied. Pass undefined for Worker calls; put trace metadata in CallOptions.`
+    );
+  }
+  if (calleeInstanceName === undefined && isDO) {
+    throw new Error(
+      `lmz.call: binding '${calleeBindingName}' is a Durable Object namespace and requires an instance name.`
+    );
+  }
 }
 
 /**
@@ -594,12 +639,13 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       }
     },
     
-    async callRaw(
+    callRaw(
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
+      assertCallTarget(env, calleeBindingName, calleeInstanceName);
       return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
@@ -633,7 +679,9 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
 
       // 5. Fire-and-forget with handler callbacks (shared helper)
-      setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
+      setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
+        onErrorOnly: options?.onErrorOnly,
+      });
     },
   };
 }
@@ -696,12 +744,13 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       // Silently ignore instanceName for Workers (they don't have instance names)
     },
 
-    async callRaw(
+    callRaw(
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
+      assertCallTarget(env, calleeBindingName, calleeInstanceName);
       return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
@@ -737,7 +786,12 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       // 5. Fire-and-forget with handler callbacks (shared helper)
       // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive
       // until the fire-and-forget promise settles
-      const handledPromise = setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
+      const handledPromise = setupFireAndForgetHandler(
+        callPromise,
+        handlerChain,
+        executeHandler,
+        { onErrorOnly: options?.onErrorOnly },
+      );
       workerInstance.ctx.waitUntil(handledPromise);
     },
   };

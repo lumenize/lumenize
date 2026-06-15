@@ -85,7 +85,7 @@ Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `em
 - Option C: leave Nebula's workspace links in dev but add a `prepublish-nebula` step that swaps `package.json` to registry refs, deploys, then restores. (Mirrors the existing `prepare-for-publish.sh` / `restore-dev-mode.sh` dance for packages.)
 
 **Success criteria**:
-- [ ] Decision recorded with rationale in `tasks/decisions/`
+- [ ] Decision recorded with rationale in this task file (pinned decision)
 - [ ] Chosen approach implemented; deploy from a clean checkout reproduces the deployed bundle byte-for-byte (or close to it — wrangler may stamp build IDs)
 
 ## Phase 5: CI wiring & rollback

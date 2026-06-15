@@ -155,7 +155,7 @@ export class DagTree {
     const sub = cc.originAuth?.sub
     if (!sub) throw new Error('Authentication required')
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
-    if (claims?.access?.admin) return sub // Star admin bypass
+    if (claims?.access?.admin) return sub // Galaxy/Universe-scope admin bypass (NOT a Star admin — that's a DAG `admin` grant on root). `access.admin` is only minted with an `aud` inside the admin's authScopePattern (nebula-auth.ts mint + router.ts re-check), so trusting it here is sound: the Star is provably within the admin's scope.
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
       throw new PermissionDeniedError(tier, nodeId)
     }
@@ -199,10 +199,21 @@ export class DagTree {
     this.#requireNodeExists(parentNodeId)
     this.#requireNodeExists(childNodeId)
 
-    // Idempotent: if edge already exists, no-op (skip permission check)
+    // Idempotent: if edge already exists, no-op (skip permission check).
+    // NOTE: short-circuiting BEFORE requirePermission is non-disclosing ONLY
+    // because the org tree is universally visible (M7) — edge/grant existence is
+    // already public. If tree visibility ever becomes per-branch, every such
+    // short-circuit (here + removeEdge, deleteNode, undeleteNode, revokePermission)
+    // must move AFTER requirePermission, or it leaks existence to unauthorized callers.
     if (this.#cached.edges.has(makeEdgeKey(parentNodeId, childNodeId))) return
 
     this.requirePermission(parentNodeId, 'write')
+    // Adding a parent edge is an access grant in structural clothing: everyone
+    // holding grants on/above the new parent gains cascaded access to the
+    // child's subtree. So it demands setPermission's tier, held on the child —
+    // 'write' here would let any write-tier collaborator self-promote to admin
+    // by grafting the node under a subtree they control.
+    this.requirePermission(childNodeId, 'admin')
     detectCycle(this.#view, parentNodeId, childNodeId)
     const child = this.#cached.nodes.get(childNodeId)!
     checkSlugUniqueness(this.#view, parentNodeId, child.slug)
@@ -248,6 +259,14 @@ export class DagTree {
 
     this.requirePermission(oldParentId, 'write')
     this.requirePermission(newParentId, 'write')
+    // Re-parenting adds a parent edge (newParent→child), so it carries addEdge's
+    // access-widening property: everyone holding grants on/above newParent gains
+    // cascaded access to the child's subtree. Like addEdge, it therefore demands
+    // setPermission's tier held on the child — write@newParent alone would let a
+    // write-tier collaborator graft the node under a subtree they control and
+    // self-promote to admin. Removing the old edge is net-neutral for the actor
+    // but doesn't undo the grant handed to newParent's other grantees.
+    this.requirePermission(childNodeId, 'admin')
 
     // Cycle detection: would newParent→child create a cycle?
     detectCycle(this.#view, newParentId, childNodeId)

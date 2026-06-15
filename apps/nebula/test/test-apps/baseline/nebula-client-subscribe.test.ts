@@ -1,26 +1,22 @@
 /**
- * NebulaClient.resources.subscribe + state write-through — Phase 5.3.3a
+ * NebulaClient.resources.subscribe — server-side subscribe + fanout write-through.
  *
  * Tests the foundational client-side surface:
- *   - `new NebulaClient({ ontologyVersion, ... })` constructor wiring
- *   - `client.bindToState(state)` minimal-binding
- *   - `client.resources.subscribe(rt, rid)` returning a Promise that resolves
- *     on the first `handleResourceUpdate` for `(rt, rid)`
- *   - `handleResourceUpdate` writes through to bound state at
- *     `resources.{rt}.{rid}.{value, meta}` and triggers JurisJS
- *     hierarchical-notify-with-deepEquals (subscribers at deep paths
- *     fire only on real changes)
- *   - Coalescing: concurrent subscribe(rt, rid) calls share a single Promise settlement
+ *   - `client.resources.subscribe(rt, rid)` returns a `using`-compatible
+ *     {@link ResourceSubscription} handle whose `.snapshot` resolves on the first
+ *     `handleResourceUpdate` for `(rt, rid)` (v3 reshape — was a bare Promise)
+ *   - per-`(rt, rid)` handle refcount: `[Symbol.dispose]()` / standalone
+ *     `unsubscribe()` release the server subscription only on the LAST handle
+ *   - Coalescing: concurrent subscribe(rt, rid) calls share a single first-snapshot settlement
  *
- * Fanout (Phase 5.3.2) is exercised here too — that's how we observe the
- * write-through happening after a non-self mutation.
+ * Fanout is exercised here too — that's how we observe the write-through after
+ * a non-self mutation.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult } from '@lumenize/nebula';
-import { createState } from '@lumenize/state';
+import type { TransactionResult } from '@lumenize/nebula';
 import { createAuthenticatedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -79,7 +75,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     const resourceId = generateUuid();
     const eTag = await createResource(a.client, star, resourceId, 'Initial value');
 
-    const snap = await a.client.resources.subscribe('TestResource', resourceId);
+    const snap = await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     expect(snap).not.toBeNull();
     expect(snap!.value.title).toBe('Initial value');
     expect(snap!.meta.eTag).toBe(eTag);
@@ -95,125 +91,10 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     // Phase 5.3.1 makes subscribe-before-create reject. The Promise should
     // reject; we should NOT get a null resolve.
     await expect(
-      a.client.resources.subscribe('TestResource', generateUuid()),
+      a.client.resources.subscribe('TestResource', generateUuid()).snapshot,
     ).rejects.toThrow(/not found/);
 
     a.client[Symbol.dispose]();
-  });
-
-  it('handleResourceUpdate writes value + meta through to bound state', async () => {
-    const star = uniqueStar();
-    const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
-    await createResource(a.client, star, resourceId, 'Bound');
-
-    const state = createState();
-    a.client.bindToState(state);
-
-    await a.client.resources.subscribe('TestResource', resourceId);
-
-    expect(state.getState(`resources.TestResource.${resourceId}.value`)).toEqual({ title: 'Bound' });
-    const meta = state.getState(`resources.TestResource.${resourceId}.meta`) as any;
-    expect(meta.typeName).toBe('TestResource');
-    expect(meta.eTag).toBeDefined();
-    expect(meta.deleted).toBe(false);
-
-    a.client[Symbol.dispose]();
-  });
-
-  it('fanout pushes write through to bound state on subscriber (deep-binding directives stay reactive)', async () => {
-    const star = uniqueStar();
-    const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
-    const eTag = await createResource(a.client, star, resourceId, 'Original');
-
-    const bState = createState();
-    b.client.bindToState(bState);
-
-    // Subscribe a deep path in B's state — this is the simulated x-text="…value.title" binding.
-    const titleObservations: unknown[] = [];
-    bState.subscribe(`resources.TestResource.${resourceId}.value.title`, (v) => {
-      titleObservations.push(v);
-    });
-
-    await b.client.resources.subscribe('TestResource', resourceId);
-    // Initial subscribe fired the title binding — subscribers fire for ancestor writes via 5.3.0's extended subscribe
-    expect(titleObservations).toContain('Original');
-    const observationsAfterInitial = titleObservations.length;
-
-    // A mutates the resource value
-    a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'Updated' } },
-    });
-    await waitForSuccess(a.client);
-
-    // B's state should converge to the new value via fanout → handleResourceUpdate → write-through
-    await vi.waitFor(() => {
-      const v = bState.getState(`resources.TestResource.${resourceId}.value`) as any;
-      expect(v?.title).toBe('Updated');
-    });
-
-    // The deep-path subscriber should have fired again (title changed)
-    expect(titleObservations.length).toBeGreaterThan(observationsAfterInitial);
-    expect(titleObservations.at(-1)).toBe('Updated');
-
-    a.client[Symbol.dispose]();
-    b.client[Symbol.dispose]();
-  });
-
-  it('deep-binding subscriber does NOT fire when an unrelated field changes (deep-equals dedup)', async () => {
-    // Inline setup with a two-field type rather than reusing twoAdminClients
-    // (which pins the v1 ontology to a one-field TestResource). Two clients,
-    // shared v1 ontology with `{ title; body }`.
-    const star = uniqueStar();
-    const TWO_FIELD_TYPES = `interface TwoField { title: string; body: string; }`;
-
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const galaxyName = star.split('.').slice(0, 2).join('.');
-    a.client.callGalaxyAppendOntologyVersion(galaxyName, {
-      version: ONTOLOGY_VERSION,
-      types: TWO_FIELD_TYPES,
-    });
-    await waitForResult(a.client);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-
-    const resourceId = generateUuid();
-    a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'create', typeName: 'TwoField', nodeId: ROOT_NODE_ID, value: { title: 'T', body: 'B' } },
-    });
-    const createResult = await waitForSuccess(a.client) as TransactionResult;
-    if (!createResult.ok) throw new Error('Expected create ok');
-    const eTag = createResult.eTags[resourceId];
-
-    const bState = createState();
-    b.client.bindToState(bState);
-
-    const titleFires: unknown[] = [];
-    const bodyFires: unknown[] = [];
-    bState.subscribe(`resources.TwoField.${resourceId}.value.title`, (v) => { titleFires.push(v); });
-    bState.subscribe(`resources.TwoField.${resourceId}.value.body`, (v) => { bodyFires.push(v); });
-
-    await b.client.resources.subscribe('TwoField', resourceId);
-    const titleFiresAfterInit = titleFires.length;
-    const bodyFiresAfterInit = bodyFires.length;
-
-    // A mutates ONLY the title — body stays the same
-    a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
-      [resourceId]: { op: 'put', eTag, value: { title: 'T-new', body: 'B' } },
-    });
-    await waitForSuccess(a.client);
-
-    await vi.waitFor(() => {
-      expect(titleFires.length).toBeGreaterThan(titleFiresAfterInit);
-    });
-
-    // After write-through completes, the body subscriber should NOT have fired
-    // because deep-equals dedup gated the no-op fanout.
-    expect(bodyFires.length).toBe(bodyFiresAfterInit);
-    expect(titleFires.at(-1)).toBe('T-new');
-
-    a.client[Symbol.dispose]();
-    b.client[Symbol.dispose]();
   });
 
   it('coalesces concurrent subscribe() calls to the same (rt, rid)', async () => {
@@ -226,7 +107,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     const p2 = a.client.resources.subscribe('TestResource', resourceId);
     const p3 = a.client.resources.subscribe('TestResource', resourceId);
 
-    const [s1, s2, s3] = await Promise.all([p1, p2, p3]);
+    const [s1, s2, s3] = await Promise.all([p1.snapshot, p2.snapshot, p3.snapshot]);
     expect(s1!.value.title).toBe('Coalesced');
     expect(s2!.value.title).toBe('Coalesced');
     expect(s3!.value.title).toBe('Coalesced');
@@ -257,8 +138,80 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
 
     // Subscribe with the v1-pinned client — Star will detect mismatch
     await expect(
-      a.client.resources.subscribe('TestResource', resourceId),
+      a.client.resources.subscribe('TestResource', resourceId).snapshot,
     ).rejects.toThrow(/Ontology version mismatch/);
+
+    a.client[Symbol.dispose]();
+  });
+
+  // ── v3: Disposable subscription handle + per-(rt, rid) handle refcount ──────
+
+  it('disposing the handle unsubscribes (server row dropped)', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'dispose-test');
+
+    const sub = a.client.resources.subscribe('TestResource', resourceId);
+    expect((await sub.snapshot)!.value.title).toBe('dispose-test');
+
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1);
+
+    sub[Symbol.dispose](); // equivalent to leaving a `using` scope
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('standalone unsubscribe() is equivalent to disposing the handle', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'standalone');
+
+    await a.client.resources.subscribe('TestResource', resourceId).snapshot;
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1);
+
+    a.client.resources.unsubscribe('TestResource', resourceId);
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('two handles for the same (rt, rid): first dispose keeps the subscription; second releases it', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'shared');
+
+    const sub1 = a.client.resources.subscribe('TestResource', resourceId);
+    const sub2 = a.client.resources.subscribe('TestResource', resourceId);
+    await Promise.all([sub1.snapshot, sub2.snapshot]);
+
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1); // one row per (resourceId, clientId)
+
+    // First dispose: refcount 2→1, NO Star.unsubscribe. The unsubscribe (if a
+    // buggy impl issued one) would precede this inspect on the same ordered
+    // client→Star channel, so a per-call refcount regression shows 0 here.
+    sub1[Symbol.dispose]();
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1); // still subscribed
+
+    // Second dispose: refcount 1→0 → Star.unsubscribe.
+    sub2[Symbol.dispose]();
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
 
     a.client[Symbol.dispose]();
   });

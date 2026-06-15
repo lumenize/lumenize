@@ -5,14 +5,18 @@ description: Cost-effective external API calls from Lumenize Mesh DOs
 
 # Fetch Service
 
-:::danger Experimental
-This package has a known architectural flaw and may change significantly or be replaced.
+:::danger[Experimental]
+
+This package has a [known architectural flaw](./architecture-and-failure-modes#known-architectural-flaw) and may change significantly or be replaced. Don't reach for it in production code without understanding that flaw first.
+
 :::
 
 De✨light✨fully make external API calls from DOs that extend `LumenizeDO` with reduced wall-clock billing.
 
-:::warning Not worth it below 5s average fetch time
-There are storage and additional request costs, so there is a break even point below which using this service costs _more_. In our analysis, that breakeven point is when the average fetch time is approximately 1.6 seconds. To be worth the added complexity and latency, we recommend you only consider using this if the average fetch takes longer than 5 seconds.
+:::warning[Not a default — the breakeven is soft]
+
+There are storage and extra-request costs, so there is a break-even point below which this service costs _more_. Our earlier analysis put that point around 1.6 s average fetch time and recommended 5 s as a comfortable margin — but those numbers predate the per-call alarm/storage cost learnings and are **unverified**, so treat them as a rough floor, not a green light. Note too that the *bare* two-one-way pattern (DO → Worker fetch → result back) is alarm-free and cheaper than this packaged version; `@lumenize/fetch` only adds a delivery guarantee on top. See [Architecture & Failure Modes](./architecture-and-failure-modes#known-architectural-flaw).
+
 :::
 
 - **Fire-and-forget** — Returns immediately, result arrives via continuation

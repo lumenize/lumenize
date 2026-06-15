@@ -7,7 +7,7 @@
 
 ## Scope
 
-Just enough schema-evolution machinery to make Studio's iteration loop feel sane: when the vibe coder changes their ontology mid-session, existing data on **the active branch's Star** migrates lazily on read. **Per branch, in-place, copy-on-read.** No cross-branch data migration. No production-grade error handling, no version-skew protection, no cross-resource migration callbacks. Those are all in the on-hold companion file and unfreeze post-funding.
+Just enough schema-evolution machinery to make Studio's iteration loop feel sane: when the user-developer changes their ontology mid-session, existing data on **the active branch's Star** migrates lazily on read. **Per branch, in-place, copy-on-read.** No cross-branch data migration. No production-grade error handling, no version-skew protection, no cross-resource migration callbacks. Those are all in the on-hold companion file and unfreeze post-funding.
 
 This file used to be titled "dev-mode subset." Renamed 2026-05-07 — there is no special "dev mode" in the platform; there are just branches (see `tasks/nebula-branches.md`). The migration runner is branch-local: it acts on whatever Star instance the request is routed to.
 

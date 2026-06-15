@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { playwright } from '@vitest/browser-playwright';
 import swc from 'unplugin-swc';
 
 // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
@@ -13,7 +14,111 @@ const swcPlugin = swc.vite({
   },
 });
 
+/**
+ * Vite plugin that proxies `${prefix}/*` requests (HTTP + WebSocket) to an
+ * upstream resolved per-request from `process.env[envVar]`. Copied verbatim
+ * from `packages/mesh/vitest.config.js` — see that file's doc-comment and
+ * `packages/mesh/test/browser/README.md` for the full rationale.
+ *
+ * Used by the real-chromium `chromium` project so the test page (served by
+ * vite-browser) and the wrangler-dev worker share an origin: NebulaAuth's
+ * `Secure; SameSite=Strict` refresh-token cookie then flows untouched, with no
+ * CORS plumbing and no cert handling in chromium (the proxy terminates TLS
+ * server-side with `secure: false`). The wrangler-dev URL is injected by
+ * `test/chromium/global-setup.ts` after spawn and read here on every request.
+ */
+function dynamicEnvProxyPlugin({
+  prefix = '/worker',
+  envVar = 'WRANGLER_PROXY_TARGET',
+  approvedOrigin,
+} = {}) {
+  const stripPrefix = (path) => path.replace(new RegExp(`^${prefix}`), '') || '/';
+  return {
+    name: `dynamic-env-proxy:${prefix}`,
+    async configureServer(server) {
+      const httpProxy = (await import('http-proxy')).default;
+      const proxy = httpProxy.createProxyServer({
+        ws: true,
+        changeOrigin: true,
+        secure: false,
+      });
+      proxy.on('proxyReq', (proxyReq) => {
+        proxyReq.path = stripPrefix(proxyReq.path);
+        // NebulaAuth enforces an `LUMENIZE_APPROVED_ORIGINS` allow-list. The
+        // browser stamps the test page's (dynamic-port) Origin on every POST,
+        // even same-origin, and the proxy forwards it — so present an approved
+        // Origin instead. CORS is meaningless in this proxied same-origin
+        // setup; this just satisfies the server-side allow-list. Test-only.
+        if (approvedOrigin) proxyReq.setHeader('origin', approvedOrigin);
+      });
+      // NebulaAuth sets a PATH-SCOPED refresh cookie (`Path=/auth/{scope}`,
+      // unlike @lumenize/auth's `Path=/`). The worker sees the prefix-stripped
+      // path, so it sets `Path=/auth/{scope}` — which no longer matches the
+      // browser's proxied `${prefix}/auth/{scope}/...` request, so the cookie
+      // would never be sent back and refresh-token 401s. Re-prepend the prefix
+      // to the cookie Path (preserving the scope) so it rides the proxied
+      // requests. Test-only; mesh's harness needs none of this (Path=/).
+      proxy.on('proxyRes', (proxyRes) => {
+        const setCookie = proxyRes.headers['set-cookie'];
+        if (setCookie) {
+          proxyRes.headers['set-cookie'] = setCookie.map((c) =>
+            c.replace(/(;\s*Path=)\//i, `$1${prefix}/`),
+          );
+        }
+      });
+      proxy.on('error', (err, _req, res) => {
+        if (res && 'writeHead' in res && !res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'text/plain' });
+          res.end(`Proxy error: ${err.message}`);
+        }
+      });
+      // http-proxy doesn't attach error handlers to upstream sockets; raw
+      // socket errors (peer reset, etc.) become unhandled 'error' events that
+      // crash Node. Swallow them here.
+      proxy.on('proxyReqWs', (_proxyReq, _req, socket) => {
+        socket.on('error', () => { /* ignore */ });
+      });
+      proxy.on('open', (socket) => {
+        socket.on('error', () => { /* ignore */ });
+      });
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith(prefix)) return next();
+        const target = process.env[envVar];
+        if (!target) {
+          res.writeHead(503, { 'Content-Type': 'text/plain' });
+          res.end(`Upstream not ready (${envVar} unset)`);
+          return;
+        }
+        proxy.web(req, res, { target });
+      });
+      server.httpServer?.on('upgrade', (req, socket, head) => {
+        if (!req.url?.startsWith(prefix)) return;
+        const target = process.env[envVar];
+        if (!target) {
+          socket.destroy();
+          return;
+        }
+        // proxyReq doesn't fire for WS — strip the prefix + rewrite Origin here.
+        req.url = stripPrefix(req.url);
+        if (approvedOrigin) req.headers.origin = approvedOrigin;
+        socket.on('error', () => { /* ignore — peer closed or reset */ });
+        proxy.ws(req, socket, head, { target });
+      });
+    },
+  };
+}
+
 export default defineConfig({
+  // Same-origin proxy for the real-chromium `chromium` project (inert for the
+  // pool-workers/jsdom projects — it only adds a vite dev-server middleware).
+  // `approvedOrigin` rewrites the forwarded Origin to a value in the test
+  // worker's LUMENIZE_APPROVED_ORIGINS (http://localhost:5173) so NebulaAuth's
+  // origin allow-list passes regardless of vitest-browser's dynamic port.
+  plugins: [dynamicEnvProxyPlugin({
+    prefix: '/worker',
+    envVar: 'WRANGLER_PROXY_TARGET',
+    approvedOrigin: 'http://localhost:5173',
+  })],
   test: {
     testTimeout: 10000,
     globals: true,
@@ -47,7 +152,22 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**', 'test/browser/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**'],
+        },
+      },
+      // Frontend project — the @lumenize/nebula/frontend layer (factory + the
+      // ported pure-helper/engine suites: text-merge, deep-equals, debounce,
+      // conflict-outcome). jsdom env (NOT vitest-pool-workers) so Vue can mount
+      // components for the v3/v4 component probes; pure-logic tests run fine in
+      // jsdom too. swc for the @mesh() decorators NebulaClient carries.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'frontend',
+          environment: 'jsdom',
+          include: ['test/frontend/**/*.test.ts'],
+          testTimeout: 10000,
         },
       },
       {
@@ -71,6 +191,14 @@ export default defineConfig({
           name: 'baseline',
           include: ['test/test-apps/baseline/**/*.test.ts'],
           setupFiles: ['./test/test-apps/baseline/test/setup.ts'],
+          // Real-Star WS-connect e2e (esp. the createNebulaClient factory tests:
+          // ready / logout / set-union) establish live WebSocket connections that
+          // are CPU-contention-sensitive under the full `npm test` run (unit +
+          // frontend + baseline + browser projects in parallel). 10s (vitest's
+          // default) is tight under that combined load; 30s matches the spike's
+          // phase-0b real-Star precedent. Fast tests are unaffected (a timeout
+          // only bites when exceeded). vi.waitFor stays at the setup.ts 5s default.
+          testTimeout: 30000,
         },
       },
       // Browser project — Node-side vitest tests using @lumenize/testing's
@@ -98,6 +226,61 @@ export default defineConfig({
           testTimeout: 30000,
           env: {
             NODE_TLS_REJECT_UNAUTHORIZED: '0',
+          },
+        },
+      },
+      // Chromium project — real-browser (vitest-browser + Playwright). The v4
+      // production-shape harness: runs the @lumenize/nebula/frontend factory +
+      // Vue in real chromium against a real wrangler-dev Star, reached
+      // same-origin via dynamicEnvProxyPlugin (so NebulaAuth's
+      // Secure;SameSite=Strict cookie flows with no CORS/cert dance). Catches
+      // browser-bundle regressions (a transitive cloudflare:workers /
+      // node:async_hooks import in /frontend fails Vite resolution) and
+      // real-browser divergence the jsdom `frontend` project can't see (IME
+      // composition, focus/blur timing, paint scheduling, real WS reconnect).
+      // global-setup spawns its OWN wrangler-dev (separate --persist-to) and
+      // sets WRANGLER_PROXY_TARGET. Distinct from the Node-side `browser`
+      // project above (which lives under test/browser/**). swc for the @mesh()
+      // decorators NebulaClient carries.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        // Single Vue reactivity graph: the factory imports @vue/reactivity +
+        // @vue/runtime-core directly while the Q1–Q5 harness loads the
+        // compiler-included vue.esm-bundler build. Dedupe defends against Vite's
+        // dep-optimizer forking the graph onto two copies (which would silently
+        // no-op the Q3/Q4 effectScope auto-subscribe bridge). Not strictly
+        // required under the current flat npm hoist (one copy of each @vue/*
+        // already), but install-state-independent insurance.
+        resolve: {
+          dedupe: ['vue', '@vue/runtime-dom', '@vue/runtime-core', '@vue/reactivity'],
+        },
+        // Vue's esm-bundler build expects these compile-time feature flags to be
+        // bundler-injected; define them to silence the runtime warning + get
+        // correct tree-shaking. (The Q1–Q5 harness loads vue.esm-bundler.js.)
+        define: {
+          __VUE_OPTIONS_API__: 'true',
+          __VUE_PROD_DEVTOOLS__: 'false',
+          __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: 'false',
+        },
+        test: {
+          name: 'chromium',
+          include: [
+            'test/chromium/**/*.test.ts',
+            // The 5 Vue spike probes (Q1–Q5) also run here, in REAL chromium —
+            // same MockClient-backed probes the jsdom `frontend` project runs,
+            // now exercising real DOM / events / effectScope disposal / paint.
+            // The "port the 5 spike probes to the browser project" deliverable,
+            // with zero duplication (jsdom remains their canonical home).
+            'test/frontend/q[1-5]-*.test.ts',
+          ],
+          globalSetup: ['./test/chromium/global-setup.ts'],
+          testTimeout: 30000,
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            instances: [{ browser: 'chromium' }],
           },
         },
       },

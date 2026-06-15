@@ -10,7 +10,7 @@ draft: true
 This page is a stub outlining planned content. Sections list what they'll cover but bodies are not yet written. Drafting begins after the `coding-your-ui.md` manual review pass and a separate review of `resources.md` and `api-reference.md`.
 :::
 
-The **ontology** is the single declaration of what resource types exist in your Nebula app, what shape each one has, how it references other types, and how it behaves under conflict. It's the first conversation Studio has with a vibe coder — before any UI work happens, you and Studio agree on the data model. From the LLM's point of view, the ontology is the cornerstone context for everything else.
+The **ontology** is the single declaration of what resource types exist in your Nebula app, what shape each one has, how it references other types, and how it behaves under conflict. It's the first conversation Studio has with a user-developer — before any UI work happens, you and Studio agree on the data model. From the LLM's point of view, the ontology is the cornerstone context for everything else.
 
 ## What an ontology is
 
@@ -37,13 +37,38 @@ Will show:
 
 ## References between types
 
-Will show:
+A field whose type is another ontology type is a **relationship**, and Nebula models relationships **by id (foreign key) — never by embedding**. This is a hard contract ([ADR-006](https://github.com/lumenize/lumenize/blob/main/docs/adr/006-resources-reference-by-id.md)):
 
-- Foreign-key fields: an `id`-of-another-resource pattern with type-level enforcement.
-- When to use embedded objects vs separate referenced resources (cardinality, sharing, update frequency).
+- **A reference field holds the *id* of the related resource, not the resource itself.** You write the related *type* in the schema (`list: TodoList`); on the wire and in storage that field is the related resource's id `string` — Nebula derives this "write shape" automatically. A to-many reference (`members: User[]`) is an array of ids (`string[]`).
+- **Related resources are created and updated as separate ops in one transaction.** A `transaction(...)` is a map of independent ops that commit atomically, so "create a parent and its children together" is several ops in a single call — each with its own client-supplied id, each reference field pointing at a sibling's id. The client owns every id (Nebula never generates them) and wires the relationships explicitly.
+- **Embedding is for composition *within* one resource, not for references.** Inline object/array fields (`address: { city: string }`) are part of that one resource's value and its single snapshot. A resource's value round-trips the full structured-clone space — `Map`, `Date`, cycles, shared (aliased) sub-objects — but that richness lives *inside* one value; it does not reach *across* resource references, which are always ids.
+- **Embedding an object where an id belongs is rejected loudly.** Passing the related object (or a nested/cyclic object) into a reference field fails validation with a message that names the field and its target type and tells you to reference by id — not a cryptic type error.
+
+Example — a todo that references its list by id, created with the list in one atomic transaction:
+
+```typescript @skip-check
+// ontology
+interface TodoList { title: string }
+interface Todo {
+  title: string;
+  list: TodoList;     // a relationship — sent/stored as the TodoList's id string
+  done: boolean;
+}
+
+// client: create the list and a todo that references it, atomically
+const listId = crypto.randomUUID();
+const todoId = crypto.randomUUID();
+await client.resources.transaction({
+  [listId]: { op: 'create', typeName: 'TodoList', nodeId, value: { title: 'Groceries' } },
+  [todoId]: { op: 'create', typeName: 'Todo',     nodeId, value: { title: 'Milk', list: listId, done: false } },
+});
+```
+
+Still to document (mechanism, not yet settled):
+
 - The `@inverse` annotation for declaring back-references (e.g., `User.todos` is the inverse of `Todo.ownerId`).
 - One-to-one, one-to-many, many-to-many — how each shows up in the ontology and on the store.
-- Reference integrity: the server enforces "referenced resource exists" at transaction time; how that surfaces as a `'validation-failed'` resolution.
+- **Reference integrity is deferred.** Today validation checks only that a reference is a well-formed id `string` — it does **not** verify the referenced resource exists, so a dangling id is accepted. Enforcing "the referenced resource exists, or is created in the same transaction" is a planned, **intra-Star, same-transaction**-scoped feature (cross-Star references are ids that can't be checked at write time and stay eventually-consistent). Tracked in the backlog.
 
 ## Annotations
 
@@ -52,7 +77,7 @@ Two categories of annotation, named consistently within each category:
 - **Pure-config annotations** — named after the knob they set. Example: `@debounce(quietMs, maxWaitMs)`.
 - **Semantic field-shape annotations** — named after what the field IS. Effects derive from the shape and may span multiple concerns. Example: `@longform`.
 
-The asymmetry is intentional. Config-named annotations are unambiguous about scope ("ah, this sets debounce"). Semantic-named annotations let the framework decide what behaviors that shape implies, so the vibe coder declares intent once and gets multiple right defaults across resolver registration, debounce timing, UI rendering, etc.
+The asymmetry is intentional. Config-named annotations are unambiguous about scope ("ah, this sets debounce"). Semantic-named annotations let the framework decide what behaviors that shape implies, so the user-developer declares intent once and gets multiple right defaults across resolver registration, debounce timing, UI rendering, etc.
 
 ### Inventory
 
@@ -67,7 +92,7 @@ The asymmetry is intentional. Config-named annotations are unambiguous about sco
 
 ### Type-derived defaults (no annotation needed)
 
-Most fields get sensible debounce config from their type. Studio's LLM relies on these so the vibe coder doesn't have to think about timing for routine fields:
+Most fields get sensible debounce config from their type. Studio's LLM relies on these so the user-developer doesn't have to think about timing for routine fields:
 
 | Field type | Default debounce |
 |---|---|
@@ -99,11 +124,13 @@ interface Todo {
 }
 ```
 
-Studio's LLM, when generating the ontology, picks annotations from a small rule table (covered in [tasks/nebula-studio.md § Code Generation](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md#code-generation)). The vibe coder typically only sees explicit annotations during review.
+Studio's LLM, when generating the ontology, picks annotations from a small rule table (covered in [tasks/nebula-studio.md § Code Generation](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md#code-generation)). The user-developer typically only sees explicit annotations during review.
 
 ### How annotations reach the runtime
 
 The compiler (typia or our extension) reads the .d.ts at deploy time and emits a config map alongside the validator bundle. The factory loads the bundle at startup and applies the per-field debounce config to its synced-state middleware automatically. For runtime overrides (rare — A/B testing, dynamic config), [`client.resources.transactionDebounce(rt, opts)`](./api-reference.md#resourcestransactiondebounce) is the override surface.
+
+*(Status: the per-field debounce-config emission is post-demo. The initial release ships the global framework defaults — 500 ms quiet / 2000 ms maxWait — for every field, with `transactionDebounce` as the per-type override; per-field annotations take effect once the emission lands, the global defaults remaining the fallback for unannotated fields. `@longform`'s resolver + UI effects are on their own tracks, independent of this.)*
 
 Precedence: runtime override > ontology annotation > type-based default > framework default.
 
@@ -123,7 +150,7 @@ Will cover:
   - **Deferred-review conflicts** — `'human-in-the-loop'`; app stashes for later review.
 - Resolver-as-property-of-type philosophy: when you change a type's shape, you may also need to change its resolver. Co-locating reduces the chance of drift.
 
-> **Resolved direction (2026-05-18)**: per the [Annotations](#annotations) section above, per-type config (debounce, resolver registration, default UI rendering) flows from the ontology. For resolvers specifically, the cleanest endpoint is **annotation-driven registration** — the same compile-time pass that emits debounce config also emits resolver registration for fields/types that carry semantic annotations (`@longform` auto-registers a text-merge resolver, etc.). Custom resolvers that need code (a domain-specific merge function, a modal flow) get a sibling `resolvers.ts` (or `ontology/resolvers.ts`) that the bootstrap imports. The vibe coder rarely sees this file — annotations cover the common cases. Implementation detail to settle during v3; the API surface (`client.resources.onTransactionResourceResolution(rt, handler)`) stays as-is, just with fewer direct callers now that annotations handle the typical patterns.
+> **Resolved direction (2026-05-18)**: per the [Annotations](#annotations) section above, per-type config (debounce, resolver registration, default UI rendering) flows from the ontology. For resolvers specifically, the cleanest endpoint is **annotation-driven registration** — the same compile-time pass that emits debounce config also emits resolver registration for fields/types that carry semantic annotations (`@longform` auto-registers a text-merge resolver, etc.). Custom resolvers that need code (a domain-specific merge function, a modal flow) get a sibling `resolvers.ts` (or `ontology/resolvers.ts`) that the bootstrap imports. The user-developer rarely sees this file — annotations cover the common cases. Implementation detail to settle during v3; the API surface (`client.resources.onTransactionResourceResolution(rt, handler)`) stays as-is, just with fewer direct callers now that annotations handle the typical patterns.
 
 ## Default permissions and DAG attachment
 
@@ -159,7 +186,7 @@ Will cover:
 
 Will cover:
 
-- Studio's typical conversation flow: the vibe coder describes their app, Studio asks clarifying questions about entities and relationships, Studio drafts the ontology, the vibe coder reviews in chat (no file editor — per [nebula-studio.md § Chat-first UI direction](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md)).
+- Studio's typical conversation flow: the user-developer describes their app, Studio asks clarifying questions about entities and relationships, Studio drafts the ontology, the user-developer reviews in chat (no file editor — per [nebula-studio.md § Chat-first UI direction](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-studio.md)).
 - How the LLM consults this doc when generating ontology files.
 - What gets generated alongside: per-type resolvers (per the Q1 decision above), default attachment configuration, Studio's seed data for the dev preview.
-- Iteration: when the vibe coder asks for a behavior change that requires a schema change, Studio updates the ontology AND the dependent code in lock-step.
+- Iteration: when the user-developer asks for a behavior change that requires a schema change, Studio updates the ontology AND the dependent code in lock-step.

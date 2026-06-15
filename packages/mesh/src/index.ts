@@ -24,6 +24,12 @@ export type { sql } from './sql';
 import './alarms';
 export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './alarms';
 
+// broadcast is built-in and automatically available on this.svc.broadcast for LumenizeDO subclasses
+// Side-effect import ensures LumenizeServices declaration merging runs
+import './broadcast';
+export { BROADCAST_TIER_BINDING } from './broadcast';
+export type { BroadcastFn, BroadcastTarget, BroadcastOptions } from './broadcast';
+
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope } from './lmz-api';
 

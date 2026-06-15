@@ -739,16 +739,46 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
       it('converts non-Error to Error in handler', async () => {
         const caller = env.TEST_DO.getByName('call-error-caller-2');
-        
+
         await caller.testLmzApiInit({ bindingName: 'ERROR_CALLER_DO' });
-        
+
         caller.testCallWithError('TEST_DO', 'call-error-callee-2');
-        
+
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         const error = await caller.getLastCallError();
         expect(error).toBeTruthy();
         expect(typeof error).toBe('string');
+      });
+    });
+
+    describe('onErrorOnly', () => {
+      it('skips the success-path handler when result is not an Error', async () => {
+        const caller = env.TEST_DO.getByName('call-onerroronly-success-caller');
+
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO' });
+
+        // Make a successful call with onErrorOnly:true. The handler
+        // (handleCallResult) writes to KV; we assert it stays unwritten.
+        caller.testCallOnErrorOnlySuccess('TEST_DO', 'call-onerroronly-success-callee', 'hi');
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const result = await caller.getLastCallResult();
+        expect(result).toBeUndefined();
+      });
+
+      it('still fires the error-path handler on remote rejection', async () => {
+        const caller = env.TEST_DO.getByName('call-onerroronly-error-caller');
+
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO' });
+
+        caller.testCallOnErrorOnlyError('TEST_DO', 'call-onerroronly-error-callee');
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const error = await caller.getLastCallError();
+        expect(error).toBe('Remote error for testing');
       });
     });
 

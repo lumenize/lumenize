@@ -85,7 +85,7 @@ Request arrives (Mesh or HTTP)
 The original task file had the DWL isolate calling *out* to LumenizeResources. The inverted model is better because:
 
 1. **DWL doesn't need DO bindings** — `DurableObjectNamespace` is not structured-clonable (confirmed by spike test 4), so you can't pass it into DWL `env`. The inverted model avoids this entirely.
-2. **Simpler DWL code** — the vibe coder writes config and guard methods. No Mesh routing, no storage calls, no subscription management.
+2. **Simpler DWL code** — the user-developer writes config and guard methods. No Mesh routing, no storage calls, no subscription management.
 3. **LumenizeResources owns the full lifecycle** — storage, subscriptions, fanout, guard dispatch. One place for all the complexity.
 4. **Auth propagation is natural** — the DO has the call context from the original request. When it calls the DWL, it propagates context. The DWL guard accesses `this.lmz.callContext.originAuth` exactly like a non-DWL guard would.
 
@@ -176,14 +176,14 @@ MyApp.prototype.runGuardCheck[MESH_CALLABLE] = true;
 - **DWL in vitest** — can `@cloudflare/vitest-pool-workers` handle `worker_loaders` bindings? **[Test later]**
 - **Optimized DWL bundle** — tested: `LumenizeWorker`-only entrypoint reduces from 140KB → 102KB unminified (27% smaller), 56KB → 40KB minified (29% smaller). OCAN, lmz-api, structured-clone, and debug are the bulk. LumenizeDO, LumenizeClient, ClientGateway, alarms, SQL, tab-id all shake away. 40KB minified is fine for DWL (loads from memory). Could trim further if the DWL base class doesn't need `call()`/`ctn()`.
 
-## Vibe Coder's DWL Code — Target API
+## User-Developer's DWL Code — Target API
 
-The vibe coder extends `ResourcesWorker` (which extends `LumenizeWorker`). They implement a `resources` property and guard/validation methods. The base class handles dispatch — the DO calls `runGuards()` via `lmz.call()`, the base class looks up the guard array for the given slug and executes each in sequence.
+The user-developer extends `ResourcesWorker` (which extends `LumenizeWorker`). They implement a `resources` property and guard/validation methods. The base class handles dispatch — the DO calls `runGuards()` via `lmz.call()`, the base class looks up the guard array for the given slug and executes each in sequence.
 
 A single DWL module can export multiple `WorkerEntrypoint` classes (e.g., `ResourcesWorker` now, `IntegrationsWorker` later). The DO addresses each independently via `stub.getEntrypoint('ClassName')`.
 
 ```typescript
-// What the vibe coder writes — uploaded as a string to Nebula
+// What the user-developer writes — uploaded as a string to Nebula
 import { ResourcesWorker, ForbiddenError, ValidationError } from '@lumenize/mesh';
 
 export class ProjectResources extends ResourcesWorker {
@@ -311,7 +311,7 @@ this.lmz.delete(currentSnapshot)                     // extracts resourceId + eT
 // All return: { op: 'upsert'|'delete', resourceId, eTag, value? }
 ```
 
-**Local cache for eTag resolution**: When the client has been reading/subscribing to resources, it already has the current eTag in local state. The convenience functions reach into that cache so the vibe coder never has to think about eTags — they just say "upsert this" or "delete that" and the framework handles optimistic concurrency. If the resourceId isn't in the cache, the function throws immediately (you can't upsert or delete something you haven't read).
+**Local cache for eTag resolution**: When the client has been reading/subscribing to resources, it already has the current eTag in local state. The convenience functions reach into that cache so the user-developer never has to think about eTags — they just say "upsert this" or "delete that" and the framework handles optimistic concurrency. If the resourceId isn't in the cache, the function throws immediately (you can't upsert or delete something you haven't read).
 
 **Singular `read()` and batch `reads()`**: Read operations don't need the transaction protocol (no writes, no guard dispatch for reads in the common case). Keep `read(resourceType, resourceId)` as a singular convenience and `reads([...])` for batch reads.
 
@@ -348,7 +348,7 @@ Phase 3's recheck + write are synchronous (no `await`), so input gates are close
 
 ### Schema Evolution and Migrations
 
-**Problem**: Vibe coders change their resource types over time — add fields, rename them, change types. Without schema evolution, existing data breaks silently or requires manual migration.
+**Problem**: User-developers change their resource types over time — add fields, rename them, change types. Without schema evolution, existing data breaks silently or requires manual migration.
 
 **Approach**: User-provided migration functions in DWL, versioned alongside the resource config. TypeScript types are the schema — no DSL. Migrations are just TypeScript/JavaScript functions that the LLM helps write.
 

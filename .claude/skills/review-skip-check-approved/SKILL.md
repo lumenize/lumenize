@@ -9,7 +9,7 @@ argument-hint: [diff-base or package-name]
 
 # Review Skip-Check-Approved
 
-Verify that `@skip-check-approved` code examples in `.mdx` files still accurately reflect the actual source code. These examples were deliberately excluded from automated testing, so this review is the safety net that catches drift.
+Verify that `@skip-check-approved` code examples in website doc files (`.md` and `.mdx`) still accurately reflect the actual source code. These examples were deliberately excluded from automated testing, so this review is the safety net that catches drift.
 
 ## Input
 
@@ -22,7 +22,7 @@ Verify that `@skip-check-approved` code examples in `.mdx` files still accuratel
 
 ### Detecting the argument type
 
-- Looks like a file path → contains `/` and ends in `.mdx`
+- Looks like a file path → contains `/` and ends in `.md` or `.mdx`
 - Looks like a git ref → run `git rev-parse --verify $ARGUMENTS` — if it succeeds, treat as diff base
 - Otherwise → treat as a package name
 
@@ -86,8 +86,8 @@ For each block, provide enough detail to act on:
 
 1. Run `git diff {ref}...HEAD --name-only` to get changed files.
 2. Extract package names from paths matching `packages/{name}/src/**`.
-3. Only review `@skip-check-approved` blocks in `website/docs/{name}/**/*.mdx` for those packages.
-4. Also review docs files that themselves changed: any `.mdx` files in the diff that contain `@skip-check-approved`.
+3. Only review `@skip-check-approved` blocks in `website/docs/{name}/**/*.md` and `**/*.mdx` for those packages.
+4. Also review docs files that themselves changed: any `.md`/`.mdx` files in the diff that contain `@skip-check-approved`.
 5. Report the scope at the top of the output: which packages and files were reviewed and why.
 
 ## Rules

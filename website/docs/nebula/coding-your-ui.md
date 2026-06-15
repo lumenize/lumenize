@@ -11,9 +11,9 @@ This page is the narrative reference Nebula Studio's hosted LLM consults when ge
 
 ## Resources at a glance
 
-**Resources are the heart of this system. They are both simple and powerful. You use them when developing your app on the Nebula platform. Your users indirectly use them when they interact with your app because they are the only place for them to store anything.**
+**Resources are the heart of this system. They are both simple and powerful. You use them when developing your app on the Nebula platform. Your users indirectly use them when they interact with your app because they are the only place you have to store user data.**
 
-Resources also handle [**access control**](./resources.md#access-control). Every resource is attached at create time to a node in your app's **org/permission tree**. Each node carries a per-user permissions table and a grant on a parent applies to every descendant.
+Resources also handle [**access control**](./resources.md#access-control). Every resource is attached at create time (movable later) to a node in your app's **org/permission tree**. Each node carries a per-user permissions table. A permission grant on a node flows down to every descendant.
 
 Each resource is a JavaScript object (not just JSON, but rather rich types like Map, Date, cycles, etc.) addressed by a `(resourceType, resourceId)` pair, with its shape declared in your ontology. From your UI's perspective:
 
@@ -30,11 +30,11 @@ Resources reside in the cloud. The UI in your user's web browser must access and
 2. **The store** — a Vue-reactive Proxy that your `v-*` directives bind to. Reads under `store.resources.*` auto-subscribe to the resources they touch; writes flow through optimistic apply + debounced server submission. The whole reactive UI surface lives here.
 3. **Vue 3** — `.vue` files with `<script setup lang="ts">`, `<template>`, and optional `<style scoped>`. Studio compiles them to render-function modules on every save (to a nearby dev server during development iteration; to your Galaxy when you are ready to deploy it to production). 
 
-Studio auto-populates the bootstrap (a `store.ts` that calls `createNebulaClient()` and exports `{ client, store }`, plus a Vue entrypoint and an `index.html` shell). Your `.vue` components import `{ store, client } from './store'` and define the UI. The full `createNebulaClient` config is at [API reference § createNebulaClient](./api-reference.md#createnebulaclient).
+Studio auto-populates the bootstrap (a `nebula.ts` that calls `createNebulaClient()`, top-level-awaits the factory's `ready` promise, and exports `{ client, store, ready }`, plus a Vue entrypoint and an `index.html` shell). Because the bootstrap awaits `ready`, the app mounts only after the first connection completes — see [Current user](#current-user-clientclaims) for what that guarantees. Your `.vue` components import `{ store, client } from './nebula'` and define the UI. The full `createNebulaClient` config is at [API reference § createNebulaClient](./api-reference.md#createnebulaclient).
 
 ## `store` vs `client` — what goes where
 
-`store` holds everything reactive — synced resources, your own UI state, and connection status mirrored from the client (`store.lmz.connection.*`). `client` is the underlying connection: method calls (`transaction`, `subscribe`, `dispose`, etc.) and non-reactive identity like `client.claims`. The prefix on every path expression in this doc is load-bearing — `store.X` is something to bind to, `client.X` is something to call or look up.
+`store` holds everything reactive — synced resources, your own UI state, and connection status mirrored from the client (`store.lmz.connection.*`). `client` is the underlying connection: method calls (`client.resources.transaction`, `client.resources.subscribe`, `client.dispose`, etc.) and non-reactive identity like `client.claims`. The prefix on every path expression in this doc is load-bearing — `store.X` is something to bind to, `client.X` is something to call or look up.
 
 ## Reading and writing through the store
 
@@ -46,19 +46,23 @@ Read and write the store inline in templates using stock [Vue 3](https://vuejs.o
 
 <!-- :class object syntax (shorthand for v-bind:class) toggles a class on a reactive value. -->
 <li :class="{ 'line-through': store.resources.todo[id]?.value?.status === 'done' }">
-  <!-- v-model: each keystroke optimistically updates the store and queues a debounced transaction. -->
-  <input v-model="store.resources.todo[id].value.title" />
+  <!-- v-model: each keystroke optimistically updates the store and queues a debounced
+       transaction. The v-if guard is required — see "v-model requires a real writable path" below. -->
+  <template v-if="store.resources.todo[id]?.value">
+    <input v-model="store.resources.todo[id].value.title" />
+  </template>
 </li>
 
 <span v-if="store.resources.todo[id]?.value?.status === 'done'" class="badge badge-success">Done</span>
 <span v-else class="badge">Open</span>
 ```
 
-The same paths work from TypeScript — inside a `computed`, a method, or an event handler:
+The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `value` is typed loosely on the store; when script code needs typing, cast it to the ontology type at the read site:
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const title = store.resources.todo[id]?.value?.title;          // reactive read
 store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
+const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
 ```
 
 For multi-resource atomic batches, explicit conflict-resolution handlers, programmatic subscriptions, and other operations that don't fit "read or write a single field," use the underlying `client` directly — the canonical case is [Forms: explicit save](#forms-explicit-save) below.
@@ -80,27 +84,43 @@ By default `v-model` listens on `input` (fires every keystroke). The optimistic 
 
 - **Quiet window**: wait this long after the last write to a resource before submitting (default 500 ms).
 - **Max wait**: submit at least every N ms regardless of continued typing (default 2000 ms).
-- **Flush on lifecycle**: pending writes flush on component unmount, input blur, and `client.dispose()`.
+- **Flush on lifecycle**: a pending write flushes immediately on input blur (a `focusout` on the bound input) and on `client.dispose()`. Component unmount does *not* itself force a flush — but the quiet/max-wait timers above run at the client level (per `(resourceType, resourceId)`, not per component), so a buffered write still submits on schedule after the component is gone; nothing is lost.
 - **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
 
 A typical 10-character edit produces ~1 transaction, not 10.
 
-:::caution Concurrent edits can clobber long-form text
-
-The default `'use-server'` resolution can clobber the user's keystrokes during a concurrent edit. For long-form text (descriptions, comments, document bodies, code editors), consider registering a per-type text-merge handler — see [Resources § Text fields specifically — don't leave the default](./resources.md#text-fields-specifically--dont-leave-the-default). Short single-line fields like titles don't need this.
-
-:::
-
-**Field-level write timing has sensible defaults** matched to each field's type — a `boolean` commits immediately (no debounce); a long-form text field uses slower debounce + text-merge; short single-line text uses the 500/2000 ms windows above. To override, annotate the field in the ontology (`@debounce`, `@longform`, etc.) — see [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
+**Write timing and conflict handling have type-derived defaults** — booleans and enums commit immediately, long-form text gets slower debounce plus an auto-registered text-merge resolver, short text uses the 500/2000 ms windows above. The full table and how to override it (`@debounce`, `@longform`) is the canonical reference in [Ontology § Annotations](./ontology.md#annotations). For runtime overrides (rare — A/B testing, dynamic config), `client.resources.transactionDebounce(rt, opts)` is available; see [API reference § resources.transactionDebounce](./api-reference.md#resourcestransactiondebounce).
 
 ### `v-model.lazy` — commit on blur
 
 ```html @skip-check
 <!-- Listen on `change` instead of `input`: text input fires on blur, select on
      commit. Use when "I'm done editing this field" matches better than
-     "live update on every keystroke." -->
-<input v-model.lazy="store.resources.todo[id].value.title" />
+     "live update on every keystroke." Same v-if guard as any v-model binding
+     (see "Loading and first paint"): value must exist before binding. -->
+<template v-if="store.resources.todo[id]?.value">
+  <input v-model.lazy="store.resources.todo[id].value.title" />
+</template>
 ```
+
+### IME and composition input
+
+`v-model` follows Vue's stock composition handling, and you write nothing special to get it right. While an input-method editor is composing a character — CJK input, dead-key/accent sequences, some mobile autocomplete — Vue suppresses the per-keystroke `input` updates and stages a single optimistic write only when composition ends (`compositionend`, when `event.isComposing` clears). So composing にほんご produces **one** optimistic write at the end, not one per intermediate keystroke, and the debounce above coalesces from there. Flush-on-blur still applies: if a composing field loses focus, its committed value flushes. (This is the real-browser behavior our IME probe pins — jsdom doesn't model composition, so it's only observable in the browser.)
+
+## Concurrent edits and long-form text
+
+The default `'use-server'` conflict resolution can clobber a user's in-progress
+keystrokes when a concurrent edit from another client lands mid-typing. Annotating
+a field `@longform` auto-registers a text-merge resolver that preserves both
+edits, so long-form text (descriptions, comments, document bodies) is handled for
+you — no handler to write. For custom merge logic, register your own per-type
+handler — see [Resources § Text fields specifically — don't leave the
+default](./resources.md#text-fields-specifically--dont-leave-the-default). Short
+single-line fields like titles don't need any of this.
+
+Text-merge preserves *non-overlapping* concurrent edits cleanly; when two users
+edit the same span at once it can still garble. Conflict-free collaborative
+editing (Google-Docs-style) needs a CRDT, which is out of scope for now.
 
 ## Loading and first paint
 
@@ -121,27 +141,30 @@ A resource's `?.value` is `undefined` until the initial server push lands (typic
 <div v-else class="card skeleton"></div>
 ```
 
-**3. Multi-state status via `computed`** — distinguishes loading from deleted (a deleted resource also produces a falsy `value`; `meta.deleted` is `true` for tombstones, `undefined` for never-loaded) and folds connection state in.
+**3. Multi-state status via `computed`** — distinguishes loading from deleted (connection state is shown separately — see the reconnect banner below). A deleted resource is **not** falsy: tombstones arrive as a real snapshot with `meta.deleted: true` and the last value still present, so the `meta.deleted` check must run *before* any `value` truthiness test. Patterns 1 and 2 don't cover deletion — they'd render a tombstone as if it were alive. (`meta.deleted` is `undefined` only for never-loaded resources.)
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
 
 const todoStatus = computed(() => {
   const snap = store.resources.todo['task-42'];
-  if (!store.lmz.connection.lastConnectedAt) return 'connecting';
-  if (snap?.meta?.deleted)                   return 'deleted';
-  if (!snap?.value)                          return 'loading';
+  // No 'connecting' state here: the app mounts only after `await ready` (so it's
+  // connected by first render). First-connect "Connecting…" lives in the static
+  // pre-mount shell; a later drop shows the reconnect banner (below) over the
+  // painted data while this stays 'ready'. A logged-out visitor never reaches
+  // this — `ready` rejects and the bootstrap redirects before mount.
+  if (snap?.meta?.deleted) return 'deleted';
+  if (!snap?.value)        return 'loading';
   return 'ready';
 });
 ```
 
 ```html @skip-check
-<div v-if="todoStatus === 'ready'" class="card">
+<div v-if="todoStatus === 'deleted'" class="alert alert-warning">This todo was deleted.</div>
+<div v-else-if="todoStatus === 'loading'" class="card skeleton"></div>
+<div v-else class="card">
   <h2>{{ store.resources.todo['task-42'].value.title }}</h2>
 </div>
-<div v-else-if="todoStatus === 'deleted'" class="alert alert-warning">This todo was deleted.</div>
-<div v-else-if="todoStatus === 'connecting'" class="alert">Connecting…</div>
-<div v-else class="card skeleton"></div>
 ```
 
 ## Connection state
@@ -155,9 +178,14 @@ The factory mirrors `NebulaClient`'s connection state onto the store under `stor
 | `store.lmz.connection.lastConnectedAt` | `number \| undefined` | `Date.now()` from the most recent `'connected'` transition. |
 
 ```html @skip-check
-<!-- Banner while disconnected. Optimistic writes still queue in the background. -->
-<div v-if="!store.lmz.connection.connected" class="alert alert-warning">
-  Disconnected — your changes are queued. Reconnecting…
+<!-- Banner while reconnecting (was connected, socket dropped). The promise is
+     real: while not connected the framework suspends submission and holds writes
+     (the optimistic store already shows them), flushing on reconnect (idempotent),
+     so nothing rolls back from a blip. Held writes live in memory only — a page
+     reload while offline drops anything unsent. (A terminal auth failure instead
+     fires onLoginRequired → redirect; it does not show this banner.) -->
+<div v-if="store.lmz.connection.state === 'reconnecting'" class="alert alert-warning">
+  Reconnecting — your changes are queued.
 </div>
 
 <!-- Disable a button while not connected. -->
@@ -168,47 +196,82 @@ For richer status UI (color-coded badges, "last connected X minutes ago" tooltip
 
 ## Current user (`client.claims`)
 
-The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID), `aud` (audience), `isAdmin`, and any other claims your auth provider mints. Frozen and stable for the client's lifetime (replaced on each token refresh).
+The decoded JWT payload is on `client.claims` — `sub` (subject, the user's stable ID — a bare UUID minted by nebula-auth), `aud` (audience), `access` (the user's scope grant — `{ authScopePattern, admin? }`), and any other claims your auth provider mints. The object is frozen; it is replaced wholesale on each token refresh (the values you key on — `sub`, `aud` — don't change within a session).
 
-```typescript @skip-check
-// Per-user keying — one resource per user, looked up by their JWT sub.
-const myList = store.resources.todoList[client.claims.sub]?.value;
+`client.claims` is `null` until the client's first token refresh completes, and `client` is not reactive — a `v-if` gated on it never re-evaluates. Studio-generated apps never see that window: the bootstrap top-level-awaits the factory's `ready` promise before the app mounts, so claims are populated before any component renders. That contract is pinned at [API reference § client.claims](./api-reference.md#clientclaims); the examples below rely on it. Outside a Studio bootstrap (admin tools, scripts), guard with `client.claims?.`.
+
+```html @skip-check
+<!-- Per-user keying — bind to this user's own list, looked up by their JWT sub. -->
+<h2 v-if="store.resources.todoList[client.claims.sub]?.value">Your list</h2>
 ```
 
-`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](../mesh/lumenize-client.md#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
+The same `client.claims.sub` keying works in script too — the [Forms](#forms-explicit-save) examples below use it as a transaction key.
 
-## Auto-subscribe
+### Gating admin-only UI
 
-Reading `store.resources.<rt>[<rid>].value.*` inside a Vue component (`setup()`, `computed`, template, `watch`) auto-subscribes that resource. The snapshot arrives via server fanout; the store updates; Vue re-renders. No manual `subscribe` call.
+"Admin" has **two** independent sources, and admin-only UI checks both:
 
-Multiple reads of the same resource within one component count as one subscription — read whatever fields you need, no aliasing tricks required.
+- **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./resources.md#access-control)). So you can't discover them from the tree; you read the claim.
 
-When the component unmounts, the subscription releases after a **2-second grace period** (configurable via `createNebulaClient({ unsubscribeGraceMs: ... })`). If a new component reads the same resource within that window — tab-switch back, modal close-then-reopen, `<KeepAlive>` swap, click-to-edit toggle — the pending release cancels and the subscription stays live with no re-subscribe round-trip.
+A `computed` that covers both:
+
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+import { computed } from 'vue';
+import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+import { store, client } from './nebula';
+
+const isAppAdmin = computed(() =>
+  client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+  store.lmz.orgTree?.value?.permissions
+    .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
+);
+```
+
+```html @skip-check
+<button v-if="isAppAdmin" class="btn">Admin settings</button>
+```
+
+`isAppAdmin` is a **UI gate, not an authorization boundary.** It reads `store.lmz.orgTree` (client-held, freely mutable in the browser) and `client.claims`, so it only decides what *renders* — it is not a security check. Every privileged operation behind it is re-authorized server-side (`requirePermission` / the org-tree cascade on each transaction; the JWT `aud`-lock on each mesh call). Never let a generated app treat a passing `isAppAdmin` as sufficient to expose an action whose server endpoint lacks its own permission check.
+
+`client.claims` is the client-side counterpart of `originAuth.claims` server-side. See [mesh: LumenizeClient](/docs/mesh/lumenize-client#client-identity-clientclaims) for the surface and [Nebula auth flows](./auth-flows.md) for how the JWT is issued.
+
+## Subscription lifecycle
+
+Auto-subscribe is already at work in the examples above — any `store.resources.*` read inside a component (`setup()`, `computed`, template, `watch`) subscribes that resource, with no manual `subscribe` call. This section is about the rest of the lifecycle: how live subscriptions are coalesced, and how they're released when components go away.
+
+Subscriptions are reference-counted across the whole app. Reading the same resource from several places — multiple fields in one component, or several mounted components showing it at once — shares one subscription; the count tracks how many live references it has.
+
+When a component unmounts, its reference drops. The subscription starts releasing only when the count reaches zero (the last component using the resource has gone away), and even then waits a **2-second grace period** (configurable via `createNebulaClient({ unsubscribeGraceMs: ... })`). If a new read appears within that window — tab-switch back, modal close-then-reopen, `<KeepAlive>` swap, click-to-edit toggle — the pending release cancels and the subscription stays live with no re-subscribe round-trip.
 
 ```html @skip-check
 <!-- Click-to-edit. Toggling between the <h2> and <input> unmounts one and
      mounts the other — the subscription to store.resources.todo[id] survives
      the toggle because both reads happen well within the 2 s grace window. -->
-<h2 v-if="!store.ui.editingTitle" @click="store.ui.editingTitle = true">
-  {{ store.resources.todo[id].value.title }}
-</h2>
-<input v-else v-model="store.resources.todo[id].value.title"
-       @blur="store.ui.editingTitle = false" />
+<template v-if="store.resources.todo[id]?.value">
+  <h2 v-if="!store.ui.editingTitle" @click="store.ui.editingTitle = true">
+    {{ store.resources.todo[id].value.title }}
+  </h2>
+  <input v-else v-model="store.resources.todo[id].value.title"
+         @blur="store.ui.editingTitle = false" />
+</template>
 ```
 
 For non-component cases (warming a cache before navigation, scripting, headless tests), call `client.resources.subscribe(rt, rid)` directly. The returned handle is `Disposable` — use `using` for auto-release on scope exit, or call `client.resources.unsubscribe(rt, rid)` manually if subscribe and unsubscribe happen in different places. See [API reference § resources.subscribe](./api-reference.md#resourcessubscribe).
+
+Two parts of the lifecycle need no UI code: after a dropped connection reconnects, live subscriptions re-subscribe themselves; and deploying a new app version clears server-side subscriptions and triggers a refresh (`onShouldRefreshUI`).
 
 ## Plain Vue state
 
 Anything **not** under `store.resources.*` is plain Vue reactive state. Two common patterns:
 
 - **Instance-local** — Vue's [`ref` / `reactive`](https://vuejs.org/api/reactivity-core.html) inside `<script setup>`.
-- **Shared across components or persists across remount** — put it on the store under a non-reserved prefix, typically `store.ui.*` (transient UI state like form drafts) or `store.app.*` (app-wide state like the current view).
+- **Shared across components or persists across remount** — put it on the store under a non-reserved prefix, typically `store.ui.*` (transient UI state like form drafts) or `store.app.*` (app-wide state like the current view). The factory pre-seeds `store.ui` and `store.app` as empty objects, so first-level use (`store.ui.editingTitle = true`, `v-if="!store.ui.editingTitle"`) works with no setup.
 
-Both kinds of state need initialization before being used as a `v-model` target (no `?.` chains allowed). They initialize differently:
+Deeper state needs initialization before being used as a `v-model` target. The two kinds initialize differently:
 
 - **`store.resources.*`** — create the resource on the server, typically via `client.resources.transaction({ ... op: 'create' ... })`. See [Atomic append](#atomic-append--adding-to-a-collection) for the pattern.
-- **Plain Vue state** — initialize the intermediate objects locally. `v-model="store.ui.todoForm.draft.title"` requires `store.ui.todoForm.draft` to already exist. Initialize in `store.ts` at module load or in `onMounted` — see [Forms: explicit save](#forms-explicit-save).
+- **Plain Vue state** — initialize the intermediate objects locally; the factory does NOT auto-vivify under non-reserved prefixes. `v-model="store.ui.todoForm.draft.title"` requires `store.ui.todoForm.draft` to already exist. Initialize in `nebula.ts` at module load or in `onMounted` — see [Forms: explicit save](#forms-explicit-save).
 
 
 ## Lists with `v-for`
@@ -219,7 +282,6 @@ For lists of resources, use a **container resource** whose value holds an array 
 // Ontology (.d.ts-style file)
 interface TodoList {
   items: string[];        // IDs of Todo resources, in display order
-  openCount: number;      // denormalized count where status === 'open'
 }
 
 interface Todo {
@@ -241,29 +303,77 @@ interface Todo {
 </ul>
 ```
 
-The container is keyed per user — `('todoList', client.claims.sub)` — so each user has their own list, looked up by their JWT subject. The per-user `todoList` resource is created on first use (server-side, on the user's signup flow).
+A count like "open todos" is a **client-side computed**, derived from the subscribed todos — not a stored field. It recomputes automatically on any change (a local edit, a server fanout, or a committed transaction all mutate the reactive store), so it always matches what's on screen:
 
-Inline arrays of embedded objects (e.g., `assignees`) iterate the same way without auto-subscribing per item — the embedded object's fields are right there.
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+import { computed } from 'vue';
+
+const openCount = computed(() =>
+  (store.resources.todoList[client.claims.sub]?.value?.items ?? [])
+    .filter(id => store.resources.todo[id]?.value?.status === 'open').length
+);
+```
+
+(Storing such an aggregate on the resource — for cross-view display without loading the items, or for time-series analytics over history — needs a server-enforced derived-field invariant, a future ontology capability. Until then, keep aggregates client-computed.)
+
+The container is keyed per user — `('todoList', client.claims.sub)` — so each user has their own list, looked up by their JWT subject. Subscribing to a resource that doesn't exist yet is a server-side error, so the app creates the list on first visit: read, then create if absent. This runs in `nebula.ts` after `await ready` (claims are populated, and module evaluation finishes before any component renders):
+
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+// nebula.ts (after `await ready`)
+import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
+const sub = client.claims.sub;
+
+// Create the list under a node the user can write to. This demo signs in as
+// the Star's founder, who holds `admin` on the root node (granted when the
+// Star was created), so resources attach under ROOT_NODE_ID. In a multi-user
+// app, attach under whatever node the user was granted — see "Mutating the
+// org/permission tree" for how access is granted.
+if (await client.resources.read('todoList', sub) === null) {
+  const outcome = await client.resources.transaction({
+    [sub]: { op: 'create', typeName: 'todoList', nodeId: ROOT_NODE_ID,
+             value: { items: [] } },
+  });
+  // A single-resource create commits iff the top-level outcome is 'committed'
+  // (atomicity ⟹ if the batch committed, the create landed). Any failure is NOT
+  // 'committed': permission/validation → 'rejected'; a lost first-create race
+  // ("already exists") → 'infrastructure-error' today (M11 may reclassify it).
+  // Race-safe: when not created, re-read to disambiguate — the list now exists (a
+  // tab won the race, proceed) or it genuinely doesn't (a real failure to surface).
+  const created = outcome.kind === 'committed';
+  if (!created && await client.resources.read('todoList', sub) === null) {
+    throw new Error('Could not create your list — check your connection and reload.');
+  }
+}
+```
+
+(A node the user can write to is the only prerequisite; the founder gets one — `admin` on root — at Star creation. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
+
+By contrast, a field whose elements are **inline objects** — composition *within* this one resource, e.g. a todo's `checklist: { text, done }[]` — iterates the same way but without auto-subscribing per item; the fields are right there in the value. The distinction is by type: a field typed as **another ontology type** (e.g. `assignees: User[]`) is a *relationship*, stored by id and read like `items` above — one auto-subscribe per id — never an embedded object; nesting is for inline composition only (see [Resources](./resources.md)).
 
 This works up to ~hundreds of items. Beyond that, a query language is the right tool — deferred for now.
 
 ### Atomic append — adding to a collection
 
-Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a set-union of `items` — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
+Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a **set-union of `items`** — so neither client's just-added id is dropped (a plain `'use-server'` would orphan the loser's new todo) — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 async function addTodo(title: string) {
   const newId = crypto.randomUUID();
-  const list = store.resources.todoList[client.claims.sub]?.value;
+  const listSnap = store.resources.todoList[client.claims.sub];
+  const list = listSnap?.value;
+  if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
   // Both ops in one call → atomic. Either both commit or neither does.
-  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag.
+  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+  // a missing baseline (resource never subscribed) THROWS synchronously here
+  // rather than returning a non-committed outcome — the v-if/snapshot guard above
+  // prevents that. The new todo attaches under the same tree node as the list
+  // (meta.nodeId, not value — nodeId is server-managed metadata).
   const outcome = await client.resources.transaction({
-    [newId]:             { op: 'create', typeName: 'todo', nodeId: list.nodeId,
+    [newId]:             { op: 'create', typeName: 'todo', nodeId: listSnap.meta.nodeId,
                            value: { title, description: '', status: 'open' } },
     [client.claims.sub]: { op: 'put',    typeName: 'todoList',
-                           value: { ...list, items: [...list.items, newId],
-                                    openCount: list.openCount + 1 } },
+                           value: { ...list, items: [...list.items, newId] } },
   });
   // error handling on outcome goes here
 }
@@ -282,50 +392,50 @@ Stock Vue. The one Nebula-relevant note: subscriptions inside an unmounted branc
 
 ## Forms: explicit save
 
-For multi-field forms that should commit together (rather than per-keystroke transactions), bind inputs to a local draft path and submit on click. Each form keeps its draft under its own `store.ui.<formName>.draft` path. The per-type handler clears the draft on commit and surfaces per-resource problems — register once in `store.ts`. (For the full set of resolution branches and how each affects the draft, see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).)
+For multi-field forms that should commit together (rather than per-keystroke transactions), bind inputs to a local draft path and submit on click. Each form keeps its draft under its own `store.ui.<formName>.draft` path.
 
-```typescript @skip-check
-// store.ts (alongside the createNebulaClient call)
-client.resources.onTransactionResourceResolution('todo', (rid, resolution) => {
-  switch (resolution.kind) {
-    case 'committed':         store.ui.todoForm.draft = undefined; break;
-    case 'validation-failed': store.ui.todoForm.validationErrors = resolution.errors; break;
-    case 'permission-denied': store.ui.todoForm.saveError = { kind: 'permission-denied', rid }; break;
-    // 'use-server' and 'retries-exhausted' trigger the default red-flash.
-  }
-});
-```
+Form-scoped reactions — clear the draft on commit, surface validation errors next to fields — belong in a **per-call handler** passed to that save's `transaction()` call, NOT in the per-type handler: the per-type handler fires on *every* transaction touching the type (debounced `v-model` edits, other forms, list mutations), so form state wired there gets clobbered by unrelated commits. Keep the per-type handler (registered once in `nebula.ts`) for type-wide policy — conflict verdicts, custom flashes; see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler). Per-call handlers are **keyed by `resourceId`** — `{ 'task-42': handler }` — so each handles only its own resource, and any sibling in the batch falls through to its per-type handler automatically (the per-call entry layers in front of its resource's per-type handler — it does not replace it; see [API reference § Precedence](./api-reference.md#precedence)).
+
+Mount the form only after the resource's snapshot has arrived — the same `v-if` guard from [Loading and first paint](#loading-and-first-paint): `<TodoForm v-if="store.resources.todo['task-42']?.value" />`. Seeding the draft before the snapshot lands would stage blank values that Save then commits over the real data (the eTag auto-derive matches, so no conflict fires to stop it).
 
 ```vue @skip-check
-<!-- TodoForm.vue — local draft → explicit transaction on submit. -->
+<!-- TodoForm.vue — local draft → explicit transaction on submit.
+     Parent mounts it only once the snapshot exists (see above). -->
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import { store, client } from './store';
+import { store, client } from './nebula';
 
-// Init the draft on first mount. Both store.ui.todoForm and .draft must exist
-// as objects before v-model can bind nested fields (the factory does NOT
-// auto-vivify intermediate objects under non-reserved prefixes).
+// Seed the draft from the synced value on first mount. store.ui.todoForm must
+// exist as an object before v-model can bind nested fields (the factory
+// pre-seeds store.ui itself, but not intermediates).
 onMounted(() => {
   if (!store.ui.todoForm) store.ui.todoForm = {};
-  store.ui.todoForm.draft = { ...(store.resources.todo['task-42']?.value
-    ?? { title: '', description: '', status: 'open' }) };
+  store.ui.todoForm.draft = { ...store.resources.todo['task-42'].value };
 });
 
 async function saveTodo() {
   const draft = store.ui.todoForm.draft;
-  const currentStatus = store.resources.todo['task-42']?.value?.status;
-  const list = store.resources.todoList[client.claims.sub]?.value;
-  // Status changes shift openCount; title/description-only edits don't.
-  const delta = (draft.status === 'open' ? 1 : 0) - (currentStatus === 'open' ? 1 : 0);
-
+  // A status change needs no coordinated write — openCount is a client computed —
+  // so saving a todo is a single-resource put.
   const outcome = await client.resources.transaction({
     'task-42': { op: 'put', typeName: 'todo', value: draft },
-    ...(delta !== 0 && {
-      [client.claims.sub]: { op: 'put', typeName: 'todoList',
-                             value: { ...list, openCount: list.openCount + delta } },
-    }),
+  }, {
+    // Per-call handlers are keyed by resourceId — this one handles 'task-42'.
+    // (In a multi-resource batch, any resource not listed here falls through to
+    // its per-type handler automatically — no rid filtering, no shadowing. See
+    // API reference § Precedence; e.g. addTodo lets todoList fall through to its
+    // per-type set-union handler.)
+    onTransactionResourceResolution: {
+      'task-42': (rid, resolution) => {
+        switch (resolution.kind) {
+          case 'committed':         store.ui.todoForm.draft = undefined; break;
+          case 'validation-failed': store.ui.todoForm.validationErrors = resolution.errors; break;
+          case 'permission-denied': store.ui.todoForm.saveError = { kind: 'permission-denied', rid }; break;
+        }
+      },
+    },
   });
-  // error handling on outcome goes here
+  // transaction-wide failures (timeout, infrastructure-error) handled here
 }
 </script>
 
@@ -351,7 +461,7 @@ Each recursive instance auto-subscribes to its own resource (the foreign-key pat
 ```vue @skip-check
 <!-- TreeNode.vue -->
 <script setup lang="ts">
-import { store } from './store';
+import { store } from './nebula';
 
 defineProps<{ nodeId: string }>();
 </script>
@@ -372,95 +482,74 @@ defineProps<{ nodeId: string }>();
 </template>
 ```
 
-```vue @skip-check
-<!-- App.vue — mount the recursive tree at a known root id. -->
-<script setup lang="ts">
-import TreeNode from './TreeNode.vue';
-
-const rootId = '1';   // root resource id; subscribed via the first read inside TreeNode
-</script>
-
-<template>
-  <TreeNode :node-id="rootId" />
-</template>
-```
+Mount the recursive component from any parent at a known root id: `<TreeNode :node-id="rootId" />`.
 
 
 ## Mutating the org/permission tree
 
-The tree itself is mutable through `client.dagTree.*` methods. Each method requires the caller to hold a specific permission on the target node — `admin` for permission grants, `write` for structural changes (create, edge, move, delete, rename). Failures reject the returned Promise.
+The tree itself is mutable through `client.orgTree.*` methods. Each method requires the caller to hold a specific permission on the target node — `admin` for permission grants, `write` for structural changes (create, reparent, delete, rename, relabel; edge ops check the parent). The one hybrid is `addEdge`, which also requires `admin` on the *child*: adding a parent edge widens who has access to the child's subtree, so the child side demands `setPermission`'s tier. Failures reject the returned Promise.
 
-```typescript @skip-check
-// Grant a permission. `sub` is the user's JWT subject claim (typically
-// `user:<id>` or `group:<id>`). `level` is 'read' (view), 'write' (edit),
-// or 'admin' (edit + manage permissions + structural changes).
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+// Grant a permission. `sub` is a JWT subject claim — a bare UUID (the current
+// user's is client.claims.sub; other users' subs come from wherever your app
+// stores its member list). `level` is 'read' (view), 'write' (edit +
+// structural changes), or 'admin' (write + manage permissions).
 // Caller must hold `admin` on `nodeId`.
-await client.dagTree.setPermission(nodeId, 'user:bob', 'read');
+await client.orgTree.setPermission(nodeId, bobsSub, 'read');
 
 // Revoke. Idempotent — no-op if `sub` has no grant on this node.
-await client.dagTree.revokePermission(nodeId, 'user:bob');
+await client.orgTree.revokePermission(nodeId, bobsSub);
 
-// Create a child node. Slug must match `[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?`
-// and be unique among siblings. Caller must hold `write` on `parentNodeId`.
-// Returns the new node's integer id.
-const listShoppingId = await client.dagTree.createNode(
+// Create a child node (slug rules and return shape: see API reference).
+// Caller must hold `write` on `parentNodeId`.
+const listShoppingId = await client.orgTree.createNode(
   userAliceNodeId, 'list-shopping', 'Shopping',
 );
 
-// Co-ownership sharing — the second-parent pattern from Resources §
-// Access control. Adds an edge so `listShoppingId` becomes a child of
-// both `user-alice` AND `user-bob`. Bob's existing `admin` on `user-bob`
-// now cascades to the list. Caller must hold `write` on the new parent.
-await client.dagTree.addEdge(userBobNodeId, listShoppingId);
+// Co-ownership sharing — the two-party share-accept flow from Resources §
+// Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
+// the list.
+await client.orgTree.setPermission(listShoppingId, bobsSub, 'admin');
+
+// Step 2, recipient accepts (runs as Bob): the edge makes the list a child
+// of both user-alice AND user-bob, so Bob's admin on user-bob now cascades
+// to it. addEdge requires `write` on the new parent + `admin` on the child.
+await client.orgTree.addEdge(userBobNodeId, listShoppingId);
+
+// Step 3, optional cleanup (either co-owner): the direct grant from step 1
+// is redundant once the edge cascades.
+await client.orgTree.revokePermission(listShoppingId, bobsSub);
 
 // "Remove from my account" = delete only this user's edge to the list.
 // The list lives on under its other parents.
-await client.dagTree.removeEdge(userBobNodeId, listShoppingId);
+await client.orgTree.removeEdge(userBobNodeId, listShoppingId);
 ```
 
-The full surface (`moveNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [API reference § client.dagTree](./api-reference.md#clientdagtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./resources.md#access-control).
+The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`) is at [API reference § client.orgTree](./api-reference.md#clientorgtree). For the conceptual model (cascading permissions, the two sharing approaches, when to use which), see [Resources § Access control](./resources.md#access-control).
 
 ## Worked example: rendering the built-in tree
 
-**Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.resources.lmz.dag.value` (visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape so it can grey out inaccessible nodes locally). Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
+**Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./resources.md#access-control) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
 
-A pre-built `<NebulaPermissionTree>` component will likely ship from `@lumenize/nebula-frontend` for the default tree-view case. The from-scratch example below is useful regardless: it's the right starting point when the pre-built doesn't fit your UX, AND it's the blueprint for what the framework-shipped component does internally.
+The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./resources.md#access-control) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
 
-The example pulls together: a single subscribe to the framework-reserved tree resource, walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./resources.md#access-control) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+### The tree shape
 
-### The tree resource shape
+`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
 
-`store.resources.lmz.dag.value` is a `DagTreeState` (the type name reflects the underlying graph-theory term — see [Resources § Access control](./resources.md#access-control)):
-
-```typescript @skip-check
-// Imported from '@lumenize/nebula/client'.
-interface DagTreeState {
-  nodes: Map<number, {
-    slug: string;
-    label: string;
-    deleted: boolean;
-    parentIds: number[];      // foreign-key edges to parent node integers
-    childIds:  number[];
-  }>;
-  permissions: Map<number, Map<string, 'admin' | 'write' | 'read'>>;
-}
-```
-
-Subscribing to `('lmz', 'dag')` once seeds the value; subsequent server-side mutations fan out a fresh snapshot through the same `handleResourceUpdate` path as any other resource.
+The tree is subscribed once on connect and kept current at `store.lmz.orgTree`; every server-side mutation broadcasts a fresh snapshot to all connected clients (the actor included — `client.orgTree.*` has no optimistic local write, so the broadcast echo is what updates your own store). The delivery is tagged `new-in-v3` — see [API reference § OrgTreeState](./api-reference.md#orgtreestate).
 
 The framework reserves the `lmz` resourceType for its own resources (mirrors the `lmz.*` reserved prefix used for non-resource paths like `lmz.connection.*` — anything under `lmz` in either reserved namespace is framework territory).
 
-> **Implementation status (2026-05-15):** the `('lmz', 'dag')` binding is the pinned design but the server-side `DagTree.#onChanged` → `Star.#fanout` rewire is not yet wired up. Tracked in [tasks/nebula-frontend.md § DAG-tree-as-special-resource](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md). Wire-format on mutation (full snapshot vs. eTag-bump-and-pull vs. op-broadcast) is also still open; the client-facing API in this section doesn't depend on which server option is picked.
+**Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `OrgTreeNode` instance with independent per-instance state automatically.
 
-**Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `TreeNode` instance with independent per-instance state automatically.
-
-**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. The slug regex (`^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`) rejects underscores, so these IDs can't collide with anything a user could create. Real tree nodes have integer `nodeId`; the derived `TreeNodeData.id` is a string — `String(nodeId)` for real nodes, `__virtual__` strings for virtual branches.
+**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have integer `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is all digits for every real node; the underscore-prefixed virtual IDs can't collide with anything real.
 
 ### Derivation helpers (`tree.ts`)
 
 ```typescript @skip-check
-// tree.ts — shape + derivation helpers used by App.vue and TreeNode.vue.
-import { ROOT_NODE_ID, type DagTreeState } from '@lumenize/nebula/client';
+// tree.ts — shape + derivation helpers used by App.vue and OrgTreeNode.vue.
+import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/nebula/frontend';
 
 export interface TreeNodeData {
   id: string;                                       // String(nodeId) for real nodes; '__deleted__' / '__orphaned__' for virtuals
@@ -477,39 +566,34 @@ export interface TreeNodeData {
 // label into labelRuns = [{text, match: boolean}, ...] so the template can
 // render match highlighting safely without v-html.
 export function deriveTreeWithVirtuals(
-  dag: DagTreeState,
+  orgTree: OrgTreeState,
   query: string,
 ): TreeNodeData {
-  // Reads dag.nodes.get(ROOT_NODE_ID), then recursively follows childIds
-  // through dag.nodes.get(childId) for each. Map.get(...) is O(1).
+  // Build the adjacency view once (childrenByParent / parentsByChild from
+  // orgTree.edges), then walk from ROOT_NODE_ID: view.childrenByParent.get(id)
+  // for each node's children, orgTree.nodes.get(id) for its {slug, label, deleted}.
+  const view = buildOrgTreeView(orgTree);
   return { /* root TreeNodeData */ } as TreeNodeData;
 }
 
-// For each node whose labelRuns contains a match, adds every id in `ancestors`
-// to `ids`, then recurses into children with this node's id appended to
-// `ancestors`.
+// For each node whose labelRuns contains a match, adds every ancestor id to
+// `ids` (App.vue provides the result as the auto-expand set).
 export function walkAndCollectAncestorsOfMatches(
-  tree: TreeNodeData,
-  ancestors: string[],
-  ids: Set<string>,
-): void {
-  // ...
-}
+  tree: TreeNodeData, ancestors: string[], ids: Set<string>,
+): void { /* ... */ }
 ```
 
-### Component (`TreeNode.vue`)
+### Component (`OrgTreeNode.vue`)
 
 ```vue @skip-check
-<!-- TreeNode.vue — recursive tree row + child list. -->
+<!-- OrgTreeNode.vue — recursive tree row + child list. -->
 <script setup lang="ts">
 import { ref, inject, watch, type Ref } from 'vue';
 import type { TreeNodeData } from './tree';
 
-// Capture the props object so script-side code can read `props.node.id`
-// (defineProps<...>() without a binding only exposes props in the template).
 const props = defineProps<{ node: TreeNodeData }>();
 
-// Per-instance state: each TreeNode instance has its own isOpen.
+// Per-instance state: each OrgTreeNode instance has its own isOpen.
 const isOpen = ref(false);
 const toggleOpen = () => { isOpen.value = !isOpen.value; };
 
@@ -536,9 +620,8 @@ watch(
             :class="{ 'bg-warning': run.match }">{{ run.text }}</span>
     </span>
 
-    <!-- Recursion: each child gets its own TreeNode instance with its own isOpen. -->
     <ul v-if="isOpen">
-      <TreeNode v-for="child in node.children" :key="child.id" :node="child" />
+      <OrgTreeNode v-for="child in node.children" :key="child.id" :node="child" />
     </ul>
   </li>
 </template>
@@ -550,25 +633,26 @@ watch(
 <!-- App.vue — search input + tree derivation + provide auto-expand set. -->
 <script setup lang="ts">
 import { computed, provide, onMounted } from 'vue';
-import type { DagTreeState } from '@lumenize/nebula/client';
-import { store } from './store';
-import TreeNode from './TreeNode.vue';
+import type { OrgTreeState } from '@lumenize/nebula/frontend';
+import { store } from './nebula';
+import OrgTreeNode from './OrgTreeNode.vue';
 import { deriveTreeWithVirtuals, walkAndCollectAncestorsOfMatches,
   type TreeNodeData } from './tree';
 
 onMounted(() => { if (!store.ui.search) store.ui.search = { query: '' }; });
 
-// First read of store.resources.lmz.dag triggers auto-subscribe to ('lmz', 'dag').
-// Re-runs when the server pushes a new DagTreeState or the query changes.
+// The org tree is delivered on a dedicated channel (subscribed on connect) and
+// kept current at store.lmz.orgTree — read it reactively here.
+// Re-runs when the server pushes a new OrgTreeState or the query changes.
 // Vue 3's reactivity tracks Map.get / Map iteration natively.
 const tree = computed<TreeNodeData | null>(() => {
-  const dag = store.resources.lmz?.dag?.value as DagTreeState | undefined;
-  if (!dag) return null;
-  return deriveTreeWithVirtuals(dag, (store.ui.search?.query ?? '').toLowerCase());
+  const orgTree = store.lmz.orgTree?.value as OrgTreeState | undefined;
+  if (!orgTree) return null;
+  return deriveTreeWithVirtuals(orgTree, (store.ui.search?.query ?? '').toLowerCase());
 });
 
 // Pure derivation (returns a Set, doesn't mutate component state) — every
-// TreeNode instance rendered at the same id (multi-parent positions) sees
+// OrgTreeNode instance rendered at the same id (multi-parent positions) sees
 // the same set independently.
 const expansionsForQuery = computed<Set<string>>(() => {
   const t = tree.value;
@@ -583,6 +667,6 @@ provide('expansionsForQuery', expansionsForQuery);
 
 <template>
   <input v-if="store.ui.search" v-model="store.ui.search.query" placeholder="Search…" />
-  <ul v-if="tree"><TreeNode :node="tree" /></ul>
+  <ul v-if="tree"><OrgTreeNode :node="tree" /></ul>
 </template>
 ```

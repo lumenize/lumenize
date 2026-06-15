@@ -8,10 +8,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RequestSync, ResponseSync, stringify } from '@lumenize/structured-clone';
 
-interface Env {
-  TEST_TOKEN: string;
-}
-
 export class TestEndpointsDO extends DurableObject<Env> {
   /**
    * RPC method: Start tracking requests (default: on)

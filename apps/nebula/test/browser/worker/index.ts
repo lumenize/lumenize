@@ -21,6 +21,10 @@
 
 import { entrypoint } from '@lumenize/nebula';
 import { env } from 'cloudflare:workers';
+import { routeAgentRequest } from 'agents';
+
+export { BenchAgent } from './bench-agent';
+export { BenchFanoutTier } from './bench-fanout-tier';
 
 export {
   Universe,
@@ -72,6 +76,12 @@ export default {
       const colo = (request as any).cf?.colo ?? 'unknown';
       return Response.json({ workerColo: colo });
     }
+
+    // Route /agents/* to the Cloudflare Agents routing layer (used by the
+    // fanout-scaling bench's BenchAgent comparison side). Returns null for
+    // non-matching paths so the request falls through to the Nebula entry.
+    const agentResponse = await routeAgentRequest(request, env as any);
+    if (agentResponse) return agentResponse;
 
     if (url.pathname === '/bench/cross-region-star') {
       const jurisdiction = url.searchParams.get('jurisdiction');

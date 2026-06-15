@@ -80,7 +80,7 @@ async function setupSubscribedClient(star: string) {
   // Subscribe via the public API so #subscriptionRegistry is populated —
   // that's what #resubscribeAll() walks. (The test-initiator
   // `callStarSubscribe` bypasses the registry by calling lmz directly.)
-  await a.client.resources.subscribe('TestResource', resourceId);
+  await a.client.resources.subscribe('TestResource', resourceId).snapshot;
   // resourceUpdateCount is incremented inside the NebulaClientTest override
   // of handleResourceUpdate, which fires once on the initial-snapshot push.
   expect(a.client.resourceUpdateCount).toBeGreaterThanOrEqual(1);
@@ -149,7 +149,7 @@ describe('nebula-client reconnect re-subscribe (5.3.4a)', () => {
       baseUrl: ORIGIN,
       authScope: star,
       activeScope: star,
-      ontologyVersion: ONTOLOGY_VERSION,
+      appVersion: ONTOLOGY_VERSION,
       instanceName: aInstanceName,
       accessToken: a.accessToken,
       fetch: browserB.fetch,

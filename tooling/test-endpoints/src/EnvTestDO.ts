@@ -20,11 +20,16 @@ interface ConstructorRun {
   runNumber: number;
 }
 
-export class EnvTestDO extends DurableObject<Env> {
+// DEBUG is a var in this package's wrangler.jsonc, but this source is also
+// compiled under consumer programs (e.g. packages/fetch tests) whose
+// generated Env lacks it — widen structurally instead of relying on Env.
+type EnvTestEnv = Env & { DEBUG?: string };
+
+export class EnvTestDO extends DurableObject<EnvTestEnv> {
   #debugFromConstructor: string;
   #constructorTimestamp: number;
-  
-  constructor(ctx: DurableObjectState, env: Env) {
+
+  constructor(ctx: DurableObjectState, env: EnvTestEnv) {
     super(ctx, env);
     
     this.#constructorTimestamp = Date.now();
@@ -180,9 +185,5 @@ export class EnvTestDO extends DurableObject<Env> {
       headers: { 'Content-Type': 'application/json' }
     });
   }
-}
-
-interface Env {
-  DEBUG?: string;
 }
 

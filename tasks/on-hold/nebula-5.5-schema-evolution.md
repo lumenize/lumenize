@@ -27,7 +27,7 @@ The ground laid by 5.2.4.2 is most of the lazy-migration foundation:
 
 Add a compiled-JS-module field alongside `validatorBundle`. The first version has no migrations (no predecessor); v2 onward has migrations FROM v(N-1) TO vN. Compiled at `appendOntologyVersion()` time inside `compileOntologyVersion()`, same eager-failure model as the validator bundle.
 
-User authors migrations as TS source — strings in the version config, not real functions (vibe-coder code → must be compiled into a sandboxable bundle). Real-function input should still work for standalone package use and unit tests, but Nebula's path is string-only.
+User authors migrations as TS source — strings in the version config, not real functions (user-developer code → must be compiled into a sandboxable bundle). Real-function input should still work for standalone package use and unit tests, but Nebula's path is string-only.
 
 ### Migration-bundle generator
 
@@ -91,12 +91,12 @@ Decide:
 
 ### Migration error handling
 
-If a migration throws (vibe-coder-supplied code can be wrong), what does the read return?
+If a migration throws (user-developer-supplied code can be wrong), what does the read return?
 - The original (un-migrated) data with a typed error indication?
 - An error to the client, with the resource frozen at the old version until the migration is fixed?
 - A partial migration — apply what worked, leave the rest?
 
-Probably "error to the client with which version + which type + what failed" — same shape as the parse-validate error path. Vibe coders need enough info to fix the migrate function. The resource staying at the old version is a feature: the bad migration doesn't corrupt storage.
+Probably "error to the client with which version + which type + what failed" — same shape as the parse-validate error path. User-developers need enough info to fix the migrate function. The resource staying at the old version is a feature: the bad migration doesn't corrupt storage.
 
 ### Standalone package extraction
 

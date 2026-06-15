@@ -374,7 +374,7 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
         baseUrl,
         authScope: galaxyScope,
         activeScope: galaxyScope,
-        ontologyVersion: 'v1',
+        appVersion: 'v1',
         fetch: browser.fetch,
         sessionStorage: ctx.sessionStorage,
         BroadcastChannel: ctx.BroadcastChannel,
