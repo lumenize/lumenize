@@ -49,6 +49,19 @@ export type { TransactionOutcome, TransactionResourceResolution, ResourceHandler
  */
 export type OperationDescriptor = EngineOp;
 
+/**
+ * A `using`-compatible subscription handle returned by
+ * {@link NebulaClient.resources.subscribe}. `snapshot` resolves with the initial
+ * snapshot on the first server push for `(rt, rid)` (subsequent fanout updates
+ * write through to bound state but do not re-resolve it). `[Symbol.dispose]()`
+ * is per-handle (idempotent); the server-side subscription releases when the
+ * **last** handle for `(rt, rid)` disposes (refcounted — mirrors the factory's
+ * auto-subscribe). api-reference § client.resources.subscribe is the contract.
+ */
+export interface ResourceSubscription extends Disposable {
+  readonly snapshot: Promise<Snapshot | null>;
+}
+
 export interface OntologyStaleInfo {
   reason: 'ontology-stale';
   clientVersion: string;
@@ -240,6 +253,16 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * is minimal — just enough to know what's subscribed.
    */
   #subscriptionRegistry = new Map<SubscribeKey, { resourceType: string; resourceId: string }>();
+
+  /**
+   * Per-`(rt, rid)` subscription-handle refcount. Both `using` handles from
+   * `resources.subscribe(...)` and the factory's auto-subscribe (one held handle
+   * per component-bound resource) increment it; each `[Symbol.dispose]()` /
+   * standalone `unsubscribe` decrements. The server-side `Star.unsubscribe`
+   * fires only when the count reaches zero (the last interested party released),
+   * so component bindings and explicit handles both keep the subscription open.
+   */
+  #subscribeRefcount = new Map<SubscribeKey, number>();
 
   /**
    * In-flight `subscribe(rt, rid)` Promises awaiting their first
@@ -520,18 +543,34 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     },
 
     /**
-     * Subscribe to a resource. Resolves with the initial snapshot on the
-     * first `handleResourceUpdate` for `(rt, rid)`. Subsequent updates are
-     * fanout pushes that write through to bound state but do not re-resolve.
+     * Subscribe to a resource. Returns a `using`-compatible
+     * {@link ResourceSubscription} handle synchronously (the subscriber row is
+     * registered immediately); the initial snapshot arrives asynchronously on
+     * `.snapshot`, which resolves on the first `handleResourceUpdate` for
+     * `(rt, rid)` (subsequent fanout pushes write through to bound state but do
+     * not re-resolve). Each call increments the per-`(rt, rid)` handle refcount;
+     * `[Symbol.dispose]()` decrements (per-handle, idempotent) and issues
+     * `Star.unsubscribe` only when the last handle releases.
      *
-     * If a pending subscribe for the same `(rt, rid)` already exists, the
-     * returned Promise piggybacks on that pending settlement instead of
-     * issuing a duplicate request — Star's `INSERT OR REPLACE` would no-op
-     * anyway, and clients calling subscribe multiple times for the same key
-     * should observe a single first-snapshot resolve.
+     * If a pending subscribe for the same `(rt, rid)` already exists, `.snapshot`
+     * piggybacks on that pending settlement instead of issuing a duplicate
+     * request — Star's `INSERT OR REPLACE` would no-op anyway, and clients
+     * calling subscribe multiple times for the same key should observe a single
+     * first-snapshot resolve.
      */
-    subscribe: (resourceType: string, resourceId: string): Promise<Snapshot | null> => {
-      return this.#subscribeResource(resourceType, resourceId);
+    subscribe: (resourceType: string, resourceId: string): ResourceSubscription => {
+      const key = `${resourceType}:${resourceId}`;
+      this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
+      const snapshot = this.#subscribeResource(resourceType, resourceId);
+      let disposed = false;
+      return {
+        snapshot,
+        [Symbol.dispose]: (): void => {
+          if (disposed) return; // per-handle idempotent
+          disposed = true;
+          this.#disposeSubscription(resourceType, resourceId);
+        },
+      };
     },
 
     /**
@@ -593,16 +632,34 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     },
 
     /**
-     * Release a subscription. The factory owns the refcount + grace period, so
-     * by the time this fires the framework has decided to drop the server-side
-     * subscription. Drops the local registry entry first (a reconnect mid-call
-     * can't resurrect it), then issues `Star.unsubscribe`.
+     * Release a subscription. **Equivalent to one `[Symbol.dispose]()`** on a
+     * {@link ResourceSubscription} handle — decrements the per-`(rt, rid)` handle
+     * refcount and issues `Star.unsubscribe` only when the last handle releases.
+     * Use this standalone form when the subscribe and release sites legitimately
+     * differ; otherwise prefer the `using` handle.
      */
     unsubscribe: (resourceType: string, resourceId: string): void => {
-      this.#subscriptionRegistry.delete(`${resourceType}:${resourceId}`);
-      this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+      this.#disposeSubscription(resourceType, resourceId);
     },
   };
+
+  /**
+   * Decrement the per-`(rt, rid)` handle refcount; on the last release, drop the
+   * local registry entry first (a reconnect mid-call can't resurrect it) then
+   * issue `Star.unsubscribe`. Shared by handle `[Symbol.dispose]()` and the
+   * standalone `unsubscribe`.
+   */
+  #disposeSubscription(resourceType: string, resourceId: string): void {
+    const key = `${resourceType}:${resourceId}`;
+    const n = this.#subscribeRefcount.get(key) ?? 0;
+    if (n > 1) {
+      this.#subscribeRefcount.set(key, n - 1);
+      return; // other handles still hold it open
+    }
+    this.#subscribeRefcount.delete(key);
+    this.#subscriptionRegistry.delete(key);
+    this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+  }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
     const key = `${resourceType}:${resourceId}`;

@@ -44,7 +44,7 @@ import { getCurrentInstance } from '@vue/runtime-core';
 import { debug } from '@lumenize/debug';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
-import type { NebulaStoreAdapter } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription } from '../nebula-client';
 import type { Snapshot } from '../resources';
 
 const log = debug('lumenize.nebula-frontend');
@@ -151,6 +151,11 @@ export function createNebulaStore(
   const refcount = new Map<string, number>();
   const scopeReads = new WeakMap<EffectScope, Set<string>>();
   const pendingUnsubscribes = new Map<string, ReturnType<typeof setTimeout>>();
+  // One held subscription handle per component-bound (rt, rid). The factory's
+  // component-scope refcount collapses N reads to this single handle; disposing
+  // it (after grace) releases the factory's contribution to the client's
+  // per-handle refcount (explicit `using` handles contribute independently).
+  const componentHandles = new Map<string, ResourceSubscription>();
 
   function resourceKey(rt: string, rid: string): string {
     return `${rt}:${rid}`;
@@ -203,17 +208,19 @@ export function createNebulaStore(
     const prev = refcount.get(key) ?? 0;
     refcount.set(key, prev + 1);
     if (prev === 0) {
-      // 0 → 1: issue subscribe. Fire-and-forget; fanout writes arrive via the
+      // 0 → 1: issue subscribe and HOLD the handle. Fanout writes arrive via the
       // engine's `applyFanout` (the bound adapter). A failed subscribe (bad rid
       // / no read permission) leaves the path `undefined`; surface it to the
-      // developer instead of swallowing silently (the spike's bare `.catch`).
-      client.resources.subscribe(rt, rid).catch((err: unknown) => {
+      // developer via `.snapshot.catch` instead of swallowing silently.
+      const handle = client.resources.subscribe(rt, rid);
+      handle.snapshot.catch((err: unknown) => {
         log.warn('auto-subscribe failed', {
           rt,
           rid,
           error: err instanceof Error ? err.message : String(err),
         });
       });
+      componentHandles.set(key, handle);
     }
   }
 
@@ -221,11 +228,12 @@ export function createNebulaStore(
     const prev = refcount.get(key) ?? 0;
     if (prev <= 1) {
       refcount.delete(key);
-      // Schedule unsubscribe after grace.
-      const [rt, rid] = key.split(':');
+      // Schedule the held handle's dispose after grace (cancelled by a re-bind
+      // during the window — the handle stays alive, no re-subscribe RTT).
       const timer = setTimeout(() => {
         pendingUnsubscribes.delete(key);
-        client.resources.unsubscribe(rt, rid);
+        componentHandles.get(key)?.[Symbol.dispose]();
+        componentHandles.delete(key);
       }, unsubscribeGraceMs);
       pendingUnsubscribes.set(key, timer);
     } else {
@@ -592,8 +600,9 @@ export function createNebulaStore(
     for (const t of pendingUnsubscribes.values()) clearTimeout(t);
     pendingUnsubscribes.clear();
     refcount.clear();
-    // Flush pending writes; resolves once open submissions settle. Nothing
-    // submits after this resolves.
+    componentHandles.clear(); // server subscriptions release via client.dispose's WS disconnect
+    // Flush pending writes; resolves once open submissions settle, then the WS
+    // disconnects (client.dispose). Nothing submits after this resolves.
     await client.dispose();
   }
 

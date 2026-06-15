@@ -133,7 +133,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     const { client, resourceId, refreshHookSpy } = await setupStaleScenario();
 
     try {
-      await client.resources.subscribe('TestResource', resourceId);
+      await client.resources.subscribe('TestResource', resourceId).snapshot;
       throw new Error('Expected ontology-stale rejection');
     } catch (err) {
       expect(isOntologyStaleError(err)).toBe(true);

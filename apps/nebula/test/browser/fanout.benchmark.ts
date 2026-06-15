@@ -198,7 +198,7 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
       // Step 2: subscriber subscribes. Initial snapshot arrives via
       // handleResourceUpdate with the create-time eTag — captured but not the
       // measurement target.
-      const initialSnapshot = await subscriber.resources.subscribe('TestResource', resourceId);
+      const initialSnapshot = await subscriber.resources.subscribe('TestResource', resourceId).snapshot;
       if (!initialSnapshot) throw new Error('subscriber received null initial snapshot');
       expect(initialSnapshot.meta.eTag).toBe(createETag);
       console.log(`[fanout-bench Phase 1] subscriber subscribed — initial eTag matches`);

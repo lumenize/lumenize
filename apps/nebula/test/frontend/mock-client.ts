@@ -19,7 +19,7 @@ import {
   type ServerResourceResult,
   type Snapshot,
 } from '../../src/frontend/conflict-outcome';
-import type { NebulaStoreAdapter } from '../../src/nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription } from '../../src/nebula-client';
 import type { StoreClient } from '../../src/frontend/types';
 import type { ConnectionState } from '@lumenize/mesh/client';
 import type { QueueSubmission } from '../../src/frontend/debounce';
@@ -92,12 +92,18 @@ export class MockClient implements StoreClient {
     write: (rt: string, rid: string, opts?: { quietMs?: number; preWriteValue?: unknown }): void => {
       this.#engine.write(rt, rid, opts);
     },
-    subscribe: (rt: string, rid: string): Promise<unknown> => {
+    subscribe: (rt: string, rid: string): ResourceSubscription => {
       this.subscribes.push({ rt, rid });
-      return this.subscribeResponder(rt, rid);
-    },
-    unsubscribe: (rt: string, rid: string): void => {
-      this.unsubscribes.push({ rt, rid });
+      const snapshot = this.subscribeResponder(rt, rid) as Promise<never>;
+      let disposed = false;
+      return {
+        snapshot,
+        [Symbol.dispose]: (): void => {
+          if (disposed) return;
+          disposed = true;
+          this.unsubscribes.push({ rt, rid });
+        },
+      };
     },
   };
 

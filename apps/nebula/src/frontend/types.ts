@@ -2,7 +2,7 @@
  * Core factory types for `@lumenize/nebula/frontend`.
  */
 import type { ConnectionState } from '@lumenize/mesh/client';
-import type { NebulaStoreAdapter } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription } from '../nebula-client';
 
 /**
  * Middleware fires on every write through the Proxy `set` trap (and wrapped
@@ -56,9 +56,8 @@ export interface StoreClient {
       resourceId: string,
       opts?: { quietMs?: number; preWriteValue?: unknown },
     ): void;
-    /** Subscribe to a resource (auto-subscribe 0→1). Fanout arrives via the adapter. */
-    subscribe(resourceType: string, resourceId: string): Promise<unknown>;
-    /** Release a subscription (auto-subscribe 1→0 after grace). */
-    unsubscribe(resourceType: string, resourceId: string): void;
+    /** Subscribe to a resource (auto-subscribe 0→1). Returns a handle the factory
+     *  holds and disposes after the grace period; fanout arrives via the adapter. */
+    subscribe(resourceType: string, resourceId: string): ResourceSubscription;
   };
 }

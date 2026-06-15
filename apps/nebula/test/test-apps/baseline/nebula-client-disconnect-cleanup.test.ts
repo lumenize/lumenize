@@ -72,8 +72,8 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
 
     // Both subscribe via the public API so registries are populated and Star
     // has both rows in Subscribers.
-    await a.client.resources.subscribe('TestResource', resourceId);
-    await b.client.resources.subscribe('TestResource', resourceId);
+    await a.client.resources.subscribe('TestResource', resourceId).snapshot;
+    await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 
     // Sanity: 2 rows in Subscribers (one per clientId, same resourceId).
     a.client.callStarInspectSubscribers(star);
@@ -119,8 +119,8 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const eTag = await createResource(a.client, star, resourceId);
 
     const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    await a.client.resources.subscribe('TestResource', resourceId);
-    await b.client.resources.subscribe('TestResource', resourceId);
+    await a.client.resources.subscribe('TestResource', resourceId).snapshot;
+    await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 
     // b stays connected. a mutates. Star fans out to b successfully.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {

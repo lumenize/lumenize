@@ -1,26 +1,22 @@
 /**
- * NebulaClient.resources.subscribe + state write-through — Phase 5.3.3a
+ * NebulaClient.resources.subscribe — server-side subscribe + fanout write-through.
  *
  * Tests the foundational client-side surface:
- *   - `new NebulaClient({ ontologyVersion, ... })` constructor wiring
- *   - `client.bindToState(state)` minimal-binding
- *   - `client.resources.subscribe(rt, rid)` returning a Promise that resolves
- *     on the first `handleResourceUpdate` for `(rt, rid)`
- *   - `handleResourceUpdate` writes through to bound state at
- *     `resources.{rt}.{rid}.{value, meta}` and triggers JurisJS
- *     hierarchical-notify-with-deepEquals (subscribers at deep paths
- *     fire only on real changes)
- *   - Coalescing: concurrent subscribe(rt, rid) calls share a single Promise settlement
+ *   - `client.resources.subscribe(rt, rid)` returns a `using`-compatible
+ *     {@link ResourceSubscription} handle whose `.snapshot` resolves on the first
+ *     `handleResourceUpdate` for `(rt, rid)` (v3 reshape — was a bare Promise)
+ *   - per-`(rt, rid)` handle refcount: `[Symbol.dispose]()` / standalone
+ *     `unsubscribe()` release the server subscription only on the LAST handle
+ *   - Coalescing: concurrent subscribe(rt, rid) calls share a single first-snapshot settlement
  *
- * Fanout (Phase 5.3.2) is exercised here too — that's how we observe the
- * write-through happening after a non-self mutation.
+ * Fanout is exercised here too — that's how we observe the write-through after
+ * a non-self mutation.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult } from '@lumenize/nebula';
-import { createState } from '@lumenize/state';
+import type { TransactionResult } from '@lumenize/nebula';
 import { createAuthenticatedClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -79,7 +75,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     const resourceId = generateUuid();
     const eTag = await createResource(a.client, star, resourceId, 'Initial value');
 
-    const snap = await a.client.resources.subscribe('TestResource', resourceId);
+    const snap = await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     expect(snap).not.toBeNull();
     expect(snap!.value.title).toBe('Initial value');
     expect(snap!.meta.eTag).toBe(eTag);
@@ -95,7 +91,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     // Phase 5.3.1 makes subscribe-before-create reject. The Promise should
     // reject; we should NOT get a null resolve.
     await expect(
-      a.client.resources.subscribe('TestResource', generateUuid()),
+      a.client.resources.subscribe('TestResource', generateUuid()).snapshot,
     ).rejects.toThrow(/not found/);
 
     a.client[Symbol.dispose]();
@@ -111,7 +107,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     const p2 = a.client.resources.subscribe('TestResource', resourceId);
     const p3 = a.client.resources.subscribe('TestResource', resourceId);
 
-    const [s1, s2, s3] = await Promise.all([p1, p2, p3]);
+    const [s1, s2, s3] = await Promise.all([p1.snapshot, p2.snapshot, p3.snapshot]);
     expect(s1!.value.title).toBe('Coalesced');
     expect(s2!.value.title).toBe('Coalesced');
     expect(s3!.value.title).toBe('Coalesced');
@@ -142,8 +138,80 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
 
     // Subscribe with the v1-pinned client — Star will detect mismatch
     await expect(
-      a.client.resources.subscribe('TestResource', resourceId),
+      a.client.resources.subscribe('TestResource', resourceId).snapshot,
     ).rejects.toThrow(/Ontology version mismatch/);
+
+    a.client[Symbol.dispose]();
+  });
+
+  // ── v3: Disposable subscription handle + per-(rt, rid) handle refcount ──────
+
+  it('disposing the handle unsubscribes (server row dropped)', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'dispose-test');
+
+    const sub = a.client.resources.subscribe('TestResource', resourceId);
+    expect((await sub.snapshot)!.value.title).toBe('dispose-test');
+
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1);
+
+    sub[Symbol.dispose](); // equivalent to leaving a `using` scope
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('standalone unsubscribe() is equivalent to disposing the handle', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'standalone');
+
+    await a.client.resources.subscribe('TestResource', resourceId).snapshot;
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1);
+
+    a.client.resources.unsubscribe('TestResource', resourceId);
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('two handles for the same (rt, rid): first dispose keeps the subscription; second releases it', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+    const resourceId = generateUuid();
+    await createResource(a.client, star, resourceId, 'shared');
+
+    const sub1 = a.client.resources.subscribe('TestResource', resourceId);
+    const sub2 = a.client.resources.subscribe('TestResource', resourceId);
+    await Promise.all([sub1.snapshot, sub2.snapshot]);
+
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1); // one row per (resourceId, clientId)
+
+    // First dispose: refcount 2→1, NO Star.unsubscribe. The unsubscribe (if a
+    // buggy impl issued one) would precede this inspect on the same ordered
+    // client→Star channel, so a per-call refcount regression shows 0 here.
+    sub1[Symbol.dispose]();
+    a.client.callStarInspectSubscribers(star);
+    expect(await waitForSuccess(a.client)).toHaveLength(1); // still subscribed
+
+    // Second dispose: refcount 1→0 → Star.unsubscribe.
+    sub2[Symbol.dispose]();
+    await vi.waitFor(async () => {
+      a.client.callStarInspectSubscribers(star);
+      expect(await waitForSuccess(a.client)).toHaveLength(0);
+    });
 
     a.client[Symbol.dispose]();
   });
