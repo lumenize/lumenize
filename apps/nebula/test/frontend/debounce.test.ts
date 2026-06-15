@@ -11,7 +11,7 @@
  * engine owns.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createDebounceQueue, type QueueSubmission, type NonCommitApi } from '../../src/debounce';
+import { createDebounceQueue, type QueueSubmission, type NonCommitApi } from '../../src/frontend/debounce';
 
 // ─── Local mock outcome shape (matches the default interpretCommit) ─────────
 

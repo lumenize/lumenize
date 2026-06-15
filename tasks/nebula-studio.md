@@ -49,7 +49,7 @@ The three bootstrap files:
 // nebula.ts — initialize the client + store once. Per-type conflict resolvers
 // and terminal-outcome reactions registered alongside (the LLM CAN add these
 // later as it builds out app behavior — they belong in this file).
-import { createNebulaClient } from '@lumenize/nebula-frontend';
+import { createNebulaClient } from '@lumenize/nebula/frontend';
 
 export const { client, store, ready } = createNebulaClient({
   appVersion: __APP_VERSION__,  // Studio substitutes at deploy time

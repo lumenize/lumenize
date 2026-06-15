@@ -5,7 +5,7 @@
  * No mock-client needed — pure helper.
  */
 import { describe, it, expect } from 'vitest';
-import { textMerge, makeLongformResolver } from '../../src/text-merge';
+import { textMerge, makeLongformResolver } from '../../src/frontend/text-merge';
 
 describe('identity / degeneration (the B4 trap)', () => {
   it('server === base ⇒ result === local (only local changed)', () => {

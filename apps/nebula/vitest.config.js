@@ -47,7 +47,22 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**', 'test/browser/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**', 'test/frontend/**'],
+        },
+      },
+      // Frontend project — the @lumenize/nebula/frontend layer (factory + the
+      // ported pure-helper/engine suites: text-merge, deep-equals, debounce,
+      // conflict-outcome). jsdom env (NOT vitest-pool-workers) so Vue can mount
+      // components for the v3/v4 component probes; pure-logic tests run fine in
+      // jsdom too. swc for the @mesh() decorators NebulaClient carries.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'frontend',
+          environment: 'jsdom',
+          include: ['test/frontend/**/*.test.ts'],
+          testTimeout: 10000,
         },
       },
       {

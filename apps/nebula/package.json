@@ -14,15 +14,19 @@
     "./client": {
       "import": "./src/client-index.ts",
       "types": "./src/client-index.ts"
+    },
+    "./frontend": {
+      "import": "./src/frontend-index.ts",
+      "types": "./src/frontend-index.ts"
     }
   },
   "files": [
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run --project unit --project baseline --project browser",
-    "test:coverage": "vitest --coverage --run --project unit --project baseline --project browser",
-    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project baseline --project browser",
+    "test": "vitest --run --project unit --project frontend --project baseline --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project browser",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project browser",
     "bench": "vitest --run --project browser-bench transactions",
     "bench:throughput": "vitest --run --project browser-bench throughput.benchmark",
     "bench:multi": "vitest --run --project browser-bench throughput-multi",
@@ -43,8 +47,10 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",
     "@lumenize/testing": "*",
+    "@types/jsdom": "^21.1.7",
     "@vitest/coverage-istanbul": "4.1.4",
     "agents": "^0.14.2",
+    "jsdom": "^25.0.1",
     "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",
@@ -58,7 +64,10 @@
     "@lumenize/routing": "*",
     "@lumenize/state": "*",
     "@lumenize/structured-clone": "*",
-    "@lumenize/ts-runtime-parser-validator": "*"
+    "@lumenize/ts-runtime-parser-validator": "*",
+    "@vue/reactivity": "^3.5.13",
+    "@vue/runtime-core": "^3.5.13",
+    "vue": "^3.5.13"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",

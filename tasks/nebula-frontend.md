@@ -8,7 +8,7 @@
 **Companion docs** — defer to these for the user-facing surface; **the docs are the contract**:
 
 - [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) — narrative + worked examples
-- [website/docs/nebula/api-reference.md](../website/docs/nebula/api-reference.md) — exact-signature contract for `@lumenize/nebula-frontend` + the `client.resources.*` namespace
+- [website/docs/nebula/api-reference.md](../website/docs/nebula/api-reference.md) — exact-signature contract for `@lumenize/nebula/frontend` + the `client.resources.*` namespace
 - [website/docs/nebula/nebula-client.md](../website/docs/nebula/nebula-client.md) — `NebulaClient` overview
 - [website/docs/nebula/auth-flows.md](../website/docs/nebula/auth-flows.md) — auth flow sequence diagrams
 
@@ -23,8 +23,8 @@
 | Layer | Code lives | Knows about |
 | --- | --- | --- |
 | **Vue 3 reactivity** | `node_modules/vue` (transitive dep) | Itself only. Pure Proxy-based reactivity engine — `reactive()`, `effectScope()`, `getCurrentInstance().scope`, render effects. No Nebula knowledge. |
-| **`@lumenize/nebula-frontend`** | `packages/nebula-frontend/` (scaffolded in v3) | Vue 3 + NebulaClient. Contains: factory (`createNebulaClient`) — outer Proxy wrapper with path-aware middleware + effectScope-tied refcount + synced-state middleware + debouncing; `textMerge` helper. UNLICENSED. |
-| **NebulaClient** | `apps/nebula/src/nebula-client.ts` → moves to `packages/nebula-frontend/src/nebula-client.ts` in v3 | Mesh handlers (`handleTransactionResult`, `handleResourceUpdate`), `client.resources.{subscribe, read, transaction, onTransactionResourceResolution, transactionDebounce}` API, ontology version + `onShouldRefreshUI` hook, two-scope auth model, per-type handler invocation, serial transaction queue. |
+| **`@lumenize/nebula/frontend`** | `apps/nebula/src/frontend/` (a **subpath of `@lumenize/nebula`** — merged 2026-06-14, see note below) | Vue 3 + NebulaClient. Contains: factory (`createNebulaClient`) — outer Proxy wrapper with path-aware middleware + effectScope-tied refcount + synced-state middleware + debouncing; `textMerge` helper; the debounce queue + conflict-outcome engine. UNLICENSED (part of `@lumenize/nebula`). |
+| **NebulaClient** | `apps/nebula/src/nebula-client.ts` (**stays put** — already in the same package as the factory after the merge; the factory imports it locally via `../nebula-client`) | Mesh handlers (`handleTransactionResult`, `handleResourceUpdate`), `client.resources.{subscribe, read, transaction, onTransactionResourceResolution, transactionDebounce}` API, ontology version + `onShouldRefreshUI` hook, two-scope auth model, per-type handler invocation, serial transaction queue. |
 
 The factory hooks into Vue's reactivity through three primitives:
 
@@ -38,8 +38,8 @@ The factory hooks into Vue's reactivity through three primitives:
 
 | Package | Source | Scope | Status |
 | --- | --- | --- | --- |
-| `vue` | npm (`^3.5`) | Reactivity engine + in-DOM template compiler + directive grammar (v-*, recursive components, v-model). Transitive dep of `@lumenize/nebula-frontend`. | Used as-is |
-| `@lumenize/nebula-frontend` | Written from scratch | `createNebulaClient(config) → { client, store, ready, use, dispose }` factory + `textMerge` helper. Debounce + per-field config consumed from the ontology-derived validator bundle (no custom Vue directive). ~300 LOC factory + ~50 LOC debounce + helpers. UNLICENSED until Nebula ships externally. NebulaClient ALSO moves here from `apps/nebula/src/` in v3. | Built in v3 |
+| `vue` | npm (`^3.5`) | Reactivity engine + in-DOM template compiler + directive grammar (v-*, recursive components, v-model). Transitive dep of `@lumenize/nebula/frontend`. | Used as-is |
+| `@lumenize/nebula/frontend` | Written from scratch | `createNebulaClient(config) → { client, store, ready, use, dispose }` factory + `textMerge` helper. Debounce + per-field config consumed from the ontology-derived validator bundle (no custom Vue directive). ~300 LOC factory + ~50 LOC debounce + helpers. UNLICENSED until Nebula ships externally. NebulaClient ALSO moves here from `apps/nebula/src/` in v3. | Built in v3 |
 | `vue-router` | npm (`^4`) | URL ↔ component routing, route params, navigation guards. Standard Vue 3 router; pairs natively with Vue 3.5. | Used as-is when routing is needed (Studio-blocking) |
 
 DaisyUI is pinned as the styling layer — class-based, framework-free, no coupling to reactivity model.
@@ -184,7 +184,7 @@ The full v3 surface (all option shapes, all types) is specified in [api-referenc
 
 ### Integration entry point — `createNebulaClient(config)`
 
-`createNebulaClient(config)` from `@lumenize/nebula-frontend` is the integration entry point. It folds four responsibilities into the factory's outer Proxy + middleware + effectScope-tied refcount + connection observer:
+`createNebulaClient(config)` from `@lumenize/nebula/frontend` is the integration entry point. It folds four responsibilities into the factory's outer Proxy + middleware + effectScope-tied refcount + connection observer:
 
 1. **Local writes → remote transactions** — outer Proxy `set` trap → synced-state middleware → debounced `client.resources.transaction(...)`.
 2. **Auto-subscribe via reference counting** — `trackResourceRead` driven by `getCurrentInstance().scope` + `onScopeDispose`. Refcount-with-grace; `unsubscribeGraceMs` knob.
@@ -225,9 +225,9 @@ From earlier auth work: two-scope model, refresh routing, Gateway active-scope v
 
 Still open: defensive registry cleanup on `unsubscribe`; the subscribe → WS-drop → grace → reconnect interleaving test (needs WS-disconnect tooling); rollback sibling tests for `timeout` / `retries-exhausted` ([nebula-scratchpad.md](nebula-scratchpad.md)). `ontology-stale` is **no-rollback** (a "client stale, reload" signal, not a per-write rejection).
 
-## Phase 5.3.7 — `@lumenize/nebula-frontend` factory + Vue integration
+## Phase 5.3.7 — `@lumenize/nebula/frontend` factory + Vue integration
 
-Scaffolds `@lumenize/nebula-frontend` around a factory (`createNebulaClient`) that wraps NebulaClient. Vue 3.5+ (`.vue` SFCs compiled server-side) owns templates, directives, recursion, per-component scope; the factory owns the bridge from Vue's reactivity to NebulaClient's wire protocol.
+Scaffolds `@lumenize/nebula/frontend` around a factory (`createNebulaClient`) that wraps NebulaClient. Vue 3.5+ (`.vue` SFCs compiled server-side) owns templates, directives, recursion, per-component scope; the factory owns the bridge from Vue's reactivity to NebulaClient's wire protocol.
 
 **Pinned decisions:**
 
@@ -251,22 +251,28 @@ Scaffolds `@lumenize/nebula-frontend` around a factory (`createNebulaClient`) th
 
 **Prerequisites** (browser bundling): three pre-existing blockers shipped in v2 (transitive `cloudflare:workers` import in `@lumenize/debug`, transitive `node:async_hooks` import in `@lumenize/mesh/client`, no CORS headers on NebulaAuth) — see [archive/playwright-test-template.md](archive/playwright-test-template.md); v4 follows the adoption checklist at [packages/mesh/test/browser/README.md](../packages/mesh/test/browser/README.md).
 
-**Target package layout** (scaffolded in v3):
+> **MERGE DECISION (2026-06-14): folded `@lumenize/nebula-frontend` into `@lumenize/nebula` as the `@lumenize/nebula/frontend` subpath — there is no separate package.** The separate package forced an inverted/cyclic dependency (NebulaClient ↔ the server's shared contract types — Snapshot, OperationDescriptor, OntologyStaleError — and `star.ts` needs the `NebulaClient` type). Within one package these are plain shared type files. The browser-bundling isolation the separate package was meant to provide is already provided by a **subpath** (exactly as `@lumenize/nebula/client` does): `/frontend` is the vue-dependent entry, `/client` stays vue-free, and `wrangler deploy` never imports `/frontend` so vue tree-shakes out of the Worker. YAGNI killed the only things a separate package bought (independent publish; Resources-as-plugin extraction — do *that* extraction later from a clean base if it ever materializes). The pure helpers (text-merge, deep-equals), the debounce queue, and the conflict-outcome engine were relocated here with full history; NebulaClient never moves (it was already in `apps/nebula`).
+
+**Target layout** (the `/frontend` subpath within `@lumenize/nebula`):
 
 ```
-packages/nebula-frontend/
-├── package.json          # UNLICENSED; deps: vue ^3.5 (NebulaClient lives in THIS package)
+apps/nebula/
+├── package.json                 # exports: "." (server), "./client" (vue-free client), "./frontend" (vue)
+│                                # + deps: vue / @vue/reactivity / @vue/runtime-core
 ├── src/
-│   ├── index.ts          # re-export createNebulaClient, types
-│   ├── create-nebula-client.ts   # factory: Proxy + middleware + effectScope + debounce
-│   ├── debounce.ts       # per-resource quiet/maxWait/flush implementation
-│   ├── types.ts          # ClientLike, Middleware, WriteContext, FactoryResult
-│   └── deep-equals.ts    # structural equality helper
-├── test/
-│   ├── unit/             # factory mechanics with mock client
-│   ├── e2e/              # vitest-pool-workers in-process Star
-│   └── browser/          # vitest-browser-playwright real-browser harness
-└── README.md
+│   ├── frontend-index.ts        # the "./frontend" entry: re-exports ./client-index + the factory surface
+│   ├── nebula-client.ts         # NebulaClient (stays here; factory imports via ../nebula-client)
+│   ├── client-index.ts          # the "./client" entry (vue-free)
+│   └── frontend/
+│       ├── create-nebula-client.ts   # factory: Proxy + middleware + effectScope + debounce
+│       ├── debounce.ts               # per-resource quiet/maxWait/flush + serial queue
+│       ├── conflict-outcome.ts       # TransactionOutcome/Resolution engine over the queue
+│       ├── text-merge.ts             # 3-way merge + makeLongformResolver + ConflictResolverVerdict
+│       ├── deep-equals.ts            # cycle-safe structural equality
+│       └── types.ts                  # Middleware, WriteContext
+└── test/
+    └── frontend/                # the "frontend" vitest project (jsdom): pure-helper + engine + (v3/v4) Vue probes
+                                 # real-Star e2e probes ride the existing baseline test-app
 ```
 
 #### Phase 5.3.7-v3 — Scaffold + factory + Vue integration
@@ -285,7 +291,7 @@ Already spike-validated (property-test during the port): refcount + `effectScope
 
 **Remaining prerequisite**: [nebula-star-root-admin.md](nebula-star-root-admin.md) **Part 1** (founder admin-on-ROOT seeding) — the flagship bootstrap, its two-client race test, and coding-your-ui's "the founder gets admin on root at Star creation" claim all hard-depend on it.
 
-- [x] Scaffold `packages/nebula-frontend/` per CLAUDE.md "Standard Package Files" (UNLICENSED, `vue ^3.5` dep; NebulaClient + `nebula-client.ts` move INTO this package — there is no separate `@lumenize/nebula-client` package). vitest configs for unit + e2e + browser projects. **(v3-Phase-1 DONE 2026-06-14: package + configs + skeleton `src/` that throws "not yet ported" + jsdom unit smoke; `tsc` clean, unit 2/2, install + symlinks + `wrangler types` wired. The NebulaClient MOVE itself is the next sub-phase — tracked with the `appVersion` rename + reshape items below. `src/` file names follow the layout box: `debounce.ts`, `text-merge.ts`, `deep-equals.ts`, `create-nebula-client.ts`, `types.ts`, `index.ts`; e2e harness is a placeholder until the e2e suites port.)**
+- [x] Scaffold `apps/nebula/src/frontend/` per CLAUDE.md "Standard Package Files" (UNLICENSED, `vue ^3.5` dep; NebulaClient + `nebula-client.ts` move INTO this package — there is no separate `@lumenize/nebula-client` package). vitest configs for unit + e2e + browser projects. **(v3-Phase-1 DONE 2026-06-14: package + configs + skeleton `src/` that throws "not yet ported" + jsdom unit smoke; `tsc` clean, unit 2/2, install + symlinks + `wrangler types` wired. The NebulaClient MOVE itself is the next sub-phase — tracked with the `appVersion` rename + reshape items below. `src/` file names follow the layout box: `debounce.ts`, `text-merge.ts`, `deep-equals.ts`, `create-nebula-client.ts`, `types.ts`, `index.ts`; e2e harness is a placeholder until the e2e suites port.)**
 - [ ] Port factory from `apps/nebula/spike/vue-factory/src/create-nebula-client.ts`: Proxy wrapper, middleware chain, `effectScope` + `getCurrentInstance().scope` fallback, refcount + grace, `internalDeepWrite`, synced-state middleware. ~290 LOC. (The spike file has grown well past its original size — re-derive any cited line numbers at port time.)
 - [ ] **Spike-port cleanup** (must address during the port, NOT after):
   - Remove the `console.log('[proxy get] ...')` debug print in `create-nebula-client.ts`.
@@ -401,7 +407,7 @@ Already spike-validated (property-test during the port): refcount + `effectScope
   7. **Subscribe-on-connect** — the tree is a universal singleton: subscribe on connect, re-subscribe on the `reconnecting→connected` transition directly (NOT via `#resubscribeAll`'s resource-registry walk). Drop the lazy refcount/grace path for the tree.
   8. **Mutation** — `client.orgTree.*` → Star `dagTree` methods.
 
-  **Client-surface naming.** Purpose-named `orgTree`: store path `store.lmz.orgTree`, namespace `client.orgTree.*`, exports `OrgTreeState` / `OrgTreeView` / `buildOrgTreeView` / `OrgTreeNodeData` + `ROOT_NODE_ID` from `@lumenize/nebula-frontend`. Also rename the remaining dag-named client re-exports from `dag-ops` — `EdgeKey` → `OrgTreeEdgeKey`, `PermissionTier` → `OrgTreePermissionTier` — so **no `dag`-flavored name remains on the client surface** ([client-index.ts:57](../apps/nebula/src/client-index.ts:57) currently re-exports both). Keep the inline `` `${number}:${number}` `` form in `OrgTreeState.edges` consistent with `OrgTreeEdgeKey`. **Rename the shipped `dag-ops.ts` client-facing exports** (`DagTreeState`/`DagTreeView`/`buildDagTreeView`/`DagTreeNodeData` in [apps/nebula/src/dag-ops.ts](../apps/nebula/src/dag-ops.ts)) as part of the package move; test consumer ([dag-tree.test.ts](../apps/nebula/test/test-apps/baseline/dag-tree.test.ts)) updates with it. **Server internals keep `dag`** (the `DagTree` class, `dag-tree.ts`/`dag-ops.ts`, `detectCycle`). Prose keeps explaining "the underlying structure is a DAG."
+  **Client-surface naming.** Purpose-named `orgTree`: store path `store.lmz.orgTree`, namespace `client.orgTree.*`, exports `OrgTreeState` / `OrgTreeView` / `buildOrgTreeView` / `OrgTreeNodeData` + `ROOT_NODE_ID` from `@lumenize/nebula/frontend`. Also rename the remaining dag-named client re-exports from `dag-ops` — `EdgeKey` → `OrgTreeEdgeKey`, `PermissionTier` → `OrgTreePermissionTier` — so **no `dag`-flavored name remains on the client surface** ([client-index.ts:57](../apps/nebula/src/client-index.ts:57) currently re-exports both). Keep the inline `` `${number}:${number}` `` form in `OrgTreeState.edges` consistent with `OrgTreeEdgeKey`. **Rename the shipped `dag-ops.ts` client-facing exports** (`DagTreeState`/`DagTreeView`/`buildDagTreeView`/`DagTreeNodeData` in [apps/nebula/src/dag-ops.ts](../apps/nebula/src/dag-ops.ts)) as part of the package move; test consumer ([dag-tree.test.ts](../apps/nebula/test/test-apps/baseline/dag-tree.test.ts)) updates with it. **Server internals keep `dag`** (the `DagTree` class, `dag-tree.ts`/`dag-ops.ts`, `detectCycle`). Prose keeps explaining "the underlying structure is a DAG."
 
   **Full-ACL universal broadcast** — every connected client gets structure + every node's permissions table; accepted risk, opaque-UUID keys, tenant segmentation. **Caveat to document:** the `clientId`-alone registry key is sound only while the tree is a per-Star singleton; a future per-branch tree would need revisiting.
 
@@ -416,7 +422,7 @@ Already spike-validated (property-test during the port): refcount + `effectScope
 - [ ] **Re-entrancy guard on the middleware chain.** If a user-supplied middleware writes back to the store from inside its callback, the outer Proxy's `set` trap re-enters and a sloppy middleware could infinite-loop. Add a `Set<string>` of currently-applying paths to the factory; if a `set` trap fires for a path already in the set, skip middleware (forward direct to Vue reactive). Document the contract: "middleware MUST NOT write to its own path inside its callback; cross-path writes are fine." Add a test that intentionally writes back from middleware to verify no loop. **Also add the carve-out probe:** a middleware that writes to a DIFFERENT resource path must fire *that* path's middleware chain exactly once and submit it — so an over-broad guard (a global `inFlight` flag, or a too-coarse path-prefix key instead of a per-path `Set`) that suppresses legitimate cross-path writes is caught, not only the same-path infinite loop.
 - [ ] **Lazy post-middleware deep-equals.** Spike runs `deepEquals(oldValue, finalValue)` twice on every write: once before middleware (skip identical writes) and once after middleware (substitution detection). The post-middleware check is wasted work when no middleware substituted. Track a `substituted: boolean` flag in the middleware loop; only run the post-middleware deep-equals if `substituted === true`. ~5 LOC savings, removes ~50% of deep-equals work on the hot path.
 - [ ] **Mid-edit fanout contract — ship `textMerge` + hold-pending-fanouts in v3.** *Design + isolation tests: [factory-textmerge.md](factory-textmerge.md) (the merge fn) + [factory-conflict-outcome.md](factory-conflict-outcome.md) (invariant 8, hold-pending-fanouts).* Server fanout arriving while a user is mid-typing will visually clobber their in-progress text under the default `'use-server'` resolver. This is by-design (optimistic + server-is-truth), but the user-visible UX is bad for text fields. Captured in [coding-your-ui.md § Concurrent edits and long-form text](../website/docs/nebula/coding-your-ui.md) and [resources.md § Text fields specifically](../website/docs/nebula/resources.md#text-fields-specifically--dont-leave-the-default). Two pieces, both shipping in v3:
-  - **`textMerge(server, local, base)` helper** from `@lumenize/nebula-frontend`'s top-level export — 3-way LCS-based merge (~100–300 LOC, or pull in `diff-match-patch` if licensing allows). Auto-registered for `@longform` fields by the annotation→resolver compile pass (see [ontology.md § Annotations](../website/docs/nebula/ontology.md#annotations)); hand-written handlers only for custom merge logic. Tagged `new-in-v3` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge). Test: simulate concurrent-edit conflict on a `@longform` field, assert both non-overlapping edits preserved.
+  - **`textMerge(server, local, base)` helper** from `@lumenize/nebula/frontend`'s top-level export — 3-way LCS-based merge (~100–300 LOC, or pull in `diff-match-patch` if licensing allows). Auto-registered for `@longform` fields by the annotation→resolver compile pass (see [ontology.md § Annotations](../website/docs/nebula/ontology.md#annotations)); hand-written handlers only for custom merge logic. Tagged `new-in-v3` in [api-reference.md § textMerge](../website/docs/nebula/api-reference.md#textmerge). Test: simulate concurrent-edit conflict on a `@longform` field, assert both non-overlapping edits preserved.
     - **`base` in the `'conflict-pending'` payload.** A correct 3-way merge needs the common ancestor; without `base` the only expressible merge is `textMerge(server, local, base=server)`, which collapses to local-wins and silently drops the server edit. **Unifying rule: `base` is always the value at the baseline eTag the next submission uses — it re-anchors whenever that baseline advances.** Client-held (the same snapshot kept for optimistic rollback); three re-anchor sites: (1) **first divergence** — the value *before* the first keystroke of a burst (NOT submit-time, which yields `base === local`); (2) **commit boundary** — a buffered write chaining onto a clean commit re-anchors to the committed value (else sustained typing across a commit double-counts the user's own text); (3) **`use-this` re-conflict** — the previous conflict's `server` snapshot. **`base` cannot be a server-side history lookup** (rejected): the same-actor in-place debounce overwrite destroys intermediate eTags' values, so the divergence point is frequently unrecoverable from history; ADR-004/005 keep the merge path decoupled from history retention/R2 offload. All three sites + capable-of-failing tests are **validated in spike** — [factory-conflict-outcome.md](factory-conflict-outcome.md) § base threading; the v3 port carries them over.
   - **Hold-pending-fanouts middleware** (~50 LOC) — `textMerge` alone only protects keystrokes typed *after* a fanout arrives; keystrokes typed *before* the fanout's write-through are lost via the `{ source: 'remote' }` bypass. The synced-state middleware must **hold incoming fanouts** for any resource with pending optimistic state (debounced write outstanding OR transaction in flight); the next submit's conflict resolver then sees both the user's full pre-fanout state and the buffered server snapshot, merges, applies, and releases the hold. Resource-level granularity (not per-field). Without this companion, protection is partial and timing-dependent. Test: type into a `@longform` field, deliver a fanout mid-edit, assert pre-fanout keystrokes survive the merge.
   - **Aggregate-merge idempotency** (the `openCount` lesson): a `use-this` verdict must be a pure, idempotent function of `(base, local, server)` (set-union, 3-way `textMerge`, base-relative delta) — never a local-relative increment (`local.count + 1`), which double-counts across a re-conflict chain. (See § Out of scope: stored aggregates are deferred; demo `openCount` is a client `computed`.)
@@ -445,7 +451,7 @@ Already spike-validated (property-test during the port): refcount + `effectScope
 
 - [ ] Re-read [coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) end-to-end against the shipped implementation. Fix any drift between doc claims and code behavior surfaced during v3/v4.
 - [ ] Update [nebula-client.md](../website/docs/nebula/nebula-client.md) if NebulaClient surface changed during the spike's reshape.
-- [ ] New page (or section): "Using @lumenize/nebula-frontend with Vue" covering single-HTML-file CDN load + debounce knobs. Include a "Security: CSP and template compilation" subsection (why Galaxy pre-compiles for production deploys, and the runtime-only Vue bundle Studio-deployed apps use under strict CSP).
+- [ ] New page (or section): "Using @lumenize/nebula/frontend with Vue" covering single-HTML-file CDN load + debounce knobs. Include a "Security: CSP and template compilation" subsection (why Galaxy pre-compiles for production deploys, and the runtime-only Vue bundle Studio-deployed apps use under strict CSP).
 - [ ] Document the IME / composition behavior (likely "huh, why does it do that?" support question).
 
 **Deletions (post-merge):**
@@ -458,22 +464,22 @@ Already spike-validated (property-test during the port): refcount + `effectScope
 
 The Alpine → Vue pivot likely leaves orphaned helpers, types, and code paths beyond the three obvious deletions. Two complementary passes:
 
-- [ ] **Coverage-driven sweep**: run `npm test` with coverage on `apps/nebula/` + `packages/nebula-frontend/` after v3 lands. Anything at 0% coverage that isn't a known untested-but-load-bearing path (e.g., test-only initiators marked `@internal`) is a candidate. Workflow: open each 0%-coverage file, ask "is the caller of this still alive?", delete if no.
-- [ ] **Static review of changed files**: walk every file modified in the 5.3.7 series (`git diff --stat origin/main...HEAD -- apps/nebula packages/nebula-frontend packages/mesh`). For each, scan for: unused exports (the factory replaces `bindToState`'s plumbing — likely orphaned helpers in `nebula-client.ts`); types that only the Alpine path referenced (`StateManager` type imports, `BindingRecord`, `$local`-shape types, `getBindings`-related types); refcount/grace-period logic now driven by Vue's effectScope; `setState` middleware bookkeeping (`oldValue` stash for rollback, `source` context tag, microtask-defer queue) that may have moved to the factory but left a shadow.
+- [ ] **Coverage-driven sweep**: run `npm test` with coverage on `apps/nebula/` + `apps/nebula/src/frontend/` after v3 lands. Anything at 0% coverage that isn't a known untested-but-load-bearing path (e.g., test-only initiators marked `@internal`) is a candidate. Workflow: open each 0%-coverage file, ask "is the caller of this still alive?", delete if no.
+- [ ] **Static review of changed files**: walk every file modified in the 5.3.7 series (`git diff --stat origin/main...HEAD -- apps/nebula apps/nebula/src/frontend packages/mesh`). For each, scan for: unused exports (the factory replaces `bindToState`'s plumbing — likely orphaned helpers in `nebula-client.ts`); types that only the Alpine path referenced (`StateManager` type imports, `BindingRecord`, `$local`-shape types, `getBindings`-related types); refcount/grace-period logic now driven by Vue's effectScope; `setState` middleware bookkeeping (`oldValue` stash for rollback, `source` context tag, microtask-defer queue) that may have moved to the factory but left a shadow.
 - [ ] **Specific candidates to audit-and-decide-per-name** (each is "confirm whether the new path replaces it, or whether it still owns a load-bearing concern"):
   - `#subscriptionRegistry` (NebulaClient) — factory's refcount Map owns auto-subscribe lifecycle, but NebulaClient may still need a view of subscriptions for the reconnect re-subscribe path. Confirm before deleting.
   - `#perTypeResolvers` (NebulaClient) — likely RESHAPED into `#perTypeHandlers` for the merged `onTransactionResourceResolution` handler. v3 absorbs the old `ConflictResolver` registry into a unified handler registry. Confirm the new shape lives on NebulaClient (probably correct — the handler needs server-side dispatch context) vs the factory.
   - `#applyFlash` + `getBindings` plumbing — likely dead (Vue's reactive bindings replace the Alpine-style DOM bookkeeping), but verify against whatever flash-class mechanism v4 picks.
   - `internalDeepWrite` vs StateManager's `setState({ source: 'remote' })` — pick one path through; `@lumenize/state` is being deleted so the latter goes by default. Confirm no internal callers remain.
   - Reserved-prefix filter regex (`^resources\\.[^.]+\\.[^.]+\\.value(\\.|$)`) — does the factory's Proxy `set` trap still need it, or does the path-aware middleware express the same intent more naturally?
-- [ ] **Probe the coding-your-ui.md doc against the shipped API**: every API surface mentioned in the doc should resolve to a real export from `@lumenize/nebula-frontend`. Anything mentioned that doesn't exist is a TODO; anything exported that the doc doesn't mention is a candidate for deletion (the doc IS the spec).
+- [ ] **Probe the coding-your-ui.md doc against the shipped API**: every API surface mentioned in the doc should resolve to a real export from `@lumenize/nebula/frontend`. Anything mentioned that doesn't exist is a TODO; anything exported that the doc doesn't mention is a candidate for deletion (the doc IS the spec).
 
 **Out of scope for 5.3.7 (post-demo):**
 
 - Galaxy-side template pre-compilation for production deploys (closes CSP `'unsafe-eval'`). Architecture pinned in v3's risks; implementation owned by Studio's deploy work.
 - `flashClass` rich-diff support (field-level rendering of WHAT changed, not just THAT it changed).
 - Multi-resource subscriptions / query subscribe.
-- **Additional merge helpers beyond `textMerge`: `setUnion`, `counterMerge`, etc.** Ship from `@lumenize/nebula-frontend`'s top level when a real app needs them; per-type handlers call them from a `'use-this'` verdict. (Rejected: a `'crdt'` resolution kind — helpers don't add framework primitives; users opt in per-type.)
+- **Additional merge helpers beyond `textMerge`: `setUnion`, `counterMerge`, etc.** Ship from `@lumenize/nebula/frontend`'s top level when a real app needs them; per-type handlers call them from a `'use-this'` verdict. (Rejected: a `'crdt'` resolution kind — helpers don't add framework primitives; users opt in per-type.)
 - **Per-field debounce config.** The `@debounce`/`@longform`→timing mapping, its wire format, and the ontology/typia **compile-pass emission** of a `debounceConfig` map the factory consumes. v3 ships the global framework defaults (500/2000) + the per-type `transactionDebounce` runtime override; per-field layers in **additively** later (framework default = the fallback, so no rework). Owner when it lands: the ontology compile pass (producer) + the factory (consumer). Provisional shape: `Record<typeName, Record<fieldPath, { quietMs, maxWaitMs }>>` emitted into the validator bundle, carrying only non-default fields.
 - **Ontology-declared derived/denormalized-field invariants** — e.g. an annotation like `@derived count(items where status === 'open')` that the **server** computes, stores, enforces, and that lands in snapshot history for time-series analytics. This is the real fix for *stored* aggregates (provably consistent, history-grade); until it exists, denormalized aggregates are **client-computed view-only** (a Vue `computed`, never a stored field — no merge to reconcile). Extends ADR-001's type-as-schema annotation vocabulary; feeds ADR-004's temporal/analytics substrate.
 - **True CRDT-backed real-time collaborative editing** (Google-Docs tier) — much larger scope than merge helpers: needs per-character identity, op streaming, cursor preservation, and the CRDT state as source of truth (the string value is a lossy projection), i.e. a parallel data tier with its own wire format, persistence, and editor bindings. Defer until a Studio app actually needs it; capture as its own task file then. `textMerge`'s overlap-garble limitation is the accepted boundary.

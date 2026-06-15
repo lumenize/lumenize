@@ -214,7 +214,7 @@ A `computed` that covers both:
 
 ```typescript @skip-check
 import { computed } from 'vue';
-import { ROOT_NODE_ID } from '@lumenize/nebula-frontend';
+import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 import { store, client } from './nebula';
 
 const isAppAdmin = computed(() =>
@@ -316,7 +316,7 @@ The container is keyed per user — `('todoList', client.claims.sub)` — so eac
 
 ```typescript @skip-check
 // nebula.ts (after `await ready`)
-import { ROOT_NODE_ID } from '@lumenize/nebula-frontend';
+import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 const sub = client.claims.sub;
 
 // Create the list under a node the user can write to. This demo signs in as
@@ -529,7 +529,7 @@ The example pulls together: reading the built-in org tree (delivered on its own 
 
 ### The tree shape
 
-`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula-frontend`); the `tree.ts` helpers below use it.
+`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
 
 The tree is subscribed once on connect and kept current at `store.lmz.orgTree`; every server-side mutation broadcasts a fresh snapshot to all connected clients (the actor included — `client.orgTree.*` has no optimistic local write, so the broadcast echo is what updates your own store). The delivery is tagged `new-in-v3` — see [API reference § OrgTreeState](./api-reference.md#orgtreestate).
 
@@ -543,7 +543,7 @@ The framework reserves the `lmz` resourceType for its own resources (mirrors the
 
 ```typescript @skip-check
 // tree.ts — shape + derivation helpers used by App.vue and OrgTreeNode.vue.
-import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/nebula-frontend';
+import { ROOT_NODE_ID, buildOrgTreeView, type OrgTreeState } from '@lumenize/nebula/frontend';
 
 export interface TreeNodeData {
   id: string;                                       // String(nodeId) for real nodes; '__deleted__' / '__orphaned__' for virtuals
@@ -627,7 +627,7 @@ watch(
 <!-- App.vue — search input + tree derivation + provide auto-expand set. -->
 <script setup lang="ts">
 import { computed, provide, onMounted } from 'vue';
-import type { OrgTreeState } from '@lumenize/nebula-frontend';
+import type { OrgTreeState } from '@lumenize/nebula/frontend';
 import { store } from './nebula';
 import OrgTreeNode from './OrgTreeNode.vue';
 import { deriveTreeWithVirtuals, walkAndCollectAncestorsOfMatches,

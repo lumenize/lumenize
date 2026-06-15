@@ -1,17 +1,17 @@
 ---
 title: API reference
-description: API surface for @lumenize/nebula-frontend and the NebulaClient resources namespace.
+description: API surface for @lumenize/nebula/frontend and the NebulaClient resources namespace.
 ---
 
 # API reference
 
-This page is the contract for the `@lumenize/nebula-frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [Coding your UI](./coding-your-ui.md) resolves to a section here. Conceptual explanations live there; this page is the lookup.
+This page is the contract for the `@lumenize/nebula/frontend` factory + NebulaClient `resources` namespace. Every signature mentioned in [Coding your UI](./coding-your-ui.md) resolves to a section here. Conceptual explanations live there; this page is the lookup.
 
 ## Status legend
 
 Each surface below carries one tag. The tag describes the **as-of-5.3.7-v1** state and is the contract for what 5.3.7-v3 implements.
 
-- **`implemented-in-spike`** — the Vue-in-DOM spike at `apps/nebula/spike/vue-factory/` validated this surface. v3 ports it to `packages/nebula-frontend/`.
+- **`implemented-in-spike`** — the Vue-in-DOM spike at `apps/nebula/spike/vue-factory/` validated this surface. v3 ports it to `apps/nebula/src/frontend/`.
 - **`new-in-v3`** — the spike didn't cover this. v3 designs and implements.
 - **`deferred-post-5.3.7`** — referenced for completeness but explicitly NOT shipping in 5.3.7. v3 must not pretend these exist.
 
@@ -67,7 +67,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | `baseUrl` | `string` | `window.location.origin` | Origin of the back end. Default works whenever UI and API share an origin, which is Nebula's standard deployment shape (the tenant's Star serves both). Specify only for cross-origin admin/scripting use. |
 | `authScope` | `string` | from deployment URL | The scope whose per-scope refresh endpoint (`/auth/{authScope}/refresh-token`) and path-scoped cookie this client uses. A deployed app is pinned to one scope, taken from the deployment URL (`window.location`). NOT readable from the refresh cookie (it's HttpOnly). Specify only for cross-origin admin/scripting callers. |
 | `activeScope` | `string` | same as `authScope` | The scope a call's JWT is bound to (`aud`) — where you're currently working. Defaults to `authScope`. A wildcard-grant admin (Galaxy/Universe) sets it to any scope under their pattern to work in a child Star or back in the parent (see [Auth flows § Admin active-scope switching](./auth-flows.md#admin-active-scope-switching-within-a-wildcard-grant)). Sent in the refresh body; the server gates it with `matchAccess`. Differs from `authScope` by at least the active branch once branches exist. |
-| `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/nebula-frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
+| `onShouldRefreshUI?` | `(info: OntologyStaleInfo) => void` | `() => window.location.reload()` | Invoked when the server signals the client's app version is stale. The arg type **`OntologyStaleInfo`** (`{ clientVersion: string; currentVersion: string; reason: 'ontology-stale' }`) is exported from `@lumenize/nebula/frontend` — note its `reason` field is distinct from the `'ontology-stale'` **`TransactionOutcome`** variant's `kind` (different objects: the hook receives `OntologyStaleInfo`; the awaited transaction resolves `{ kind: 'ontology-stale', clientVersion, currentVersion }`). Default reload fetches the new bundle. Pass a custom function for "new version available" UX (banner, save-first prompt, etc.). **To opt out, pass an explicit no-op `() => {}`; omitting it keeps the default reload** (a stray `null` is coerced to the default too — there is no "disable" sentinel, by design). The default reload is once-guarded (a `sessionStorage` sentinel) so an immediate re-stale after the reload shows nothing rather than looping. |
 | `unsubscribeGraceMs` | `number` | `2000` | Grace period (ms) between binding-refcount reaching zero and `client.resources.unsubscribe` firing. New bindings inside the window cancel the pending unsubscribe. |
 
 ### Return shape
@@ -86,7 +86,7 @@ The Studio-generated `nebula.ts` in a browser app:
 
 ```typescript @skip-check
 // nebula.ts (Studio bootstrap)
-import { createNebulaClient } from '@lumenize/nebula-frontend';
+import { createNebulaClient } from '@lumenize/nebula/frontend';
 
 export const { client, store, ready } = createNebulaClient({
   appVersion: __APP_VERSION__,   // Studio substitutes at deploy time
@@ -478,7 +478,7 @@ revokePermission(nodeId: number, sub: string): Promise<void>;
 
 **Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel (server `DagTree.#onChanged` → broadcast to a `clientId`-keyed registry, synthesized from `dagTree.getState()`) to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's universally visible by design (every connected client gets the full tree; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
 
-The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/nebula-frontend`.
+The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/nebula/frontend`.
 
 ```typescript @skip-check
 interface OrgTreeState {
@@ -488,9 +488,9 @@ interface OrgTreeState {
 }
 ```
 
-`edges` is the canonical, wire-shippable adjacency form. For O(1) parent/child lookups during a tree walk, build an `OrgTreeView` with `buildOrgTreeView(state)` (also exported from `@lumenize/nebula-frontend`) — it derives `childrenByParent` and `parentsByChild` indexes from `edges`. See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree).
+`edges` is the canonical, wire-shippable adjacency form. For O(1) parent/child lookups during a tree walk, build an `OrgTreeView` with `buildOrgTreeView(state)` (also exported from `@lumenize/nebula/frontend`) — it derives `childrenByParent` and `parentsByChild` indexes from `edges`. See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree).
 
-`ROOT_NODE_ID` (`= 1`, the root node every Star is provisioned with) is also exported from `@lumenize/nebula-frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
+`ROOT_NODE_ID` (`= 1`, the root node every Star is provisioned with) is also exported from `@lumenize/nebula/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
 
 ## Reserved state paths
 
@@ -587,7 +587,7 @@ interface SnapshotMeta {
 function textMerge(server: string, local: string, base: string): string;
 ```
 
-Three-way merge helper (LCS-based) for long-form text fields, used inside a `'use-this'` resolver to preserve both the local user's edits and a concurrent server-side commit. Exported from `@lumenize/nebula-frontend`'s top level.
+Three-way merge helper (LCS-based) for long-form text fields, used inside a `'use-this'` resolver to preserve both the local user's edits and a concurrent server-side commit. Exported from `@lumenize/nebula/frontend`'s top level.
 
 `base` is the **common ancestor** — the value both `local` and `server` diverged from — and it is required for the merge to preserve both sides: pass `resolution.base.value.<field>`, never `resolution.server.value.<field>`. (With `base === server` the server→base diff is empty and the merge collapses to "local wins," silently dropping the concurrent edit.) The `'conflict-pending'` resolution supplies `base` directly (see [TransactionResourceResolution](#transactionresourceresolution)) — your handler just reads `resolution.base.value`. The framework sources it client-side as the value the local edit was based on and keeps it current as that baseline advances (across a clean commit, and across a chained `'use-this'` re-conflict, where `base` becomes the previous conflict's `server` snapshot). It is never a server-side history lookup.
 

@@ -43,4 +43,4 @@ In the factory's `get` trap, when handing out a `Map`/`Set` mutator (`set`/`add`
 
 ## Port
 
-Once green in isolation, fold into the factory during v3 (`packages/nebula-frontend/src/create-nebula-client.ts`) alongside the debounce port — they share the submission path. Delete this detour after the port (standard experiment lifecycle).
+Once green in isolation, fold into the factory during v3 (`apps/nebula/src/frontend/create-nebula-client.ts`) alongside the debounce port — they share the submission path. Delete this detour after the port (standard experiment lifecycle).
