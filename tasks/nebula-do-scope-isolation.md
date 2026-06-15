@@ -1,6 +1,6 @@
 # Nebula DO Scope Isolation — Structural, not Trust-On-First-Use
 
-**Status**: Design — **DO FIRST** (precedes [broadcast-origin-transparency.md](broadcast-origin-transparency.md), which is on hold)
+**Status**: Design — **DO FIRST** (precedes [broadcast-origin-transparency.md](on-hold/broadcast-origin-transparency.md), which is on hold)
 **Origin**: Surfaced during the broadcast design review (2026-06-08); hardened by a dedicated reviewer panel (workflow `w0v2nupbw`) that corrected several premises below, then re-reviewed 2026-06-08 by a second panel that added M-1 (platform-name accept-all), M-2 (full @mesh audit surface), M-3 (test-rewrite disposition), m-1 (single scope derivation), and m-4 (migration rationale).
 
 ## Objective
@@ -99,5 +99,5 @@ The stored `__nebula_universeGalaxyStarId` is **whatever `aud` first claimed the
 - Per-`it` unique scope ids (m3) — claim-sensitive tests must not share a Galaxy/helper id across `it` blocks (`isolatedStorage:false` for WS suites).
 
 ## Related
-- [broadcast-origin-transparency.md](broadcast-origin-transparency.md) (Option A) — **ON HOLD, sequenced after this.** Same trust/scope model, same 2026-06-08 review.
+- [broadcast-origin-transparency.md](on-hold/broadcast-origin-transparency.md) (Option A) — **ON HOLD, sequenced after this.** Same trust/scope model, same 2026-06-08 review.
 - Follow-on: [mesh-active-callcontext-guard.md](mesh-active-callcontext-guard.md) — structural raw-RPC-bypass enforcement (the `@mesh` active-callContext guard), sequenced after this. Backlog still carries "promote `activeScope`/`authScopePattern` to typed `originAuth` fields."

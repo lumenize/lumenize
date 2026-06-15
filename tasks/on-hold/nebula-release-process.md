@@ -1,5 +1,7 @@
 # Nebula Release Process
 
+**Status**: On Hold — demo focus. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning); Phases 1–5 (SHA-stamping, `/_version`, `deploy-nebula.sh` split) not started.
+
 ## Objective
 
 Build a release process for Nebula that fits its actual nature — an **app** that gets `wrangler deploy`d, not a package that gets `npm publish`d — and that prevents the "tested locally, deployed something else" failure mode.

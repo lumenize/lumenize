@@ -1,9 +1,16 @@
-# Phase 5.5 (branch-local subset): In-Place Lazy Migrations
+# Branch-Local Lazy Migrations
 
 **Status**: Active — critical path for the demo
+
+**Owner**: `tasks/nebula-studio.md` (this exists specifically to make Studio's iteration loop feel sane — see Scope)
+
 **Depends on**: 5.2.4.2 (parse-validate via DO facet, per-version Galaxy registry, `_index` mirrored to Star)
+
 **Companion**: `tasks/nebula-branches.md` (each branch is an independent Star instance — these migrations run within a single branch)
+
 **Production polish**: `tasks/on-hold/nebula-5.5-schema-evolution.md` (held until post-demo)
+
+> De-numbered from "Phase 5.5 (branch-local subset): In-Place Lazy Migrations" 2026-06-15 and re-homed under Studio. Phase 5's core shipped; this is the one remaining Phase-5-lineage piece still on the demo critical path, and it serves Studio's edit loop, so it's owned there now rather than carried as a Phase 5 sub-number.
 
 ## Scope
 

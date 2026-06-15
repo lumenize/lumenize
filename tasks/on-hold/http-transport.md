@@ -1,7 +1,10 @@
-# Phase 5.6: HTTP Transport
+# HTTP Transport
 
-**Status**: Pending
+**Status**: On Hold — post-demo (the demo runs entirely over Mesh/WebSocket; REST transport is not on the critical path)
+
 **Depends on**: Phase 5.2.3 (Ontology & Resources Integration)
+
+> De-numbered from "Phase 5.6" 2026-06-15 — this is deferred work, not a gating step in the Phase 5 sequence.
 
 ## Scope
 

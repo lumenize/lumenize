@@ -4,7 +4,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] **Set up Substack** as a third cross-post channel (alongside Lumenize blog + Discord + Medium). Currently a gap in the post-2b/2c rollout for the parse-validator release — see `tasks/parse-validate-release.md` "Revised staging". Once active, update `reference_content_distribution.md` and the parse-validate-release task file to fold Substack into the Day +3–5 broadcast window.
+- [ ] **Set up Substack** as a third cross-post channel (alongside Lumenize blog + Discord + Medium). Currently a gap in the post-2b/2c rollout for the parse-validator release — see `tasks/archive/parse-validate-release.md` "Revised staging". Once active, update `reference_content_distribution.md` and the parse-validate-release task file to fold Substack into the Day +3–5 broadcast window.
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
@@ -12,13 +12,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Lumenize Mesh
 
 - [ ] Investigate use of waitUntil in lmz-api.ts. Do we actually need it? If we do, does it keep the DO in wall-clock billing mode? If we switched to making call always be two one-way calls, would we need it?
-
-- [ ] (is this done already?) Add successful token refresh lifecycle test to mesh test suite — with real cookies
-  - **Gap**: Mesh tests cover refresh *failure* (4401 → refresh throws → `onLoginRequired`) but never test successful refresh. All existing mesh tests use `createTestRefreshFunction` (function form) which bypasses cookie handling entirely.
-  - **What to test**: `LumenizeClient` with `refresh: '/auth/refresh-token'` (string form, not function) + `browser.fetch` — exercises real cookie jar. Token expires (4401 close) → client calls `browser.fetch('/auth/refresh-token')` → Browser sends `refresh-token` cookie automatically → auth DO validates, returns JWT, rotates cookie → client reconnects → subsequent calls work.
-  - **Infrastructure ready**: `packages/auth/test/e2e-email/` now has the email testing infrastructure + `Browser` cookie jar pattern. The auth e2e test proves real cookies work end-to-end. A mesh test can use the same `Browser` instance to: (1) click magic link → cookie captured, (2) pass `browser.fetch` and `browser.WebSocket` to `LumenizeClient`, (3) let LumenizeClient auto-refresh via the real cookie path.
-  - **Needs**: Gateway DO binding added to a mesh e2e test wrangler.jsonc, plus auth DO + AUTH_EMAIL_SENDER service binding. The mesh `for-docs/getting-started` test harness is a good starting point — it already has Gateway + auth.
-  - **Discovered during**: `tasks/resend-email-for-auth.md` Phase 2b — the backlog item was originally about simulated refresh; with the email infrastructure now in place, it can test the full real flow.
 
 - [ ] Split `getting-started/index.test.ts` so it's a clean 1:1 match with `getting-started.mdx`
   - Currently lines 81-151 add Bob multi-client collaboration, `createTestingClient` storage inspection, and spell check verification — none referenced by the `.mdx`
@@ -67,9 +60,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Experiment design**: Create test that chains N calls deep, measure where it fails
   - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
   - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
-
-- [ ] (Iceboxed 2026-04-30) Make `lmz.call()` with response handlers eviction-safe by default — see [`tasks/icebox/lmz-call-eviction-safe-by-default.md`](icebox/lmz-call-eviction-safe-by-default.md). Originally framed around throughput / billing benefits; the architectural deep-dive in the do-throughput-misread blog post showed those premises don't survive scrutiny because Handler 1 / Handler 2 already addresses them. Only eviction-safety remains, and even that's marginal in practice.
-
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
 - [ ] Consider adding these properties (.remote, .retryable, .overloaded, etc.) to lmz.call() errors: https://developers.cloudflare.com/durable-objects/best-practices/error-handling/. Maybe even consider using .idempotent, .safeToRetry or something to indicate that the error was thrown before any state change occured.
@@ -91,13 +81,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Consider upgrading `@lumenize/testing`'s `websocket-shim` to use a real WebSocket client and integrate the `Browser` cookie jar
   - **Why**: Currently the shim is fetch-based (does the upgrade through `Browser.fetch`, which carries cookies). It works fine for our auth model where the access token rides in the `lmz.access-token.<jwt>` subprotocol — cookies aren't checked on the WS upgrade. But if a future auth scheme ever validates a session cookie at the upgrade step, the shim would already cover it. Conversely: today's nebula browser harness *probably* falls back to Node's native `WebSocket` for the round-trip path because the shim was built around the Cloudflare Workers `ws` server-side semantics, not a generic-network-WebSocket client. A real WebSocket client (e.g. `ws` package or Node 22's native, with cookies threaded through) would unify both layers.
-  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — investigating whether `browser.WebSocket` is suitable as the WS layer for the nebula round-trip test.
+  - **Discovered during**: Phase 2 of `tasks/archive/nebula-deployable-and-browser-harness.md` — investigating whether `browser.WebSocket` is suitable as the WS layer for the nebula round-trip test.
   - **Scope**: small but non-trivial — would need to either find a real WS client whose handshake we can override (so we can attach the cookie header from `Browser`), or roll our own thin upgrade wrapper. Not blocking anything today; revisit when reactivity tests need real WS auth flows.
 
 - [ ] Consider promoting `waitForEmail` / `extractMagicLink` helpers from `packages/auth/test/e2e-email/email-test-helpers.ts` to a reusable location
   - **Why**: These helpers are auth-system-agnostic — they just talk to the deployed `email-test` Worker (`https://email-test.transformation.workers.dev`) over WebSocket. They aren't `@lumenize/auth`-specific or Nebula-specific. Currently the Nebula browser harness has to either copy them or import via relative path through another package's `test/` dir.
   - **Where they could live**: `@lumenize/email-test` (which already exists for the deployed Worker types) could export the client helpers as a subpath. Or a new `@lumenize/testing/email` subpath.
-  - **Discovered during**: Phase 2 of `tasks/nebula-deployable-and-browser-harness.md` — adding `auth-bootstrap.ts` to the nebula browser harness, which needs the same helpers.
+  - **Discovered during**: Phase 2 of `tasks/archive/nebula-deployable-and-browser-harness.md` — adding `auth-bootstrap.ts` to the nebula browser harness, which needs the same helpers.
   - **Don't do this now** — wait until the third consumer needs them.
 
 - [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
@@ -256,34 +246,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Infrastructure
 
-- [ ] See `tasks/github-actions-publishing.md` for automation plans
+- [ ] See `tasks/icebox/npm-publish-via-github-actions.md` for automation plans
 
 ## Website, Blog, etc.
 
 - [ ] Publish blog 2e "Scaling Durable Object broadcast" — flip `draft: true` → published at `website/blog/2026-06-06-scaling-durable-object-broadcast/index.md` (only remaining item from archived [fanout-scaling-benchmark](archive/fanout-scaling-benchmark.md))
 
-- [ ] Draft blog post: "When time stops: benchmarking Cloudflare Durable Objects from outside" (working title)
-  - **Why**: The bench harness pattern we built for the parse-validate release is genuinely novel for the Cloudflare community. Most DO bench writeups use `vi.bench` inside the Workers test pool and quietly absorb the time-pinning problem. The WS-push-observer pattern with ping-subtraction is the right answer but not obvious — and it deserves to be documented as its own contribution.
-  - **What to cover**:
-    - The "time stops inside Cloudflare" problem (`Date.now()` pinned within an invocation, hibernation blurring elapsed-time observations)
-    - The WebSocket-push-to-Node-client architecture
-    - Two-bench design: latency (`transactions.bench.ts`) + throughput (`throughput.test.ts`) sharing a ping baseline
-    - Ping-subtraction methodology — and its limits (constant-subtraction is approximate at high N; ping itself has variance; not a joint distribution)
-    - `ThroughputHarnessClient` Map-keyed result dispatch
-    - When NOT to use this pattern (microbenchmarks where harness overhead dominates the work being measured)
-  - **Seed material**: design-notes section of [`apps/nebula/test/browser/RESULTS.md`](../apps/nebula/test/browser/RESULTS.md) ("WS-leg subtraction", "Cold-Star/warm-cluster", "Sample counts" sections), plus the THROUGHPUT-RESULTS.md "open question on ping under load" caveat. Bench source: [`apps/nebula/test/browser/`](../apps/nebula/test/browser/).
-  - **Part of**: parse-validate release thread (alongside introducing-parse-validator, what-i-got-wrong-about-do-throughput, and the to-be-extracted facet-performance post). Target: same-day publish with the others.
+- [ ] Publish blog 2d "When time stops: benchmarking Cloudflare Durable Objects from outside" — **already drafted**; flip `draft: true` → published at `website/blog/2026-05-09-benchmarking-cloudflare-durable-objects-from-outside/index.md` (bench archived in [gateway-hop-benchmark](archive/gateway-hop-benchmark.md); also tracked in MEMORY as "Publish 2d").
 
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
-- [ ] Get a Substack account and cross post there
-
-- [ ] Consider writing "Your DO alarm is probably fine" blog post
-  - **Source**: alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md` Phase 6, deferred). Full results in `experiments/alarm-accuracy/EXPERIMENT_RESULTS.md`.
-  - **Headline number**: p99 alarm jitter at 5 s = 1 ms; alarms at delays ≤ 30 s fire with sub-ms median accuracy and tails under 36 ms. Bimodal at 60 s+ (hibernation cost ~280 ms p99 at 60 s, ~700 ms p99 at 300 s).
-  - **Framing context** (`feedback_cf_community_framing.md`): would push back gently on Kenton's "tens of seconds, use setTimeout below 1 minute" Discord guidance — but only at the 5 s scale we measured.
-  - **Why "consider"**: findings are reassuring rather than dramatic — they confirm "5 s grace period is fine" without overturning Kenton's broader minute-scale claim. May not build community cred enough to justify the write-up + caveats (single time-of-day, single colo, 50 trials/bucket per `EXPERIMENT_RESULTS.md`). If a future re-run hits the 1-minute boundary and finds something more striking, revisit.
 
 ## @lumenize/auth
 
@@ -328,10 +301,9 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 ### Other Nebula backlog
 
-- [ ] **`client.logout()` (deferred from nebula-frontend v3 / P7 — NOW UNBLOCKED, both deps met 2026-06-15).** The client surface ([api-reference.md § client.logout](../website/docs/nebula/api-reference.md#clientlogout)) is small (POST the auth logout endpoint to revoke+clear the path-scoped refresh cookie → drop the in-memory access token → `disconnect()` so the factory mirrors `lmz.connection.state = 'disconnected'` → redirect). Both formerly-unmet deps are now satisfied: (1) ✅ the **mesh token-clear** landed in **P9** as `LumenizeClient.clearAccessToken()` (`packages/mesh/src/lumenize-client.ts`; nulls `#accessToken` + `#claims`, which `disconnect()` does NOT); (2) ✅ the **nebula-auth server logout endpoint ALREADY EXISTS + is tested** — the earlier "phantom endpoint" claim was STALE. `POST .../logout` → `NebulaAuth.#handleLogout` ([nebula-auth.ts:433](../packages/nebula-auth/src/nebula-auth.ts:433)) revokes the refresh token (`UPDATE RefreshTokens SET revoked = 1`, audit-logged) + clears the path-scoped cookie (`Set-Cookie: refresh-token=; Max-Age=0`), covered by `nebula-auth-routes.test.ts:316`/`:1092` + `nebula-auth.test.ts:401`/`:620` + the cross-Star `nebula-auth-integration.test.ts:127` flow. **Remaining work = the NebulaClient `client.logout()` client surface ONLY** (compose `POST ${baseUrl}/auth/${authScope}/logout` via the configured `fetch` + `credentials:'include'`, then `clearAccessToken()` + `disconnect()` + redirect), tested via §5.3.8 connection-lifecycle path 6. Small + fully testable now — strong candidate for the next nebula-frontend P10 slice.
+- [ ] **`client.logout()` (deferred from nebula-frontend v3 / P7 — NOW UNBLOCKED, both deps met 2026-06-15).** The client surface ([api-reference.md § client.logout](../website/docs/nebula/api-reference.md#clientlogout)) is small (POST the auth logout endpoint to revoke+clear the path-scoped refresh cookie → drop the in-memory access token → `disconnect()` so the factory mirrors `lmz.connection.state = 'disconnected'` → redirect). Both formerly-unmet deps are now satisfied: (1) ✅ the **mesh token-clear** landed in **P9** as `LumenizeClient.clearAccessToken()` (`packages/mesh/src/lumenize-client.ts`; nulls `#accessToken` + `#claims`, which `disconnect()` does NOT); (2) ✅ the **nebula-auth server logout endpoint ALREADY EXISTS + is tested** — the earlier "phantom endpoint" claim was STALE. `POST .../logout` → `NebulaAuth.#handleLogout` ([nebula-auth.ts:433](../packages/nebula-auth/src/nebula-auth.ts:433)) revokes the refresh token (`UPDATE RefreshTokens SET revoked = 1`, audit-logged) + clears the path-scoped cookie (`Set-Cookie: refresh-token=; Max-Age=0`), covered by `nebula-auth-routes.test.ts:316`/`:1092` + `nebula-auth.test.ts:401`/`:620` + the cross-Star `nebula-auth-integration.test.ts:127` flow. **Remaining work = the NebulaClient `client.logout()` client surface ONLY** (compose `POST ${baseUrl}/auth/${authScope}/logout` via the configured `fetch` + `credentials:'include'`, then `clearAccessToken()` + `disconnect()` + redirect), tested via §5.3.8 connection-lifecycle path 6. Small + fully testable now — a good early Studio-phase slice (the phased frontend build is complete through P11, so this is fresh work, not a remaining frontend phase).
 - [ ] **`createNebulaClient` `authScope` URL auto-detect (deferred from nebula-frontend v3 / P7).** P7 ships `createNebulaClient(config)` with `baseUrl`/`activeScope`/`onShouldRefreshUI` auto-detecting but **`authScope` still required-in-practice** (omitting it throws a clear "auto-detect not yet implemented; pass authScope or wait for the Studio-hosting decision" error). Deferred because the URL→scope mapping is coupled to the still-open **Studio-UI-hosting / deployment-URL scheme** ([nebula-studio.md](nebula-studio.md); see [nebula-frontend.md](nebula-frontend.md) §5.3.7-v3 createNebulaClient item). **Larry's steer (2026-06-15):** all Studio users are **Galaxy admins by definition**, so the dev-Star case can still auto-detect `authScope` from the URL (a Galaxy admin's cookie is at `/auth/{galaxy}`, pattern `{galaxy}.*`; the dev Star's scope is derivable from the deployment URL). Design the derivation against that constraint once the hosting scheme lands. Until then, the api-reference flagship `createNebulaClient({ appVersion })` example is aspirational. **Trigger**: the Studio-hosting/deployment-URL decision is made, or a real browser deploy needs the zero-config form.
 - [ ] **(low-pri, speculative) Mesh: classify a terminal auth failure at the WS *upgrade* (not just the refresh endpoint).** P9 + the nebula-frontend P10 slice made first-connect *refresh* 401/403 terminal (LoginRequiredError → `onLoginRequired` + `'disconnected'`). A separate edge: if a terminal auth failure surfaced at the WebSocket *upgrade* itself — an HTTP 403 before the WS opens, surfacing via `#connectInternal`'s WebSocket-construction/`onerror` path rather than a 4400/4403/4401 close code — it falls into the generic `else → #scheduleReconnect()`, not `onLoginRequired`. Largely theoretical today: the Gateway uses 4400/4403/4401 close codes for auth (which `#handleClose` already classifies), and a rejected WS upgrade typically surfaces as a generic connection error, not a readable HTTP 403. Flagged by the P10 verify panel; revisit only if a real upgrade-time-403 path appears. (`packages/mesh/src/lumenize-client.ts` `#connectInternal` / `#handleError`.)
-- [x] **`npm deprecate @lumenize/state` — DONE 2026-06-15 (Larry, manually).** `@lumenize/state@0.26.0` was published + live on npm; source deleted from the monorepo in nebula-frontend v3/P11 (`045d2ac`, superseded by Vue `reactive()`). The deprecation notice is now published so npm consumers see it. (Automated `npm deprecate` from the session was blocked on expired npm auth, so Larry ran it by hand.)
 - [ ] **FK referential integrity (deferred — see [ADR-006](../docs/adr/006-resources-reference-by-id.md)).** Validation only checks a relationship reference is a well-formed id `string`, not that the target exists — so dangling/nonexistent ids are accepted. Decide whether to enforce "the target exists, or is created in the same transaction," **scoped to intra-Star same-transaction FKs** (cross-Star refs are ids that can't be checked at write time and stay eventually-consistent). Lives in `apps/nebula/src/resources.ts` transaction validation + the relationship metadata from `extractTypeMetadata`. Low-pri; revisit when a concrete need arises.
 - [ ] Refactor `dag-tree.ts` `requirePermission` to throw typed errors (`PermissionDeniedError`, `NodeNotFoundError`, `AuthenticationRequiredError`)
   - **Why**: Currently throws plain `Error` for three distinct conditions with different downstream handling needs. `Resources.transaction`'s permission-check refactor (Phase 5.3.3b) needed to distinguish "permission denied" (→ typed `TransactionError`) from "node not found" / "auth required" (→ propagate as Error). Fix is currently a fragile message-string match at [apps/nebula/src/resources.ts:368-377](apps/nebula/src/resources.ts:368) — `e.message.includes('permission required')`. Replace with `e instanceof PermissionDeniedError` checks.
@@ -353,7 +325,7 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **What**: every Nebula authorization site currently fishes the two scopes out of untyped `originAuth.claims` by hand — `originAuth.claims.aud` for the active scope, `originAuth.claims.access.authScopePattern` for the grant (e.g. `NebulaClientGateway.onBeforeCallToClient` [apps/nebula/src/nebula-client-gateway.ts:14](../apps/nebula/src/nebula-client-gateway.ts:14), `dag-tree.ts`, `subscriptions.ts`). Replace with a typed Nebula-side view (a helper/getter pair) so each check has to *name* which axis it consults.
   - **Why**: the two scopes mean different things — **active** (`aud`) = the star you're bound to *right now*; **auth** (`authScopePattern`) = the grant of *which stars you may bind to*. Conflating them is a security bug in both directions: check the grant where you meant the active scope and a star-A session receives star-B's data (downscoping defeated); check the active scope where you meant the grant and you reject legitimate access. The broadcast-origin-transparency review (below) showed how easy this is to get wrong — the delivery check is correctly exact-`aud`, but nothing structural stops a future site from reaching for the wrong field. Named, typed accessors force intent and make the next feature reason about scope correctly by construction.
   - **Layering constraint** (this is why it's a Nebula task, not a mesh one): mesh's `OriginAuth` is generic (`{ sub?, claims? }`) and **must stay that way** — the dependency-direction rule forbids `@lumenize/mesh` importing Nebula concepts like `aud`/`authScopePattern`. So this is a Nebula-side typed wrapper over `originAuth.claims`, **not** new fields on mesh's `OriginAuth`.
-  - **Discovered during**: the 2026-06-08 trust/scope review. Would directly de-risk [tasks/nebula-do-scope-isolation.md](nebula-do-scope-isolation.md) Fix 1 (the structural `onBeforeCall` check reads `aud` + `authScopePattern` out of untyped `claims` — typed accessors make its intent unambiguous). Also referenced from [tasks/broadcast-origin-transparency.md](broadcast-origin-transparency.md). Not a blocker for either; the generalized explicitness win.
+  - **Discovered during**: the 2026-06-08 trust/scope review. Would directly de-risk [tasks/nebula-do-scope-isolation.md](nebula-do-scope-isolation.md) Fix 1 (the structural `onBeforeCall` check reads `aud` + `authScopePattern` out of untyped `claims` — typed accessors make its intent unambiguous). Also referenced from [tasks/on-hold/broadcast-origin-transparency.md](on-hold/broadcast-origin-transparency.md). Not a blocker for either; the generalized explicitness win.
 
 - [ ] Integrate Cloudflare Account Abuse Protection for disposable email and email risk detection
   - **Ref**: https://blog.cloudflare.com/account-abuse-protection/
@@ -362,21 +334,6 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
   - **Graceful degradation**: If the headers aren't present (user-developer hasn't configured Transform Rules), skip the check — same pattern as Turnstile being optional when `TURNSTILE_SECRET_KEY` isn't set.
   - **Caveat**: Currently Early Access for Bot Management Enterprise customers only. As of March 2026, this appears to require paid WAF/Bot Management — there is no free-tier or standalone API equivalent. If Cloudflare opens this up more broadly (GA expected later in 2026), it becomes a natural addition. Until then, a lightweight disposable-domain blocklist (MIT-licensed lists exist) could serve as a free stopgap.
 
-## Blocked / Maybe later
-
-- [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
-
-- [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
-
-- [ ] Refactor to use `using` keyword for Workers RPC stubs (Explicit Resource Management)
-  - Cloudflare added support in Feb 2025: https://developers.cloudflare.com/changelog/2025-02-28-wrangler-v4-rc/#the-using-keyword-from-explicit-resource-management
-  - **Why it matters**: Without `using`, stubs held in wall-clock billing mode
-  - **Pattern**: `using` is lexically scoped (NOT reference-counted like WeakMap). Disposal happens when the declaring scope exits, regardless of who holds references. Therefore, `using` must be at the **call site**, not inside helper functions that return stubs.
-  - **Blocker**: As of Jan 2025, `vitest-pool-workers` (workerd 1.20251011.0) throws "Object not disposable" when using `using` with DO stubs. The runtime doesn't implement `Symbol.dispose` on stubs yet. Wait for vitest-pool-workers/workerd to add support, then:
-    1. Search codebase for `getDOStub(` calls and change to `using stub = getDOStub(...)`
-    2. Update `getDOStub` JSDoc to recommend callers use `using`
-
 ## `@lumenize/ts-runtime-parser-validator`
 
 - [ ] **`@default` input/output type asymmetry — dual-type exposure.** Promoted from [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md) Phase -1 (closed 2026-04-24). `@default` on a field creates an input/output type mismatch: input-side the field is absent-allowed, output-side it's always present. Current rule requires `?` (input-honest; consumers pay null-check tax on post-parse data). Most promising fix: add a typia-style `Default<T>` branded type alongside JSDoc `@default`, plus a `Parsed<T>` utility that non-optional-ifies branded fields — Zod-style dual views without dropping the JSDoc path. **Trigger**: users complaining about null-check noise on parsed `data`, or Nebula hitting pain when generating TypeScript client code for ontology consumers. Full analysis in the archived 5.2.4.1 Phase -1.
-    3. Update unit test mocks to include `[Symbol.dispose]: () => {}`

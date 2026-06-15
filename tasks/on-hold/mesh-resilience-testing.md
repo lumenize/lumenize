@@ -4,7 +4,7 @@
 
 ## Objective
 
-Add integration tests for Gateway↔Client resilience behaviors that are currently only unit-tested. These tests use `createTestingClient` to manipulate Gateway state (force-close WebSockets, inspect alarms, verify storage) and `createTestRefreshFunction` for auth — the same patterns established in `tasks/mesh-testing-auth-strategy.md`.
+Add integration tests for Gateway↔Client resilience behaviors that are currently only unit-tested. These tests use `createTestingClient` to manipulate Gateway state (force-close WebSockets, inspect alarms, verify storage) and `createTestRefreshFunction` for auth — the same patterns established in `tasks/archive/mesh-testing-auth-strategy.md`.
 
 Unit tests confirmed these behaviors work in isolation. Integration tests will exercise the full Client → Worker → auth hooks → Gateway → DO path and historically find 10x more bugs.
 
@@ -40,7 +40,7 @@ The `mesh-testing-auth-strategy` task proved that `createTestingClient` can mani
 
 **Why it matters**: Validates graceful degradation when clients truly disconnect.
 
-**Related unit test (already landed)**: [`tasks/archive/mesh-client-gateway-error-flattening.md`](archive/mesh-client-gateway-error-flattening.md) added a unit test in [`packages/mesh/test/lumenize-client-gateway.test.ts`](../packages/mesh/test/lumenize-client-gateway.test.ts) that drives `runDurableObjectAlarm` to fire `#rejectReconnectWaiters` while an `__executeOperation` call is parked in `#waitForReconnect`, and asserts the caller receives a `{ $error }` with `ClientDisconnectedError` class preserved. Phase 2 here is the fuller end-to-end scenario (real DO → client round-trip + resubscription); the unit test narrows on class-name preservation. Build on it rather than duplicate the narrow check.
+**Related unit test (already landed)**: [`tasks/archive/mesh-client-gateway-error-flattening.md`](../archive/mesh-client-gateway-error-flattening.md) added a unit test in [`packages/mesh/test/lumenize-client-gateway.test.ts`](../../packages/mesh/test/lumenize-client-gateway.test.ts) that drives `runDurableObjectAlarm` to fire `#rejectReconnectWaiters` while an `__executeOperation` call is parked in `#waitForReconnect`, and asserts the caller receives a `{ $error }` with `ClientDisconnectedError` class preserved. Phase 2 here is the fuller end-to-end scenario (real DO → client round-trip + resubscription); the unit test narrows on class-name preservation. Build on it rather than duplicate the narrow check.
 
 ### Phase 3: Token expiry during active session
 
@@ -120,7 +120,7 @@ These tests could live in a new `test/for-docs/resilience/` mini-app or be added
 
 ## Related
 
-- `tasks/mesh-testing-auth-strategy.md` — Established the `createTestingClient` + `createTestRefreshFunction` patterns used here
+- `tasks/archive/mesh-testing-auth-strategy.md` — Established the `createTestingClient` + `createTestRefreshFunction` patterns used here
 - `packages/mesh/src/lumenize-client-gateway.ts` — Grace period, alarm, supersession, token expiry logic
 - `packages/mesh/src/lumenize-client.ts` — Reconnection, `onSubscriptionRequired`, `onLoginRequired`, stale close handling
 - `packages/mesh/test/lumenize-client-gateway.test.ts` — Existing Gateway unit tests (these scenarios are unit-tested here)

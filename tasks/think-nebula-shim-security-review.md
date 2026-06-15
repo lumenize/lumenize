@@ -1,6 +1,6 @@
 # Think→Nebula shim — design & multi-tenant-security review
 
-**Status (2026-06-06)**: Drafted as a handoff for a focused **next-session** design discussion. The Think-vs-CMA bake-off is concluded (→ Think/Kimi+codemode; see `tasks/think-vs-cma-bakeoff.md` + `experiments/think-vs-cma/results/RESULTS.md`). **The shim is the engineering artifact that survives that decision** — Larry: "other than the decision to go Think all the way, that's what will survive." This doc frames the review so the new session can start focused (read the real code, not the bake-off history).
+**Status (2026-06-06)**: Drafted as a handoff for a focused **next-session** design discussion. The Think-vs-CMA bake-off is concluded (→ Think/Kimi+codemode; see `tasks/archive/think-vs-cma-bakeoff.md` + `experiments/think-vs-cma/results/RESULTS.md`). **The shim is the engineering artifact that survives that decision** — Larry: "other than the decision to go Think all the way, that's what will survive." This doc frames the review so the new session can start focused (read the real code, not the bake-off history).
 
 ## What the shim is
 

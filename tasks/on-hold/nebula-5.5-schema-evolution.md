@@ -1,9 +1,11 @@
 # Phase 5.5: Schema Evolution (production polish — ON HOLD)
 
-> **Status note (demo focus)**: The dev-mode subset has been extracted to [`tasks/nebula-5.5-dev-mode-migrations.md`](../nebula-5.5-dev-mode-migrations.md) as the active critical-path file. This file holds the production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Content preserved as the reference for when this work resumes.
+> **Status note (demo focus)**: The branch-local critical-path subset has been extracted to [`tasks/branch-migrations.md`](../branch-migrations.md) (formerly `nebula-5.5-branch-migrations.md`, originally `nebula-5.5-dev-mode-migrations.md`) as the active file. This file holds the production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Content preserved as the reference for when this work resumes.
 
 **Status**: ON HOLD — see note above
+
 **Depends on**: 5.2.4.2 (parse-validate via DO facet, per-version row storage, Galaxy `_index` mirrored to Star)
+
 **Parent**: `tasks/nebula.md`
 
 ## Scope

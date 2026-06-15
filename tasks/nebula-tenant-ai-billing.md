@@ -1,6 +1,6 @@
 # Nebula per-tenant cost attribution & billing
 
-**Status**: Design stub — not started. Captures decisions/findings from a 2026-06-06 design discussion so they aren't lost. Pairs with the Think-vs-CMA bake-off ([tasks/think-vs-cma-bakeoff.md](think-vs-cma-bakeoff.md)) which produced the per-turn AI-cost capture this builds on.
+**Status**: Design stub — not started. Captures decisions/findings from a 2026-06-06 design discussion so they aren't lost. Pairs with the Think-vs-CMA bake-off ([tasks/archive/think-vs-cma-bakeoff.md](archive/think-vs-cma-bakeoff.md)) which produced the per-turn AI-cost capture this builds on.
 
 ## Objective
 
@@ -82,7 +82,7 @@ With the Tail Worker path making most dimensions *directly* attributable, the fa
 - [ ] If CMA is ever used (recommendation is Think/Kimi): route Anthropic through AIG-as-provider for tagging.
 
 ## References
-- Bake-off + per-turn AI-cost capture: [tasks/think-vs-cma-bakeoff.md](think-vs-cma-bakeoff.md); `experiments/think-vs-cma/shared/cost.ts` (worktree).
+- Bake-off + per-turn AI-cost capture: [tasks/archive/think-vs-cma-bakeoff.md](archive/think-vs-cma-bakeoff.md); `experiments/think-vs-cma/shared/cost.ts` (worktree).
 - CPU/wall via trace logs: [tasks/archive/proxy-fetch-performance-experiments.md](archive/proxy-fetch-performance-experiments.md).
 - Clock-trap (why in-isolate timing is dead): `feedback_cf_clock_traps.md` (memory).
 - AI Gateway: custom metadata, spend limits (2026-06-05), pricing (core free); verified against Cloudflare docs 2026-06-06.

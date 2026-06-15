@@ -1,6 +1,6 @@
 # Mesh: `callContext.originRequest` + placement-aware calls
 
-**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry), not started. Immediate consumer: [nebula-star-root-admin.md](nebula-star-root-admin.md) Part 1b (place the Star near the tenant) — that task depends on this one.
+**Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry), not started. Its original consumer — [nebula-star-root-admin.md](nebula-star-root-admin.md) Part 1b (place the Star near the tenant) — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
 
 ## Objective
 

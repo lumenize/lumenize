@@ -1,7 +1,7 @@
 # Nebula Branches
 
 **Status**: Active — critical path for the demo
-**Depends on**: `tasks/nebula-5.5-branch-migrations.md` (in-place lazy / copy-on-read migrations within a branch)
+**Depends on**: `tasks/branch-migrations.md` (in-place lazy / copy-on-read migrations within a branch)
 **Companion**: `tasks/nebula-studio.md` (each chat session pins to a non-main branch — `.dev` by default)
 
 ## Goal

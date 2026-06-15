@@ -1,6 +1,6 @@
 # vibesdk LLM-Patterns Extraction
 
-**Status**: Planned — gates on Phase 5.3 (subscriptions) shipping
+**Status**: Unblocked — the Phase 5.3 (subscriptions) gate shipped (frontend merged to main 2026-06-15); ready to start, not yet started
 **Output**: `tasks/reference/vibesdk-llm-patterns.md` — a topic-organized pattern playbook
 **Why it slots here**: The patterns inform both Studio's own design AND the in-app chat-feature building block we'll ship to user-developers. Doing this read before the pre-Studio milestone means the milestone's prompts and tool surface are designed against accumulated production wisdom, not first-principles guessing.
 **Estimated effort**: 2–3 hours of focused reading + writing.

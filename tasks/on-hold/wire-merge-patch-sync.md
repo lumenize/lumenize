@@ -232,12 +232,12 @@ Estimated effort: ~150–300 LOC + tests. Phase-3-adjacent; Phase 3 code is fres
 | B | Per-resource read sync — same primitives, different drivers | `apps/nebula/src/resources.ts`, NebulaClient resources API |
 | C | Perf verification — synthetic benchmarks for both paths | `apps/nebula/test/browser/` or a new bench dir |
 
-Phase A depends on `tasks/nebula-dag-normalize.md` shipping first. Phase B is independent of A and can ship in either order; co-shipping makes the most sense since the plumbing overlaps.
+Phase A depends on `tasks/archive/nebula-dag-normalize.md` shipping first. Phase B is independent of A and can ship in either order; co-shipping makes the most sense since the plumbing overlaps.
 
 ## References
 
 - [tasks/archive/structured-clone-object-based-wire-format.md](../archive/structured-clone-object-based-wire-format.md) — design context for Phases 1+2 (the W4 wire format itself), shipped
-- [tasks/nebula-dag-normalize.md](../nebula-dag-normalize.md) — Phase 3, prerequisite for the DAG half of this work
+- [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md) — Phase 3, prerequisite for the DAG half of this work
 - [tasks/nebula-frontend.md](../nebula-frontend.md) — DAG-binding update strategies (Options 0–D); see Option D for the strategy this task implements
 - [RFC 7396](https://datatracker.ietf.org/doc/html/rfc7396) — JSON Merge Patch
 - [PR #11](https://github.com/lumenize/lumenize/pull/11) — W4 wire format ship

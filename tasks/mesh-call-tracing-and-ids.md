@@ -1,5 +1,7 @@
 # Mesh Call Tracing & ID Primitives
 
+**Status**: Not started. (The original "do it before millions of resources exist" urgency has softened — Resources core, the Vue frontend, and resource-creation infrastructure shipped/merged 2026-06-15 without it. Still worth doing; re-justify priority against current work.)
+
 ## Objective
 
 Add per-call IDs to Mesh's `callChain[]` so `@lumenize/debug` (and any other observer) can reconstruct full call trees — including forks where one node makes multiple outgoing `lmz.call()`s — by reading `lmz.callContext`. As a paired change, standardize unique-ID generation across `@lumenize/mesh` and `apps/nebula` on two blessed primitives that close out a known footgun (non-monotonic ULID in Workers).

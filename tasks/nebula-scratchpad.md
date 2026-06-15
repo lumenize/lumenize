@@ -61,7 +61,7 @@ Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in 
 
 **Notification delivery**: On tree mutation, Star iterates subscribers and calls each client's gateway via `this.lmz.call('NEBULA_CLIENT_GATEWAY', gwInstanceName, ...)`. Every online user is a subscriber (at minimum every 15 minutes due to access token TTL refresh).
 
-**Client-side `dag-ops` functions**: The client imports pure functions from `@lumenize/nebula` (`resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`, `validateSlug`, `checkSlugUniqueness`, `detectCycle`) that operate on its local `DagTreeState` copy. These enable pre-validation before mesh calls, permission-aware UI (enable/disable buttons, grey out inaccessible nodes), and local traversal — all with zero round trips. When the subscription pushes an updated `DagTreeState`, the client replaces its local copy and re-runs any needed computations. See `dag-ops.ts` in Phase 3.1 of `tasks/nebula-dag-tree.md`.
+**Client-side `dag-ops` functions**: The client imports pure functions from `@lumenize/nebula` (`resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`, `validateSlug`, `checkSlugUniqueness`, `detectCycle`) that operate on its local `DagTreeState` copy. These enable pre-validation before mesh calls, permission-aware UI (enable/disable buttons, grey out inaccessible nodes), and local traversal — all with zero round trips. When the subscription pushes an updated `DagTreeState`, the client replaces its local copy and re-runs any needed computations. See `dag-ops.ts` in Phase 3.1 of `tasks/archive/nebula-dag-tree.md`.
 
 **Open questions for Phase 5**:
 - Subscriber cleanup on disconnect (gateway notifies Star when client disconnects?)
@@ -92,15 +92,6 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 
 - **Bulk demo data load** — LLM/agent generates full resource timelines (create → updates → moves → deletes) with pre-computed `validFrom` chains, bulk-inserted into Star. Bypasses eTag checking (loading history, not competing with live writers), but still validates timeline consistency (monotonic `validFrom`, continuous `validTo` chains) and permission checks on target nodes. This likely supersedes Blueprint's caller-provided `validFrom` — that was also used for cross-DO synchronized updates, but Blueprint used `validFrom` as its eTag and had finer-grained multi-DO transactions. With our separate eTag + single-DO transaction model, caller-provided `validFrom` may never be needed outside of bulk load.
 
-### Rollback failure-outcome sibling tests (deferred)
-
-Spawned from [archive/validation-failed-rollback.md](archive/validation-failed-rollback.md) § "Scope decision (2026-06-04)". That task shipped 2026-06-04 — three of the five terminal-non-committed `TransactionResolution` outcomes now have bindToState rollback test coverage: `validation-failed`, `permission-denied`, `ontology-stale`. The remaining two are deferred and want their own sibling tests once their blockers clear:
-
-- **`timeout`** — needs WS-disconnect tooling (also deferred in [nebula-frontend.md](nebula-frontend.md) § Phase 5.3.6). Test shape: subscribe → optimistic write → drop the WS or stall the server-side handler past the 5–10 s queue timeout → assert state reverts to pre-write snapshot via `source: 'rollback'`.
-- **`retries-exhausted`** — belongs with the broader conflict-resolver-loop redesign in Phase 5.3.7 (`TransactionOutcome` / `TransactionResourceResolution`). Test shape: register an `onETagConflict` resolver that always returns `'use-this'`, optimistic write at a stale eTag → after `maxRetries` attempts hits cap → assert state reverts.
-
-Both should reuse the same shape as the `validation-failed`/`permission-denied`/`ontology-stale` siblings — only the trigger differs. The middleware dispatcher (`#processMiddlewareOutcome`) already handles both branches; the gap is purely test coverage.
-
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:
@@ -118,17 +109,9 @@ The initial DW validator wrapper (task 5.2.3.7) uses raw Workers RPC — the `Va
 
 **Blocked on**: Discord memory-sharing answer. If DWs get their own memory budget, this becomes the recommended default for Nebula's tsc validation (memory tradeoff row in docs disappears). If shared budget, it's still useful for code organization but doesn't solve the memory constraint. Either way, the NebulaWorker wrapper is worth building — the question is how prominently to recommend it.
 
-### ~~Heterogeneous Map Validation~~ (DONE — Phase 5.2.3.6)
-
-Fixed. `validate()` now extracts Map/Set generic type parameters from the type definitions AST and passes them to `toTypeScript()`, which emits explicit type params (e.g., `new Map<string, string | number>([...])`). See `tasks/nebula-5.2.3.6-map-set-generics-support.md`.
-
 ### Value Constraints via JSDoc Annotations
 
 Moved to `tasks/on-hold/nebula-orm-and-queries.md` (post-demo). Includes JSDoc constraints (`@min`, `@max`, `@format`) as Part A, M:N relationship design with join tables as Part B, and query-time filtering / bounded hydration in the multi-resource `query()` work as Part C. (`@default` is now handled by the parse-validate package, not this work.)
-
-### `@lumenize/ts-runtime-validate` Package Extraction
-
-The pure `validate()` function in `apps/nebula/src/validate.ts` (Phase 5.2.2) is deliberately self-contained — no Nebula imports, no class, no state. This makes future extraction into a standalone MIT-licensed npm package trivial: copy `validate.ts`, `engine.ts`, and the minimal `lib.d.ts`, add a `package.json`, publish. The community pitch: "validate any JS value against any TypeScript type at runtime — no Zod, no JSON Schema." The tsc engine (3.4 MB bundled) is the only meaningful dependency. Nebula's Ontology class, versioning, defaults, relationships, and migrations stay BSL-1.1 in `apps/nebula/`. Teases the capability while keeping the secret sauce proprietary.
 
 ### Nebula Licensing (from backlog)
 

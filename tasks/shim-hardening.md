@@ -1,7 +1,7 @@
 # Think→Nebula shim hardening
 
 **Status**: Not started — kickoff for a new session.
-**Background / analysis**: [`tasks/think-nebula-shim-security-review.md`](think-nebula-shim-security-review.md) (read first — it frames the design + multi-tenant-security questions). Decision context: [`tasks/think-vs-cma-bakeoff.md`](archive/think-vs-cma-bakeoff.md) + `experiments/think-vs-cma/results/RESULTS.md`.
+**Background / analysis**: [`tasks/think-nebula-shim-security-review.md`](think-nebula-shim-security-review.md) (read first — it frames the design + multi-tenant-security questions). Decision context: [`tasks/archive/think-vs-cma-bakeoff.md`](archive/think-vs-cma-bakeoff.md) + `experiments/think-vs-cma/results/RESULTS.md`.
 
 ## Pre-flight: bump Think + agents before implementing
 Sunil shipped a DO-write-cost optimization (Discord, 2026-06-06) claiming **20–80% lower DO costs** — gated on latest versions. We're one patch behind on both; bump before building on the harness:

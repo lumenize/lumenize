@@ -1,9 +1,14 @@
-# Nebula Resources (DWL Architecture)
+# Nebula Resources — Architecture Design
 
-**Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + schema evolution design)
+> **What this is**: the living architecture reference for Nebula's resource system — the inverted-DWL model, transaction protocol, temporal storage, schema-evolution rationale, and the DWL spike results. Moved out of `tasks/` 2026-06-15: this is a *design reference*, not a task file. **Phase status and the work breakdown live in the master phase table in `tasks/nebula.md`** — not here. The durable architecture *commitments* are pinned in `docs/adr/` (ADR-001 TS-as-schema, ADR-002 structured-clone, ADR-004 Snodgrass temporal, ADR-005 optimistic eTags, ADR-006 reference-by-id); this file holds the operational detail and rationale those terser sources don't carry.
+
+**Status of the design**: core shipped — storage engine (5.1), validation/ontology (5.2), and the transaction + subscribe engine are live and in use (see the `tasks/nebula.md` phase table). Remaining design questions are tracked in § Still Open below and in the branch-migration / schema-evolution files.
+
 **Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
+
 **Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach). Blueprint repo's `temporal-entity.js` is the exact prior implementation of Snodgrass temporal storage for Cloudflare DOs — saved locally at `tasks/reference/blueprint/temporal-entity.js`. Resources = Temporal Entities.
-**Depends on**: `tasks/archive/nebula-auth.md` (auth), `tasks/nebula-dag-tree.md` (DAG access control — Phase 3.1 complete)
+
+**Depends on**: `tasks/archive/nebula-auth.md` (auth), `tasks/archive/nebula-dag-tree.md` (DAG access control — Phase 3 complete)
 
 ### DAG Tree Prerequisites (from Phase 3.x)
 
@@ -527,103 +532,28 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 
 ### Still Open
 
-- **Q10**: DWL in vitest — untested, deferred
-- **Q16**: Schema evolution: per-resource-type versioning or global version?
-- **Q17**: Lazy migration on read vs eager migration on code deploy?
-- **Q18**: Migration failure handling — rollback, quarantine, or error?
-- **Q19**: DO-side class shape — resources in `NebulaDO` directly or separate `NebulaResources extends NebulaDO`?
-- **Q20**: Auth package — fork `@lumenize/auth` into `@lumenize/nebula` or separate `@lumenize/nebula-auth`?
+- **Q10**: DWL in vitest — can `@cloudflare/vitest-pool-workers` handle `worker_loaders` bindings? Untested, deferred.
+- **Q16 / Q17 / Q18 (migrations)**: per-resource-type vs global versioning, lazy-on-read vs eager-on-deploy, and failure handling are now owned by the migration files. The demo subset resolves the first two — per-version `_index` chain, lazy read-time migration with eager write-back — in `tasks/branch-migrations.md`; the production-polish surface (version skew, cross-resource callback, migration-error UX) is in `tasks/on-hold/nebula-5.5-schema-evolution.md`.
 
-## Implementation Phases
+### Resolved since this list was written
 
-### Phase 0: Design & DWL Validation
+- ~~**Q19**: DO-side class shape~~ — shipped. Resources live in the `Star` DO (`Star extends NebulaDO extends LumenizeDO`); the standalone-`NebulaResources` option was not taken. See `apps/nebula/src/star.ts`.
+- ~~**Q20**: Auth package~~ — separate `@lumenize/nebula-auth` package (not a fork into `@lumenize/nebula`). See `tasks/nebula.md` § Package Architecture.
 
-**Goal**: Validate DWL assumptions and finalize the API.
+## Implementation status
 
-**Success Criteria**:
-- [x] Basic DWL spike — DO calls DWL WorkerEntrypoint methods (spike test 3)
-- [x] Confirm DWL env supports structured-clonable types (spike test 2)
-- [x] Confirm DWL env does NOT support DO namespace bindings (spike test 4)
-- [x] Wrangler upgraded to 4.66.0 across monorepo, tests pass
-- [x] Inverted architecture validated — DO calls out to DWL, not reverse
-- [x] LumenizeWorker in DWL — DWL extends LumenizeWorker, `this.lmz` and `this.ctn()` work (spike test 5)
-- [x] Mesh call functionality — `__executeOperation()` propagates full callContext to DWL (spike test 6)
-- [x] Guards in DWL read `originAuth.claims.role` for access control decisions (spike test 6)
-- [x] Base class name decided: `ResourcesWorker` (extends `LumenizeWorker`)
-- [x] DO-side class decided: `LumenizeResources` extends `LumenizeDO` (Option B)
-- [x] Guard dispatch decided: `lmz.call(stub, continuation)` — Mesh envelope propagates callContext
-- [x] `lmz.call()` DWL addressing decided: new `lmz.call(stub, continuation)` overload
-- [x] `transaction()` API decided: `lmz.transaction([lmz.upsert(...), lmz.delete(...)])` with convenience functions
-- [x] Convenience function overloads decided: `(id, val)`, `(id, val, eTag)`, `(snapshot, val)` — eTag from cache or explicit
-- [x] Manual transaction protocol decided: read snapshots (for validFrom)→DWL guards→eTag check + write inside transactionSync (single-phase pessimistic check)
-- [x] **Runtime type validation** — tsc in DWL spike complete. 1ms median per-call. See `docs/adr/001-typescript-as-schema.md`
-- [ ] Design schema evolution and migration strategy
-- [ ] Finalize DO method surface (transaction, read, reads, subscribe, discover)
-- [ ] Finalize ResourcesWorker base class methods (runGuards batch, getResources, migrations)
-- [ ] Resolve DO-side class shape (NebulaDO vs NebulaResources)
-- [ ] Draft documentation (after API is stable — internal docs, not public MDX)
-- [ ] Maintainer sign-off on architecture
+The original task-file phase breakdown (Phase 0–5 with success-criteria checkboxes) lived here; it has been removed because it was superseded and actively misleading — it showed the storage engine, subscriptions, and transport as unbuilt long after they shipped.
 
-### Phase 1: LumenizeResources Storage Engine
+**The authoritative phase breakdown and status is the master phase table in `tasks/nebula.md`.** Mapped against this design:
 
-**Goal**: Implement the core storage DO with temporal storage and CRUD operations.
-
-**Success Criteria**:
-- [ ] `lmz.transaction([...])` accepting mixed upsert/delete operation descriptors
-- [ ] `lmz.upsert()` and `lmz.delete()` convenience functions with 3 overload patterns each
-- [ ] Local eTag cache — populated by read/subscribe, used by convenience functions
-- [ ] Snodgrass temporal storage with debounce and history modes
-- [ ] Optimistic concurrency via eTag (single-phase pessimistic check inside `transactionSync`)
-- [ ] Manual transaction protocol: pre-DWL reads → DWL guards → `transactionSync` (eTag check + permission check + write)
-- [ ] Snapshot response shape with meta
-- [ ] Transaction response protocol (success/conflict/rejected) — per-item results
-- [ ] Callable via `lmz.call()` from any Mesh node
-- [ ] Test objects include Map, Date, and Cycle
-
-### Phase 2: Subscriptions & Fanout
-
-**Goal**: Add subscribe, fanout, and lifecycle management.
-
-**Success Criteria**:
-- [ ] `subscribe` returns initial value + ongoing updates
-- [ ] BroadcastChannel semantics (own messages not echoed)
-- [ ] Subscriber cleanup on disconnect
-- [ ] Continuation pattern for DO subscribers
-- [ ] Auto-resubscribe on reconnect for Clients
-
-### Phase 3: HTTP Transport
-
-**Goal**: Expose LumenizeResources over HTTP.
-
-**Success Criteria**:
-- [ ] `GET` → read, `PUT` → upsert, `DELETE` → delete
-- [ ] `If-Match` header for optimistic concurrency
-- [ ] `GET /discover` endpoint
-- [ ] Content type: `application/vnd.lumenize.structured-clone+json`
-
-### Phase 4: DWL Integration
-
-**Goal**: Full DWL workflow with `ResourcesWorker` base class.
-
-**Success Criteria**:
-- [ ] `ResourcesWorker` base class extending `LumenizeWorker`
-- [ ] DWL code provides `resources` config and guard methods
-- [ ] `runGuards()` dispatch from base class — called via `lmz.call(stub, continuation)`
-- [ ] `getResources()` returns serializable config (no functions)
-- [ ] `lmz.call(stub, continuation)` overload implemented in `LumenizeResources`
-- [ ] Code versioning — hash-based DWL stub management
-- [ ] `globalOutbound: null` sandbox with controlled `env` bindings
-
-### Phase 5: Documentation & Tests
-
-**Goal**: Full coverage and docs.
-
-**Success Criteria**:
-- [ ] `website/docs/mesh/resources.mdx` written (after API stable)
-- [ ] `website/sidebars.ts` updated
-- [ ] All `@skip-check` converted to `@check-example`
-- [ ] Branch coverage >80%, statement coverage >90%
-- [ ] Schema evolution — version tracking, migration chain execution (late sub-phase, needs production usage patterns to inform design)
+- **Storage engine** → shipped as Phase 5.1 (`tasks/archive/nebula-5.1-storage-engine.md`).
+- **TypeScript validation & ontology** → shipped as Phase 5.2 (`tasks/archive/nebula-5.2-tsc-validation.md`); ORM-flavored follow-on (M:N, `query()`, JSDoc constraints) in `tasks/on-hold/nebula-orm-and-queries.md`.
+- **Transaction protocol + subscriptions/fanout** → shipped; consumed by the merged Nebula frontend (`tasks/nebula-frontend.md`, Phases 5.3 + 7 + 8).
+- **Branch-local lazy migrations** → active, `tasks/branch-migrations.md` (Studio prerequisite).
+- **Schema-evolution production polish** → on hold, `tasks/on-hold/nebula-5.5-schema-evolution.md`.
+- **HTTP transport** → on hold, `tasks/on-hold/http-transport.md`.
+- **Docs & coverage** → mostly shipped; remainder tracked in `tasks/on-hold/nebula-5.7-docs-coverage.md`.
+- **Resource history on R2** → on hold, `tasks/on-hold/nebula-resource-history-r2.md`.
 
 ## Notes
 
