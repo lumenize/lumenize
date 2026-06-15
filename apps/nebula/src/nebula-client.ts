@@ -197,6 +197,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #activeScope: string;
   #appVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  // Captured for `logout()` (the embedded refresh closure reads them too, but a
+  // method can't reach the constructor's `config`). `#baseUrl` may be undefined
+  // when the browser auto-detects it for the WS URL — logout falls back to the
+  // current origin in that case.
+  #baseUrl?: string;
+  #fetchFn: typeof fetch;
 
   /**
    * Decoded JWT payload — **non-null on NebulaClient**.
@@ -380,6 +386,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#activeScope = activeScope;
     this.#appVersion = appVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
+    this.#baseUrl = config.baseUrl;
+    this.#fetchFn = config.fetch ?? fetch;
 
     // Build the conflict-outcome engine over the store adapter + the serial
     // mesh gate. Store effects delegate to `#storeAdapter` (read fresh each
@@ -452,6 +460,42 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   async dispose(): Promise<void> {
     await this.#engine.dispose();
+    this.disconnect();
+  }
+
+  /**
+   * User-initiated sign-out. Revokes + clears the (HttpOnly, path-scoped) refresh
+   * cookie via the nebula-auth `POST /auth/{authScope}/logout` endpoint, drops the
+   * in-memory access token + claims ({@link LumenizeClient.clearAccessToken}), and
+   * tears down the connection ({@link LumenizeClient.disconnect} → the factory
+   * mirrors `lmz.connection.state = 'disconnected'`).
+   *
+   * Does NOT navigate — the app redirects to login after this resolves (typically
+   * the same redirect as the `onLoginRequired` terminal-auth path). Distinct from
+   * {@link dispose}, which tears down WITHOUT revoking the session.
+   *
+   * Best-effort revoke: a failed endpoint call (offline, 5xx) is logged but does
+   * not throw — the user is still signed out client-side (in-memory token dropped,
+   * connection closed); only the server-side cookie revocation is missed. Always
+   * resolves.
+   *
+   * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
+   */
+  async logout(): Promise<void> {
+    const baseUrl = this.#baseUrl
+      ?? (typeof window !== 'undefined' ? window.location.origin : '');
+    try {
+      await this.#fetchFn(`${baseUrl}/auth/${this.#authScope}/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      const log = debug('nebula.NebulaClient.logout');
+      log.warn('Logout endpoint call failed; signing out client-side anyway', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    this.clearAccessToken();
     this.disconnect();
   }
 
