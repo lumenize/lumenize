@@ -373,7 +373,7 @@ transactionDebounce(
 
 **Resource-level merge rule** when multiple fields have pending writes with different timings: **shortest active timer wins** for both `quietMs` and `maxWaitMs`. Clicking a `@debounce(0)` checkbox flushes the entire pending resource transaction immediately, including any pending text-field edits — which matches the intuition that the click was a deliberate commit.
 
-Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on component unmount, input blur, and `client.dispose()`. At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/debounce-serial-queue.md).
+Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on input blur (a `focusout` on the bound input) and on `client.dispose()` (component unmount does not itself flush — the quiet/max-wait timers, which are per-`(rt, rid)` not per-component, still submit a buffered write on schedule). At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/debounce-serial-queue.md).
 
 ## `client.dispose` {#clientdispose}
 

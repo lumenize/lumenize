@@ -84,7 +84,7 @@ By default `v-model` listens on `input` (fires every keystroke). The optimistic 
 
 - **Quiet window**: wait this long after the last write to a resource before submitting (default 500 ms).
 - **Max wait**: submit at least every N ms regardless of continued typing (default 2000 ms).
-- **Flush on lifecycle**: pending writes flush on component unmount, input blur, and `client.dispose()`.
+- **Flush on lifecycle**: a pending write flushes immediately on input blur (a `focusout` on the bound input) and on `client.dispose()`. Component unmount does *not* itself force a flush — but the quiet/max-wait timers above run at the client level (per `(resourceType, resourceId)`, not per component), so a buffered write still submits on schedule after the component is gone; nothing is lost.
 - **Serial per resource**: at most one transaction in flight per resource; subsequent writes buffer and submit using the in-flight transaction's resulting eTag.
 
 A typical 10-character edit produces ~1 transaction, not 10.
@@ -102,6 +102,10 @@ A typical 10-character edit produces ~1 transaction, not 10.
   <input v-model.lazy="store.resources.todo[id].value.title" />
 </template>
 ```
+
+### IME and composition input
+
+`v-model` follows Vue's stock composition handling, and you write nothing special to get it right. While an input-method editor is composing a character — CJK input, dead-key/accent sequences, some mobile autocomplete — Vue suppresses the per-keystroke `input` updates and stages a single optimistic write only when composition ends (`compositionend`, when `event.isComposing` clears). So composing にほんご produces **one** optimistic write at the end, not one per intermediate keystroke, and the debounce above coalesces from there. Flush-on-blur still applies: if a composing field loses focus, its committed value flushes. (This is the real-browser behavior our IME probe pins — jsdom doesn't model composition, so it's only observable in the browser.)
 
 ## Concurrent edits and long-form text
 
@@ -360,9 +364,11 @@ async function addTodo(title: string) {
   if (!list) return;   // snapshot not arrived yet — see "Loading and first paint"
 
   // Both ops in one call → atomic. Either both commit or neither does.
-  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag.
-  // The new todo attaches under the same tree node as the list (meta.nodeId,
-  // not value — nodeId is server-managed metadata).
+  // eTag for the put auto-derives from store.resources.todoList[...]?.meta?.eTag;
+  // a missing baseline (resource never subscribed) THROWS synchronously here
+  // rather than returning a non-committed outcome — the v-if/snapshot guard above
+  // prevents that. The new todo attaches under the same tree node as the list
+  // (meta.nodeId, not value — nodeId is server-managed metadata).
   const outcome = await client.resources.transaction({
     [newId]:             { op: 'create', typeName: 'todo', nodeId: listSnap.meta.nodeId,
                            value: { title, description: '', status: 'open' } },
