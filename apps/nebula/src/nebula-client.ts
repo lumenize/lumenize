@@ -12,7 +12,7 @@
 // `@lumenize/mesh` entry pulls in `cloudflare:workers` via LumenizeDO and
 // fails outside Workers. The same applies to types: import only from
 // /client to keep this module Node-importable in full.
-import { LumenizeClient, mesh } from '@lumenize/mesh/client';
+import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { debug } from '@lumenize/debug';
@@ -316,7 +316,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
             body: JSON.stringify({ activeScope }),
           },
         );
-        if (!res.ok) throw new Error(`Refresh failed: ${res.status}`);
+        if (!res.ok) {
+          // Classify like mesh's #refreshToken string-endpoint path (P9): a
+          // 401/403 means the refresh cookie is expired/invalid → terminal, so
+          // #connectInternal fires onLoginRequired + 'disconnected' and the
+          // factory's `ready` rejects (a logged-out visitor redirects, not hangs);
+          // any other status is transient → reconnect. Because NebulaClient
+          // supplies `refresh` as a FUNCTION, mesh's string-path classification
+          // never runs — we MUST throw the typed error here, or a first-connect
+          // 401 silently swallows into unbounded reconnect.
+          if (res.status === 401 || res.status === 403) {
+            throw new LoginRequiredError(
+              `Refresh failed: ${res.status}`,
+              res.status,
+              'Refresh token expired or invalid',
+            );
+          }
+          throw new Error(`Refresh failed: ${res.status}`);
+        }
         const data = await res.json() as { access_token: string; sub: string };
         return { access_token: data.access_token, sub: data.sub };
       },
