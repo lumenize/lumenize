@@ -82,6 +82,15 @@ export class StarTest extends Star {
     return rows as unknown as SubscriberRow[];
   }
 
+  /** Test-only: dump the TreeSubscribers table (the dedicated org-tree channel). */
+  @mesh(requireAdmin)
+  inspectTreeSubscribers(): Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }> {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT clientId, subscriberBinding, subscribedAt FROM TreeSubscribers ORDER BY clientId`,
+    ).toArray();
+    return rows as unknown as Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }>;
+  }
+
   /**
    * Test-only: drop and recreate the Subscribers table. Used by 5.3.4a
    * reconnect tests to verify that the client's resubscribe walk actually
@@ -188,6 +197,10 @@ export class NebulaClientTest extends NebulaClient {
   lastResourceUpdate: { resourceType: string; resourceId: string; snapshot: Snapshot | null } | undefined = undefined;
   resourceUpdateCount = 0;
 
+  // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
+  lastOrgTree: unknown = undefined;
+  orgTreeUpdateCount = 0;
+
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
     if (value instanceof Error) {
@@ -206,6 +219,8 @@ export class NebulaClientTest extends NebulaClient {
     this.callCompleted = false;
     this.lastResourceUpdate = undefined;
     this.resourceUpdateCount = 0;
+    this.lastOrgTree = undefined;
+    this.orgTreeUpdateCount = 0;
   }
 
   // --- Mesh-callable methods (DOs call these through the Gateway) ---
@@ -407,6 +422,17 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
+  callStarSubscribeTree(starName: string): void {
+    this.resetResults();
+    this.lmz.call('STAR', starName, this.ctn<Star>().subscribeTree());
+  }
+
+  callStarInspectTreeSubscribers(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectTreeSubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
   callStarClearSubscribersForTest(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().clearSubscribersForTest();
@@ -471,6 +497,15 @@ export class NebulaClientTest extends NebulaClient {
       this.lastError = undefined;
     }
     this.callCompleted = true;
+  }
+
+  @mesh()
+  override handleOrgTreeUpdate(envelope: { value: unknown }): void {
+    // Delegate to base so the factory's listener fires (a no-op headless), then
+    // capture the tree state for assertion on the dedicated org-tree channel.
+    super.handleOrgTreeUpdate(envelope as { value: never });
+    this.orgTreeUpdateCount++;
+    this.lastOrgTree = envelope.value;
   }
 
   // --- Galaxy test initiators ---

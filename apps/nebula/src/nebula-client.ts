@@ -31,6 +31,7 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
+import type { DagTreeState } from './dag-ops';
 import type { Star } from './star';
 
 const log = debug('lumenize.nebula-client');
@@ -248,6 +249,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #connectionStateListener: ((state: ConnectionState) => void) | null = null;
 
   /**
+   * Runtime org-tree listener registered by the factory ({@link onOrgTreeUpdate})
+   * — it mirrors the tree state into `store.lmz.orgTree.value`. Single-handler;
+   * a later call replaces it. Fed by the `handleOrgTreeUpdate` @mesh handler
+   * (initial `subscribeTree` snapshot + every `#onDagChanged` broadcast).
+   */
+  #orgTreeListener: ((state: DagTreeState) => void) | null = null;
+
+  /**
    * Active subscriptions registry. Used by Phase 5.3.4 auto-resubscribe on
    * reconnect, and (in 5.3.6) by refcount-with-grace. For 5.3.3a the entry
    * is minimal — just enough to know what's subscribed.
@@ -387,6 +396,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   onConnectionStateChange(handler: ((state: ConnectionState) => void) | null): void {
     this.#connectionStateListener = handler;
+  }
+
+  /**
+   * Register a runtime listener for org-tree updates. The factory uses this to
+   * mirror the tree into `store.lmz.orgTree.value`. Single-handler; replaces.
+   * Fed by every `handleOrgTreeUpdate` (initial subscribe snapshot + broadcasts).
+   */
+  onOrgTreeUpdate(handler: ((state: DagTreeState) => void) | null): void {
+    this.#orgTreeListener = handler;
   }
 
   /**
@@ -849,6 +867,18 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       this.#pendingSubscribes.delete(key);
       pending.resolve(result);
     }
+  }
+
+  /**
+   * Receive an org-tree snapshot from Star — the initial `subscribeTree`
+   * snapshot or a `#onDagChanged` broadcast (originator included). Forwards the
+   * tree state to the factory's registered listener, which mirrors it to
+   * `store.lmz.orgTree.value`. The tree is delivered on a dedicated channel (not
+   * a resource), so this is wholly separate from `handleResourceUpdate`.
+   */
+  @mesh()
+  handleOrgTreeUpdate(envelope: { value: DagTreeState }): void {
+    this.#orgTreeListener?.(envelope.value);
   }
 
   /**

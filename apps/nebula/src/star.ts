@@ -21,6 +21,7 @@ import { DagTree } from './dag-tree';
 import { ROOT_NODE_ID } from './dag-ops';
 import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
+import { TreeSubscriptions } from './tree-subscriptions';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
@@ -34,6 +35,7 @@ export class Star extends NebulaDO {
   #dagTree!: DagTree
   #resources!: Resources
   #subscriptions!: Subscriptions
+  #treeSubscriptions!: TreeSubscriptions
   #row: OntologyVersionRow | null = null
   #facet: ParserValidator | null = null
 
@@ -54,6 +56,7 @@ export class Star extends NebulaDO {
       this.#dagTree,
       this.#resources,
     )
+    this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
   }
 
   /**
@@ -503,17 +506,59 @@ export class Star extends NebulaDO {
     this.#subscriptions.removeSubscriber(resourceId, clientId);
   }
 
+  // ─── OrgTree (dedicated channel) ───────────────────────────────────
+
+  /**
+   * Subscribe the caller to the org/permission tree — a per-Star SINGLETON
+   * delivered on its own channel (NOT a resource; never touches the
+   * `Subscribers`/`Snapshots` tables). Registers the subscriber and pushes the
+   * initial `dagTree.getState()` snapshot via `handleOrgTreeUpdate`.
+   *
+   * **Auth is NOT "parity" with resource subscribe:** the only gates are
+   * `onBeforeCall`'s aud-lock (ran already) + `dagTree.getState()`'s auth check
+   * (a valid in-scope `sub`). There is intentionally **NO node-level read check**
+   * — the tree is universally visible by design. Ontology-version-independent, so
+   * no Handler-1/2 cache dance and no `appVersion` argument.
+   */
+  @mesh()
+  subscribeTree(): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeTree requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeTree requires a gateway in callChain.at(-1)');
+    }
+    // getState() enforces the auth gate (#requireAuth) and is the value source.
+    const state = this.#dagTree.getState();
+    this.#treeSubscriptions.register(clientId, subscriberBinding);
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+      this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }));
+  }
+
   // ─── Internal ──────────────────────────────────────────────────────
 
   /**
-   * DAG mutations don't fan out today. Per the design (Phase 5.3.2):
-   *   "Fanout triggers are upsert and delete only — migration does NOT fan out
-   *    (deploys + lazy ontology model + onShouldRefreshUI handle cross-version
-   *    transitions)"
-   * Kept as a hook so future DAG-mutation-aware logic has a landing spot.
+   * Fired by `DagTree` after every tree mutation. Broadcasts the fresh
+   * `dagTree.getState()` to ALL tree subscribers — **including the originator**
+   * (unlike resource fanout): `client.orgTree.*` has no optimistic local
+   * write-through, so the echo is the only way the actor's own
+   * `store.lmz.orgTree` updates. `getState()` reads the mutating caller's auth
+   * (the mutation that triggered this is always authenticated).
+   *
+   * Drop-on-failed-broadcast cleanup rides `onTreeBroadcastResult` (its own
+   * handler keyed by `clientId`, NOT the resourceId path). That handler carries
+   * `@mesh()` because the tree broadcast goes to ALL connected clients and can
+   * exceed `svc.broadcast`'s `directThreshold` → tier-worker dispatch.
    */
   #onDagChanged() {
-    // intentionally empty
+    const subscribers = this.#treeSubscriptions.all();
+    if (subscribers.length === 0) return;
+    const state = this.#dagTree.getState();
+    const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
+    const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
   }
 
   /**
@@ -592,6 +637,21 @@ export class Star extends NebulaDO {
       if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
+  }
+
+  /**
+   * Per-target result handler for the org-tree broadcast (`#onDagChanged`).
+   * Keyed by `clientId` alone (TreeSubscribers has no resourceId dimension) —
+   * the failed client comes from `ClientDisconnectedError.clientInstanceName`,
+   * mirroring `onBroadcastResult`. `@mesh()` because the tree broadcast can take
+   * the tier-worker dispatch path (it fans out to every connected client).
+   */
+  @mesh()
+  onTreeBroadcastResult(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#treeSubscriptions.removeSubscriber(clientId);
+    }
   }
 
 }
