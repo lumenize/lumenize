@@ -88,9 +88,27 @@ export type ServerBatchResponse =
   | { resources: ServerResourceResult[] }
   | { ontologyStale: { clientVersion: string; currentVersion: string } };
 
+/**
+ * A single operation in an explicit `transactionOps` batch — mirrors the
+ * server's `OperationDescriptor` (api-reference § resources.transaction). The
+ * engine carries it opaquely onto the queue submission (`QueueSubmission.op`)
+ * and hands it to `submitBatch`, which turns it into the wire op. `eTag` is the
+ * stashed/explicit baseline; when omitted the engine auto-derives it from the
+ * local store (a `create` uses no baseline — it asserts non-existence).
+ */
+export type EngineOp =
+  | { op: 'create'; typeName: string; nodeId: number; value: unknown }
+  | { op: 'put'; typeName: string; value: unknown; eTag?: string }
+  | { op: 'move'; typeName: string; nodeId: number; eTag?: string }
+  | { op: 'delete'; typeName: string; eTag?: string };
+
 const FLASH_COMMIT = 'lumenize-commit-success';
 const FLASH_REVERT = 'lumenize-conflict-revert';
 const DEFAULT_MAX_RETRIES = 5;
+/** Baseline placeholder a `create` carries (it asserts non-existence; the wire
+ *  op has no eTag, so `submitBatch` ignores this). Lets the queue's baseline
+ *  gate pass for a resource that isn't in the local store yet. */
+const CREATE_SENTINEL = '__lumenize_create__';
 
 export interface ConflictOutcomeEngineConfig {
   /** The server (mock in tests). A throw becomes `infrastructure-error`. */
@@ -106,6 +124,12 @@ export interface ConflictOutcomeEngineConfig {
    *  server baseline (the merged text must be visible while its re-submission
    *  is in flight, and stays painted when that re-submission commits). */
   applyResolvedValue: (rt: string, rid: string, value: unknown) => void;
+  /** Paint an explicit `transactionOps` op value + seed its baseline `eTag`
+   *  (the create/put path; move/delete don't paint). The store slot is created
+   *  for a `create`. Rollback restores the pre-paint base captured by the
+   *  engine. Optional: omit it if only the debounced `write`/`transaction`
+   *  paths are used (the engine's own unit harness does not exercise it). */
+  applyOptimistic?: (rt: string, rid: string, value: unknown, eTag: string) => void;
   /** Default flash class application (DOM classes in v4; captured in the harness). */
   flash: (rt: string, rid: string, cssClass: string) => void;
   onShouldRefreshUI?: (info: { clientVersion: string; currentVersion: string; reason: 'ontology-stale' }) => void;
@@ -121,7 +145,14 @@ interface TxContext {
   expected: number;
   concluded: number;
   resolve: (o: TransactionOutcome) => void;
+  /** Positional per-call handler (the `transaction` put-from-store path + the
+   *  engine's own tests). Fires for every resource in the batch. */
   perCallHandler?: ResourceHandler;
+  /** Keyed-by-`rid` per-call handlers (the public `transactionOps` path,
+   *  api-reference § onTransactionResourceResolution): a resource's entry
+   *  layers in front of its per-type handler; absent resources fall through.
+   *  Takes precedence over `perCallHandler` for its own `rid`. */
+  perCallHandlers?: Record<string, ResourceHandler>;
   perCallMaxRetries?: number;
   /** First transaction-wide failure wins; resolved in place of the per-op rollup. */
   transactionWide?: TransactionOutcome;
@@ -318,7 +349,8 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     s: QueueSubmission,
     pending: TransactionResourceResolution,
   ): Promise<ConflictResolverVerdict | undefined> {
-    for (const handler of [ctx?.perCallHandler, perType.get(s.rt)?.handler]) {
+    const perCall = ctx?.perCallHandlers?.[s.rid] ?? ctx?.perCallHandler;
+    for (const handler of [perCall, perType.get(s.rt)?.handler]) {
       if (!handler) continue;
       try {
         const verdict = await handler(s.rid, pending);
@@ -337,7 +369,8 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     s: QueueSubmission,
     resolution: TransactionResourceResolution,
   ): Promise<void> {
-    for (const handler of [ctx?.perCallHandler, perType.get(s.rt)?.handler]) {
+    const perCall = ctx?.perCallHandlers?.[s.rid] ?? ctx?.perCallHandler;
+    for (const handler of [perCall, perType.get(s.rt)?.handler]) {
       if (!handler) continue;
       try {
         await handler(s.rid, resolution);
@@ -435,6 +468,77 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
     });
   }
 
+  /**
+   * The public `client.resources.transaction(ops)` entry: arbitrary
+   * `create`/`put`/`move`/`delete` ops keyed by `resourceId`. ALWAYS resolves.
+   *
+   * Unlike `transaction` (put-from-store, for already-subscribed resources),
+   * each op carries its own value/baseline, so this path supports creates (no
+   * store baseline — a `CREATE_SENTINEL` lets the queue's baseline gate pass)
+   * and stashed-eTag puts. It paints each create/put value optimistically
+   * (so the UI reflects it immediately), captures the pre-paint value as the
+   * rollback/merge `base` (B4 first-divergence), records the op on the
+   * submission for `submitBatch` to turn into the wire op, and stages all ops
+   * as one atomic `explicitBatch`.
+   */
+  function transactionOps(
+    ops: Record<string, { rt: string } & EngineOp>,
+    opts: {
+      onTransactionResourceResolution?: Record<string, ResourceHandler>;
+      maxRetries?: number;
+    } = {},
+  ): Promise<TransactionOutcome> {
+    return new Promise<TransactionOutcome>((resolve) => {
+      const clone = config.clone ?? ((v: unknown) => v);
+      const items: Array<{ rt: string; rid: string; eTag: string; base: unknown; value?: unknown; op: EngineOp }> = [];
+      for (const [rid, op] of Object.entries(ops)) {
+        const rt = op.rt;
+        const current = config.readResource(rt, rid);
+        const baselineETag =
+          op.op === 'create'
+            ? CREATE_SENTINEL
+            : 'eTag' in op && op.eTag !== undefined
+              ? op.eTag
+              : current.eTag;
+        if (baselineETag === undefined) {
+          // Mirror the auto-derive throw: a put/move/delete with no stashed
+          // eTag and no local baseline can't submit — fail fast.
+          resolve({
+            kind: 'infrastructure-error',
+            retryable: true,
+            error: new Error(
+              `can't auto-derive eTag for (${op.typeName}, ${rid}) — not in local store; pass eTag explicitly or subscribe first`,
+            ),
+          });
+          return;
+        }
+        // B4 first-divergence: the value the store held BEFORE this op paints.
+        const base = current.value === undefined ? undefined : clone(current.value);
+        const item: { rt: string; rid: string; eTag: string; base: unknown; value?: unknown; op: EngineOp } = {
+          rt,
+          rid,
+          eTag: baselineETag,
+          base,
+          op,
+        };
+        if (op.op === 'create' || op.op === 'put') {
+          config.applyOptimistic?.(rt, rid, op.value, baselineETag);
+          item.value = op.value;
+        }
+        items.push(item);
+      }
+      const ctx: TxContext = {
+        resolutions: {},
+        expected: items.length,
+        concluded: 0,
+        resolve,
+        perCallHandlers: opts.onTransactionResourceResolution,
+        perCallMaxRetries: opts.maxRetries,
+      };
+      queue.explicitBatch(items, ctx);
+    });
+  }
+
   /** Per-type handler registration (api-reference § onTransactionResourceResolution). */
   function onTransactionResourceResolution(
     rt: string,
@@ -457,6 +561,7 @@ export function createConflictOutcomeEngine(config: ConflictOutcomeEngineConfig)
   return {
     write,
     transaction,
+    transactionOps,
     onTransactionResourceResolution,
     notifyFanout,
     setConnectionState: queue.setConnectionState,

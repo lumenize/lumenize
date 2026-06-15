@@ -65,6 +65,7 @@ function makeHarness(opts: { quietMs?: number } = {}) {
     applyResolvedValue: (rt, rid, value) => {
       store.get(keyOf(rt, rid))!.value = value;
     },
+    applyOptimistic: (rt, rid, value, eTag) => store.set(keyOf(rt, rid), { value, eTag }),
     flash: (rt, rid, cls) => flashes.push({ key: keyOf(rt, rid), cls }),
     onShouldRefreshUI: (info) => refreshes.push(info),
     quietMs: opts.quietMs ?? 0,
@@ -675,6 +676,107 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
       expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', eTag: 'e2' } } });
     });
   }
+});
+
+// ─── 12. transactionOps — explicit create/put/move/delete ops (v3-port add) ──
+//
+// The public `client.resources.transaction(ops)` entry. Unlike `transaction`
+// (put-from-store), each op carries its own value/baseline + an opaque `op`
+// the wire layer turns into the real operation. These exercise: optimistic
+// paint, op carriage to submitBatch, create-without-a-store-baseline, the
+// stashed-eTag conflict path, rollback of an optimistic create, fail-fast on a
+// missing baseline, and the keyed-by-rid per-call handler (v3 delta). The mock
+// proves the engine's branching; §5.3.8 backs it through a real Star.
+describe('transactionOps — explicit ops (v3-port)', () => {
+  it('create: paints optimistically, carries op:create to the wire, commits', async () => {
+    const h = makeHarness();
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'buy milk' } },
+    });
+    expect(outcome.kind).toBe('committed');
+    expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('committed');
+    expect(h.valueOf('todo', 't1')).toEqual({ title: 'buy milk' }); // optimistic paint (gut applyOptimistic → undefined)
+    expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: 1 }); // op carriage (gut submitKeys op → undefined)
+    expect(h.store.get('todo:t1')!.eTag).toBe('srv-1'); // committed eTag written through
+  });
+
+  it('put (auto-derived eTag): submits at the store baseline, carries op:put', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: 'old' }, 'e1');
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'new' } },
+    });
+    expect(outcome.kind).toBe('committed');
+    expect(h.submitted[0]!.eTag).toBe('e1'); // baseline auto-derived from the store
+    expect(h.submitted[0]!.op).toMatchObject({ op: 'put' });
+    expect(h.valueOf('todo', 't1')).toEqual({ title: 'new' });
+  });
+
+  it('put (stashed eTag) → conflict → default use-server adopts the server value', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: 'mine' }, 'e1');
+    h.setResponder(async () => ({ resources: [conflict({ title: 'theirs' }, 'srv-9')] }));
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'mine-edit' }, eTag: 'stale' },
+    });
+    expect(h.submitted[0]!.eTag).toBe('stale'); // submitted at the stashed baseline, not the store's e1
+    expect(outcome.kind).toBe('committed'); // use-server is below the bucket → committed top-level
+    expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('use-server');
+    expect(h.valueOf('todo', 't1')).toEqual({ title: 'theirs' });
+  });
+
+  it('delete: carries op:delete (no value) at the stashed eTag, commits', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: 'x' }, 'e1');
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'delete', typeName: 'Todo', eTag: 'e1' },
+    });
+    expect(outcome.kind).toBe('committed');
+    expect(h.submitted[0]!.op).toMatchObject({ op: 'delete' });
+    expect(h.submitted[0]!.eTag).toBe('e1');
+  });
+
+  it('create → permission-denied → rolls back the optimistic create (slot empties), rejected non-retryable', async () => {
+    const h = makeHarness();
+    h.setResponder(async () => ({ resources: [{ result: 'permission-denied' }] }));
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'nope' } },
+    });
+    expect(outcome).toMatchObject({ kind: 'rejected', retryable: false });
+    expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('permission-denied');
+    expect(h.valueOf('todo', 't1')).toBeUndefined(); // rolled back to the pre-create base (undefined)
+  });
+
+  it('put with no local baseline + no stashed eTag → infrastructure-error, nothing submitted', async () => {
+    const h = makeHarness();
+    const outcome = await h.engine.transactionOps({
+      t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'x' } },
+    });
+    expect(outcome.kind).toBe('infrastructure-error');
+    expect(h.submitted).toHaveLength(0);
+  });
+
+  it('per-call handler keyed by rid: the listed resource is overridden on conflict', async () => {
+    const h = makeHarness();
+    h.seed('todo', 't1', { title: 'mine' }, 'e1');
+    h.setResponder(async () => ({ resources: [conflict({ title: 'srv' }, 'srv-1')] }));
+    let calledWith: string | null = null;
+    const outcome = await h.engine.transactionOps(
+      { t1: { rt: 'todo', op: 'put', typeName: 'Todo', value: { title: 'edit' }, eTag: 'e1' } },
+      {
+        onTransactionResourceResolution: {
+          t1: (rid, res) => {
+            if (res.kind === 'conflict-pending') {
+              calledWith = rid;
+              return { kind: 'use-server' };
+            }
+          },
+        },
+      },
+    );
+    expect(calledWith).toBe('t1'); // keyed lookup found t1's handler (gut perCallHandlers?.[rid] → stays null)
+    expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('use-server');
+  });
 });
 
 // ─── 12. Reconnect snapshot held ────────────────────────────────────────────

@@ -64,6 +64,14 @@ export interface QueueSubmission {
   base: unknown;
   /** Replay counter for this logical submission; 1 = first send. */
   attempt: number;
+  /**
+   * Opaque operation descriptor for an explicit (non-debounced) submission —
+   * carries the op kind (`create`/`put`/`move`/`delete`) + nodeId/typeName the
+   * `submit` fn turns into the wire op. Absent on debounced writes (the
+   * submitter defaults to a `put` of `value` at `eTag`). A `use-this` resubmit
+   * inherits no op (it's always a `put` of the merged value).
+   */
+  op?: unknown;
 }
 
 /** Handler conclusion api for non-committed outcomes; exactly one method must be called. */
@@ -115,6 +123,13 @@ interface KeyState {
   baselineETag?: string;
   baseValue?: unknown;
   inFlight?: Batch;
+  /**
+   * Carried payload for an explicit (non-debounced) submission staged via
+   * `explicitBatch`. When present, the next `submitKeys` uses `value`/`op`
+   * verbatim (the op's value, not a store re-read) and then clears it; absent
+   * for debounced writes, which re-read the store at submit time.
+   */
+  explicit?: { value?: unknown; hasValue: boolean; op?: unknown };
 }
 
 interface Batch {
@@ -262,12 +277,40 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
    * Explicit multi-resource transaction (m9): folds pending debounced writes
    * for the touched resources into the batch, occupies all keys, parks until
    * every key is free.
+   *
+   * Each item may carry an explicit baseline `eTag` + pre-write `base` + the
+   * submitted `value` + opaque `op` (the conflict-outcome engine's
+   * `transactionOps` path: creates, stashed-eTag puts, moves, deletes). When
+   * `eTag`/`value`/`op` are omitted the item behaves like the original
+   * key-only form — baseline + value come from the store (the `transaction`
+   * put-from-store path + its tests are unchanged).
    */
-  function explicitBatch(batchKeys: Array<{ rt: string; rid: string }>, context?: unknown): void {
+  function explicitBatch(
+    items: Array<{
+      rt: string;
+      rid: string;
+      eTag?: string;
+      base?: unknown;
+      value?: unknown;
+      op?: unknown;
+    }>,
+    context?: unknown,
+  ): void {
     if (disposed) return;
-    const keyStates = batchKeys.map(({ rt, rid }) => {
-      const ks = getKey(rt, rid);
-      ensureBaseline(ks, undefined, false);
+    const keyStates = items.map((item) => {
+      const ks = getKey(item.rt, item.rid);
+      if (item.eTag !== undefined) {
+        // Explicit baseline (stashed eTag, or a create sentinel) overrides the
+        // store-derived one — and supersedes any pending debounced baseline.
+        ks.baselineETag = item.eTag;
+        ks.baseValue = item.base;
+      } else {
+        ensureBaseline(ks, item.base, Object.prototype.hasOwnProperty.call(item, 'base'));
+      }
+      const hasValue = Object.prototype.hasOwnProperty.call(item, 'value');
+      if (hasValue || item.op !== undefined) {
+        ks.explicit = { value: item.value, hasValue, op: item.op };
+      }
       ks.dirty = true; // the batch IS a write for this key
       clearTimers(ks); // pending debounced edits fold into the batch
       return ks;
@@ -298,14 +341,20 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
       ks.dirty = false;
       ks.flushOnRelease = false;
       ks.burstQuietMs = undefined;
+      // An explicit submission carries its own value + op (consumed once); a
+      // debounced write (or a buffered re-submit, where `explicit` is already
+      // cleared) re-reads the coalesced store value and carries no op.
+      const explicit = ks.explicit;
+      ks.explicit = undefined;
       return {
         rt: ks.rt,
         rid: ks.rid,
         eTag: ks.baselineETag!,
         newETag: genETag(),
-        value: clone(config.readResource(ks.rt, ks.rid).value),
+        value: explicit?.hasValue ? clone(explicit.value) : clone(config.readResource(ks.rt, ks.rid).value),
         base: ks.baseValue,
         attempt: 1,
+        op: explicit?.op,
       };
     });
     const batch: Batch = {
