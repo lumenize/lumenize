@@ -1,7 +1,7 @@
 /**
  * textMerge property tests — ported from the factory-textmerge isolation detour
- * (apps/nebula/spike/vue-factory/test/text-merge.test.ts; tasks/factory-textmerge.md
- * § Property tests). Each `describe` maps to one pinned property from the spec.
+ * (tasks/factory-textmerge.md § Property tests; the vue-factory spike they came
+ * from was removed in 5.3.7/P11). Each `describe` maps to one pinned property.
  * No mock-client needed — pure helper.
  */
 import { describe, it, expect } from 'vitest';

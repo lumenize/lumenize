@@ -10,8 +10,9 @@
  * create-nebula-client.ts). Full deep structured-clone-space equality is a
  * post-demo consideration; the current contract is pinned by deep-equals tests.
  *
- * Replaces `@lumenize/state`'s `deepEquals` (that package is deleted in 5.3.7),
- * with the cycle/alias pair-memo guard added during the factory-textmerge detour.
+ * Replaces the deleted `@lumenize/state`'s `deepEquals` (removed in 5.3.7 — Vue
+ * `reactive()` is the engine now), with the cycle/alias pair-memo guard added
+ * during the factory-textmerge detour.
  */
 export function deepEquals(a: unknown, b: unknown): boolean {
   return deepEqualsInner(a, b, new WeakMap());

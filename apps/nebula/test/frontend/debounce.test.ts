@@ -1,7 +1,7 @@
 /**
  * Debounce + serial-per-resource queue — property tests ported from the
- * isolation detour (apps/nebula/spike/vue-factory/test/debounce-queue.test.ts;
- * tasks/debounce-serial-queue.md D0). Each `it` maps to one pinned invariant.
+ * isolation detour (tasks/debounce-serial-queue.md D0; the vue-factory spike was
+ * removed in 5.3.7/P11). Each `it` maps to one pinned invariant.
  * Fake timers for determinism; the factory-level integration (real store,
  * middleware) is covered separately once the factory ports.
  *

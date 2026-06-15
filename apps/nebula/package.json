@@ -62,7 +62,6 @@
     "@lumenize/mesh": "*",
     "@lumenize/nebula-auth": "*",
     "@lumenize/routing": "*",
-    "@lumenize/state": "*",
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
     "@vue/reactivity": "^3.5.13",

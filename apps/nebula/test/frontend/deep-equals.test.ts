@@ -1,6 +1,6 @@
 /**
  * deepEquals property tests — ported from the factory-textmerge isolation detour
- * (apps/nebula/spike/vue-factory/test/deep-equals.test.ts). Pins the documented
+ * (tasks/factory-textmerge.md; the vue-factory spike was removed in 5.3.7/P11). Pins the documented
  * semantics: plain JSON-shaped data + Date + cycles/aliases — NOT deep Maps,
  * Sets, TypedArrays, or class instances (those compare by reference).
  */

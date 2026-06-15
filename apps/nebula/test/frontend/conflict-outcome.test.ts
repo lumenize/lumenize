@@ -1,7 +1,7 @@
 /**
  * Conflict / outcome state machine — property tests ported from the isolation
- * detour (apps/nebula/spike/vue-factory/test/conflict-outcome.test.ts;
- * tasks/factory-conflict-outcome.md § Tests). The harness is a scripted mock
+ * detour (tasks/factory-conflict-outcome.md § Tests; the vue-factory spike was
+ * removed in 5.3.7/P11). The harness is a scripted mock
  * server + captured store effects / flash classes, with the REAL debounce queue
  * underneath (so occupancy, timeout, and connection-gate behavior are the
  * validated ones, not re-mocked).
