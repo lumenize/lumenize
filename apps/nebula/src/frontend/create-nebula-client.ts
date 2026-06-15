@@ -111,7 +111,7 @@ export function createNebulaStore(
   // no init (api-reference § Reserved state paths).
   const seed: Record<string, any> = {
     resources: {},
-    lmz: { connection: { state: 'disconnected', connected: false } },
+    lmz: { connection: { state: 'disconnected', connected: false }, orgTree: {} },
     ui: {},
     app: {},
   };
@@ -583,6 +583,18 @@ export function createNebulaStore(
   // connect ordering is irrelevant.
   writeConnectionState(client.connectionState);
   client.onConnectionStateChange(writeConnectionState);
+
+  // ─── OrgTree surfacing ────────────────────────────────────────────────────
+  // Mirror the org/permission tree into store.lmz.orgTree.value. Registering
+  // this listener also opts the client into auto-subscribing the tree on connect
+  // (NebulaClient gates the subscribe on a registered listener). The synced-state
+  // middleware's `^resources\.` matcher structurally never sees lmz.*, so this is
+  // never mistaken for a transaction.
+  client.onOrgTreeUpdate((state) => {
+    withContext({ source: 'remote' }, () => {
+      internalDeepWrite(['lmz', 'orgTree', 'value'], state);
+    });
+  });
 
   // ─── Public API ──────────────────────────────────────────────────────────
   function use(mw: Middleware): () => void {

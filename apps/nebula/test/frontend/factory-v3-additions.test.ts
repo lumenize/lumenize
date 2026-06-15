@@ -190,6 +190,35 @@ describe('re-entrancy guard', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────
+// P8b: orgTree surfacing — the factory mirrors the tree to store.lmz.orgTree.value.
+// ──────────────────────────────────────────────────────────────────────────
+describe('orgTree surfacing', () => {
+  it('pre-seeds store.lmz.orgTree and mirrors tree deliveries to store.lmz.orgTree.value', () => {
+    const { store, client } = setup({});
+    // Seeded so first-paint reads are defined; no value until first delivery.
+    expect(store.lmz.orgTree).toEqual({});
+    expect(store.lmz.orgTree.value).toBeUndefined();
+
+    const tree = {
+      nodes: new Map([[1, { slug: 'root', label: 'Root' }]]),
+      edges: new Set<string>(),
+      permissions: new Map(),
+    };
+    client.simulateOrgTree(tree);
+
+    expect(store.lmz.orgTree.value.nodes.get(1).slug).toBe('root');
+    expect(store.lmz.orgTree.value.nodes).toBeInstanceOf(Map);
+  });
+
+  it('a write under lmz.orgTree never reaches the synced-state middleware (no transaction)', async () => {
+    const { store, client } = setup({});
+    store.lmz.orgTree.value = { nodes: new Map(), edges: new Set(), permissions: new Map() };
+    await flushMicrotasks();
+    expect(client.txns).toHaveLength(0); // lmz.* structurally never matches the resources regex
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 // Cleanup: connection-state replay at creation (order-irrelevant).
 // ──────────────────────────────────────────────────────────────────────────
 describe('connection-state replay', () => {

@@ -31,7 +31,7 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
-import type { DagTreeState } from './dag-ops';
+import type { DagTreeState, PermissionTier } from './dag-ops';
 import type { Star } from './star';
 
 const log = debug('lumenize.nebula-client');
@@ -342,6 +342,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // `lmz.connection.*` surfacing is the factory's job (it observes the
         // client directly + replays at creation).
         this.#engine?.setConnectionState(state);
+        // OrgTree is a universal singleton (no refcount/grace): (re)subscribe on
+        // every `'connected'` — initial connect AND reconnecting→connected.
+        // Gated on a registered tree listener so headless clients (admin scripts,
+        // tests) that don't render the tree don't register/broadcast needlessly.
+        // Idempotent server-side (INSERT OR REPLACE).
+        if (state === 'connected' && this.#orgTreeListener) {
+          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeTree());
+        }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
         // replays the current state once at creation via `connectionState`, so
@@ -673,6 +681,41 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     unsubscribe: (resourceType: string, resourceId: string): void => {
       this.#disposeSubscription(resourceType, resourceId);
     },
+  };
+
+  /**
+   * Org/permission-tree MUTATIONS (api-reference § client.orgTree). Reads are
+   * NOT here — the tree is delivered on its own channel to `store.lmz.orgTree`
+   * (auto-subscribed on connect). Each mutator is a generic awaited `callRaw`
+   * to Star's `dagTree` entry — reject-on-failure, NO optimistic local
+   * write-through (the broadcast echo, originator included, is the only store
+   * update path). Intentionally NOT connection-gated like the resource write
+   * path: the tree carries no optimistic state to roll back, so a call issued
+   * while disconnected queues and sends on reconnect (or rejects on timeout).
+   * All mutators are idempotent/retry-safe EXCEPT `createNode` (server-assigned
+   * nodeId — a dropped response can't be safely replayed; reload re-syncs).
+   */
+  readonly orgTree = {
+    createNode: (parentNodeId: number, slug: string, label: string): Promise<number> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
+    addEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
+    removeEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
+    reparentNode: (childNodeId: number, oldParentId: number, newParentId: number): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
+    deleteNode: (nodeId: number): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
+    undeleteNode: (nodeId: number): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
+    renameNode: (nodeId: number, newSlug: string): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
+    relabelNode: (nodeId: number, newLabel: string): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
+    setPermission: (nodeId: number, targetSub: string, level: PermissionTier): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
+    revokePermission: (nodeId: number, targetSub: string): Promise<void> =>
+      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
   };
 
   /**

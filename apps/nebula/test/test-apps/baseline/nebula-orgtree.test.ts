@@ -155,4 +155,43 @@ describe('orgTree dedicated channel (P8 server)', () => {
     a.client[Symbol.dispose]();
     b.client[Symbol.dispose]();
   });
+
+  // ── P8b: client.orgTree.* mutators (awaited callRaw, reject-on-failure) ──
+
+  it('client.orgTree mutators resolve on success and reject on failure', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+
+    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team', 'Team');
+    expect(typeof nodeId).toBe('number');
+    expect(nodeId).toBeGreaterThan(ROOT_NODE_ID);
+
+    await a.client.orgTree.relabelNode(nodeId, 'Renamed Team'); // resolves (void)
+    await a.client.orgTree.setPermission(nodeId, generateUuid(), 'write'); // resolves
+
+    // Reject-on-failure: deleting a non-existent node → NodeNotFoundError rejects
+    // the awaited call (NOT connection-gated, NOT swallowed).
+    await expect(a.client.orgTree.deleteNode(999999)).rejects.toThrow();
+
+    a.client[Symbol.dispose]();
+  });
+
+  it('a client.orgTree mutation broadcasts the updated tree back to a subscriber (originator)', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+
+    a.client.callStarSubscribeTree(star); // resets captures → initial snapshot lands
+    await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
+    const before = a.client.orgTreeUpdateCount; // orgTree.* is callRaw (NOT a resetting initiator)
+
+    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team2', 'Team2');
+    await vi.waitFor(() => {
+      expect(a.client.orgTreeUpdateCount).toBeGreaterThan(before);
+      const tree = a.client.lastOrgTree as TreeState;
+      expect(tree.nodes.has(nodeId)).toBe(true);
+      expect([...tree.nodes.values()].some((n) => n.slug === 'team2')).toBe(true);
+    });
+
+    a.client[Symbol.dispose]();
+  });
 });

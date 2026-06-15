@@ -45,6 +45,9 @@ export interface StoreClient {
   readonly connectionState: ConnectionState;
   /** Register the factory's connection-state listener (mirrors to lmz.connection.*). */
   onConnectionStateChange(handler: (state: ConnectionState) => void): void;
+  /** Register the factory's org-tree listener (mirrors to lmz.orgTree.value).
+   *  Registering it also opts the client into auto-subscribing the tree on connect. */
+  onOrgTreeUpdate(handler: (state: unknown) => void): void;
   /** Flush pending debounced writes (no args = all). */
   flush(resourceType?: string, resourceId?: string): void;
   /** Flush + settle open submissions + tear down the debounce queue. */

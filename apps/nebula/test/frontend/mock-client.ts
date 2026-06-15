@@ -49,6 +49,7 @@ export class MockClient implements StoreClient {
   #adapter: NebulaStoreAdapter | null = null;
   #engine: ConflictOutcomeEngine;
   #connHandler: ((state: ConnectionState) => void) | null = null;
+  #orgTreeHandler: ((state: unknown) => void) | null = null;
 
   constructor(opts: { quietMs?: number; maxWaitMs?: number; timeoutMs?: number } = {}) {
     // Mirror NebulaClient: instantiate the engine over the bound adapter +
@@ -78,6 +79,10 @@ export class MockClient implements StoreClient {
 
   onConnectionStateChange(handler: (state: ConnectionState) => void): void {
     this.#connHandler = handler;
+  }
+
+  onOrgTreeUpdate(handler: (state: unknown) => void): void {
+    this.#orgTreeHandler = handler;
   }
 
   flush(rt?: string, rid?: string): void {
@@ -117,6 +122,11 @@ export class MockClient implements StoreClient {
     this.connectionState = state;
     this.#engine.setConnectionState(state);
     this.#connHandler?.(state);
+  }
+
+  /** Test helper: simulate an org-tree delivery (subscribeTree snapshot / broadcast). */
+  simulateOrgTree(state: unknown): void {
+    this.#orgTreeHandler?.(state);
   }
 
   #submit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
