@@ -1,6 +1,7 @@
 # Think→Nebula shim hardening
 
 **Status**: Not started — kickoff for a new session.
+
 **Background / analysis**: [`tasks/think-nebula-shim-security-review.md`](think-nebula-shim-security-review.md) (read first — it frames the design + multi-tenant-security questions). Decision context: [`tasks/archive/think-vs-cma-bakeoff.md`](archive/think-vs-cma-bakeoff.md) + `experiments/think-vs-cma/results/RESULTS.md`.
 
 ## Pre-flight: bump Think + agents before implementing
