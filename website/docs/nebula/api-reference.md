@@ -108,7 +108,7 @@ All other fields auto-detect: `baseUrl` from `window.location.origin`, `authScop
 
 Admin/scripting form with all overrides explicit:
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const { client, store } = createNebulaClient({
   baseUrl: 'https://my-app.example.com',
   authScope: 'acme.app.tenant-a',
@@ -143,7 +143,7 @@ If a pending subscribe for the same `(rt, rid)` already exists, the new handle's
 
 ### Idiomatic usage with `using`
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 {
   using sub = client.resources.subscribe('todo', 'task-42');
   const snap = await sub.snapshot;            // wait for initial fanout if you care
@@ -153,7 +153,7 @@ If a pending subscribe for the same `(rt, rid)` already exists, the new handle's
 
 ### Manual control (subscribe and unsubscribe in different places)
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Some setup code:
 client.resources.subscribe('todo', 'task-42');                  // handle discarded; subscription stays live
 
@@ -245,7 +245,7 @@ Multi-resource transactions are atomic: every op commits or none do.
 
 ### Example — single resource
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // eTag auto-derives from store.resources.todo['task-42']?.meta?.eTag.
 const outcome = await client.resources.transaction({
   'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title' } },
@@ -254,7 +254,7 @@ const outcome = await client.resources.transaction({
 
 ### Example — multi-resource atomic batch
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const newId = crypto.randomUUID();
 const outcome = await client.resources.transaction({
   [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
@@ -274,7 +274,7 @@ Pass `eTag` explicitly to bypass auto-derive. Two real use cases:
 1. **Resource not in the local store** — admin/scripting code that submits a put/delete without first subscribing. Auto-derive would throw; passing `eTag` lets the call proceed.
 2. **Baseline on a stashed snapshot, not the current local one** — e.g., the human-in-the-loop conflict pattern stashes a `server.meta.eTag` at conflict-detection time and submits resolution later against that specific baseline. The local store may have moved on; the stashed eTag is the right baseline. See [Resources § human-in-the-loop verdict](./resources.md#human-in-the-loop-verdict-non-blocking--defer-to-the-app).
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Explicit baseline — Bob's resolution submission against the stashed snapshot.
 const outcome = await client.resources.transaction({
   'task-42': { op: 'put', typeName: 'todo',

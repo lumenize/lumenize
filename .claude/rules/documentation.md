@@ -62,6 +62,7 @@ The checker normalizes both doc code and test/source code before matching. See `
 - Don't add `// ...` at the very start or end of a code block — it's unnecessary since comments are stripped
 - Don't wrap code in extra `// ...` lines just to "anchor" the match — substring matching handles this
 - Do use `// ...` between meaningful lines to skip boilerplate (e.g., showing first and last properties of an interface)
+- **Never use `// ...` to absorb source that GREW.** The whole point of `@check-example` is to fail when the code changes and the doc hasn't caught up. If a block stops matching because the source gained a field/line/param, **add it to the doc** for an exact mirror — do NOT drop in a `// ...` to skip the new content (that silently switches the check off for that region; future additions drift in unseen). `// ...` is for *deliberately omitting content that exists now*, never a placeholder for what might appear later. A trailing `// ...` on a block meant to be complete (a small interface, a full signature) is the tell you're hiding drift.
 
 ## Writing Docs
 

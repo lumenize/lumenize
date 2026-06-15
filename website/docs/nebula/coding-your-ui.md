@@ -59,7 +59,7 @@ Read and write the store inline in templates using stock [Vue 3](https://vuejs.o
 
 The same paths work from TypeScript — inside a `computed`, a method, or an event handler. `value` is typed loosely on the store; when script code needs typing, cast it to the ontology type at the read site:
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const title = store.resources.todo[id]?.value?.title;          // reactive read
 store.resources.todo[id].value.title = 'New title';            // optimistic write + debounced transaction
 const todo = store.resources.todo[id]?.value as Todo | undefined;  // cast to the ontology type for typed script code
@@ -143,7 +143,7 @@ A resource's `?.value` is `undefined` until the initial server push lands (typic
 
 **3. Multi-state status via `computed`** — distinguishes loading from deleted (connection state is shown separately — see the reconnect banner below). A deleted resource is **not** falsy: tombstones arrive as a real snapshot with `meta.deleted: true` and the last value still present, so the `meta.deleted` check must run *before* any `value` truthiness test. Patterns 1 and 2 don't cover deletion — they'd render a tombstone as if it were alive. (`meta.deleted` is `undefined` only for never-loaded resources.)
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
 
 const todoStatus = computed(() => {
@@ -216,7 +216,7 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 
 A `computed` that covers both:
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
 import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 import { store, client } from './nebula';
@@ -305,7 +305,7 @@ interface Todo {
 
 A count like "open todos" is a **client-side computed**, derived from the subscribed todos — not a stored field. It recomputes automatically on any change (a local edit, a server fanout, or a committed transaction all mutate the reactive store), so it always matches what's on screen:
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 import { computed } from 'vue';
 
 const openCount = computed(() =>
@@ -318,7 +318,7 @@ const openCount = computed(() =>
 
 The container is keyed per user — `('todoList', client.claims.sub)` — so each user has their own list, looked up by their JWT subject. Subscribing to a resource that doesn't exist yet is a server-side error, so the app creates the list on first visit: read, then create if absent. This runs in `nebula.ts` after `await ready` (claims are populated, and module evaluation finishes before any component renders):
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // nebula.ts (after `await ready`)
 import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 const sub = client.claims.sub;
@@ -356,7 +356,7 @@ This works up to ~hundreds of items. Beyond that, a query language is the right 
 
 Creating a new resource and adding its ID to a container happens in **one transaction**, so neither orphan-todo nor dangling-reference state ever exists. For the "two users added at the same time" race, register a handler on the list type that returns `'use-this'` with a **set-union of `items`** — so neither client's just-added id is dropped (a plain `'use-server'` would orphan the loser's new todo) — see [Resources § per-resource handler](./resources.md#per-resource-behavior--the-ontransactionresourceresolution-handler).
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 async function addTodo(title: string) {
   const newId = crypto.randomUUID();
   const listSnap = store.resources.todoList[client.claims.sub];
@@ -489,7 +489,7 @@ Mount the recursive component from any parent at a known root id: `<TreeNode :no
 
 The tree itself is mutable through `client.orgTree.*` methods. Each method requires the caller to hold a specific permission on the target node — `admin` for permission grants, `write` for structural changes (create, reparent, delete, rename, relabel; edge ops check the parent). The one hybrid is `addEdge`, which also requires `admin` on the *child*: adding a parent edge widens who has access to the child's subtree, so the child side demands `setPermission`'s tier. Failures reject the returned Promise.
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // Grant a permission. `sub` is a JWT subject claim — a bare UUID (the current
 // user's is client.claims.sub; other users' subs come from wherever your app
 // stores its member list). `level` is 'read' (view), 'write' (edit +

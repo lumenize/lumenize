@@ -31,7 +31,7 @@ Bracket notation handles any `resourceId` shape (hyphens, ULIDs, UUIDs). Dot not
 
 **2. In code (tuple at the top level):**
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 client.resources.subscribe('todo', 'task-42');   // returns a Disposable handle (not a Promise) — see api-reference
 await client.resources.transaction({
   'task-42': { op: 'put', typeName: 'todo', value: { title: 'New title', /* ... */ } },
@@ -252,7 +252,7 @@ You never construct or compare eTags yourself. The framework reads the cached `e
 
 Per-resource behavior is configured by registering a handler per resource type. The framework calls this handler once per resource per transaction with that resource's current `TransactionResourceResolution`. The handler does two jobs in one place — decide conflict resolutions, and react to terminal outcomes:
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 client.resources.onTransactionResourceResolution('todo', (rid, resolution) => {
   switch (resolution.kind) {
     // Non-terminal: handler returns a ConflictResolverVerdict.
@@ -307,7 +307,7 @@ The flash signals "your input was reverted" without any modal or prompt. Use the
 
 Return `{ kind: 'use-this', value: merged }` and the framework submits a new transaction at the server's current eTag with your merged value. Use for fields where the right merge can be computed without asking the user.
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 client.resources.onTransactionResourceResolution('todo', (rid, resolution) => {
   if (resolution.kind === 'conflict-pending') {
     const { local, server, base } = resolution;
@@ -328,7 +328,7 @@ If the re-submit *also* conflicts (another client wrote again in the meantime), 
 
 Per-type or per-call override:
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 client.resources.onTransactionResourceResolution('todo', handler, { maxRetries: 10 });
 // or per-call — a map keyed by resourceId:
 await client.resources.transaction(ops, { onTransactionResourceResolution: { 'task-42': handler }, maxRetries: 3 });
@@ -342,7 +342,7 @@ Same verdict, async handler. Show a `<dialog>`, wait for the user's choice, retu
 
 Register the handler once in `nebula.ts` (after the factory call); it stashes both versions on the reactive store so the modal template can read them declaratively.
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/chromium/conflict-modal-browser.test.ts')
 // nebula.ts (continuing from the bootstrap example — `client`, `store` already created)
 client.resources.onTransactionResourceResolution('todo', async (rid, resolution) => {
   if (resolution.kind === 'conflict-pending') {
@@ -402,7 +402,7 @@ When you don't want the transaction queue parked while a conflict is pending —
 
 Your app stashes the conflict somewhere and surfaces it on its own schedule. Typical pattern: a banner that shows pending conflicts, the user clicks "Review" when they're ready, your code walks the stash and submits resolution transactions.
 
-```typescript @skip-check
+```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 // nebula.ts (handler runs once at module load; alongside the factory call)
 client.resources.onTransactionResourceResolution('document', (rid, resolution) => {
   switch (resolution.kind) {
@@ -495,8 +495,9 @@ For any field a user is actively typing into (long-form text, descriptions, comm
 
 This is the data race; debouncing and fanout-holding narrow it but don't resolve it. The reliable fix is text-merge. Annotating the field [`@longform`](./ontology.md#annotations) auto-registers exactly the handler below — most apps never write it by hand. Write your own only when you need custom merge logic; here's what the auto-registered handler does:
 
-```js @skip-check
-import { textMerge } from '@lumenize/nebula/frontend';   // 3-way (LCS-based) merge helper
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
+// textMerge is a 3-way (LCS-based) merge helper
+import { textMerge } from '@lumenize/nebula/frontend';
 
 client.resources.onTransactionResourceResolution('doc', (rid, resolution) => {
   if (resolution.kind === 'conflict-pending') {
@@ -532,7 +533,7 @@ Two patterns, depending on whether you call `transaction()` yourself.
 
 `transaction()` **always resolves** with a `TransactionOutcome` — never rejects. Infrastructure failures (network drops, mesh crashes) come back as `{ kind: 'infrastructure-error', error }`. The top-level shape has five kinds; the await-site's one decision — "do I resubmit?" — is answered by `outcome.retryable`:
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const outcome = await client.resources.transaction(ops);
 switch (outcome.kind) {
   case 'committed':
@@ -568,7 +569,7 @@ switch (outcome.kind) {
 
 For most form-save flows where the per-type handler does the work, the entire `switch` can collapse to:
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const outcome = await client.resources.transaction(ops);
 if (outcome.kind !== 'committed') {
   showToast('Save problem — retry?');
@@ -579,7 +580,7 @@ The per-type handler has already done navigation / draft-clearing on `'committed
 
 If you need aggregate decisions at the await-site (e.g., "only navigate if EVERY resource committed, not just some"), iterate `outcome.resources`:
 
-```js @skip-check
+```js @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 if (outcome.kind === 'committed') {
   const allCommitted = Object.values(outcome.resources)
     .every(r => r.kind === 'committed');   // an op may have resolved to 'use-server' — committed, but your value was reverted
