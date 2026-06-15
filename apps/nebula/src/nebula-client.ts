@@ -400,13 +400,16 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Flush pending writes and settle every open submission; nothing submits
-   * after this resolves. Tears down the engine's debounce queue. Distinct from
-   * `[Symbol.dispose]()` / `disconnect()`, which tear down the WS connection —
-   * `dispose()` only quiesces the write path. Delegates to the engine.
+   * Tear down the client: flush pending debounced writes + settle every open
+   * submission (engine quiesces), then disconnect the WebSocket. Nothing submits
+   * after this resolves (api-reference § client.dispose). Distinct from
+   * {@link logout}, which *also* revokes the session — a disposed client could
+   * reconnect with the same valid cookie; a logged-out one cannot. The factory's
+   * `dispose()` calls this after clearing its own refcount/grace timers.
    */
-  dispose(): Promise<void> {
-    return this.#engine.dispose();
+  async dispose(): Promise<void> {
+    await this.#engine.dispose();
+    this.disconnect();
   }
 
   // ─── Serial mesh-submit gate ──────────────────────────────────────────────
@@ -596,6 +599,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     ): Promise<TransactionOutcome> => {
       const engineOps: Record<string, { rt: string } & EngineOp> = {};
       for (const [rid, op] of Object.entries(ops)) {
+        // Auto-derive eTag: a put/move/delete with no explicit eTag and no
+        // baseline in the local store is a programming error (forgot to
+        // subscribe / pass eTag) — throw synchronously at the call site rather
+        // than letting it surface as an opaque outcome (api-reference
+        // § resources.transaction). `create` asserts non-existence (no eTag).
+        if (op.op !== 'create' && op.eTag === undefined &&
+            this.#storeAdapter.readResource(op.typeName, rid).eTag === undefined) {
+          throw new Error(
+            `can't auto-derive eTag for (${op.typeName}, ${rid}) — not in local store; pass eTag explicitly or subscribe first`,
+          );
+        }
         // resourceType === typeName (the store path is resources.{typeName}.{rid}).
         engineOps[rid] = { rt: op.typeName, ...op } as { rt: string } & EngineOp;
       }

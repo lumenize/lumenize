@@ -320,4 +320,89 @@ describe('nebula-client.resources.transaction (v3)', () => {
     a[Symbol.dispose]();
     b.client[Symbol.dispose]();
   });
+
+  // ── v3: auto-derive eTag from the local store (api-reference § transaction) ──
+
+  it('auto-derives eTag from the local store when omitted on a put', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const resourceId = generateUuid();
+
+    // The committed create populates the client's local store (value + eTag).
+    const created = await client.resources.transaction({
+      [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
+    });
+    if (created.kind !== 'committed') throw new Error('Expected committed create');
+
+    // put with NO eTag — the framework derives it from the local store.
+    const outcome = await client.resources.transaction({
+      [resourceId]: { op: 'put', typeName: 'TestResource', value: { title: 'V2-auto' } },
+    });
+    expect(outcome.kind).toBe('committed');
+    const snap = await client.resources.read('TestResource', resourceId);
+    expect((snap!.value as { title: string }).title).toBe('V2-auto');
+
+    client[Symbol.dispose]();
+  });
+
+  it('throws synchronously when eTag cannot be auto-derived (resource not in local store)', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+
+    // A put with no eTag for a resource the client never created/subscribed —
+    // a programming error surfaced as a synchronous throw, NOT a server reject
+    // or an opaque outcome.
+    expect(() =>
+      client.resources.transaction({
+        [generateUuid()]: { op: 'put', typeName: 'TestResource', value: { title: 'orphan' } },
+      }),
+    ).toThrow(/can't auto-derive eTag/);
+
+    client[Symbol.dispose]();
+  });
+
+  it('explicit eTag bypasses auto-derive (works even when the resource is absent from the local store)', async () => {
+    const star = uniqueStar();
+    const { client: a } = await setupAdminClient(star);
+    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const resourceId = generateUuid();
+
+    const created = await a.resources.transaction({
+      [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
+    });
+    const eTag = committedETag(created, resourceId);
+
+    // b never created/subscribed this resource, so its local store is empty —
+    // an OMITTED eTag would throw. The EXPLICIT eTag bypasses the store lookup.
+    const outcome = await b.client.resources.transaction({
+      [resourceId]: { op: 'put', typeName: 'TestResource', eTag, value: { title: 'V2-by-B' } },
+    });
+    expect(outcome.kind).toBe('committed');
+
+    a[Symbol.dispose]();
+    b.client[Symbol.dispose]();
+  });
+
+  it('multi-resource batch mixes auto-derived and explicit eTags', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const ridAuto = generateUuid();
+    const ridExplicit = generateUuid();
+
+    const created = await client.resources.transaction({
+      [ridAuto]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A1' } },
+      [ridExplicit]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'B1' } },
+    });
+    const explicitETag = committedETag(created, ridExplicit);
+
+    const outcome = await client.resources.transaction({
+      [ridAuto]: { op: 'put', typeName: 'TestResource', value: { title: 'A2' } },                 // auto-derived
+      [ridExplicit]: { op: 'put', typeName: 'TestResource', eTag: explicitETag, value: { title: 'B2' } }, // explicit
+    });
+    expect(outcome.kind).toBe('committed');
+    expect((await client.resources.read('TestResource', ridAuto))!.value).toMatchObject({ title: 'A2' });
+    expect((await client.resources.read('TestResource', ridExplicit))!.value).toMatchObject({ title: 'B2' });
+
+    client[Symbol.dispose]();
+  });
 });
