@@ -1,6 +1,6 @@
 # Nebula Frontend
 
-**Status**: Active — demo critical path. Phase sequence: v1 (docs-first) ✓ → v2 (prerequisites unblock) ✓ → **v3 (factory port — next)** → v4 (real-browser harness, builds on `packages/mesh/test/browser/` template) → v5 (doc polish).
+**Status**: Active — demo critical path. Phase sequence: v1 (docs-first) ✓ → v2 (prerequisites unblock) ✓ → **v3 (factory port — IN PROGRESS, see "Resuming the work" below)** → v4 (real-browser harness, builds on `packages/mesh/test/browser/` template) → v5 (doc polish).
 **Depends on**: Phase 5.1 (Storage Engine) + Phase 5.2 (Validation/Ontology) — both shipped.
 **Hard prerequisite — build this FIRST**: [nebula-star-root-admin.md](nebula-star-root-admin.md) **Part 1** (seed the founder as `admin` on `ROOT_NODE_ID` at Star provisioning — one `setPermission` call + its test). The first-run-create bootstrap and its two-client race test hard-depend on it (detail at § Phase 5.3.7-v3). Parts 1b (locationHint placement) and 2 (last-admin protection) are NOT v3 blockers. That file is "spec'd, not reviewed" — but Part 1 is small and self-contained enough to build directly, no full `/review-task` cycle needed.
 **Framework target**: Vue 3.5+ with `.vue` SFCs (per-save compile in the user-local dev Star for dev iteration, in Galaxy for production deploy). (Rejected: Vue 3 in-DOM mode + template strings — required the runtime compiler + CSP `'unsafe-eval'` and HTML-in-JS-strings ergonomics. SFC compile is spike-validated in Workers/DOs: `@vue/compiler-sfc` runs cleanly, sub-50 ms per-save round-trip globally.)
@@ -12,11 +12,17 @@
 - [website/docs/nebula/nebula-client.md](../website/docs/nebula/nebula-client.md) — `NebulaClient` overview
 - [website/docs/nebula/auth-flows.md](../website/docs/nebula/auth-flows.md) — auth flow sequence diagrams
 
-> **Resuming the work:**
-> 1. § "Phase 5.3.7-v3" is the active build section.
-> 2. The companion docs lock the API surface; v3 implements it — anything the docs reference that doesn't trace to real code (or a `new-in-v3` tag) is a defect.
-> 3. Sections above Phase 5.3.7 describe shipped, framework-agnostic mechanics the factory builds on (auth model, ontology-version model, Star subscribe machinery, handlers, transaction-resolution types).
-> 4. Spike code lives in `apps/nebula/spike/vue-factory/` — the port source for v3; deleted after the port (dir name is an artifact of the predecessor Alpine spike).
+> **Resuming the work (v3 build — updated 2026-06-14):**
+>
+> **This is being built with `/build-task`, phase-by-phase, committed per phase on branch `feat/nebula-ui`.** § "Phase 5.3.7-v3" is the active build section; its checklist items carry `(v3-Phase-N DONE …)` annotations as they land.
+>
+> **DONE so far** (commits): P0 root-admin Part 1 seed `eb2ebc0` · P1 package scaffold `eb2ebc0` · P2 `text-merge`+`deep-equals` port `c87b08c` · P3 debounce queue port `6995aa4` · P4 conflict-outcome engine port + round-4 five-kind `TransactionOutcome` reshape `7d09a7d` · `testing.md` mutation-check rule `2bcaba3` · **package merge `7fff352`**. All green: jsdom `frontend` vitest project 110 pass + 1 skip; `baseline`+`unit` 180 pass; `tsc` clean.
+>
+> **⚠️ NO separate `@lumenize/nebula-frontend` package** — merged 2026-06-14 into `@lumenize/nebula` as the **`@lumenize/nebula/frontend`** subpath (see the MERGE DECISION note + layout under § Phase 5.3.7-v3). Frontend code: `apps/nebula/src/frontend/` + entry `src/frontend-index.ts`; tests: `apps/nebula/test/frontend/` (jsdom `frontend` project; real-Star e2e rides the existing `apps/nebula/test/test-apps/baseline/` harness). NebulaClient stays at `apps/nebula/src/nebula-client.ts`.
+>
+> **NEXT (resume here): the factory port + integration** — port `apps/nebula/spike/vue-factory/src/create-nebula-client.ts` (~576 LOC: Proxy + middleware chain + `effectScope`/`getCurrentInstance().scope` refcount + grace + `internalDeepWrite` + synced-state middleware + the collection-sync Map/Set mutator interception) into `apps/nebula/src/frontend/create-nebula-client.ts`, wiring it to the live `NebulaClient` (`apps/nebula/src/nebula-client.ts`, 1,179 LOC) + the already-ported debounce queue + conflict-outcome engine. This RIPS OUT NebulaClient's old `onETagConflict`/`ConflictResolver`/`bindToState` machinery and wires `#handleTransactionResult` to the engine; reconcile conflict-outcome's local `Snapshot` to `resources.Snapshot`; do the `ontologyVersion`→`appVersion` rename. Then: `client.resources.*` reshape (Disposable subscribe, auto-derive eTag, optional config, `ready`, `logout`, race-safe first-run create) → Star `orgTree` dedicated channel → mesh first-connect auth classification → §5.3.8 real-Star e2e probes (the no-mock backing) + carry-forward tests → deletions (`@lumenize/state`, spike dir) + dead-code audit + doc reconcile. Work the § Phase 5.3.7-v3 checklist top-to-bottom; honor the **Test-fidelity obligation** callout in that section.
+>
+> **Reference facts:** the companion docs lock the API surface (`@lumenize/nebula/frontend` import) — anything they reference that doesn't trace to real code or a `new-in-v3` tag is a defect. Sections ABOVE Phase 5.3.7 describe shipped, framework-agnostic mechanics the factory builds on (auth model, ontology-version model, Star subscribe machinery, handlers). Spike code at `apps/nebula/spike/vue-factory/` is the port source — deleted only after ALL detours land (post-merge cleanup); the 4 detour task files (`factory-textmerge.md`, `debounce-serial-queue.md`, `factory-collection-sync.md`, `factory-conflict-outcome.md`) carry per-detour port status.
 
 ## Three layers, clean boundaries
 
