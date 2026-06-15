@@ -10,6 +10,16 @@
 import { describe, it, expect } from 'vitest';
 import { createNebulaClient } from '../../src/frontend/create-nebula-client';
 import { textMerge, makeLongformResolver } from '../../src/frontend/text-merge';
+import type { NebulaClient } from '../../src/nebula-client';
+import type { StoreClient } from '../../src/frontend/types';
+
+// Compile-time guard (P6 criterion 1): the real NebulaClient must structurally
+// satisfy the StoreClient seam the factory depends on. P7 wires the real client
+// through createNebulaStore (the first production call site); this keeps the
+// contract enforced by `tsc` until then. Type-only — erased at runtime, so it
+// does NOT pull NebulaClient's mesh/debug deps into the jsdom project.
+const _seamGuard = (c: NebulaClient): StoreClient => c;
+void _seamGuard;
 
 describe('nebula frontend scaffold', () => {
   it('exposes the public surface', () => {

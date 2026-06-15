@@ -226,6 +226,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #prevConnectionState: ConnectionState | null = null;
 
   /**
+   * Runtime connection-state listener registered by the factory
+   * ({@link onConnectionStateChange}) — it mirrors state into
+   * `store.lmz.connection.*`. Single-handler; a later call replaces it. The
+   * engine's connection gate is wired separately in the constructor callback
+   * (NebulaClient owns the gate; the factory only surfaces the state).
+   */
+  #connectionStateListener: ((state: ConnectionState) => void) | null = null;
+
+  /**
    * Active subscriptions registry. Used by Phase 5.3.4 auto-resubscribe on
    * reconnect, and (in 5.3.6) by refcount-with-grace. For 5.3.3a the entry
    * is minimal — just enough to know what's subscribed.
@@ -302,6 +311,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // client directly + replays at creation).
         this.#engine?.setConnectionState(state);
         this.#prevConnectionState = state;
+        // Factory listener mirrors state into store.lmz.connection.* (it also
+        // replays the current state once at creation via `connectionState`, so
+        // factory/connect ordering is irrelevant).
+        this.#connectionStateListener?.(state);
         userOnConnectionStateChange?.(state);
       },
     });
@@ -338,6 +351,39 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   bindStore(adapter: NebulaStoreAdapter): void {
     this.#storeAdapter = adapter;
+  }
+
+  /**
+   * Register a runtime listener for connection-state transitions. The factory
+   * (`@lumenize/nebula/frontend`) uses this to mirror state into
+   * `store.lmz.connection.*`; it also reads {@link connectionState} once at
+   * creation to replay the current state (so factory/connect ordering is
+   * irrelevant). Single-handler; a later call replaces the previous one. The
+   * constructor's `onConnectionStateChange` config callback (if any) still
+   * fires too — this is chained alongside it, not in place of it.
+   */
+  onConnectionStateChange(handler: ((state: ConnectionState) => void) | null): void {
+    this.#connectionStateListener = handler;
+  }
+
+  /**
+   * Flush pending debounced writes immediately (component unmount / input blur
+   * / explicit). No args flushes every resource. In-flight keys flush on
+   * release; while disconnected the write path stays held until reconnect.
+   * Delegates to the conflict-outcome engine's debounce queue.
+   */
+  flush(resourceType?: string, resourceId?: string): void {
+    this.#engine.flush(resourceType, resourceId);
+  }
+
+  /**
+   * Flush pending writes and settle every open submission; nothing submits
+   * after this resolves. Tears down the engine's debounce queue. Distinct from
+   * `[Symbol.dispose]()` / `disconnect()`, which tear down the WS connection —
+   * `dispose()` only quiesces the write path. Delegates to the engine.
+   */
+  dispose(): Promise<void> {
+    return this.#engine.dispose();
   }
 
   // ─── Serial mesh-submit gate ──────────────────────────────────────────────
@@ -455,6 +501,24 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /** Resource namespace — entry point for subscribe / read / transaction. */
   readonly resources = {
+    /**
+     * The factory's debounced v-model path: enqueue a debounced put of the
+     * resource's CURRENT (optimistic) store value. The optimistic paint has
+     * already landed in the store (the factory's synced-state middleware writes
+     * the value first, then calls this); `write` only drives WHEN the
+     * transaction submits — quiet/maxWait windows, serial-per-resource
+     * buffering, connection gating. `preWriteValue` is the B4 first-divergence
+     * baseline (the value the store held before the first keystroke of the
+     * burst). Delegates to the engine's debounce queue.
+     */
+    write: (
+      resourceType: string,
+      resourceId: string,
+      opts?: { quietMs?: number; preWriteValue?: unknown },
+    ): void => {
+      this.#engine.write(resourceType, resourceId, opts);
+    },
+
     /**
      * Subscribe to a resource. Resolves with the initial snapshot on the
      * first `handleResourceUpdate` for `(rt, rid)`. Subsequent updates are
