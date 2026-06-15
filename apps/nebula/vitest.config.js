@@ -86,6 +86,14 @@ export default defineConfig({
           name: 'baseline',
           include: ['test/test-apps/baseline/**/*.test.ts'],
           setupFiles: ['./test/test-apps/baseline/test/setup.ts'],
+          // Real-Star WS-connect e2e (esp. the createNebulaClient factory tests:
+          // ready / logout / set-union) establish live WebSocket connections that
+          // are CPU-contention-sensitive under the full `npm test` run (unit +
+          // frontend + baseline + browser projects in parallel). 10s (vitest's
+          // default) is tight under that combined load; 30s matches the spike's
+          // phase-0b real-Star precedent. Fast tests are unaffected (a timeout
+          // only bites when exceeded). vi.waitFor stays at the setup.ts 5s default.
+          testTimeout: 30000,
         },
       },
       // Browser project — Node-side vitest tests using @lumenize/testing's
