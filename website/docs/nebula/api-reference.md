@@ -21,6 +21,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | --- | --- | --- |
 | `createNebulaClient(config)` | new-in-v3 | [createNebulaClient](#createnebulaclient) |
 | `client.resources.subscribe(rt, rid)` | implemented-in-spike | [resources.subscribe](#resourcessubscribe) |
+| `client.resources.createAndSubscribe(rt, rid, nodeId, value)` | new-in-v3 | [resources.createAndSubscribe](#resourcescreateandsubscribe) |
 | `client.resources.unsubscribe(rt, rid)` | implemented-in-spike | [resources.unsubscribe](#resourcesunsubscribe) |
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
@@ -139,6 +140,12 @@ interface ResourceSubscription extends Disposable {
 
 Subscribes synchronously (registers the subscriber row immediately); the **initial snapshot** arrives asynchronously via `handleResourceUpdate` and is exposed on `.snapshot`.
 
+:::note[The resource must already exist]
+
+`subscribe` requires the resource to exist — there is no subscribe-before-create path on the server (a subscription's read authorization is derived from the resource's current snapshot, which a not-yet-created resource doesn't have). Subscribing to an absent resource **rejects** `.snapshot`. To create a resource and start observing it in one step, use [`createAndSubscribe`](#resourcescreateandsubscribe).
+
+:::
+
 If a pending subscribe for the same `(rt, rid)` already exists, the new handle's `.snapshot` piggybacks on that pending settlement instead of issuing a duplicate request. `[Symbol.dispose]()` decrements per-handle; the underlying server-side subscription releases when the last handle disposes (mirrors auto-subscribe's refcount-with-grace).
 
 ### Idiomatic usage with `using`
@@ -164,6 +171,28 @@ client.resources.unsubscribe('todo', 'task-42');                // standalone AP
 **Typical usage**: rarely called directly. Most subscriptions happen via auto-subscribe (reading from the store inside a Vue component triggers `subscribe` on the underlying client). Call explicitly only when subscribing to a resource the UI doesn't yet bind to — warming a cache before navigation, scripting, headless tests. The `using` form is the idiomatic explicit pattern; the standalone `unsubscribe` is for cases where the subscribe and release sites legitimately differ.
 
 **TypeScript requirement**: `Disposable` and the `using` keyword are ES2023 / TypeScript 5.2+. Studio-generated tsconfig includes the needed `lib: ["ESNext"]` or equivalent.
+
+## `client.resources.createAndSubscribe` {#resourcescreateandsubscribe}
+
+**Tag**: `new-in-v3`.
+
+```typescript @skip-check
+createAndSubscribe(
+  resourceType: string,
+  resourceId: string,
+  nodeId: number,
+  value: unknown,
+): ResourceSubscription;
+```
+
+The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**.
+
+If the create does **not** commit (the resource already exists, or a permission / validation failure), `.snapshot` **rejects** — use plain `subscribe` for a resource that already exists. Disposing the handle before the create lands cancels the pending subscription (the already-submitted create is not unwound). It routes to the active scope's Star binding like every other resource call (so it works against a dev Star too).
+
+```typescript @check-example('apps/nebula/test/test-apps/baseline/nebula-client-create-and-subscribe.test.ts')
+using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'made', done: false });
+const snap = await sub.snapshot;
+```
 
 ## `client.resources.unsubscribe` {#resourcesunsubscribe}
 

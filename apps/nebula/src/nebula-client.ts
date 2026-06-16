@@ -371,7 +371,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // tests) that don't render the tree don't register/broadcast needlessly.
         // Idempotent server-side (INSERT OR REPLACE).
         if (state === 'connected' && this.#orgTreeListener) {
-          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeTree());
+          this.lmz.call(this.#starBinding(), this.#activeScope, this.ctn<Star>().subscribeTree());
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
@@ -523,7 +523,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // eTag — resources.ts Step 4.5a); stable across reconnect replays because
     // the engine re-sends the same submissions.
     const meshNewETag = next.subs[0]!.newETag;
-    this.lmz.call('STAR', this.#activeScope,
+    this.lmz.call(this.#starBinding(), this.#activeScope,
       this.ctn<Star>().transaction(this.#appVersion, meshNewETag, this.#buildMeshOps(next.subs)));
   }
 
@@ -597,7 +597,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #resubscribeAll(): void {
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#starBinding(), this.#activeScope,
         this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     }
   }
@@ -653,6 +653,56 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
       const snapshot = this.#subscribeResource(resourceType, resourceId);
       let disposed = false;
+      return {
+        snapshot,
+        [Symbol.dispose]: (): void => {
+          if (disposed) return; // per-handle idempotent
+          disposed = true;
+          this.#disposeSubscription(resourceType, resourceId);
+        },
+      };
+    },
+
+    /**
+     * Create a resource and subscribe to it in one call — the ergonomic form of
+     * the **create-then-subscribe** pattern the server requires (a subscribe to
+     * a not-yet-existent resource is rejected; the server has no
+     * subscribe-before-create path). Returns a `using`-compatible
+     * {@link ResourceSubscription} **synchronously** — refcount + `[Symbol.dispose]`
+     * behave exactly as {@link resources.subscribe} — but the underlying
+     * `Star.subscribe` is deferred until the `create` transaction commits, so
+     * `.snapshot` resolves with the freshly-created snapshot. If the create does
+     * NOT commit (already exists, permission, validation), `.snapshot` **rejects**
+     * — use plain `subscribe` for a resource that already exists.
+     *
+     * Pure client-side sequencing over the two existing primitives (`transaction`
+     * then `subscribe`); no special server path, and it routes to the active
+     * scope's Star binding like every other resource call. Disposing before the
+     * create lands cancels the pending subscription (the already-submitted create
+     * is not unwound).
+     */
+    createAndSubscribe: (
+      resourceType: string,
+      resourceId: string,
+      nodeId: number,
+      value: unknown,
+    ): ResourceSubscription => {
+      const key = `${resourceType}:${resourceId}`;
+      this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
+      let disposed = false;
+      const snapshot = (async (): Promise<Snapshot | null> => {
+        const outcome = await this.resources.transaction({
+          [resourceId]: { op: 'create', typeName: resourceType, nodeId, value },
+        });
+        if (outcome.kind !== 'committed') {
+          throw new Error(
+            `createAndSubscribe: create of (${resourceType}, ${resourceId}) did not commit ` +
+            `— outcome '${outcome.kind}'; use subscribe() for a resource that already exists`,
+          );
+        }
+        if (disposed) return null; // disposed before the create landed — don't arm the subscription
+        return this.#subscribeResource(resourceType, resourceId);
+      })();
       return {
         snapshot,
         [Symbol.dispose]: (): void => {
@@ -758,26 +808,48 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   readonly orgTree = {
     createNode: (parentNodeId: number, slug: string, label: string): Promise<number> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
     addEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
     reparentNode: (childNodeId: number, oldParentId: number, newParentId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
     deleteNode: (nodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
     undeleteNode: (nodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
     renameNode: (nodeId: number, newSlug: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
     relabelNode: (nodeId: number, newLabel: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
     setPermission: (nodeId: number, targetSub: string, level: PermissionTier): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
     revokePermission: (nodeId: number, targetSub: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
+      this.lmz.callRaw(this.#starBinding(), this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
   };
+
+  /**
+   * Select the Star DO binding for the active scope. A 3rd-segment slug of
+   * `dev` (`{u}.{g}.dev`) routes to the DevStar sandbox binding; any other star
+   * slug routes to the production Star binding. Applied at **every**
+   * Star-targeting call (the resource hot path) so a dev-scope client always
+   * reaches `DevStar` and a production-scope client always reaches `Star`.
+   *
+   * Deliberately a **binary choice between two literal binding-name constants**,
+   * NOT a case-conversion or an `env` lookup (that's the routing-layer
+   * smart-match, a different mechanism) — there are exactly two possible
+   * targets, both known at authoring time, so the slug only picks *which*
+   * literal. Uses a **local slug check**, not an imported `parseId`:
+   * `nebula-client.ts` is browser-bundled and must stay free of
+   * `cloudflare:workers` (packaging.md), and a value import of
+   * `@lumenize/nebula-auth` would drag the barrel's DO classes into the bundle.
+   * `#activeScope` is set at construction and on every scope-switch, so the slug
+   * is always known at call time. See tasks/dev-star.md § Naming & binding selection.
+   */
+  #starBinding(): 'STAR' | 'DEV_STAR' {
+    return this.#activeScope.split('.')[2] === 'dev' ? 'DEV_STAR' : 'STAR';
+  }
 
   /**
    * Decrement the per-`(rt, rid)` handle refcount; on the last release, drop the
@@ -794,7 +866,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
-    this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+    this.lmz.call(this.#starBinding(), this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -818,7 +890,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingSubscribes.set(key, { resolve, reject });
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#starBinding(), this.#activeScope,
         this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     });
   }
@@ -837,7 +909,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const version = options?.appVersion ?? this.#appVersion;
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingReads.set(requestId, { resolve, reject });
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#starBinding(), this.#activeScope,
         this.ctn<Star>().read(version, resourceId, requestId));
     });
   }

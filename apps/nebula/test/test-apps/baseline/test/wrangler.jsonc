@@ -10,6 +10,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
+      { "name": "DEV_STAR", "class_name": "DevStarTest" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
     ]
@@ -22,6 +23,7 @@
         "Universe",
         "Galaxy",
         "StarTest",
+        "DevStarTest",
         "NebulaAuth",
         "NebulaAuthRegistry"
       ]

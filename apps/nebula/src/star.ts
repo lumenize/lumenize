@@ -57,6 +57,15 @@ export class Star extends NebulaDO {
       this.#resources,
     )
     this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
+    // Null the cached ontology row + validator facet so `onStart` is a COMPLETE
+    // (re)init, not just cold-start init. A no-op on cold start (already null),
+    // but load-bearing for `DevStar.resetDevData`'s `this.onStart()` re-init
+    // after `deleteAll()`: `#ensureFacet`/`#installState` short-circuit on a
+    // populated `#row` ([star.ts] `#ensureFacet`), so a stale `#row` surviving a
+    // wipe would keep authorizing the dropped ontology. (The helper objects above
+    // are likewise reassigned to fresh empty-cache instances.)
+    this.#row = null
+    this.#facet = null
   }
 
   /**
@@ -97,8 +106,13 @@ export class Star extends NebulaDO {
    * in different universes produce different identifiers. Used as the
    * Galaxy DO instance name AND as the namespace prefix on the per-Worker
    * Worker Loader cache (`bundleId = "<universe.galaxy>/<version>"`).
+   *
+   * `protected` (not `#`-private) so `DevStar`'s eager-apply trigger can reach
+   * it — a `#`-private member isn't visible to a subclass. It's a pure accessor
+   * over `instanceName`, not dev logic, so exposing it adds no surface a tenant
+   * Star could misuse.
    */
-  get #galaxyId(): string {
+  protected get galaxyId(): string {
     const parts = this.lmz.instanceName!.split('.');
     return parts.slice(0, 2).join('.');
   }
@@ -133,7 +147,7 @@ export class Star extends NebulaDO {
       throw new Error(`Ontology row missing for version '${version}' — index/row drift`);
     }
     this.#row = row;
-    const bundleId = `${this.#galaxyId}/${row.version}`;
+    const bundleId = `${this.galaxyId}/${row.version}`;
     this.#facet = getParserValidatorFacet(
       this.ctx,
       this.env.LOADER,
@@ -143,7 +157,7 @@ export class Star extends NebulaDO {
         // Warm path is the same-isolate cache lookup the helper already does.
         debug('nebula.Star.ensureFacet').info('facet cold load', {
           bundleId,
-          galaxyId: this.#galaxyId,
+          galaxyId: this.galaxyId,
           ontologyVersion: row.version,
         });
         return row.validatorBundle;
@@ -181,7 +195,7 @@ export class Star extends NebulaDO {
       }
     });
     this.#row = row;
-    const bundleId = `${this.#galaxyId}/${row.version}`;
+    const bundleId = `${this.galaxyId}/${row.version}`;
     this.#facet = getParserValidatorFacet(
       this.ctx,
       this.env.LOADER,
@@ -189,7 +203,7 @@ export class Star extends NebulaDO {
       () => {
         debug('nebula.Star.installState').info('facet cold load', {
           bundleId,
-          galaxyId: this.#galaxyId,
+          galaxyId: this.galaxyId,
           ontologyVersion: row.version,
         });
         return row.validatorBundle;
@@ -213,6 +227,43 @@ export class Star extends NebulaDO {
           this.ctn<NebulaClient>().handleResourceUpdate('', '', staleError));
       }
     }
+  }
+
+  /**
+   * Continuation hook: install a freshly-fetched `OntologyState` from Galaxy.
+   *
+   * The shared apply step for **both** the lazy cache-miss handlers (which
+   * inline `#installState` today) and `DevStar`'s eager `deploy_to_dev` trigger.
+   * `#installState` is `#`-private, so a subclass continuation handler can't be
+   * it directly — this is the narrow extension point.
+   *
+   * **`public`, NOT `@mesh`** — the same shape as `doTransaction`/`doRead`/
+   * `doSubscribe` (its sibling continuation handlers). The local executor
+   * resolves a continuation handler by name and TypeScript only surfaces it on
+   * `Continuation<this>` if it is `public`; the "not remotely callable" security
+   * boundary is the **absence of `@mesh`** (the executor's call-surface gate),
+   * not the visibility modifier. (A `protected` handler would force an untyped
+   * `(this.ctn() as any)` escape and buys nothing — `protected` is erased at
+   * runtime.) The `@mesh(requireAdmin)` gate lives on the *trigger*, so the hook
+   * itself needs no guard. **Null/Error is a deliberate no-op**:
+   * `getLatestOntologyVersion()` returns `null` on an un-published Galaxy, and a
+   * failed continuation puts an `Error` in `$result`; neither installs anything
+   * (eager-apply always publishes to Galaxy first, so a `null` means "nothing to
+   * apply", not an error). The debug markers make the no-op-vs-applied outcome
+   * observable to tests (the continuation lands asynchronously — there's no
+   * synchronous return to assert on).
+   */
+  applyFetchedState(state: OntologyState | null | Error): void {
+    const log = debug('nebula.Star.applyFetchedState');
+    if (state === null || state instanceof Error) {
+      log.debug('noop', {
+        instanceName: this.lmz.instanceName,
+        reason: state instanceof Error ? 'error' : 'null',
+      });
+      return;
+    }
+    log.debug('applied', { instanceName: this.lmz.instanceName, version: state.row.version });
+    this.#installState(state);
   }
 
   // ─── DagTree ───────────────────────────────────────────────────────
@@ -258,7 +309,7 @@ export class Star extends NebulaDO {
     } else {
       // Cache miss — ask Galaxy, carry context in the response handler
       this.lmz.call(
-        'GALAXY', this.#galaxyId,
+        'GALAXY', this.galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doTransaction(
           this.ctn().$result, appVersion, newETag, ops, clientId
@@ -316,7 +367,7 @@ export class Star extends NebulaDO {
       debug('nebula.Star.doTransaction').error('handler threw', {
         clientId,
         appVersion,
-        bundleId: this.#row ? `${this.#galaxyId}/${this.#row.version}` : undefined,
+        bundleId: this.#row ? `${this.galaxyId}/${this.#row.version}` : undefined,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
@@ -340,7 +391,7 @@ export class Star extends NebulaDO {
       this.doRead(null, appVersion, resourceId, requestId, clientId);
     } else {
       this.lmz.call(
-        'GALAXY', this.#galaxyId,
+        'GALAXY', this.galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doRead(
           this.ctn().$result, appVersion, resourceId, requestId, clientId
@@ -415,7 +466,7 @@ export class Star extends NebulaDO {
       this.doSubscribe(null, appVersion, resourceType, resourceId, clientId, subscriberBinding);
     } else {
       this.lmz.call(
-        'GALAXY', this.#galaxyId,
+        'GALAXY', this.galaxyId,
         this.ctn<Galaxy>().getLatestOntologyVersion(),
         this.ctn().doSubscribe(
           this.ctn().$result, appVersion, resourceType, resourceId, clientId, subscriberBinding

@@ -40,10 +40,20 @@ export function uniqueGalaxyScope(): {
   galaxy: string;
   starA: string;
   starB: string;
+  /** The reserved dev-sandbox Star under this galaxy (`{u}.{g}.dev`). Routes to
+   *  the `DEV_STAR` binding (slug-derived selection); shares the Galaxy DO with
+   *  `starA`/`starB`. See tasks/dev-star.md. */
+  dev: string;
 } {
   const universe = `g-${generateUuid().slice(0, 8)}`;
   const galaxy = `${universe}.app`;
-  return { universe, galaxy, starA: `${galaxy}.tenant-a`, starB: `${galaxy}.tenant-b` };
+  return {
+    universe,
+    galaxy,
+    starA: `${galaxy}.tenant-a`,
+    starB: `${galaxy}.tenant-b`,
+    dev: `${galaxy}.dev`,
+  };
 }
 
 /**

@@ -393,7 +393,10 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
 
       await vi.waitFor(() => {
         expect(entries.some((e) => e.namespace === 'nebula.test.Star.selfPing')).toBe(true);
-      }, { timeout: 8000 });
+        // 15s (not the default): this waits on real CF-alarm DELIVERY, whose
+        // latency balloons under workerd-zombie CPU starvation in a full parallel
+        // run. See .claude/rules/testing.md (alarm-gated waits are contention-fragile).
+      }, { timeout: 15000 });
 
       // The local-executor path invoked onBeforeCall zero times for this star.
       const onBeforeCallForStar = entries.filter(
