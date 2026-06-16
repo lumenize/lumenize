@@ -2,7 +2,7 @@
 
 **Status**: On Hold — designed, not started (2026-06-14, round-4 #8 fallout). Offline detour: build + fully test in isolation, merge back when green. **NOT a 5.3.7-v3 blocker** — v3 ships with the documented interim limitation; this upgrades it whenever it lands.
 **Packages**: `apps/nebula/` (`dag-tree.ts`, `dag-ops.ts`, the `client.orgTree.*` namespace, `client-index.ts` re-exports), docs (`api-reference.md`, `coding-your-ui.md`)
-**Related**: `tasks/nebula-frontend.md` § Phase 5.3.7-v3 (round-4 #8 interim limitation this fixes); feedback memory `no-server-generated-ids`; ADR-005 (client-supplied eTags — the reference pattern)
+**Related**: `tasks/archive/nebula-frontend.md` § Phase 5.3.7-v3 (round-4 #8 interim limitation this fixes); feedback memory `no-server-generated-ids`; ADR-005 (client-supplied eTags — the reference pattern)
 **Relevant engine**: `apps/nebula/src/dag-tree.ts` (`createNode` `:173` uses `last_insert_rowid()`; Nodes/Edges/Permissions schema `:46-66`), `apps/nebula/src/dag-ops.ts` (`ROOT_NODE_ID = 1` `:8`, `OrgTreeEdgeKey`, `buildOrgTreeView`, `getState`)
 
 ## Goal

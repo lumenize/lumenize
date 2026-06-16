@@ -4,7 +4,7 @@
 **Depends on**:
 - W4 wire format + `diff` / `applyMergePatch` utilities — shipped in [PR #11](https://github.com/lumenize/lumenize/pull/11) (merge commit `260c242`)
 - DAG normalization (originally Phase 3 of the wire-format task) — ✅ shipped 2026-05-16, archived at [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md)
-**Related**: [tasks/nebula-frontend.md](../nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
+**Related**: [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) "DAG-binding update strategies" Options C and D — both became cheaper after W4 shipped.
 
 ## Goal
 
@@ -17,7 +17,7 @@ Most plumbing is common; the DAG path adds a few specifics (per-Star fanout, sna
 
 ## Why on hold (post-demo)
 
-- The demo ships with **Option 0** for DAG (eTag-bump-and-pull per [tasks/nebula-frontend.md](../nebula-frontend.md)) and full-snapshot reads — both functional, just not bandwidth-optimal.
+- The demo ships with **Option 0** for DAG (eTag-bump-and-pull per [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md)) and full-snapshot reads — both functional, just not bandwidth-optimal.
 - W4 + `diff` + `applyMergePatch` are already in place — the foundation is done. This task is purely the integration into Nebula's fanout / read paths.
 - Worth picking up once a real workload exposes the scale concern: 1k-node DAG full-resends saturating bandwidth, or large resources read often where most reads return "unchanged."
 
@@ -238,6 +238,6 @@ Phase A depends on `tasks/archive/nebula-dag-normalize.md` shipping first. Phase
 
 - [tasks/archive/structured-clone-object-based-wire-format.md](../archive/structured-clone-object-based-wire-format.md) — design context for Phases 1+2 (the W4 wire format itself), shipped
 - [tasks/archive/nebula-dag-normalize.md](../archive/nebula-dag-normalize.md) — Phase 3, prerequisite for the DAG half of this work
-- [tasks/nebula-frontend.md](../nebula-frontend.md) — DAG-binding update strategies (Options 0–D); see Option D for the strategy this task implements
+- [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) — DAG-binding update strategies (Options 0–D); see Option D for the strategy this task implements
 - [RFC 7396](https://datatracker.ietf.org/doc/html/rfc7396) — JSON Merge Patch
 - [PR #11](https://github.com/lumenize/lumenize/pull/11) — W4 wire format ship

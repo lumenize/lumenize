@@ -4,7 +4,7 @@
 **Origin**: Conversation 2026-05-24 / 2026-05-25 — pitched as a brand-defining feature for Nebula's enterprise-security positioning, built on Mesh primitives.
 **Related**:
 - [tasks/mesh-call-tracing-and-ids.md](../mesh-call-tracing-and-ids.md) — `callChain` observability is the V0 substrate this builds on
-- [tasks/nebula-frontend.md](../nebula-frontend.md) — Studio's hosted LLM is the eventual audience for any AI-driven surface
+- [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) — Studio's hosted LLM is the eventual audience for any AI-driven surface
 
 ## Opportunity
 

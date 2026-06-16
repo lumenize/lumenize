@@ -8,7 +8,7 @@ It NEVER commits, deploys, runs experiments, or builds.
 **Parked items** are captured for visibility but need a build, deploy, live experiment, benchmark, or a human design ruling before they can become nightly-shaped; a human must promote them.
 
 Seeded 2026-06-14 from the detour + on-hold task files (`factory-collection-sync.md`, `factory-textmerge.md`, `factory-conflict-outcome.md`, `debounce-serial-queue.md`, `broadcast-origin-transparency.md`, `dag-client-supplied-nodeid.md`, `debug-production-transport.md`, `distributed-cpg-security-analysis.md`, `mesh-overload-backpressure-handling.md`, `mesh-resilience-testing.md`, `nebula-5.5-schema-evolution.md`, `http-transport.md`, `nebula-5.7-docs-coverage.md`, `nebula-orm-and-queries.md`, `nebula-release-process.md`, `nebula-resource-history-r2.md`, `release-process-improvements.md`, `wire-merge-patch-sync.md`).
-Meant to be hand-curated over time. See [nebula-nightly-loop.md](nebula-nightly-loop.md) for the full loop design.
+Meant to be hand-curated over time. See [nebula-nightly-loop.md](../nebula-nightly-loop.md) for the full loop design.
 
 > Caveat (seeding pass): mined by Sonnet agents from the task files, not verified against current source. Leverage ratings and `file:line` citations are a first draft — curate before trusting. Several HIGH items reference the active critical path and are worth a human glance first.
 
