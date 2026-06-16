@@ -850,46 +850,53 @@ export async function executeEnvelope(
   const nodeTypeName = options?.nodeTypeName ?? 'MeshNode';
   const includeInstanceName = options?.includeInstanceName ?? true;
 
-  // 1. Validate envelope version
-  if (!envelope.version || envelope.version !== 1) {
-    const error = new Error(
-      `Unsupported RPC envelope version: ${envelope.version}. ` +
-      `This version of ${nodeTypeName} only supports v1 envelopes. ` +
-      `Old-style calls without envelopes are no longer supported.`
-    );
-    options?.onValidationError?.(error, {
-      receivedVersion: envelope.version,
-      supportedVersion: 1,
-    });
-    throw error;
-  }
-
-  // 2. Validate callContext is present
-  if (!envelope.callContext) {
-    const error = new Error(
-      'Missing callContext in envelope. All mesh calls must include callContext.'
-    );
-    options?.onValidationError?.(error, { envelope });
-    throw error;
-  }
-
-  // 3. Auto-initialize from callee metadata if present
-  if (envelope.metadata?.callee) {
-    node.lmz.__init({
-      bindingName: envelope.metadata.callee.bindingName,
-      instanceName: includeInstanceName
-        ? envelope.metadata.callee.instanceName
-        : undefined,
-    });
-  }
-
-  // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
-  const operationChain = postprocess(envelope.chain);
-
-  // 5. Execute chain within callContext (makes this.lmz.callContext available)
-  // Return wrapped result/error - Workers RPC loses error properties when thrown,
-  // so we return errors as { $error: preprocessedError } and unwrap in callRaw.
+  // The ENTIRE envelope lifecycle runs inside one try → every failure (preamble
+  // validation, identity __init, chain postprocess, onBeforeCall, execution) is
+  // returned as { $error: preprocessedError } and unwrapped+rethrown in callRaw.
+  // Keeping the preamble OUTSIDE this try (the old shape) made preamble throws —
+  // version/callContext/__init-setInstanceName-mismatch — escape as raw RPC
+  // rejections, which workerd logs as "uncaught (in promise)" noise. Uniform
+  // wrapping removes that whole class of noise and round-trips preamble errors
+  // through structured-clone (preserving custom properties) like every other error.
   try {
+    // 1. Validate envelope version
+    if (!envelope.version || envelope.version !== 1) {
+      const error = new Error(
+        `Unsupported RPC envelope version: ${envelope.version}. ` +
+        `This version of ${nodeTypeName} only supports v1 envelopes. ` +
+        `Old-style calls without envelopes are no longer supported.`
+      );
+      options?.onValidationError?.(error, {
+        receivedVersion: envelope.version,
+        supportedVersion: 1,
+      });
+      throw error;
+    }
+
+    // 2. Validate callContext is present
+    if (!envelope.callContext) {
+      const error = new Error(
+        'Missing callContext in envelope. All mesh calls must include callContext.'
+      );
+      options?.onValidationError?.(error, { envelope });
+      throw error;
+    }
+
+    // 3. Auto-initialize from callee metadata if present (first-write-wins guard
+    //    in setInstanceName may throw on a name/address divergence)
+    if (envelope.metadata?.callee) {
+      node.lmz.__init({
+        bindingName: envelope.metadata.callee.bindingName,
+        instanceName: includeInstanceName
+          ? envelope.metadata.callee.instanceName
+          : undefined,
+      });
+    }
+
+    // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
+    const operationChain = postprocess(envelope.chain);
+
+    // 5. Execute chain within callContext (makes this.lmz.callContext available)
     const result = await runWithCallContext(envelope.callContext, async () => {
       // Call onBeforeCall hook for authentication/authorization
       node.onBeforeCall();

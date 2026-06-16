@@ -7,7 +7,6 @@ export { NebulaDO, requireAdmin } from './nebula-do';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';
-export { ResourceHistory } from './resource-history';
 
 // Ontology
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';

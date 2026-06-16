@@ -51,6 +51,11 @@ const VERDICT = {
 const verdicts = await parallel(PHASES.map(p => () =>
   agent(
     `Adversarially verify phase "${p.id}" against the CURRENT working tree — read the files it touched. ` +
+    `READ ONLY: do NOT run tests and do NOT edit/mutate any source. The fan-out shares ONE working tree, so ` +
+    `concurrent test runs and source edits thrash each other and can leave the file under test transiently ` +
+    `broken for sibling verifiers. The parent already ran the suites green before this fan-out; assess ` +
+    `capable-of-failing and correctness by READING the code (and the recorded mutation-validation results in ` +
+    `the task file), not by executing. If a criterion is only confirmable by execution, say so in your verdict. ` +
     `Pass ONLY if it satisfies its success criteria: ${p.successCriteria}. Also flag any .claude/rules/ violations ` +
     `and any divergence from the task file. Default conforms=false if uncertain.\n\nPhase goal: ${p.goal}\n\n` +
     `TASK FILE (+ linked docs):\n${TASK}`,

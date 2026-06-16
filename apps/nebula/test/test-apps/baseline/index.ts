@@ -6,6 +6,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 // Re-export DO classes and entrypoint for wrangler bindings
@@ -13,7 +14,6 @@ export {
   NebulaClientGateway,
   Universe,
   Galaxy,
-  ResourceHistory,
   entrypoint as default,
 } from '@lumenize/nebula';
 
@@ -25,7 +25,6 @@ import {
   Star,
   Universe,
   Galaxy,
-  ResourceHistory,
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
@@ -39,6 +38,31 @@ export class StarTest extends Star {
   @mesh()
   whoAmI(): string {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
+  }
+
+  /**
+   * Test-only (T-migration): seed the legacy TOFU key to an arbitrary (stale)
+   * value so a test can prove the structural gate ignores it. The new
+   * onBeforeCall never reads this key — it's inert dead data left in place.
+   */
+  @mesh(requireAdmin)
+  seedScopeKeyForTest(value: string): void {
+    this.ctx.storage.kv.put('__nebula_universeGalaxyStarId', value);
+  }
+
+  /**
+   * Test-only (T-local-skip): schedule a self-continuation via the mesh alarm
+   * service. It is delivered through the *local* chain executor (not
+   * executeEnvelope), so it must NOT invoke onBeforeCall.
+   */
+  @mesh()
+  scheduleSelfPing(): void {
+    this.svc.alarms.schedule(1, (this.ctn() as any).selfPingHandler());
+  }
+
+  /** Test-only: the alarm-delivered self-continuation. No @mesh — runs locally. */
+  selfPingHandler(): void {
+    debug('nebula.test.Star.selfPing').debug('fired', { instanceName: this.lmz.instanceName });
   }
 
   @mesh(requireAdmin)
@@ -258,10 +282,16 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callResourceHistoryGetHistory(instanceName: string): void {
+  callStarSeedScopeKey(starName: string, value: string): void {
     this.resetResults();
-    const remote = this.ctn<ResourceHistory>().getHistory();
-    this.lmz.call('RESOURCE_HISTORY', instanceName, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<StarTest>().seedScopeKeyForTest(value);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarScheduleSelfPing(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().scheduleSelfPing();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
   callUniverseGetConfig(instanceName: string): void {

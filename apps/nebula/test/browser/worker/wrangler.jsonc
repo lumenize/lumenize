@@ -10,7 +10,6 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
@@ -40,6 +39,10 @@
     {
       "tag": "v4",
       "deleted_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
+    },
+    {
+      "tag": "v5",
+      "deleted_classes": ["ResourceHistory"]
     }
   ],
   "services": [

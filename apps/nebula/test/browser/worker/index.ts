@@ -29,7 +29,6 @@ export { BenchFanoutTier } from './bench-fanout-tier';
 export {
   Universe,
   Galaxy,
-  ResourceHistory,
 } from '@lumenize/nebula';
 
 // Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,

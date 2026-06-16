@@ -145,19 +145,8 @@ describe('guard enforcement', () => {
     });
   });
 
-  describe('missing originAuth.claims.aud', () => {
-    it('onBeforeCall rejects calls without aud in claims', async () => {
-      // This is a unit test — directly test NebulaDO.onBeforeCall behavior
-      // by importing the class and setting up a mock callContext.
-      // This scenario can't happen through normal e2e flows.
-      const { NebulaDO } = await import('@lumenize/nebula');
-
-      // We can't easily instantiate a DO directly in pool workers tests
-      // without a binding, but we can verify the error message pattern
-      // is consistent with what the guard expects.
-      // The e2e scope-binding tests implicitly cover this path when
-      // originAuth is missing — the error is "Missing active scope (aud) in callContext"
-      expect(true).toBe(true); // Placeholder — covered by e2e tests
-    });
-  });
+  // The no-aud (branch c) and missing-callee (branch a) fail-closed paths of
+  // onBeforeCall are covered by T5 in scope-isolation.test.ts (driven below the
+  // public API via a hand-built envelope, since the normal client path always
+  // carries an aud and callee metadata).
 });

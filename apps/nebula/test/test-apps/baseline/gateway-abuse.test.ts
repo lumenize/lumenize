@@ -25,13 +25,6 @@ describe('gateway abuse cases', () => {
       expect(resp.status).toBe(501);
     });
 
-    it('returns 501 for direct HTTP to ResourceHistory binding', async () => {
-      const resp = await SELF.fetch(`http://localhost/RESOURCE_HISTORY/${generateUuid()}`, {
-        method: 'GET',
-      });
-      expect(resp.status).toBe(501);
-    });
-
     it('returns 501 for direct HTTP to Universe binding', async () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',

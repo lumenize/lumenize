@@ -1,6 +1,6 @@
 # Structural `@mesh` callContext Guard — close the raw-RPC bypass
 
-**Status**: Drafted — **not started**; sequenced **after** [nebula-do-scope-isolation.md](nebula-do-scope-isolation.md) (which makes this gap load-bearing).
+**Status**: On hold — **post-demo hardening** (moved to on-hold 2026-06-16). [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) (Fix 1) **landed 2026-06-16**, making `onBeforeCall` the sole structural tenant gate; this closes the remaining raw-RPC escape around it. **Not a demo blocker** — the gap is reachable only by a DO making a raw `stub.method()` call, held shut for the demo by the no-raw-RPC convention (`mesh.md`) since every demo DO is Nebula's own trusted code. Revive post-demo — *or sooner if the Studio DWL sandbox is ever given raw DO bindings to tier DOs* (it should reach the host only through the in-DO WS-client shim; if that changes, this becomes demo-relevant).
 **Origin**: Surfaced by the 2026-06-08 scope-isolation design review (finding m-8). Once `NebulaDO.onBeforeCall` is the *sole* structural tenant gate, the long-standing raw-RPC bypass stops being "one of several backstops" and becomes the one hole in an otherwise-structural wall.
 
 ## Objective
@@ -9,7 +9,7 @@ Make a `@mesh` method **refuse to execute outside a mesh callContext**, so a dir
 
 ## The gap (verified)
 
-`onBeforeCall` and every `@mesh(guard)` run only inside `executeEnvelope` ([lmz-api.ts:894-895](../packages/mesh/src/lmz-api.ts#L894)) — `runWithCallContext(...) → node.onBeforeCall() → __executeChain(...)`. A raw `stub.method()` enters the DO method directly, skipping `executeEnvelope` entirely: no `callContext` installed, no `onBeforeCall`, no decorator. So any *public* method on a tenant-scoped DO is reachable cross-tenant by a foreign DO holding a raw stub — including `@mesh(requireAdmin)` methods. Today this is held shut only by the "no raw RPC in Nebula" convention (`mesh.md`), not by structure.
+`onBeforeCall` and every `@mesh(guard)` run only inside `executeEnvelope` ([lmz-api.ts:894-895](../../packages/mesh/src/lmz-api.ts#L894)) — `runWithCallContext(...) → node.onBeforeCall() → __executeChain(...)`. A raw `stub.method()` enters the DO method directly, skipping `executeEnvelope` entirely: no `callContext` installed, no `onBeforeCall`, no decorator. So any *public* method on a tenant-scoped DO is reachable cross-tenant by a foreign DO holding a raw stub — including `@mesh(requireAdmin)` methods. Today this is held shut only by the "no raw RPC in Nebula" convention (`mesh.md`), not by structure.
 
 ## Design sketch (to be hardened before "go")
 
@@ -26,5 +26,5 @@ Make a `@mesh` method **refuse to execute outside a mesh callContext**, so a dir
 
 ## Relation
 
-- **Completes** [nebula-do-scope-isolation.md](nebula-do-scope-isolation.md) — that task makes `onBeforeCall` the sole structural gate; this one removes the raw-RPC escape around it. Do scope-isolation first.
+- **Completes** [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) — that task makes `onBeforeCall` the sole structural gate; this one removes the raw-RPC escape around it. Do scope-isolation first.
 - Backlog also carries "promote `activeScope`/`authScopePattern` to typed `originAuth` fields" (separate concern).

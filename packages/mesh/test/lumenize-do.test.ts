@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 
 describe('@lumenize/mesh - onRequest() Lifecycle Hook', () => {
   describe('Subclass without onRequest', () => {
@@ -619,9 +619,10 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
           metadata: {}
         };
 
-        await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
-          /Unsupported RPC envelope version/
-        );
+        // Envelope errors (incl. version) are returned wrapped as { $error }
+        // (callRaw unwraps + rethrows); they no longer reject __executeOperation.
+        const { $error } = await callee.__executeOperation(invalidEnvelope);
+        expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version/);
       });
 
       it('rejects envelopes with unsupported version', async () => {
@@ -634,9 +635,8 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
           metadata: {}
         };
 
-        await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
-          /Unsupported RPC envelope version: 2/
-        );
+        const { $error } = await callee.__executeOperation(invalidEnvelope);
+        expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version: 2/);
       });
 
       it('rejects envelopes with version 0', async () => {
@@ -649,9 +649,8 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
           metadata: {}
         };
 
-        await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
-          /Unsupported RPC envelope version: 0/
-        );
+        const { $error } = await callee.__executeOperation(invalidEnvelope);
+        expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version: 0/);
       });
 
       it('accepts valid v1 envelopes', async () => {
