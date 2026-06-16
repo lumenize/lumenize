@@ -1,6 +1,6 @@
 # Phase 5.5: Schema Evolution (production polish — ON HOLD)
 
-> **Status note (demo focus)**: The branch-local critical-path subset has been extracted to [`tasks/branch-migrations.md`](../branch-migrations.md) (formerly `nebula-5.5-branch-migrations.md`, originally `nebula-5.5-dev-mode-migrations.md`) as the active file. This file holds the production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Content preserved as the reference for when this work resumes.
+> **Status note (demo focus)**: The branch-local lazy-migration subset was extracted to [`nebula-lazy-schema-migrations.md`](./nebula-lazy-schema-migrations.md) (formerly `branch-migrations.md`, before that `nebula-5.5-branch-migrations.md`, originally `nebula-5.5-dev-mode-migrations.md`). That subset was **also deferred for the demo (Option B, 2026-06-15)** and now sits alongside this file in `on-hold/`. This file holds the broader production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Both unfreeze together when in-place schema evolution becomes part of the product story; demo handling is parser default-fill + branch reset (see `tasks/nebula-branches.md`).
 
 **Status**: ON HOLD — see note above
 

@@ -10,7 +10,7 @@
 
 **Prerequisites met**: Resources core (Phase 5.1 storage engine + 5.2 validation/ontology + the transaction/subscribe engine) shipped and in use; the Nebula frontend stack (Phase 5.3 + 7 + 8) is complete and merged to `main` (2026-06-15, merge `87c66c1`).
 
-**Open prerequisites**: `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`) and `tasks/branch-migrations.md` (branch-local lazy migrations — exists specifically to make Studio's iteration loop feel sane). Both are Active and not yet built.
+**Open prerequisite**: `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`). Active and not yet built. The branch-local lazy-migration runner (`tasks/on-hold/nebula-lazy-schema-migrations.md`) was **deferred 2026-06-15 (Option B)** — Studio's loop preserves data on additive ontology edits (parser `__fillDefaults`) and resets `.dev` to empty on breaking edits, rather than migrating in place. See `nebula-branches.md` § *In-dev data lifecycle*.
 
 **References (not dependencies)**: user-developer-facing API surface in `website/docs/nebula/coding-your-ui.md`; resources architecture design in `docs/nebula-resources-design.md`.
 
@@ -96,7 +96,7 @@ All other `createNebulaClient` config fields auto-detect from the browser enviro
 - **Galaxy hosts Studio-generated artifacts and chat session state.** Per-session rows (chat history, working state for that session) and shared rows (current ontology, accumulated memory, documentation references, patterns learned across sessions) all live in Galaxy.
 - Galaxy is lightly loaded; years of session history fit comfortably under 10GB. We refactor if we approach that.
 - Abandoned apps cost essentially nothing; active apps stay well under any practical DO limits.
-- Each chat session pins to a **non-main branch** (the `.dev` branch by default, auto-created when the Star is created). The branch's Star is an independent DO instance with its own SQLite — fully isolated from `.main`. In-place lazy migration runs on each branch's Star — see `tasks/nebula-branches.md` and `tasks/branch-migrations.md`. Cross-branch data copy at branch creation (the `origin !== null` case) is post-demo.
+- Each chat session pins to a **non-main branch** (the `.dev` branch by default, auto-created when the Star is created). The branch's Star is an independent DO instance with its own SQLite — fully isolated from `.main`. On an ontology change in `.dev`: additive edits stay readable (parser `__fillDefaults`), breaking edits reset `.dev` to empty — in-place lazy migration is deferred (Option B). See `tasks/nebula-branches.md` § *In-dev data lifecycle* (runner: `tasks/on-hold/nebula-lazy-schema-migrations.md`). Cross-branch data copy at branch creation (the `origin !== null` case) is post-demo.
 
 ### Files as resources (no separate VFS)
 
@@ -197,7 +197,7 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 
 - Resources have versioning baked in.
 - Dev-mode branching (single Star, in-place) covers session isolation for now. Production-grade prod→branch data migration is on hold.
-- Migrations use DWL so generated code can ship its own migrations. Critical-path subset in `tasks/branch-migrations.md`.
+- Migrations use DWL so generated code can ship its own migrations. The branch-local runner is deferred for the demo (Option B) — `tasks/on-hold/nebula-lazy-schema-migrations.md`.
 - Each chat session works against its branch's Star. AI generates changes → tested on that branch in place → "deploys" via the preview mechanism. No iterating against production (`.main`) schema/data — the branch is fully isolated.
 
 ## Code Generation

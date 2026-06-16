@@ -1,16 +1,18 @@
-# Branch-Local Lazy Migrations
+# Nebula Lazy Schema Migrations (Branch-Local)
 
-**Status**: Active — critical path for the demo
+**Status**: **On-hold (deferred 2026-06-15)** — cut from the demo critical path. See *Demo handling (Option B)* below.
 
-**Owner**: `tasks/nebula-studio.md` (this exists specifically to make Studio's iteration loop feel sane — see Scope)
+**Owner**: `tasks/nebula-studio.md` (when it resumes, this makes Studio's iteration loop preserve data across *breaking* ontology edits)
 
 **Depends on**: 5.2.4.2 (parse-validate via DO facet, per-version Galaxy registry, `_index` mirrored to Star)
 
-**Companion**: `tasks/nebula-branches.md` (each branch is an independent Star instance — these migrations run within a single branch)
+**Companion**: `tasks/nebula-branches.md` (each branch is an independent Star instance — these migrations would run within a single branch)
 
-**Production polish**: `tasks/on-hold/nebula-5.5-schema-evolution.md` (held until post-demo)
+**Production polish**: `tasks/on-hold/nebula-5.5-schema-evolution.md` (the broader schema-evolution surface; also on-hold)
 
-> De-numbered from "Phase 5.5 (branch-local subset): In-Place Lazy Migrations" 2026-06-15 and re-homed under Studio. Phase 5's core shipped; this is the one remaining Phase-5-lineage piece still on the demo critical path, and it serves Studio's edit loop, so it's owned there now rather than carried as a Phase 5 sub-number.
+> De-numbered from "Phase 5.5 (branch-local subset): In-Place Lazy Migrations" 2026-06-15 and re-homed under Studio. Phase 5's core shipped; this was the last Phase-5-lineage piece carried as demo-critical.
+>
+> **Deferred 2026-06-15 (Option B).** The demo does not ship the lazy-migration runner. Studio's loop is "build from scratch," so we accept the cruder bargain: **additive** ontology edits (new optional field + `@default`) stay readable via the parser's existing `__fillDefaults` on read — no machinery here — while a **breaking** edit (rename / type change / required-field add) in `.dev` resets the branch to empty rather than migrating. The in-dev reset behavior lives in `tasks/nebula-branches.md`; this file holds the in-place-migration runner that replaces that reset post-demo. Un-defer when "your data evolves in place" becomes part of the product story.
 
 ## Scope
 
@@ -75,3 +77,4 @@ This boundary holds for any branch.
 - This file was extracted from `nebula-5.5-schema-evolution.md` during the demo-focus refactor (historical context in `tasks/archive/nebula-task-files-refactor.md`). The full file is in `tasks/on-hold/` as the production-polish reference.
 - The companion `tasks/nebula-branches.md` describes the URL/identity/auto-create model these migrations run inside.
 - Renamed 2026-05-07 from `nebula-5.5-dev-mode-migrations.md` after the dev-mode-as-branch refactor. Migration logic is identical; only the framing changed (branch-local rather than dev-mode-special).
+- Renamed again 2026-06-15 from `branch-migrations.md` → `nebula-lazy-schema-migrations.md`. The old name read like "migrating data *between* branches" — exactly the cross-branch copy this file lists as out of scope. This runner is branch-*agnostic* (it operates on a single Star's SQLite); it's lazy *schema* migration that happens to run per-branch. Sibling to `tasks/nebula-branches.md`, not a build dependency on it.

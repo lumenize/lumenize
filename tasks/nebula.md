@@ -51,12 +51,13 @@ Investor demo is the near-term focus.
 
 **Remaining critical path through the demo:**
 
-1. **Branch-local lazy / copy-on-read migrations** — Studio's iteration loop. `tasks/branch-migrations.md`.
-2. **Branches as first-class** — `{u}.{g}.{s}.{branch}` URL model; `.main` and `.dev` auto-created on Star birth; Galaxy gets `createBranch` + `listBranches` day one. Cross-branch data copy (origin) deferred. `tasks/nebula-branches.md`.
-3. **Resource metadata** (`@title`, `@description`, `@inverse`) — annotation conventions plus exposing the raw `.d.ts` source through Galaxy so Studio's AI has what it needs to generate UIs. `tasks/nebula-resource-metadata.md`.
-4. **vibesdk LLM-patterns extraction** — reading pass on Cloudflare's open-source vibe-coding platform for prompt/model-routing/tool/agent-state/AI-Gateway patterns; informs Studio + the in-app chat-feature block. Unblocked (its 5.3 gate shipped). `tasks/vibesdk-llm-patterns.md`.
-5. **Pre-Studio milestone** — Claude Code drives the generation loop directly against the live platform, validating code-generation viability before Studio's chat UI is built. Demo-able on its own as a fallback.
-6. **Studio** (renamed from "Vibe Coding IDE") — wraps the proven generation pattern in chat UI + tool orchestration. `tasks/nebula-studio.md`.
+1. **Branches as first-class** — `{u}.{g}.{s}.{branch}` URL model; `.main` and `.dev` auto-created on Star birth; Galaxy gets `createBranch` + `listBranches` day one. Cross-branch data copy (origin) deferred. In-dev ontology edits: additive preserved by the parser, breaking edits reset `.dev` (lazy migration deferred — Option B). `tasks/nebula-branches.md`.
+2. **Resource metadata** (`@title`, `@description`, `@inverse`) — annotation conventions plus exposing the raw `.d.ts` source through Galaxy so Studio's AI has what it needs to generate UIs. `tasks/nebula-resource-metadata.md`.
+3. **vibesdk LLM-patterns extraction** — reading pass on Cloudflare's open-source vibe-coding platform for prompt/model-routing/tool/agent-state/AI-Gateway patterns; informs Studio + the in-app chat-feature block. Unblocked (its 5.3 gate shipped). `tasks/vibesdk-llm-patterns.md`.
+4. **Pre-Studio milestone** — Claude Code drives the generation loop directly against the live platform, validating code-generation viability before Studio's chat UI is built. Demo-able on its own as a fallback.
+5. **Studio** (renamed from "Vibe Coding IDE") — wraps the proven generation pattern in chat UI + tool orchestration. `tasks/nebula-studio.md`.
+
+Branch-local lazy / copy-on-read migrations were **deferred 2026-06-15 (Option B)** — no longer on the critical path; `tasks/on-hold/nebula-lazy-schema-migrations.md`.
 
 **Parked / candidate work** lives in `tasks/on-hold/` (resource history on R2, schema-evolution polish, HTTP transport, docs & coverage, ORM + queries) and `tasks/icebox/` (the superseded capability-tickets premise). It's deliberately *not* enumerated as tracked phases here — pull a file into `tasks/` when a real need surfaces; until then its presence in the folder is the signal. Historical context for the demo-focus refactor is in `tasks/archive/nebula-task-files-refactor.md`.
 
@@ -83,7 +84,6 @@ Detail lives in each task file; this table is the index. **Numbering convention:
 | 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
 | 5.2 | TypeScript Validation & Ontology | **Complete** | `tasks/archive/nebula-5.2-tsc-validation.md` (overview) |
 | — | Nebula Frontend (Vue) — subscribe wrappers, `client.resources.*`, reactive store (formerly Phases 5.3 + 7 + 8) | **Complete** — v1–v5 merged to `main` 2026-06-15; §5.3.8 for-docs probes + deferred flash/debounce remain | `tasks/archive/nebula-frontend.md` |
-| — | Branch-local lazy migrations (Studio prerequisite) | Active — demo critical path | `tasks/branch-migrations.md` |
 | — | Branches (URL-level, `.main` + `.dev` auto-created) | Active — demo critical path | `tasks/nebula-branches.md` |
 | — | Resource metadata (`@title`, `@description`, `@inverse`; raw `.d.ts` to AI) | Active — demo critical path | `tasks/nebula-resource-metadata.md` |
 | — | vibesdk LLM-patterns extraction | Unblocked — not started | `tasks/vibesdk-llm-patterns.md` |
@@ -105,9 +105,9 @@ Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, validatio
 
 Single-resource subscriptions, NebulaClient subscribe wiring + the `client.resources.*` namespace, and the reactive store all shipped as the **`@lumenize/nebula/frontend`** Vue factory (merged to `main` 2026-06-15; formerly tracked as Phases 5.3 + 7 + 8). NebulaClient's base (two-scope model, refresh path, NebulaClientGateway active-scope verification) came from earlier auth work; the factory builds its reactive store on **Vue 3 reactivity** (`@vue/reactivity` + `effectScope`) behind a path-aware Proxy. There is **no `@lumenize/state` / `@lumenize/ui` / `@lumenize/router`** — that JurisJS-derived three-package plan was dropped in the 2026-05-15 Vue/SFC pivot (`@lumenize/state` was published, then deleted with zero importers). Remaining work + the full design live in `tasks/archive/nebula-frontend.md`; the user-facing contract is `website/docs/nebula/coding-your-ui.md` + `api-reference.md`. Discovery-first login, proactive token refresh, WebSocket keepalive, and scope-switching UX are deferred post-demo.
 
-### Branch-local migrations (Studio prerequisite)
+### Schema evolution in dev (deferred — Option B)
 
-The branch-local in-place lazy / copy-on-read migration runner is active — it makes Studio's edit loop sane when a user-developer changes their ontology mid-session. `tasks/branch-migrations.md`. Production-polish schema evolution, capability tickets, and R2 history are parked (see the Demo Roadmap's parked-work note).
+The branch-local in-place lazy / copy-on-read migration runner is **deferred for the demo (Option B, 2026-06-15)** — `tasks/on-hold/nebula-lazy-schema-migrations.md`. Instead, on an ontology change in `.dev`, additive edits stay readable via the parser's `__fillDefaults` and breaking edits reset the `.dev` branch to empty (see `tasks/nebula-branches.md` § *In-dev data lifecycle*). Production-polish schema evolution, capability tickets, and R2 history are also parked (see the Demo Roadmap's parked-work note).
 
 ### Nebula Studio
 

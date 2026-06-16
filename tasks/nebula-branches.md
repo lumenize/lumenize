@@ -1,7 +1,7 @@
 # Nebula Branches
 
 **Status**: Active — critical path for the demo
-**Depends on**: `tasks/branch-migrations.md` (in-place lazy / copy-on-read migrations within a branch)
+**Companion**: `tasks/on-hold/nebula-lazy-schema-migrations.md` (in-place lazy / copy-on-read schema migrations within a branch — a sibling, not a build dependency: that runner is branch-agnostic and depends on 5.2.4.2, not on this file. **On-hold** — deferred for the demo per Option B; see *In-dev data lifecycle* below)
 **Companion**: `tasks/nebula-studio.md` (each chat session pins to a non-main branch — `.dev` by default)
 
 ## Goal
@@ -31,6 +31,15 @@ This is the foundation that lets Studio's iteration loop run safely (user-develo
 Each branch is an **independent Star DO instance**, addressed by the 4-tuple. `{u}.{g}.{s}.main` and `{u}.{g}.{s}.dev` are two different DO instances with separate SQLite, separate DAG trees, separate subscribers. They share nothing at the storage layer.
 
 For the demo: branches start empty (the `origin: null` case below). Cross-branch data copy is post-demo work that doesn't change this storage model — it just adds a one-time copy step at branch creation.
+
+## In-dev data lifecycle on ontology change (Option B)
+
+Studio's loop edits the ontology *within* `.dev`. The lazy in-place migration runner that would preserve data across those edits is **deferred** (`tasks/on-hold/nebula-lazy-schema-migrations.md`). For the demo we take the cruder bargain:
+
+- **Additive edit** (new optional field with `@default`) → existing `.dev` snapshots stay readable via the parser's existing `__fillDefaults` on read. No migration, no reset. Data preserved for free.
+- **Breaking edit** (rename, type change, required-field add) → old snapshots no longer validate. We do **not** migrate them. Instead the `.dev` branch is **reset to empty** and the user-developer rebuilds test data. This is acceptable because the demo narrative is "build from scratch," and breaking edits are most common early when `.dev` holds little.
+
+Mechanism is a branch-level reset (drop the `.dev` Star's data; the Star instance and its `.main`/`.dev` registration survive). Whether the reset is Studio-triggered on breaking-change detection or a manual "reset dev" action is an implementation detail to pin during the Studio build — see `tasks/nebula-studio.md`. The deferred runner replaces this reset with in-place migration when "your data evolves in place" becomes part of the product story.
 
 ## Galaxy methods (day-one surface)
 

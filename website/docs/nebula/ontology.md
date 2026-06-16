@@ -179,7 +179,7 @@ Will cover:
 - **Backward-compatible changes** — adding optional fields, adding new types, adding non-required references. Old clients keep working; new clients use the new fields.
 - **Breaking changes** — removing fields, renaming, making optional fields required, changing field types. These require a coordinated `appVersion` bump.
 - The `appVersion` ↔ ontology version lock-step model: server enforces that incoming transactions match its current ontology; mismatch yields `{ kind: 'ontology-stale' }` and the client reloads via `onShouldRefreshUI` (see [API reference § createNebulaClient](./api-reference.md#createnebulaclient)).
-- Migrations: link to wherever the migration story ultimately lives (`tasks/branch-migrations.md` references this; the user-facing doc TBD).
+- Migrations: link to wherever the migration story ultimately lives (`tasks/on-hold/nebula-lazy-schema-migrations.md` references this; the user-facing doc TBD).
 
 ## Authoring with Studio
 
