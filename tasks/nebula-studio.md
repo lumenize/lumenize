@@ -1,411 +1,185 @@
 # Nebula Studio
 
-**Phase**: 9
+**Phase**: 9 — the demo's end-of-line goal.
+**Status**: Active.
+**App**: `apps/nebula/` (Studio is the authoring experience for user-developers).
+**Master task file**: `tasks/nebula.md`.
 
-**Status**: Active — end-of-line goal for the demo
+**Prerequisites (built):** Resources core (storage + validation/ontology + the `transaction()`/`subscribe()` engine) and the Vue frontend (`@lumenize/nebula/frontend`, merged to `main` 2026-06-15) are shipped and in use. Both demo prereqs are built: structural DO scope isolation (`tasks/nebula-do-scope-isolation.md`, `7c83407`) and the dev Star (`tasks/dev-star.md`, `fa9d4fb` — `DevStar extends Star`, with `deployToDev()` eager-apply + `resetDevData()` reset mechanism). Lazy in-place schema migration is deferred (`tasks/on-hold/nebula-lazy-schema-migrations.md`).
 
-**App**: `apps/nebula/` (Studio is the authoring experience for user-developers)
+**References (not dependencies):** user-developer API surface `website/docs/nebula/coding-your-ui.md`; resources design `docs/nebula-resources-design.md`.
 
-**Master task file**: `tasks/nebula.md`
+**Split out of this file:** code-generation model + eval strategy → `tasks/nebula-studio-llm-strategy.md`; the post-demo file-storage backend investigation (`@cloudflare/shell`/git) → `tasks/on-hold/nebula-file-storage-backend.md`.
 
-**Prerequisites met**: Resources core (Phase 5.1 storage engine + 5.2 validation/ontology + the transaction/subscribe engine) shipped and in use; the Nebula frontend stack (Phase 5.3 + 7 + 8) is complete and merged to `main` (2026-06-15, merge `87c66c1`).
-
-**Open prerequisites** (in order): `tasks/nebula-do-scope-isolation.md` (**Fix 1** — structural tenant isolation; without it a Galaxy can't serve the dev Star *and* a production Star) → `tasks/dev-star.md` (Studio sessions pin to the dev Star — a reserved `dev` star slug, **not** a branch). Both active, not yet built. The lazy in-place migration runner (`tasks/on-hold/nebula-lazy-schema-migrations.md`) was **deferred 2026-06-15** — Studio's loop preserves data on additive ontology edits (parser `__fillDefaults`) and resets the dev Star to empty on breaking edits, rather than migrating in place. See `dev-star.md` § *In-dev data lifecycle*.
-
-**References (not dependencies)**: user-developer-facing API surface in `website/docs/nebula/coding-your-ui.md`; resources architecture design in `docs/nebula-resources-design.md`.
+> **Single sources of truth referenced, not restated here:** the dev-Star data-on-ontology-change bargain (additive preserved / breaking resets) lives in `tasks/dev-star.md` § *In-dev data lifecycle*; the model/eval strategy lives in the llm-strategy file above.
 
 ## Goal
 
-The conversational interface where Nebula users describe what they want, the AI generates their product (ontology + UI), and the result runs live in DWL isolates with real access control. Studio is the wow moment for the demo — investors see "I want to build X" → working app on screen.
+The conversational interface where user-developers describe what they want, the AI generates their product (ontology + UI), and the result runs live in DWL isolates with real access control. Studio is the demo's wow moment — investors see "I want to build X" → working app on screen.
 
-The user-developer never opens a code editor. They describe in natural language, the AI generates, the preview updates, they iterate. The IDE provides the feedback loop: describe → generate → preview → adjust.
+The user-developer never opens a code editor. They describe in natural language, the AI generates, the preview updates, they iterate: describe → generate → preview → adjust.
 
-> **Demo-narrative detailing is deferred** — fill in the storyboard after the prerequisite work (Resources, subscribe, `@lumenize/ui`, and the **pre-Studio milestone** described below) is done. We don't want to over-invest in narrative before code generation has been validated end-to-end.
+> Demo-narrative storyboard is deferred until the generation loop is validated end-to-end — don't over-invest in narrative before then.
 
-## Pre-Studio milestone (gate before Studio implementation)
+## Generation engine
 
-Before this phase begins building chat UI and tool orchestration, **Claude Code drives the entire generation loop directly against the live platform**. No chat UI, no tool surface we built — just Claude Code reading the ontology + `@lumenize/ui` docs + Nebula API types, generating ontology + Lumenize UI components, and pushing them to the dev Star via the same `deploy_to_dev` mechanism Studio will eventually use (even if the UX is "paste this into the terminal" for now).
+Studio's code generation runs on **Cloudflare Think + Kimi 2.7**; Claude models are not in the product (eval baseline only). The Think integration shim is likely pulled forward as a Studio prerequisite. Model choice, orchestration, and eval strategy: `tasks/nebula-studio-llm-strategy.md`.
 
-This is bigger than a one-day spike — it's a gating milestone. Reasons:
+> The earlier "Claude Code drives the generation loop as a pre-Studio gate" plan is dropped with the Think+Kimi decision. The still-valid principle it carried: **prove the generation loop produces working ontology + UI against the live platform before investing in chat-UI polish** — a small real app (todo / kanban / simple CRM), running with all the access-control + reactivity guarantees intact, is the gate.
 
-- **De-risks Studio.** If Claude Code can't reliably produce working ontology + UI against the platform we built, no amount of chat-UI polish saves Studio. If it can, Studio is the wrapper around a proven pattern.
-- **Demo-able on its own.** "I'm building this app by talking to Claude Code that talks to my platform" is a real demo and a useful fallback if Studio's chat UI isn't ready when investors want to see something.
-- **Shapes Studio's design.** Whatever prompts, tool surface, context shape, and feedback loop work well for Claude Code generation are what Studio's prompts and tools should be modeled on. Don't design Studio in a vacuum and hope.
+## Studio-generated artifacts
 
-Stop point: a small but real app (todo list, kanban, simple CRM) generated by Claude Code, running on the live platform with all the access-control + reactivity guarantees intact.
+The AI generates two artifacts that must stay coherent — the UI must reference entity names, field names, and access patterns that match the current ontology exactly:
 
-The rest of this file describes Studio proper — i.e., what we build *after* this milestone validates the platform's generation viability.
-
-## Studio-Generated Artifacts
-
-The Studio AI generates two kinds of artifacts:
-
-1. **Ontology** — a `.d.ts` file with TypeScript types plus annotations (validation today, ORM later). Uploaded to Nebula; upload and processing already works (Phases 5.2.x).
-2. **UI** — `.vue` Single-File Components (per the 2026-05-15 SFC pivot — see [tasks/archive/nebula-frontend.md](archive/nebula-frontend.md) § Phase 5.3.7) that operate within Nebula's resources constraints (access control, real-time subscriptions, queries). Resources work Firebase-style — mostly client-side capable.
-
-Both artifacts must stay coherent: the UI must reference entity names, field names, and access patterns that match the current ontology exactly.
+1. **Ontology** — a `.d.ts` file: TypeScript types + annotations (validation today, ORM later). Processed by the existing upload pipeline onto the dev Star (Phases 5.2.x). There is no `ResourcesWorker` class — resources are served by the platform's `Resources` engine, configured entirely by the ontology.
+2. **UI** — `.vue` Single-File Components (`<script setup>`, TS) bound to the factory's reactive store (`store.resources.*` / `store.ui.*`), per the 2026-05-15 SFC pivot. Components import `{ store, client }` from the scaffolded `nebula.ts`; NebulaClient stays out of component code. Generated TS is deployed to DWL isolates; schema validation via tsc-in-DWL (`@lumenize/ts-runtime-parser-validator`, shipped). Patterns: `website/docs/nebula/coding-your-ui.md`.
 
 ### Bootstrap files (auto-scaffolded, not LLM-authored)
 
-Separately from LLM code generation, Studio **auto-populates** a small fixed set of bootstrap files when an app is first created. These files are identical across every app (with one Studio-controlled difference between dev and prod, see below) and are not **authored** by the LLM — they're seeded by Studio's app-creation flow, not by code generation. (One exception: the LLM may later **extend** `nebula.ts` with per-type resolvers and first-run bootstrap — see below; `main.ts` and `index.html` are never touched after scaffolding.) They live in the app's file space (per § "Files as resources"). This keeps the LLM's attention focused on the `.vue` components and the ontology, which is what the doc at [website/docs/nebula/coding-your-ui.md](../website/docs/nebula/coding-your-ui.md) is tuned for (the coding-your-ui doc explicitly omits the bootstrap files because the LLM doesn't generate them).
+Studio seeds a small fixed set of bootstrap files on app creation — identical across apps, not authored by code generation. They live in the app's file space (§ *Files as resources*) and keep the LLM focused on `.vue` components + ontology (the coding-your-ui doc omits them deliberately).
 
-The three bootstrap files:
+- **`nebula.ts`** — initializes the client + store once; top-level `await ready` so the app mounts only after the first connection (redirect to `/login` on terminal auth failure). All config except `appVersion` auto-detects from the browser env, so Studio substitutes one variable. **This is the one bootstrap file the LLM may extend** — per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) and first-run resource bootstrap (read-then-create of per-user containers via `client.resources.createAndSubscribe(rt, rid, nodeId, value)`, added 2026-06-16) belong here.
 
-```typescript
-// nebula.ts — initialize the client + store once. Per-type conflict resolvers
-// and terminal-outcome reactions registered alongside (the LLM CAN add these
-// later as it builds out app behavior — they belong in this file).
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+  ```typescript
+  import { createNebulaClient } from '@lumenize/nebula/frontend';
+  export const { client, store, ready } = createNebulaClient({
+    appVersion: __APP_VERSION__,  // Studio substitutes at deploy time
+  });
+  try { await ready; } catch { window.location.assign('/login'); }
+  ```
 
-export const { client, store, ready } = createNebulaClient({
-  appVersion: __APP_VERSION__,  // Studio substitutes at deploy time
-});
+- **`main.ts`** — Vue entrypoint (`createApp(App).mount('#app')`, imports `./nebula`). Never edited after scaffolding.
+- **`index.html`** — minimal shell (`<div id="app">` + module script). Never edited after scaffolding.
 
-// Top-level await: main.ts imports this module, so the app mounts only after
-// the first connection — client.claims is non-null by the time any component
-// renders (the pinned contract in api-reference.md § client.claims).
-// `ready` rejects only on terminal auth failure (logged-out visitor) — redirect
-// to login; transient failures stay pending and retry. See api-reference
-// § createNebulaClient.
-try { await ready; } catch { window.location.assign('/login'); }
-```
+**Dev vs prod differ only in `__APP_VERSION__`:** `'dev'` (or build-stamped) during iteration; the version matching the deployed ontology bundle at deploy time, so the server enforces app/ontology lock-step.
 
-```typescript
-// main.ts — Vue entrypoint.
-import { createApp } from 'vue';
-import App from './App.vue';
-import './nebula';
+### Code-generation details
 
-createApp(App).mount('#app');
-```
-
-```html
-<!-- index.html — minimal shell. -->
-<!doctype html>
-<html><body><div id="app"></div><script type="module" src="./main.ts"></script></body></html>
-```
-
-**The dev-vs-prod difference is in `__APP_VERSION__` substitution only.** During dev iteration, Studio injects `'dev'` (or a build-stamped value); at deploy time Studio injects the version that matches the deployed ontology bundle so the server can enforce app/ontology lock-step.
-
-All other `createNebulaClient` config fields auto-detect from the browser environment (see [tasks/archive/nebula-frontend.md](archive/nebula-frontend.md) § Phase 5.3.7-v3 "Make all createNebulaClient config fields optional"). The `nebula.ts` shown above is therefore the entire bootstrap contract — Studio doesn't need to choose between many config shapes; it just substitutes one variable.
-
-**`nebula.ts` is the one bootstrap file the LLM may extend.** Per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) and first-run resource bootstrap (e.g. read-then-create of per-user containers, after `await ready`) belong here. The LLM appends them as it implements app behavior; Studio's initial scaffold leaves the file ready to receive these additions. `main.ts` and `index.html` should never be edited after scaffolding.
-
-## Architecture
-
-- **Galaxy hosts Studio-generated artifacts and chat session state.** Per-session rows (chat history, working state for that session) and shared rows (current ontology, accumulated memory, documentation references, patterns learned across sessions) all live in Galaxy.
-- Galaxy is lightly loaded; years of session history fit comfortably under 10GB. We refactor if we approach that.
-- Abandoned apps cost essentially nothing; active apps stay well under any practical DO limits.
-- Each chat session pins to the **dev Star** (a Star with the reserved `dev` slug, `/{u}.{g}.dev/...`, created on first touch like any Star). It's an independent DO instance with its own SQLite — fully isolated from production Stars. On an ontology change in the dev Star: additive edits stay readable (parser `__fillDefaults`), breaking edits reset the dev Star to empty — in-place lazy migration is deferred. See `tasks/dev-star.md` § *In-dev data lifecycle* (runner: `tasks/on-hold/nebula-lazy-schema-migrations.md`). Seeding a dev Star from a production Star (fork-to-test) is post-demo.
-
-### Files as resources (no separate VFS)
-
-Captured 2026-05-15 during the post-SFC-pivot Studio design discussion. **Application source files are resources of type `file`** (or potentially more granular types per extension), stored on the session's dev Star alongside the user's data resources.
-
-Value is the content directly; mime-type lives on `meta` as a framework-owned field (see [api-reference.md § Snapshot](../website/docs/nebula/api-reference.md#snapshot) for the broader meta shape — the docs are the contract; the spec's type block is nebula-frontend.md § Types `SnapshotMeta`):
-
-```
-store.resources.file['App.vue'].value      = '<template>...'      // content directly
-store.resources.file['App.vue'].meta       = { eTag, validFrom, mimeType: 'text/x-vue', ... }
-
-store.resources.file['nebula.ts'].value    = 'import { ... } ...'
-store.resources.file['nebula.ts'].meta     = { eTag, validFrom, mimeType: 'application/typescript', ... }
-
-store.resources.file['index.html'].value   = '<!doctype html>...'
-store.resources.file['index.html'].meta    = { eTag, validFrom, mimeType: 'text/html', ... }
-```
-
-For binary uploads (images, generated blobs), `value` is `ArrayBuffer` and `meta.mimeType` tells you how to interpret it. Maps cleanly to MCP's `TextResourceContents` / `BlobResourceContents` split.
-
-What we get for free by leaning on Resources instead of building a separate virtual file system:
-
-- **Storage** on the dev Star (already there for synced resources).
-- **Versioning via resource history** — file resources are snapshot sequences (ADR-004), so prior states are already retained on the dev Star. The named-checkpoint "save this version" UX needs a mechanism now that branching is deferred (see § "Checkpoint UX over true git").
-- **Optimistic transactions on every edit** (already there).
-- **Subscribe-and-fanout for the preview** — the dev Star's compile pipeline subscribes to file resources, recompiles on change, broadcasts reload to the preview client. This is exactly the spike pattern in `apps/nebula/spike/sfc-devstar-loop/` (see also the "Dev-mode Star: SFC compile + reload broadcast" section below).
-- **Mesh access for the agent** — Studio's LLM calls `client.resources.transaction({...})` to edit files, identical to the primitive that powers the UI's resource writes. No second consistency model for source code.
-
-**What we explicitly DON'T build:**
-
-- A separate VFS abstraction layer (e.g., a `FileSystem` class wrapping DO storage).
-- ~~A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility.~~ Reasoning was about a *hand-rolled* WASM git on DO; reconsider in light of `@cloudflare/shell` (see TBD bullet below) — Cloudflare now ships an official `isomorphic-git`-on-DO implementation via `@cloudflare/shell/git` that runs against the same `Workspace` (DO SQL + optional R2) we'd otherwise build by hand. The pure-JS git cost claim is worth re-litigating against *that* implementation specifically before deciding. Versioning + diffing for the user-developer UX still build on the resource snapshot substrate (see § "Checkpoint UX over true git"; the branch-based checkpoint mechanism is deferred), but the file-resource *storage layer* underneath is now an active decision.
-- A parallel "files" storage path distinct from resources.
-
-**What stays open / TBD:**
-
-- Single `file` resource type with `mimeType` discrimination vs. distinct types per extension (`vueComponent`, `tsModule`, `htmlShell`, etc.). Single type is simpler; distinct types let the ontology express per-kind invariants (e.g., a `vueComponent` must parse as SFC). Probably start with single + mimeType, split later if invariants matter.
-- "Export to GitHub" — a post-demo one-shot dump of the latest dev Star state into a git operation outside the Workers runtime. Not on critical path.
-- Big-file handling — most source files are small; if generated assets get large (images, blobs), Resources may or may not be the right home. Cross that bridge later.
-- **Adopt `@cloudflare/shell`'s `Workspace` as the file-resource backend (active question, raised 2026-06-04).** Background: Aron on Cloudflare Discord flagged that a content API for Artifacts is on the roadmap and a new `@cloudflare/shell` iteration with Artifacts support is expected in preview within a week. Larry has asked about beta access. Investigating the existing `@cloudflare/shell@0.3.8` (2026-06-04) reframed the question:
-    - `@cloudflare/shell` is built on **Durable Objects + R2** (not Containers, not Artifacts). Its `Workspace` class is a filesystem on top of DO synchronous SQL — single table `cf_workspace_<namespace>` with `path` (PK), `parent_path`, `type` (file/dir/symlink), `mime_type`, `size`, inline `content` OR `r2_key` over a configurable threshold. Symlinks supported.
-    - It defines a runtime-neutral `StateBackend` interface with two implementations today: `InMemoryFs` (ephemeral) + `WorkspaceFileSystem` (durable, DO SQL + R2). The forthcoming Artifacts integration is almost certainly a third `StateBackend` impl behind the same API — i.e., FS surface stays the same; storage swaps underneath.
-    - `@cloudflare/shell/git` is `isomorphic-git` reading/writing through that `FileSystem`. Real `git.clone({url})` / `git.commit` / `git.push({token})` over HTTPS to real remotes (GitHub etc.). MIT-licensed.
-- **The reframe:** the original "file-resource backend" question isn't "DO SQL vs Artifacts" anymore — it's "**do we adopt `@cloudflare/shell`'s `Workspace` API for our file resources?**" Adopting `Workspace` today gets us a filesystem + working git layer on DO SQL + R2; the Artifacts question reduces to "swap to the Artifacts-backed `StateBackend` when it ships" — a much smaller decision than picking a new storage product.
-- **User-developer UX is unchanged:** named checkpoints (§ "Checkpoint UX over true git" below; the mechanism is open now that branching is deferred) — we don't expose git/FS at the chat surface either way. The motivation for adopting `Workspace` is what it unlocks *underneath*.
-- **What it unlocks: enterprise BYO-agent.** Power users and enterprises required to use their own agentic coding agents (Claude Code, Cursor, etc.) will expect a real git + filesystem surface, not the checkpoint metaphor. Concrete worked example: an enterprise standardized on GitHub Enterprise + Claude Code installs a webhook (or our GitHub Action) on push-to-`main` → Nebula calls `git.clone({url})` into a build-DO's `Workspace` → the build pipeline operates via the `state.*` FS API → pushes the built bundle to Galaxy for lazy deploy to Stars. This pipeline could in principle run today with `WorkspaceFileSystem` on DO SQL + R2 — no Artifacts dependency required.
-- **Re-litigate the original cost claim against `@cloudflare/shell` specifically.** The "WASM git is heavy/slow in Workers" reasoning above targeted a hand-rolled implementation. Now that Cloudflare ships an official `isomorphic-git`-on-DO impl with auth injection and a proper FS layer, the relevant question is: how does *that bundle* perform inside our DO budget? Probably YAGNI for the demo, but a focused evaluation once the package stabilizes (it's marked Experimental at 0.3.x) is worth doing before we lock in our own file-resource backend design.
-
-### Authoring environment: web vs desktop (open — needs decision before Studio implementation starts)
-
-Studio's authoring surface (chat + editor + preview) could be either:
-
-- **Web app** — Studio served from a Lumenize-managed origin, runs in the user's browser. The "Studio UI hosting" subsection below enumerates the two web-hosting options. Distribution = URL.
-- **Desktop app** (Electron / Tauri / webview-bun / electron-bun) — Studio installed locally. Has access to the user's file system and shell. Distribution = download.
-
-The desktop-first angle deserves explicit consideration. Wins (raised 2026-05-14):
-
-1. **Local file system** — Studio app source lives on disk like normal code. Git-native workflow. Cloud sync becomes opt-in (think VS Code with Settings Sync), not the substrate Studio has to fight against.
-2. **Real preview** — run actual `vite dev` with HMR for the user's app. The preview IS the production-faithful Vue runtime minus the deploy. No need to invent a browser-side preview environment. Pairs with the Galaxy-side template pre-compile path (see `tasks/archive/nebula-frontend.md` § "Phase 5.3.7" → "CSP `unsafe-eval`"): two compile sites (local vite for dev preview, Galaxy for production deploy) with the same purity guarantee.
-3. **Shell access for tooling extension** — let users run prettier/eslint/custom build steps. Plugins become "things that run in a child process," not browser-API-sandboxed approximations.
-4. **No CSP/CORS fighting in the editor** — `'unsafe-eval'` requirement is moot for the dev experience; only matters for what Galaxy serves to end users of the deployed app.
-5. **The "user-developer" persona is increasingly AI-assisted-IDE-shaped** — Cursor / Windsurf / Claude Code are all desktop apps with file-system context. Studio fits the same mental shape if it's a desktop app; sits awkwardly between IDE and web tool if it's a browser-only thing.
-
-Tradeoffs:
-
-- **Distribution friction** — desktop apps need download + install vs. share-a-URL. Mitigation: also ship a web version with reduced features (no local files, in-memory project state only) for "try without committing." VS Code does this with vscode.dev — same UI, different capabilities, shared backend.
-- **Auto-update infrastructure** — Electron has battle-tested patterns; webview-bun / electron-bun less so.
-- **Cross-platform packaging** — Mac signing/notarization, Windows code-signing, Linux .deb/.rpm/.AppImage. Real engineering investment.
-- **Bundle size** — Electron ~100+ MB; Tauri ~20 MB; webview-bun ~10 MB.
-
-**Tech-pick gut take** (when the decision lands):
-
-- **Electron** is the safest bet for the wrapper/distribution layer. TS/Node-native stack matches the rest of Lumenize; mature update/notarization tooling; biggest LLM training corpus (user-developer reference material). VS Code is Electron and that's the closest analog for what Studio is.
-- **Tauri** is technically prettier (smaller, faster, native webview) but introduces Rust to the toolchain. Worth it only if bundle size or perf becomes a real customer ask.
-- **Runtime layer (Node vs Bun) is independently swappable from the wrapper.** Anthropic acquired Bun and Claude Code is already Bun-based — the bun-flavored tooling (electron-bun, webview-bun, Bun.serve + native webview) is more credible than "indie experiment" framing suggested earlier. Claude Desktop is Electron-on-Node today; if it migrates to a Bun-based shell, that's the strongest signal for Lumenize to follow.
-- **Strategic forward-look**: ship Studio on Electron + Node when implementation lands (lowest risk, fastest path), but pin "swap to Bun runtime when Claude Desktop or equivalent validates it" as a deliberate option. Maturity of the wrapper/distribution layer is the load-bearing concern; the runtime under it can move with the ecosystem.
-
-**Implications for downstream design** (worth knowing now):
-
-- **The "Studio UI hosting" question below becomes N/A for the editor itself** if Studio is a desktop app — the app ships its own UI. The hosting question reduces to "serving the GENERATED apps" only.
-- **Editor / Preview section** further down assumes "in-browser editing." If desktop-first, that becomes "webview-in-desktop-app editing" + local `vite dev` preview. Different mechanisms; same UX shape.
-- **Iteration Loop's "remote debug tail"** stays relevant — the user's deployed app (running in Cloudflare) still needs to surface logs to Studio regardless of whether Studio is web or desktop.
-
-**Decision deferred** to when Studio implementation actually starts. Capture user's preference here before then. **My (Claude's) recommendation is desktop-first via Electron** if no strong web-first constraint surfaces — the AI-IDE comparison is the strongest signal.
-
-### Studio UI hosting (open — needs spike, partially obsoleted by the desktop decision above)
-
-If Studio is web-hosted (or for the web-version sibling of a desktop app), two candidate mechanisms for hosting its HTML/JS:
-
-- **Cloudflare Workers Assets** — official static asset serving.
-- **Dogfood the artifact-serving path from a Galaxy fork** — same mechanism we'd use for serving generated apps.
-
-HTTP from a DO has to go through a Worker-hosted fetch router; that's fine — we already do it for auth and NebulaAuth on a hot path. The real question is whether we use the **same** mechanism for Galaxy-hosted generated apps and for Studio itself, or **different** mechanisms. Decide via spike — this section IS the spike's scope.
-
-If Studio is desktop-only, the editor's own hosting is moot; only the generated-app hosting decision remains.
-
-### Versioning and Branching
-
-- Resources have versioning baked in.
-- The dev Star (single Star, in-place) covers session isolation for now. Production-grade prod→dev data migration is on hold.
-- Migrations use DWL so generated code can ship its own migrations. The in-place lazy runner is deferred for the demo — `tasks/on-hold/nebula-lazy-schema-migrations.md`.
-- Each chat session works against the dev Star. AI generates changes → tested on the dev Star in place → "deploys" via the preview mechanism. No iterating against production schema/data — the dev Star is fully isolated.
-
-## Code Generation
-
-- Language model generates the **ontology** — a `.d.ts` file with TypeScript types + annotations (validation, debounce, conflict resolvers; see the per-field annotation bullet below) — processed by the existing upload pipeline onto the dev Star. (There is no `ResourcesWorker` class; resources are served by the platform's `Resources` engine, configured entirely by the ontology.)
-- Language model generates UI artifacts as `.vue` Single-File Components (TypeScript, `<script setup>`) bound to the factory's Vue-reactive store (`store.resources.*` / `store.ui.*`), per the 2026-05-15 SFC pivot (§ Studio-Generated Artifacts above). NebulaClient stays out of component code — components import `{ store, client }` from the Studio-scaffolded `nebula.ts` bootstrap (§ Bootstrap files). Generation patterns documented in `website/docs/nebula/coding-your-ui.md`. (History: the 2026-05-09 "plain HTML + Alpine `x-*` directives on `@lumenize/state` paths" decision was superseded by the SFC pivot; `@lumenize/state`/StateManager is deleted in 5.3.7-v3.)
-- **Styling: DaisyUI** (Tailwind component library, MIT). Pure CSS, framework-free. Strong LLM training coverage; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo.
-- Generated code is TypeScript strings deployed to DWL isolates.
-- Schema validation via tsc-in-DWL (already shipped as `@lumenize/ts-runtime-parser-validator`).
-- **Per-field runtime config (debounce, conflict resolvers, UI rendering hints) lives in ontology annotations, NOT in separate JS config files.** Studio's LLM writes annotations into the `.d.ts` ontology file from a small rule table mapping field types and semantic intent to annotations. The typia/ontology compile pass emits a config map alongside the validator bundle; the factory loads the bundle at startup and applies the config automatically. This means: the LLM doesn't generate a separate `transactionDebounce` call to keep in sync with the ontology; it just writes the right annotation in one place. See [website/docs/nebula/ontology.md § Annotations](../website/docs/nebula/ontology.md#annotations) for the annotation vocabulary.
-
-  **Studio's field-type → annotation rule table** (demo-scope, kept small):
+- **Styling: DaisyUI** (Tailwind component library, MIT) — pure CSS, strong LLM training coverage, theme system maps onto per-tenant branding. Demo ships a **precompiled** bundle; per-app Tailwind JIT (in Containers) at deploy time is post-demo.
+- **Per-field runtime config (debounce, conflict resolvers, UI rendering hints) lives in ontology annotations, NOT separate JS config.** The typia/ontology compile pass emits a config map alongside the validator bundle; the factory applies it at startup. The LLM writes the annotation in one place rather than keeping a separate `transactionDebounce` call in sync. Vocabulary: `website/docs/nebula/ontology.md § Annotations`. The LLM consults this rule table during ontology generation (demo-scope, kept small):
 
   | User-developer intent → | LLM picks → | Effects (derived by framework) |
   |---|---|---|
   | "boolean toggle" → `field: boolean` | no annotation | `@debounce(0)` implied; eager commit |
   | "small set of choices" → `field: 'a' \| 'b' \| 'c'` | no annotation | `@debounce(0)` implied; eager commit |
   | "short label / name / title" → `field: string` | no annotation | type default debounce (500/2000) |
-  | "long-form text / notes / description / body" → `field: string` | `@longform` | slower debounce + text-merge resolver + `<textarea>` UI |
+  | "long-form text / notes / body" → `field: string` | `@longform` | slower debounce + text-merge resolver + `<textarea>` UI |
   | "counter / amount / score" → `field: number` | no annotation | type default |
   | explicit custom timing | `@debounce(quietMs, maxWaitMs)` | exact override |
 
-  The LLM consults this table during ontology generation; the user-developer typically only sees explicit annotations (`@longform`, `@debounce(...)`) during chat-based review.
+### Nebula API types as LLM context
 
-### Nebula API Schema Definitions for LLM Context
+The Nebula API surface (resource ops, `client.orgTree.*`, permission model, subscription patterns) is given to the model as `.d.ts` type definitions — precise signatures, return types, and error conditions in the language it already understands. Reuses the Phase 5.2 tsc-in-DWL capability (ADR-001): the types that validate data at runtime also serve as API docs. For the user-developer's *own* ontology metadata (`@title`/`@description`/`@inverse`, and Galaxy serving the raw `.d.ts` source verbatim — no bespoke metadata JSON), see `tasks/nebula-resource-metadata.md`.
 
-The Nebula API surface (resource operations, org/permission tree operations (`client.orgTree.*`), permission model, subscription patterns) is documented as TypeScript type definitions (`.d.ts` files) provided to Studio's language model as context. The LLM gets precise method signatures, operation descriptors, return types, and error conditions in the language it already understands.
+## Architecture
 
-This reuses the Phase 5.2 tsc-in-DWL capability (`docs/adr/001-typescript-as-schema.md`) — the same TypeScript types that validate data at runtime also serve as API documentation for the code-generation model. Single source of truth: the types ARE the documentation.
+- **Galaxy hosts Studio-generated artifacts + chat session state** — per-session rows (chat history, working state) and shared rows (current ontology, accumulated memory, docs/patterns learned across sessions). Lightly loaded; years of session history fit under 10GB (refactor if we approach it). Abandoned apps cost essentially nothing.
+- **Each chat session pins to the dev Star** (`/{u}.{g}.dev/...`, the built `DevStar` — `tasks/dev-star.md`): its own SQLite, fully isolated from production Stars. Studio drives `deployToDev()` (eager ontology apply) and `resetDevData()` (the breaking-edit reset *mechanism* — the trigger + safety wiring are Studio's, § *Durable draft ownership*). Additive edits preserve dev data, breaking edits reset it — **see dev-star.md § In-dev data lifecycle**. Seeding a dev Star from a production Star (fork-to-test) and multi-sandbox `dev-<name>` (branching) are post-demo (`tasks/on-hold/nebula-branches.md`).
 
-For the user-developer's ontology specifically (their resource type definitions, not the Nebula API itself), see `tasks/nebula-resource-metadata.md` for the annotation conventions (`@title`, `@description`, `@inverse`) and the rule that Galaxy serves the raw `.d.ts` source verbatim — no bespoke metadata JSON shape; the AI reads TypeScript natively.
+### Files as resources (no separate VFS)
 
-## Editor / Preview
+Application source files are **resources of type `file`** on the dev Star, alongside the user's data resources (captured 2026-05-15). Value is the content directly (`ArrayBuffer` for binary uploads); `meta.mimeType` discriminates. Maps cleanly to MCP's `TextResourceContents` / `BlobResourceContents` split.
 
-- **Chat-first, no editor.** See "Chat-first UI direction" subsection below — pinned 2026-05-15.
-- **Live preview with auto-refresh.** Specifically: a perpetual preview URL with a hot/auto/push refresh mechanism. Don't reinvent Vite HMR — pick the lightest mechanism that works.
-- Auto-refresh is also needed in production: UI and ontology versions are deployed lock-step, and we already specified browser refresh on version change. That refresh is lazy in production but **hot/push** in Studio. Same plumbing might generalize — open question.
-- "Deploy" in Studio is **not** `wrangler deploy`. It's our own deploy-to-dev process that updates the dev Star's DWL bundle and pushes the auto-refresh signal to clients connected to that Star.
+```
+store.resources.file['App.vue'].value = '<template>...'
+store.resources.file['App.vue'].meta  = { eTag, validFrom, mimeType: 'text/x-vue', ... }
+```
 
-### Chat-first UI direction (pinned 2026-05-15)
+Leaning on Resources (not a bespoke VFS) gives storage, snapshot-history versioning, optimistic transactions, subscribe-and-fanout for the preview, and mesh access for the agent (`client.resources.transaction({...})` edits files exactly like UI resource writes) — all for free, one consistency model. We explicitly do **not** build a VFS abstraction layer, a parallel non-resource files path, or (for the demo) a git layer.
 
-The user spends ~90% of their time in chat. The agent occasionally pulls up files for review in **read-only mode** — never an editable code editor. The user's recourse for "wrong code" is to talk to the agent, not to fix it themselves. Counter-intuitive but right: the moment the user can edit, the LLM's mental model can desync from the file state, and recovery is painful. Better to invest in agent reliability than in an editor fallback.
+**Open / post-demo:**
+- Single `file` type + `mimeType` discrimination vs. distinct types per extension (`vueComponent`/`tsModule`/`htmlShell`...). Start single; split later only if per-kind invariants matter.
+- Export-to-GitHub; big-file/blob handling (Resources may not be the right home for large generated assets).
+- **Storage backend behind file resources** (adopting `@cloudflare/shell`'s `Workspace` / git-on-DO, or an Artifacts backend) — post-demo investigation, `tasks/on-hold/nebula-file-storage-backend.md`. The demo backs file resources with the dev Star + Galaxy save API below.
 
-The user-developer cares about **behavior**, not code. Chat surfaces behavior; files surface implementation. Gating files behind "agent pulls them up when relevant" keeps the user in behavior-mode by default.
+### Durable draft ownership — Galaxy is the source of truth, behind a generic save API
 
-**Two highlight modes** (both feed selection context back to the agent):
+The dev Star's `file` resources are a **disposable working copy**: a breaking-edit reset (`deleteAll()`) wipes them along with test data (dev-star.md § *In-dev data lifecycle*). So the draft source must be durably owned elsewhere — the **Galaxy**, which already holds the ontology version registry, compiled bundles, and session/working state.
 
-1. **Preview-element highlight** — user clicks an element in the running preview (the blue button, that paragraph, this row). The agent maps the click to source range; user describes the change in natural language. *This is the user-developer-native highlight* — they don't know what file the blue button is in; the preview is their mental model.
-2. **File-text highlight** — when the agent has already opened a file for review, user can select a text span to disambiguate ("this prop should be `done: boolean`"). Fallback for precision cases inside already-opened code.
+- **Backend-agnostic save API; Galaxy coordinates.** Studio persists drafts (ontology + UI files) through a save API the Galaxy owns; the storage backend slides underneath. **Demo backend = Galaxy SQLite.** Swapping to a `@cloudflare/shell` `Workspace` or an Artifacts-backed store later doesn't change the API the dev Star or Studio sees (decided 2026-06-16; backend candidates → on-hold file above).
+- **Autosave per agent turn.** User-developers take turns with the coding agent, so the granularity is one durable Galaxy save per completed turn (ontology + UI files). No "save" button; also crash-safety — a dropped session loses at most the in-progress turn.
+- **Persist-before-wipe + re-hydrate.** A breaking-edit reset must confirm the latest draft is durable on Galaxy **before** `deleteAll()`, then the dev Star re-hydrates its working copy from Galaxy. dev Star = fast eyeball-local compile/preview loop; Galaxy = survival copy. (This precondition is pinned on the reset in dev-star.md.)
+- **Studio owns the wiring the reset needs.** dev-star shipped the reset **mechanism** only (`resetDevData()`, `@mesh(requireAdmin)`, deliberately not wired to a trigger). Before the reset can fire safely, Studio must build: **(a)** the reset **trigger** (breaking-change detection vs. a manual "reset dev" action), **(b)** the **Galaxy draft store + per-turn autosave**, **(c)** the **confirm-durable-before-wipe gate + re-hydrate**. Until (b)+(c) hold, a breaking edit would destroy the user's source — hard prerequisite, not a nicety.
+- **Named checkpoints (post-demo) ride the same substrate.** "Save this version" (+ description = a commit message) is a tagged Galaxy draft-save; "go back to when it worked" re-hydrates the dev Star from that tag. *Not* dev-Star snapshot history (a reset destroys that). The per-turn autosave is demo-scope; the named-checkpoint UI feature is post-demo.
 
-**Layout:**
+### Authoring environment — chat-first web app + live preview
 
-- Persistent split-screen: **chat on one side, preview always visible on the other**. The preview is the user's feedback signal — don't hide it behind a tab.
-- When the agent opens a file for read-only review, it overlays/replaces the preview temporarily, then collapses back. Files never linger; the preview is the default surface.
+**Decided: web, chat-first, for the demo.** The user-developer spends ~90% of their time in chat; there is **no editable code editor and no file tree outside the chat window**. When the agent needs to show code, it surfaces it **read-only within the chat**. The recourse for "wrong code" is to talk to the agent, not to edit it — the moment the user edits, the LLM's mental model desyncs from file state and recovery is painful. Invest in agent reliability, not an editor fallback. (Pinned 2026-05-15.) **No "drop to the editor" escape hatch** — if we ever add one, it's a deliberate power-user debug/inspect mode (internal + advanced customers), never the default.
 
-**Speech-to-text correction lane:**
+- **Persistent split: chat on one side, live preview always visible on the other.** The preview is the user's feedback signal — don't hide it.
+- **Preview mechanism:** in-window, likely an **iframe**; fallback is to seamlessly launch (or focus, if already open) a browser window on the preview URL. **Auto-reload is mandatory** — driven by the dev Star's compile→reload broadcast (§ *Dev-mode Star*). Target feel is vite local dev; network latency means we won't match it, but **~3s save→refresh is good enough**.
+- **Preview-element highlight** (the user-developer-native gesture): the user clicks an element in the running preview (the blue button, that row); the agent maps the click to the source range; the user describes the change in natural language. They think in the preview, not in files. A text-span highlight inside a chat-surfaced file is a precision fallback.
+- **Speech-to-text correction lane:** show the transcript in an editable field before send (STT errors propagate fast); optional auto-send after N seconds of silence, with cancel + edit. Speak-don't-type is a real differentiator for user-developers.
+- **Checkpoint UX** (post-demo) rides the durable Galaxy draft store, not git — § *Durable draft ownership*.
 
-- STT errors propagate fast. Show the transcribed message in an editable field before send.
-- Optional auto-send after N seconds of silence post-utterance, but with cancel + edit available before send.
-- Speak-don't-type is a real differentiator for user-developers (faster than typing for natural language).
+> **Post-demo authoring directions:** a desktop shell (Electron) for the increasingly AI-IDE-shaped / enterprise BYO-agent persona (local FS + real git + `vite dev` HMR) was considered and deferred with the web-first demo decision; the enterprise BYO-agent angle ties to `tasks/on-hold/nebula-file-storage-backend.md`.
 
-**Checkpoint UX over true git:**
-
-- "Save this version" creates a named checkpoint of the current dev Star state.
-- "Go back to when it worked" restores the dev Star to that named checkpoint.
-- No git commits, no diffs, no merge conflicts visible to the user. Just named checkpoints.
-- **Mechanism is open.** The original design got checkpoints for free from branches ("save" = a named child branch; "restore" = roll back to it). With branching deferred (`tasks/on-hold/nebula-branches.md`) and the sandbox now a single dev Star (`tasks/dev-star.md`), checkpoints need another mechanism — likely a dev-Star snapshot (resources are already snapshot sequences per ADR-004, so the time-travel substrate exists) — or the whole feature defers post-demo. Pin scope during the Studio build.
-
-**No "drop down to the editor" escape hatch.** If the agent is wrong, the recourse is "explain again" — not user-edit. If we add an editor later as a power-user toggle, it's in a deliberate **debug/inspect mode**, NOT the default. Power-user toggle is aimed at internal dev + advanced customers; not the user-developer default and not on the demo path.
-
-**Open questions to resolve during implementation:**
-
-- How rich is "file open for review"? Plain text vs. syntax-highlighted? Probably syntax-highlighted (read-only Monaco or CodeMirror) for skimmability, but no edit operations bound.
-- What does preview-element-highlight feel like as a UX gesture? Click? Click-and-hold? Hover-with-shift? Studio's gesture choice affects how naturally users discover the feature.
-- How does the agent surface "I'm pulling up this file because I want to talk about it" vs. "this file is what I just edited"? Both produce a file-open event, but the user's mental frame differs.
-- For chat history specifically: scrolling through 1000+ messages, search, threading. Standard chat-UI design space; not Nebula-specific but needs to feel solid.
+**Open — Studio UI hosting:** how/where Studio's own HTML/JS is served (Workers Assets vs. a Galaxy-served artifact path — possibly the same mechanism as generated-app hosting). Small spike; decide alongside generated-app hosting.
 
 ### Dev-mode Star: SFC compile + reload broadcast
 
-The dev Star is where SFC compilation and reload-broadcast live. It's user-local (Star DOs are placed in the colo of first call → near the Studio user), so the compile + reload loop has eyeball-to-colo RTT only — no cross-continent latency even for users far from Galaxy. Spike validated 2026-05-15.
+The dev Star is the SFC compile + reload-broadcast site (build-sequencing #1). It's user-local (the DO is placed in the caller's colo), so the loop has eyeball-to-colo RTT only. The `compileSFC` method + reload fanout land on `DevStar` — port the validated spike `apps/nebula/spike/sfc-devstar-loop/` (see its RESULTS.md and `tasks/archive/spike-sfc-dev-cycle.md`). Mechanics (spike-validated 2026-05-15):
 
-**What the dev Star does for dev mode:**
+- Imports `@vue/compiler-sfc` (~700 ms cold-load, sub-ms warm-compile). `@mesh()` `compileSFC(source)` called via `lmz.call` over the existing WS — no separate HTTP surface.
+- Two-step TS pipeline: `@vue/compiler-sfc` resolves Vue macros → the `typescript` npm transpiler strips remaining TS → executable JS (same shape as the typia validator pipeline).
+- Broadcasts `'reload'` to preview clients via the existing Subscriber/fanout (preview clients subscribe to a known reload signal; compile triggers fanout) — no separate hibernating-WS pool.
+- Round-trip latency: sub-2 ms p50 local; ~36 ms p50 Pittsburgh→IAD deployed — well inside "feels instant" at the nearest colo.
 
-- Imports `@vue/compiler-sfc` (library dep, ~700 ms cold-load, sub-ms warm-compile per SFC).
-- Exposes an `@mesh()` `compileSFC(source)` method. Studio's NebulaClient calls it via `lmz.call` over the existing WS — no separate HTTP surface needed.
-- Broadcasts `'reload'` to preview clients via the existing Subscriber/fanout machinery (preview clients subscribe to a known reload signal; compile triggers fanout). Avoids a separate hibernating-WS pool.
-- TypeScript pipeline is two-step: `@vue/compiler-sfc` resolves Vue macros, then a downstream TS transpiler (`typescript` npm) strips remaining TS syntax to produce executable JS. Same shape as the existing typia validator pipeline.
+"Deploy" in Studio is **not** `wrangler deploy` — it's deploy-to-dev: update the dev Star's DWL bundle + push the auto-refresh signal to connected clients.
 
-**Validated mechanics (spike findings):**
+**Spike teardown (after porting ~250 LOC into `DevStar`):** delete `apps/nebula/spike/sfc-devstar-loop/`; delete `tasks/archive/spike-sfc-dev-cycle.md`; remove the spike from the root `package.json` `workspaces` list; `wrangler delete --name spike-sfc-galaxy-loop`.
 
-- See [tasks/archive/spike-sfc-dev-cycle.md](archive/spike-sfc-dev-cycle.md) and [apps/nebula/spike/sfc-devstar-loop/RESULTS.md](../apps/nebula/spike/sfc-devstar-loop/RESULTS.md).
-- Round-trip latency: sub-2 ms p50 locally; ~36 ms p50 Pittsburgh→IAD deployed. Well inside "feels instant" for any user hitting their nearest colo.
+## Iteration loop
 
-**When implementing this section: port the spike's code into the dev Star** (`@vue/compiler-sfc` import, hibernating-WS pattern, compile method — ~250 LOC total). After porting:
+The AI must see what's broken to fix it.
 
-- Delete `apps/nebula/spike/sfc-devstar-loop/` (the entire spike directory).
-- Delete `tasks/archive/spike-sfc-dev-cycle.md` (the spike task file, currently archived).
-- Remove the spike's entry from the root `package.json` `workspaces` list.
-- Tear down the deployed `spike-sfc-galaxy-loop` Worker with `wrangler delete --name spike-sfc-galaxy-loop`.
+- **Remote debug tail:** extend `@lumenize/debug` to tail into the chat. Debug is already namespace-scoped throughout Lumenize; the AI subscribes to suspect namespaces so it focuses instead of drowning in per-transaction noise. Primary signal channel for runtime failures.
+- **Agentic surface** (tools the AI calls, not just text generation):
+  - `get_current_ontology` — fetch the pinned schema.
+  - `subscribe_debug_namespace(ns)` / `unsubscribe_debug_namespace(ns)` — focus / drop the debug stream.
+  - `get_recent_errors(namespace?, since?)` — pull validation/runtime failures.
+  - `deploy_to_dev(artifacts)` — push generated code to the session's dev Star, in three steps: (1) publish the new ontology version to the Galaxy registry [Studio builds]; (2) `DevStar.deployToDev()` eager-applies it [built]; (3) compile + publish the UI bundle [Studio builds — the SFC pipeline, build-seq #1]. Post-demo this can target `dev-<name>` Stars with their own permissions (branching deferred — `tasks/on-hold/nebula-branches.md`).
+  - *(Future)* `propose_migration(from, to)` — v1 via the Star-local lazy migration runner.
 
-The spike exists only as a stepping stone for this section's implementation.
+## Conversation flow
 
-## Iteration Loop
+Cold-start interview is the demo wow moment — optimize for it.
 
-The developer iterates. The AI must see what's broken to fix it.
+- **Interview pattern:** start with the **core entity** (what is this product fundamentally about?), then relationships → workflows → access patterns. Build understanding progressively, reflect back what's learned. Generate a **draft ontology early** (even incomplete) as a live, correctable conversation artifact — the visual anchor during the demo.
+- **Tone:** thoughtful product manager, not a form. Make assumptions and flag them ("I'm assuming each walk has a single walker — tell me if that's wrong"); don't ask about every detail. Confidence with humility.
+- **Wizard-style flow (guided, not blank canvas):** ontology first (wizard validates it's coherent) → UI second (against the validated ontology). Not strictly linear — supports back-and-forth. *(A migration-validation gate between ontology change and UI change is post-demo; the demo resets the dev Star on breaking edits rather than migrating.)*
 
-### Remote Debug Tail
+## Out of scope (demo)
 
-- Extend `@lumenize/debug` to support remote tailing into the chat.
-- Debug is already namespace-scoped throughout Lumenize code.
-- The AI controls which namespaces it subscribes to — it focuses on the suspect part instead of drowning in hundreds of messages per transaction.
-- This is the primary signal channel for the AI to understand runtime failures.
+- Server-side ORM enforcement of relationships (UI handles them client-side for now).
+- Production migration polish (cross-resource callbacks, version skew, error UX) — `tasks/on-hold/nebula-5.5-schema-evolution.md`.
+- Cross-Star prod→dev data migration; long-term session archival/cleanup; fine-tuned Nebula model (→ llm-strategy file).
 
-### Tool Use (Agentic Surface)
+## Open questions
 
-The AI has tools it can call, not just text generation:
-
-- `get_current_ontology` — fetch the pinned schema.
-- `subscribe_debug_namespace(namespace)` — focus the debug stream.
-- `unsubscribe_debug_namespace(namespace)` — drop noise.
-- `deploy_to_dev(artifacts)` — push generated code to the session's dev Star DWL bundle. The dev Star is an ordinary Star (`tasks/dev-star.md`), so this is just a Star-targeted deploy. Post-demo, the same tool can target additional dev Stars (`dev-<name>`) or branches with their own permissions.
-- `get_recent_errors(namespace?, since?)` — pull validation/runtime failures.
-- *(Future)* `propose_migration(from_version, to_version)` — exists in v1 form via the Star-local lazy migration runner.
-
-This turns the AI from a code-generating chatbot into something that drives the loop.
-
-## Conversation Flow
-
-Cold-start interview is the demo wow moment. Optimize for it.
-
-### Interview Pattern
-
-- Start with the **core entity** — what is this product fundamentally about?
-- Then relationships, then workflows, then access patterns.
-- Build understanding progressively. Reflect back what's been learned.
-- Generate a **draft ontology early**, even if incomplete. Use it as a live conversation artifact the developer can correct, extend, and react to. Visual anchor during the demo.
-
-### Tone
-
-- Thoughtful product manager, not a form.
-- Make assumptions and flag them: "I'm assuming each walk has a single walker — tell me if that's wrong." Don't ask about every detail.
-- Confidence with humility plays well in the demo and in real use.
-
-### Wizard-Style Authoring Flow
-
-The IDE guides user-developers through a structured flow, not a blank canvas:
-
-1. **Ontology first** — Define the data model (resource types, fields, relationships, DAG tree structure) before touching UI. Wizard validates the ontology is coherent before proceeding.
-2. **Migration validation gate** — When evolving the ontology, the user-developer must write (or have the LLM generate) migration code that passes before moving to UI changes. No skipping ahead with a broken data model.
-3. **UI second** — Build the end-user UI against the validated ontology.
-
-Not strictly linear — nobody gets the data model right on the first try. The wizard supports back-and-forth while still enforcing the validation gate: ontology change → migration validated → UI can use the new fields.
-
-## Context Window Strategy
-
-- The current ontology stays **permanently pinned** in context. Everything the AI generates centers on it. Dropping it from context makes the AI useless.
-- Refresh the pinned ontology whenever it changes.
-- Annotation documentation (already written for humans) is provided to the AI as reference.
-- Plan for context pressure across long iteration sequences — strategic archival of older turns will eventually matter, but not for demo.
-
-## Model and Orchestration
-
-- Use the Anthropic API directly. Roll the orchestration ourselves on Workers + Durable Objects — frameworks like LangChain add overhead we don't need.
-- Mix models by task: heavier model (Opus) for ontology generation and complex UI generation; lighter model (Sonnet) for small iterations and debug interpretation.
-- Look up current model identifiers and capabilities before wiring this up — don't assume from training data.
-
-### Language Model Strategy
-
-- **Short term**: Prompt engineering against general-purpose models (Claude, GPT) with Nebula-specific system prompts and few-shot examples.
-- **Medium term**: Fine-tuned small model specialized for Nebula UI and Nebula Resources patterns.
-- **Training data**: Nebula's own documentation, example apps, the Resources + `client.orgTree` API surface, Nebula UI component library.
-
-## Out of Scope (For Demo)
-
-- Server-side ORM enforcement of relationships (UI handles relationships client-side for now).
-- Production migration polish (cross-resource callbacks, version skew, error UX) — see `tasks/on-hold/nebula-5.5-schema-evolution.md`.
-- Cross-Star prod→dev data migration.
-- Long-term session archival/cleanup strategy.
-- Fine-tuned Nebula-specialized model.
-
-## Open Questions
-
-- Demo narrative shape: full cold start vs. jump-in partway? Leaning cold start for impact. Confirm during storyboard work after prereqs.
+- Demo narrative: full cold start vs. jump-in partway (leaning cold start). Confirm during storyboard.
 - Does the pinned ontology view live in the UI alongside the chat?
-- Editor component: Monaco, CodeMirror, custom, or no code editor at all (pure natural language)?
-- How much generated code should the user-developer see vs. be hidden behind the natural language interface?
-- When does session context get archived/summarized vs. kept verbatim?
-- Hosting decision (Workers Assets vs Galaxy-served): see § Studio UI hosting above.
-- **Built-artifact (compiled UI bundle) storage & versioning**: serving is still a Galaxy- or Star-hosted web-server-like interface either way (to set MIME types, CSP headers, routing, etc.) — the question is what storage layer sits behind it. Candidates: Galaxy's own SQLite, Workers KV, R2, a `@cloudflare/shell` `Workspace` (DO SQL + optional R2 via the same library we're considering for the file-resource backend), or Cloudflare Artifacts once its content API and `@cloudflare/shell` Artifacts-backend ship (Aron on Discord 2026-06-04, preview "next week"). Decide this jointly with the file-resource backend question above — picking `@cloudflare/shell`'s `Workspace` for *both* layers would let the entire file pipeline (source files + built bundles) share one storage abstraction, and the eventual swap to an Artifacts-backed `StateBackend` would apply uniformly. Design Galaxy's version management API without coupling to a specific backend so this decision stays deferrable.
+- "File open for review" richness — plain vs. syntax-highlighted read-only (no edit bindings).
+- Preview-element-highlight gesture — click? click-and-hold? hover-with-shift?
+- Studio UI hosting (Workers Assets vs Galaxy-served) — § *Authoring environment*.
+- Built-artifact (compiled UI bundle) storage & versioning — decide jointly with the file-resource backend (`tasks/on-hold/nebula-file-storage-backend.md`); keep Galaxy's version-management API backend-agnostic so the decision stays deferrable.
 
-## Follow-On Work (post-demo)
+## Follow-on work (post-demo)
 
-See `tasks/nebula-scratchpad.md` § "Studio Follow-On" for the full list (training pipeline, prompt engineering, code validation pipeline, version control for user-developer-built apps, collaboration features, marketplace/templates).
+`tasks/nebula-scratchpad.md` § "Studio Follow-On" — full list (training pipeline, prompt engineering, code-validation pipeline, version control for built apps, collaboration, marketplace/templates).
 
-## Success Criteria
+## Success criteria
 
-Rough shape — refine during storyboard work:
+Rough shape — refine during storyboard:
 
-- [ ] User-developer can describe a data model in natural language and get a working ontology + resources on the dev Star
-- [ ] Generated code deploys to the dev Star and passes schema validation
-- [ ] Preview shows live UI components backed by real Resources
-- [ ] Edit → regenerate → preview cycle is under 5 seconds
-- [ ] Cold-start interview produces a usable draft ontology in under 5 minutes (demo target)
+- [ ] User-developer can describe a data model in natural language and get a working ontology + resources on the dev Star.
+- [ ] Generated code deploys to the dev Star and passes schema validation.
+- [ ] Preview shows live UI components backed by real Resources.
+- [ ] Edit → regenerate → preview cycle is fast (compile→reload sub-cycle ~3s; full regenerate cycle a few seconds).
+- [ ] Cold-start interview produces a usable draft ontology in under 5 minutes (demo target).
 
-## Build sequencing — next branch: `feat/nebula-studio`
+## Build sequencing
 
-**Branch plan (decided 2026-06-15, closing the §5.3.7 v1–v5 batch):** merge `feat/nebula-ui` → `main` and close it (the Vue frontend v1–v5 + ADR-006 land there), then start `feat/nebula-studio` for the work below, in order:
-
-1. **Client-bundle deploy/compile pipeline** (first — it unblocks the rest). Compile `.vue` SFCs in the **dev Star** (the Star fork — the designated compile site AND the gating prerequisite) → publish the bundle to the **Galaxy, versioned alongside the ontology** → lazy-pull to Stars via the SAME mechanism the ontology already uses (shipped: `galaxy.ts`/`star.ts` cache-miss → `getLatestOntologyVersion`). Largely mapped already — see § "Dev-mode Star: SFC compile + reload broadcast", § "Architecture" (two compile sites: local vite for dev preview, Galaxy for production deploy, same purity guarantee), and the validated spike `apps/nebula/spike/sfc-devstar-loop/`. This wires the compile→bundle into the Galaxy/Star deploy path that §5.3.7-v5 punted to "Studio's deploy work."
-2. **Remaining WAIT `@check-example` conversions** (follow-up to #1). Once the pipeline serves a real bundle, convert `using-vue.md`'s CDN-load + CSP/template-compilation examples from `@skip-check` to `@check-example` — the deferred phase-2 from [nebula-frontend.md](archive/nebula-frontend.md) § Phase 5.3.7-v5. (Phase-1, the runtime-behavior examples, runs on its own nebula-frontend session and does NOT depend on this.)
-3. **Studio LLM evals — fork to eval (system prompt) × (model) combinations** on real code-generation tasks, once the generation surface exists. **Default: start with Kimi 2.7 Code** (already chosen for Studio 2026-06-12 — live use is the eval) and only consider another model if K2.7 proves problematic; don't front-load a model bake-off. Builds on § "Model and Orchestration" / § "Language Model Strategy".
+1. **Client-bundle deploy/compile pipeline** (first — it unblocks the rest). Compile `.vue` SFCs in `DevStar` (port the spike) → publish the bundle to the **Galaxy, versioned alongside the ontology** → lazy-pull to Stars via the SAME cache-miss mechanism the ontology already uses (`galaxy.ts`/`star.ts` → `getLatestOntologyVersion`). See § *Dev-mode Star* and § *Architecture*. Wires the compile→bundle into the Galaxy/Star deploy path that §5.3.7-v5 punted to "Studio's deploy work."
+2. **Remaining WAIT `@check-example` conversions** (after #1 serves a real bundle): convert `using-vue.md`'s CDN-load + CSP/template-compilation examples from `@skip-check` to `@check-example` — deferred phase-2 from `tasks/archive/nebula-frontend.md` § 5.3.7-v5.
+3. **LLM & eval strategy** — `tasks/nebula-studio-llm-strategy.md` (model choice + system-prompt × model evals, once the generation surface exists).

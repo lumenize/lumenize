@@ -12,7 +12,7 @@
 
 > De-numbered from "Phase 5.5 (branch-local subset): In-Place Lazy Migrations" 2026-06-15 and re-homed under Studio. Phase 5's core shipped; this was the last Phase-5-lineage piece carried as demo-critical.
 >
-> **Deferred 2026-06-15.** The demo does not ship the lazy-migration runner. Studio's loop is "build from scratch," so we accept the cruder bargain: **additive** ontology edits (new optional field + `@default`) stay readable via the parser's existing `__fillDefaults` on read — no machinery here — while a **breaking** edit (rename / type change / required-field add) in the dev Star resets it to empty rather than migrating. The in-dev reset behavior lives in `tasks/dev-star.md`; this file holds the in-place-migration runner that replaces that reset post-demo. Un-defer when "your data evolves in place" becomes part of the product story.
+> **Deferred 2026-06-15.** The demo does not ship the lazy-migration runner. Studio's loop is "build from scratch," so we accept the cruder bargain: **additive** ontology edits (new optional field + `@default`) stay readable — reads return the stored value verbatim (no re-validation), and the `@default` fills on the next *write* (validation), not on read — no machinery here — while a **breaking** edit (rename / type change / required-field add) in the dev Star resets it to empty rather than migrating. The in-dev reset behavior lives in `tasks/dev-star.md`; this file holds the in-place-migration runner that replaces that reset post-demo. Un-defer when "your data evolves in place" becomes part of the product story.
 
 ## Scope
 
@@ -48,7 +48,7 @@ The migration runner doesn't know or care which Star it's running on — it oper
 
 ### 4. Default-fill is parser's job, NOT migration's
 
-Parser-validator's in-place `__fillDefaults` already handles new optional fields with `@default` tags on read. **For new optional fields with a default value, no migration entry is needed.** Migrations are only for transformations the parser can't infer — renames, type changes, required-field additions, computed fields.
+Parser-validator's `__fillDefaults` already handles new optional fields with `@default` tags on the **write/validation** path (`facet.parseBatch`) — a plain read returns the stored value verbatim (without the new field), and the default fills the next time that resource is written (or, post-defer, on the migration write-back). **For new optional fields with a default value, no migration entry is needed.** Migrations are only for transformations the parser can't infer — renames, type changes, required-field additions, computed fields.
 
 This boundary holds for any Star.
 

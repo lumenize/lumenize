@@ -2,7 +2,7 @@
 
 **Status**: Unblocked — the Phase 5.3 (subscriptions) gate shipped (frontend merged to main 2026-06-15); ready to start, not yet started
 **Output**: `tasks/reference/vibesdk-llm-patterns.md` — a topic-organized pattern playbook
-**Why it slots here**: The patterns inform both Studio's own design AND the in-app chat-feature building block we'll ship to user-developers. Doing this read before the pre-Studio milestone means the milestone's prompts and tool surface are designed against accumulated production wisdom, not first-principles guessing.
+**Why it slots here**: The patterns inform both Studio's own design AND the in-app chat-feature building block we'll ship to user-developers. Doing this read before Studio's generation loop is built means its prompts and tool surface are designed against accumulated production wisdom, not first-principles guessing. (vibesdk's Think-based lineage is itself part of why Nebula landed on Think+Kimi — `tasks/nebula-studio-llm-strategy.md`.)
 **Estimated effort**: 2–3 hours of focused reading + writing.
 
 ## Goal
@@ -67,5 +67,5 @@ Polish iterations on the doc happen during Studio implementation — first read 
 ## Notes
 
 - This is reading-and-writing work, not implementation work. No code changes.
-- Reading vibesdk cold is less useful than reading it with a specific design question to map onto. But waiting until Studio implementation is in flight defers a known-valuable input. Compromise: do the read after 5.3 ships (so back-end work isn't blocked) but before pre-Studio milestone really gets going (so the milestone benefits from the patterns).
+- Reading vibesdk cold is less useful than reading it with a specific design question to map onto. But waiting until Studio implementation is in flight defers a known-valuable input. Compromise: do the read after 5.3 ships (so back-end work isn't blocked) but before Studio's generation loop really gets going (so it benefits from the patterns).
 - If during the read we find a pattern that demands an active discussion, escalate it back into the design conversation rather than just dropping it into the reference doc.

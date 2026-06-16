@@ -148,7 +148,7 @@ User-facing docs at `website/docs/nebula/resource-types.md` (or similar) coverin
 
 ### 4. Studio integration
 
-When Studio's `get_current_ontology` tool fires, return the `.d.ts` source verbatim. The AI's system prompt references the annotation conventions so it knows what `@title`/`@description`/`@inverse` mean when reading the source. Same prompt applies to pre-Studio Claude Code generation.
+When Studio's `get_current_ontology` tool fires, return the `.d.ts` source verbatim. The AI's system prompt references the annotation conventions so it knows what `@title`/`@description`/`@inverse` mean when reading the source. Same prompt applies to early Think+Kimi generation (before Studio's chat UI exists).
 
 ## Success Criteria
 
@@ -157,7 +157,7 @@ When Studio's `get_current_ontology` tool fires, return the `.d.ts` source verba
 - [ ] Galaxy exposes `getOntologySource(version?)` returning the raw `.d.ts` source
 - [ ] PascalCase URL slug pinned in resources URI scheme docs
 - [ ] Studio's system prompt references the annotation conventions and consumes raw source
-- [ ] Pre-Studio Claude Code spike uses the same source-as-spec pattern (validates the convention before Studio bakes it in)
+- [ ] Early Think+Kimi generation (before Studio's chat UI) uses the same source-as-spec pattern (validates the convention before Studio bakes it in)
 
 ## Open considerations
 
