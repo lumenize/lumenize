@@ -2,7 +2,7 @@
 
 > **What this is**: the living architecture reference for Nebula's resource system — the inverted-DWL model, transaction protocol, temporal storage, schema-evolution rationale, and the DWL spike results. Moved out of `tasks/` 2026-06-15: this is a *design reference*, not a task file. **Phase status and the work breakdown live in the master phase table in `tasks/nebula.md`** — not here. The durable architecture *commitments* are pinned in `docs/adr/` (ADR-001 TS-as-schema, ADR-002 structured-clone, ADR-004 Snodgrass temporal, ADR-005 optimistic eTags, ADR-006 reference-by-id); this file holds the operational detail and rationale those terser sources don't carry.
 
-**Status of the design**: core shipped — storage engine (5.1), validation/ontology (5.2), and the transaction + subscribe engine are live and in use (see the `tasks/nebula.md` phase table). Remaining design questions are tracked in § Still Open below and in the branch-migration / schema-evolution files.
+**Status of the design**: core shipped — storage engine (5.1), validation/ontology (5.2), and the transaction + subscribe engine are live and in use (see the `tasks/nebula.md` phase table). Remaining design questions are tracked in § Still Open below and in the schema-evolution files.
 
 **Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
 
@@ -533,7 +533,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 ### Still Open
 
 - **Q10**: DWL in vitest — can `@cloudflare/vitest-pool-workers` handle `worker_loaders` bindings? Untested, deferred.
-- **Q16 / Q17 / Q18 (migrations)**: per-resource-type vs global versioning, lazy-on-read vs eager-on-deploy, and failure handling are now owned by the migration files. The branch-local lazy-migration design (per-version `_index` chain, lazy read-time migration with eager write-back) is in `tasks/on-hold/nebula-lazy-schema-migrations.md` — **deferred for the demo (Option B, 2026-06-15)**; the production-polish surface (version skew, cross-resource callback, migration-error UX) is in `tasks/on-hold/nebula-5.5-schema-evolution.md`. For the demo, dev-branch ontology changes are handled by parser default-fill (additive) + branch reset (breaking) — see `tasks/nebula-branches.md`.
+- **Q16 / Q17 / Q18 (migrations)**: per-resource-type vs global versioning, lazy-on-read vs eager-on-deploy, and failure handling are now owned by the migration files. The Star-local lazy-migration design (per-version `_index` chain, lazy read-time migration with eager write-back) is in `tasks/on-hold/nebula-lazy-schema-migrations.md` — **deferred for the demo (2026-06-15)**; the production-polish surface (version skew, cross-resource callback, migration-error UX) is in `tasks/on-hold/nebula-5.5-schema-evolution.md`. For the demo, dev-Star ontology changes are handled by parser default-fill (additive) + dev-Star reset (breaking) — see `tasks/dev-star.md`.
 
 ### Resolved since this list was written
 
@@ -549,7 +549,7 @@ The original task-file phase breakdown (Phase 0–5 with success-criteria checkb
 - **Storage engine** → shipped as Phase 5.1 (`tasks/archive/nebula-5.1-storage-engine.md`).
 - **TypeScript validation & ontology** → shipped as Phase 5.2 (`tasks/archive/nebula-5.2-tsc-validation.md`); ORM-flavored follow-on (M:N, `query()`, JSDoc constraints) in `tasks/on-hold/nebula-orm-and-queries.md`.
 - **Transaction protocol + subscriptions/fanout** → shipped; consumed by the merged Nebula frontend (`tasks/nebula-frontend.md`, Phases 5.3 + 7 + 8).
-- **Branch-local lazy migrations** → on-hold (deferred for the demo, Option B), `tasks/on-hold/nebula-lazy-schema-migrations.md`. Demo handling: parser default-fill + branch reset (`tasks/nebula-branches.md`).
+- **Star-local lazy migrations** → on-hold (deferred for the demo, 2026-06-15), `tasks/on-hold/nebula-lazy-schema-migrations.md`. Demo handling: parser default-fill + dev-Star reset (`tasks/dev-star.md`).
 - **Schema-evolution production polish** → on hold, `tasks/on-hold/nebula-5.5-schema-evolution.md`.
 - **HTTP transport** → on hold, `tasks/on-hold/http-transport.md`.
 - **Docs & coverage** → mostly shipped; remainder tracked in `tasks/on-hold/nebula-5.7-docs-coverage.md`.

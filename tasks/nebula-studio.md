@@ -10,7 +10,7 @@
 
 **Prerequisites met**: Resources core (Phase 5.1 storage engine + 5.2 validation/ontology + the transaction/subscribe engine) shipped and in use; the Nebula frontend stack (Phase 5.3 + 7 + 8) is complete and merged to `main` (2026-06-15, merge `87c66c1`).
 
-**Open prerequisite**: `tasks/nebula-branches.md` (URL-level branches; Studio sessions pin to `.dev`). Active and not yet built. The branch-local lazy-migration runner (`tasks/on-hold/nebula-lazy-schema-migrations.md`) was **deferred 2026-06-15 (Option B)** — Studio's loop preserves data on additive ontology edits (parser `__fillDefaults`) and resets `.dev` to empty on breaking edits, rather than migrating in place. See `nebula-branches.md` § *In-dev data lifecycle*.
+**Open prerequisites** (in order): `tasks/nebula-do-scope-isolation.md` (**Fix 1** — structural tenant isolation; without it a Galaxy can't serve the dev Star *and* a production Star) → `tasks/dev-star.md` (Studio sessions pin to the dev Star — a reserved `dev` star slug, **not** a branch). Both active, not yet built. The lazy in-place migration runner (`tasks/on-hold/nebula-lazy-schema-migrations.md`) was **deferred 2026-06-15** — Studio's loop preserves data on additive ontology edits (parser `__fillDefaults`) and resets the dev Star to empty on breaking edits, rather than migrating in place. See `dev-star.md` § *In-dev data lifecycle*.
 
 **References (not dependencies)**: user-developer-facing API surface in `website/docs/nebula/coding-your-ui.md`; resources architecture design in `docs/nebula-resources-design.md`.
 
@@ -24,7 +24,7 @@ The user-developer never opens a code editor. They describe in natural language,
 
 ## Pre-Studio milestone (gate before Studio implementation)
 
-Before this phase begins building chat UI and tool orchestration, **Claude Code drives the entire generation loop directly against the live platform**. No chat UI, no tool surface we built — just Claude Code reading the ontology + `@lumenize/ui` docs + Nebula API types, generating ontology + Lumenize UI components, and pushing them to the session's branch (typically `.dev`) via the same `deploy_to_dev` mechanism Studio will eventually use (even if the UX is "paste this into the terminal" for now).
+Before this phase begins building chat UI and tool orchestration, **Claude Code drives the entire generation loop directly against the live platform**. No chat UI, no tool surface we built — just Claude Code reading the ontology + `@lumenize/ui` docs + Nebula API types, generating ontology + Lumenize UI components, and pushing them to the dev Star via the same `deploy_to_dev` mechanism Studio will eventually use (even if the UX is "paste this into the terminal" for now).
 
 This is bigger than a one-day spike — it's a gating milestone. Reasons:
 
@@ -96,11 +96,11 @@ All other `createNebulaClient` config fields auto-detect from the browser enviro
 - **Galaxy hosts Studio-generated artifacts and chat session state.** Per-session rows (chat history, working state for that session) and shared rows (current ontology, accumulated memory, documentation references, patterns learned across sessions) all live in Galaxy.
 - Galaxy is lightly loaded; years of session history fit comfortably under 10GB. We refactor if we approach that.
 - Abandoned apps cost essentially nothing; active apps stay well under any practical DO limits.
-- Each chat session pins to a **non-main branch** (the `.dev` branch by default, auto-created when the Star is created). The branch's Star is an independent DO instance with its own SQLite — fully isolated from `.main`. On an ontology change in `.dev`: additive edits stay readable (parser `__fillDefaults`), breaking edits reset `.dev` to empty — in-place lazy migration is deferred (Option B). See `tasks/nebula-branches.md` § *In-dev data lifecycle* (runner: `tasks/on-hold/nebula-lazy-schema-migrations.md`). Cross-branch data copy at branch creation (the `origin !== null` case) is post-demo.
+- Each chat session pins to the **dev Star** (a Star with the reserved `dev` slug, `/{u}.{g}.dev/...`, created on first touch like any Star). It's an independent DO instance with its own SQLite — fully isolated from production Stars. On an ontology change in the dev Star: additive edits stay readable (parser `__fillDefaults`), breaking edits reset the dev Star to empty — in-place lazy migration is deferred. See `tasks/dev-star.md` § *In-dev data lifecycle* (runner: `tasks/on-hold/nebula-lazy-schema-migrations.md`). Seeding a dev Star from a production Star (fork-to-test) is post-demo.
 
 ### Files as resources (no separate VFS)
 
-Captured 2026-05-15 during the post-SFC-pivot Studio design discussion. **Application source files are resources of type `file`** (or potentially more granular types per extension), stored on the session's `.dev` branch's Star alongside the user's data resources.
+Captured 2026-05-15 during the post-SFC-pivot Studio design discussion. **Application source files are resources of type `file`** (or potentially more granular types per extension), stored on the session's dev Star alongside the user's data resources.
 
 Value is the content directly; mime-type lives on `meta` as a framework-owned field (see [api-reference.md § Snapshot](../website/docs/nebula/api-reference.md#snapshot) for the broader meta shape — the docs are the contract; the spec's type block is nebula-frontend.md § Types `SnapshotMeta`):
 
@@ -120,7 +120,7 @@ For binary uploads (images, generated blobs), `value` is `ArrayBuffer` and `meta
 What we get for free by leaning on Resources instead of building a separate virtual file system:
 
 - **Storage** on the dev Star (already there for synced resources).
-- **Versioning via branches** — each session is on its own `.dev` branch with isolated file state; named checkpoint branches give us "save this version" UX (see Editor / Preview below).
+- **Versioning via resource history** — file resources are snapshot sequences (ADR-004), so prior states are already retained on the dev Star. The named-checkpoint "save this version" UX needs a mechanism now that branching is deferred (see § "Checkpoint UX over true git").
 - **Optimistic transactions on every edit** (already there).
 - **Subscribe-and-fanout for the preview** — the dev Star's compile pipeline subscribes to file resources, recompiles on change, broadcasts reload to the preview client. This is exactly the spike pattern in `apps/nebula/spike/sfc-devstar-loop/` (see also the "Dev-mode Star: SFC compile + reload broadcast" section below).
 - **Mesh access for the agent** — Studio's LLM calls `client.resources.transaction({...})` to edit files, identical to the primitive that powers the UI's resource writes. No second consistency model for source code.
@@ -128,20 +128,20 @@ What we get for free by leaning on Resources instead of building a separate virt
 **What we explicitly DON'T build:**
 
 - A separate VFS abstraction layer (e.g., a `FileSystem` class wrapping DO storage).
-- ~~A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility.~~ Reasoning was about a *hand-rolled* WASM git on DO; reconsider in light of `@cloudflare/shell` (see TBD bullet below) — Cloudflare now ships an official `isomorphic-git`-on-DO implementation via `@cloudflare/shell/git` that runs against the same `Workspace` (DO SQL + optional R2) we'd otherwise build by hand. The pure-JS git cost claim is worth re-litigating against *that* implementation specifically before deciding. Versioning + diffing + branching still fall out of resources + branches for the user-developer UX (see § "Checkpoint UX over true git"), but the file-resource *storage layer* underneath is now an active decision.
+- ~~A WASM git implementation. There's a Cloudflare community/sample git-on-DO project that uses WASM git; it's heavy (multi-MB), slow in Workers, and we don't need git-protocol compatibility.~~ Reasoning was about a *hand-rolled* WASM git on DO; reconsider in light of `@cloudflare/shell` (see TBD bullet below) — Cloudflare now ships an official `isomorphic-git`-on-DO implementation via `@cloudflare/shell/git` that runs against the same `Workspace` (DO SQL + optional R2) we'd otherwise build by hand. The pure-JS git cost claim is worth re-litigating against *that* implementation specifically before deciding. Versioning + diffing for the user-developer UX still build on the resource snapshot substrate (see § "Checkpoint UX over true git"; the branch-based checkpoint mechanism is deferred), but the file-resource *storage layer* underneath is now an active decision.
 - A parallel "files" storage path distinct from resources.
 
 **What stays open / TBD:**
 
 - Single `file` resource type with `mimeType` discrimination vs. distinct types per extension (`vueComponent`, `tsModule`, `htmlShell`, etc.). Single type is simpler; distinct types let the ontology express per-kind invariants (e.g., a `vueComponent` must parse as SFC). Probably start with single + mimeType, split later if invariants matter.
-- "Export to GitHub" — a post-demo one-shot dump of the latest branch state into a git operation outside the Workers runtime. Not on critical path.
+- "Export to GitHub" — a post-demo one-shot dump of the latest dev Star state into a git operation outside the Workers runtime. Not on critical path.
 - Big-file handling — most source files are small; if generated assets get large (images, blobs), Resources may or may not be the right home. Cross that bridge later.
 - **Adopt `@cloudflare/shell`'s `Workspace` as the file-resource backend (active question, raised 2026-06-04).** Background: Aron on Cloudflare Discord flagged that a content API for Artifacts is on the roadmap and a new `@cloudflare/shell` iteration with Artifacts support is expected in preview within a week. Larry has asked about beta access. Investigating the existing `@cloudflare/shell@0.3.8` (2026-06-04) reframed the question:
     - `@cloudflare/shell` is built on **Durable Objects + R2** (not Containers, not Artifacts). Its `Workspace` class is a filesystem on top of DO synchronous SQL — single table `cf_workspace_<namespace>` with `path` (PK), `parent_path`, `type` (file/dir/symlink), `mime_type`, `size`, inline `content` OR `r2_key` over a configurable threshold. Symlinks supported.
     - It defines a runtime-neutral `StateBackend` interface with two implementations today: `InMemoryFs` (ephemeral) + `WorkspaceFileSystem` (durable, DO SQL + R2). The forthcoming Artifacts integration is almost certainly a third `StateBackend` impl behind the same API — i.e., FS surface stays the same; storage swaps underneath.
     - `@cloudflare/shell/git` is `isomorphic-git` reading/writing through that `FileSystem`. Real `git.clone({url})` / `git.commit` / `git.push({token})` over HTTPS to real remotes (GitHub etc.). MIT-licensed.
 - **The reframe:** the original "file-resource backend" question isn't "DO SQL vs Artifacts" anymore — it's "**do we adopt `@cloudflare/shell`'s `Workspace` API for our file resources?**" Adopting `Workspace` today gets us a filesystem + working git layer on DO SQL + R2; the Artifacts question reduces to "swap to the Artifacts-backed `StateBackend` when it ships" — a much smaller decision than picking a new storage product.
-- **User-developer UX is unchanged:** checkpoints-as-branches (§ "Checkpoint UX over true git" below) — we don't expose git/FS at the chat surface either way. The motivation for adopting `Workspace` is what it unlocks *underneath*.
+- **User-developer UX is unchanged:** named checkpoints (§ "Checkpoint UX over true git" below; the mechanism is open now that branching is deferred) — we don't expose git/FS at the chat surface either way. The motivation for adopting `Workspace` is what it unlocks *underneath*.
 - **What it unlocks: enterprise BYO-agent.** Power users and enterprises required to use their own agentic coding agents (Claude Code, Cursor, etc.) will expect a real git + filesystem surface, not the checkpoint metaphor. Concrete worked example: an enterprise standardized on GitHub Enterprise + Claude Code installs a webhook (or our GitHub Action) on push-to-`main` → Nebula calls `git.clone({url})` into a build-DO's `Workspace` → the build pipeline operates via the `state.*` FS API → pushes the built bundle to Galaxy for lazy deploy to Stars. This pipeline could in principle run today with `WorkspaceFileSystem` on DO SQL + R2 — no Artifacts dependency required.
 - **Re-litigate the original cost claim against `@cloudflare/shell` specifically.** The "WASM git is heavy/slow in Workers" reasoning above targeted a hand-rolled implementation. Now that Cloudflare ships an official `isomorphic-git`-on-DO impl with auth injection and a proper FS layer, the relevant question is: how does *that bundle* perform inside our DO budget? Probably YAGNI for the demo, but a focused evaluation once the package stabilizes (it's marked Experimental at 0.3.x) is worth doing before we lock in our own file-resource backend design.
 
@@ -196,13 +196,13 @@ If Studio is desktop-only, the editor's own hosting is moot; only the generated-
 ### Versioning and Branching
 
 - Resources have versioning baked in.
-- Dev-mode branching (single Star, in-place) covers session isolation for now. Production-grade prod→branch data migration is on hold.
-- Migrations use DWL so generated code can ship its own migrations. The branch-local runner is deferred for the demo (Option B) — `tasks/on-hold/nebula-lazy-schema-migrations.md`.
-- Each chat session works against its branch's Star. AI generates changes → tested on that branch in place → "deploys" via the preview mechanism. No iterating against production (`.main`) schema/data — the branch is fully isolated.
+- The dev Star (single Star, in-place) covers session isolation for now. Production-grade prod→dev data migration is on hold.
+- Migrations use DWL so generated code can ship its own migrations. The in-place lazy runner is deferred for the demo — `tasks/on-hold/nebula-lazy-schema-migrations.md`.
+- Each chat session works against the dev Star. AI generates changes → tested on the dev Star in place → "deploys" via the preview mechanism. No iterating against production schema/data — the dev Star is fully isolated.
 
 ## Code Generation
 
-- Language model generates the **ontology** — a `.d.ts` file with TypeScript types + annotations (validation, debounce, conflict resolvers; see the per-field annotation bullet below) — processed by the existing upload pipeline onto the branch Star. (There is no `ResourcesWorker` class; resources are served by the platform's `Resources` engine, configured entirely by the ontology.)
+- Language model generates the **ontology** — a `.d.ts` file with TypeScript types + annotations (validation, debounce, conflict resolvers; see the per-field annotation bullet below) — processed by the existing upload pipeline onto the dev Star. (There is no `ResourcesWorker` class; resources are served by the platform's `Resources` engine, configured entirely by the ontology.)
 - Language model generates UI artifacts as `.vue` Single-File Components (TypeScript, `<script setup>`) bound to the factory's Vue-reactive store (`store.resources.*` / `store.ui.*`), per the 2026-05-15 SFC pivot (§ Studio-Generated Artifacts above). NebulaClient stays out of component code — components import `{ store, client }` from the Studio-scaffolded `nebula.ts` bootstrap (§ Bootstrap files). Generation patterns documented in `website/docs/nebula/coding-your-ui.md`. (History: the 2026-05-09 "plain HTML + Alpine `x-*` directives on `@lumenize/state` paths" decision was superseded by the SFC pivot; `@lumenize/state`/StateManager is deleted in 5.3.7-v3.)
 - **Styling: DaisyUI** (Tailwind component library, MIT). Pure CSS, framework-free. Strong LLM training coverage; theme system maps onto per-tenant branding. **Hybrid asset pipeline** (long-term): precompiled bundle for Studio's preview/iteration loop, per-app Tailwind JIT (in Cloudflare Containers) at production deploy time. Demo ships precompiled-only; per-app build lands post-demo.
 - Generated code is TypeScript strings deployed to DWL isolates.
@@ -235,7 +235,7 @@ For the user-developer's ontology specifically (their resource type definitions,
 - **Chat-first, no editor.** See "Chat-first UI direction" subsection below — pinned 2026-05-15.
 - **Live preview with auto-refresh.** Specifically: a perpetual preview URL with a hot/auto/push refresh mechanism. Don't reinvent Vite HMR — pick the lightest mechanism that works.
 - Auto-refresh is also needed in production: UI and ontology versions are deployed lock-step, and we already specified browser refresh on version change. That refresh is lazy in production but **hot/push** in Studio. Same plumbing might generalize — open question.
-- "Deploy" in Studio is **not** `wrangler deploy`. It's our own deploy-to-dev process that updates the session's branch's Star DWL bundle and pushes the auto-refresh signal to clients connected to that branch.
+- "Deploy" in Studio is **not** `wrangler deploy`. It's our own deploy-to-dev process that updates the dev Star's DWL bundle and pushes the auto-refresh signal to clients connected to that Star.
 
 ### Chat-first UI direction (pinned 2026-05-15)
 
@@ -261,9 +261,10 @@ The user-developer cares about **behavior**, not code. Chat surfaces behavior; f
 
 **Checkpoint UX over true git:**
 
-- "Save this version" creates a named child branch from the current `.dev` (`tasks/nebula-branches.md`).
-- "Go back to when it worked" rolls the dev branch's state back to that named branch.
-- No git commits, no diffs, no merge conflicts visible to the user. Just named checkpoints. Branch-as-checkpoint is one of the nicer consequences of the existing branches design.
+- "Save this version" creates a named checkpoint of the current dev Star state.
+- "Go back to when it worked" restores the dev Star to that named checkpoint.
+- No git commits, no diffs, no merge conflicts visible to the user. Just named checkpoints.
+- **Mechanism is open.** The original design got checkpoints for free from branches ("save" = a named child branch; "restore" = roll back to it). With branching deferred (`tasks/on-hold/nebula-branches.md`) and the sandbox now a single dev Star (`tasks/dev-star.md`), checkpoints need another mechanism — likely a dev-Star snapshot (resources are already snapshot sequences per ADR-004, so the time-travel substrate exists) — or the whole feature defers post-demo. Pin scope during the Studio build.
 
 **No "drop down to the editor" escape hatch.** If the agent is wrong, the recourse is "explain again" — not user-edit. If we add an editor later as a power-user toggle, it's in a deliberate **debug/inspect mode**, NOT the default. Power-user toggle is aimed at internal dev + advanced customers; not the user-developer default and not on the demo path.
 
@@ -276,7 +277,7 @@ The user-developer cares about **behavior**, not code. Chat surfaces behavior; f
 
 ### Dev-mode Star: SFC compile + reload broadcast
 
-The `.dev` branch's Star is where SFC compilation and reload-broadcast live. It's user-local (Star DOs are placed in the colo of first call → near the Studio user), so the compile + reload loop has eyeball-to-colo RTT only — no cross-continent latency even for users far from Galaxy. Spike validated 2026-05-15.
+The dev Star is where SFC compilation and reload-broadcast live. It's user-local (Star DOs are placed in the colo of first call → near the Studio user), so the compile + reload loop has eyeball-to-colo RTT only — no cross-continent latency even for users far from Galaxy. Spike validated 2026-05-15.
 
 **What the dev Star does for dev mode:**
 
@@ -317,9 +318,9 @@ The AI has tools it can call, not just text generation:
 - `get_current_ontology` — fetch the pinned schema.
 - `subscribe_debug_namespace(namespace)` — focus the debug stream.
 - `unsubscribe_debug_namespace(namespace)` — drop noise.
-- `deploy_to_dev(artifacts)` — push generated code to the session's branch (typically `.dev`) Star's DWL bundle. Branches are first-class (see `tasks/nebula-branches.md`), so this is just a branch-targeted deploy. Post-demo, the same tool can target other branches with branch-scoped permissions.
+- `deploy_to_dev(artifacts)` — push generated code to the session's dev Star DWL bundle. The dev Star is an ordinary Star (`tasks/dev-star.md`), so this is just a Star-targeted deploy. Post-demo, the same tool can target additional dev Stars (`dev-<name>`) or branches with their own permissions.
 - `get_recent_errors(namespace?, since?)` — pull validation/runtime failures.
-- *(Future)* `propose_migration(from_version, to_version)` — exists in v1 form via the branch-local lazy migration runner.
+- *(Future)* `propose_migration(from_version, to_version)` — exists in v1 form via the Star-local lazy migration runner.
 
 This turns the AI from a code-generating chatbot into something that drives the loop.
 
@@ -373,7 +374,7 @@ Not strictly linear — nobody gets the data model right on the first try. The w
 
 - Server-side ORM enforcement of relationships (UI handles relationships client-side for now).
 - Production migration polish (cross-resource callbacks, version skew, error UX) — see `tasks/on-hold/nebula-5.5-schema-evolution.md`.
-- Cross-Star prod→branch data migration.
+- Cross-Star prod→dev data migration.
 - Long-term session archival/cleanup strategy.
 - Fine-tuned Nebula-specialized model.
 
@@ -385,7 +386,7 @@ Not strictly linear — nobody gets the data model right on the first try. The w
 - How much generated code should the user-developer see vs. be hidden behind the natural language interface?
 - When does session context get archived/summarized vs. kept verbatim?
 - Hosting decision (Workers Assets vs Galaxy-served): see § Studio UI hosting above.
-- **Built-artifact (compiled UI bundle) storage & versioning**: serving is still a Galaxy- or Star-hosted web-server-like interface either way (to set MIME types, CSP headers, branch-routing, etc.) — the question is what storage layer sits behind it. Candidates: Galaxy's own SQLite, Workers KV, R2, a `@cloudflare/shell` `Workspace` (DO SQL + optional R2 via the same library we're considering for the file-resource backend), or Cloudflare Artifacts once its content API and `@cloudflare/shell` Artifacts-backend ship (Aron on Discord 2026-06-04, preview "next week"). Decide this jointly with the file-resource backend question above — picking `@cloudflare/shell`'s `Workspace` for *both* layers would let the entire file pipeline (source files + built bundles) share one storage abstraction, and the eventual swap to an Artifacts-backed `StateBackend` would apply uniformly. Design Galaxy's version management API without coupling to a specific backend so this decision stays deferrable.
+- **Built-artifact (compiled UI bundle) storage & versioning**: serving is still a Galaxy- or Star-hosted web-server-like interface either way (to set MIME types, CSP headers, routing, etc.) — the question is what storage layer sits behind it. Candidates: Galaxy's own SQLite, Workers KV, R2, a `@cloudflare/shell` `Workspace` (DO SQL + optional R2 via the same library we're considering for the file-resource backend), or Cloudflare Artifacts once its content API and `@cloudflare/shell` Artifacts-backend ship (Aron on Discord 2026-06-04, preview "next week"). Decide this jointly with the file-resource backend question above — picking `@cloudflare/shell`'s `Workspace` for *both* layers would let the entire file pipeline (source files + built bundles) share one storage abstraction, and the eventual swap to an Artifacts-backed `StateBackend` would apply uniformly. Design Galaxy's version management API without coupling to a specific backend so this decision stays deferrable.
 
 ## Follow-On Work (post-demo)
 
@@ -395,8 +396,8 @@ See `tasks/nebula-scratchpad.md` § "Studio Follow-On" for the full list (traini
 
 Rough shape — refine during storyboard work:
 
-- [ ] User-developer can describe a data model in natural language and get a working ontology + resources on the branch Star
-- [ ] Generated code deploys to the session's branch (typically `.dev`) Star and passes schema validation
+- [ ] User-developer can describe a data model in natural language and get a working ontology + resources on the dev Star
+- [ ] Generated code deploys to the dev Star and passes schema validation
 - [ ] Preview shows live UI components backed by real Resources
 - [ ] Edit → regenerate → preview cycle is under 5 seconds
 - [ ] Cold-start interview produces a usable draft ontology in under 5 minutes (demo target)

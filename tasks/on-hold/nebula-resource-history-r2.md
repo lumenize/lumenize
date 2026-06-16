@@ -209,7 +209,7 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
 ## Out of scope
 
 - **Working-set ceiling.** If a Star's *live* (current-version) data alone exceeds ~10 GB, that's a
-  sharding/branching concern (already on the roadmap via `tasks/nebula-branches.md`), not this task.
+  sharding/branching concern (deferred post-demo — `tasks/on-hold/nebula-branches.md`), not this task.
   This task removes the **history** growth axis only.
 - **Granularity compression** of history (merging old snapshots) — already rejected as a premature
   optimization in `docs/nebula-resources-design.md`; debounce covers 90% of the benefit. R2's cheap

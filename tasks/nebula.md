@@ -51,13 +51,14 @@ Investor demo is the near-term focus.
 
 **Remaining critical path through the demo:**
 
-1. **Branches as first-class** — `{u}.{g}.{s}.{branch}` URL model; `.main` and `.dev` auto-created on Star birth; Galaxy gets `createBranch` + `listBranches` day one. Cross-branch data copy (origin) deferred. In-dev ontology edits: additive preserved by the parser, breaking edits reset `.dev` (lazy migration deferred — Option B). `tasks/nebula-branches.md`.
-2. **Resource metadata** (`@title`, `@description`, `@inverse`) — annotation conventions plus exposing the raw `.d.ts` source through Galaxy so Studio's AI has what it needs to generate UIs. `tasks/nebula-resource-metadata.md`.
-3. **vibesdk LLM-patterns extraction** — reading pass on Cloudflare's open-source vibe-coding platform for prompt/model-routing/tool/agent-state/AI-Gateway patterns; informs Studio + the in-app chat-feature block. Unblocked (its 5.3 gate shipped). `tasks/vibesdk-llm-patterns.md`.
-4. **Pre-Studio milestone** — Claude Code drives the generation loop directly against the live platform, validating code-generation viability before Studio's chat UI is built. Demo-able on its own as a fallback.
-5. **Studio** (renamed from "Vibe Coding IDE") — wraps the proven generation pattern in chat UI + tool orchestration. `tasks/nebula-studio.md`.
+1. **Structural DO scope isolation** — replace the TOFU `aud`-lock in `NebulaDO.onBeforeCall` with structural scope-from-instance-name for the **tier DOs** (Star/Galaxy/Universe). **Blocker for ≥2 Stars under one Galaxy:** under TOFU the shared Galaxy DO locks to the first caller's `aud` and rejects all others, so only the first Star under each Galaxy can fetch its ontology — the rest are non-functional. The dev Star and any production Star share a Galaxy, so this gates the full demo. Design-reviewed (three panels); 2026-06-16 review cut scope to **Fix 1 only** — the `<scope>:<local>` helper-naming grammar (Fix 2) had no real consumer and is deferred (`tasks/on-hold/nebula-scoped-helper-naming.md`), and the `ResourceHistory` fixture is removed. Ready to build. `tasks/nebula-do-scope-isolation.md`.
+2. **Dev Star** — Studio's isolated sandbox is a Star with the reserved 3rd-segment slug `dev` (`/{u}.{g}.dev/...`), not a branch — it reuses all existing Star machinery (3-tuple routing, per-Star SQLite/permissions, root-admin bootstrap). In-dev ontology edits: additive preserved by the parser, breaking edits reset the dev Star (lazy migration deferred). True URL-level branching is deferred post-demo (`tasks/on-hold/nebula-branches.md`). `tasks/dev-star.md`.
+3. **Resource metadata** (`@title`, `@description`, `@inverse`) — annotation conventions plus exposing the raw `.d.ts` source through Galaxy so Studio's AI has what it needs to generate UIs. `tasks/nebula-resource-metadata.md`.
+4. **vibesdk LLM-patterns extraction** — reading pass on Cloudflare's open-source vibe-coding platform for prompt/model-routing/tool/agent-state/AI-Gateway patterns; informs Studio + the in-app chat-feature block. Unblocked (its 5.3 gate shipped). `tasks/vibesdk-llm-patterns.md`.
+5. **Pre-Studio milestone** — Claude Code drives the generation loop directly against the live platform, validating code-generation viability before Studio's chat UI is built. Demo-able on its own as a fallback.
+6. **Studio** (renamed from "Vibe Coding IDE") — wraps the proven generation pattern in chat UI + tool orchestration. `tasks/nebula-studio.md`.
 
-Branch-local lazy / copy-on-read migrations were **deferred 2026-06-15 (Option B)** — no longer on the critical path; `tasks/on-hold/nebula-lazy-schema-migrations.md`.
+Branch-local lazy / copy-on-read migrations were **deferred 2026-06-15** — no longer on the critical path; `tasks/on-hold/nebula-lazy-schema-migrations.md`.
 
 **Parked / candidate work** lives in `tasks/on-hold/` (resource history on R2, schema-evolution polish, HTTP transport, docs & coverage, ORM + queries) and `tasks/icebox/` (the superseded capability-tickets premise). It's deliberately *not* enumerated as tracked phases here — pull a file into `tasks/` when a real need surfaces; until then its presence in the folder is the signal. Historical context for the demo-focus refactor is in `tasks/archive/nebula-task-files-refactor.md`.
 
@@ -84,7 +85,8 @@ Detail lives in each task file; this table is the index. **Numbering convention:
 | 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
 | 5.2 | TypeScript Validation & Ontology | **Complete** | `tasks/archive/nebula-5.2-tsc-validation.md` (overview) |
 | — | Nebula Frontend (Vue) — subscribe wrappers, `client.resources.*`, reactive store (formerly Phases 5.3 + 7 + 8) | **Complete** — v1–v5 merged to `main` 2026-06-15; §5.3.8 for-docs probes + deferred flash/debounce remain | `tasks/archive/nebula-frontend.md` |
-| — | Branches (URL-level, `.main` + `.dev` auto-created) | Active — demo critical path | `tasks/nebula-branches.md` |
+| — | Structural DO scope isolation (replace TOFU `aud`-lock; blocker for multi-Star-per-Galaxy) | Active — demo critical path (design-reviewed, ready to build) | `tasks/nebula-do-scope-isolation.md` |
+| — | Dev Star (reserved `dev` star slug; Studio's sandbox) | Active — demo critical path | `tasks/dev-star.md` |
 | — | Resource metadata (`@title`, `@description`, `@inverse`; raw `.d.ts` to AI) | Active — demo critical path | `tasks/nebula-resource-metadata.md` |
 | — | vibesdk LLM-patterns extraction | Unblocked — not started | `tasks/vibesdk-llm-patterns.md` |
 | — | Nebula Studio | Active — demo end-of-line goal | `tasks/nebula-studio.md` |
@@ -99,15 +101,15 @@ DAG tree inside each Star for organizing resources and controlling access. Phase
 
 Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, validation, schema evolution, and migrations. Inverted DWL architecture — DO calls out to DWL for guard decisions, resource config, and validation. Key APIs: `transaction()`, `subscribe()`, `read()`/`reads()`. Full design in `docs/nebula-resources-design.md`.
 
-**Resource history storage — decided: R2, not per-resource DOs (2026-06-08).** The unbounded-over-time growth axis (old snapshot blobs) moves off Star SQLite onto **R2**, keyed `<resourceId>/<validFrom>`, with Star keeping the small metadata rows as the eTag source of truth. This **abandons** the earlier "one `ResourceHistory` DO per resourceId" plan (capacity ceiling, map/reduce fan-out across instances, and DO write cost all argued against it). Design: `tasks/on-hold/nebula-resource-history-r2.md`. The `ResourceHistory` class (`apps/nebula/src/resource-history.ts`) survives only as the tenant-scoped-helper test fixture for `tasks/nebula-do-scope-isolation.md`.
+**Resource history storage — decided: R2, not per-resource DOs (2026-06-08).** The unbounded-over-time growth axis (old snapshot blobs) moves off Star SQLite onto **R2**, keyed `<resourceId>/<validFrom>`, with Star keeping the small metadata rows as the eTag source of truth. This **abandons** the earlier "one `ResourceHistory` DO per resourceId" plan (capacity ceiling, map/reduce fan-out across instances, and DO write cost all argued against it). Design: `tasks/on-hold/nebula-resource-history-r2.md`. The `ResourceHistory` class (`apps/nebula/src/resource-history.ts`) was a tenant-scoped-helper *test fixture* only; it is **being removed** by `tasks/nebula-do-scope-isolation.md` (Phase 2), which dropped its Fix 2 (helper-naming) scope — see `tasks/on-hold/nebula-scoped-helper-naming.md`.
 
 ### Nebula Frontend (Vue) — shipped
 
 Single-resource subscriptions, NebulaClient subscribe wiring + the `client.resources.*` namespace, and the reactive store all shipped as the **`@lumenize/nebula/frontend`** Vue factory (merged to `main` 2026-06-15; formerly tracked as Phases 5.3 + 7 + 8). NebulaClient's base (two-scope model, refresh path, NebulaClientGateway active-scope verification) came from earlier auth work; the factory builds its reactive store on **Vue 3 reactivity** (`@vue/reactivity` + `effectScope`) behind a path-aware Proxy. There is **no `@lumenize/state` / `@lumenize/ui` / `@lumenize/router`** — that JurisJS-derived three-package plan was dropped in the 2026-05-15 Vue/SFC pivot (`@lumenize/state` was published, then deleted with zero importers). Remaining work + the full design live in `tasks/archive/nebula-frontend.md`; the user-facing contract is `website/docs/nebula/coding-your-ui.md` + `api-reference.md`. Discovery-first login, proactive token refresh, WebSocket keepalive, and scope-switching UX are deferred post-demo.
 
-### Schema evolution in dev (deferred — Option B)
+### Schema evolution in dev (deferred)
 
-The branch-local in-place lazy / copy-on-read migration runner is **deferred for the demo (Option B, 2026-06-15)** — `tasks/on-hold/nebula-lazy-schema-migrations.md`. Instead, on an ontology change in `.dev`, additive edits stay readable via the parser's `__fillDefaults` and breaking edits reset the `.dev` branch to empty (see `tasks/nebula-branches.md` § *In-dev data lifecycle*). Production-polish schema evolution, capability tickets, and R2 history are also parked (see the Demo Roadmap's parked-work note).
+The in-place lazy / copy-on-read migration runner is **deferred for the demo (2026-06-15)** — `tasks/on-hold/nebula-lazy-schema-migrations.md`. Instead, on an ontology change in the dev Star, additive edits stay readable via the parser's `__fillDefaults` and breaking edits reset the dev Star to empty (see `tasks/dev-star.md` § *In-dev data lifecycle*). Production-polish schema evolution, capability tickets, and R2 history are also parked (see the Demo Roadmap's parked-work note).
 
 ### Nebula Studio
 
