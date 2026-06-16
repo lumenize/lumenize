@@ -1,6 +1,6 @@
 # Nebula DO Scope Isolation — Structural, not Trust-On-First-Use (tier DOs)
 
-**Status**: **BUILT 2026-06-16 (Fix 1 only) — awaiting commit.** Phases 0–3 complete on `feat/nebula-studio`; full `baseline` suite green (204 passed), `unit`/`frontend` green (188 passed), `npm run type-check` clean. Replace the TOFU `aud`-lock in `NebulaDO.onBeforeCall` with **structural scope-from-instance-name** for the tier DOs (Star / Galaxy / Universe). Listed in `tasks/nebula.md`.
+**Status**: **✅ COMPLETE 2026-06-16 (Fix 1 only) — committed `7c83407` on `feat/nebula-studio`.** Phases 0–3 done; `baseline` 204 / `unit`+`frontend` 188 / `mesh` 389 / `fetch` 21 green, `npm run type-check` clean. (A mesh-framework `executeEnvelope` uniform-`{$error}` fix rode along in the same commit.) Kept in `tasks/` (not archived) until after the demo, per its critical-path coupling. Replace the TOFU `aud`-lock in `NebulaDO.onBeforeCall` with **structural scope-from-instance-name** for the tier DOs (Star / Galaxy / Universe). Listed in `tasks/nebula.md`.
 
 ## Build notes (2026-06-16)
 - **New canonical matrix file** [scope-isolation.test.ts](../apps/nebula/test/test-apps/baseline/scope-isolation.test.ts): T1, T1-canary, T2, T3, T5(×2), T6, T-platform, T-malformed, B5(×2), T-migration, T-stamp, T-local-skip. `scope-binding.test.ts` was **rewritten** (per its per-block dispositions) into the tier-binding positive/negative grid (star/galaxy/universe), `ResourceHistory` dropped. The vacuous `guards.test.ts` no-aud placeholder (`expect(true).toBe(true)`) was deleted (superseded by T5).
