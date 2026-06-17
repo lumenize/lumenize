@@ -223,6 +223,45 @@ export default defineConfig({
           testTimeout: 30000,
         },
       },
+      // Secrets-facet spike project (tasks/spike-outside-world-secrets.md Stage 2):
+      // a minimal capability-broker DO that loads a throwaway facet via the
+      // Worker Loader and injects a resolved secret through its custom env. Own
+      // wrangler (LOADER binding + the SecretBrokerDO) so it doesn't touch the
+      // baseline app. NEBULA_SECRETS_KEY is a test-only 32-byte AES key (bytes
+      // 0..31, base64) in miniflare.bindings — never in wrangler vars (it's a
+      // secret). Not in the `npm test` project list; run explicitly with
+      // `npx vitest run --project secrets-facet`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/secrets-facet/test/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              NEBULA_SECRETS_KEY: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
+            },
+          },
+        })],
+        test: {
+          name: 'secrets-facet',
+          include: ['test/test-apps/secrets-facet/**/*.test.ts'],
+        },
+      },
+      // Egress-choke spike project (tasks/spike-outside-world-outbound.md): a
+      // facet loaded with an EgressBroker WorkerEntrypoint wired as its
+      // globalOutbound, proving a bare fetch() is routed through the Nebula
+      // choke point (allow-list + SSRF deny) with no bypass. Own wrangler
+      // (LOADER + EgressProbeDO + the self-ref EGRESS service binding). Not in
+      // `npm test`; run with `npx vitest run --project egress-choke`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/egress-choke/test/wrangler.jsonc' },
+        })],
+        test: {
+          name: 'egress-choke',
+          include: ['test/test-apps/egress-choke/**/*.test.ts'],
+        },
+      },
       // Browser project — Node-side vitest tests using @lumenize/testing's
       // Browser class (cookie-aware fetch + CORS validation + WebSocket +
       // multi-tab Context with sessionStorage). Talks over the network to an
