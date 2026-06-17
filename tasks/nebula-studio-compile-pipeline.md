@@ -1,56 +1,81 @@
-# Nebula Studio — Client-bundle Compile/Deploy Pipeline (build-seq #1)
+# Nebula Studio — Dev-preview compile + serve (DevStar/Star mechanics)
 
-**Status**: Ready for `/review-task` → `/build-task`. Plan derived from the Kimi-UI-gen-viability investigation (2026-06-16).
-**Phase**: Studio build-seq #1 (first — unblocks the rest of Studio).
+**Status**: Design pinned (framing-reviewed 2026-06-17). Scope: the DevStar/Star **compile + serve + reload** mechanics, which build and test independently. The **distribution + durability** half (Galaxy app-version registry, publish/lazy-pull, dev source-durability, Studio coordination, prod clean-URL / custom-domain serving) is owned by **`tasks/nebula-app-versioning.md`** — a prerequisite for the *end-to-end* loop.
+**Phase**: Studio build-seq #1a (the DO-side mechanics; #1b = nebula-app-versioning.md).
 **App**: `apps/nebula/` — **Mesh platform layer**: never raw primitives; solve raw needs via a mesh hook (`.claude/rules/mesh.md`, `durable-objects.md`).
-**Parent**: `tasks/nebula-studio.md` (§ *Build sequencing* #1, § *Dev-mode Star*, § *Architecture*).
+**Parent**: `tasks/nebula-studio.md` (§ *Dev-mode Star*, § *Architecture*).
 
 **Prerequisites (built):**
 - dev Star — `tasks/dev-star.md`: `DevStar extends Star` with `deployToDev()` (eager ontology apply) + `resetDevData()`.
-- Galaxy ontology version registry (`appendOntologyVersion` / `getLatestOntologyVersion`, `compileOntologyVersion`) + the Star lazy cache-miss apply path (`star.ts` `#installState` / `applyFetchedState`).
+- The Star lazy cache-miss apply path (`star.ts` `#installState` / `applyFetchedState`) and the Galaxy ontology registry. **Note:** that registry is being broadened to an *app*-version registry in `nebula-app-versioning.md`; this task only needs the inherited apply/serve machinery, not the registry's final shape.
+- The `onRequest()` lifecycle hook — **already implemented** on `LumenizeDO` ([lumenize-do.ts:184](../packages/mesh/src/lumenize-do.ts)): the base `fetch()` inits identity from headers, then delegates to `onRequest()` if a subclass implements it (else 501). Nothing in `apps/nebula` implements it yet.
+- `routeDORequest` path routing ([packages/routing](../packages/routing)): a URL `/{binding}/{instance}/…` routes to a DO; the binding segment smart-matches (kebab `dev-star` → `DEV_STAR`).
 
-**Proven groundwork (Stage A of the viability spike):** `apps/nebula/spike/sfc-devstar-loop/src/compile-module.ts` — `compileSFCToModule()` (`@vue/compiler-sfc` macro resolution → `typescript` transpile → module assembly), tested in `test-node/compile-module.test.ts` (mutation-checked). The spike also holds the `@vue/compiler-sfc` compile + hibernating-WS reload-broadcast pattern to port (see its `RESULTS.md`).
+**Proven groundwork (Stage A of the viability spike):** `apps/nebula/spike/sfc-devstar-loop/src/compile-module.ts` — `compileSFCToModule()` (`@vue/compiler-sfc` macro resolution → `typescript` transpile → module assembly), tested in `test-node/compile-module.test.ts` (mutation-checked). The spike also holds the `@vue/compiler-sfc` compile + WS reload-broadcast pattern (see its `RESULTS.md`); the reload mechanism is **redesigned** here (not ported — see Phase 3).
 
 ## Goal
 
-Wire the Studio dev loop's compile→bundle→deploy path: compile `.vue` SFCs in the **dev Star** → publish the compiled UI bundle to the **Galaxy, versioned alongside the ontology** → lazy-pull to Stars via the **same cache-miss mechanism the ontology already uses**. This wires the compile→bundle into the Galaxy/Star deploy path that nebula-frontend §5.3.7-v5 punted to "Studio's deploy work."
+The DevStar/Star half of the Studio dev-preview loop: **compile `.vue` SFCs inside the user-local dev Star → serve the running app over HTTP from the Star → reload the preview when a compile lands.** Where the served bundle *comes from* (DevStar-local here; lazily pulled from Galaxy for the real loop) and how source is kept durable are owned by `tasks/nebula-app-versioning.md`; `onRequest()` serves *whatever bundle is resident in Star storage*, agnostic to how it got there.
 
-## Hard constraint (carry into every phase)
+## Decisions pinned (2026-06-16 / serving seams 2026-06-17)
 
-Raw `import ts from 'typescript'` **crashes the workerd isolate** ("Worker exited unexpectedly") — verified in the spike. So the transpile step cannot import tsc directly inside a DO. **Bundle tsc for workerd via the validator's proven pattern** — `packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs` (its header is the canonical doc; emits `dist/deps.bundle.mjs`). The `compileSFCToModule` logic is identical regardless of where tsc runs — only the import path changes. (`@vue/compiler-sfc` itself runs fine in workerd — proven by the spike's kill-criterion test.)
+- **Serve via the existing `Star.onRequest()` hook — do NOT override `fetch()`.** The base `fetch()` already inits identity + delegates (the Cloudflare `agents` `onRequest` pattern, which we already implement). `onRequest` is **synchronous** (`Response`, not `Promise`) — it reads the bundle straight from sync storage. **Consequence:** `onRequest` can only serve an **already-resident** bundle; an async lazy-pull cannot complete inside it. Fine for dev (the bundle is made resident by `deployToDev`/compile before the preview refreshes); cold/cache-miss-during-GET behavior is a prod seam owned by 1b.
+- **Serving lives on `Star` (the base class), reusable in prod.** A prod Star serves its tenant's deployed app the same way; only the *source of the bundle* differs (dev: local/just-compiled; prod: lazy-pulled). The **dev-cycle-only** bits (`compileSFC`, reload-broadcast) stay on `DevStar`.
+- **Serving URL & route (falls out of `routeDORequest`).** The preview loads at **`/{dev-star}/{u}.{g}.dev/…`** — `routeDORequest` parses binding `dev-star` (smart-matches `DEV_STAR`) + instance `{u}.{g}.dev`, and the remainder is the app's own path. **Deep links work**: `/{dev-star}/{u}.{g}.dev/items/42` parses the same way (rest = `/items/42`), reaches `onRequest`, which strips the first two URL path segments (the injected binding header is the *normalized* `DEV_STAR`, not the kebab `dev-star` in the URL) and does **pure SPA fallback** — any non-asset sub-path serves `index.html`, no 404. The served app's **base path is `/{dev-star}/{u}.{g}.dev/`** (the SPA router + relative asset URLs are configured to it; `onRequest` can hand the app its base). *Clean URLs / custom domains are a prod concern → `nebula-app-versioning.md`.*
+- **The static shell GET is public — no JWT gate on `onRequest`.** Browsers don't attach `Authorization` headers to document/iframe navigations or sub-resource (JS/CSS/module) loads, so a header-based gate would reject the very loads it's meant to allow; only JS-initiated `fetch`/WS can carry a token, and **those are already gated** (`onBeforeConnect` JWT-verifies the WS; `onBeforeCall` gates every mesh resource op). The shell carries only **public frontend code + ontology types** — every client gets it anyway; the **data** is gated downstream. So the entrypoint's currently-501 direct-DO `onBeforeRequest` ([entrypoint.ts:74](../apps/nebula/src/entrypoint.ts)) is opened to pass GETs through to `onRequest` with **no JWT**. The shell joins `/auth/*` as the only unauthenticated routes.
+- **Serving is a thin SPA host:** read the resident bundle → correct **MIME types** → **strict CSP, no `unsafe-eval`** (render functions are precompiled server-side, so the browser gets runtime-only Vue with no compiler — [using-vue.md § Security](../website/docs/nebula/using-vue.md)) → SPA fallback (above).
+- **Bundle storage contract (so the writer and `onRequest` agree).** The compiled app is stored in Star storage under a **named, documented shape** — e.g. `{ indexHtml, modules: Record<path, esm>, vueRuntime, /* assets later */ }` (exact keys decided in build). **Phase 1's compile method writes this shape; `onRequest` reads it; 1b's `#installState` (when it installs a pulled bundle) writes the same shape.** In 1a this storage is a **provisional dev-local artifact** that 1b's app-version `#installState` supersedes — don't over-invest in a durable schema here.
+- **Bootstrap scope is server-injected (no browser-trusted value).** `onRequest` templates the served bootstrap (`nebula.ts`/`index.html`) with `appVersion`, `authScope` (parent galaxy), and **`activeScope` = `this.lmz.instanceName` (`{u}.{g}.dev`)** — derived server-side from the instance it's serving. This is the single choke point that prevents the wrong-Star footgun: a preview missing `activeScope={u}.{g}.dev` would have `#starBinding()` silently pick `STAR` not `DEV_STAR` ([dev-star.md:55](../tasks/dev-star.md)). `createNebulaClient` requires `authScope`/`appVersion` and defaults `activeScope` to `authScope`, so all three must be injected.
+- **Auth flow is reused unchanged.** The served app authenticates via the existing `/auth` flow (`routeNebulaAuthRequest`): the **singleton** `NebulaAuthRegistry` for discovery + per-instance `NebulaAuth` DOs for tokens. The dev user is a Galaxy admin — one Galaxy-level cookie (`/auth/{u}.{g}`, wildcard) + a refresh with `activeScope={u}.{g}.dev` yields the dev token (the documented "Admin active-scope switching" flow, no new magic link). Auth DOs are separate from the Star, so login **survives a DevStar wipe**.
+- **tsc transpile is spike-first, not a hard constraint** (see below). **`nodejs_compat_v2`** must go on the production wrangler (Phase 1).
+
+## Phase-1 spike — **Exploratory, mechanism TBD** (prior art: `bundle-tsc.mjs`): does `transpileModule` need tsc bundled for workerd?
+
+A raw `import ts from 'typescript'` (full default import) **crashes the workerd isolate** (spike-verified), but the only tsc surface this pipeline uses is `ts.transpileModule` — syntactic-only, no `Program`/`CompilerHost`/`fs` — which the plan's own source judges *"likely runs with no bundling"* (`tasks/kimi-ui-gen-viability.md:53`). So this is **discover-then-record**, resolved at the start of Phase 1. **Deliverable: the answer + a findings note.**
+
+1. Try a narrow `import { transpileModule } from 'typescript'` in the DevStar pool-workers test.
+2. **Only if it crashes**, bundle tsc via the validator's pattern (`packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs`; the `transpileModule`-only use likely needs neither `@typia/transform` nor the ~3–4 MB lib bundle) — *and* decide how `apps/nebula` obtains it **without a dev-loop build** (the validator's `dist/deps.bundle.mjs` is gitignored + `npm run bundle`-only, so a fresh-clone CI run lacks it: commit it, a vitest `globalSetup`, or reuse the validator's).
+
+(`@vue/compiler-sfc` itself runs in workerd — but **only under `nodejs_compat_v2`**; see Phase 1.)
 
 ## Phases
 
 ### Phase 1 — Productionize the compile pipeline into `DevStar`
-Port the proven compile logic + the spike's reload-broadcast into `apps/nebula` and run it in the dev Star DO.
-- Port `compileSFCToModule` into `apps/nebula` (a helper module `DevStar` imports), with **tsc bundled for workerd** (bundle-tsc pattern). `@vue/compiler-sfc` + `typescript` become `apps/nebula` deps.
-- Add the compile method on `DevStar` (`@mesh()` so Studio's client calls it via `lmz.call`); port the hibernating-WS reload-broadcast (preview clients subscribe to a reload signal; compile triggers broadcast via the existing Subscriber/`svc.broadcast` machinery — no separate WS pool).
-- **Success criteria:** a `.vue` SFC (incl. `lang="ts"`) compiles to a runnable ESM **inside the DevStar DO** (pool-workers test), residual TS stripped; a reload broadcast reaches a subscribed preview client. The tsc-in-workerd bundling that crashed on raw import is verified working.
+Port the proven compile logic into `apps/nebula` and run it in the dev Star DO.
+- Port `compileSFCToModule` into `apps/nebula` (a helper module `DevStar` imports). `@vue/compiler-sfc` + `typescript` become `apps/nebula` deps. **Resolve the tsc-in-workerd question first** (§ above): bare `transpileModule` if it runs; bundle only if it crashes — and if bundling is needed, prove the bundle is obtainable **without a dev-loop build** (a fresh-clone CI compile test that passes with **no prior `npm run bundle`**).
+- **Reconcile `compatibility_flags` across *every* wrangler that loads `apps/nebula` DOs.** Production `wrangler.jsonc` has **none**; the test/baseline wranglers carry `nodejs_compat_v2`; `test/browser/worker` carries plain `nodejs_compat` — so a green test can validate under a *different* flag than prod runs. Pick one (the spike confirms whether `@vue/compiler-sfc` needs `_v2` or plain), apply it everywhere, and confirm it doesn't perturb the Galaxy/Star/Universe runtime.
+- Add the compile method on `DevStar` (`@mesh(requireAdmin)` — Studio's admin client calls it via `lmz.call`; `requireAdmin` also satisfies DevStar's `@mesh`-admin freeze, dev-star.md P3); it **writes the compiled module(s) to Star storage in the bundle-storage-contract shape**, with the **storage primitive chosen deliberately** (a KV value vs a `Bundle` SQLite table — note the per-compile write cost of rewriting the whole bundle). Stage the fixed scaffold shell (`index.html`, `main.ts`, `nebula.ts` per nebula-studio.md §Bootstrap) + runtime-only Vue alongside, so a complete servable bundle is resident. **Note:** bundle + scaffold live in Star storage, which `resetDevData()`'s `deleteAll()` wipes — after a breaking-edit reset the dev Star serves nothing until the next `compileSFC` (acceptable: a reset is always followed by a recompile).
+- **Success criteria:** a `.vue` SFC (incl. `lang="ts"`) compiles **inside the DevStar DO** (pool-workers test) to a runnable ESM — *imported in-test, a known export is callable, and a specific source annotation (`defineProps<{…}>` / a `lang="ts"` type) is absent from the emitted JS* (carrying the spike's `compile-module.test.ts` bar, not a length check) — persisted under the documented key/shape via sync storage (`onRequest` reads it per-request, no mutable-instance cache). Every `apps/nebula` wrangler carries the same `compatibility_flags`. Whether `transpileModule` needed bundling is recorded (and if so, the fresh-clone compile test above passes).
 
-### Phase 2 — Galaxy bundle versioning
-Publish the compiled UI bundle to the Galaxy, versioned in lock-step with the ontology.
-- Extend the Galaxy append-only registry to store the compiled bundle alongside each ontology version (parallel to `appendOntologyVersion`, or a combined app-version record). `getLatest*` returns the bundle with the ontology version.
-- **Success criteria:** publishing version N stores ontology + bundle atomically under N; `getLatest` returns both; version numbers stay in lock-step.
+### Phase 2 — Serve the running app from `Star.onRequest()`
+Implement the (already-declared) `onRequest()` hook on the **base `Star`**.
+- **Bound the opened gate.** Open the entrypoint's currently-501 direct-DO `onBeforeRequest` to pass through **only `GET`/`HEAD` to a Star/DevStar serving target** — `405` other methods, `404` other bindings. (Unbounded it fires for *every* method and *every* smart-matched binding, routing ungated `POST`/`PUT`/`DELETE` into `onRequest` and exposing the raw `NEBULA_AUTH`/`NEBULA_AUTH_REGISTRY` GET handlers — `/magic-link`, `/accept-invite`, `/approve` — as an ungated probe surface.) The static GET itself is **ungated** (no-gate decision); `onRequest` never runs the mesh executor, so `onBeforeCall`/`onBeforeConnect` are genuinely bypassed only for the static read.
+- `onRequest(request)` reads the resident bundle (the documented contract), **strips the first two path segments of `new URL(request.url).pathname`** — NOT the injected binding header, which is the *normalized* `DEV_STAR` and won't match the kebab `/dev-star/` in the URL — looks the remainder up **by exact match** in the bundle's asset map (no prefix/traversal read), returns it with correct **MIME** + **strict CSP (no `unsafe-eval`)**, and **SPA-falls-back to `index.html`** only on a miss.
+- **Server-inject** `appVersion` + `authScope` + `activeScope={u}.{g}.dev` (from `this.lmz.instanceName`) into the served bootstrap.
+- **Success criteria:** `GET /{dev-star}/{u}.{g}.dev/` returns the resident shell + bundle with correct headers, served **without** a JWT; the staged Vue is the **runtime-only build** (no template-compiler entry / no `new Function` path) — assert that, not just header omission; `GET /{dev-star}/{u}.{g}.dev/some/deep/link` returns `index.html` (SPA), not 404; the injected `activeScope === this.lmz.instanceName` **exactly** with third segment `dev` (negative case: an instance without the `dev` slug surfaces the guard, not a silent STAR route); a non-GET to a serving binding and a GET to a non-serving binding (e.g. `GALAXY`) are both rejected.
 
-### Phase 3 — Star lazy-pull + serve
-Stars pick up the bundle via the same cache-miss→getLatest path as the ontology, and serve it.
-- The bundle rides the existing cache-miss continuation (`star.ts` → `getLatestOntologyVersion` → `applyFetchedState`); extend `#installState` to also install the bundle.
-- Serve the bundle (web-server-like: MIME types, CSP allowing `unsafe-eval` for template compilation, routing). Decide the serving surface (Galaxy- vs Star-hosted — see nebula-studio.md § *Studio UI hosting*, an open question).
-- **Success criteria:** a Star with no cached bundle pulls version N on first request and serves it; a newly published version is picked up lazily.
+### Phase 3 — Reload channel + local end-to-end preview
+The preview **cannot** subscribe to a "reload marker" via resource subscriptions: `Subscriptions.subscribe` hard-throws unless the target is a pre-existing, typeName-matched, read-permitted resource ([subscriptions.ts:109](../apps/nebula/src/subscriptions.ts)), and a compile that writes a bundle to storage triggers no resource broadcast (`#broadcast` only fans out mutated resources of a committed transaction). Instead, model a **non-resource per-Star reload channel exactly on `subscribeTree`** ([star.ts:574](../apps/nebula/src/star.ts) — registers a client in `#treeSubscriptions` with *no* resource/typeName/`appVersion` checks, fans out via `svc.broadcast` in `#onDagChanged`):
+- On **base `Star`** (serving infrastructure, reusable in prod — and so it stays *off* DevStar's `@mesh`-admin freeze, dev-star.md P3): add `subscribeReload()` `@mesh()` + a `#reloadSubscriptions` registry (`TreeSubscriptions`-style) + a `protected broadcastReload()` (mirrors `#onDagChanged`: `svc.broadcast(targets, ctn<NebulaClient>().handleReload(), { onResult })` with drop-on-failed-broadcast cleanup) + a client `handleReload` handler that re-fetches.
+- **`DevStar.compileSFC`** calls `this.broadcastReload()` after persisting the bundle. Drop the "Subscriber" / "reserved marker" framing — neither exists in the codebase.
+- **Success criteria (pool-workers, no real browser):** a `NebulaClientTest` stub `subscribeReload`s and it does **not** throw the resource-existence / typeName / `OntologyStale` errors a resource subscribe would; then edit a `.vue` → `compileSFC` → bundle stored → the stub's `handleReload` fires (capable-of-failing: it runs only when the real `svc.broadcast` executes) → a subsequent `onRequest` re-fetch returns the **new** bundle bytes. (The real browser preview against the live store is the deferred T3 path.)
 
-### Phase 4 — Wire the dev loop (`deploy_to_dev`)
-- `deploy_to_dev`: (1) publish ontology+bundle to the Galaxy registry; (2) `DevStar.deployToDev()` eager-applies (exists); (3) compile + reload-broadcast to the preview.
-- **Success criteria:** an end-to-end dev cycle — edit a `.vue` → compile in DevStar → preview reloads — under the ~3 s target; the dev Star serves the freshly-compiled bundle.
-
-### Phase 5 — Spike teardown
-Once the pipeline is ported and green:
+### Phase 4 — Spike teardown
+Once the mechanics are ported and green:
 - Delete `apps/nebula/spike/sfc-devstar-loop/`; delete `tasks/archive/spike-sfc-dev-cycle.md`; remove the spike from the root `package.json` `workspaces`; `wrangler delete --name spike-sfc-galaxy-loop`.
 - **Success criteria:** spike removed; `npm install` clean; no references to the spike remain.
 
-## Out of scope (this build)
-- Per-app Tailwind JIT (DaisyUI **precompiled** bundle only for the demo — post-demo).
-- The agentic generation loop (Studio proper) — this is the deploy/compile substrate it rides on.
-- T3 "runs/reacts" full preview against the live reactive store (frontend-factory integration) — here the compiled module is verified structurally + via the reload broadcast.
+## Out of scope (→ `tasks/nebula-app-versioning.md`)
+- The Galaxy **app-version registry** (ontology + bundle + assets, lock-step) and publish API.
+- **Dev distribution via the Star's lazy-pull** (Studio publishes to Galaxy → forces a browser refresh → the Star lazy-pulls the new version) — and **prod lazy-pull/serving to end-users**, incl. **clean-URL / custom-domain** routing.
+- **Parallel source durability** to Galaxy + the Studio coordination/re-hydrate seam.
+- Static-asset layout in the app-version record (1a stages a fixed scaffold shell + runtime Vue; the general asset story is 1b).
+- The full end-to-end `deploy_to_dev` wiring (it consumes the above).
+
+## Out of scope (post-demo)
+- Per-app Tailwind JIT (DaisyUI **precompiled** bundle only for the demo).
+- The agentic generation loop (Studio proper).
+- T3 "runs/reacts" full preview against the live reactive store (frontend-factory integration) — here the compiled module is verified structurally + via the reload signal.
 
 ## References
-`tasks/nebula-studio.md` (§ Build sequencing, § Dev-mode Star, § Architecture); `tasks/dev-star.md`; the viability spike `apps/nebula/spike/sfc-devstar-loop/` (`RESULTS.md`, `src/compile-module.ts`); `packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs` (the tsc-in-workerd bundling pattern).
+`tasks/nebula-app-versioning.md` (the distribution/durability half — prerequisite for the end-to-end loop); `tasks/nebula-studio.md` (§ Dev-mode Star, § Architecture, § Authoring environment, §Bootstrap files); `tasks/dev-star.md`; the viability spike `apps/nebula/spike/sfc-devstar-loop/` (`RESULTS.md`, `src/compile-module.ts`); `packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs` (the tsc-in-workerd bundling pattern); `website/docs/nebula/auth-flows.md` + `packages/nebula-auth/README.md` (the auth flow the served app reuses); `packages/routing` (`routeDORequest`/`parsePathname`, the serving route).

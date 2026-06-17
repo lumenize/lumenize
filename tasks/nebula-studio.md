@@ -41,12 +41,14 @@ The AI generates two artifacts that must stay coherent — the UI must reference
 
 Studio seeds a small fixed set of bootstrap files on app creation — identical across apps, not authored by code generation. They live in the app's file space (§ *Files as resources*) and keep the LLM focused on `.vue` components + ontology (the coding-your-ui doc omits them deliberately).
 
-- **`nebula.ts`** — initializes the client + store once; top-level `await ready` so the app mounts only after the first connection (redirect to `/login` on terminal auth failure). All config except `appVersion` auto-detects from the browser env, so Studio substitutes one variable. **This is the one bootstrap file the LLM may extend** — per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) and first-run resource bootstrap (read-then-create of per-user containers via `client.resources.createAndSubscribe(rt, rid, nodeId, value)`, added 2026-06-16) belong here.
+- **`nebula.ts`** — initializes the client + store once; top-level `await ready` so the app mounts only after the first connection (redirect to `/login` on terminal auth failure). `baseUrl` auto-detects to the page origin; `appVersion`, `authScope`, and `activeScope` are **injected by the serving layer** (the `Star.onRequest` injection contract is owned by `tasks/nebula-studio-compile-pipeline.md` § *Decisions pinned*). **This is the one bootstrap file the LLM may extend** — per-type conflict resolvers (`client.resources.onTransactionResourceResolution(...)`) and first-run resource bootstrap (read-then-create of per-user containers via `client.resources.createAndSubscribe(rt, rid, nodeId, value)`, added 2026-06-16) belong here.
 
   ```typescript
   import { createNebulaClient } from '@lumenize/nebula/frontend';
   export const { client, store, ready } = createNebulaClient({
-    appVersion: __APP_VERSION__,  // Studio substitutes at deploy time
+    appVersion: __APP_VERSION__,    // serving layer substitutes at serve time
+    authScope: __AUTH_SCOPE__,      // parent galaxy {u}.{g}
+    activeScope: __ACTIVE_SCOPE__,  // {u}.{g}.dev in dev preview; the deployed star in prod
   });
   try { await ready; } catch { window.location.assign('/login'); }
   ```
@@ -54,7 +56,7 @@ Studio seeds a small fixed set of bootstrap files on app creation — identical 
 - **`main.ts`** — Vue entrypoint (`createApp(App).mount('#app')`, imports `./nebula`). Never edited after scaffolding.
 - **`index.html`** — minimal shell (`<div id="app">` + module script). Never edited after scaffolding.
 
-**Dev vs prod differ only in `__APP_VERSION__`:** `'dev'` (or build-stamped) during iteration; the version matching the deployed ontology bundle at deploy time, so the server enforces app/ontology lock-step.
+**Dev vs prod differ in the injected scope + version:** the dev preview gets `activeScope={u}.{g}.dev` + `appVersion='dev'` (or build-stamped); a deployed app gets its star's `activeScope` + the version matching the deployed app bundle, so the server enforces app/ontology lock-step.
 
 ### Code-generation details
 
@@ -130,7 +132,7 @@ The dev Star is the SFC compile + reload-broadcast site (build-sequencing #1). I
 
 "Deploy" in Studio is **not** `wrangler deploy` — it's deploy-to-dev: update the dev Star's DWL bundle + push the auto-refresh signal to connected clients.
 
-**Spike teardown (after porting ~250 LOC into `DevStar`):** delete `apps/nebula/spike/sfc-devstar-loop/`; delete `tasks/archive/spike-sfc-dev-cycle.md`; remove the spike from the root `package.json` `workspaces` list; `wrangler delete --name spike-sfc-galaxy-loop`.
+**Spike teardown** is owned by build-seq #1a Phase 4 (`tasks/nebula-studio-compile-pipeline.md`) — don't duplicate the checklist here.
 
 ## Iteration loop
 
@@ -183,6 +185,8 @@ Rough shape — refine during storyboard:
 
 ## Build sequencing
 
-1. **Client-bundle deploy/compile pipeline** (first — it unblocks the rest). Compile `.vue` SFCs in `DevStar` (port the spike) → publish the bundle to the **Galaxy, versioned alongside the ontology** → lazy-pull to Stars via the SAME cache-miss mechanism the ontology already uses (`galaxy.ts`/`star.ts` → `getLatestOntologyVersion`). See § *Dev-mode Star* and § *Architecture*. Wires the compile→bundle into the Galaxy/Star deploy path that §5.3.7-v5 punted to "Studio's deploy work." **Detailed 5-phase plan: `tasks/nebula-studio-compile-pipeline.md`** (ready for `/review-task`).
+1. **Dev-preview compile + serve + distribution** (first — it unblocks the rest). Reviewed + reshaped 2026-06-16 into two companion files:
+   - **#1a — DevStar/Star mechanics: `tasks/nebula-studio-compile-pipeline.md`.** Compile `.vue` SFCs in `DevStar` (port the spike) → serve the running app from `Star.onRequest()` (the already-built lifecycle hook; not a `fetch()` override; strict CSP, SPA fallback) → reload-broadcast on each save. Build-now, spike-proven; the three mechanics test independently.
+   - **#1b — App versioning + save + distribution: `tasks/nebula-app-versioning.md`.** Broadens the ontology registry to an **app-version** record (ontology + bundle + assets, lock-step); dev distribution **reuses the Star's lazy-pull** (Studio publishes to Galaxy → forces a browser refresh → the Star pulls); **parallel source durability** to Galaxy (so a breaking-edit wipe never loses work); Studio coordinates the seam (don't trust browser storage). Prerequisite for the *end-to-end* loop; some design still to pin.
 2. **Remaining WAIT `@check-example` conversions** (after #1 serves a real bundle): convert `using-vue.md`'s CDN-load + CSP/template-compilation examples from `@skip-check` to `@check-example` — deferred phase-2 from `tasks/archive/nebula-frontend.md` § 5.3.7-v5.
 3. **LLM & eval strategy** — `tasks/nebula-studio-llm-strategy.md` (model choice + system-prompt × model evals, once the generation surface exists).
