@@ -16,7 +16,8 @@
     "packages/ts-runtime-parser-validator/forks/typia/interface",
     "packages/ts-runtime-parser-validator/forks/typia/utils",
     "experiments/structured-clone-object-format",
-    "experiments/onstart-repro"
+    "experiments/onstart-repro",
+    "experiments/container-vite-spike"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
