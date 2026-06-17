@@ -24,12 +24,6 @@ on:
         description: "Directory containing the wrangler.jsonc to deploy"
         required: true
         default: "experiments/container-vite-spike"
-  # TEMPORARY (testing only): lets us validate the deploy from feat/nebula-studio without
-  # first landing this file on the default branch (which workflow_dispatch requires). Scoped
-  # to changes of THIS file so it doesn't fire on unrelated pushes. Remove once verified.
-  push:
-    branches: [feat/nebula-studio]
-    paths: ['.github/workflows/deploy-container.yml']
 
 jobs:
   deploy:

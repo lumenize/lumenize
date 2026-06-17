@@ -165,13 +165,6 @@ exec channel + its latency is the remaining work. Kill criterion (no usable surf
 **Verdict:** _ephemerality confirmed; durability is a known, tractable integration (Galaxy dual-write
 → rehydrate). Did NOT hit its kill — no evidence the platform forces un-backable state._
 
-## Q6 — Source durability on an ephemeral container
-
-- Container stop/restart loses no source; working tree re-hydrates from Galaxy draft store: _TBD_
-- per-app `package.json`/lockfile durably stored: _TBD_
-
-**Verdict:** _TBD_
-
 ---
 
 ## Go / no-go
@@ -184,38 +177,41 @@ Tailwind utilities + variants work, Lucide tree-shakes to the one icon used, and
 serves from the edge with **no container** (≈ free prod). Q2 also retires half of
 `preview-iframe-spike.md` (HMR-WS proxies through the DO cleanly).
 
-### Deployed re-measure — ⛔ BLOCKED (local Docker Desktop proxy), reasoned estimate stands
+### Deployed re-measure — ✅ DONE (deployed via GitHub Actions)
 
-Attempted `wrangler deploy` ×3 (2026-06-17). **Containers IS enabled** and the deploy mechanism
-works — the Worker script uploaded (two versions live at 100%), auth to `registry.cloudflare.com`
-succeeded, and the small image layers pushed ("Layer already exists" on retry). But the **large
-base layers** (`419ef9ca8c7d` ~50 MB, `b9136609bef0` ~28 MB) **fail every time** with
-`write tcp …->192.168.65.1:3128: broken pipe` / `use of closed network connection` — i.e. **Docker
-Desktop's HTTP proxy drops large blob uploads** to the CF registry. Environmental (likely VPN /
-proxy upload limit), not a Containers problem. The partial push persists, so a retry from a clean
-network only needs the 2–3 big layers. The deployed Worker won't serve until the image completes.
+Local `wrangler deploy` was blocked by large-layer registry-push failures — **NOT Docker**: both
+Docker Desktop (`broken pipe` to its `192.168.65.1:3128` httpproxy, a 4.70+ regression) AND Colima
+(`broken pipe` on a *direct* connection `192.168.5.1→104.18.8.144:443`, proxy out of the path) failed
+identically, proving it's **the machine's network path to `registry.cloudflare.com` severing large
+uploads** → [[cf-container-deploy-proxy]]. **Fix: deploy from CI** — a manual `workflow_dispatch`
+GitHub Actions job (`.github/workflows/deploy-container.yml`) that runs only `wrangler deploy` (no
+test suite) on a clean-network runner. **It worked first try:** all layers Pushed, build→push→rollout
+**~40 s**, live at **`https://container-vite-spike.transformation.workers.dev`**.
 
-**Reasoned deployed estimate (the deploy wouldn't change the conclusion):**
-- The WAN leg is already known from the in-DO baseline: ~36 ms p50 (Pittsburgh→IAD round-trip). The
-  container's HMR-WS push traverses the *same* client↔edge path, so **deployed warm save→HMR ≈
-  local vite recompile (~55–140 ms, server-side at the edge) + ~36 ms WAN ≈ ~90–175 ms** — under the
-  interactive bar, ~3–5× the in-DO 36 ms.
-- **Cold start at the edge**: local was ~3.2 s (boot + vite ready); the edge adds container
-  scheduling, so a few seconds — **must be hidden by warm-while-focused regardless** (same
-  conclusion as local). 
+**Real deployed numbers (2026-06-17):**
+- **Cold start at edge: ~4.1 s** (container provision + vite boot + first byte) — close to local ~3.2 s
+  plus edge scheduling. **Must be hidden by warm-while-focused** (same conclusion as local).
+- **Warm HTTP through the edge DO: ~150 ms** (3 samples 150–214 ms); compiled SFC serves over the
+  edge (`text/javascript`).
+- **HMR-WS through the edge DO: 101 upgrade in ~186 ms**, `connected` at ~188 ms — Q2 confirmed at
+  the edge (WS proxies through the lifecycle DO over the WAN).
 
-**Still confirm before committing the pivot:**
-1. **Finish the deployed Q1 re-measure** — retry the deploy from a network where Docker Desktop's
-   proxy can complete the large-layer upload (off-VPN, or adjust DD proxy settings, or push via CI),
-   then measure cold-start-at-edge + WS round-trip to validate the ~90–175 ms estimate.
-2. **Q5 edge command channel** — prove a DO-mediated exec channel (no host docker at the edge) with
-   acceptable latency; add `git` to the image.
+**Caveat:** these are from the measuring client's location (unknown egress), so the absolute WAN
+figures aren't directly comparable to the in-DO baseline's Pittsburgh→IAD ~36 ms. The takeaways that
+*are* robust: cold start ~4 s (hide it), warm loop interactive (~150–200 ms incl. WAN), HMR-WS works
+deployed. This **confirms the earlier ~90–175 ms reasoned estimate** was in the right range and the
+**GO** conclusion holds.
+**Remaining before committing the pivot (deployed re-measure now ✅ done above):**
+- **Q5 edge command channel** — prove a DO-mediated exec channel (no host docker at the edge) with
+  acceptable latency; add `git` to the image.
+- **Q6 Galaxy dual-write + rehydrate** integration (nebula-side), plus productionizing the Dockerfile /
+  lifecycle DO (per-tenant container naming, instance sizing, warm-while-focused spin-up/idle-stop).
 
-**Then the real work (not spike scope):** the Q6 Galaxy dual-write + rehydrate integration, and
-productionizing the Dockerfile / lifecycle DO (per-tenant container naming, instance sizing,
-warm-while-focused spin-up/idle-stop wiring).
+**Deploy mechanism (resolved):** container deploys go through `.github/workflows/deploy-container.yml`
+(manual `workflow_dispatch`) — local `wrangler deploy` can't push large layers from this machine's
+network. CI build→push→rollout ≈ 40 s.
 
 **Honest counter-bet status:** in-DO is still ~1–2 orders faster on warm save *locally* (sub-2 ms vs
-vite's ~55–140 ms), but vite's warm loop is well under the interactive bar, and the flexibility win
-(JIT, tree-shaking, per-app pinning, real dev surface) is large. The deployed re-measure decides
-whether the latency gap stays acceptable.
+vite's ~55–140 ms), but vite's warm loop is well under the interactive bar both local and deployed
+(~150–200 ms incl. WAN), and the flexibility win (JIT, tree-shaking, per-app pinning, real dev
+surface) is large. Deployed re-measure confirmed the latency gap is acceptable. **GO.**
