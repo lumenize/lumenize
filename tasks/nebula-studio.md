@@ -13,6 +13,23 @@
 
 > **Single sources of truth referenced, not restated here:** the dev-Star data-on-ontology-change bargain (additive preserved / breaking resets) lives in `tasks/dev-star.md` § *In-dev data lifecycle*; the model/eval strategy lives in the llm-strategy file above.
 
+## UI-build architecture — container-vite pivot (GO lean, 2026-06-17)
+
+The in-DO UI-build layer (compile `.vue` inside `DevStar`, serve the bundle from `Star.onRequest`, self-hosted vendored Vue/DaisyUI/Lucide) is **built + green** (tag `in-do-compile-baseline`) but hit ceilings: no Tailwind JIT / minimal CSS, no tree-shaking, no per-app lib pinning, a committed 3.4 MB tsc bundle (`tasks/nebula-self-hosted-assets.md`). A spike (`tasks/container-vite-spike.md` — see its FINDINGS) tested replacing it with a **real toolchain in a Cloudflare Container** and returned **GO** (no kill across Q1–Q4; deployed Q1/Q2 confirmed): `vite build` → **~2 kB gz CSS vs ~58 kB (~28×)**, JIT arbitrary utilities + tree-shaking, served container-less from static assets (≈ free prod).
+
+**New architecture — replaces the build/serve layer only; the data layer (Star/Galaxy/mesh/reactive store) is unchanged:**
+- **Dev:** a per-sandbox **`DevContainer` DO** (extends `@cloudflare/containers` `Container`) runs real `vite` (HMR), proxied same-origin through the DO. It is a **sibling of `DevStar`, not the Star** (different base class). The browser loads the app **shell** from DevContainer and makes **data** calls to DevStar — two same-origin paths, **no DO→DO hop** (DevContainer never relays data). The scope-injection choke point (`activeScope={u}.{g}.dev`) **moves from `Star.onRequest` to DevContainer** intercepting vite's shell HTML.
+- **Prod:** `vite build` → static assets in **R2 / Workers Assets**, edge-served with **no running container**; prod `Star.onRequest` stops serving the bundle.
+- Per-app **Tailwind JIT + lib pinning** move from post-demo (§ *Code-generation details*) to the dev toolchain; the precompiled-DaisyUI / vendored-asset story (`nebula-self-hosted-assets.md`) is superseded if this proceeds.
+- **Deploy:** local container-image push fails (this machine → CF registry network path, not Docker — `[[cf-container-deploy-proxy]]`); container deploys go via the manual GHA workflow `.github/workflows/deploy-container.yml` (proven first try).
+
+**Decided pre-demo (2026-06-17)** — the in-DO plan isn't far enough along, and has hit enough friction, that *finishing* it would be waste; the `in-do-compile-baseline` tag keeps it as zero-cost fallback. Work before/during the build:
+1. **Node-type prerequisite — DevContainer is the 4th Lumenize node type** (`tasks/nebula-devcontainer-node-type.md`, **ADR-007**). It must be a full mesh node (receive/make `lmz.call`, `onBeforeCall` scope guard), reusing the shared `executeEnvelope`/`EnvelopeExecutorNode` core by **composition** (it extends `Container`, so it can't inherit `LumenizeDO`). Hard prerequisite to both the dev-loop reshape and the Q5 spike (the agent→DevContainer call is `lmz.call`). Includes an audit/consolidation of the existing 3 node types.
+2. **Q5 — agent command channel at the edge** (no host docker): a DO-mediated exec channel for vite/git/build. The riskiest unproven piece → `tasks/spike-container-agent-channel.md`.
+3. **Q6 — source durability:** the container working tree is ephemeral, so the Galaxy dual-write/rehydrate (§ *Durable draft ownership*; `nebula-app-versioning.md` Phase 2) becomes load-bearing — design-pinnable, no spike needed.
+
+**Task-file reshape (after the gates):** #1a (`nebula-studio-compile-pipeline.md`) → a **container dev-loop** task; #1b (`nebula-app-versioning.md`) → registry points to **R2 asset sets** instead of in-DO `AppBundle` SQLite (the versioning concept survives). Don't archive the in-DO files until the container build lands.
+
 ## Goal
 
 The conversational interface where user-developers describe what they want, the AI generates their product (ontology + UI), and the result runs live in DWL isolates with real access control. Studio is the demo's wow moment — investors see "I want to build X" → working app on screen.
@@ -123,6 +140,8 @@ The dev Star's `file` resources are a **disposable working copy**: a breaking-ed
 
 ### Dev-mode Star: SFC compile + reload broadcast
 
+> ⚠️ The container-vite pivot is **decided pre-demo** (§ *UI-build architecture*): in-DO compile is **superseded** by real `vite` in a `DevContainer` DO. This section is preserved only as the description of the `in-do-compile-baseline` tag — the fallback if the pivot stalls. The reload-broadcast concept carries over (HMR replaces the manual broadcast).
+
 The dev Star is the SFC compile + reload-broadcast site (build-sequencing #1). It's user-local (the DO is placed in the caller's colo), so the loop has eyeball-to-colo RTT only. The `compileSFC` method + reload fanout land on `DevStar` — port the validated spike `apps/nebula/spike/sfc-devstar-loop/` (see its RESULTS.md and `tasks/archive/spike-sfc-dev-cycle.md`). Mechanics (spike-validated 2026-05-15):
 
 - Imports `@vue/compiler-sfc` (~700 ms cold-load, sub-ms warm-compile). `@mesh()` `compileSFC(source)` called via `lmz.call` over the existing WS — no separate HTTP surface.
@@ -184,6 +203,8 @@ Rough shape — refine during storyboard:
 - [ ] Cold-start interview produces a usable draft ontology in under 5 minutes (demo target).
 
 ## Build sequencing
+
+> ⚠️ #1a/#1b below describe the **in-DO approach** (tag `in-do-compile-baseline`), **superseded by the container-vite pivot (decided pre-demo 2026-06-17)** — see § *UI-build architecture*. #1a reshapes to a container dev-loop; #1b's registry retargets to R2 asset sets; the **4th-node-type prerequisite** (`nebula-devcontainer-node-type.md`) lands first. The in-DO text is kept only as the tagged fallback.
 
 1. **Dev-preview compile + serve + distribution** (first — it unblocks the rest). Reviewed + reshaped 2026-06-16 into two companion files:
    - **#1a — DevStar/Star mechanics: `tasks/nebula-studio-compile-pipeline.md`.** Compile `.vue` SFCs in `DevStar` (port the spike) → serve the running app from `Star.onRequest()` (the already-built lifecycle hook; not a `fetch()` override; strict CSP, SPA fallback) → reload-broadcast on each save. Build-now, spike-proven; the three mechanics test independently.
