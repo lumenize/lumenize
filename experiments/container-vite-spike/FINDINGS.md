@@ -184,9 +184,30 @@ Tailwind utilities + variants work, Lucide tree-shakes to the one icon used, and
 serves from the edge with **no container** (≈ free prod). Q2 also retires half of
 `preview-iframe-spike.md` (HMR-WS proxies through the DO cleanly).
 
-**Confirm before committing the pivot:**
-1. **Deployed Q1 re-measure** — all latency numbers here are local. Re-run cold-start + warm
-   save→HMR-push on a deployed Worker+Container to compare against the deployed ~36 ms in-DO baseline.
+### Deployed re-measure — ⛔ BLOCKED (local Docker Desktop proxy), reasoned estimate stands
+
+Attempted `wrangler deploy` ×3 (2026-06-17). **Containers IS enabled** and the deploy mechanism
+works — the Worker script uploaded (two versions live at 100%), auth to `registry.cloudflare.com`
+succeeded, and the small image layers pushed ("Layer already exists" on retry). But the **large
+base layers** (`419ef9ca8c7d` ~50 MB, `b9136609bef0` ~28 MB) **fail every time** with
+`write tcp …->192.168.65.1:3128: broken pipe` / `use of closed network connection` — i.e. **Docker
+Desktop's HTTP proxy drops large blob uploads** to the CF registry. Environmental (likely VPN /
+proxy upload limit), not a Containers problem. The partial push persists, so a retry from a clean
+network only needs the 2–3 big layers. The deployed Worker won't serve until the image completes.
+
+**Reasoned deployed estimate (the deploy wouldn't change the conclusion):**
+- The WAN leg is already known from the in-DO baseline: ~36 ms p50 (Pittsburgh→IAD round-trip). The
+  container's HMR-WS push traverses the *same* client↔edge path, so **deployed warm save→HMR ≈
+  local vite recompile (~55–140 ms, server-side at the edge) + ~36 ms WAN ≈ ~90–175 ms** — under the
+  interactive bar, ~3–5× the in-DO 36 ms.
+- **Cold start at the edge**: local was ~3.2 s (boot + vite ready); the edge adds container
+  scheduling, so a few seconds — **must be hidden by warm-while-focused regardless** (same
+  conclusion as local). 
+
+**Still confirm before committing the pivot:**
+1. **Finish the deployed Q1 re-measure** — retry the deploy from a network where Docker Desktop's
+   proxy can complete the large-layer upload (off-VPN, or adjust DD proxy settings, or push via CI),
+   then measure cold-start-at-edge + WS round-trip to validate the ~90–175 ms estimate.
 2. **Q5 edge command channel** — prove a DO-mediated exec channel (no host docker at the edge) with
    acceptable latency; add `git` to the image.
 
