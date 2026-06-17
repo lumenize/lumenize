@@ -18,18 +18,29 @@ describe('gateway abuse cases', () => {
   // ============================================
 
   describe('direct HTTP rejection', () => {
-    it('returns 501 for direct HTTP to Star binding', async () => {
+    // The direct-DO route is opened ONLY for static app serving (compile-pipeline
+    // #1a): GET/HEAD to a Star/DevStar serving target reaches `Star.onRequest`
+    // (which 404s when no bundle is resident); every other method is 405 and every
+    // other binding is 404. (Was a blanket 501 before serving landed.)
+    it('returns 404 for direct HTTP GET to a serving binding with no resident bundle (Star)', async () => {
       const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
         method: 'GET',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);   // serving target, but no bundle staged → onRequest 404
     });
 
-    it('returns 501 for direct HTTP to Universe binding', async () => {
+    it('returns 405 for a non-GET to a serving binding (Star)', async () => {
+      const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
+        method: 'POST',
+      });
+      expect(resp.status).toBe(405);   // gate bounds the opened route to GET/HEAD
+    });
+
+    it('returns 404 for direct HTTP to a non-serving binding (Universe)', async () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);   // not a serving target → gate 404s before onRequest
     });
 
     it('returns 501 for HTTP to gateway route', async () => {

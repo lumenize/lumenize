@@ -2,7 +2,11 @@
   "name": "nebula-browser-test",
   "main": "./index.ts",
   "compatibility_date": "2026-04-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // nodejs_compat_v2 (not plain nodejs_compat): this worker imports the
+  // @lumenize/nebula barrel, which now transitively pulls DevStar →
+  // @vue/compiler-sfc + the vendored tsc bundle (only load under _v2). Unified
+  // with prod + the other test wranglers so the runtime matches everywhere.
+  "compatibility_flags": ["nodejs_compat_v2"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [

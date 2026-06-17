@@ -1,23 +1,36 @@
-import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc';
-import ts from 'typescript';
-
 /**
- * The full SFC → runnable-ESM pipeline: `@vue/compiler-sfc` (resolve Vue macros)
- * → `typescript` (strip the remaining non-macro TS) → assemble script + render
- * into one importable ES module.
+ * SFC → runnable-ESM pipeline, runnable **inside a DevStar Durable Object**.
  *
- * This is the step the bake-off recon flagged as missing from `galaxy.ts`'s
- * `compileSFC`: the Vue compiler resolves macros but leaves `interface`, `: T`,
- * and `ref<T>()` in the output, so a `lang="ts"` SFC isn't executable JS.
+ * `@vue/compiler-sfc` resolves Vue macros (`defineProps<…>`, `withDefaults`, …)
+ * and separates `<script>`/`<template>`/`<style>`, but leaves non-macro TS
+ * (`interface`, `: T`, `ref<T>()`) in the script — so a `lang="ts"` SFC isn't
+ * executable JS until a downstream transpile strips it. This module chains
+ * `@vue/compiler-sfc` → `typescript`'s `transpileModule` → one importable ESM.
  *
- * ⚠️ **Lives outside `galaxy.ts` on purpose.** A raw `import ts from 'typescript'`
- * crashes the workerd isolate ("Worker exited unexpectedly") — verified — so it
- * must NOT enter the DO's import graph or it breaks every pool-workers test. This
- * module is exercised in Node (`test-node/`). When this pipeline moves into the
- * DevStar (build-seq #1), tsc gets bundled for workerd via the validator's proven
- * pattern (`packages/ts-runtime-parser-validator/scripts/bundle-tsc.mjs`); the
- * transpile+assembly logic here is identical regardless of where tsc runs.
+ * ## tsc-in-workerd (build-seq #1a, exploratory question — RESOLVED: must bundle)
+ *
+ * `typescript` **cannot** be imported into the DevStar DO directly: BOTH a full
+ * default import (`import ts from 'typescript'`) AND a narrow named import
+ * (`import { transpileModule } from 'typescript'`) crash the workerd isolate at
+ * module-load ("Worker exited unexpectedly") — the crash is `typescript`'s
+ * module-init Node-builtin probing (`fs`/`os`/`process.argv`), not a
+ * function-surface concern, so trimming the surface doesn't help. So tsc is
+ * consumed from a pre-bundled, Node-builtin-shimmed vendor bundle
+ * (`../vendor/tsc-transpile.bundle.mjs`, built by `scripts/bundle-tsc.mjs`,
+ * committed). `@vue/compiler-sfc` itself runs unbundled under `nodejs_compat_v2`.
+ * Full findings: `tasks/nebula-studio-compile-pipeline.md` § Phase-1 spike;
+ * exercised by `test/.../dev-star-compile.test.ts` (compile runs INSIDE the DO).
  */
+import { parse, compileScript, compileTemplate, compileStyle } from '@vue/compiler-sfc';
+// tsc is consumed from the pre-bundled, workerd-shimmed vendor bundle — a bare
+// `import … from 'typescript'` crashes the isolate at load (see this file's
+// header + scripts/bundle-tsc.mjs). The `import type` below is erased at runtime
+// (no crash) and gives the bundle's untyped `ts` the real typescript namespace.
+// @ts-expect-error — pre-bundled tsc, no types; see scripts/bundle-tsc.mjs
+import { ts as tsBundle } from '../vendor/tsc-transpile.bundle.mjs';
+import type tsNamespace from 'typescript';
+const ts = tsBundle as typeof tsNamespace;
+
 export interface CompileModuleResult {
   /** `<script>`/`<script setup>` after macro resolution AND TS→JS transpile. */
   script: string;
@@ -29,7 +42,14 @@ export interface CompileModuleResult {
   errors: string[];
 }
 
-export function compileSFCToModule(sfcSource: string, id = 'spike'): CompileModuleResult {
+/**
+ * Compile a `.vue` SFC string to a single importable ES module.
+ *
+ * Returns `{ errors: [...], module: '' }` on parse/compile failure rather than
+ * throwing — the caller (Studio's iterate-on-errors loop) reads `errors` to
+ * self-correct. A successful result has `errors: []` and a non-empty `module`.
+ */
+export function compileSFCToModule(sfcSource: string, id = 'app'): CompileModuleResult {
   const empty = { script: '', render: '', styles: [] as string[], module: '' };
 
   const parseResult = parse(sfcSource);
@@ -74,7 +94,7 @@ export function compileSFCToModule(sfcSource: string, id = 'spike'): CompileModu
 
   if (errors.length > 0) return { ...empty, styles, errors };
 
-  // Strip remaining TS from the macro-resolved script. transpileModule is
+  // Strip remaining TS from the macro-resolved script. `transpileModule` is
   // syntactic-only (no type-check, no fs) — the light path vs the validator's
   // full Program API. Keep ESM so imports/exports survive for assembly.
   const jsScript = script

@@ -118,6 +118,13 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * the originating Promise's `{ resolution: 'ontology-stale' }` outcome.
    */
   onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  /**
+   * Optional hook invoked when the dev Star signals a fresh compile landed (the
+   * Studio dev-preview reload channel — `Star.broadcastReload`). Typical preview
+   * implementation: `() => window.location.reload()`. No default — undefined
+   * means opted-out (a non-preview client simply ignores reload signals).
+   */
+  onReload?: () => void;
 }
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
@@ -197,6 +204,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #activeScope: string;
   #appVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  #onReload?: () => void;
   // Captured for `logout()` (the embedded refresh closure reads them too, but a
   // method can't reach the constructor's `config`). `#baseUrl` may be undefined
   // when the browser auto-detects it for the WS URL — logout falls back to the
@@ -300,6 +308,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       activeScope,
       appVersion,
       onShouldRefreshUI,
+      onReload,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -386,6 +395,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#activeScope = activeScope;
     this.#appVersion = appVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
+    this.#onReload = onReload;
     this.#baseUrl = config.baseUrl;
     this.#fetchFn = config.fetch ?? fetch;
 
@@ -1055,6 +1065,18 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   @mesh()
   handleOrgTreeUpdate(envelope: { value: DagTreeState }): void {
     this.#orgTreeListener?.(envelope.value);
+  }
+
+  /**
+   * Receive a dev-preview reload signal from the dev Star (`Star.broadcastReload`,
+   * fired by `DevStar.compileSFC` after a fresh bundle is persisted). Invokes the
+   * optional `onReload` hook (the preview wires `() => window.location.reload()`);
+   * a non-preview client without the hook ignores it. `@mesh()` because the
+   * signal arrives via `svc.broadcast` through the Gateway.
+   */
+  @mesh()
+  handleReload(): void {
+    this.#onReload?.();
   }
 
   /**

@@ -7,7 +7,9 @@
  * Routing layers:
  * 1. /auth/... → routeNebulaAuthRequest (login, refresh, invite, etc.)
  * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
- * 3. /{BINDING}/... → routeDORequest without prefix (blocked for now)
+ * 3. /{BINDING}/... → routeDORequest without prefix — opened ONLY for static
+ *    app serving: GET/HEAD to a Star/DevStar serving target reaches
+ *    `Star.onRequest`; every other method is 405, every other binding is 404.
  * 4. Fallback → 404
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
@@ -70,13 +72,26 @@ export default {
     });
     if (gatewayResponse) return gatewayResponse;
 
-    // 3. Direct DO access (no /gateway/ prefix) — fully blocked for now
+    // 3. Direct DO access (no /gateway/ prefix) — opened ONLY for the static
+    //    app-serving GET. Bounded so it doesn't expose every method/binding:
+    //    only GET/HEAD to a Star/DevStar serving target passes through to
+    //    `Star.onRequest` (the ungated static read — no JWT, since browsers
+    //    don't attach Authorization to document/sub-resource loads; the data is
+    //    gated on the WS/mesh path). Other methods → 405; other bindings (incl.
+    //    the raw NEBULA_AUTH GET handlers) → 404. WS to a DO is never allowed.
     const directResponse = await routeDORequest(request, env, {
       cors: corsOptions,
-      onBeforeRequest() {  // Will be implemented when we add resources support
-        return new Response('Not Implemented', { status: 501 });
+      onBeforeRequest(request, { doNamespace }) {
+        const isServingTarget = doNamespace === env.STAR || doNamespace === env.DEV_STAR;
+        if (!isServingTarget) {
+          return new Response('Not Found', { status: 404 });
+        }
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
+        }
+        return undefined; // GET/HEAD to a serving target → Star.onRequest
       },
-      onBeforeConnect() {  // No plans to ever implement
+      onBeforeConnect() {  // No direct WS to a DO — mesh WS terminates at the Gateway
         return new Response('Not Implemented', { status: 501 });
       },
     });

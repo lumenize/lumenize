@@ -20,9 +20,20 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { debug } from '@lumenize/debug';
 import { Star } from './star';
 import { requireAdmin } from './nebula-do';
+import { compileSFCToModule } from './compile-module';
+import { putAsset, stageScaffold } from './app-bundle';
 import type { Galaxy } from './galaxy';
+
+/** Result of {@link DevStar.compileSFC}. On failure `errors` is non-empty and
+ *  nothing was persisted; on success `errors` is `[]` and `path` is the served
+ *  asset path (`.vue` → `.js`) now resident in Star storage. */
+export interface CompileSFCResult {
+  path: string;
+  errors: string[];
+}
 
 export class DevStar extends Star {
   /**
@@ -98,5 +109,48 @@ export class DevStar extends Star {
       await this.ctx.storage.deleteAll();
       this.onStart();
     });
+  }
+
+  /**
+   * Compile a `.vue` SFC **inside the dev Star DO** and persist the runnable ESM
+   * into the resident app bundle (the `app-bundle.ts` contract `Star.onRequest`
+   * reads). Studio's admin client calls this on each save via `lmz.call`.
+   *
+   * `@mesh(requireAdmin)`: like the other dev-only mutators it does NOT pass
+   * through the DAG `requirePermission` checks resource ops use, and
+   * `onBeforeCall` proves only tenant *scope* — so it carries its own admin gate
+   * (which also satisfies DevStar's `@mesh`-admin surface freeze, dev-star.md
+   * P3). Synchronous: `@vue/compiler-sfc` + `transpileModule` are CPU-only and
+   * sync storage needs no `await`.
+   *
+   * On compile failure returns `{ errors }` (non-empty) and persists nothing —
+   * Studio's iterate-on-errors loop reads `errors` to self-correct. On success
+   * stages the fixed scaffold (idempotent) and writes the component's ESM at
+   * `<name>.js`, returning that served path.
+   */
+  @mesh(requireAdmin)
+  compileSFC(path: string, source: string): CompileSFCResult {
+    const id = path.replace(/\.vue$/, '');
+    const result = compileSFCToModule(source, id);
+    if (result.errors.length > 0) {
+      debug('nebula.DevStar.compileSFC').debug('compile errors', {
+        instanceName: this.lmz.instanceName,
+        path,
+        errorCount: result.errors.length,
+      });
+      return { path, errors: result.errors };
+    }
+    stageScaffold(this.ctx);
+    const jsPath = `${id}.js`;
+    putAsset(this.ctx, jsPath, result.module, 'text/javascript; charset=utf-8');
+    debug('nebula.DevStar.compileSFC').debug('compiled', {
+      instanceName: this.lmz.instanceName,
+      path: jsPath,
+    });
+    // Signal subscribed preview clients to re-fetch the freshly-compiled bundle.
+    // `broadcastReload` is the base-`Star` serving hook (no-op when no preview is
+    // subscribed); calling it here is what makes the dev loop "save → reload".
+    this.broadcastReload();
+    return { path: jsPath, errors: [] };
   }
 }

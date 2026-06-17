@@ -1,6 +1,12 @@
 {
   "name": "nebula",
   "compatibility_date": "2026-04-01",
+  // nodejs_compat_v2 is REQUIRED: DevStar (bound below) transitively imports
+  // @vue/compiler-sfc + the vendored tsc bundle (Studio's SFC compile pipeline),
+  // which only load under nodejs_compat_v2. Must match every other wrangler that
+  // loads apps/nebula DOs (test/, baseline, browser) — a flag mismatch lets a
+  // green test validate under a different runtime than prod.
+  "compatibility_flags": ["nodejs_compat_v2"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
