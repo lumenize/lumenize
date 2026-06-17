@@ -1,0 +1,13 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "container-vite-spike-prod",
+  "compatibility_date": "2026-03-12",
+
+  // Q3: the prod side. Pure Workers Static Assets — NO container, NO Worker script (`main`).
+  // The built `dist/` (from `vite build` in the dev container) is copied to ./public and
+  // served from the edge/CDN. An app-version = one such asset directory; rollback = repoint.
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application"
+  }
+}
