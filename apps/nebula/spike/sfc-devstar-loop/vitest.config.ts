@@ -18,6 +18,17 @@ export default defineConfig({
           testTimeout: 30000,
         },
       },
+      {
+        // Node project: the SFC→ESM transpile/assembly pipeline uses `typescript`,
+        // which crashes the workerd isolate (see src/compile-module.ts), so it runs
+        // in Node here. No cloudflare plugin → default (Node) environment.
+        extends: true,
+        test: {
+          name: 'compile-module',
+          include: ['test-node/**/*.test.ts'],
+          environment: 'node',
+        },
+      },
     ],
   },
 });

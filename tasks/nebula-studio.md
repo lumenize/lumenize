@@ -23,9 +23,12 @@ The user-developer never opens a code editor. They describe in natural language,
 
 ## Generation engine
 
-Studio's code generation runs on **Cloudflare Think + Kimi 2.7**; Claude models are not in the product (eval baseline only). The Think integration shim is likely pulled forward as a Studio prerequisite. Model choice, orchestration, and eval strategy: `tasks/nebula-studio-llm-strategy.md`.
+Studio's code generation runs on **Kimi 2.7 (`@cf/moonshotai/kimi-k2.7-code`) via Workers AI** (binding mode), driven by a **thin, self-rolled tool-calling loop** on Workers + Durable Objects — **no agent framework (no Cloudflare Think) and no codemode**. Native tool-calling covers the loop; codemode's JSON tool-bridge is an ADR-002 violation (we round-trip full structured-clone everywhere). Claude models are not in the product (eval baseline only). Model/orchestration/eval detail: `tasks/nebula-studio-llm-strategy.md`.
 
-> The earlier "Claude Code drives the generation loop as a pre-Studio gate" plan is dropped with the Think+Kimi decision. The still-valid principle it carried: **prove the generation loop produces working ontology + UI against the live platform before investing in chat-UI polish** — a small real app (todo / kanban / simple CRM), running with all the access-control + reactivity guarantees intact, is the gate.
+- **Agent home: a Nebula-owned DO/facet**, co-located with the user for low-latency iteration (a facet shares its supervisor's colo + storage and needs no dynamic-worker loader for a static class). Because it's our class, our scope isolation applies.
+- **Cost/latency optimization (pocketed for later): script-per-step execution** — the model writes one orchestration script per step, run in a facet sandbox with a **mesh/RPC full-type tool bridge** (never codemode's JSON). Start with per-call tool-calling; add this only if the loop proves too chatty. (Same dynamic-execution substrate powers the post-Studio in-app AI chat feature — see llm-strategy § Two AI contexts.)
+
+> Gate before chat-UI polish: prove the loop produces working ontology + UI against the live platform (a small real app — todo/kanban/CRM — with access-control + reactivity intact). **Validated 2026-06-16** (`tasks/kimi-ui-gen-viability.md`): Kimi one-shot generates compilable Nebula UI, and a thin iterate-on-errors loop self-corrects.
 
 ## Studio-generated artifacts
 

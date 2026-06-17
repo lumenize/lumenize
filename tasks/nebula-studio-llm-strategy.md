@@ -4,24 +4,28 @@
 
 **Parent**: `tasks/nebula-studio.md` (this file owns Studio's model choice, orchestration, and evaluation; Studio owns the generation loop those models drive).
 
-## Model decision — Think + Kimi 2.7
+## Model decision — Kimi 2.7, no Think, no codemode
 
-Studio's code generation runs on **Cloudflare Think + Kimi 2.7**. Basis: the entire month of May we built another prototype product on Cloudflare Think + Kimi (2.6, now 2.7) and were very happy; a several-day bake-off of **Claude Managed Agents (CMA) vs. Cloudflare Think** had Think win hands-down on several fronts (`tasks/archive/think-vs-cma-bakeoff.md`; Kimi-for-Studio chosen 2026-06-12 — live use is the eval).
+Studio's code generation runs on **Kimi 2.7 (`@cf/moonshotai/kimi-k2.7-code`) via Workers AI** (binding mode). Basis: a month-long prototype on Cloudflare Think + Kimi + the CMA-vs-Think bake-off (`tasks/archive/think-vs-cma-bakeoff.md`) settled on Kimi; the viability probe (`tasks/kimi-ui-gen-viability.md`) then confirmed Kimi generates compilable Nebula UI and self-corrects in a thin loop.
 
-- **Claude models are not in the product.** Kept only as an **eval baseline** to compare against.
-- **The Think integration is likely pulled forward.** Studio leaning on Think+Kimi makes the Think↔Nebula multi-tenant fit a probable Studio prerequisite — `tasks/think-nebula-integration.md` (the learning/design file) and `tasks/shim-hardening.md` (production-grade follow-up). This may erase the time savings of dropping the Claude-Code pre-Studio gate, but the model direction is settled regardless.
-- **Don't conflate** Studio's code-generation loop with the Mesh/Nebula↔Think integration shim (in-app AI / server-side LLM). Both are live; the shim is transport, Studio's loop is a consumer. (We OBE'd the shim tasks once on this confusion — reversed.)
+- **No Cloudflare Think.** Evaluated and dropped: it bundles a loop (trivial to roll), codemode, chat memory, and React/HTTP-shaped resilience — none worth adopting, and it drags a foreign-DO multi-tenant surface we don't want. Everything it offered is rollable or better-shaped as native Lumenize (e.g. streaming as a Mesh WS primitive over our existing connection).
+- **No codemode.** Its sandbox↔host tool bridge is JSON-only (base64 for binary) — an ADR-002 violation (we round-trip full structured-clone everywhere). When we want sandboxed dynamic execution, we roll our own with a mesh/RPC full-type bridge.
+- **Claude models are not in the product** — eval baseline only.
 
 ## Orchestration
 
-- Roll the orchestration ourselves on **Workers + Durable Objects** — frameworks like LangChain add overhead we don't need.
-- Mix models by task: a heavier model for ontology generation + complex UI generation; a lighter model for small iterations + debug interpretation.
-- Mine Cloudflare's open-source vibe-coding platform for prompt / model-routing / tool / agent-state / AI-Gateway patterns first — `tasks/vibesdk-llm-patterns.md`.
-- Look up current model identifiers + capabilities before wiring — don't assume from training data.
+- **Thin, self-rolled tool-calling loop** on Workers + DO. Native tool-calling works on `kimi-k2.7-code` (verified) — the model emits structured `tool_calls`, our code executes them; **no LLM-authored code runs server-side, so the loop needs no sandbox.**
+- **Agent home: a Nebula-owned DO/facet**, co-located with the user for low latency (facet = isolated child DO sharing the supervisor's colo; needs no loader for a static class).
+- Mix models by task where it helps; mine `tasks/vibesdk-llm-patterns.md` for prompt/tool/agent-state patterns first; confirm model ids before wiring.
+
+### Two AI contexts (where dynamic execution pays off)
+
+1. **Studio authoring loop** (this file) — per-call tool-calling to start. **Script-per-step** (the model writes one orchestration script per step, run in a facet sandbox with a mesh/full-type bridge) is a pocketed **cost/latency** optimization, added only if per-call proves too chatty — the AIA-proven win, rebuilt without codemode's JSON.
+2. **In-app AI chat** (post-Studio; every Nebula app auto-gets one) — interactive **RAG against the app's own data** for the customer's end-users. This is where dynamic code-gen/execution matters most (per-end-user, at scale, latency-sensitive). Same substrate: a Nebula-owned facet + our own dynamic execution (no Think, no codemode-JSON). Likely warrants its own task file when picked up.
 
 ## Language model strategy (arc)
 
-- **Short term**: prompt engineering against Think + Kimi with Nebula-specific system prompts + few-shot examples.
+- **Short term**: prompt engineering against Kimi (via Workers AI) with Nebula-specific system prompts + few-shot examples.
 - **Medium term**: a fine-tuned small model specialized for Nebula UI + Nebula Resources patterns.
 - **Training data**: Nebula's own documentation, example apps, the Resources + `client.orgTree` API surface, the Nebula UI component library.
 
