@@ -50,7 +50,13 @@ describe('Studio compile P2 — serve the app from Star.onRequest()', () => {
 
     const csp = res.headers.get('content-security-policy') ?? '';
     expect(csp).toContain("default-src 'self'");
-    expect(csp).not.toContain('unsafe-eval');   // the CSP-soundness guarantee
+    expect(csp).toContain("script-src 'self'");
+    // Strict script-src: no unsafe-eval (runtime-only Vue), no external/CDN
+    // origin (everything self-hosted), and the shell carries no inline import map
+    // (a strict script-src would block one without a nonce anyway).
+    expect(csp).not.toContain('unsafe-eval');
+    expect(csp).not.toContain('https://');
+    expect(html).not.toContain('importmap');
   });
 
   it('SPA-falls-back to index.html on a deep link (not 404)', async () => {
@@ -83,18 +89,60 @@ describe('Studio compile P2 — serve the app from Star.onRequest()', () => {
     expect(js).not.toContain(`activeScope: "${galaxy}"`);
   });
 
-  it('stages runtime-only Vue (no template compiler / no new Function)', async () => {
+  it('serves Vue same-origin (runtime-only, no CDN, no new Function)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     await stageDevBundle(galaxy, dev);
 
-    const js = await (await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vue.js`)).text();
-    // Capable-of-failing discriminator: the staged Vue references the runtime-ONLY
-    // entry (`vue.runtime.esm-browser`) and NOT the full build (`/vue.esm-browser`,
-    // which bundles the template compiler + `new Function`). Swapping to the full
-    // build trips BOTH checks below — the CSP no-unsafe-eval guarantee rests on
-    // Vue being runtime-only.
-    expect(js).toContain('vue.runtime.esm-browser');
-    expect(js).not.toContain('/vue.esm-browser');
+    // The staged `vue.js` is a thin re-export of the self-hosted same-origin Vue
+    // — no CDN host (the secure-by-default win: lets script-src drop to 'self').
+    const shim = await (await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vue.js`)).text();
+    expect(shim).toContain('./vendor/vue.js');
+    expect(shim).not.toContain('jsdelivr');
+    expect(shim).not.toContain('http');
+
+    // The backing runtime is served same-origin from code (platform asset). It is
+    // the runtime-ONLY build: capable-of-failing discriminator — the FULL build
+    // (`vue.esm-browser.prod.js`) carries exactly one `Function(` (the template
+    // compiler's render-fn constructor → the `unsafe-eval` path); the runtime-only
+    // build has zero. The CSP no-unsafe-eval guarantee rests on this.
+    const runtime = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vendor/vue.js`);
+    expect(runtime.status).toBe(200);
+    expect(runtime.headers.get('content-type')).toContain('text/javascript');
+    const runtimeJs = await runtime.text();
+    expect(runtimeJs.length).toBeGreaterThan(50_000);   // the real ~108 KB runtime, not a stub
+    expect(runtimeJs).not.toContain('Function(');
+  });
+
+  it('serves self-hosted DaisyUI CSS + the imported Lucide icon same-origin', async () => {
+    const { galaxy, dev } = uniqueGalaxyScope();
+    await stageDevBundle(galaxy, dev);
+
+    // DaisyUI precompiled CSS — linked from the shell, served from code as text/css.
+    const css = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/daisyui.css`);
+    expect(css.status).toBe(200);
+    expect(css.headers.get('content-type')).toContain('text/css');
+    expect(await css.text()).toContain('.btn');
+
+    // A real Lucide icon resolves; an unknown icon does NOT (per-icon serving from
+    // the vendored map — only what the app imports crosses the wire). The icon is
+    // a tiny data module importing the SHARED `./_core.js` (no duplicated runtime).
+    const house = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vendor/lucide/house.js`);
+    expect(house.status).toBe(200);
+    expect(house.headers.get('content-type')).toContain('text/javascript');
+    const houseJs = await house.text();
+    expect(houseJs).toContain("from './_core.js'");
+    expect(houseJs).not.toContain('createLucideIcon.js');   // upstream import repointed
+    expect(houseJs.length).toBeLessThan(2000);              // data-only, runtime not inlined
+
+    // The shared core resolves Vue from the same-origin runtime, never bare `vue`.
+    const core = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vendor/lucide/_core.js`);
+    expect(core.status).toBe(200);
+    expect(await core.text()).toContain('../../vue.js');
+
+    // An unknown icon is not in the vendored map → SPA fallback (no such asset),
+    // never a JS module — proves serving is map-backed, not a passthrough.
+    const missing = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/vendor/lucide/not-a-real-icon.js`);
+    expect(missing.headers.get('content-type')).toContain('text/html');
   });
 
   it('responds to HEAD with headers and an empty body', async () => {

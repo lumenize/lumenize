@@ -31,8 +31,15 @@ function dynamicEnvProxyPlugin({
   prefix = '/worker',
   envVar = 'WRANGLER_PROXY_TARGET',
   approvedOrigin,
+  // When false, forward the path verbatim instead of stripping `prefix`. Used by
+  // the self-hosted-assets Phase-1 preview proxy: `Star.onRequest` injects an
+  // absolute `<base href="/dev-star/{instance}/">` (it can't know a proxy
+  // prefix), so the iframe must reach the worker at that exact path — a
+  // path-preserving `/dev-star` proxy, not the `/worker`-stripping one. The
+  // static preview GET is ungated, so it needs none of the cookie/origin plumbing.
+  strip = true,
 } = {}) {
-  const stripPrefix = (path) => path.replace(new RegExp(`^${prefix}`), '') || '/';
+  const stripPrefix = (path) => (strip ? path.replace(new RegExp(`^${prefix}`), '') || '/' : path);
   return {
     name: `dynamic-env-proxy:${prefix}`,
     async configureServer(server) {
@@ -114,11 +121,26 @@ export default defineConfig({
   // `approvedOrigin` rewrites the forwarded Origin to a value in the test
   // worker's LUMENIZE_APPROVED_ORIGINS (http://localhost:5173) so NebulaAuth's
   // origin allow-list passes regardless of vitest-browser's dynamic port.
-  plugins: [dynamicEnvProxyPlugin({
-    prefix: '/worker',
-    envVar: 'WRANGLER_PROXY_TARGET',
-    approvedOrigin: 'http://localhost:5173',
-  })],
+  plugins: [
+    dynamicEnvProxyPlugin({
+      prefix: '/worker',
+      envVar: 'WRANGLER_PROXY_TARGET',
+      approvedOrigin: 'http://localhost:5173',
+    }),
+    // Path-preserving proxy so the self-hosted-assets Phase-1 chromium test can
+    // load a DevStar-served preview same-origin at the exact path its injected
+    // `<base href="/dev-star/{instance}/">` expects (see `strip` above).
+    // `approvedOrigin` rewrites the forwarded Origin to one in the worker's
+    // LUMENIZE_APPROVED_ORIGINS — module-script / dynamic-import requests carry an
+    // Origin header (the dynamic vitest-browser port, NOT same as the proxied
+    // worker host), which the entrypoint's CORS allowlist would otherwise 403.
+    dynamicEnvProxyPlugin({
+      prefix: '/dev-star',
+      envVar: 'WRANGLER_PROXY_TARGET',
+      strip: false,
+      approvedOrigin: 'http://localhost:5173',
+    }),
+  ],
   test: {
     testTimeout: 10000,
     globals: true,

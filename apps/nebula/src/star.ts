@@ -24,6 +24,7 @@ import { Subscriptions } from './subscriptions';
 import { TreeSubscriptions } from './tree-subscriptions';
 import { ReloadSubscriptions } from './reload-subscriptions';
 import { getAsset, PLACEHOLDER } from './app-bundle';
+import { getPlatformAsset } from './platform-assets';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
@@ -34,17 +35,19 @@ const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
 
 /**
- * Strict CSP for the served app — **no `'unsafe-eval'`**. Render functions are
- * precompiled server-side (`compileSFCToModule`), so the browser gets
- * runtime-only Vue with no template compiler / no `new Function`
- * (website/docs/nebula/using-vue.md §Security). `script-src` allows the pinned
- * CDN that hosts the runtime-only Vue placeholder (#1a; #1b self-hosts it);
- * `connect-src 'self'` covers the same-origin Gateway WebSocket; scoped styles
- * inject inline (`style-src 'unsafe-inline'` — styles only, never scripts).
+ * Strict CSP for the served app — **`script-src 'self'`, no `'unsafe-eval'`, no
+ * external origin, no inline import map**. Every script the app loads (Vue
+ * runtime, DaisyUI, Lucide icons, the compiled SFCs) is self-hosted same-origin
+ * (platform-assets.ts + the DevStar specifier rewrite), so no CDN is needed.
+ * Render functions are precompiled server-side (`compileSFCToModule`), so the
+ * browser gets runtime-only Vue with no template compiler / no `new Function`
+ * (website/docs/nebula/using-vue.md §Security). `connect-src 'self'` covers the
+ * same-origin Gateway WebSocket; scoped styles inject inline (`style-src
+ * 'unsafe-inline'` — styles only, never scripts; the DaisyUI `<link>` is `'self'`).
  */
 const APP_CSP =
   "default-src 'self'; " +
-  "script-src 'self' https://cdn.jsdelivr.net; " +
+  "script-src 'self'; " +
   "style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data:; " +
   "connect-src 'self'";
@@ -157,6 +160,24 @@ export class Star extends NebulaDO {
     }
 
     const lookupPath = assetPath === '' ? 'index.html' : assetPath;
+
+    // Platform-fixed assets (self-hosted Vue runtime, DaisyUI CSS, Lucide icons,
+    // the nebula-frontend placeholder) are served same-origin from code, NOT the
+    // per-Star bundle — identical for every app, so they skip storage entirely
+    // (platform-assets.ts). They carry no placeholders, so no serve-time
+    // injection. Checked before the bundle so an app can't shadow them.
+    const platformAsset = getPlatformAsset(lookupPath);
+    if (platformAsset) {
+      return new Response(request.method === 'HEAD' ? null : platformAsset.content, {
+        status: 200,
+        headers: {
+          'Content-Type': platformAsset.contentType,
+          'Content-Security-Policy': APP_CSP,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+
     const asset = getAsset(this.ctx, lookupPath) ?? getAsset(this.ctx, 'index.html');
     if (!asset) {
       return new Response('No app bundle resident', { status: 404 });

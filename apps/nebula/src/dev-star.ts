@@ -24,6 +24,7 @@ import { debug } from '@lumenize/debug';
 import { Star } from './star';
 import { requireAdmin } from './nebula-do';
 import { compileSFCToModule } from './compile-module';
+import { rewriteServedSpecifiers } from './specifier-rewrite';
 import { putAsset, stageScaffold } from './app-bundle';
 import type { Galaxy } from './galaxy';
 
@@ -127,6 +128,14 @@ export class DevStar extends Star {
    * Studio's iterate-on-errors loop reads `errors` to self-correct. On success
    * stages the fixed scaffold (idempotent) and writes the component's ESM at
    * `<name>.js`, returning that served path.
+   *
+   * Post-compile, the module's bare specifiers are rewritten to the same-origin
+   * platform paths the served app resolves under `script-src 'self'`
+   * (`vue`→`./vue.js`, `lucide-vue-next/icons/*`→`./vendor/lucide/*.js`). A
+   * non-allowlisted bare import is a compile error here — same `errors` channel
+   * as a parse failure — so it never reaches the browser as a silent 404. The
+   * rewrite lives at this write boundary, NOT in `compile-module.ts`, which keeps
+   * emitting canonical bare specifiers (tasks/nebula-self-hosted-assets.md).
    */
   @mesh(requireAdmin)
   compileSFC(path: string, source: string): CompileSFCResult {
@@ -140,9 +149,18 @@ export class DevStar extends Star {
       });
       return { path, errors: result.errors };
     }
+    const rewrite = rewriteServedSpecifiers(result.module);
+    if (rewrite.errors.length > 0) {
+      debug('nebula.DevStar.compileSFC').debug('specifier errors', {
+        instanceName: this.lmz.instanceName,
+        path,
+        errorCount: rewrite.errors.length,
+      });
+      return { path, errors: rewrite.errors };
+    }
     stageScaffold(this.ctx);
     const jsPath = `${id}.js`;
-    putAsset(this.ctx, jsPath, result.module, 'text/javascript; charset=utf-8');
+    putAsset(this.ctx, jsPath, rewrite.code, 'text/javascript; charset=utf-8');
     debug('nebula.DevStar.compileSFC').debug('compiled', {
       instanceName: this.lmz.instanceName,
       path: jsPath,

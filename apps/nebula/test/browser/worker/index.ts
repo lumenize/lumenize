@@ -29,6 +29,9 @@ export { BenchFanoutTier } from './bench-fanout-tier';
 export {
   Universe,
   Galaxy,
+  // Production DevStar — the self-hosted-assets Phase-1 chromium mount compiles
+  // a fixture via DevStar.compileSFC and serves the preview via Star.onRequest.
+  DevStar,
 } from '@lumenize/nebula';
 
 // Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,

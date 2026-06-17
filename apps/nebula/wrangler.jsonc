@@ -1,12 +1,18 @@
 {
   "name": "nebula",
   "compatibility_date": "2026-04-01",
-  // nodejs_compat_v2 is REQUIRED: DevStar (bound below) transitively imports
-  // @vue/compiler-sfc + the vendored tsc bundle (Studio's SFC compile pipeline),
-  // which only load under nodejs_compat_v2. Must match every other wrangler that
-  // loads apps/nebula DOs (test/, baseline, browser) — a flag mismatch lets a
-  // green test validate under a different runtime than prod.
-  "compatibility_flags": ["nodejs_compat_v2"],
+  // nodejs_compat is REQUIRED: DevStar (bound below) transitively imports
+  // @vue/compiler-sfc (which imports `node:os` etc.) + the vendored tsc bundle
+  // (Studio's SFC compile pipeline). Use plain `nodejs_compat` (NOT the legacy
+  // `nodejs_compat_v2` flag-name): with our compat_date it already gives v2
+  // semantics, AND it actually resolves `node:` builtins in real `wrangler dev`
+  // (4.x). The bare `nodejs_compat_v2` flag does NOT — `@vue/compiler-sfc`
+  // crashes startup with `No such module "node:os"` (vitest-pool-workers masked
+  // this with its own polyfills, but prod deploy + the real-browser harnesses run
+  // real workerd). Must match every other wrangler that loads apps/nebula DOs
+  // (test/, baseline, browser) — a flag mismatch lets a green test validate under
+  // a different runtime than prod.
+  "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [

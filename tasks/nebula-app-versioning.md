@@ -1,72 +1,78 @@
-# Nebula — App versioning, save APIs & dev/prod distribution
+# Nebula — App versioning & parallel source durability
 
-**Status**: Design — captures decisions from the 2026-06-16 design conversation that followed `/review-task` on `tasks/nebula-studio-compile-pipeline.md`. Several items are **pinned**; a few need pinning before build (flagged § *Open*). **Not yet `/review-task`'d as a standalone file.**
-**Phase**: Studio build-seq #1b (the Galaxy-side distribution/durability half; #1a = `nebula-studio-compile-pipeline.md`, the DevStar/Star mechanics).
-**App**: `apps/nebula/` — **Mesh platform layer**: never raw primitives; solve raw needs via a mesh hook.
-**Relationship**:
-- **Prerequisite for** the *end-to-end* Studio dev loop (`tasks/nebula-studio.md`) and the end-to-end wiring atop `tasks/nebula-studio-compile-pipeline.md` (which builds compile + `onRequest` serve + reload-broadcast independently; this file feeds bundles into Star storage and keeps source durable).
-- **Touches built code**: the Galaxy ontology registry (`galaxy.ts` `appendOntologyVersion`/`getLatestOntologyVersion`/`OntologyVersionRow`) is **broadened** here — a breaking change to a built surface (favor it over tech debt; bump semver, flag the release).
-- **Coordinates with** `tasks/dev-star.md` (reset precondition + re-hydrate seam) and `tasks/nebula-studio.md` § *Durable draft ownership*.
+**Status**: **Reviewed (framing ×2 + conformance) 2026-06-17 — build-ready.** Companion to the BUILT #1a (`tasks/nebula-studio-compile-pipeline.md`). Forks resolved (DevStar = sole compiler; per-file storage; self-hosted-assets/CSP split to `tasks/nebula-self-hosted-assets.md`). Conformance fixes applied (Galaxy save-API `@mesh(requireAdmin)` + B5 allow-list; `AppBundle` PK = schema migration; broadened rename/test surface; capable-of-failing DO markers; dual-write failure tests). ⚠️ **Phase 2's end-to-end durability is gated on the still-unbuilt `nebula-studio.md` § Durable draft ownership orchestration; Phase 3 (prod) is post-demo** (the one remaining § Open item).
+**Phase**: Studio build-seq #1b (the Galaxy-side half; #1a = the DevStar/Star compile/serve/reload mechanics).
+**App**: `apps/nebula/` — Mesh platform layer: never raw primitives; solve raw needs via a mesh hook.
 
-## Why this exists (the reframe)
+**What this file owns:**
+1. **The app-version record + the compiler relocation** — broaden the Galaxy registry to a versioned **app-version** record (ontology + validator + UI bundle + assets, lock-step), and move **all** compilation to DevStar so **Galaxy is a pure versioned store**.
+2. **Parallel source durability** — every save writes source to DevStar **and** Galaxy.
 
-The ontology version registry was built when we were focused on **Resources**, which only need the ontology — not source files or the compiled UI bundle. We've since decided **the ontology, the UI source, and the compiled bundle always version in lock-step**. So a registry keyed on "ontology version" is too narrow: CRUD on the ontology should broaden to CRUD on the **whole app version**.
+Owned **elsewhere — pointers, not restatements**: save **orchestration** (when to save, the confirm-durable-before-wipe gate, re-hydrate trigger) + the don't-trust-browser invariant → `nebula-studio.md` § Durable draft ownership. Reset mechanism + precondition + re-hydrate seam → `dev-star.md`. The compile/serve/reload mechanics + the built `AppBundle` storage shape → **#1a**. **Self-hosting the platform libraries (Vue + DaisyUI + Lucide) same-origin + strict `script-src` + the compile-time specifier-rewrite** → **`tasks/nebula-self-hosted-assets.md`** (the platform-fixed asset story, distinct from this file's per-version compiled bundle). Only the *Studio-LLM granular-icon docs* and the *real `@lumenize/nebula/frontend` factory bundle* defer (to Studio generation / #1a's T3 preview).
 
-## Decisions pinned (2026-06-16)
+**Touches built code** — broadens the Galaxy ontology registry **and** relocates the validator compile from Galaxy to DevStar (reworks `appendOntologyVersion` → store-only, `deployToDev`'s pull → local compile). Breaking change; favor it over tech debt, bump semver, flag the release.
 
-### 1. Ontology API → **App** API
-The Galaxy registry becomes an **app-version record**, not an ontology-only row. One immutable version `N` bundles everything that ships together: ontology types + compiled validator, the compiled UI bundle, and static assets. Broaden `appendOntologyVersion`/`getLatestOntologyVersion`/`OntologyVersionRow` into app-version CRUD (`appendAppVersion`/`getLatestAppVersion`/`AppVersionRow`, names TBD).
-- **Subsumes** the earlier `uiBundle`-field pin from the compile-pipeline review: this is the *combined app-version record* the Stage-1 review flagged as the open choice — picked combined, not a field bolted onto the ontology row.
-- The Star's inherited cache-miss apply path (`#installState`/`applyFetchedState`) installs the **app** version (validator **and** bundle), not just the validator.
+## Why this exists (two coupled reframes)
 
-### 2. Two save shapes — dev (repo-like) vs prod (artifact)
-- **Prod publish** = the **deployable artifact only**: compiled UI bundle + static assets + compiled validator. End-users never need source. This is what a prod Star lazy-pulls and serves.
-- **Dev save** = **repo-like superset**: *everything*, including source (`.vue` + ontology `.d.ts`) and the bundle — like a source-code repo.
-- The relationship: **prod-publish is a projection of dev-save** (compile + strip source). Likely **one underlying store with two read/write surfaces**, not two unrelated APIs.
+1. **Lock-step versioning** — the ontology, UI source, and compiled bundle ship together, so the registry broadens from an ontology row to a whole **app-version** record.
+2. **DevStar is the sole compiler** — it already compiles `.vue` (#1a); it must **also** compile the ontology **validator** locally, because the dev preview needs the validator *resident* to test data the moment the user tries the app — a Galaxy-compile-then-pull would put the very first-try latency we removed back in. So Galaxy stops compiling and becomes a **pure versioned store**; prod Stars pull (validator + bundle) and serve, never compiling.
 
-### 3. Dev distribution **reuses the Star's lazy-pull** (keep DevStar ↔ Galaxy)
-We considered making Studio the sole hub with **DevStar never talking to Galaxy**, and rejected it: it would diverge dev from prod's pull path, discard the built `deployToDev`, and fight the fact that `DevStar extends Star` and **inherits Star's lazy cache-miss → Galaxy calls** anyway. DevStar ↔ Galaxy is already proven safe (dev-star P4 coexistence), so there's no security forcing function.
-- **The dev update mechanism:** Studio publishes the new app version to Galaxy, then **forces a browser refresh of the preview**; the refresh drives the Star to **lazy-pull the new version from Galaxy** — the *same* path prod uses, just eagerly triggered.
-- **"Can't be truly lazy anymore"**: the refresh is the eager trigger (we don't wait for a natural cache-miss), but the underlying pull is the existing lazy mechanism (`deployToDev`'s eager-apply is the in-place analog; either may serve as the trigger — pin during build).
-- **Latency**: a per-cycle Galaxy round-trip is a concern, but **deferred as premature optimization**. Start with lazy-pull reuse and measure.
+## Decisions pinned
 
-### 4. Parallel source durability
-Every save writes source to **DevStar** (the fast eyeball-local working copy, for compile/preview) **and** **Galaxy** (the durable copy) **in parallel** — so a breaking-edit reset (`resetDevData()` wipes the DevStar's `file` resources) never costs the user work.
-- **The ontology is "just another file"** in this save — uniform with `.vue` files. It needs durability here specifically because the version registry only captures ontology source at *publish points*, while the user edits it *between* publishes; those in-progress edits otherwise have no durable home.
-- This is **not** a per-cycle lazy load — DevStar stays the working copy; Galaxy is the survival copy. Lazy load back from Galaxy happens only on re-hydrate after a wipe.
+### 1. Galaxy registry → app-version record (Galaxy stores, never compiles)
+The immutable per-version row becomes a single combined **app-version record**: ontology types + **DevStar-compiled** validatorBundle + UI bundle + static assets + carried-forward `relationships`. `append` becomes **store-only** — it takes the pre-compiled artifacts DevStar pushes and no longer calls `compileOntologyVersion`.
+- **Record shape (pinned — was § Open):** the version registry stays a KV row `AppVersionRow { version, types, validatorBundle, relationships }` (ontology + validator); the **UI bundle reuses #1a's `AppBundle` SQLite table, gaining a `version` column** (PK `(version, path)`, `WITHOUT ROWID`). An **app-version N = the KV row at N + the `AppBundle` rows where `version = N`** — that's the physical registry↔bundle relation. `getLatestAppVersion` returns the KV row; `onRequest`/`#installState` read the bundle rows by `(version, path)`.
+- `Star.#installState` installs validator + bundle — **contract unchanged**; only the *source* of the validatorBundle changes (DevStar-local in dev, Galaxy-pulled in prod).
+- Carry `relationships` forward unchanged ([galaxy.ts:37](../apps/nebula/src/galaxy.ts) — the deferred-5.5 lazy-migration breadcrumb).
+- **Supersedes** `nebula-studio.md` § Open questions' "built-artifact storage/versioning is deferrable" (already two-sided: nebula-studio.md:170 points back here).
 
-### 5. Studio coordinates the seam — but **don't trust browser storage**
-Studio talks to Galaxy and to DevStar; it **orchestrates** the save → confirm-durable → wipe → re-hydrate sequence, but **never holds the only copy**. Galaxy is authoritative. Invariants this imposes:
-- **Parallel-save-to-Galaxy happens *before* any wipe** → a Studio (browser) crash mid-turn loses nothing; worst case the DevStar is stale and Studio re-hydrates it from Galaxy on reconnect.
-- **The confirm-durable-before-wipe gate is answerable from Galaxy's *server* state** (Galaxy confirms the save / returns the version), **never** a browser flag.
-- **Re-hydrate** (pull source from Galaxy into the wiped DevStar) is **orchestrated by Studio** — the re-hydrate seam `dev-star.md` P3 deliberately left open. The reset **trigger** (breaking-change detection vs. manual) stays Studio's per `nebula-studio.md`.
+### 2. Storage — per-file, filesystem-shaped API
+Source + compiled assets are stored **per file (path → bytes)**, each its own row. The reason is **write-cost granularity**, not a value-size cap: #1a's `AppBundle` table is SQLite `content TEXT` ([app-bundle.ts:113](../apps/nebula/src/app-bundle.ts)), so a per-save compile is **one `INSERT OR REPLACE` per changed asset** rather than rewriting a whole-bundle blob (`durable-objects.md` § SQLite write-cost). (The 128 KiB cap is a `ctx.storage.kv` *value* limit — it only bites a future KV-backed path, not the SQLite TEXT store.) The **top-level API is filesystem-shaped** (read/write by path) so the demo's per-file SQLite backend can later swap to `@cloudflare/shell`'s `Workspace` (`tasks/on-hold/nebula-file-storage-backend.md`) without changing callers.
+- **Two stores, two lifecycles:** an *immutable* app-version registry (published versions) and a *mutable* dev-draft store (in-progress source). Publish bridges them (compile + snapshot). This file owns these **storage shapes**; the save *orchestration* is nebula-studio.md's.
+- **Dev save = source only** (`.vue` + ontology `.d.ts`); the bundle is regenerable (recompiled on re-hydrate), lives in the version record at publish, not in dev-save.
 
-## Phases (provisional — refine after the § *Open* items are pinned)
+### 3. Parallel source durability
+**Studio dual-writes source** to **DevStar** (fast eyeball-local working copy) **and** the **Galaxy draft store** (durable) in parallel on each save — independent of DevStar liveness, so a breaking-edit wipe never costs the user work. Ontology is *just another file*. Not a per-cycle lazy load; Galaxy is read back only on re-hydrate.
 
-### Phase 1 — Broaden the Galaxy registry to app versions
-- `OntologyVersionRow` → `AppVersionRow` (ontology types + validator + UI bundle + static assets); `appendAppVersion`/`getLatestAppVersion` (app/ontology/bundle lock-step, atomic write). Migrate the built ontology callers.
-- Extend `Star.#installState` to install the bundle alongside the validator.
-- **Success criteria:** publishing version N stores ontology + bundle + assets atomically under N; `getLatest` returns all; the Star installs both on apply.
+### 4. Distribution — dev is fully local; lazy-pull is prod-only
+With DevStar as sole compiler, **dev needs no Galaxy pull**: an ontology edit → DevStar compiles the validator locally + installs it; a `.vue` edit → DevStar compiles the bundle locally + serves it. No round-trip, no per-cycle latency — `deployToDev`'s former Galaxy-pull is **superseded by local compile**.
+- **Publish** (less frequent): DevStar pushes the compiled app-version (validator + bundle) to Galaxy.
+- **Prod**: a prod Star lazy-pulls the published version (validator + bundle) from Galaxy via the existing cache-miss path and serves it — **the only place the pull is used**.
+- **Who writes Galaxy:** *source* → **Studio** (the parallel dual-write of Decision 3, through the Galaxy-owned save API); *compiled version* → **DevStar** (server-side push, so the bundle never round-trips the browser). Studio orchestrates the triggers (orchestration owned by nebula-studio.md).
 
-### Phase 2 — Dev save API + parallel durability
-- A backend-agnostic **dev-save** surface the Galaxy owns (demo backend = Galaxy SQLite), storing the repo-like source set (`.vue` + ontology + bundle).
-- The dev cycle writes source to DevStar **and** Galaxy in parallel on each save.
-- **Success criteria:** after a save, the source is durable on Galaxy (server-confirmable) before any wipe could fire; a `resetDevData()` followed by re-hydrate restores the working copy from Galaxy.
+## Phases (provisional — refine after § Open is pinned)
 
-### Phase 3 — Wire the end-to-end dev loop (`deploy_to_dev`) via lazy-pull
-- Studio publishes the app version to Galaxy → forces a preview browser refresh → the Star lazy-pulls + serves (via `onRequest`, built in the compile-pipeline task). Reconcile step ordering: the UI is **compiled before** the app version is published (lock-step requires both present at publish).
-- **Success criteria:** edit `.vue` → compile → publish → refresh → preview shows the new version, end to end, within the ~3 s target; source is durable throughout.
+### Phase 1 — App-version record + relocate compilation to DevStar
+- `AppVersionRow` (the pinned shape, Decision 1) + `appendAppVersion`/`getLatestAppVersion` = **store-only** + **`@mesh(requireAdmin)`** (B1, mirroring `appendOntologyVersion`); lock-step atomic write inside one `transactionSync`.
+- **The `AppBundle` PK change `path` → `(version, path)` is a SCHEMA MIGRATION, not a column add** — `CREATE TABLE IF NOT EXISTS` no-ops against the built `path`-PK table ([app-bundle.ts:111-114](../apps/nebula/src/app-bundle.ts)) and SQLite can't ALTER a PK in place, so it needs an explicit in-DO **rebuild (create-new/copy/drop/rename) under a schema-version latch** (durable-objects.md), and **every `AppBundle` caller threads `version`** (`getAsset`/`putAsset`/`ensureTable`/`stageScaffold`/`Star.onRequest`). (Dev resets via `deleteAll`, so dev is moot; prod/test fixtures under the `path`-only schema need the rebuild.)
+- **Move the *ontology-validator* compile to DevStar** — a **new** DevStar method (the validator compile = `extractTypeMetadata` + `generateParseModule`, **distinct from `.vue`-only `compileSFC`**), reusing the validator bundle `apps/nebula` already imports. DevStar **synthesizes the `OntologyState`** itself (`row` from the local compile, `history` from its own index — `applyFetchedState`'s "failed-Galaxy-continuation" JSDoc must be reconciled, or a distinct local-apply seam added) + installs via `#installState`. Rework `deployToDev` (Galaxy-pull → local-compile-and-install).
+- **Migrate the full built surface** — the grep is the authoritative inventory, broadened to the **renamed method + its config type + the public barrels**: `grep -rn 'OntologyVersionRow\|OntologyState\|OntologyVersionConfig\|getLatestOntologyVersion\|compileOntologyVersion\|appendOntologyVersion' apps/nebula/src` (zero residual), **plus** the public re-exports (`index.ts`, `client-index.ts`) and the **test surface** (~25 `.test.ts` files + `callGalaxyAppendOntologyVersion`; `dev-star-eager-apply.test`'s append→pull→assert round-trip). ⚠️ **Carve-out: the prod cache-miss pull STAYS** — `star.ts` `doTransaction`/`doRead`/`doSubscribe` keep `getLatestOntologyVersion`; don't rip it out with the dev path.
+- **Migrate the tests, don't shim them** — move `dev-star-eager-apply.test` + ontology-lifecycle setups to the compile-locally / store-only shape (not aliased via back-compat shims), retaining capable-of-failing markers; name the harness change (`callGalaxyAppendOntologyVersion` now needs a precompiled artifact or a new DevStar-local compile initiator).
+- **Success criteria (capable-of-failing, via debug-sink DO markers — testing.md):**
+  - **No Galaxy call in dev** — a **local-compile marker fires exactly once** AND **no Galaxy-fetch marker** fires on the dev apply (mutation check: comment out the local compile → red). NOT "deployToDev succeeded" — vacuous, since `applyFetchedState`'s `applied` marker fires for a Galaxy pull too.
+  - **Prod carve-out** — pinned to a **non-`.dev` STAR** (`callStarTransaction`, uncached version): the **Galaxy-fetch marker fired** (mirror-image of the dev assertion — together they prove the split, not a shared no-op).
+  - **Publish atomicity** — a publish that throws partway leaves **no partial version N** (neither the KV `AppVersionRow` nor stray `AppBundle` rows): inject a throw between the KV put and the bundle writes, assert `getLatestAppVersion` ≠ N.
+  - The grep + barrels + test surface show **zero residual**; `relationships` present; a prod Star pulls + installs both.
 
-### Phase 4 — Prod publish + lazy-pull/serve to end-users
-- Prod-publish surface (artifact-only projection of dev-save); prod Star lazy-pulls + serves the deployed app to end-users via the same `Star.onRequest()`.
-- **Success criteria:** a published app version is lazily pulled and served by a fresh prod Star; end-users get the runtime-only bundle under a strict CSP.
+### Phase 2 — Parallel source durability (the dual-write half)
+This file builds the **Galaxy draft store + the source dual-write**. The save *orchestration* it rides — per-turn autosave, the confirm-durable-before-wipe gate, re-hydrate-on-reset, the reset trigger — is **owned by `nebula-studio.md` § Durable draft ownership and is design-only / not built and owned by no build task yet** (a hard cross-file prerequisite — sequence its build, likely with Studio proper).
+- Studio dual-writes source (`.vue` + ontology) to DevStar **and** the Galaxy draft store on each save, **via the Galaxy-owned save API**.
+- **The save API is `@mesh(requireAdmin)` (B1)** — `Galaxy.onBeforeCall` proves tenant *scope* only, and the `<id>.*` widening admits descendant non-admins, so without the gate any in-scope non-admin could overwrite another developer's draft source (mirror the already-gated `appendOntologyVersion`/`setGalaxyConfig`). It **re-validates every browser-supplied field server-side** (M2): `path` sanitized like `getAsset` (no traversal); the version/label re-checked against `VERSION_LABEL_RE`; writes **confined to the mutable draft store** (a draft write can never land in the immutable published registry).
+- **Update the B5 frozen non-admin allow-list** (`scope-isolation.test.ts` — the four read-only methods): swap the renamed read in, keep every new write admin-gated (and therefore absent) — else the `.*`-widening-is-safe invariant silently breaks.
+- **Success criteria:**
+  - The save API + `appendAppVersion` carry `@mesh(requireAdmin)`; a **genuinely-minted** (not forged) non-admin caller with a valid in-scope aud is **rejected** ("Admin access required") and **writes nothing** (both accept + reject cases, mirroring `scope-isolation.test.ts`); the B5 allow-list stays green. *(If the gate lives in the not-yet-built orchestration, `it.skip` the rejection test with the blocker named — deferring ≠ deleting.)* A save targeting a published-version key or a traversal `path` is rejected.
+  - **Dual-write durability under failure** (the point of Decision 3): (a) force the **DevStar leg to fail** → the Galaxy draft is still present + current (proves the writes don't secretly serialize through DevStar); (c) **rapid re-saves** of the same path → the draft store holds the latest. (b) Galaxy-write-fails-partial → assert Studio does **not** treat the draft as durable — `it.skip` if it depends on the design-only orchestration.
+  - After a normal save, the source is present + readable in the Galaxy draft store (server-confirmable). The end-to-end "durable **before** wipe / `resetDevData()` + re-hydrate restores" is gated on the orchestration prerequisite above and is **not** asserted by this phase.
 
-## Open — pin before building the dependent phase
-- **App-version record shape** + exactly how dev-save (repo-like) and prod-publish (artifact) relate to it ("one store, two surfaces" — confirm).
-- **Who publishes to Galaxy** — Studio, or DevStar — within the kept DevStar ↔ Galaxy topology.
-- **Lazy-pull trigger** for dev — does the browser refresh's resource-op cache-miss suffice, or does Studio call `deployToDev` (eager-apply) explicitly? (Measure latency here too.)
-- **Re-hydrate orchestration** details + the reset **trigger** — coordinate with `nebula-studio.md` § Durable draft ownership + `dev-star.md` reset precondition.
-- **Static assets** handling (where they live in the record; how `onRequest` serves them).
+### Phase 3 — Prod publish + serve to end-users **(Exploratory — post-demo)**
+Prod-publish (the artifact projection) + a prod Star lazy-pulls and serves to end-users via `Star.onRequest`. **Inherited open seam:** sync `onRequest` can't complete an async lazy-pull on a cold miss — lean: a fixed **loading-shell** (always resident) whose JS triggers an async ensure-version pull + reloads. Plus clean-URL / custom-domain routing. Deliverable = the pinned mechanism + a findings note, not green prod-serve criteria.
+
+## Open — pin before the dependent phase
+- **Prod cold-cache-miss serving** (the Phase 3 seam above) — exploratory/post-demo.
+
+## Deferred (captured, not lost)
+- **App-specific binary assets** (logos, images) — **every app will want at least a logo.** Mechanism: `file` resources (`ArrayBuffer`) + a record reference. Deferred from the demo (generated apps are code-only); revive when the first real upload need lands.
+- **Prod Worker size / cold-start** — prod Stars serve but never compile (Decision 4), yet carry #1a's compile machinery (the 3.4 MB tsc bundle + validator bundle) unused; isolate behind a **Worker Loader facet** if cold-start bites — backlog, not a demo blocker. Standing-fact details: #1a.
 
 ## References
-`tasks/nebula-studio-compile-pipeline.md` (the DevStar/Star mechanics half); `tasks/nebula-studio.md` (§ Architecture, § Durable draft ownership, § Dev-mode Star); `tasks/dev-star.md` (reset precondition + re-hydrate seam); `apps/nebula/src/galaxy.ts` (the registry being broadened); `apps/nebula/src/star.ts` (`#installState`/`applyFetchedState` apply path); `packages/nebula-auth/README.md` (singleton Registry + per-instance NebulaAuth; auth survives a DevStar wipe).
+`tasks/nebula-studio-compile-pipeline.md` (#1a, BUILT — the `AppBundle` shape + `onRequest`); `tasks/nebula-self-hosted-assets.md` (the platform-fixed asset/CSP detour); `tasks/nebula-studio.md` (§ Durable draft ownership — owns the save API + orchestration + gate); `tasks/dev-star.md` (§ In-dev data lifecycle — reset + re-hydrate seam); `apps/nebula/src/galaxy.ts` (registry broadened; compile relocating out); `apps/nebula/src/star.ts` (`#installState` apply path; prod pull stays); `tasks/on-hold/nebula-file-storage-backend.md` (`@cloudflare/shell` `Workspace` — the filesystem backend to swap in later).

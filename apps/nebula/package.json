@@ -34,7 +34,8 @@
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
     "types": "wrangler types",
-    "bundle:tsc": "node scripts/bundle-tsc.mjs"
+    "bundle:tsc": "node scripts/bundle-tsc.mjs",
+    "vendor:assets": "node scripts/vendor-assets.mjs"
   },
   "keywords": [
     "cloudflare",
@@ -53,8 +54,10 @@
     "@vitest/browser-playwright": "4.1.4",
     "@vitest/coverage-istanbul": "4.1.4",
     "agents": "^0.14.2",
+    "daisyui": "5.5.23",
     "http-proxy": "^1.18.1",
     "jsdom": "^25.0.1",
+    "lucide-vue-next": "1.0.0",
     "playwright": "^1.48.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",

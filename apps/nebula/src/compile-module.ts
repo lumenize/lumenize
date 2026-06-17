@@ -60,9 +60,20 @@ export function compileSFCToModule(sfcSource: string, id = 'app'): CompileModule
   const errors: string[] = [];
 
   let script = '';
+  // Binding metadata from `<script setup>` MUST flow into the template compile:
+  // template and script are compiled separately here, so without it the render
+  // emits generic `_ctx.x` + `_resolveComponent("X")` and a script-setup
+  // component (whose `count`/`House` live in setupState, not the options-API
+  // `_ctx`) renders blank values + unresolved components. With it, the render
+  // references `$setup.x` directly. (The full SFC compiler threads this
+  // automatically; we must do it by hand. Doesn't change emitted specifiers —
+  // still bare `vue`, rewritten at the DevStar write boundary.)
+  let bindingMetadata: ReturnType<typeof compileScript>['bindings'] | undefined;
   if (descriptor.script || descriptor.scriptSetup) {
     try {
-      script = compileScript(descriptor, { id }).content;
+      const compiled = compileScript(descriptor, { id });
+      script = compiled.content;
+      bindingMetadata = compiled.bindings;
     } catch (err) {
       errors.push(`compileScript: ${(err as Error).message}`);
     }
@@ -71,7 +82,12 @@ export function compileSFCToModule(sfcSource: string, id = 'app'): CompileModule
   let render = '';
   if (descriptor.template) {
     try {
-      const r = compileTemplate({ source: descriptor.template.content, filename: `${id}.vue`, id });
+      const r = compileTemplate({
+        source: descriptor.template.content,
+        filename: `${id}.vue`,
+        id,
+        compilerOptions: { bindingMetadata },
+      });
       render = r.code;
       if (r.errors.length > 0) {
         errors.push(...r.errors.map((e) => `compileTemplate: ${typeof e === 'string' ? e : e.message}`));

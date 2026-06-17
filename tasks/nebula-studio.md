@@ -99,7 +99,7 @@ Leaning on Resources (not a bespoke VFS) gives storage, snapshot-history version
 
 ### Durable draft ownership — Galaxy is the source of truth, behind a generic save API
 
-The dev Star's `file` resources are a **disposable working copy**: a breaking-edit reset (`deleteAll()`) wipes them along with test data (dev-star.md § *In-dev data lifecycle*). So the draft source must be durably owned elsewhere — the **Galaxy**, which already holds the ontology version registry, compiled bundles, and session/working state.
+The dev Star's `file` resources are a **disposable working copy**: a breaking-edit reset (`deleteAll()`) wipes them along with test data (dev-star.md § *In-dev data lifecycle*). So the draft source must be durably owned elsewhere — the **Galaxy**, which already holds the ontology version registry (being broadened to app versions in `tasks/nebula-app-versioning.md`) and session/working state.
 
 - **Backend-agnostic save API; Galaxy coordinates.** Studio persists drafts (ontology + UI files) through a save API the Galaxy owns; the storage backend slides underneath. **Demo backend = Galaxy SQLite.** Swapping to a `@cloudflare/shell` `Workspace` or an Artifacts-backed store later doesn't change the API the dev Star or Studio sees (decided 2026-06-16; backend candidates → on-hold file above).
 - **Autosave per agent turn.** User-developers take turns with the coding agent, so the granularity is one durable Galaxy save per completed turn (ontology + UI files). No "save" button; also crash-safety — a dropped session loses at most the in-progress turn.
@@ -167,7 +167,7 @@ Cold-start interview is the demo wow moment — optimize for it.
 - "File open for review" richness — plain vs. syntax-highlighted read-only (no edit bindings).
 - Preview-element-highlight gesture — click? click-and-hold? hover-with-shift?
 - Studio UI hosting (Workers Assets vs Galaxy-served) — § *Authoring environment*.
-- Built-artifact (compiled UI bundle) storage & versioning — decide jointly with the file-resource backend (`tasks/on-hold/nebula-file-storage-backend.md`); keep Galaxy's version-management API backend-agnostic so the decision stays deferrable.
+- Built-artifact (compiled UI bundle) storage & versioning — **decided**: combined into the immutable app-version record (`tasks/nebula-app-versioning.md` § Decisions #1). (The file-resource *backend* — `tasks/on-hold/nebula-file-storage-backend.md` — stays a separate, deferrable choice.)
 
 ## Follow-on work (post-demo)
 

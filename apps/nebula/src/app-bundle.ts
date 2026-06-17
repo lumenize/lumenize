@@ -58,6 +58,7 @@ const INDEX_HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <base href="${PLACEHOLDER.baseHref}">
+<link rel="stylesheet" href="./daisyui.css">
 <title>Nebula App</title>
 </head>
 <body>
@@ -97,15 +98,18 @@ try { await ready; } catch { window.location.assign('/login'); }
  * functions are precompiled server-side by `compileSFCToModule`, so the browser
  * needs only the runtime.
  *
- * Dev-preview placeholder: references the pinned runtime-only entry by URL
- * rather than self-hosting the ~22 KB bundle (#1b's asset story). The
- * `vue.runtime.esm-browser` entry name is load-bearing — it is the runtime-ONLY
- * build; the full `vue.esm-browser` build bundles the compiler and would break
- * the no-`unsafe-eval` guarantee.
+ * This staged `vue.js` is a thin **re-export of the self-hosted, same-origin**
+ * runtime (`./vendor/vue.js`, served from code by `platform-assets.ts`) — no CDN,
+ * so the served app resolves Vue under `script-src 'self'`
+ * (tasks/nebula-self-hosted-assets.md). The compiled SFC's bare `vue` specifier
+ * is rewritten to `./vue.js` (this asset) at the DevStar write boundary; the
+ * Lucide icons resolve the SAME backing module via `../../vue.js`, so the browser
+ * keeps a single Vue instance. (Why a shim and not the runtime inlined here: it
+ * keeps `vue.js` a 1-row scaffold write while the ~100 KB runtime stays a
+ * platform asset, never re-staged per Star.)
  */
-const VUE_RUNTIME_JS = `// Vue 3.5 runtime-only build (no template compiler; CSP-safe).
-export * from 'https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.runtime.esm-browser.prod.js';
-export { default } from 'https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.runtime.esm-browser.prod.js';
+const VUE_RUNTIME_JS = `// Vue 3.5 runtime-only build, re-exported from the self-hosted same-origin copy.
+export * from './vendor/vue.js';
 `;
 
 function ensureTable(ctx: DurableObjectState): void {

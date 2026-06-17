@@ -99,6 +99,36 @@ describe('Studio compile P1 — compile a .vue SFC inside the DevStar DO', () =>
     expect(asset!.content).not.toContain('ref<number>');
     expect(asset!.content).not.toContain('defineProps<');
 
+    // The DevStar write-boundary specifier rewrite ran: the bare `vue` import the
+    // SFC carries (`import { ref } from 'vue'`) resolves to the same-origin
+    // `./vue.js`, never bare (which would 404 under script-src 'self'). Removing
+    // the rewrite leaves `from 'vue'` and trips the second assertion.
+    expect(asset!.content).toContain("from './vue.js'");
+    expect(asset!.content).not.toMatch(/from\s*['"]vue['"]/);
+
+    client[Symbol.dispose]();
+  });
+
+  it('rejects an SFC importing a non-self-hosted package (rewrite is a compile error)', async () => {
+    const { galaxy, dev } = uniqueGalaxyScope();
+    const { client } = await devAdminClient(galaxy, dev);
+
+    // `lodash` is USED (so compileScript's binding analysis keeps the import —
+    // an unused import is tree-shaken and never reaches the browser). Only `vue`
+    // + `lucide-vue-next/icons/*` are self-hosted; any other bare import is a
+    // compile error fed to Studio's iterate-on-errors loop.
+    const sfc = `<template><div>{{ y }}</div></template>
+<script setup lang="ts">import _ from 'lodash'; const y = _.identity(1);</script>`;
+    client.callDevStarCompileSFC(dev, 'Bad.vue', sfc);
+    const result = await waitForSuccess(client) as { path: string; errors: string[] };
+    expect(result.errors.length).toBe(1);
+    expect(result.errors[0]).toContain("Unsupported bare import 'lodash'");
+    expect(result.path).toBe('Bad.vue');   // unchanged — nothing persisted
+
+    // Capable-of-failing: the rejected compile must NOT write the component asset.
+    client.callDevStarInspectBundleAsset(dev, 'Bad.js');
+    expect(await waitForSuccess(client)).toBeUndefined();
+
     client[Symbol.dispose]();
   });
 
