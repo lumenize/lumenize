@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "container-agent-channel",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The dev-only container (vite + command-server). max_instances kept low for the spike.
+  "containers": [
+    {
+      "max_instances": 3,
+      "class_name": "DevContainer",
+      "image": "./Dockerfile"
+    }
+  ],
+
+  // The lifecycle DO that fronts the container: proxies vite AND exposes the command channel.
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEV_CONTAINER", "class_name": "DevContainer" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["DevContainer"] }
+  ]
+}
