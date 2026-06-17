@@ -23,7 +23,15 @@ on:
       working_directory:
         description: "Directory containing the wrangler.jsonc to deploy"
         required: true
-        default: "experiments/container-vite-spike"
+        default: "experiments/container-agent-channel"
+  # TEMPORARY push trigger (remove after the agent-channel spike Q2 deploy is measured):
+  # workflow_dispatch needs this file on the DEFAULT branch, which it isn't yet, so we
+  # auto-deploy on push to the spike branch instead — the same trick used for container-vite-spike.
+  push:
+    branches: [feat/nebula-studio]
+    paths:
+      - "experiments/container-agent-channel/**"
+      - ".github/workflows/deploy-container.yml"
 
 jobs:
   deploy:
@@ -43,7 +51,7 @@ jobs:
 
       - name: Deploy with wrangler (builds + pushes the container image, then rolls out)
         # Falls back to the spike dir for the push trigger (where inputs are empty).
-        working-directory: ${{ inputs.working_directory || 'experiments/container-vite-spike' }}
+        working-directory: ${{ inputs.working_directory || 'experiments/container-agent-channel' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
