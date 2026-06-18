@@ -144,3 +144,7 @@ See Phase 4.0 (`tasks/archive/nebula-isolation-blog.md`) for detailed notes on D
 ## Deferred Items & Scratchpad
 
 See `tasks/nebula-scratchpad.md` for deferred items, early-stage ideas (database branching, user-developer testing workflow), and notes captured during planning.
+
+**Known follow-up — browser benchmark auth broken by scope-isolation Fix 1 (2026-06-17).** The structural `onBeforeCall` (`nebula-do-scope-isolation.md`, commit `7c83407`) requires a caller's `aud` to equal the Star it calls (a galaxy-level `aud` is rejected — scope-isolation **T6**). That work's validation ran `baseline`/`unit`/`mesh`/`fetch` but **never the `browser` vitest project**, so the `test/browser/` harness (which minted a galaxy `activeScope` then hit Stars) was left red and uncaught.
+- **Fixed (2026-06-17):** the two in-gate browser tests (`flush-spike`, `multi-client`) + `fanout.benchmark`'s `setupMultiClient` call now operate at a **star-level `activeScope`** (the harness `setupMultiClient` takes a required `activeScope`).
+- **Still broken (browser-bench / deployed-only — NOT in `npm test`):** `transactions` / `throughput` / `throughput-multi` / `cross-region` benchmarks hit **multiple (incl. random cold) Stars with one minted `aud`**, which the structural guard now forbids. Needs a **benchmark-auth rework** — re-mint `activeScope` per Star, or scope each bench to a single Star. Low priority (perf tooling, not demo-critical).

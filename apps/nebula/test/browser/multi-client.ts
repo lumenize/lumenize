@@ -29,7 +29,15 @@ export interface MultiClientSetupArgs {
   browser: Browser;
   baseUrl: string;
   testToken: string;
+  /** The galaxy-level scope the admin logs in at (the cookie `authScope`). */
   galaxyScope: string;
+  /**
+   * The (star-level) `activeScope` the clients operate in — the `aud` minted into
+   * their JWT. Under the structural `onBeforeCall` guard a Star requires the caller's
+   * `aud` to EQUAL the star (a galaxy-level `aud` is rejected — see scope-isolation T6),
+   * so this MUST be the star the clients will call, not the galaxy.
+   */
+  activeScope: string;
   email: string;
   /** Number of clients to spin up. */
   M: number;
@@ -52,7 +60,7 @@ export interface MultiClientHarness {
  * connected and ready to dispatch calls when this resolves.
  */
 export async function setupMultiClient(args: MultiClientSetupArgs): Promise<MultiClientHarness> {
-  const { browser, baseUrl, testToken, galaxyScope, email, M } = args;
+  const { browser, baseUrl, testToken, galaxyScope, activeScope, email, M } = args;
   const wsTimeoutMs = args.wsTimeoutMs ?? 15_000;
 
   if (M < 1) throw new Error(`setupMultiClient: M must be ≥ 1, got ${M}`);
@@ -69,7 +77,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ activeScope: galaxyScope }),
+      body: JSON.stringify({ activeScope }),
     },
   );
   if (!refreshResponse.ok) {
@@ -92,7 +100,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
     const client = new HarnessNebulaClient({
       baseUrl,
       authScope: galaxyScope,
-      activeScope: galaxyScope,
+      activeScope,
       appVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,

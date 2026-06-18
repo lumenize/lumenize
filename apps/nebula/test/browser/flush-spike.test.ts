@@ -89,7 +89,8 @@ describe('flush-spike', () => {
     const client = new HarnessNebulaClient({
       baseUrl,
       authScope: galaxyScope,
-      activeScope: galaxyScope,
+      // Operate at the star (aud must equal it — structural guard, T6), not the galaxy.
+      activeScope: star,
       appVersion: 'v1',
       fetch: browser.fetch,
       sessionStorage: ctx.sessionStorage,

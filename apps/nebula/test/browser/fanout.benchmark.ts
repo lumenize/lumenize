@@ -162,14 +162,15 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
     }
 
     // M=2 multi-client harness. Both clients share one JWT; each lands on its
-    // own Gateway DO via distinct `tabId`. Same activeScope (galaxy) so they
-    // hit the same Star tenant.
+    // own Gateway DO via distinct `tabId`. activeScope = the star (the structural
+    // guard requires aud == star — scope-isolation T6), so both hit the same tenant.
     const starName = `${galaxyScope}.tenant-fanout`;
     const harness = await setupMultiClient({
       browser,
       baseUrl,
       testToken,
       galaxyScope,
+      activeScope: starName,
       email: ADMIN_EMAIL,
       M: 2,
     });
