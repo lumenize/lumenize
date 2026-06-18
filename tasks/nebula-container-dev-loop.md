@@ -40,10 +40,24 @@ The container-touching phases (0–2) are **exploratory** (real-infra discovery)
 
 ## Phases
 
+### Phase 0 — DONE ✅ 2026-06-18 (deployed smoke passed)
+**Refinement vs. the spec below:** Phase 0 ran as a **self-contained minimal deploy** (`experiments/container-node-phase0/`, a real `LumenizeContainer`-based `SmokeContainer`), NOT wired into `apps/nebula/wrangler.jsonc` — isolating the kill-fast variable (does the node core deploy+construct+coexist on real infra?) from the much bigger "first deploy of the whole nebula Worker" project. The `DEV_CONTAINER` wiring into `apps/nebula` moves to Phase 1, where the preview actually needs it. In-phase refinement, not a reorder.
+
+**Findings (the exploratory deliverable — what worked):**
+- **Decorator bundling (resolved locally, no CI needed):** `wrangler 4.86 deploy --dry-run` bundled the Worker (with the `@mesh` TC39 decorator + full mesh imports + `node:async_hooks`) and **transformed the decorator correctly** (`__decorateElement`/`__decoratorStart`/`__runInitializers` helpers in the output, zero literal `@mesh(` surviving, `lumenize.mesh.callable` marker preserved). **⇒ every Lumenize mesh node — incl. `apps/nebula` — can deploy via plain `wrangler deploy`; no swc/custom-build step needed.** (The dry-run's only failure was the Docker/container-image step — expected locally; that's the CI-only half.)
+- **CI deploy works:** deployed via the proven temporary `on: push` trigger on `deploy-container.yml` (workflow_dispatch is unavailable — the file isn't on the default branch). Run `27764802476`, ~1m34s, image built+pushed from GitHub's runner. Deployed `https://container-node-phase0.transformation.workers.dev` (container app `container-node-phase0-smokecontainer`).
+- **Smoke result (curl):** `{ constructed: true, meshResult.$result: "pong from phase0-smoke", coexistence: { type: "LumenizeDO", bindingName: "SMOKE", instanceName: "phase0-smoke", hasContainerSchedulesTable: true, hasAlarm: true } }`. ⇒ on a **real Container**: the node constructs (`ctx.container` populated); an inbound `lmz.call` lands via `__executeOperation` + stamps identity; and the composed Lumenize identity (`__lmz_do_*` kv) **coexists** with `Container`'s own lifecycle (`container_schedules` table + alarm slot from its ctor). **This closes the node-type task's deferred `it.skip` m2 coexistence blocker against a real artifact.**
+
+**Teardown (owed):** the throwaway `container-node-phase0` Worker + its container app are deployed; tear down once findings are captured (mirrors the agent-channel spike's deployed-infra teardown). The `experiments/container-node-phase0/` dir is the throwaway smoke (prune with the other in-DO experiments per `workflow.md`).
+
+<details><summary>Original Phase-0 spec (kept for the record)</summary>
+
 ### Phase 0 — `DEV_CONTAINER` wiring + bare deployed smoke test — *exploratory*
 A **kill-fast gate**: prove *any* `NebulaContainer` constructs + coexists on real infra **and** the CI deploy pipeline works, before investing in the vite image. (A deliberate second CI deploy — accepted, mirrors running the Q5 spike first.)
 - **Deliverable (closes the node-type's deferred deployability note, `nebula-devcontainer-node-type.md:146`):** add the `DEV_CONTAINER` DO binding to `apps/nebula/wrangler.jsonc`, register the class under **`new_sqlite_classes`**, and add the top-level **`containers` block** (image / `class_name` / `instance_type`, sized to Phase 3's ≥ `standard-1`) — prod currently has none. A minimal `NebulaContainer` subclass + trivial image for this phase; Phase 1 swaps in the real DevContainer image.
 - **Success (capable-of-failing + findings note) — the deployed-e2e-only delta** (the kv-stamping half is already covered in pool-workers by the node-type build): on a **live** Container, after one inbound `lmz.call`, `Container`'s `container_schedules` table + alarm slot (created by its constructor lifecycle) and the Lumenize `__lmz_do_*` identity keys are **all present together**, and the inbound call returns via `__executeOperation` with `onBeforeCall` fired. (This closes the node-type's `it.skip` m2 coexistence half against a real artifact; the construction-doesn't-throw fact falls out of the call landing.)
+
+</details>
 
 ### Phase 1 — `DevContainer` image + class: vite preview + agent command channel — *exploratory*
 - Dev-container image: `node` + git + the vite app + the command-server (the spike's `command-server.mjs` shape, production-aimed; bind loopback-only as cheap defense-in-depth). `DevContainer extends NebulaContainer`, `defaultPort = 5173`, `sleepAfter` for warm-while-focused.

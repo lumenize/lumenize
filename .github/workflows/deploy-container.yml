@@ -18,13 +18,6 @@ name: Deploy container worker (manual)
 #        "Use workflow from" branch selector.
 
 on:
-  # TEMPORARY push trigger (Phase-0 container-node deploy, 2026-06-18) — reverted
-  # in the immediately-following commit. workflow_dispatch can't be used because
-  # this file isn't on the default branch; the proven mechanism is a scoped push
-  # trigger (see the run history). Pushing the revert (which removes this block)
-  # does NOT re-trigger, since the trigger is absent at that commit.
-  push:
-    branches: [feat/nebula-studio]
   workflow_dispatch:
     inputs:
       working_directory:
@@ -49,8 +42,8 @@ jobs:
         run: npm install --no-optional --no-audit --no-fund
 
       - name: Deploy with wrangler (builds + pushes the container image, then rolls out)
-        # Falls back to the Phase-0 container-node dir for the push trigger (where inputs are empty).
-        working-directory: ${{ inputs.working_directory || 'experiments/container-node-phase0' }}
+        # Falls back to the spike dir for the push trigger (where inputs are empty).
+        working-directory: ${{ inputs.working_directory || 'experiments/container-vite-spike' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
