@@ -21,8 +21,11 @@ type ViteResult = { ok: boolean; action: string };
 export class ContainerUnavailableError extends Error {
   status: number;
   retryable = true;
-  constructor(status: number) {
-    super(`Container unavailable (HTTP ${status}): starting, evicted, or at capacity`);
+  constructor(status: number, detail?: string) {
+    super(
+      `Container unavailable (HTTP ${status})${detail ? `: ${detail}` : ''} — ` +
+        `provisioning/cold-starting, evicted, or at capacity. Retry.`,
+    );
     this.name = 'ContainerUnavailableError';
     this.status = status;
   }
@@ -47,47 +50,57 @@ export class SmokeContainer extends LumenizeContainer {
   defaultPort = 5173; // public vite preview surface
   sleepAfter = '5m';  // warm-while-focused (spike Q1/Q4)
 
-  /** Send a command to the in-container command-server (9000). Surfaces a
-   *  503/429 as a typed error rather than a successful 200 with an error body. */
-  async #cmd(path: string, init?: RequestInit): Promise<Response> {
+  /**
+   * Send a command to the in-container command-server (9000) and return its
+   * parsed JSON. Surfaces ANY non-2xx (503 no-instance / 429 rate-limit / the
+   * cold-start "Failed to…" text while the container provisions) **or** a 2xx
+   * non-JSON body as a typed retryable `ContainerUnavailableError` — never a
+   * `SyntaxError` from blindly `.json()`-ing a non-JSON body (m3; the cold-start
+   * makes this concrete — the first containerFetch races the boot). The dev loop
+   * retries on `ContainerUnavailableError`; `sleepAfter` keeps it warm during
+   * active dev, so the cold path is only the first / post-idle command.
+   */
+  async #cmdJson<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.containerFetch(new Request(`http://cmd.local${path}`, init), CMD_PORT);
-    if (res.status === 503 || res.status === 429) throw new ContainerUnavailableError(res.status);
-    return res;
+    const text = await res.text();
+    if (!res.ok) throw new ContainerUnavailableError(res.status, text.slice(0, 120));
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new ContainerUnavailableError(res.status, text.slice(0, 120));
+    }
   }
 
   /** Channel-latency probe (no child spawn) — pure DO→container→back. */
   @mesh()
   async noop(): Promise<{ ok: boolean }> {
-    return (await this.#cmd('/healthz')).json();
+    return this.#cmdJson('/healthz');
   }
 
   /** Run a buffered command in the container working tree. */
   @mesh()
   async exec(payload: { cmd: string; args?: string[]; shell?: boolean; cwd?: string }): Promise<ExecResult> {
-    const res = await this.#cmd('/exec', {
+    return this.#cmdJson('/exec', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json() as Promise<ExecResult>;
   }
 
   /** Write a source file into the working tree (vite HMR picks it up). */
   @mesh()
   async writeFile(payload: { path: string; content: string }): Promise<WriteResult> {
-    const res = await this.#cmd('/write', {
+    return this.#cmdJson('/write', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json() as Promise<WriteResult>;
   }
 
   /** Manage the vite dev server (the command-server is its supervisor). */
   @mesh()
   async viteControl(action: 'restart' | 'stop' | 'start'): Promise<ViteResult> {
-    const res = await this.#cmd(`/vite/${action}`, { method: 'POST' });
-    return res.json() as Promise<ViteResult>;
+    return this.#cmdJson(`/vite/${action}`, { method: 'POST' });
   }
 
   /** @mesh receive-path probe — returns this node's composed identity. */

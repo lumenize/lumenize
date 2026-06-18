@@ -59,11 +59,26 @@ A **kill-fast gate**: prove *any* `NebulaContainer` constructs + coexists on rea
 
 </details>
 
+### Phase 1 — command-channel slice DONE ✅ 2026-06-18 (deployed, validated on real infra)
+The command-channel + preview + trust-boundary slice is validated on a **live deployed** container (`container-node-phase0`, overwriting the Phase-0 smoke; `SmokeContainer extends LumenizeContainer` + the spike's reused vite app + command-server, driven over the mesh via `@mesh` methods). **Deployed via local `wrangler deploy` + WARP** (WARP fixes the registry-push sever — confirmed 2026-06-18; the GHA workflow stays as the headless fallback). Curl probes:
+- **`/cmd`** — `exec({cmd:'git'})` over the mesh → `{stdout:"git version 2.39.5", code:0}`, warm ~4–40 ms (matches the spike). ✅ command channel works.
+- **`/preview`** — the DO's `fetch()` proxies vite → 200 + the shell with `/@vite/client` (real vite + HMR client on 5173). ✅ public preview works.
+- **`/boundary`** — a public request carrying `cf-container-target-port: 9000` returns the **vite shell**, not the command-server → the header is stripped, the command port is unreachable from the public surface. ✅ **M1 trust boundary holds on real infra** (closes the node-type's M1/M4 live `it.skip`).
+- **`/`** — coexistence still green post-redeploy.
+
+**m3 made concrete + fixed:** the FIRST containerFetch races the cold boot and CF returns a `"Failed to…"` **text** body — which blindly `.json()`-ing throws a `SyntaxError`. Fix: `#cmdJson` reads once and surfaces ANY non-2xx **or** 2xx-non-JSON as the typed retryable `ContainerUnavailableError` (not just 503/429). The dev loop retries on it; `sleepAfter` keeps the container warm during active dev so the cold path is only the first / post-idle command.
+
+**Still open in Phase 1 (carry forward):** the cold-start now *should* surface the typed error (correct-by-construction; couldn't re-trigger — a Worker-code redeploy reused the image + kept the container warm); the **two-overlapping-commands** contention findings note; loopback-binding the command-server (defense-in-depth). HMR + scope-injection are **Phase 2** (need a browser).
+
+<details><summary>Original Phase-1 spec (kept for the record)</summary>
+
 ### Phase 1 — `DevContainer` image + class: vite preview + agent command channel — *exploratory*
 - Dev-container image: `node` + git + the vite app + the command-server (the spike's `command-server.mjs` shape, production-aimed; bind loopback-only as cheap defense-in-depth). `DevContainer extends NebulaContainer`, `defaultPort = 5173`, `sleepAfter` for warm-while-focused.
 - Agent command channel: `@mesh`-guarded methods (exec / writeFile / vite-control), each `containerFetch(req, 9000)` → command-server. **Surface container-unavailability as a typed failure:** `containerFetch` returns 503 (no instance) / 429 (rate-limit) as **Responses, not throws** (`container.js:874/877`); the method must check status and surface a recognizable error to the `lmz.call` caller (by `err.name`, per mesh.md / ADR-002) — **not** a 200 carrying a 503 body. So the loop can distinguish "container starting/evicted" from "write succeeded."
 - **Re-validate the trust boundary** (the node-type's m4 "receiver re-validates"; the deployed form of the node-type's M1/M4 `it.skip`): a public `fetch()` carrying `cf-container-target-port: 9000` must **not** reach the command server, asserted against a **live two-port container**.
 - **Success (capable-of-failing + findings note):** the agent (over real mesh, `onBeforeCall`-gated) writes a file / runs a vite command and gets output back; a command against a **cold / just-woken** container returns **correct output** (correctness, distinct from warm latency — the spike's ~1.36 s cold case is the common post-`sleepAfter` path); `GET /{dev-container}/{u}.{g}.dev/` returns vite's shell from 5173; a public request targeting 9000 is refused; an unavailable-container command surfaces a typed error. **Findings note:** warm channel latency on the chosen instance size; the behaviour of **two overlapping command calls** sharing the single command-server (serialized / interleaved / error) so single-port contention is characterized, not discovered in prod.
+
+</details>
 
 ### Phase 2 — Same-origin preview proxy + HMR + scope injection — *exploratory*
 - Implement the three-way `fetch()` branch + the server-derived scope injection (Design § above).
