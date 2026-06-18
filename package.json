@@ -18,7 +18,8 @@
     "experiments/structured-clone-object-format",
     "experiments/onstart-repro",
     "experiments/container-vite-spike",
-    "experiments/container-agent-channel"
+    "experiments/container-agent-channel",
+    "experiments/container-node-phase0"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
