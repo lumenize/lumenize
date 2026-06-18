@@ -4,9 +4,10 @@ import { preprocess } from '@lumenize/structured-clone';
 
 // Phase-3 finding: using `allowedHosts` (host-specific outbound interception)
 // requires the Worker to export `ContainerProxy` (`ctx.exports.ContainerProxy`)
-// or the container fails to start. Plain `enableInternet=false` (block-all) does
-// NOT need it — only the selective allow-list does. The real DevContainer (and
-// the node type's docs) must carry this re-export when it allow-lists egress.
+// or the container fails to start. Deployed, plain `enableInternet=false` (block-all)
+// does NOT need it — only the selective allow-list does (Phase 1 deployed cleanly
+// without this export). The real DevContainer (and the node type's docs) must carry
+// this re-export when it allow-lists egress.
 export { ContainerProxy } from '@cloudflare/containers';
 
 // The command-server's port — distinct from vite's defaultPort (5173). Reachable
@@ -321,10 +322,41 @@ export default {
           expect: 'starved=false on >=standard-1 (no 000/>1s healthz during vite build)',
         });
       }
-      // default: Phase-0 coexistence smoke.
-      const meshResult = await cmdStub.__executeOperation(meshEnvelope('ping'));
-      const coexistence = await cmdStub.coexistence();
-      return Response.json({ probe: 'coexistence', meshResult, coexistence });
+      if (url.pathname === '/touch') {
+        // HMR trigger (Phase-2 browser half): rewrite App.vue's `marker` ref to a new
+        // value via the command channel. A browser watching the live preview shows
+        // "marker <v>" land over HMR — file-save → vite recompile → WS push → patch.
+        // Pass ?v=<token> ([a-z0-9_-], <=24). Each distinct value = one visible save.
+        const raw = url.searchParams.get('v') ?? 'x';
+        const v = raw.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'x';
+        const sed = `sed -i 's/const marker = ref("[^"]*")/const marker = ref("${v}")/' src/App.vue`;
+        const result = await cmdStub.__executeOperation(meshEnvelope('exec', [{ cmd: sed, shell: true }]));
+        return Response.json({
+          probe: 'touch',
+          wroteMarker: v,
+          code: result?.$result?.code,
+          expect: `browser shows "marker ${v}" via HMR (no full page reload)`,
+        });
+      }
+      if (url.pathname === '/coexistence') {
+        // Phase-0 coexistence smoke (was the default route before the preview passthrough).
+        const meshResult = await cmdStub.__executeOperation(meshEnvelope('ping'));
+        const coexistence = await cmdStub.coexistence();
+        return Response.json({ probe: 'coexistence', meshResult, coexistence });
+      }
+      // Default: TRANSPARENT preview passthrough so a real browser can MOUNT the app
+      // and get HMR (the Phase-2 browser half). The DO fetch() does its 3-way branch
+      // (WS verbatim / shell HTML + injected scope / asset stream). A WS upgrade (vite
+      // HMR) forwards the original request — identity is already stamped in the DO's kv
+      // from the HTML GET, so initIdentityFromHeaders no-ops harmlessly; other requests
+      // carry the routed headers so the shell's scope derives server-side.
+      if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        return previewStub.fetch(request);
+      }
+      const fwdHeaders = new Headers(request.headers);
+      fwdHeaders.set('x-lumenize-do-binding-name', 'SMOKE');
+      fwdHeaders.set('x-lumenize-do-instance-name-or-id', PREVIEW_SCOPE);
+      return previewStub.fetch(new Request(request, { headers: fwdHeaders }));
     } catch (e) {
       return Response.json({ error: e instanceof Error ? `${e.name}: ${e.message}` : String(e) }, { status: 500 });
     }
