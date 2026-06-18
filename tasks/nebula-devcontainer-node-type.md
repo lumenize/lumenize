@@ -145,5 +145,21 @@ Composed, not inherited: `LumenizeDO` + `LumenizeWorker` realize the receive pat
 
 **Deployability note (carried to deploy time, not built here):** prod `apps/nebula/wrangler.jsonc` currently has neither a `new_sqlite_classes` registration nor a `containers` block for the container node — both are required to deploy `NebulaContainer`. Flagged so a deploy doesn't discover it late (the node type is built; wiring it into a deployable Worker is #1a / the prod-serve task).
 
+### Phase 3 — `NebulaContainer` (nebula layer) (DONE 2026-06-17)
+
+**Delivered:**
+- `apps/nebula/src/nebula-container.ts` — `NebulaContainer extends LumenizeContainer` (a **sibling** of NebulaDO, not a subclass). `onBeforeCall` mirrors NebulaDO's structural tenant-isolation guard verbatim (`isPlatformInstance` → `buildAuthScopePattern` → `aud` → `matchAccess`); fail-closed on absent name/aud/unparseable name. One scope-gated `@mesh` write (`recordValue`) + read (`readValue`) using `ctx.storage.sql` directly (a Container has no `this.svc`; local DO storage is correct in every layer per durable-objects.md). Exported from `apps/nebula/src/index.ts`.
+- `requireAdmin` param widened (the pinned nit) from `NebulaDO` to the structural `HasCallContext` = `{ lmz: { callContext } }`, so it guards NebulaContainer — a sibling — without a cast. Existing `@mesh(requireAdmin)` usages unaffected (contravariant param).
+- Test-app `test/test-apps/container-node/` + nebula `container` project: a `NebulaContainerGuardHarness extends LumenizeDO` borrows NebulaContainer's REAL prototype methods via `.call(this)` (NebulaContainer can't construct under pool-workers — Phase-2 precheck), so the guard runs against a faithful `executeEnvelope → runWithCallContext → stamped-identity` path. **9 passed.**
+
+**Success criteria → evidence (all capable-of-failing, mirror scope-isolation.test.ts):**
+- **In-scope accept (B1)** — an in-scope caller passes; its `recordValue` write lands (in-scope `readValue` returns it).
+- **Cross-scope reject + writes-nothing (m5)** — a genuinely-minted foreign-aud caller is rejected (`Active-scope mismatch`); an in-scope readback returns `undefined`. **Mutation-validated:** commenting out the `matchAccess` reject in `NebulaContainer.onBeforeCall` → the cross-scope write lands → RED; restored.
+- **Fail-closed addressing (M3)** — `>3`-segment name → `dot-separated segments`; illegal-slug name → `Invalid slug`; a 64-hex DO-id-shaped name → `Active-scope mismatch` (a hex address can never reach a tenant container — never addressed by `idFromString`); platform name `nebula-platform` → `Active-scope mismatch`.
+- **Below-public-API fail-closed** — missing `aud` → `Missing active scope`; missing `metadata.callee` → `missing callee instance name`.
+- **B5 frozen non-admin surface (m5)** — a dynamic prototype walk partitioning by `getMeshGuard(m) !== requireAdmin` freezes NebulaContainer's non-admin `@mesh` set to `['readValue','recordValue']`; a new non-admin method fails it.
+
+**ADR-007 gate:** both halves now satisfied (Q5 spike GOed + this build lands) → flip `docs/adr/007-shared-node-security-core.md` Proposed→Accepted on landing.
+
 ## References
 **ADR-007 (Proposed)** owns the comms+guards invariant (this file points to it). `lmz-api.ts` (`executeEnvelope`/`EnvelopeExecutorNode`@812, `onBeforeCall` call site @902, `createLmzApiForDO`@572, `lmz.call`/`ctn`/`sql`/`__init`); the **`__executeOperation` impls to mirror** = `lumenize-worker.ts:197` / `lumenize-do.ts:388` (`lmz-api.ts:305` is the dispatch *caller*, not a def); `lumenize-worker.ts` (minimal-core sibling); `lumenize-client.ts` `#handleIncomingCall` (the parallel path Phase 1 classifies); `nebula-do.ts` + `tasks/nebula-do-scope-isolation.md` (the guard to mirror, incl. `T-malformed`/B5); `node_modules/@cloudflare/containers` v0.3.7 (`container.d.ts` — `alarm`/`onStart`/`fetch`/`container_schedules`); `tasks/spike-container-agent-channel.md` (DONE/GO); `tasks/nebula-studio.md` § *UI-build architecture*; `.claude/rules/{mesh,durable-objects,testing,security}.md`.

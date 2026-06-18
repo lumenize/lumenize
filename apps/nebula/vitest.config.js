@@ -262,6 +262,21 @@ export default defineConfig({
           include: ['test/test-apps/egress-choke/**/*.test.ts'],
         },
       },
+      // NebulaContainer (4th node type, Phase 3) — structural scope-isolation
+      // guard verified against a harness that borrows NebulaContainer's real
+      // prototype methods (NebulaContainer itself can't construct under
+      // pool-workers; see tasks/nebula-devcontainer-node-type.md Phase 2/3).
+      // Not in `npm test`; run with `npx vitest run --project container`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/container-node/test/wrangler.jsonc' },
+        })],
+        test: {
+          name: 'container',
+          include: ['test/test-apps/container-node/**/*.test.ts'],
+        },
+      },
       // Browser project — Node-side vitest tests using @lumenize/testing's
       // Browser class (cookie-aware fetch + CORS validation + WebSocket +
       // multi-tab Context with sessionStorage). Talks over the network to an

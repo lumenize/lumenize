@@ -4,6 +4,7 @@
 
 // DO classes
 export { NebulaDO, requireAdmin } from './nebula-do';
+export { NebulaContainer } from './nebula-container';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';

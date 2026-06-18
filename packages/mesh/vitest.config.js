@@ -168,6 +168,7 @@ export default defineConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
+            'test/container/**/*.test.ts', // Container node — run in the `container` project (needs its own containers-block wrangler)
           ],
         },
       },

@@ -6,9 +6,17 @@
  */
 
 import { LumenizeDO } from '@lumenize/mesh';
+import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { buildAuthScopePattern, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+
+/**
+ * The minimal structural shape `requireAdmin` reads. Both NebulaDO and the
+ * sibling NebulaContainer satisfy it (each exposes `lmz.callContext`), so the
+ * guard works on either without casting one to the other's class.
+ */
+type HasCallContext = { lmz: { callContext: CallContext } };
 
 /**
  * Guard: require admin access in the caller's JWT claims.
@@ -18,8 +26,11 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
  * tenant* may call (the scope check), `requireAdmin` decides *whether the call
  * must be admin-originated*. A galaxy-A admin is still rejected by onBeforeCall
  * from reaching galaxy B.
+ *
+ * Typed against the structural `HasCallContext` shape (not `NebulaDO`) so it
+ * guards NebulaContainer — a sibling node type — without a cast.
  */
-export function requireAdmin(instance: NebulaDO) {
+export function requireAdmin(instance: HasCallContext) {
   const claims = instance.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
   if (!claims?.access?.admin) {
     throw new Error('Admin access required');

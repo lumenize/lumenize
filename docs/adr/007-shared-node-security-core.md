@@ -1,9 +1,9 @@
 # ADR-007: Lumenize Node Types Share One Mesh Comms + Guards Core (Composed, Not Reimplemented)
 
 **Date**: 2026-06-17
-**Status**: Proposed
+**Status**: Accepted
 **Deciders**: Larry
-**Status note (2026-06-17)**: **Proposed**, not yet Accepted — held until the container-vite pivot survives its Q5 viability spike (`tasks/spike-container-agent-channel.md`) and the 4th node type lands (`tasks/nebula-devcontainer-node-type.md`). Also **scoped down** on the day it was drafted: the invariant is the narrow **comms + guards** core, not a broad "mesh + security core" (storage/alarms/onStart/fetch are per-node-type capabilities, below).
+**Status note (2026-06-17)**: **Accepted** — both acceptance-gate conditions are now met: the container-vite pivot survived its Q5 viability spike (`tasks/spike-container-agent-channel.md` — GO), and the 4th node type landed (`tasks/nebula-devcontainer-node-type.md` — `LumenizeContainer`/`NebulaContainer` composing the core by composition onto a `@cloudflare/containers` base, with the `LumenizeClient` divergence classified as justified browser/Node compat, not consolidated). **Scoped down** on the day it was drafted: the invariant is the narrow **comms + guards** core, not a broad "mesh + security core" (storage/alarms/onStart/fetch are per-node-type capabilities, below).
 **Evidence / history**: `packages/mesh/src/lmz-api.ts` (`executeEnvelope` + the `EnvelopeExecutorNode` seam; `lmz.call` receive, `lmz.ctn` outgoing), `packages/mesh/src/lumenize-do.ts` / `lumenize-worker.ts` (both realize the receive path via `executeEnvelope` + `onBeforeCall`), `packages/mesh/src/lumenize-client.ts` (`#handleIncomingCall` — a **separate, hand-rolled** receive path, no `executeEnvelope`, browser/Node compat), `packages/mesh/src/lumenize-client-gateway.ts` (JWT verified at the Gateway), `apps/nebula/src/nebula-do.ts` (`onBeforeCall` scope guard), `tasks/nebula-devcontainer-node-type.md` (the 4th type), `tasks/nebula-studio.md` § *UI-build architecture* (the pivot that surfaced this).
 
 ## Context
@@ -42,5 +42,4 @@ The container-vite pivot adds a **fourth** node type, `LumenizeContainer`/`Nebul
 - Keeping the core narrow **sidesteps the `Container` lifecycle collisions** (its own `alarm()`/`onStart()`/`fetch()`) that a broad core would have forced us to reconcile.
 
 ### Negative / open
-- **The `LumenizeClient`'s separate receive path is a divergence to classify** (justified by browser/Node compat, or consolidate) — Phase 1 of `nebula-devcontainer-node-type.md`. Until then the "shared by composition" claim is realized by 2 of 3 existing types via `executeEnvelope`, with the Client a documented parallel path.
-- **Proposed, not Accepted**, until the pivot survives Q5 and the container node lands.
+- **The `LumenizeClient`'s separate receive path is a documented divergence** (justified by browser/Node compat — no `AsyncLocalStorage`, so it reads a synchronously-captured `#currentCallContext` field and replies over a WebSocket rather than returning a `{$result}`/`{$error}` envelope). Classified in Phase 1 of `nebula-devcontainer-node-type.md` as justified, NOT consolidated. The "shared by composition" core is now realized by 3 of 4 node types via `executeEnvelope` (`LumenizeDO`/`LumenizeWorker`/`LumenizeContainer`), with the Client the lone documented parallel path.
