@@ -24,9 +24,9 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run --project unit --project frontend --project baseline --project browser",
-    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project browser",
-    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project browser",
+    "test": "vitest --run --project unit --project frontend --project baseline --project container --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project browser",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project browser",
     "bench": "vitest --run --project browser-bench transactions",
     "bench:throughput": "vitest --run --project browser-bench throughput.benchmark",
     "bench:multi": "vitest --run --project browser-bench throughput-multi",
