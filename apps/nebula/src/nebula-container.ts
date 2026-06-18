@@ -82,20 +82,24 @@ export class NebulaContainer extends LumenizeContainer {
   @mesh()
   recordValue(value: string): void {
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ContainerKv (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID;`,
+      `CREATE TABLE IF NOT EXISTS ContainerKv (entryKey TEXT PRIMARY KEY, entryValue TEXT NOT NULL) WITHOUT ROWID;`,
     );
-    this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO ContainerKv (k, v) VALUES (?, ?)`, 'last', value);
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO ContainerKv (entryKey, entryValue) VALUES (?, ?)`,
+      'last',
+      value,
+    );
   }
 
   /** Read back the value written by {@link recordValue} (scope-gated read). */
   @mesh()
   readValue(): string | undefined {
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ContainerKv (k TEXT PRIMARY KEY, v TEXT NOT NULL) WITHOUT ROWID;`,
+      `CREATE TABLE IF NOT EXISTS ContainerKv (entryKey TEXT PRIMARY KEY, entryValue TEXT NOT NULL) WITHOUT ROWID;`,
     );
     const rows = this.ctx.storage.sql
-      .exec(`SELECT v FROM ContainerKv WHERE k = ?`, 'last')
-      .toArray() as Array<{ v: string }>;
-    return rows[0]?.v;
+      .exec(`SELECT entryValue FROM ContainerKv WHERE entryKey = ?`, 'last')
+      .toArray() as Array<{ entryValue: string }>;
+    return rows[0]?.entryValue;
   }
 }
