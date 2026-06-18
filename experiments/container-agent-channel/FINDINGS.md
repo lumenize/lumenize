@@ -202,9 +202,13 @@ spike's Q4 already flagged — now with a concrete failure mode attached.
   in-scope Nebula agent DO; confine commands/writes (this spike already rejects path escapes from
   `/workspace`).
 
-### Cleanup
+### Cleanup — status
 
-Spike is throwaway: once these findings are absorbed, prune the `experiments/container-agent-channel`
-workspace entry + `git rm -r`, revert the temporary push trigger in `deploy-container.yml`, and delete
-the deployed Worker (`wrangler delete --name container-agent-channel` — an outward-facing action,
-left to the human, as with the prior spike).
+- ✅ Temporary push trigger in `deploy-container.yml` reverted (back to `workflow_dispatch`-only).
+- ✅ Deployed Worker `container-agent-channel` **and** its `container-agent-channel-devcontainer`
+  container app **deleted** (2026-06-17, via `wrangler delete` + `wrangler containers delete`).
+- ⏸ **Experiment code kept tracked on purpose** — the #2 build
+  (`tasks/nebula-devcontainer-node-type.md`) builds on this proven shape. Prune the
+  `experiments/container-agent-channel` workspace entry + `git rm -r` *after* that build lands.
+- ℹ️ Unrelated: the prior spike's `container-vite-spike-vitedevcontainer` container app is still
+  `ready` (3 instances) in the account — left untouched (not this spike's).
