@@ -138,6 +138,43 @@ Validated on the live deployed container (`container-node-phase0`, version `7112
 
 **The model shift this phase makes (the non-obvious part — this is NOT transcription).** Today `apps/nebula` has **no vite**: `DevStar.compileSFC` ([`dev-star.ts:141`](../apps/nebula/src/dev-star.ts)) hand-rolls a Vue-SFC compile (`compile-module.ts` via the bundled `tsc`) → `rewriteServedSpecifiers` (allow-list `vue` + `lucide-vue-next/icons/*` → self-origin) → stores compiled modules + a scaffold in the Star's `AppBundle` SQLite table → serves them ungated via `Star.onRequest`'s `getPlatformAsset`/`getAsset` branch ([`star.ts:145`](../apps/nebula/src/star.ts)), injecting `__ACTIVE_SCOPE__`/`__AUTH_SCOPE__`/`__APP_VERSION__` placeholders. **The container model replaces ALL of that with real vite running on a source tree** (the experiment's proven path): the agent writes the user-developer's source into the container's working dir over the command channel; vite serves the shell+HMR on 5173; `DevContainer.fetch()` proxies it with the server-derived scope injected as a `<meta>` (not placeholder substitution). So Phase 3.5 *builds the vite-in-container preview*, and Phase 4 *deletes the entire in-DO compile/serve machinery it supersedes* (`compile-module`, `specifier-rewrite`, `platform-assets`, `app-bundle`, `bundle-tsc`, the `getPlatformAsset` branch). **`DevStar` itself stays** — it remains the dev **data** Star (subscribe/transactions/reload channel); only its inherited *serve/compile* role moves to `DevContainer`. The two are siblings: shell from `DEV_CONTAINER`, data from `DEV_STAR` (the client's `#starBinding()` already routes `*.*.dev` → `DEV_STAR`, [`nebula-client.ts:860`](../apps/nebula/src/nebula-client.ts) — unchanged).
 
+**Dev cycle (simplified — `DevContainer` DO + container collapsed into one lane; the DO persists, the container disk is ephemeral).** Graduates to a cleaned-up mermaid diagram in `website/docs/nebula/` once the loop is built (Docusaurus mermaid is enabled; `.md` is fine).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User-dev (browser)
+    participant A as Studio agent (server DO)
+    participant C as DevContainer (DO + vite/cmd)
+    participant G as Galaxy (durable source)
+
+    Note over U,G: A · launch & cold spin-up
+    U->>A: launch session {u}.{g}.dev
+    A->>C: lmz.call ensureUp (scope-gated)
+    Note over C: cold boot from image — disk = image, empty tree
+    A->>G: read durable source
+    G-->>A: source (or empty)
+    A->>C: writeFile pkg.json + src (cmd :9000)
+    A->>C: npm install (skipped if deps baked into image)
+    A->>C: vite start (:5173)
+    U->>C: GET /{u}.{g}.dev/ (same-origin proxy)
+    C-->>U: vite shell + server-derived scope
+    U-->>C: HMR WebSocket (via DO fetch)
+
+    Note over U,G: B · initial save
+    A->>C: writeFile src/App.vue (cmd :9000)
+    A->>G: dual-write source (durability)
+    C-->>U: HMR js-update — mounts / updates in place
+
+    Note over U,G: C · warm save loop (steady state)
+    A->>C: writeFile … (warm)
+    C-->>U: HMR push ≈ 10 ms, patch in place (≈ 130 ms end-to-end)
+
+    Note over U,G: D · idle → sleep (teardown)
+    Note over C: idle > sleepAfter → sleeps, disk discarded
+    Note over U,G: next access = cold start → repeat A (re-hydrate + reinstall unless baked)
+```
+
 **Pinned (carried from the experiment + the reviewed original specs):**
 - `DevContainer extends NebulaContainer` (NOT the bare `LumenizeContainer` the experiment used) → inherits the `onBeforeCall` active-scope guard ([`nebula-do.ts:57`](../apps/nebula/src/nebula-do.ts)): mesh calls from the agent must carry `activeScope={u}.{g}.dev` (or a Galaxy-admin bypass). `defaultPort=5173`, `sleepAfter`, `enableInternet=false`, `interceptHttps=true`+`allowedHosts`+`export { ContainerProxy }` for egress (Phase 3 — but see the local-dev caveat).
 - `fetch()` three-way branch (WS verbatim / shell+inject server-derived scope / asset stream) + the B1 routed-header identity stamp — proven on the experiment.
@@ -146,11 +183,12 @@ Validated on the live deployed container (`container-node-phase0`, version `7112
 
 **⚠️ Gating dependency — source durability (the SAME blocker as the Work-safety banner at the top).** The container working tree is ephemeral; the agent's source must be **dual-written to Galaxy + re-hydrated on container restart** ([`nebula-app-versioning.md`](nebula-app-versioning.md) Phase 2 + the unbuilt save-orchestration). Today `compileSFC` takes source as an inline param — there is no source-from-Galaxy fetch wired. **Recommendation (mirrors how this task + `dev-star.md` shipped):** Phase 3.5 ships the **mechanism** (vite-in-container preview + command channel + scope) with an `it.skip` for "source survives restart," and live source-durability wiring stays gated on that orchestration. So Phase 3.5 does NOT itself unblock *live* user-developer use — it unblocks **Phase 4** (a working container preview exists to replace the in-DO serve).
 
-**Open questions for review / the human (do NOT decide solo):**
-1. Does the container image ship a **fixed vite project skeleton** (the agent only writes `src/`), or does the agent scaffold the whole project? (Affects image build + cold-start + the `vite build` publish path.)
-2. **Compile ownership:** confirm vite fully owns compile (so `compileSFC` + the specifier-rewrite allow-list are deleted, not preserved) — i.e., no in-DO compile fallback. (Likely yes; it's the pivot's point.)
-3. Is Phase 3.5 **shippable before** the source-durability orchestration (mechanism-only, per the recommendation), or must some of `nebula-app-versioning.md` Phase 2 land first/in-parallel? (This is the build-order crux.)
-4. Addressing: keep `{u}.{g}.dev` for the DevContainer instance (same as DevStar's `.dev`)? Then `DEV_STAR` and `DEV_CONTAINER` share the third-segment `dev` marker but are different bindings — confirm `routeDORequest`'s `generateBindingVariations` smart-match doesn't collide (the dev-star.md:58 guard analogue).
+**Dependency / image-shape strategy (open Q#1 — leaning pinned, pending the bench).** The cold-start cost is dominated by re-creating `node_modules` (the container disk reverts to the image on every cold boot — no persistent volume; only the image is durable). **Recommendation: bake the curated common UI lib set (Vue/Vite/Tailwind/Lucide — no native binaries) into the image** so cold start runs **zero `npm install`** for supported deps; only the user-developer's *source* re-hydrates (from Galaxy). Runtime `npm install` then shrinks to the rare per-app extra pin. For **multi-version** support without clutter, the mechanism is a **pnpm content-addressable store baked as an image layer** (each version unpacked once, deduped by hash; per-app install = a hardlink farm) — *not* a flat `node_modules` (plain npm can only resolve one version of a package at top level). **R2 npm-mirror: rejected** — the npm registry is already CDN-fronted, so a mirror buys little for speed; its only value is policy/curation, which a curated bake already provides, and the container→mirror hop would still be egress (the deferred `interceptHttps`/CA-trust work). A baked store needs **zero runtime egress** — strictly better for "secure by default," and it retires most of Phase 3's deferred egress allow-list. **Empirical input:** `experiments/container-dep-install-bench` (plain Docker, `--cpus=0.5` ≈ `standard-1`) measures cold install vs warm-cache vs pnpm-store vs baked, + the version-bump clutter behavior — numbers fold in here once it lands.
+
+**Other open questions for review / the human (do NOT decide solo):**
+1. **Compile ownership:** confirm vite fully owns compile (so `compileSFC` + the specifier-rewrite allow-list are deleted, not preserved) — i.e., no in-DO compile fallback. (Likely yes; it's the pivot's point.)
+2. **Build-order crux — source durability is on the cold-start critical path, not deferrable as I first implied.** Re-hydrate-from-Galaxy runs on *every* cold start (the diagram below), so a "mechanism-only" loop works beautifully until the first `sleepAfter` sleep, then comes back **empty**. Honest options: **(a)** bake a *fixed demo app* into the image so cold start is self-sufficient without Galaxy — enough to *demo* the loop, not real user-developer source; or **(b)** bring the Galaxy source dual-write + re-hydrate ([`nebula-app-versioning.md`](nebula-app-versioning.md) Phase 2) **forward into Phase 3.5** rather than deferring it. (a) unblocks Phase 4 sooner; (b) is the real loop. Pick before build.
+3. Addressing: keep `{u}.{g}.dev` for the DevContainer instance (same as DevStar's `.dev`)? Then `DEV_STAR` and `DEV_CONTAINER` share the third-segment `dev` marker but are different bindings — confirm `routeDORequest`'s `generateBindingVariations` smart-match doesn't collide (the dev-star.md:58 guard analogue).
 
 **Test strategy (accounts for the testing-reality constraint):**
 - *Pool-workers-able (no container):* the entrypoint M3 gate-level behavior (GET/HEAD to an **inert** `DEV_CONTAINER` binding → serving-target/no-404; non-GET → 405; non-serving binding → 404) via an inert binding in the test wrangler; the `DevContainer.onBeforeCall` scope guard via a non-Container harness (as the node-type build tested `NebulaContainer`); the scope-injection derivation as a pure function.
