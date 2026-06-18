@@ -79,6 +79,8 @@ Two patterns for Cloudflare Worker packages:
 
 A single `vitest.config.js` can define multiple projects: one per `for-docs/` mini-app (each with its own `wrangler.jsonc`/migrations), the same suite across Node/Workers/browser, or e2e tests with different bindings. Set `isolatedStorage: false` for WebSocket support.
 
+⚠️ **When you add a project with its own `wrangler.jsonc`, add its path to the `exclude` of any broad `test/**/*.test.ts` catch-all project in the same config.** Otherwise the catch-all *also* runs the new project's tests — but against *its own* bindings/wrangler — and they fail misleadingly (missing-binding errors that look like a code bug, not a config bug). The new project's own bindings only apply when its tests run under *it*. Confirm with both a one-project run (`--project <name>`) **and** a full-suite run. Recurring footgun — the mesh `main` project (`test/**/*.test.ts`) already excludes `for-docs/`, `*-browser`, and `container/` for exactly this reason.
+
 ## `for-docs/` tests are mini-apps
 Each `test/for-docs/` directory is a **self-contained mini application**. They serve two purposes: (1) bug-finding through realistic integration — historically `for-docs/` tests have found more bugs than all other tests combined; (2) doc accuracy — each is linked from a website doc (`.md`, or legacy `.mdx`) via `@check-example`. Each has its own `wrangler.jsonc`, Worker entry, DO classes, and a phased narrative test exercising realistic multi-node scenarios. Exemplar: `packages/mesh/test/for-docs/getting-started/`.
 
