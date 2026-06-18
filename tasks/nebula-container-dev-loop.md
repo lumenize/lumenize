@@ -106,10 +106,26 @@ The **scope-injection + header-strip half** is validated on the live deployed co
 
 </details>
 
-### Phase 3 — Egress hardening + sizing (pinned)
+### Phase 3 — Egress hardening + sizing DONE ✅ 2026-06-18 (validated on real infra; one refinement deferred)
+Validated on the live deployed container (`container-node-phase0`, version `7112c12a`, `demo.app.dev`), `instance_type` bumped `lite → standard-1`. Curl probes `/egress` + `/starvation`.
+
+**Egress — secure-by-default HOLDS (the core criterion ✅):** `LumenizeContainer`'s `enableInternet=false` blocks **all** non-allow-listed outbound — a container `fetch('https://example.com')` is BLOCKED. This is the security criterion and it is met on real infra.
+
+**Egress allow-list (open npm) — DEFERRED, diagnosed two layers deep:** opening an *allow-listed* HTTPS host needs more than `allowedHosts`:
+1. `export { ContainerProxy } from '@cloudflare/containers'` in the Worker (else `ctx.exports.ContainerProxy is undefined` → container won't start). ✅ done.
+2. `interceptHttps = true` — `allowedHosts` only intercepts HTTP unless this is on (`container.js` `applyOutboundInterception` gates HTTPS interception on it). Turning it on **did** activate interception (the block-mode changed from a silent `TimeoutError` to an immediate `TypeError`), **but the allow-listed npm host still fails**: HTTPS interception is a **MITM**, so the in-container TLS client must trust the interceptor's CA — node doesn't by default → cert-validation `TypeError`. **Fully opening an HTTPS allow-listed host also needs CA-trust provisioning in the image** (`NODE_EXTRA_CA_CERTS` / install the CF interception CA). **Deferred** — and *not on the dev-loop critical path*: the image bakes deps at build time (`Dockerfile` `npm install`), so **runtime** npm egress isn't needed for the current loop; runtime per-app lib pinning is a later capability. (Owner question #1 below — this outbound build-time allow-list is distinct from the Star-facet's agent-app egress `globalOutbound`→`EgressBroker`, [[project_nebula_outside_world]] D2, and from vite's *inbound* `server.allowedHosts`, Phase 2.)
+
+**Sizing — `standard-1` clears the starvation bar (✅):** with `instance_type: standard-1` (½ vCPU), a `vite build` (4.74 s, exit 0) ran concurrently with **12** command-channel `/healthz` round-trips (all 12 overlapping the build): latency stayed **60–73 ms, zero failures, `starved=false`**. The spike's ¼-vCPU starvation signature (`000`/`>1 s`) does **not** appear at `standard-1` — so the dev instance need not push `vite build` off the interactive moment at this size (the pin's "runs off the interactive instance" mitigation is unnecessary at ≥`standard-1`; revisit only if a heavier app build regresses). The steady ~70 ms (vs. lite's starvation) also corroborates the egress probe ran on the fresh `standard-1` instance.
+
+**Probe mechanism (the exploratory deliverable):** `/egress` and `/starvation` endpoints in `experiments/container-node-phase0/src/index.ts` drive `exec`/`noop` over the real mesh receive seam; `/starvation` fires `npm run build` without awaiting, then times `/healthz` round-trips during it (Date.now() deltas across the awaited `containerFetch` I/O — how the spike measured). `interceptHttps`/`instance_type` are the discovered config knobs.
+
+<details><summary>Original Phase-3 spec (kept for the record)</summary>
+
 - **Egress (pinned):** on top of `LumenizeContainer`'s `enableInternet=false`, the dev default is an explicit **`allowedHosts` allow-list** for the npm registry (+ whatever the toolchain needs). This is the container's **outbound build-time** traffic — distinct from the Star-facet's agent-app egress (`globalOutbound`→`EgressBroker`, [[project_nebula_outside_world]] D2), which is **deferred to the agent-code-execution task** and does not belong here, *and* distinct from vite's **inbound** `server.allowedHosts` (Phase 2).
 - **Sizing (pinned):** dev instance ≥ `standard-1`, **and** `vite build` runs off the interactive instance/moment so it can't starve the command channel (spike Q2: a `vite build` saturates the ¼-vCPU default).
 - **Success:** an in-container `fetch` to a non-allow-listed host is blocked; a `vite build` burst does not return `000`/`>1 s` on a concurrent trivial command call (the spike's starvation signature — findings-graded against the chosen instance).
+
+</details>
 
 ### Phase 4 — Teardown of the superseded in-DO compile/serve (salvage-first)
 **Gated on Phases 0–3 having landed green** (a real preview loads + HMR works) — *then* the in-DO code is dead reference; the `in-do-compile-baseline` tag is the cold fallback, so deleting from HEAD is safe. (Phase 2 already salvages the proxy harness + CSP intent.) Drive the removal by a **residual grep** (per `tasks/README.md` § Inventories — a hand-picked list silently passes when a new importer is added pre-build), e.g.:

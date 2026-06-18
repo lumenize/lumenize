@@ -9,7 +9,10 @@
     {
       "max_instances": 1,
       "class_name": "SmokeContainer",
-      "image": "./Dockerfile"
+      "image": "./Dockerfile",
+      // Phase-3 sizing pin: dev instance >= standard-1 (1/2 vCPU) so a `vite build`
+      // can't starve the command channel the way the ¼-vCPU default did (spike Q2).
+      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {

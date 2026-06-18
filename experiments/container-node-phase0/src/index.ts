@@ -2,6 +2,13 @@ import { LumenizeContainer } from '@lumenize/mesh/container';
 import { mesh } from '@lumenize/mesh';
 import { preprocess } from '@lumenize/structured-clone';
 
+// Phase-3 finding: using `allowedHosts` (host-specific outbound interception)
+// requires the Worker to export `ContainerProxy` (`ctx.exports.ContainerProxy`)
+// or the container fails to start. Plain `enableInternet=false` (block-all) does
+// NOT need it — only the selective allow-list does. The real DevContainer (and
+// the node type's docs) must carry this re-export when it allow-lists egress.
+export { ContainerProxy } from '@cloudflare/containers';
+
 // The command-server's port — distinct from vite's defaultPort (5173). Reachable
 // ONLY via the DO's internal containerFetch(req, CMD_PORT); the public fetch()
 // proxy can never target it (LumenizeContainer.fetch() strips cf-container-target-port).
@@ -51,6 +58,28 @@ function injectScopeMeta(html: string, scope: { activeScope: string; authScope: 
 export class SmokeContainer extends LumenizeContainer {
   defaultPort = 5173; // public vite preview surface
   sleepAfter = '5m';  // warm-while-focused (spike Q1/Q4)
+
+  // Phase 3 egress: LumenizeContainer pins enableInternet=false (no open outbound);
+  // allowedHosts opens ONLY the npm registry (agent runtime `npm install`), so a
+  // fetch to any other host is blocked. The agent-authored-code EgressBroker path
+  // (project_nebula_outside_world D2) is a separate, later task.
+  override allowedHosts = ['registry.npmjs.org'];
+
+  // Phase-3 finding: allowedHosts only opens an HTTPS host when interceptHttps is
+  // ON (container.js applyOutboundInterception: HTTPS interception is gated on this
+  // flag). The npm registry is HTTPS, so without this the allow-list is a no-op for
+  // it (first probe: npm BLOCKED TimeoutError despite being allow-listed). Turning it
+  // on DID activate interception (the block changed from a silent TimeoutError to an
+  // immediate TypeError) — but the allow-listed host STILL fails: HTTPS interception
+  // is a MITM, so the in-container TLS client must trust the interceptor's CA, which
+  // node does not by default → cert-validation TypeError. Fully opening an HTTPS
+  // allow-listed host therefore also needs CA-trust provisioning in the image
+  // (NODE_EXTRA_CA_CERTS / install the CF interception CA) — DEFERRED (see the task
+  // file Phase 3). Not on the dev-loop critical path: deps are baked at image build,
+  // so runtime npm egress isn't needed yet. The block-all default is what secures the
+  // container today, and that holds. The interception is applied at boot + "kept
+  // there until the instance restarts."
+  override interceptHttps = true;
 
   async #cmdJson<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.containerFetch(new Request(`http://cmd.local${path}`, init), CMD_PORT);
@@ -231,6 +260,65 @@ export default {
           status: res.status,
           hasViteClient: html.includes('/@vite/client'),
           expect: 'vite shell (stripped), not the command-server',
+        });
+      }
+      if (url.pathname === '/egress') {
+        // Phase-3 egress: enableInternet=false + allowedHosts=[npm]. A fetch to a
+        // non-allow-listed host must be BLOCKED; npm (allow-listed) must REACH.
+        const probe = (host: string) =>
+          `fetch('${host}',{signal:AbortSignal.timeout(8000)}).then(r=>console.log('REACHED '+r.status)).catch(e=>console.log('BLOCKED '+(e.name||e.message)))`;
+        const nonAllowlisted = await cmdStub.__executeOperation(
+          meshEnvelope('exec', [{ cmd: 'node', args: ['-e', probe('https://example.com')] }]),
+        );
+        const allowlisted = await cmdStub.__executeOperation(
+          meshEnvelope('exec', [{ cmd: 'node', args: ['-e', probe('https://registry.npmjs.org/npm')] }]),
+        );
+        return Response.json({
+          probe: 'egress',
+          nonAllowlisted: nonAllowlisted?.$result?.stdout ?? nonAllowlisted,
+          allowlisted: allowlisted?.$result?.stdout ?? allowlisted,
+          expect: 'example.com BLOCKED, registry.npmjs.org REACHED',
+        });
+      }
+      if (url.pathname === '/starvation') {
+        // Phase-3 sizing: does a `vite build` burst starve the command channel?
+        // Fire the build (DON'T await), then time trivial /healthz round-trips
+        // DURING it. The spike's ¼-vCPU starvation signature = a healthz that
+        // returns 000 / >1 s. Latency is the DO→containerFetch round-trip (Date.now()
+        // deltas advance across the awaited I/O — same way the spike measured); we
+        // also report the build's own in-container durationMs.
+        await cmdStub.__executeOperation(meshEnvelope('noop')); // warm the channel
+        let buildDone = false;
+        const buildP = cmdStub
+          .__executeOperation(meshEnvelope('exec', [{ cmd: 'npm', args: ['run', 'build'] }]))
+          .then((r: any) => { buildDone = true; return r; });
+        const probes: { ms: number; ok: boolean; errName?: string; duringBuild: boolean }[] = [];
+        for (let i = 0; i < 12; i++) {
+          const t0 = Date.now();
+          let ok = false;
+          let errName: string | undefined;
+          try {
+            const r = await cmdStub.__executeOperation(meshEnvelope('noop'));
+            ok = r?.$result?.ok === true;
+          } catch (e) {
+            errName = e instanceof Error ? e.name : String(e);
+          }
+          probes.push({ ms: Date.now() - t0, ok, errName, duringBuild: !buildDone });
+        }
+        const build = await buildP;
+        const lat = probes.map((p) => p.ms);
+        return Response.json({
+          probe: 'starvation',
+          healthzProbes: probes.length,
+          probesDuringBuild: probes.filter((p) => p.duringBuild).length,
+          maxHealthzMs: Math.max(...lat),
+          minHealthzMs: Math.min(...lat),
+          failures: probes.filter((p) => !p.ok).length,
+          // spike's 000/>1s starvation signature
+          starved: probes.some((p) => !p.ok || p.ms > 1000),
+          buildDurationMs: build?.$result?.durationMs,
+          buildCode: build?.$result?.code,
+          expect: 'starved=false on >=standard-1 (no 000/>1s healthz during vite build)',
         });
       }
       // default: Phase-0 coexistence smoke.
