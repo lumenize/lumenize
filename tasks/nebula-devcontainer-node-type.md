@@ -73,5 +73,77 @@ Composed, not inherited: `LumenizeDO` + `LumenizeWorker` realize the receive pat
 - Consolidating the Client's hand-rolled receive path — deferred follow-up unless it blocks composition.
 - Mesh alarms / `onStart` on the container node — **blocked** by `Container`'s ownership (above); route via `Container.schedule()` if ever needed.
 
+## Build record
+
+### Phase 1 — Divergence inventory + reserved-name audit (DONE 2026-06-17)
+
+**Receive-path implementers (`grep -n executeEnvelope packages/mesh/src` + the Client's hand-rolled path):**
+- `lumenize-do.ts:391` — `LumenizeDO.__executeOperation` → `executeEnvelope(…, { includeInstanceName: true })`.
+- `lumenize-worker.ts:198` — `LumenizeWorker.__executeOperation` → `executeEnvelope(…, { includeInstanceName: false })`.
+- `lumenize-client.ts:1072` — `LumenizeClient.#handleIncomingCall` — **hand-rolled**, does NOT call `executeEnvelope`.
+
+**Receive-contract matrix** (✅ = via `executeEnvelope`/composed; ✋ = hand-rolled; what `LumenizeContainer` does):
+
+| Requirement | LumenizeDO | LumenizeWorker | LumenizeClient | LumenizeContainer |
+|---|:--:|:--:|:--:|---|
+| public `__executeOperation(envelope)` | ✅ | ✅ | ✋ (WS dispatch) | **supplies** (mirror DO: `includeInstanceName: true`) |
+| `lmz.__init` (stamp identity from `metadata.callee`) | ✅ | ✅ (binding only) | ✋ none | **reuses** `createLmzApiForDO` (binding+instance) |
+| `callContext` (ALS-bound getter) | ✅ shared `requireCurrentCallContext` | ✅ shared | ✋ sync `#currentCallContext` | **reuses** (composes `createLmzApiForDO`) |
+| `runWithCallContext` (ALS) | ✅ (in `executeEnvelope`) | ✅ | ✋ none (sync field) | **reuses** (in `executeEnvelope`) |
+| `onBeforeCall()` | ✅ overridable | ✅ overridable | ✋ overridable (own copy) | **supplies** no-op (NebulaContainer overrides) |
+| `__executeChain` (secure, `requireMeshDecorator` default true) | ✅ | ✅ | ✋ (`executeOperationChain` direct) | **supplies** `executeOperationChain(chain, this)` |
+| `__localChainExecutor` (bypass for result-handler path only) | ✅ (`#executeChainLocal`) | ✅ | ✋ inline | **supplies** (mirror Worker getter) |
+| `{$result}`/`{$error}` wrap + structured-clone error round-trip | ✅ (in `executeEnvelope`) | ✅ | ✋ WS `CallResponseMessage` | **reuses** (in `executeEnvelope`) |
+| `ctn()` | ✅ | ✅ | ✋ | **supplies** (mirror DO/Worker) |
+| identity persistence backing | `ctx.storage.kv` | closure | tab-id | **`ctx.storage.kv`** (Container's SQLite-backed storage → register `new_sqlite_classes`) |
+
+**The four Client divergences (required rows — the Client is the documented parallel path, NOT consolidated):**
+1. **No `__init`** — the Client never stamps identity from `metadata.callee`; its identity is the tab/instance id set at connect.
+2. **No `runWithCallContext`/ALS** — the browser has no `AsyncLocalStorage`; `this.lmz.callContext` reads a synchronously-captured `#currentCallContext` field (`lumenize-client.ts:389,522`).
+3. **No `{$error}` wrap** — errors are not returned as `{ $error }`; they travel back as a WS `CallResponseMessage`.
+4. **Response via WS message** — `#handleIncomingCall` replies over the WebSocket, not as an RPC return value.
+
+`LumenizeContainer` composes the **DO-flavored** seam (`executeEnvelope` + `createLmzApiForDO`), so it inherits NONE of these divergences — it is the 3rd `executeEnvelope` user, the Client remains the lone hand-rolled path.
+
+**Reserved `Container`-owned names — provably exhaustive** (grep of *every* storage/SQL write in `@cloudflare/containers@0.3.7` `dist/lib/container.js`: `storage.{kv.put,put,delete,deleteAll}` and `CREATE|INSERT|UPDATE|DELETE|ALTER|DROP`):
+- **kv keys** (the real collision surface — Lumenize identity `__lmz_do_*` is kv-only):
+  - `__CF_CONTAINER_STATE` (`CONTAINER_STATE_KEY`, written via async `this.storage.put`, container.js:193 — same underlying kv store on a SQLite DO).
+  - `OUTBOUND_CONFIGURATION` (`OUTBOUND_CONFIGURATION_KEY`, sync `ctx.storage.kv.put`, container.js:1066).
+- **SQL table:** `container_schedules` (`CREATE TABLE IF NOT EXISTS`, container.js:390; the only table the package creates).
+- **Alarm slot:** owned — `scheduleNextAlarm()` (constructor `blockConcurrencyWhile`) + `ctx.storage.deleteAlarm()` (container.js:1559) + `alarm()` handler.
+- **No collision:** Lumenize identity keys `__lmz_do_binding_name` / `__lmz_do_instance_name` ≠ either reserved kv key; the container node uses no `svc.alarms` (so no `__lmz_alarms` table) and creates no table named `container_schedules`.
+
+**Load-bearing source facts verified for Phases 2–3:**
+- Constructor **throws if `ctx.container === undefined`** (container.js:350) — drives the Phase-2 feasibility precheck.
+- `enableInternet = true` default (class field, container.js:325) — Phase 2 pins `= false`.
+- `Container.fetch()` honors inbound **`cf-container-target-port`** and forwards via `containerFetch(request, portValue)` (container.js:986–1000) — Phase 2 overrides `fetch()` to strip it + pin `defaultPort`.
+
+**Composition recipe (how to put the comms+guards core on a non-`LumenizeDO` base):** a base whose storage is SQLite-backed needs five members — lazy `lmz` getter (`createLmzApiForDO(this.ctx, this.env, this)`), `onBeforeCall()`, `__executeChain` (`executeOperationChain(chain, this)`), `__localChainExecutor` getter (same, `requireMeshDecorator` passthrough), public `__executeOperation` (`executeEnvelope(envelope, this, { nodeTypeName, includeInstanceName: true })`), plus `ctn()`. Contribute **zero constructor body / no `onStart`** so identity composes lazily on first inbound call, after the base lifecycle; never write into a reserved name above. Canonical impl: `packages/mesh/src/lumenize-container.ts` header.
+
+**Phase 1 success:** inventory + audit above exist and name what `LumenizeContainer` supplies; no source touched → existing DO/Worker/Client suites unaffected (re-confirmed green in the Phase-3 verify run).
+
+### Phase 2 — `LumenizeContainer` (mesh layer) (DONE 2026-06-17)
+
+**Feasibility precheck — RESOLVED: `extends Container` does NOT construct under vitest-pool-workers.** A bare `class ProbeContainer extends Container {}` with a `containers` block in the test wrangler still throws `'Containers have not been enabled'` (container.js:350) on first materialization — pool-workers leaves `ctx.container` undefined (no container engine; matches the spike, where containers ran only under real `wrangler dev` + Docker). Recorded as a capable-of-failing canary: `packages/mesh/test/container/precheck.test.ts` (flips RED if pool-workers ever gains container support → revisit strategy).
+- **Chosen test strategy (the "if it throws" fork):** verify the composed receive contract against `MeshContainerSeamHarness` — a non-`Container` DO that mirrors `LumenizeContainer`'s recipe verbatim (same `createLmzApiForDO`/`executeEnvelope`/`executeOperationChain`). The literal class's prototype wiring + `fetch()` pin are locked by pure tests that need no construction. Assembled `extends Container` construction + Container-lifecycle coexistence → deployed e2e (`it.skip` blocker).
+
+**Delivered:**
+- `packages/mesh/src/lumenize-container.ts` — `LumenizeContainer extends Container<Env>`; composes the six-member core; `enableInternet = false` (egress default); `fetch()` overridden to strip `cf-container-target-port` + pin `defaultPort` (M1) via the pure, unit-tested `stripContainerTargetPort` helper. Zero constructor body / no `onStart` (identity composes lazily on first inbound).
+- `packages/mesh/src/container-index.ts` + `package.json` `"./container"` export — `LumenizeContainer` is reachable ONLY via `@lumenize/mesh/container`; core `@lumenize/mesh` stays container-free.
+- `@cloudflare/containers` pinned **exactly `0.3.7`** in mesh `dependencies` (m7 drift baseline).
+- Test project `container` (isolated in `vitest.config.js`): `precheck.test.ts`, `container-seam.test.ts`, `container-prototype.test.ts` — **14 passed, 1 skipped** (the assembled-Container m2 deferral). The lone "1 error" is the documented unhandled-rejection noise from the negative-micro-check's intentionally-throwing fire-and-forget call (`failed` = 0; `dangerouslyIgnoreUnhandledErrors` is set).
+
+**Success criteria → evidence (all capable-of-failing):**
+- **M4 inbound** — `echo` lands via `__executeOperation`, returns `seam:hi`.
+- **onBeforeCall fires (m8)** — debug-marker count == 1. **Mutation-validated:** commenting out `node.onBeforeCall()` in `executeEnvelope` (lmz-api.ts) → RED; restored.
+- **@mesh enforced** — a mesh call to a non-`@mesh` method returns `{$error}` "not mesh-callable". **Mutation-validated:** flipping the harness `__executeChain` to `requireMeshDecorator: false` → the plain method lands → RED; restored.
+- **Error round-trip (m9, ADR-002)** — a thrown `SeamCustomError` surfaces with `name` + custom `code` own-property intact (asserted by `name`+property, not `instanceof`).
+- **Narrow core (m7)** — `LumenizeContainer.prototype.alarm === Container.prototype.alarm` and `…onStart === …onStart` (untouched, inherited live), `!Object.hasOwn` for both; positive own-prop control that `onBeforeCall`/`__executeChain`/`__executeOperation` + the `lmz`/`__localChainExecutor` getters ARE own; `fetch` IS overridden (`!== Container.prototype.fetch`).
+- **Lifecycle coexistence (m2)** — identity-kv half covered: one inbound stamps `{bindingName, instanceName}` into `ctx.storage.kv`. The Container-specific half (`container_schedules` + alarm slot) is `it.skip` + named #1a/e2e blocker (needs a live Container).
+- **Outgoing `lmz.ctn` (M4)** — fires to a sibling after identity is stamped (round-trip lands); negative micro-check: an outgoing call on a never-stamped instance throws "doesn't know its binding name".
+- **Real `containerFetch`/port behavior** — not exercisable in pool-workers (no OS container); the live-container form of the port-not-reachable invariant is the deferred e2e blocker (the override-strips-header logic itself IS unit-tested via `stripContainerTargetPort`).
+
+**Deployability note (carried to deploy time, not built here):** prod `apps/nebula/wrangler.jsonc` currently has neither a `new_sqlite_classes` registration nor a `containers` block for the container node — both are required to deploy `NebulaContainer`. Flagged so a deploy doesn't discover it late (the node type is built; wiring it into a deployable Worker is #1a / the prod-serve task).
+
 ## References
 **ADR-007 (Proposed)** owns the comms+guards invariant (this file points to it). `lmz-api.ts` (`executeEnvelope`/`EnvelopeExecutorNode`@812, `onBeforeCall` call site @902, `createLmzApiForDO`@572, `lmz.call`/`ctn`/`sql`/`__init`); the **`__executeOperation` impls to mirror** = `lumenize-worker.ts:197` / `lumenize-do.ts:388` (`lmz-api.ts:305` is the dispatch *caller*, not a def); `lumenize-worker.ts` (minimal-core sibling); `lumenize-client.ts` `#handleIncomingCall` (the parallel path Phase 1 classifies); `nebula-do.ts` + `tasks/nebula-do-scope-isolation.md` (the guard to mirror, incl. `T-malformed`/B5); `node_modules/@cloudflare/containers` v0.3.7 (`container.d.ts` — `alarm`/`onStart`/`fetch`/`container_schedules`); `tasks/spike-container-agent-channel.md` (DONE/GO); `tasks/nebula-studio.md` § *UI-build architecture*; `.claude/rules/{mesh,durable-objects,testing,security}.md`.

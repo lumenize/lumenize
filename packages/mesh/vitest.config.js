@@ -244,6 +244,20 @@ export default defineConfig({
           include: ['test/for-docs/security/**/*.test.ts'],
         },
       },
+      {
+        // LumenizeContainer (4th node type) — isolated so a `containers`-block
+        // config quirk can't perturb the main suite's record. See
+        // tasks/nebula-devcontainer-node-type.md Phase 2.
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/container/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
+        })],
+        test: {
+          name: 'container',
+          include: ['test/container/**/*.test.ts'],
+        },
+      },
     ],
   },
 });

@@ -1,0 +1,25 @@
+{
+  // Feasibility-precheck harness for the 4th node type (LumenizeContainer).
+  // Dedicated project so a containers-block config quirk can't perturb the
+  // main mesh suite's record. See tasks/nebula-devcontainer-node-type.md Phase 2.
+  "name": "lumenize-container-precheck",
+  "main": "./worker-and-dos.ts",
+  "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "max_instances": 1,
+      "class_name": "ProbeContainer",
+      "image": "./Dockerfile"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "PROBE_CONTAINER", "class_name": "ProbeContainer" },
+      { "name": "SEAM_HARNESS", "class_name": "MeshContainerSeamHarness" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ProbeContainer", "MeshContainerSeamHarness"] }
+  ]
+}
