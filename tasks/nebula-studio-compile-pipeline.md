@@ -1,5 +1,7 @@
 # Nebula Studio — Dev-preview compile + serve (DevStar/Star mechanics)
 
+> ⚠️ **SUPERSEDED 2026-06-18 by the container-vite pivot → [`tasks/nebula-container-dev-loop.md`](nebula-container-dev-loop.md)** (the reshaped #1a). This in-DO compile/serve approach is **built + green** and preserved as the `in-do-compile-baseline` tag (zero-cost fallback). Kept here **only** as the **Phase-4 teardown reference** for the container reshape — do NOT `/build-task` this file. Iceboxed/archived once the container build lands.
+
 **Status**: ✅ BUILT 2026-06-17 (`feat/nebula-studio`, uncommitted) — P1–P4 implemented + green (Phase-1 exploratory tsc-in-workerd question resolved: tsc MUST be bundled; see § Phase-1 spike). One outward-facing teardown step deferred to the human: `wrangler delete --name spike-sfc-galaxy-loop` (deletes the deployed spike Worker). Scope: the DevStar/Star **compile + serve + reload** mechanics, which build and test independently. The **distribution + durability** half (Galaxy app-version registry, publish/lazy-pull, dev source-durability, Studio coordination, prod clean-URL / custom-domain serving) is owned by **`tasks/nebula-app-versioning.md`** — a prerequisite for the *end-to-end* loop.
 **Phase**: Studio build-seq #1a (the DO-side mechanics; #1b = nebula-app-versioning.md).
 **App**: `apps/nebula/` — **Mesh platform layer**: never raw primitives; solve raw needs via a mesh hook (`.claude/rules/mesh.md`, `durable-objects.md`).
