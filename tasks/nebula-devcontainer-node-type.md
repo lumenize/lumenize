@@ -1,6 +1,6 @@
 # LumenizeContainer / NebulaContainer — the 4th Lumenize node type
 
-**Status**: Design complete (reviewed: framing + conformance, 2026-06-17) — **follows the agent-channel spike's GO** (`tasks/spike-container-agent-channel.md`, gated on its Q1 mechanism + Q2 deployed-latency); not build-started until that clears.
+**Status**: Design complete (reviewed: framing + conformance, 2026-06-17) — **gate CLEARED: the agent-channel spike RAN + GOed 2026-06-17** (`tasks/spike-container-agent-channel.md`; Q1 mechanism + Q2 deployed-latency both ✅, ~30 ms warm channel edge-local; memory [[agent-channel-container-exec]]). **Now build-ready** (next in build order). Carry forward the spike's sizing caveat (size the dev instance so `vite build` doesn't starve the command channel).
 **Phase**: Studio container-vite pivot — foundation (`tasks/nebula-studio.md` § *UI-build architecture*).
 **App**: `packages/mesh` (`LumenizeContainer` — **`@cloudflare/containers` approved as a mesh dep 2026-06-17**; mesh is already CF-coupled, this sits beside `LumenizeDO`/`LumenizeWorker`; optionally exposed via a `@lumenize/mesh/container` subpath so container-free consumers can skip the install — decide in build) + `apps/nebula` (`NebulaContainer`). Realizes **ADR-007 (Proposed)**.
 
