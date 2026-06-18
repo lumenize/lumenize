@@ -5,7 +5,7 @@ import {
   type OperationChain,
   type Continuation,
 } from './ocan/index.js';
-import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { createLmzApiForDO, executeEnvelope, initIdentityFromHeaders, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
 // Register ClientDisconnectedError on globalThis so a container node can
@@ -171,12 +171,23 @@ export class LumenizeContainer<Env = any> extends Container<Env> {
   }
 
   /**
-   * Public preview surface. The base `Container.fetch()` honors an inbound
-   * `cf-container-target-port` header and forwards to ANY port — including the
-   * command port. Strip it so a public request can only reach `defaultPort`
-   * (M1). `onBeforeCall` does not run here; serve only the public shell.
+   * Public preview surface. Two things before delegating to the base proxy:
+   *  1. **Stamp identity from the routed headers** (`routeDORequest` sets
+   *     `x-lumenize-do-*` before routing here) so `this.lmz.instanceName` is valid
+   *     on the fetch() path — the mesh path stamps via envelope metadata, but a
+   *     cold public GET (the normal browser navigation) never hits it, so any
+   *     server-derived value (e.g. a subclass injecting `activeScope` into a
+   *     served shell) would otherwise be empty. Mirrors `LumenizeDO.fetch()`;
+   *     composes the shared `initIdentityFromHeaders` (ADR-007 identity-on-every-
+   *     entry-path). A 64-hex id / binding-mismatch surfaces as a 400/500 here.
+   *  2. **Strip `cf-container-target-port`** — the base `Container.fetch()` honors
+   *     that header and forwards to ANY port (incl. the command port); stripping
+   *     it pins the public surface to `defaultPort` (M1).
+   * `onBeforeCall` does not run here; serve only the public shell.
    */
-  override fetch(request: Request): Promise<Response> {
+  override async fetch(request: Request): Promise<Response> {
+    const initError = initIdentityFromHeaders(request.headers, this.lmz, 'LumenizeContainer');
+    if (initError) return initError;
     return super.fetch(stripContainerTargetPort(request));
   }
 }

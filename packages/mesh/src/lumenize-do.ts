@@ -7,8 +7,7 @@ import {
   type AnyContinuation,
 } from './ocan/index.js';
 import { parse } from '@lumenize/structured-clone';
-import { isDurableObjectId } from '@lumenize/routing';
-import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { createLmzApiForDO, executeEnvelope, initIdentityFromHeaders, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
@@ -236,37 +235,9 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * ```
    */
   __initFromHeaders(headers: Headers): Response | undefined {
-    const doBindingName = headers.get('x-lumenize-do-binding-name');
-    const doInstanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
-
-    // Validate that instance is a name, not an ID
-    if (doInstanceNameOrId && isDurableObjectId(doInstanceNameOrId)) {
-      const log = debug('lmz.mesh.LumenizeDO.__initFromHeaders');
-      const message = 'LumenizeDO requires instanceName, not a DO id string.';
-      log.error(message, { receivedValue: doInstanceNameOrId });
-      return new Response(message, { status: 400 });
-    }
-
-    // Only call __init if at least one header is present
-    if (doBindingName || doInstanceNameOrId) {
-      try {
-        this.lmz.__init({
-          bindingName: doBindingName || undefined,
-          instanceName: doInstanceNameOrId || undefined
-        });
-      } catch (error) {
-        // __init throws on mismatch - convert to HTTP response
-        const log = debug('lmz.mesh.LumenizeDO.__initFromHeaders');
-        const message = error instanceof Error ? error.message : String(error);
-        log.error('Initialization from headers failed', {
-          error: message,
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-        return new Response(message, { status: 500 });
-      }
-    }
-
-    return undefined; // Success
+    // Composes the shared header-init helper (also used by LumenizeContainer.fetch())
+    // — ADR-007's identity-on-every-entry-path requirement; not reimplemented per type.
+    return initIdentityFromHeaders(headers, this.lmz, 'LumenizeDO');
   }
 
   /**

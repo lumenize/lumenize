@@ -656,6 +656,55 @@ export interface LmzApi {
 }
 
 /**
+ * Stamp a node's identity from the routing headers `routeDORequest` sets
+ * (`x-lumenize-do-binding-name` / `x-lumenize-do-instance-name-or-id`), so
+ * `this.lmz.bindingName`/`instanceName` are available on the **`fetch()` path** —
+ * not only the mesh receive path (`executeEnvelope` ← envelope `metadata.callee`).
+ *
+ * Shared by `LumenizeDO.__initFromHeaders` (the DO HTTP path) and
+ * `LumenizeContainer.fetch()` (the container's public surface), so the container
+ * node **composes** this rather than reimplementing it — ADR-007's
+ * "identity stamped on every first-contact entry path" requirement.
+ *
+ * @returns a 400 `Response` if the instance header is a 64-hex DO id (a name is
+ *   required), a 500 `Response` if `__init` rejects a binding/name mismatch, or
+ *   `undefined` on success (including when no routing headers are present).
+ * @internal
+ */
+export function initIdentityFromHeaders(
+  headers: Headers,
+  lmz: Pick<LmzApi, '__init'>,
+  nodeTypeName = 'mesh node',
+): Response | undefined {
+  const bindingName = headers.get('x-lumenize-do-binding-name');
+  const instanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
+
+  // Soundness rests on name == routing key: a DO id string is not a name, so
+  // reject it rather than stamp an unusable identity (mirrors the mesh path).
+  if (instanceNameOrId && isDurableObjectId(instanceNameOrId)) {
+    const message = `${nodeTypeName} requires instanceName, not a DO id string.`;
+    debug('lmz.mesh.initIdentityFromHeaders').error(message, { receivedValue: instanceNameOrId });
+    return new Response(message, { status: 400 });
+  }
+
+  if (bindingName || instanceNameOrId) {
+    try {
+      lmz.__init({ bindingName: bindingName || undefined, instanceName: instanceNameOrId || undefined });
+    } catch (error) {
+      // __init's first-write-wins guard throws on a binding/name divergence.
+      const message = error instanceof Error ? error.message : String(error);
+      debug('lmz.mesh.initIdentityFromHeaders').error('Initialization from headers failed', {
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return new Response(message, { status: 500 });
+    }
+  }
+
+  return undefined; // success (or no headers present)
+}
+
+/**
  * Create LmzApi implementation for LumenizeDO
  *
  * Identity stored in Durable Object storage:
