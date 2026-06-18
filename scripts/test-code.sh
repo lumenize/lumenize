@@ -18,13 +18,6 @@ cd "$ROOT_DIR"
 "$ROOT_DIR/scripts/audit-test-mode.sh"
 echo ""
 
-# Deprecated packages excluded from the full suite. Kept on disk only so their
-# historical docs / direct URLs still resolve (see website/sidebars.ts); their
-# tests intentionally throw-on-use, so running them would abort the suite.
-#   @lumenize/ts-runtime-validator — superseded by @lumenize/ts-runtime-parser-validator
-#   (the 2026-05-16 structured-clone wire-format change made it incompatible).
-SKIP_PACKAGES=("@lumenize/ts-runtime-validator")
-
 # Find all packages with test scripts
 PACKAGES=()
 for pkg_json in packages/*/package.json apps/*/package.json tooling/*/package.json; do
@@ -33,12 +26,6 @@ for pkg_json in packages/*/package.json apps/*/package.json tooling/*/package.js
     if node -e "const pkg = require('./$pkg_json'); process.exit(pkg.scripts?.test ? 0 : 1);" 2>/dev/null; then
       # Get package name
       pkg_name=$(node -e "console.log(require('./$pkg_json').name)")
-      skip=false
-      for s in "${SKIP_PACKAGES[@]}"; do [ "$s" = "$pkg_name" ] && skip=true; done
-      if [ "$skip" = true ]; then
-        echo "  (skipping deprecated $pkg_name)"
-        continue
-      fi
       PACKAGES+=("$pkg_name")
     fi
   fi
