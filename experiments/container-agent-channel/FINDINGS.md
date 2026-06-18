@@ -41,8 +41,9 @@ host `docker`** — via a DO-mediated exec channel.
   takes an explicit **port** → a second port distinct from `defaultPort` is reachable; `getContainer`
   returns a `DurableObjectStub<T>` → the Worker can call custom DO RPC methods (`exec`/`writeFile`/…).
 
-_Status: **2026-06-17** — Q1 ✅, Q3 ✅, Q4 ✅, Q5 ✅ (all local) and **Q2 ✅ local**. **No kill criterion
-fired.** Q2 **deployed** re-measure: PENDING (via the GHA workflow). Q6 (ssh) not load-bearing._
+_Status: **2026-06-17** — Q1 ✅, Q2 ✅ (local **and deployed**), Q3 ✅, Q4 ✅, Q5 ✅. **No kill criterion
+fired → GO.** One sizing finding: a `vite build` saturates the default ¼-vCPU instance and starves the
+command channel (transient; recovers when idle) — see Q2 deployed. Q6 (ssh) not load-bearing._
 
 ---
 
@@ -65,10 +66,14 @@ The agent (via a DO mesh-analog method) ran each of these in the container and g
   returns output + exit code over the DO channel. Kill criterion (no usable in-container exec) did
   **not** fire.
 
-## Q2 — Deployed command latency — *kill-fast gate* — ✅ PASS (local); deployed PENDING
+## Q2 — Deployed command latency — *kill-fast gate* — ✅ PASS (local **and deployed**)
 
-`doRoundTripMs` = Worker → DO → `containerFetch(9000)` → command-server → back (the agent-relevant,
-edge-local number). All **local** (`wrangler dev` + Docker):
+`doRoundTripMs` = Worker → DO → `containerFetch(9000)` → command-server → back — the **agent-relevant,
+edge-local** number (the real Studio agent is a server-side DO, so its hop to DevContainer is edge-
+local mesh, NOT the measuring client's WAN). `client` = curl `time_total` from this laptop, which adds
+my ~45–70 ms WAN to the edge and is therefore an over-count.
+
+**Local** (`wrangler dev` + Docker):
 
 | probe | doRoundTripMs (local) |
 |---|---|
@@ -76,15 +81,32 @@ edge-local number). All **local** (`wrangler dev` + Docker):
 | warm `noop` (`/healthz`, no child spawn — pure channel) | **2–4 ms** |
 | warm `git status --porcelain` (spawn + git) | 19–47 ms (in-container 14–20 ms) |
 
-- **Cold start of the command channel (~1.3 s) is FASTER than vite's (~3.2 s)** — the command-server
-  binds 9000 *before* spawning vite, so the agent can start issuing commands well before the preview
-  (5173) is even up. Useful: the agent can scaffold/install while vite warms.
-- **Warm channel overhead is single-digit ms locally** — the `containerFetch`-to-a-second-port hop is
-  cheap; the dominant cost of a real command is the command itself (`child_process` spawn + the tool).
-- **Verdict (local): success**, far under the ~300 ms interactive target. The number that decides the
-  gate is **deployed** — see *Deployed re-measure* below. Expectation from the container-vite spike
-  (warm HTTP ~150 ms, HMR-WS ~186 ms through the edge DO): a warm command round-trip ~150–250 ms incl.
-  the measuring client's WAN, with the edge-local `doRoundTripMs` much lower.
+**Deployed** (`container-agent-channel.transformation.workers.dev`, via the GHA workflow):
+
+| probe | doRoundTripMs (edge-local) | client (incl. my WAN) |
+|---|---|---|
+| **cold** first command (edge provision + boot + cmd-server on 9000) | **~1361 ms** | ~1.47 s |
+| warm `noop` (pure channel), fresh/idle container | **~29–40 ms** (p50 ~31 ms) | ~50–110 ms |
+| warm `git status --porcelain`, fresh container | **~36–42 ms** (code 0) | ~0.11 s |
+| warm `grep -rn` (first invocation) | ~123 ms | ~0.18 s |
+
+- **Cold start of the command channel (~1.36 s) is FASTER than vite's (~4.1 s deployed)** — the
+  command-server binds 9000 *before* spawning vite, so the agent can scaffold / `npm install` / edit
+  while the preview (5173) is still warming. A genuinely useful property.
+- **Warm channel overhead at the edge is ~30 ms** — ~10× under the 300 ms interactive target. The
+  `containerFetch`-to-a-second-port hop is cheap; the real cost of a command is the command itself.
+- **⚠️ Sizing finding (not a channel fault):** streaming a `vite build` on the **default `basic`
+  (¼ vCPU)** instance **saturated the CPU and starved the command channel** — requests returned `000`
+  for ~60 s during/after the build, and a trivial `git status` degraded to **in-container 0.2–3.1 s**
+  for ~1–2 min afterward. It **fully recovered to ~30 ms once idle**, confirming the degradation is
+  transient CPU contention, not a channel defect. Implication (reinforces container-vite **Q4**):
+  size the dev instance for build bursts (`standard-1` ½ vCPU+), and/or treat *publish* (`vite build`)
+  as a non-interactive moment / run it off the interactive instance. The agent's *interactive* edit
+  loop (small commands + HMR) is unaffected as long as no heavy build is hogging the vCPU.
+- **Verdict: success (local + deployed).** Warm round-trip ~30 ms edge-local — well under target. Kill
+  (`> ~1 s/command warm, can't be batched around`) did **not** fire for the interactive loop; the only
+  >1 s case is a heavy build on an undersized instance, which is a sizing/scheduling choice, not the
+  channel.
 
 ## Q3 — Long-running + streaming output — ✅ PASS (local)
 
@@ -95,6 +117,10 @@ they arrive; the DO returns the body `ReadableStream` over RPC and the Worker pi
   1705**, exit at 2132 — **incremental, ~0.4 s apart, NOT buffered to the end.**
 - Real `vite build` streamed: `> build` @371ms → `transforming…` @1046ms → `✓ 1561 modules` @2431ms →
   results @2532ms → exit @2572ms. The multi-second build **did not block or time out the DO call.**
+- **Deployed:** streaming confirmed at the edge too — `vite build` chunks arrived incrementally
+  (`> build` @3.3 s → `transforming…` @20.8 s) and the DO call held the stream open for 20 s+ without
+  timing out (the build is slow on the ¼-vCPU instance — see Q2 sizing finding — but the *streaming
+  mechanism* is sound).
 - **Verdict: success.** Chunked stdout reaches the agent live; long builds + log tails are viable.
   Kill (only blocking buffered exec) did **not** fire.
 
@@ -126,9 +152,12 @@ The command-server (9000) is **server-side only** — there is **no browser rout
   live inside the DO command methods (server-side, mesh/`onBeforeCall`-gated in prod).
 - **Bonus confinement:** file writes resolve under `/workspace`; an escaping path
   (`../../etc/evil.txt`) is **rejected** by the command-server.
-- **Verdict: success.** The boundary is named and demonstrated. Full sandbox-escape / command-
-  injection hardening is deferred (spec + `nebula-devcontainer-node-type.md` m4 — owned by the #1a
-  dev-loop task). Kill (exec reachable only with browser exposure) did **not** fire.
+- **Deployed:** boundary holds at the edge — `GET /healthz` through the public proxy returns vite's
+  `index.html`, `POST /exec` returns vite **404**, `GET /` still serves the app (200). No edge route
+  reaches 9000.
+- **Verdict: success.** The boundary is named and demonstrated (local + deployed). Full sandbox-escape
+  / command-injection hardening is deferred (spec + `nebula-devcontainer-node-type.md` m4 — owned by
+  the #1a dev-loop task). Kill (exec reachable only with browser exposure) did **not** fire.
 
 ## Q6 — ssh tunnel feasibility *(nice-to-have, not load-bearing)*
 
@@ -141,19 +170,41 @@ agent loop. Its absence does **not** kill the spike.
 
 ## Go / no-go
 
-**Lean: GO** — the DO-mediated exec channel works and is cheap. _Pending the deployed Q2 re-measure._
+**GO.** The DO-mediated exec channel works, is cheap (~30 ms warm at the edge), and is fully proven
+**local + deployed**.
 
 No kill criterion fired across Q1–Q5. The mechanism is exactly the predicted shape — a command-server
 on a second port reached via `containerFetch(req, 9000)`, with the agent leg as a DO method (mesh in
-prod) — and every required capability (edit / `vite build` / restart / git / grep / stream / HMR
-parity) works, with single-digit-ms warm channel overhead locally and a clean server-side-only trust
-boundary. This clears the linchpin the container-vite spike left open (its Q5), so the 4th-node-type
-build (`tasks/nebula-devcontainer-node-type.md`) is unblocked **once the deployed number confirms the
-loop is interactive at the edge.**
+prod) — and every required capability works: edit files, `vite build`, start/restart the dev server,
+git/grep/exec, **streamed** long-command output, and **HMR parity** (channel write → `js-update`),
+behind a **server-side-only trust boundary** (no browser route to 9000), with ~30 ms warm channel
+overhead at the edge. This clears the linchpin the container-vite spike left open (its Q5), so the
+4th-node-type build (`tasks/nebula-devcontainer-node-type.md`) is **unblocked**.
 
-### Deployed re-measure — PENDING
+**The one caveat to carry forward (not a blocker):** the dev container must be **sized for build
+bursts** or the `vite build` will starve the interactive control channel on a ¼-vCPU instance (Q2
+sizing finding). Pick `standard-1` (½ vCPU)+ for the dev instance, and/or run `vite build` such that it
+doesn't compete with the live agent loop. This is the same instance-sizing dial the container-vite
+spike's Q4 already flagged — now with a concrete failure mode attached.
 
-Local `wrangler deploy` can't push large image layers from this machine
-([[cf-container-deploy-proxy]]); deploy via `.github/workflows/deploy-container.yml`. Measure: cold
-first-command round-trip, warm `noop` (channel), warm `git status` (real command) — both client-
-observed and the edge-local `doRoundTripMs`.
+### What the production 4th-node-type build inherits from this spike
+
+- **Shape:** `DevContainer extends Container`, `defaultPort = 5173` (public vite proxy = raw `fetch()`),
+  a second port **9000** for the command-server, reached **only** via DO methods that call
+  `containerFetch(req, 9000)`. In prod those DO methods become `@mesh` methods (`lmz.call`,
+  `onBeforeCall`-gated); here they were plain DO RPC (fine for a throwaway).
+- **Image:** `node:22-slim` needs `apt-get install git`; the command-server is a good place to also be
+  the **vite supervisor** (spawns vite as a child → trivial start/stop/restart).
+- **Deploy:** local `wrangler deploy` can't push large image layers from this machine
+  ([[cf-container-deploy-proxy]]) — deploy via `.github/workflows/deploy-container.yml` (CI build →
+  push → rollout ≈ 1.5 min).
+- **Hardening owed by #1a (named, not done here):** re-validate that exec is reachable *only* by the
+  in-scope Nebula agent DO; confine commands/writes (this spike already rejects path escapes from
+  `/workspace`).
+
+### Cleanup
+
+Spike is throwaway: once these findings are absorbed, prune the `experiments/container-agent-channel`
+workspace entry + `git rm -r`, revert the temporary push trigger in `deploy-container.yml`, and delete
+the deployed Worker (`wrangler delete --name container-agent-channel` — an outward-facing action,
+left to the human, as with the prior spike).
