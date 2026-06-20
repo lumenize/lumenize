@@ -19,7 +19,9 @@
     "experiments/onstart-repro",
     "experiments/container-vite-spike",
     "experiments/container-agent-channel",
-    "experiments/container-node-phase0"
+    "experiments/container-node-phase0",
+    "experiments/container-egress-catrust",
+    "experiments/interim-dev-loop"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

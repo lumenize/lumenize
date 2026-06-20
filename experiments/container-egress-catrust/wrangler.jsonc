@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "container-egress-catrust",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  // node:async_hooks (mesh callContext ALS, pulled in by LumenizeContainer) needs nodejs_compat.
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "max_instances": 1,
+      "class_name": "EgressContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1"
+    }
+  ],
+  // Artifacts binding is REMOTE-ONLY + beta-gated (code 10015) on wrangler 4.86 AND 4.103 —
+  // it comes up in `remote` mode and fails `wrangler dev` startup until the account is in the
+  // beta (no working local sim observed). Re-enable to test the real Artifacts pull leg once
+  // beta access is granted. See RESULTS.md § Stage A.
+  // "artifacts": [
+  //   { "binding": "ARTIFACTS", "namespace": "default" }
+  // ],
+  "durable_objects": {
+    "bindings": [{ "name": "EGRESS", "class_name": "EgressContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EgressContainer"] }]
+}

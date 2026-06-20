@@ -1,0 +1,14 @@
+{
+  "name": "interim-dev-loop",
+  "private": true,
+  "type": "module",
+  "description": "Prove the interim (pre-Artifacts) Studio dev-loop end-to-end and nail down the API method names used in tasks/nebula-dev-flows.md. Stage 1: DevStudio = @cloudflare/shell Workspace + isomorphic-git in a DO (writeSource/commit/read/getChangedSince). Stage 2: DevContainer.pull() mesh-fetches changed files → vite HMR. The git remote is the only swap point for Artifacts later.",
+  "dependencies": {
+    "@lumenize/mesh": "*",
+    "@lumenize/structured-clone": "*",
+    "@cloudflare/shell": "^0.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  }
+}
