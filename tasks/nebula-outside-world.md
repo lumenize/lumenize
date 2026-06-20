@@ -104,6 +104,8 @@ Once the substrate exists, nearly every need is "done" or "compose two of them":
 
 ## Sequencing
 
+The detailed, phased productionization plan lives in **`tasks/nebula-outside-world-build.md`** (gated on `/review-task` + the in-flight branch work settling). High-level order:
+
 1. App-server facet runtime + **egress choke point** (the keystone — everything rides it).
 2. Two-level secrets vault + `env.secrets.resolve`.
 3. Ingress router + scheduler.
