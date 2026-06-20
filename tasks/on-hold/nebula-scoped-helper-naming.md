@@ -1,6 +1,6 @@
 # Tenant-Scoped Helper DO Naming — `<scope>:<local>`
 
-**Status**: **ON HOLD** — split out of [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) on 2026-06-16. That task's **Fix 1** (structural tenant isolation for the *tier* DOs — Star / Galaxy / Universe) shipped as the demo-critical work. This file holds its **Fix 2**: the naming grammar for *helper* DOs. Deferred because **Fix 2's only consumer was a test fixture** (the now-removed `ResourceHistory`). Revive when a **real** tenant-scoped helper DO with a production caller lands.
+**Status**: **ON HOLD** — split out of [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) on 2026-06-16. That task's **Fix 1** (structural tenant isolation for the *tier* DOs — Star / Galaxy / Universe) shipped as the demo-critical work. This file holds its **Fix 2**: the naming grammar for *helper* DOs. Deferred because **Fix 2's only consumer was a test fixture** (the now-removed `ResourceHistory`). Revive when a **real** tenant-scoped helper DO with a production caller lands.
 
 ## The problem, in plain language (the apartment building)
 
@@ -50,6 +50,6 @@ So the registry bought only: (a) a prettier error ("name must be `<scope>:<local
 - On revival, start from **Alternative A** above unless a concrete need for clearer errors / tier-colon-rejection justifies the registry.
 
 ## Related
-- [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) — the shipped **Fix 1** (structural tier-DO isolation) this builds on.
+- [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) — the shipped **Fix 1** (structural tier-DO isolation) this builds on.
 - [think-nebula-integration.md](think-nebula-integration.md) — shelved (Think not adopted); its DO-containment kernel may resurface for in-app AI agent facets.
 - [mesh-active-callcontext-guard.md](mesh-active-callcontext-guard.md) — closes the raw-RPC bypass around `onBeforeCall` (separate follow-on).

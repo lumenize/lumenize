@@ -10,6 +10,9 @@ Work is tracked in `tasks/`:
 
 Use `/task-management` to choose docs-first vs task-file-first when starting a project. When the plan changes mid-stream from what you learn in earlier steps, propose updates to the task file, and summarize what changed after each step. **Not every change needs a task file** — process/organizing tweaks (editing rules, moving content) can be done directly. See `tasks/README.md` for templates.
 
+## Design-first: diagrams before prose when the design is tangled
+When a multi-node/mesh design gets tangled — or when task files have drifted into mutual contradiction — **lead with sequence diagrams (a participant/cast model + per-flow diagrams), not prose.** Prose hides contradictions; a diagram's participants + ordering + gating force precision and make the drift visible (this is what the Phase-3.5 review kept surfacing, and what `tasks/nebula-dev-flows.md` was built to fix — Larry: "my mind works better with sequence diagrams than prose"). Nail the cast + naming + flows *with the user* first, **then** rewrite the prose/task files to conform. Proactively offer this when you sense the design space is tangled. Mermaid traps: no `;` in `Note` text (statement separator → parse error); solid `->>` = call/request, dashed `-->>` = response/return/push.
+
 ## Architecture commitments (ADRs)
 `docs/adr/` holds the few repo-shaping commitments — decisions that span packages and survive mechanism swaps (`docs/adr/README.md` has the bar; adding an ADR means adding its one-liner here). `/review-task` reads the full files; these one-liners are the always-loaded constraints:
 - **ADR-001** — TypeScript types ARE the schema language; never introduce a second schema language (Zod, JSON Schema, …). The mechanism is typia now; the principle is the commitment.

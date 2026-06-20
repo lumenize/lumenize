@@ -2,7 +2,7 @@
 
 **Status**: ON HOLD — demo focus
 **Was previously**: Phases 5.2.4.5 (Annotation Experiments) and 5.2.5 (Multi-Resource Queries) — merged here because they're closely related ORM-flavored work that will likely unfreeze together. The numeric phase identifiers were dropped during the demo-focus cleanup; this is now standalone post-demo work, not a sub-phase of 5.2 (which is complete).
-**Related (active)**: `tasks/nebula-resource-metadata.md` defines `@inverse` (and `@title`/`@description`) for the demo. The post-demo query engine described here uses `@inverse` to resolve relationships at query time. The annotation IS being collected today; only the query engine that consumes it is on hold.
+**Related (active)**: `tasks/nebula-agentic-development-engine.md` (§ Resource-metadata conventions) defines `@inverse` (and `@title`/`@description`) for the demo. The post-demo query engine described here uses `@inverse` to resolve relationships at query time. The annotation IS being collected today; only the query engine that consumes it is on hold.
 **Depends on**: 5.2.3 (Ontology & Resources Integration — shipped) and 5.2.4.2 (parse-validate package, per-version Galaxy registry — shipped)
 
 ## Why merged

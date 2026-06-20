@@ -1,5 +1,7 @@
 # Nebula Dev Star
 
+> ⚠️ **ARCHIVED / SUPERSEDED 2026-06-20.** Historical record of the built `DevStar extends Star` subclass (P1–P4). The canonical model is now [`nebula-dev-flows.md`](nebula-dev-flows.md): **there is NO `DevStar` class** — the dev data Star is a plain `Star` at the `{u}.{g}.dev` instance (Decision 2), the `DEV_STAR` binding collapses into `STAR`, and `deployToDev`/eager-apply is gone (Decision 9). Only **`resetDevData`** survives, re-homed onto `Star` (hard-guarded to `.dev`) and triggered by the Flow 1b wipe-prompt — its mechanism is folded into [`nebula-studio.md`](nebula-studio.md). The code reverted here is committed (hash stashed); this doc is frozen.
+
 **Status**: ✅ All phases built + verified 2026-06-16 (P1–P4, `feat/nebula-studio`, uncommitted). Adversarial verifier fan-out: all 4 phases conform, no blockers; one minor finding actioned (added a guard that `Star.applyFetchedState` stays non-`@mesh` — the public-not-`@mesh` security boundary). Critical path for the demo. (Live-reset wiring stays deferred to the Studio build per the § In-dev data lifecycle precondition; P3 ships the reset *mechanism* only.)
 
 **Prerequisite of**: `tasks/nebula-studio.md` (each Studio chat session pins to the dev Star)
