@@ -154,6 +154,10 @@ export default defineConfig({
         '**/dist/**',
         '**/*.config.*',
         '**/test/**/*.test.ts',
+        // The baked DevContainer image source (vite app skeleton — .vue/.ts) runs
+        // INSIDE the container, not under vitest; the istanbul instrumenter can't parse
+        // its SFCs. It's deploy-gated, not Worker `src`. Exclude it from coverage.
+        '**/container/**',
       ],
       skipFull: false,
       all: false,
