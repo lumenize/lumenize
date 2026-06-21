@@ -1068,11 +1068,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Receive a dev-preview reload signal from the dev Star (`Star.broadcastReload`,
-   * fired by `DevStar.compileSFC` after a fresh bundle is persisted). Invokes the
-   * optional `onReload` hook (the preview wires `() => window.location.reload()`);
-   * a non-preview client without the hook ignores it. `@mesh()` because the
-   * signal arrives via `svc.broadcast` through the Gateway.
+   * Receive a dev-preview reload signal from the Star (`Star.broadcastReload`). The
+   * channel is kept for the **publish-refresh signal** — its former trigger
+   * (`DevStar.compileSFC`) was retired in Phase 4 (vite owns compile); publish will
+   * fan this out so live previews re-fetch. Invokes the optional `onReload` hook
+   * (the preview wires `() => window.location.reload()`); a non-preview client
+   * without the hook ignores it. `@mesh()` because the signal arrives via
+   * `svc.broadcast` through the Gateway.
    */
   @mesh()
   handleReload(): void {

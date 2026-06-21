@@ -7,9 +7,10 @@
  * Routing layers:
  * 1. /auth/... → routeNebulaAuthRequest (login, refresh, invite, etc.)
  * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
- * 3. /{BINDING}/... → routeDORequest without prefix — opened ONLY for static
- *    app serving: GET/HEAD to a Star/DevStar serving target reaches
- *    `Star.onRequest`; every other method is 405, every other binding is 404.
+ * 3. /{BINDING}/... → routeDORequest without prefix — opened ONLY for the dev
+ *    preview serve: GET/HEAD to DEV_CONTAINER reaches `DevContainer.fetch()`;
+ *    every other method is 405, every other binding is 404. (HMR WS to
+ *    DEV_CONTAINER is allowed; every other direct WS is 501.)
  * 4. Fallback → 404
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
@@ -72,29 +73,27 @@ export default {
     });
     if (gatewayResponse) return gatewayResponse;
 
-    // 3. Direct DO access (no /gateway/ prefix) — opened ONLY for the static
-    //    app-serving GET. Bounded so it doesn't expose every method/binding:
-    //    only GET/HEAD to a Star/DevStar serving target passes through to
-    //    `Star.onRequest` (the ungated static read — no JWT, since browsers
-    //    don't attach Authorization to document/sub-resource loads; the data is
-    //    gated on the WS/mesh path). Other methods → 405; other bindings (incl.
-    //    the raw NEBULA_AUTH GET handlers) → 404. WS to a DO is never allowed.
+    // 3. Direct DO access (no /gateway/ prefix) — opened ONLY for the dev preview
+    //    serve. Bounded so it doesn't expose every method/binding: only GET/HEAD to
+    //    DEV_CONTAINER passes through to `DevContainer.fetch()` (the ungated static
+    //    read — no JWT, since browsers don't attach Authorization to document/
+    //    sub-resource loads; the data is gated on the WS/mesh path). Other methods →
+    //    405; other bindings (incl. the raw NEBULA_AUTH GET handlers) → 404. (The
+    //    in-DO `Star.onRequest` serve was retired in Phase 4 — STAR/DEV_STAR are no
+    //    longer serving targets; prod serve is Workers Assets.) WS to a non-
+    //    DEV_CONTAINER DO is never allowed (mesh WS terminates at the Gateway).
     const directResponse = await routeDORequest(request, env, {
       cors: corsOptions,
       onBeforeRequest(request, { doNamespace }) {
-        // M3: DEV_CONTAINER serves the dev preview shell + vite assets via the DO
-        // `fetch()` proxy (GET/HEAD) — the same ungated static read as the in-DO app
-        // serve. (The `|| env.DEV_STAR` in-DO serve disjunct collapses out in Phase 4
-        // when getPlatformAsset/the in-DO serve is deleted — don't half-collapse here.)
-        const isServingTarget =
-          doNamespace === env.STAR || doNamespace === env.DEV_STAR || doNamespace === env.DEV_CONTAINER;
-        if (!isServingTarget) {
+        // DEV_CONTAINER is the only direct-serve target: the dev preview shell + vite
+        // assets via the DO `fetch()` proxy (GET/HEAD).
+        if (doNamespace !== env.DEV_CONTAINER) {
           return new Response('Not Found', { status: 404 });
         }
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
         }
-        return undefined; // GET/HEAD to a serving target → Star.onRequest / DevContainer.fetch
+        return undefined; // GET/HEAD to DEV_CONTAINER → DevContainer.fetch
       },
       onBeforeConnect(request, { doNamespace }) {
         // M2: the vite HMR WebSocket to DEV_CONTAINER is allowed, ungated — like the

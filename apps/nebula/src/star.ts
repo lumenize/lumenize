@@ -23,8 +23,6 @@ import { Resources } from './resources';
 import { Subscriptions } from './subscriptions';
 import { TreeSubscriptions } from './tree-subscriptions';
 import { ReloadSubscriptions } from './reload-subscriptions';
-import { getAsset, PLACEHOLDER } from './app-bundle';
-import { getPlatformAsset } from './platform-assets';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
@@ -33,24 +31,6 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
-
-/**
- * Strict CSP for the served app — **`script-src 'self'`, no `'unsafe-eval'`, no
- * external origin, no inline import map**. Every script the app loads (Vue
- * runtime, DaisyUI, Lucide icons, the compiled SFCs) is self-hosted same-origin
- * (platform-assets.ts + the DevStar specifier rewrite), so no CDN is needed.
- * Render functions are precompiled server-side (`compileSFCToModule`), so the
- * browser gets runtime-only Vue with no template compiler / no `new Function`
- * (website/docs/nebula/using-vue.md §Security). `connect-src 'self'` covers the
- * same-origin Gateway WebSocket; scoped styles inject inline (`style-src
- * 'unsafe-inline'` — styles only, never scripts; the DaisyUI `<link>` is `'self'`).
- */
-const APP_CSP =
-  "default-src 'self'; " +
-  "script-src 'self'; " +
-  "style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; " +
-  "connect-src 'self'";
 
 export class Star extends NebulaDO {
   #dagTree!: DagTree
@@ -117,89 +97,6 @@ export class Star extends NebulaDO {
     if (!claims?.access?.admin || !auth?.sub) return
     this.#dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
-  }
-
-  // ─── Serving (static SPA host) ─────────────────────────────────────
-
-  /**
-   * Serve the resident app bundle over HTTP — a thin, **synchronous** SPA host.
-   * The base `fetch()` (`LumenizeDO`) inits identity from the routing headers,
-   * then delegates here; it never runs the mesh executor, so `onBeforeCall` /
-   * `onBeforeConnect` don't gate this read. That's intentional: the shell is
-   * public frontend code + ontology types (every client gets it anyway); the
-   * **data** is gated downstream (WS `onBeforeConnect` + per-op `onBeforeCall`).
-   * The entrypoint bounds the opened gate to GET/HEAD on a serving binding.
-   *
-   * Lives on base `Star` so a prod tenant Star serves its deployed app the same
-   * way; only the *source* of the resident bundle differs (dev: just-compiled;
-   * prod: lazily pulled — #1b). Because `onRequest` is synchronous it can only
-   * serve an **already-resident** bundle (no async lazy-pull inside it).
-   *
-   * Strips the first two URL path segments (`/{binding}/{instance}/`) — the
-   * binding segment is the kebab the browser used (`dev-star`), NOT the
-   * normalized `DEV_STAR` header — and looks the remainder up by **exact match**
-   * (no prefix/traversal). A miss is **pure SPA fallback** to `index.html` (any
-   * sub-path serves the shell; no 404). Serve-time injection substitutes the
-   * base href + scope/version into the shell + bootstrap.
-   */
-  onRequest(request: Request): Response {
-    const url = new URL(request.url);
-    const segments = url.pathname.split('/').filter(Boolean);
-    // Base path = the two routing segments, so the served app's relative asset
-    // URLs (and SPA router) anchor here regardless of the current deep-link path.
-    const baseHref = `/${segments.slice(0, 2).join('/')}/`;
-    const assetPath = segments.slice(2).join('/');
-
-    // The single choke point preventing the wrong-Star footgun: activeScope is
-    // derived SERVER-SIDE from the instance this DO is serving — never a
-    // browser-trusted value. A preview missing the `.dev` 3rd segment would make
-    // the client's `#starBinding()` silently pick STAR not DEV_STAR.
-    const activeScope = this.lmz.instanceName;
-    if (!activeScope) {
-      return new Response('Cannot serve: missing instance scope', { status: 500 });
-    }
-
-    const lookupPath = assetPath === '' ? 'index.html' : assetPath;
-
-    // Platform-fixed assets (self-hosted Vue runtime, DaisyUI CSS, Lucide icons,
-    // the nebula-frontend placeholder) are served same-origin from code, NOT the
-    // per-Star bundle — identical for every app, so they skip storage entirely
-    // (platform-assets.ts). They carry no placeholders, so no serve-time
-    // injection. Checked before the bundle so an app can't shadow them.
-    const platformAsset = getPlatformAsset(lookupPath);
-    if (platformAsset) {
-      return new Response(request.method === 'HEAD' ? null : platformAsset.content, {
-        status: 200,
-        headers: {
-          'Content-Type': platformAsset.contentType,
-          'Content-Security-Policy': APP_CSP,
-          'Cache-Control': 'no-store',
-        },
-      });
-    }
-
-    const asset = getAsset(this.ctx, lookupPath) ?? getAsset(this.ctx, 'index.html');
-    if (!asset) {
-      return new Response('No app bundle resident', { status: 404 });
-    }
-
-    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
-    const appVersion = (index && index.length > 0 ? index[index.length - 1] : undefined) ?? 'dev';
-
-    const body = asset.content
-      .replaceAll(PLACEHOLDER.baseHref, baseHref)
-      .replaceAll(PLACEHOLDER.appVersion, appVersion)
-      .replaceAll(PLACEHOLDER.authScope, this.galaxyId)
-      .replaceAll(PLACEHOLDER.activeScope, activeScope);
-
-    return new Response(request.method === 'HEAD' ? null : body, {
-      status: 200,
-      headers: {
-        'Content-Type': asset.contentType,
-        'Content-Security-Policy': APP_CSP,
-        'Cache-Control': 'no-store',
-      },
-    });
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────
@@ -768,11 +665,12 @@ export class Star extends NebulaDO {
    * Subscribe the caller to this Star's **reload channel** — a per-Star,
    * non-resource signal modeled exactly on {@link subscribeTree}: registers the
    * caller in `#reloadSubscriptions` with NO resource/typeName/`appVersion`
-   * checks (a reload marker is none of those). `DevStar.compileSFC` fans out
-   * `broadcastReload` after persisting a fresh bundle so the preview re-fetches.
+   * checks (a reload marker is none of those).
    *
-   * On **base `Star`** (serving infrastructure, reusable in prod) so it stays
-   * OFF `DevStar`'s `@mesh`-admin freeze (dev-star.md P3): `@mesh()` not
+   * **Kept channel, trigger deferred:** its former trigger (`DevStar.compileSFC`)
+   * was deleted in Phase 4 (vite owns compile now). The channel survives as the
+   * **publish-refresh signal** — when publish lands a new app-version, it will fan
+   * out `broadcastReload` so live previews re-fetch. `@mesh()` not
    * `@mesh(requireAdmin)` — gated only by `onBeforeCall`'s aud-lock, like
    * `subscribeTree`. There is no initial snapshot to push (the preview's own GET
    * loads the current bundle); subscribing just registers for future reloads.
@@ -793,10 +691,10 @@ export class Star extends NebulaDO {
   /**
    * Fan out a reload signal to every reload subscriber — mirrors `#onDagChanged`
    * (`svc.broadcast` + drop-on-failed-broadcast cleanup via `onReloadBroadcastResult`).
-   * `protected` (not `@mesh`): only `DevStar.compileSFC` triggers it internally
-   * after persisting a bundle; it is never client-reachable. No originator
-   * exclusion — the reload channel has no originator concept (any subscriber
-   * wanting the new bundle gets the signal).
+   * `protected` (not `@mesh`): never client-reachable. Its former internal trigger
+   * (`DevStar.compileSFC`) is gone (Phase 4); publish will call it as the
+   * publish-refresh signal. No originator exclusion — the reload channel has no
+   * originator concept (any subscriber wanting the new bundle gets the signal).
    */
   protected broadcastReload(): void {
     const subscribers = this.#reloadSubscriptions.all();

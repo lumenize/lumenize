@@ -18,19 +18,19 @@ describe('gateway abuse cases', () => {
   // ============================================
 
   describe('direct HTTP rejection', () => {
-    // The direct-DO route is opened ONLY for static app serving (compile-pipeline
-    // #1a): GET/HEAD to a Star/DevStar serving target reaches `Star.onRequest`
-    // (which 404s when no bundle is resident); every other method is 405 and every
-    // other binding is 404. (Was a blanket 501 before serving landed.)
-    it('returns 404 for direct HTTP GET to a serving binding with no resident bundle (Star)', async () => {
+    // The direct-DO route is opened ONLY for the dev preview serve (Phase 4 retired
+    // the in-DO Star.onRequest serve): GET/HEAD to DEV_CONTAINER reaches
+    // `DevContainer.fetch()`; every other method is 405, every other binding
+    // (incl. STAR/UNIVERSE) is 404.
+    it('returns 404 for direct HTTP GET to a non-serving binding (Star — in-DO serve retired)', async () => {
       const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // serving target, but no bundle staged → onRequest 404
+      expect(resp.status).toBe(404);   // STAR is no longer a serving target → gate 404s
     });
 
-    it('returns 405 for a non-GET to a serving binding (Star)', async () => {
-      const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
+    it('returns 405 for a non-GET to the serving binding (DEV_CONTAINER)', async () => {
+      const resp = await SELF.fetch('http://localhost/DEV_CONTAINER/acme.app.dev', {
         method: 'POST',
       });
       expect(resp.status).toBe(405);   // gate bounds the opened route to GET/HEAD
@@ -40,7 +40,7 @@ describe('gateway abuse cases', () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',
       });
-      expect(resp.status).toBe(404);   // not a serving target → gate 404s before onRequest
+      expect(resp.status).toBe(404);   // not a serving target → gate 404s
     });
 
     it('returns 501 for HTTP to gateway route', async () => {

@@ -414,9 +414,10 @@ describe('Dev Star P3 — reset capability surface (Phase 3.5c relocation)', () 
   });
 
   it('every @mesh method DevStar ADDS is admin-gated — nonAdminMeshMethods(DevStar) === []', () => {
-    // DevStar's own prototype now adds deployToDev + compileSFC (resetDevData moved to
-    // Star). Both @mesh(requireAdmin). Subsumed by the Star.prototype walk above for
-    // resetDevData; this still guards DevStar's remaining own surface until Phase 4.
+    // DevStar's own prototype now adds only deployToDev (resetDevData moved to Star;
+    // compileSFC deleted in Phase 4). @mesh(requireAdmin). Subsumed by the
+    // Star.prototype walk above for resetDevData; this still guards DevStar's
+    // remaining own surface until the class is deleted in Phase 4.
     expect(nonAdminMeshMethods(DevStar)).toEqual([]);
   });
 

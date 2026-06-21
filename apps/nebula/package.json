@@ -33,9 +33,7 @@
     "bench:fanout": "vitest --run --project browser-bench fanout.benchmark",
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
-    "types": "wrangler types",
-    "bundle:tsc": "node scripts/bundle-tsc.mjs",
-    "vendor:assets": "node scripts/vendor-assets.mjs"
+    "types": "wrangler types"
   },
   "keywords": [
     "cloudflare",

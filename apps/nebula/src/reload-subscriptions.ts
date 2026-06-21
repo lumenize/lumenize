@@ -3,13 +3,14 @@
  *
  * A **non-resource** per-Star channel modeled exactly on {@link TreeSubscriptions}:
  * keyed by `clientId` ALONE, with no resource / typeName / appVersion checks. The
- * preview client subscribes here (`Star.subscribeReload`); `DevStar.compileSFC`
- * fans out a reload signal (`Star.broadcastReload`) after persisting a new bundle.
+ * preview client subscribes here (`Star.subscribeReload`); `Star.broadcastReload`
+ * fans out a reload signal. Its former trigger (`DevStar.compileSFC`) was retired in
+ * Phase 4 (vite owns compile); the channel is kept for the **publish-refresh signal**.
  *
- * Why its own channel (not a resource subscribe): a compile writes a bundle to
- * Star storage, which triggers no resource broadcast, and `Subscriptions.subscribe`
- * hard-throws unless the target is a pre-existing, typeName-matched, read-permitted
- * resource — neither of which a "reload marker" is. Separate table from
+ * Why its own channel (not a resource subscribe): a reload signal triggers no
+ * resource broadcast, and `Subscriptions.subscribe` hard-throws unless the target is
+ * a pre-existing, typeName-matched, read-permitted resource — which a "reload
+ * marker" is not. Separate table from
  * `Subscribers` (resource) and `TreeSubscribers` (org tree).
  */
 

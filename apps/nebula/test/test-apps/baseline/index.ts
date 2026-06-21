@@ -32,11 +32,6 @@ import {
   ROOT_NODE_ID,
 } from '@lumenize/nebula';
 import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, SubscriberRow } from '@lumenize/nebula';
-// Relative import: `stageScaffold` is same-package (apps/nebula) but NOT exported
-// from the package index (it's a serving-contract internal). Used by a test-only
-// hook to stage a servable bundle on a PROD Star, exercising `Star.onRequest` +
-// the non-dev-instance scope-injection case.
-import { stageScaffold } from '../../../src/app-bundle';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -46,14 +41,6 @@ export class StarTest extends Star {
   @mesh()
   whoAmI(): string {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
-  }
-
-  /** Test-only (compile-pipeline P2): stage the fixed scaffold on a PROD Star so
-   *  `Star.onRequest` can be exercised on the base class with a non-`dev`
-   *  instance (the scope-injection negative case). */
-  @mesh(requireAdmin)
-  stageScaffoldForTest(): void {
-    stageScaffold(this.ctx);
   }
 
   /**
@@ -294,44 +281,6 @@ export class DevStarTest extends DevStar {
   inspectRootAdmin(founderSub: string): boolean {
     return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
   }
-
-  /**
-   * Test-only (compile-pipeline P1/P3): read one resident `AppBundle` asset by
-   * exact path. Reads the SQL directly (the `inspectSubscribers` precedent)
-   * rather than exporting `app-bundle.ts` internals; defensive table-ensure so a
-   * pre-compile probe returns `undefined` instead of "no such table".
-   */
-  @mesh(requireAdmin)
-  inspectBundleAsset(path: string): { content: string; contentType: string } | undefined {
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS AppBundle (path TEXT PRIMARY KEY, content TEXT NOT NULL, contentType TEXT NOT NULL) WITHOUT ROWID;`,
-    );
-    const rows = this.ctx.storage.sql
-      .exec(`SELECT content, contentType FROM AppBundle WHERE path = ?`, path)
-      .toArray() as Array<{ content: string; contentType: string }>;
-    return rows.length > 0 ? rows[0] : undefined;
-  }
-
-  /** Test-only (compile-pipeline): list resident `AppBundle` paths (sorted). */
-  @mesh(requireAdmin)
-  listBundlePaths(): string[] {
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS AppBundle (path TEXT PRIMARY KEY, content TEXT NOT NULL, contentType TEXT NOT NULL) WITHOUT ROWID;`,
-    );
-    const rows = this.ctx.storage.sql.exec(`SELECT path FROM AppBundle ORDER BY path`).toArray() as Array<{ path: string }>;
-    return rows.map((r) => r.path);
-  }
-
-  /** Test-only (compile-pipeline P3): count rows in the reload-channel registry —
-   *  proves `subscribeReload` registered WITHOUT going through the resource
-   *  subscribe path (no `Subscribers`/typeName/`OntologyStale` machinery). */
-  @mesh(requireAdmin)
-  inspectReloadSubscribers(): number {
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS ReloadSubscribers (clientId TEXT NOT NULL, subscriberBinding TEXT NOT NULL, subscribedAt TEXT NOT NULL, PRIMARY KEY (clientId)) WITHOUT ROWID;`,
-    );
-    return (this.ctx.storage.sql.exec(`SELECT COUNT(*) AS c FROM ReloadSubscribers`).toArray()[0] as { c: number }).c;
-  }
 }
 
 // ============================================
@@ -382,10 +331,6 @@ export class NebulaClientTest extends NebulaClient {
   // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
-
-  // --- handleReload capture (the dev-preview reload channel). NOT zeroed by
-  //     resetResults — an accumulator across compile/reload cycles. ---
-  reloadCount = 0;
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -709,14 +654,6 @@ export class NebulaClientTest extends NebulaClient {
     this.lastOrgTree = envelope.value;
   }
 
-  /** Capture dev-preview reload signals (compile-pipeline P3). Delegates to base
-   *  (fires the optional `onReload` hook — a no-op headless), then counts. */
-  @mesh()
-  override handleReload(): void {
-    super.handleReload();
-    this.reloadCount++;
-  }
-
   // --- Galaxy test initiators ---
 
   callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: OntologyVersionConfig): void {
@@ -740,13 +677,6 @@ export class NebulaClientTest extends NebulaClient {
   callStarInspectOntologyKv(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectOntologyKv();
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Stage the scaffold on a prod STAR (compile-pipeline P2 serving negative case). */
-  callStarStageScaffold(starName: string): void {
-    this.resetResults();
-    const remote = this.ctn<StarTest>().stageScaffoldForTest();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -805,40 +735,6 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- Compile-pipeline (#1a) initiators ---
-
-  /** Compile a `.vue` SFC inside the dev Star and persist the ESM into the
-   *  resident app bundle. Returns `{ path, errors }` to `handleResult`. */
-  callDevStarCompileSFC(devStarName: string, path: string, source: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().compileSFC(path, source);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarInspectBundleAsset(devStarName: string, path: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectBundleAsset(path);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarListBundlePaths(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().listBundlePaths();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  /** Subscribe this client to the dev Star's reload channel (fire-and-forget,
-   *  mirroring `callStarSubscribeTree`). Routes client → gateway → DEV_STAR so
-   *  callChain carries the client (clientId) + gateway (subscriberBinding). */
-  callDevStarSubscribeReload(devStarName: string): void {
-    this.lmz.call('DEV_STAR', devStarName, this.ctn<Star>().subscribeReload());
-  }
-
-  callDevStarInspectReloadSubscribers(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectReloadSubscribers();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
 
   // --- P3 (data lifecycle / reset) initiators ---
 
