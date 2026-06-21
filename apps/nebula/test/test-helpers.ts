@@ -40,9 +40,9 @@ export function uniqueGalaxyScope(): {
   galaxy: string;
   starA: string;
   starB: string;
-  /** The reserved dev-sandbox Star under this galaxy (`{u}.{g}.dev`). Routes to
-   *  the `DEV_STAR` binding (slug-derived selection); shares the Galaxy DO with
-   *  `starA`/`starB`. See tasks/dev-star.md. */
+  /** The reserved dev-sandbox Star under this galaxy (`{u}.{g}.dev`). A plain `Star`
+   *  at a `.dev` instance (Decision 2 — no DevStar class/binding); shares the Galaxy
+   *  DO with `starA`/`starB`. See tasks/nebula-studio.md § Dev-data reset. */
   dev: string;
 } {
   const universe = `g-${generateUuid().slice(0, 8)}`;

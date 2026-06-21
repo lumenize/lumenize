@@ -284,7 +284,7 @@ export default defineConfig({
       // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
       // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends NebulaDO
       // (constructable under pool-workers, unlike DevContainer). Own wrangler
-      // (DEV_STUDIO + DEV_STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
+      // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
       {
         extends: true,
         plugins: [swcPlugin, cloudflareTest({

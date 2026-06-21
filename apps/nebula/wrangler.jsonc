@@ -1,20 +1,19 @@
 {
   "name": "nebula",
   "compatibility_date": "2026-04-01",
-  // nodejs_compat is REQUIRED: DevStar (bound below) transitively imports
-  // @vue/compiler-sfc (which imports `node:os` etc.) + the vendored tsc bundle
-  // (Studio's SFC compile pipeline). Use plain `nodejs_compat` (NOT the legacy
-  // `nodejs_compat_v2` flag-name): with our compat_date it already gives v2
-  // semantics, AND it actually resolves `node:` builtins in real `wrangler dev`
-  // (4.x). The bare `nodejs_compat_v2` flag does NOT — `@vue/compiler-sfc`
-  // crashes startup with `No such module "node:os"` (vitest-pool-workers masked
-  // this with its own polyfills, but prod deploy + the real-browser harnesses run
-  // real workerd). Must match every other wrangler that loads apps/nebula DOs
-  // (test/, baseline, browser) — a flag mismatch lets a green test validate under
-  // a different runtime than prod.
-  // (Phase 3.5 also adds DevStudio, which transitively imports isomorphic-git +
-  // @cloudflare/shell — `node:` builtins — so the flag stays load-bearing after
-  // Phase 4 deletes the @vue/compiler-sfc compiler; Phase 4 re-grounds this comment.)
+  // nodejs_compat is REQUIRED: DevStudio (bound below) transitively imports
+  // isomorphic-git + @cloudflare/shell, which import `node:` builtins (buffer/crypto/
+  // path/os). Use plain `nodejs_compat` (NOT the legacy `nodejs_compat_v2` flag-name):
+  // with our compat_date it already gives v2 semantics, AND it actually resolves
+  // `node:` builtins in real `wrangler dev` (4.x). The bare `nodejs_compat_v2` flag
+  // does NOT — a `node:os`/etc. import crashes startup with `No such module`
+  // (vitest-pool-workers masks this with its own polyfills, but prod deploy + the
+  // real-browser harnesses run real workerd). Must match every other wrangler that
+  // loads apps/nebula DOs (test/, baseline, browser) — a flag mismatch lets a green
+  // test validate under a different runtime than prod.
+  // (Phase 4 retired the old rationale — the @vue/compiler-sfc SFC compiler + vendored
+  // tsc bundle were deleted with the in-DO serve path; the flag now survives for
+  // DevStudio's isomorphic-git/@cloudflare/shell.)
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {

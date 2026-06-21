@@ -1,6 +1,6 @@
 /**
  * DevContainer entrypoint gate (Phase 3.5a — M2 + M3). Drives the REAL Nebula
- * entrypoint via `Browser().fetch` (the same path dev-star-serve.test.ts uses), with
+ * entrypoint via `Browser().fetch`, with
  * `DEV_CONTAINER` bound to an inert serving stub (`DevContainerServeStub`) — the real
  * Container can't construct under vitest-pool-workers, and the gate only does an
  * identity check (`doNamespace === env.DEV_CONTAINER`), so an inert stand-in proves
@@ -15,7 +15,6 @@
  * 3-way branch + scope injection is tested in container-node/dev-container.test.ts.
  *
  * @see tasks/nebula-studio.md § DevContainer dev loop (M2/M3)
- * @see apps/nebula/test/test-apps/baseline/dev-star-serve.test.ts (the serving mirror)
  */
 import { describe, it, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
