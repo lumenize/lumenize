@@ -24,9 +24,9 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run --project unit --project frontend --project baseline --project container --project browser",
-    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project browser",
-    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project browser",
+    "test": "vitest --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "bench": "vitest --run --project browser-bench transactions",
     "bench:throughput": "vitest --run --project browser-bench throughput.benchmark",
     "bench:multi": "vitest --run --project browser-bench throughput-multi",
@@ -64,6 +64,7 @@
     "wrangler": "^4.86.0"
   },
   "dependencies": {
+    "@cloudflare/shell": "^0.4.0",
     "@lumenize/auth": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
@@ -72,6 +73,7 @@
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
     "@vue/compiler-sfc": "^3.5.13",
+    "isomorphic-git": "^1.38.4",
     "@vue/reactivity": "^3.5.13",
     "@vue/runtime-core": "^3.5.13",
     "typescript": "^5.9.2",

@@ -12,6 +12,9 @@
   // real workerd). Must match every other wrangler that loads apps/nebula DOs
   // (test/, baseline, browser) — a flag mismatch lets a green test validate under
   // a different runtime than prod.
+  // (Phase 3.5 also adds DevStudio, which transitively imports isomorphic-git +
+  // @cloudflare/shell — `node:` builtins — so the flag stays load-bearing after
+  // Phase 4 deletes the @vue/compiler-sfc compiler; Phase 4 re-grounds this comment.)
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
@@ -21,10 +24,44 @@
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "Star" },
       { "name": "DEV_STAR", "class_name": "DevStar" },
+      { "name": "DEV_STUDIO", "class_name": "DevStudio" },
+      { "name": "DEV_CONTAINER", "class_name": "DevContainer" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
     ]
   },
+  // DevContainer runs the dev-loop vite preview (5173 public) + command-server
+  // (9000, host-DO-only). standard-1 (½ vCPU) clears the `vite build` starvation
+  // bar (Phase-3 sizing). Image is baked (deps + framework skeleton) → 0 npm
+  // install on cold boot. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
+  "containers": [
+    {
+      "max_instances": 10,
+      "class_name": "DevContainer",
+      "image": "./container/Dockerfile",
+      "instance_type": "standard-1"
+    }
+  ],
+  // FIRST migrations block (apps/nebula has never deployed). DO class registry, NOT
+  // SQL migration. Every class is `new_sqlite_classes` — all use sync storage
+  // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make
+  // sync storage throw → hard deploy failure). Append-only across future deploys.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "NebulaClientGateway",
+        "Universe",
+        "Galaxy",
+        "Star",
+        "DevStar",
+        "DevStudio",
+        "DevContainer",
+        "NebulaAuth",
+        "NebulaAuthRegistry"
+      ]
+    }
+  ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "NEBULA_AUTH_REDIRECT": "/app",

@@ -72,45 +72,12 @@ export class DevStar extends Star {
     );
   }
 
-  /**
-   * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking
-   * ontology edit invalidates stored snapshots, which we do NOT migrate; the
-   * user-developer rebuilds test data). See tasks/dev-star.md § In-dev data
-   * lifecycle for why this is out of ADR-004's scope (it's disposal of a
-   * throwaway sandbox, not a destructive write on the resource path).
-   *
-   * **`async` + `@mesh(requireAdmin)`** — `requireAdmin` is a *synchronous* guard
-   * (runs before any yield in the executor), so the `blockConcurrencyWhile`
-   * gate — the **first statement**, no awaited work before it — closes before
-   * the first `await`. `deleteAll()` is the sanctioned async-storage exception
-   * (no sync variant); it wipes the **entire** private SQLite DB (SQL tables +
-   * KV + alarm rows) in one call, so nothing *stored* is stranded. `this.onStart()`
-   * then reconstructs the helper objects (fresh empty caches) and recreates
-   * schema + ROOT for free (the helper constructors are idempotent — no separate
-   * init helper), and nulls `#row`/`#facet`. The DO instance + `{u}.{g}.dev`
-   * registration survive.
-   *
-   * The founder ROOT-admin grant is **not** re-seeded here — it rides the next
-   * admin call's `onBeforeCall` first-touch (the `deleteAll` wiped the
-   * `__nebula_rootAdminSeeded` latch), leaving ROOT briefly grantless. Acceptable:
-   * dev users reach the sandbox via the `claims.access.admin` bypass regardless,
-   * and the triggering admin's own next call reseeds.
-   *
-   * ⚠️ **Precondition (caller's responsibility, not enforced here):** the dev
-   * Star also holds the user-developer's *source* (ontology + UI `file`
-   * resources) as a disposable working copy, which `deleteAll` wipes too. This is
-   * "data-only" reset ONLY because the source is durably owned by the Galaxy —
-   * do not wire a live trigger until source-durability on Galaxy holds (owned by
-   * tasks/nebula-studio.md § Durable draft ownership), or a breaking edit
-   * destroys the user's work.
-   */
-  @mesh(requireAdmin)
-  async resetDevData(): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(async () => {
-      await this.ctx.storage.deleteAll();
-      this.onStart();
-    });
-  }
+  // `resetDevData` (the `.dev`-guarded data wipe) was MOVED to base `Star` in
+  // Phase 3.5c (Decision 2 — the wipe now ships on every `Star`, hard-guarded to the
+  // `.dev` instance at runtime; `DevStar` inherits it). The structural containment it
+  // used to provide is replaced by Star's runtime `.dev` guard + the `Star.prototype`
+  // `@mesh`-surface-freeze test. `DevStar` itself (and `deployToDev`/`compileSFC`
+  // below) is deleted in Phase 4. See tasks/nebula-studio.md § Dev-data reset.
 
   /**
    * Compile a `.vue` SFC **inside the dev Star DO** and persist the runnable ESM

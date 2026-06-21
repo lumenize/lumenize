@@ -164,6 +164,35 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
     user[Symbol.dispose]();
   });
 
+  it('resetDevData on a NON-.dev Star throws + wipes nothing (runtime .dev guard — Phase 3.5c)', async () => {
+    // Phase 3.5c moved resetDevData DevStar→base Star (Decision 2), gated only by a
+    // runtime segment-precise .dev check. This is the SECOND operand of the guard
+    // (the instance-name operand, alongside B1's admin operand — testing.md compound-
+    // condition rule). Drive it against the STAR binding with a prod tenant slug.
+    const { galaxy, starA } = uniqueGalaxyScope();
+    expect(starA.split('.')[2]).not.toBe('dev');   // fixture sanity: a non-dev tenant
+    const { client } = await createAuthenticatedClient(
+      NebulaClientTest, new Browser(), galaxy, starA, 'admin@example.com',
+    );
+
+    // Seed survivable state (config KV) — deleteAll() would wipe it.
+    client.callStarSetConfig(starA, 'survives', 'yes');
+    await waitForSuccess(client);
+
+    // Admin caller (requireAdmin passes) but the .dev guard throws. Capable-of-failing:
+    // mutating the guard to always-pass → deleteAll runs → the config below is gone.
+    client.callStarResetDevData(starA);
+    await waitForResult(client);
+    expect(client.lastError).toMatch(/only permitted on the \.dev sandbox Star/);
+
+    // Wipes nothing — the throw is BEFORE blockConcurrencyWhile/deleteAll, so the
+    // seeded key survives (a mutated always-pass guard → deleteAll → it's gone).
+    client.callStarGetConfig(starA);
+    expect(await waitForSuccess(client)).toMatchObject({ survives: 'yes' });
+
+    client[Symbol.dispose]();
+  });
+
   it('reset effect: pre-reset resource reads null and a pre-wipe node is absent (caches rebuilt); no FK orphans', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
@@ -345,49 +374,58 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
 });
 
 // Walk a class's OWN prototype, returning the names of its mesh-callable methods
-// whose guard is NOT requireAdmin (identity comparison). Copied from
-// scope-isolation.test.ts (B5) — own-prototype-only, so on DevStar it returns
-// exactly DevStar's *added* ungated @mesh methods.
-function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
+// whose guard satisfies `pred(guard)`. Copied from scope-isolation.test.ts (B5) —
+// own-prototype-only, so it returns exactly the class's *added* @mesh methods.
+function meshMethodsWhere(ctor: { prototype: object }, pred: (guard: unknown) => boolean): string[] {
   const proto = ctor.prototype;
   const out: string[] = [];
   for (const name of Object.getOwnPropertyNames(proto)) {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) === requireAdmin) continue;
+    if (!pred(getMeshGuard(fn))) continue;
     out.push(name);
   }
   return out.sort();
 }
+const nonAdminMeshMethods = (ctor: { prototype: object }) => meshMethodsWhere(ctor, (g) => g !== requireAdmin);
+const adminMeshMethods = (ctor: { prototype: object }) => meshMethodsWhere(ctor, (g) => g === requireAdmin);
 
-describe('Dev Star P3 — reset capability containment (structural)', () => {
-  it('resetDevData exists on DevStar only, not on base Star (footgun guard)', () => {
-    const devFn = (DevStar.prototype as unknown as Record<string, unknown>).resetDevData;
-    expect(typeof devFn).toBe('function');
-    // Capable-of-failing: moving resetDevData onto Star would define this.
-    expect((Star.prototype as unknown as Record<string, unknown>).resetDevData).toBeUndefined();
-    // And on DevStar it is mesh-callable + admin-gated.
-    expect(isMeshCallable(devFn as (...a: unknown[]) => unknown)).toBe(true);
-    expect(getMeshGuard(devFn as (...a: unknown[]) => unknown)).toBe(requireAdmin);
+describe('Dev Star P3 — reset capability surface (Phase 3.5c relocation)', () => {
+  it('resetDevData now lives on base Star.prototype, mesh-callable + admin-gated', () => {
+    // Phase 3.5c moved the wipe DevStar→Star (Decision 2). Capable-of-failing: the
+    // pre-move assertion (Star.prototype.resetDevData === undefined) is now INVERTED.
+    const fn = (Star.prototype as unknown as Record<string, unknown>).resetDevData as (...a: unknown[]) => unknown;
+    expect(typeof fn).toBe('function');
+    expect(isMeshCallable(fn)).toBe(true);
+    expect(getMeshGuard(fn)).toBe(requireAdmin);
+    // DevStar no longer OWNS it (the structural containment is gone — replaced by the
+    // runtime .dev guard + the freeze below); it inherits from Star.
+    expect(Object.getOwnPropertyNames(DevStar.prototype)).not.toContain('resetDevData');
   });
 
-  it('every @mesh method DevStar ADDS is admin-gated — nonAdminMeshMethods(DevStar) === [] (M3)', () => {
-    // DevStar's own prototype adds deployToDev + resetDevData, both
-    // @mesh(requireAdmin). Adding a new *ungated* @mesh method to DevStar fails
-    // this, forcing a deliberate admin classification.
+  it('Star.prototype @mesh-surface-freeze: the admin-gated set equals the frozen allow-list', () => {
+    // The post-collapse PRODUCTION surface (Star.prototype — the DevStar own-prototype
+    // walk is now vacuous for resetDevData). resetDevData + setOntology + setStarConfig
+    // are the admin-gated @mesh methods; a new one must be added deliberately +
+    // re-reviewed. Mutation-validated: removing requireAdmin from resetDevData (or
+    // setOntology) drops it from this set → != frozen list → RED.
+    expect(adminMeshMethods(Star)).toEqual(['resetDevData', 'setOntology', 'setStarConfig']);
+  });
+
+  it('every @mesh method DevStar ADDS is admin-gated — nonAdminMeshMethods(DevStar) === []', () => {
+    // DevStar's own prototype now adds deployToDev + compileSFC (resetDevData moved to
+    // Star). Both @mesh(requireAdmin). Subsumed by the Star.prototype walk above for
+    // resetDevData; this still guards DevStar's remaining own surface until Phase 4.
     expect(nonAdminMeshMethods(DevStar)).toEqual([]);
   });
 
   it('Star.applyFetchedState is NOT @mesh-callable — its safety is the absence of the decorator (P2)', () => {
     // applyFetchedState wraps #installState and is reachable only as an internal
-    // continuation handler (the local executor); the @mesh(requireAdmin) gate
-    // lives on the deployToDev *trigger*, not here. If it ever gained @mesh it
-    // would become a remotely-callable, UNGUARDED ontology-install (a client
-    // could install arbitrary state). "public, not @mesh" IS the security
-    // boundary. The M3 freeze above can't catch this — applyFetchedState lives
-    // on Star.prototype, not DevStar's own prototype. Capable-of-failing: adding
-    // @mesh to applyFetchedState flips this RED.
+    // continuation handler (the local executor). If it ever gained @mesh it would
+    // become a remotely-callable, UNGUARDED ontology-install. "public, not @mesh" IS
+    // the security boundary. Capable-of-failing: adding @mesh flips this RED.
+    // (Contrast setOntology — the *gated* @mesh entry for the same install, above.)
     const fn = (Star.prototype as unknown as Record<string, unknown>).applyFetchedState;
     expect(typeof fn).toBe('function');
     expect(isMeshCallable(fn as (...a: unknown[]) => unknown)).toBe(false);

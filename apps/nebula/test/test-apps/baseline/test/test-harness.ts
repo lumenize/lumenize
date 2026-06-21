@@ -10,6 +10,7 @@ export const {
   Galaxy,
   StarTest,
   DevStarTest,
+  DevContainerServeStub,
   NebulaAuth,
   NebulaAuthRegistry,
   NebulaClientTest,

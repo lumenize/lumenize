@@ -82,16 +82,26 @@ export default {
     const directResponse = await routeDORequest(request, env, {
       cors: corsOptions,
       onBeforeRequest(request, { doNamespace }) {
-        const isServingTarget = doNamespace === env.STAR || doNamespace === env.DEV_STAR;
+        // M3: DEV_CONTAINER serves the dev preview shell + vite assets via the DO
+        // `fetch()` proxy (GET/HEAD) — the same ungated static read as the in-DO app
+        // serve. (The `|| env.DEV_STAR` in-DO serve disjunct collapses out in Phase 4
+        // when getPlatformAsset/the in-DO serve is deleted — don't half-collapse here.)
+        const isServingTarget =
+          doNamespace === env.STAR || doNamespace === env.DEV_STAR || doNamespace === env.DEV_CONTAINER;
         if (!isServingTarget) {
           return new Response('Not Found', { status: 404 });
         }
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
         }
-        return undefined; // GET/HEAD to a serving target → Star.onRequest
+        return undefined; // GET/HEAD to a serving target → Star.onRequest / DevContainer.fetch
       },
-      onBeforeConnect() {  // No direct WS to a DO — mesh WS terminates at the Gateway
+      onBeforeConnect(request, { doNamespace }) {
+        // M2: the vite HMR WebSocket to DEV_CONTAINER is allowed, ungated — like the
+        // preview shell. No tenant data flows over HMR (the scope is injected
+        // server-side; DevContainer.onBeforeCall guards the mesh path, not fetch()).
+        // Every OTHER direct WS to a DO stays closed — mesh WS terminates at the Gateway.
+        if (doNamespace === env.DEV_CONTAINER) return undefined;
         return new Response('Not Implemented', { status: 501 });
       },
     });

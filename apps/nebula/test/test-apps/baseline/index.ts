@@ -6,6 +6,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { DurableObject } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
@@ -334,6 +335,26 @@ export class DevStarTest extends DevStar {
 }
 
 // ============================================
+// Inert DEV_CONTAINER serving stub (Phase 3.5a — entrypoint M2/M3 gate test).
+//
+// The REAL DevContainer `extends Container` and can't construct under
+// vitest-pool-workers ([[container-no-construct-pool-workers]]), so the baseline
+// binds this inert stand-in to `DEV_CONTAINER`. It only proves the ENTRYPOINT gate
+// routes to the bound DO: it returns a recognizable marker for any request (GET
+// shell/asset OR an HMR WS upgrade), so a test can assert the gate passed the
+// request through (M3 = GET/HEAD serving target; M2 = HMR WS allowed) vs. blocked it
+// (405/404/501). The real fetch() 3-way branch + scope injection is tested as pure
+// helpers in container-node/dev-container.test.ts + the deploy-gated e2e.
+// ============================================
+
+export class DevContainerServeStub extends DurableObject {
+  override async fetch(request: Request): Promise<Response> {
+    const isWs = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
+    return new Response(`DEV_CONTAINER_STUB ${isWs ? 'WS' : request.method}`, { status: 200 });
+  }
+}
+
+// ============================================
 // Test subclass: NebulaClientTest — adds @mesh methods + test initiators
 // ============================================
 
@@ -420,6 +441,15 @@ export class NebulaClientTest extends NebulaClient {
   callStarSetConfig(starInstanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Star>().setStarConfig(key, value);
+    this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Phase 3.5c: drive `Star.resetDevData` against the STAR binding (a non-`.dev`
+   *  tenant Star) so the runtime `.dev` guard can be exercised — it must throw +
+   *  wipe nothing. (`resetDevData` lives on base `Star` now; `DevStar` inherits it.) */
+  callStarResetDevData(starInstanceName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().resetDevData();
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 

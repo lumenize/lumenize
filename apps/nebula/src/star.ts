@@ -372,6 +372,74 @@ export class Star extends NebulaDO {
     this.#installState(state);
   }
 
+  /**
+   * Install a compiled ontology version directly — the **dev-loop apply path**
+   * (Decision 9/11). DevStudio compiles the ontology `.d.ts` to a validator
+   * (`compileOntologyVersion`) and pushes the resulting row here; the Star NEVER
+   * compiles. This is the dev analog of the prod lazy-pull from Galaxy (Flow 2b) —
+   * the same `#installState` path, applied eagerly from a pushed row instead of a
+   * Galaxy fetch. It REPLACES `DevStar.deployToDev`'s Galaxy round-trip (deleted in
+   * Phase 4); do not route dev compile through the Galaxy DO.
+   *
+   * `@mesh(requireAdmin)`: like the other bespoke `@mesh` mutators it does NOT pass
+   * through the DAG `requirePermission` checks, and `onBeforeCall` proves only
+   * tenant *scope* (and `<id>.*` widening admits descendant non-admins) — so it
+   * carries its own admin gate. An unguarded remote ontology-install would let any
+   * in-scope caller swap the validator. (Contrast `applyFetchedState` above, whose
+   * safety is the *absence* of `@mesh` — it's a continuation handler, not an entry.)
+   *
+   * `row.version` MUST be content-unique (DevStudio derives it via `git.hashBlob` of
+   * the ontology source): the Worker Loader caches the validator bundle by
+   * `bundleId = galaxyId/version`, so a reused label silently serves a STALE
+   * validator (durable-objects.md § Worker Loader cache).
+   */
+  @mesh(requireAdmin)
+  setOntology(row: OntologyVersionRow): void {
+    const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
+    const history = prevIndex.includes(row.version) ? prevIndex : [...prevIndex, row.version];
+    this.#installState({ row, history });
+  }
+
+  /**
+   * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking ontology
+   * edit invalidates stored snapshots, which we do NOT migrate; the user-developer
+   * rebuilds test data, Decision 11). The wipe is **data-only**: the source-of-truth
+   * is DevStudio (its shell `Workspace` + git, Decision 5), NOT the dev Star — so a
+   * wipe here destroys throwaway test data, never the user's code. (The old
+   * `dev-star.ts` precondition — "don't wire a live trigger until source-durability
+   * holds" — is SUPERSEDED: the source never lived on this Star.)
+   *
+   * **Hard-guarded to the `.dev` STAR-tier instance — segment-precise, NOT a suffix
+   * test** (matches `#starBinding`'s form at nebula-client.ts): `endsWith('.dev')`
+   * would also pass a galaxy-tier `acme.dev`. ⚠️ **Deliberate structural→runtime
+   * weakening** (Decision 2): the wipe used to live ONLY on the `DevStar` subclass so
+   * a tenant `Star` *structurally* couldn't carry a data-wiping reset; the single-
+   * `Star` collapse ends that, so the wipe now ships on EVERY `Star`, gated only by
+   * this runtime throw. Compensating controls: the hard `.dev` guard + `@mesh(
+   * requireAdmin)` + the `Star.prototype` `@mesh`-surface-freeze test.
+   *
+   * **`async` + `@mesh(requireAdmin)`** — `requireAdmin` is a *synchronous* guard and
+   * the `.dev` check below is sync, so `blockConcurrencyWhile` (the first awaited
+   * work) still closes the gate before any yield. `deleteAll()` is the sanctioned
+   * async-storage exception (no sync variant); it wipes the entire private SQLite DB
+   * (SQL + KV + alarm rows). `onStart()` then reconstructs the helper objects (fresh
+   * empty caches), recreates schema + ROOT, and nulls `#row`/`#facet` (a stale facet
+   * would keep authorizing the dropped ontology). The DO + `{u}.{g}.dev` registration
+   * survive. The founder ROOT-admin grant reseeds on the next admin call's
+   * `onBeforeCall` first-touch (the `deleteAll` wiped the latch).
+   */
+  @mesh(requireAdmin)
+  async resetDevData(): Promise<void> {
+    const s = this.lmz.instanceName?.split('.') ?? [];
+    if (!(s.length === 3 && s[2] === 'dev')) {
+      throw new Error('resetDevData is only permitted on the .dev sandbox Star');
+    }
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.deleteAll();
+      this.onStart();
+    });
+  }
+
   // ─── DagTree ───────────────────────────────────────────────────────
 
   /**
