@@ -1,21 +1,22 @@
 /**
- * Dev Star — P3: in-dev data lifecycle (additive preserved / breaking reset).
+ * Dev-data lifecycle (additive preserved / breaking reset) on the `.dev` Star.
  *
- * Additive ontology edits preserve dev data for free (reads return stored values
- * verbatim; `@default` fills only on the next write). A breaking edit invalidates
- * stored snapshots, which we do NOT migrate — `resetDevData()` wipes the sandbox
- * (full `deleteAll` + `onStart` re-init) and the user-developer rebuilds. The
- * reset capability exists ONLY on `DevStar`.
+ * Post-collapse (Decision 2) the dev Star is a plain `Star` at a `{u}.{g}.dev`
+ * instance — no `DevStar` class. Additive ontology edits preserve dev data for free
+ * (reads return stored values verbatim; `@default` fills only on the next write). A
+ * breaking edit invalidates stored snapshots, which we do NOT migrate — `resetDevData()`
+ * wipes the sandbox (full `deleteAll` + `onStart` re-init, hard-guarded to `.dev`
+ * instances) and the user-developer rebuilds. Ontology is applied via
+ * `setOntology` (DevStudio's dev path); the Galaxy lazy-pull was retired in Phase 4.
  *
- * @see tasks/dev-star.md § P3, § In-dev data lifecycle
+ * @see tasks/nebula-studio.md § Dev-data reset
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID, Star, DevStar, requireAdmin } from '@lumenize/nebula';
+import { ROOT_NODE_ID, Star, requireAdmin } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
-import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
 import {
   createAuthenticatedClient,
   browserLogin,
@@ -46,56 +47,43 @@ async function waitForSuccess(client: NebulaClientTest) {
 async function devAdminClient(galaxy: string, dev: string) {
   return createAuthenticatedClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com');
 }
-type ApplyMarker = { namespace: string; data?: { instanceName?: string; version?: string } };
-async function waitForApply(entries: ApplyMarker[], dev: string, version: string) {
-  await vi.waitFor(() => {
-    expect(entries.some(e => e.namespace === 'nebula.Star.applyFetchedState'
-      && e.data?.instanceName === dev && e.data?.version === version)).toBe(true);
-  });
+/** Apply an ontology version to the `.dev` Star (the setOntology path that replaced
+ *  append + lazy-pull / deployToDev). */
+async function applyOntology(client: NebulaClientTest, dev: string, version: string, types: string) {
+  client.callStarApplyOntology(dev, { version, types });
+  await waitForSuccess(client);
 }
 
-describe('Dev Star P3 — in-dev data lifecycle', () => {
+describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
   it('additive edit: reads return the stored value verbatim (no read-time fill); @default fills on write', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(client);
+    await applyOntology(client, dev, 'v1', TODO_V1);
 
     // Create a Todo under v1 (no `color` field exists yet).
     const rid = generateUuid();
-    client.callDevStarTransaction(dev, 'v1', {
+    client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    // v2 — ADDITIVE: a new optional `color` with @default "red". Eager-apply it.
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_ADDITIVE });
-    await waitForSuccess(client);
-    const entries: ApplyMarker[] = [];
-    const sink: DebugSink = (e) => { entries.push(e as ApplyMarker); };
-    setDebugSink(sink);
-    try {
-      client.callDevStarDeployToDev(dev);
-      await waitForResult(client);
-      await waitForApply(entries, dev, 'v2');
-    } finally {
-      clearDebugSink();
-    }
+    // v2 — ADDITIVE: a new optional `color` with @default "red". Apply it.
+    await applyOntology(client, dev, 'v2', TODO_V2_ADDITIVE);
 
     // Read the PRE-EDIT snapshot at v2 → stored value verbatim, NO `color`
     // (reads never re-validate or fill defaults).
-    client.callDevStarRead(dev, 'v2', rid);
+    client.callStarRead(dev, 'v2', rid);
     const before = await waitForSuccess(client) as Snapshot;
     expect((before.value as { color?: string }).color).toBeUndefined();
 
     // Write it back at v2 → @default fills `color: 'red'` (write path, v2 facet).
-    client.callDevStarTransaction(dev, 'v2', {
+    client.callStarTransaction(dev, 'v2', {
       [rid]: { op: 'put', eTag: before.meta.eTag, value: { title: 'a', done: false } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    client.callDevStarRead(dev, 'v2', rid);
+    client.callStarRead(dev, 'v2', rid);
     const after = await waitForSuccess(client) as Snapshot;
     expect((after.value as { color?: string }).color).toBe('red');
 
@@ -105,43 +93,43 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
   it('resetDevData wipes the sandbox and re-inits (M2)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(client);
+    await applyOntology(client, dev, 'v1', TODO_V1);
 
     const rid = generateUuid();
-    client.callDevStarTransaction(dev, 'v1', {
+    client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'x', done: false } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    client.callDevStarInspectReset(dev);
+    client.callStarInspectReset(dev);
     let census = await waitForSuccess(client) as { snapshotCount: number; nodeCount: number; orphanCount: number };
     expect(census.snapshotCount).toBe(1);
 
-    client.callDevStarResetDevData(dev);
+    client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
 
     // Snapshots emptied; Nodes re-seeds ROOT only; no FK orphans.
-    client.callDevStarInspectReset(dev);
+    client.callStarInspectReset(dev);
     census = await waitForSuccess(client) as { snapshotCount: number; nodeCount: number; orphanCount: number };
     expect(census.snapshotCount).toBe(0);
     expect(census.nodeCount).toBe(1);
     expect(census.orphanCount).toBe(0);
 
-    // The DO + registration survive: the resource is gone, and the re-init'd
-    // schema accepts a fresh write.
-    client.callDevStarRead(dev, 'v1', rid);
+    // resetDevData wipes the ontology too (full deleteAll); re-apply it as Flow 1b does
+    // (reset → setOntology). The DO + registration survive: the resource is gone, and
+    // the re-init'd schema accepts a fresh read.
+    await applyOntology(client, dev, 'v1', TODO_V1);
+    client.callStarRead(dev, 'v1', rid);
     expect(await waitForSuccess(client)).toBeNull();
 
     client[Symbol.dispose]();
   });
 
-  it('resetDevData and deployToDev are admin-gated; a non-admin {u}.{g}.dev caller is rejected (B1)', async () => {
+  it('resetDevData is admin-gated; a non-admin {u}.{g}.dev caller is rejected (B1)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client: admin } = await devAdminClient(galaxy, dev);
-    admin.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(admin);
+    await applyOntology(admin, dev, 'v1', TODO_V1);
 
     // Non-admin galaxy member (invited subject) refreshed to the dev activeScope:
     // valid aud (onBeforeCall passes), but no admin claim.
@@ -152,11 +140,7 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
       NebulaClientTest, new Browser(), galaxy, dev, 'user@example.com',
     );
 
-    user.callDevStarResetDevData(dev);
-    await waitForResult(user);
-    expect(user.lastError).toContain('Admin access required');
-
-    user.callDevStarDeployToDev(dev);
+    user.callStarResetDevData(dev);
     await waitForResult(user);
     expect(user.lastError).toContain('Admin access required');
 
@@ -164,11 +148,11 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
     user[Symbol.dispose]();
   });
 
-  it('resetDevData on a NON-.dev Star throws + wipes nothing (runtime .dev guard — Phase 3.5c)', async () => {
-    // Phase 3.5c moved resetDevData DevStar→base Star (Decision 2), gated only by a
-    // runtime segment-precise .dev check. This is the SECOND operand of the guard
-    // (the instance-name operand, alongside B1's admin operand — testing.md compound-
-    // condition rule). Drive it against the STAR binding with a prod tenant slug.
+  it('resetDevData on a NON-.dev Star throws + wipes nothing (runtime .dev guard)', async () => {
+    // The wipe ships on every Star (Decision 2), gated only by a runtime segment-precise
+    // .dev check. This is the SECOND operand of the guard (the instance-name operand,
+    // alongside B1's admin operand — testing.md compound-condition rule). Drive it
+    // against a prod tenant slug.
     const { galaxy, starA } = uniqueGalaxyScope();
     expect(starA.split('.')[2]).not.toBe('dev');   // fixture sanity: a non-dev tenant
     const { client } = await createAuthenticatedClient(
@@ -196,36 +180,37 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
   it('reset effect: pre-reset resource reads null and a pre-wipe node is absent (caches rebuilt); no FK orphans', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(client);
+    await applyOntology(client, dev, 'v1', TODO_V1);
 
     // A child node + a resource attached to it.
-    client.callDevStarCreateNode(dev, ROOT_NODE_ID, 'child', 'Child');
+    client.callStarCreateNode(dev, ROOT_NODE_ID, 'child', 'Child');
     const childNodeId = await waitForSuccess(client) as number;
     const rid = generateUuid();
-    client.callDevStarTransaction(dev, 'v1', {
+    client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: childNodeId, value: { title: 'x', done: false } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
 
-    client.callDevStarResetDevData(dev);
+    client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
 
+    // Re-apply the ontology after the wipe (Flow 1b: reset → setOntology).
+    await applyOntology(client, dev, 'v1', TODO_V1);
+
     // (a) The resource is gone (read → null).
-    client.callDevStarRead(dev, 'v1', rid);
+    client.callStarRead(dev, 'v1', rid);
     expect(await waitForSuccess(client)).toBeNull();
 
-    // The pre-wipe node is absent — NodeNotFoundError is thrown by
-    // #requireNodeExists BEFORE the admin bypass, so a stale DagTree cache
-    // (node still present) would NOT throw → this is capable-of-failing on
-    // cache-rebuild.
-    client.callDevStarGetEffectivePermission(dev, childNodeId);
+    // The pre-wipe node is absent — NodeNotFoundError is thrown by #requireNodeExists
+    // BEFORE the admin bypass, so a stale DagTree cache (node still present) would NOT
+    // throw → this is capable-of-failing on cache-rebuild.
+    client.callStarGetEffectivePermission(dev, childNodeId);
     await waitForResult(client);
     expect(client.lastError).toMatch(/not found/i);
 
     // (c) No Snapshots → Nodes FK orphans.
-    client.callDevStarInspectReset(dev);
+    client.callStarInspectReset(dev);
     const census = await waitForSuccess(client) as { orphanCount: number };
     expect(census.orphanCount).toBe(0);
 
@@ -235,8 +220,7 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
   it('reset effect: a pre-reset non-admin read grant is revoked post-reset (permission cache rebuilt)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client: admin } = await devAdminClient(galaxy, dev);
-    admin.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(admin);
+    await applyOntology(admin, dev, 'v1', TODO_V1);
 
     const adminBrowser = new Browser();
     const { accessToken } = await browserLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
@@ -248,31 +232,33 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
 
     // Admin creates a resource at ROOT and grants the non-admin `read` on ROOT.
     const rid = generateUuid();
-    admin.callDevStarTransaction(dev, 'v1', {
+    admin.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'x', done: false } },
     });
     expect((await waitForSuccess(admin) as TransactionResult).ok).toBe(true);
-    admin.callDevStarSetPermission(dev, ROOT_NODE_ID, userSub, 'read');
+    admin.callStarSetPermission(dev, ROOT_NODE_ID, userSub, 'read');
     await waitForSuccess(admin);
 
     // Positive control: the non-admin can read (grant in effect).
-    user.callDevStarRead(dev, 'v1', rid);
+    user.callStarRead(dev, 'v1', rid);
     const snap = await waitForSuccess(user) as Snapshot;
     expect((snap.value as { title: string }).title).toBe('x');
 
-    // Reset wipes the grant; admin re-creates a resource at ROOT (Snapshots were wiped).
-    admin.callDevStarResetDevData(dev);
+    // Reset wipes the grant; re-apply the ontology (Flow 1b) + admin re-creates a
+    // resource at ROOT (Snapshots were wiped).
+    admin.callStarResetDevData(dev);
     await waitForResult(admin);
     expect(admin.lastError).toBeUndefined();
-    admin.callDevStarTransaction(dev, 'v1', {
+    await applyOntology(admin, dev, 'v1', TODO_V1);
+    admin.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'y', done: false } },
     });
     expect((await waitForSuccess(admin) as TransactionResult).ok).toBe(true);
 
     // The non-admin read is now DENIED — grant wiped + permission cache rebuilt.
-    // Reader must be non-admin: requirePermission short-circuits on access.admin
-    // before consulting the grant, so an admin reader would green vacuously.
-    user.callDevStarRead(dev, 'v1', rid);
+    // Reader must be non-admin: requirePermission short-circuits on access.admin before
+    // consulting the grant, so an admin reader would green vacuously.
+    user.callStarRead(dev, 'v1', rid);
     await waitForResult(user);
     expect(user.lastError).toMatch(/permission required/i);
 
@@ -284,87 +270,70 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
     const founderSub = payload.sub;
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(client);
+    await applyOntology(client, dev, 'v1', TODO_V1);
 
     // Warm the dev Star so the founder grant + latch are seeded before reset.
-    client.callDevStarWhoAmI(dev);
+    client.callStarWhoAmI(dev);
     await waitForSuccess(client);
 
-    // Reset + probe in ONE call: the grant is ABSENT immediately after reset (the
-    // reset call's own onBeforeCall ran with the latch set → no reseed; the
-    // direct resetDevData call has no onBeforeCall to reseed either).
-    client.callDevStarResetAndProbeRootAdmin(dev, founderSub);
+    // Reset + probe in ONE call: the grant is ABSENT immediately after reset (the reset
+    // call's own onBeforeCall ran with the latch set → no reseed; the direct
+    // resetDevData call has no onBeforeCall to reseed either).
+    client.callStarResetAndProbeRootAdmin(dev, founderSub);
     expect(await waitForSuccess(client)).toBe(false);
 
     // The NEXT admin call reseeds (latch wiped) → grant present.
-    client.callDevStarInspectRootAdmin(dev, founderSub);
+    client.callStarInspectRootAdmin(dev, founderSub);
     expect(await waitForSuccess(client)).toBe(true);
 
     client[Symbol.dispose]();
   });
 
   it.skip('in-flight write vs reset: a write suspended at parseBatch resumes into the wiped tables (bounded edge)', async () => {
-    // Documented demo contract (tasks/dev-star.md § Lifecycle note → Concurrency
-    // assumption): blockConcurrencyWhile keeps the reset body atomic but does NOT
-    // abort a concurrent doTransaction already suspended at its facet.parseBatch
-    // await (that await opened the input gate). Such a write resumes AFTER the
-    // wipe and commits a Snapshot into the freshly-emptied tables, possibly
-    // orphaning Snapshot.nodeId → Nodes. For the demo this is bounded: the dev
-    // sandbox is single-admin and Studio quiesces its in-flight write queue
-    // before triggering reset. The server-side hardening (a generation counter
-    // checked after parseBatch, before transactionSync, aborting writes whose
-    // generation predates the last reset) is DEFERRED — it would touch the shared
-    // production transaction path. Skipped (not deleted, per testing.md): the
-    // edge is known + bounded, and a deterministic interleave at the parseBatch
-    // await isn't reliably reproducible without that counter. Revive when it lands.
+    // Documented demo contract (§ Dev-data reset → Concurrency assumption):
+    // blockConcurrencyWhile keeps the reset body atomic but does NOT abort a concurrent
+    // doTransaction already suspended at its facet.parseBatch await. Such a write resumes
+    // AFTER the wipe and commits a Snapshot into the freshly-emptied tables, possibly
+    // orphaning Snapshot.nodeId → Nodes. For the demo this is bounded (single-admin; Studio
+    // quiesces its in-flight write queue before reset). The server-side hardening (a
+    // generation counter) is DEFERRED. Skipped (not deleted, per testing.md). Revive when
+    // it lands.
   });
 
-  it('breaking eager-apply → reset loop: stale snapshot invalid under new version; reset; fresh write validates (M5)', async () => {
+  it('breaking edit → reset loop: stale snapshot invalid under new version; reset; fresh write validates (M5)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client } = await devAdminClient(galaxy, dev);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_V1 });
-    await waitForSuccess(client);
+    await applyOntology(client, dev, 'v1', TODO_V1);
     const rid = generateUuid();
-    client.callDevStarTransaction(dev, 'v1', {
+    client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
     const r1 = await waitForSuccess(client) as TransactionResult;
     expect(r1.ok).toBe(true);
     const eTag1 = r1.ok ? r1.eTags[rid] : '';
 
-    // v2 — BREAKING: a required `priority`. Eager-apply.
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_BREAKING });
-    await waitForSuccess(client);
-    const entries: ApplyMarker[] = [];
-    const sink: DebugSink = (e) => { entries.push(e as ApplyMarker); };
-    setDebugSink(sink);
-    try {
-      client.callDevStarDeployToDev(dev);
-      await waitForResult(client);
-      await waitForApply(entries, dev, 'v2');
-    } finally {
-      clearDebugSink();
-    }
+    // v2 — BREAKING: a required `priority`. Apply.
+    await applyOntology(client, dev, 'v2', TODO_V2_BREAKING);
 
     // The pre-edit snapshot is invalid under v2 — a put of its old shape (missing
     // required `priority`) fails validation.
-    client.callDevStarTransaction(dev, 'v2', {
+    client.callStarTransaction(dev, 'v2', {
       [rid]: { op: 'put', eTag: eTag1, value: { title: 'a', done: false } },
     });
     const rBad = await waitForSuccess(client) as TransactionResult;
     expect(rBad.ok).toBe(false);
     if (!rBad.ok) expect(rBad.errors[rid].type).toBe('validation');
 
-    // Reset → empty.
-    client.callDevStarResetDevData(dev);
+    // Reset → empty; re-apply v2 (Flow 1b: reset → setOntology the new ontology).
+    client.callStarResetDevData(dev);
     await waitForResult(client);
     expect(client.lastError).toBeUndefined();
+    await applyOntology(client, dev, 'v2', TODO_V2_BREAKING);
 
     // A fresh write satisfying v2 (includes `priority`) validates + commits.
     const rid2 = generateUuid();
-    client.callDevStarTransaction(dev, 'v2', {
+    client.callStarTransaction(dev, 'v2', {
       [rid2]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false, priority: 'high' } },
     });
     expect((await waitForSuccess(client) as TransactionResult).ok).toBe(true);
@@ -373,62 +342,34 @@ describe('Dev Star P3 — in-dev data lifecycle', () => {
   });
 });
 
-// Walk a class's OWN prototype, returning the names of its mesh-callable methods
-// whose guard satisfies `pred(guard)`. Copied from scope-isolation.test.ts (B5) —
-// own-prototype-only, so it returns exactly the class's *added* @mesh methods.
-function meshMethodsWhere(ctor: { prototype: object }, pred: (guard: unknown) => boolean): string[] {
+// Walk a class's OWN prototype, returning its mesh-callable methods whose guard is
+// requireAdmin. Copied from scope-isolation.test.ts (B5).
+function adminMeshMethods(ctor: { prototype: object }): string[] {
   const proto = ctor.prototype;
   const out: string[] = [];
   for (const name of Object.getOwnPropertyNames(proto)) {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (!pred(getMeshGuard(fn))) continue;
+    if (getMeshGuard(fn) !== requireAdmin) continue;
     out.push(name);
   }
   return out.sort();
 }
-const nonAdminMeshMethods = (ctor: { prototype: object }) => meshMethodsWhere(ctor, (g) => g !== requireAdmin);
-const adminMeshMethods = (ctor: { prototype: object }) => meshMethodsWhere(ctor, (g) => g === requireAdmin);
 
-describe('Dev Star P3 — reset capability surface (Phase 3.5c relocation)', () => {
-  it('resetDevData now lives on base Star.prototype, mesh-callable + admin-gated', () => {
-    // Phase 3.5c moved the wipe DevStar→Star (Decision 2). Capable-of-failing: the
-    // pre-move assertion (Star.prototype.resetDevData === undefined) is now INVERTED.
+describe('resetDevData capability surface (Star.prototype)', () => {
+  it('resetDevData lives on base Star.prototype, mesh-callable + admin-gated', () => {
     const fn = (Star.prototype as unknown as Record<string, unknown>).resetDevData as (...a: unknown[]) => unknown;
     expect(typeof fn).toBe('function');
     expect(isMeshCallable(fn)).toBe(true);
     expect(getMeshGuard(fn)).toBe(requireAdmin);
-    // DevStar no longer OWNS it (the structural containment is gone — replaced by the
-    // runtime .dev guard + the freeze below); it inherits from Star.
-    expect(Object.getOwnPropertyNames(DevStar.prototype)).not.toContain('resetDevData');
   });
 
   it('Star.prototype @mesh-surface-freeze: the admin-gated set equals the frozen allow-list', () => {
-    // The post-collapse PRODUCTION surface (Star.prototype — the DevStar own-prototype
-    // walk is now vacuous for resetDevData). resetDevData + setOntology + setStarConfig
-    // are the admin-gated @mesh methods; a new one must be added deliberately +
-    // re-reviewed. Mutation-validated: removing requireAdmin from resetDevData (or
-    // setOntology) drops it from this set → != frozen list → RED.
+    // The post-collapse PRODUCTION surface. resetDevData + setOntology + setStarConfig are
+    // the admin-gated @mesh methods; a new one must be added deliberately + re-reviewed.
+    // Mutation-validated: removing requireAdmin from resetDevData (or setOntology) drops it
+    // from this set → != frozen list → RED.
     expect(adminMeshMethods(Star)).toEqual(['resetDevData', 'setOntology', 'setStarConfig']);
-  });
-
-  it('every @mesh method DevStar ADDS is admin-gated — nonAdminMeshMethods(DevStar) === []', () => {
-    // DevStar's own prototype now adds only deployToDev (resetDevData moved to Star;
-    // compileSFC deleted in Phase 4). @mesh(requireAdmin). Subsumed by the
-    // Star.prototype walk above for resetDevData; this still guards DevStar's
-    // remaining own surface until the class is deleted in Phase 4.
-    expect(nonAdminMeshMethods(DevStar)).toEqual([]);
-  });
-
-  it('Star.applyFetchedState is NOT @mesh-callable — its safety is the absence of the decorator (P2)', () => {
-    // applyFetchedState wraps #installState and is reachable only as an internal
-    // continuation handler (the local executor). If it ever gained @mesh it would
-    // become a remotely-callable, UNGUARDED ontology-install. "public, not @mesh" IS
-    // the security boundary. Capable-of-failing: adding @mesh flips this RED.
-    // (Contrast setOntology — the *gated* @mesh entry for the same install, above.)
-    const fn = (Star.prototype as unknown as Record<string, unknown>).applyFetchedState;
-    expect(typeof fn).toBe('function');
-    expect(isMeshCallable(fn as (...a: unknown[]) => unknown)).toBe(false);
   });
 });

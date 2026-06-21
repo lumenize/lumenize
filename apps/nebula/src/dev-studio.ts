@@ -33,12 +33,12 @@ import { createGit } from '@cloudflare/shell/git';
 import git from 'isomorphic-git';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { compileOntologyVersion } from './galaxy';
-import type { DevStar } from './dev-star';
+import type { Star } from './star';
 import type { DevContainer, SourceFile } from './dev-container';
 
-/** The `.dev` data-Star binding. ⚠️ Phase 4 collapses `DEV_STAR`→`STAR` (Decision 2);
- *  this constant + the `ctn<DevStar>()` types below switch to `STAR`/`ctn<Star>()` then. */
-const DEV_STAR_BINDING = 'DEV_STAR';
+/** The `.dev` data-Star binding. Post-collapse (Decision 2) there is one `STAR`
+ *  binding; the dev Star is the `{u}.{g}.dev` *instance* on it. */
+const STAR_BINDING = 'STAR';
 /** The dev preview container binding (per-sandbox, same `{u}.{g}.dev` instance). */
 const DEV_CONTAINER_BINDING = 'DEV_CONTAINER';
 
@@ -157,9 +157,9 @@ export class DevStudio extends NebulaDO {
     const row = compileOntologyVersion({ version, types });
     const instance = this.lmz.instanceName!;
     if (wipe) {
-      await this.lmz.callRaw(DEV_STAR_BINDING, instance, this.ctn<DevStar>().resetDevData());
+      await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().resetDevData());
     }
-    await this.lmz.callRaw(DEV_STAR_BINDING, instance, this.ctn<DevStar>().setOntology(row));
+    await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().setOntology(row));
     debug('nebula.DevStudio.applyOntology').debug('applied', { instanceName: instance, version, wiped: wipe });
     return { version };
   }

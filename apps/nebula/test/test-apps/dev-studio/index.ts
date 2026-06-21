@@ -14,12 +14,14 @@
  */
 import { mesh } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
-import { DevStar } from '../../../src/dev-star';
+import { Star } from '../../../src/star';
 import { requireAdmin } from '../../../src/nebula-do';
 
 export { DevStudio };
 
-export class DevStarOntologyProbe extends DevStar {
+// The `.dev` data-Star target. Post-collapse (Decision 2) the dev Star is a plain
+// `Star` at a `{u}.{g}.dev` instance — no DevStar subclass.
+export class DevStarOntologyProbe extends Star {
   /** Test-only: the ontology version index (proves `setOntology` installed). */
   @mesh(requireAdmin)
   inspectOntologyIndex(): string[] {

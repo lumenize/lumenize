@@ -170,7 +170,7 @@ describe('Star ontology cache', () => {
     const resourceId = generateUuid();
 
     // Register ontology
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // First transaction — triggers Galaxy fetch (cache miss)
@@ -196,7 +196,7 @@ describe('Star ontology cache', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Client tagged a version that doesn't exist on Galaxy. Star fetches latest
@@ -212,16 +212,19 @@ describe('Star ontology cache', () => {
     client[Symbol.dispose]();
   });
 
-  it('Galaxy with no ontology — not-found error delivered to client', async () => {
+  it('Star with no ontology set — stale signal (no current version) delivered to client', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
 
-    // Galaxy has no ontology registered yet
+    // No ontology applied to the Star yet. Phase 4 retired the Galaxy lazy-pull, so a
+    // versioned op against an ontology-less Star is a version mismatch (current = '')
+    // rather than the old "not found" — the client is told to refresh.
     client.callStarTransaction(star, 'v1', {
       [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
-    expect(error).toContain("'v1' not found");
+    expect(error).toContain('version mismatch');
+    expect(error).toContain("'v1'");
 
     client[Symbol.dispose]();
   });
@@ -232,9 +235,9 @@ describe('Star ontology cache', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch latest (v2) by sending v2 first
@@ -264,7 +267,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
@@ -281,7 +284,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Missing required field 'done', wrong type for 'title'
@@ -307,7 +310,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, {
+    client.callStarApplyOntology(star, {
       version: 'v1',
       types: TODO_V2_TYPES,
     });
@@ -334,7 +337,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = generateUuid();
@@ -359,7 +362,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = generateUuid();
@@ -383,7 +386,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const r1 = generateUuid();
@@ -413,7 +416,7 @@ describe('validation integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = generateUuid();
@@ -440,7 +443,7 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     const resourceId = generateUuid();
@@ -462,7 +465,7 @@ describe('read integration', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
     // Need at least one transaction to cache the ontology on the Star
@@ -484,9 +487,9 @@ describe('read integration', () => {
     const { client } = await adminClient(star);
 
     // Register v1 and v2
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
+    client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO_V2_TYPES });
+    client.callStarApplyOntology(star, { version: 'v2', types: TODO_V2_TYPES });
     await waitForSuccess(client);
 
     // Force Star to fetch v2

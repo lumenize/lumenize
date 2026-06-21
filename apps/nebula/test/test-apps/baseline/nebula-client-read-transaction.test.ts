@@ -52,7 +52,7 @@ function useServerSnapshot(outcome: TransactionOutcome, rid: string): Snapshot {
 async function setupAdminClient(star: string) {
   const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callGalaxyAppendOntologyVersion(galaxyName, {
+  a.client.callStarApplyOntology(star, {
     version: ONTOLOGY_VERSION,
     types: TEST_TYPES,
   });

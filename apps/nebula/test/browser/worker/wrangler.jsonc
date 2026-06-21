@@ -2,12 +2,12 @@
   "name": "nebula-browser-test",
   "main": "./index.ts",
   "compatibility_date": "2026-04-01",
-  // nodejs_compat (NOT the legacy `nodejs_compat_v2` flag-name): this worker
-  // imports the @lumenize/nebula barrel, which transitively pulls DevStar →
-  // @vue/compiler-sfc (imports `node:os` etc.) + the vendored tsc bundle. Real
-  // `wrangler dev` (this harness) only resolves `node:` builtins under plain
-  // `nodejs_compat`; `nodejs_compat_v2` crashes startup with `No such module
-  // "node:os"`. Unified with prod + the other test wranglers.
+  // nodejs_compat (NOT the legacy `nodejs_compat_v2` flag-name): this worker imports
+  // the @lumenize/nebula barrel, which transitively pulls DevStudio → isomorphic-git +
+  // @cloudflare/shell (import `node:` builtins). Real `wrangler dev` (this harness)
+  // only resolves `node:` builtins under plain `nodejs_compat`; `nodejs_compat_v2`
+  // crashes startup with `No such module "node:os"`. Unified with prod + the other
+  // test wranglers.
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
@@ -16,10 +16,6 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      // DevStar (production class) so the real-chromium harness can compile a
-      // fixture SFC (DevStar.compileSFC) and serve the preview (Star.onRequest)
-      // same-origin — the self-hosted-assets Phase-1 mount test.
-      { "name": "DEV_STAR", "class_name": "DevStar" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
@@ -57,6 +53,10 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["DevStar"]
+    },
+    {
+      "tag": "v7",
+      "deleted_classes": ["DevStar"]
     }
   ],
   "services": [

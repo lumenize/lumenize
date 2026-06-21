@@ -54,7 +54,7 @@ describe('Star ontology lifecycle', () => {
     const { client } = await adminClient(star);
 
     // Append v1 and warm Star's cache via a transaction
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v1', types: TODO });
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
@@ -68,7 +68,7 @@ describe('Star ontology lifecycle', () => {
     expect(kv.rowVersions).toEqual(['v1']);
 
     // Append v2 and force Star to fetch it
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v2', types: TODO });
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v2', {
@@ -97,7 +97,7 @@ describe('Star ontology lifecycle', () => {
       const version = `v${i}`;
       expectedHistory.push(version);
 
-      client.callGalaxyAppendOntologyVersion(galaxy, { version, types: TODO });
+      client.callStarApplyOntology(star,{ version, types: TODO });
       await waitForSuccess(client);
 
       // Force Star to cache this version
@@ -114,11 +114,6 @@ describe('Star ontology lifecycle', () => {
       expect(kv.rowVersions).toEqual([version]);
     }
 
-    // Galaxy still has all N versions in its index
-    client.callGalaxyListOntologyVersions(galaxy);
-    const galaxyVersions = await waitForSuccess(client) as string[];
-    expect(galaxyVersions).toEqual(expectedHistory);
-
     client[Symbol.dispose]();
   });
 
@@ -127,9 +122,9 @@ describe('Star ontology lifecycle', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v1', types: TODO });
     await waitForSuccess(client);
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v2', types: TODO });
     await waitForSuccess(client);
 
     // Cache v2 on Star
@@ -163,14 +158,14 @@ describe('Star ontology lifecycle', () => {
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v1', types: TODO });
     await waitForSuccess(client);
     client.callStarTransaction(star, 'v1', {
       [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'seed', done: false } },
     });
     await waitForSuccess(client);
 
-    client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v2', types: TODO });
+    client.callStarApplyOntology(star,{ version: 'v2', types: TODO });
     await waitForSuccess(client);
 
     // First v2 transaction triggers the switch (cache miss)

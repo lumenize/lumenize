@@ -59,8 +59,9 @@ async function callStudio(instance: string, method: string, args: unknown[] = []
   return unwrap(await stub.__executeOperation(envelope('DEV_STUDIO', instance, method, args)));
 }
 async function callDevStar(instance: string, method: string, args: unknown[] = []) {
-  const stub = (env as any).DEV_STAR.getByName(instance);
-  return unwrap(await stub.__executeOperation(envelope('DEV_STAR', instance, method, args)));
+  // The dev Star is the STAR binding at a {u}.{g}.dev instance (post-collapse, Decision 2).
+  const stub = (env as any).STAR.getByName(instance);
+  return unwrap(await stub.__executeOperation(envelope('STAR', instance, method, args)));
 }
 
 describe('DevStudio source-of-truth (shell Workspace + isomorphic-git)', () => {

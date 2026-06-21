@@ -64,9 +64,9 @@ describe('DevContainer entrypoint gate — M2 (HMR WebSocket allow)', () => {
     expect(await res.text()).toContain('DEV_CONTAINER_STUB WS');
   });
 
-  it('a WebSocket upgrade to DEV_STAR is still 501 (HMR WS allow is DEV_CONTAINER-only)', async () => {
-    const { dev } = uniqueGalaxyScope();
-    const res = await new Browser().fetch(`${ORIGIN}/dev-star/${dev}/`, { headers: WS_HEADERS });
+  it('a WebSocket upgrade to GALAXY is still 501 (HMR WS allow is DEV_CONTAINER-only)', async () => {
+    const { galaxy } = uniqueGalaxyScope();
+    const res = await new Browser().fetch(`${ORIGIN}/galaxy/${galaxy}/`, { headers: WS_HEADERS });
     expect(res.status).toBe(501);
   });
 

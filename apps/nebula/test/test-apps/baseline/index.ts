@@ -24,14 +24,14 @@ export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/neb
 // Import classes needed for test subclasses
 import {
   Star,
-  DevStar,
   Universe,
   Galaxy,
   NebulaClient,
   requireAdmin,
   ROOT_NODE_ID,
+  compileOntologyVersion,
 } from '@lumenize/nebula';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, SubscriberRow } from '@lumenize/nebula';
+import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -197,48 +197,10 @@ export class StarTest extends Star {
   }
 
   #cachedColo?: string;
-}
 
-// ============================================
-// Test subclass: DevStarTest — the DevStar analog of StarTest.
-//
-// `DevStarTest extends DevStar` (NOT `extends StarTest`) so it carries DevStar's
-// dev-only surface (eager-apply, resetDevData) while still getting the test-only
-// `@mesh` inspection hooks the dev-star P1/P3/P4 criteria need. Those hooks are
-// re-declared here rather than inherited because StarTest's hooks live on the
-// production-Star test subclass, off DevStar's prototype chain. Bound to the
-// `DEV_STAR` binding in the baseline test wrangler. Never bound in prod (mirrors
-// the StarTest precedent — test-only hooks never ship).
-// ============================================
-
-export class DevStarTest extends DevStar {
-  @mesh()
-  whoAmI(): string {
-    return `You are ${this.lmz.callContext.originAuth!.sub}`;
-  }
-
-  /** Test-only: dump the Subscribers table (PK-ordered). Admin-gated. */
-  @mesh(requireAdmin)
-  inspectSubscribers(): SubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt
-       FROM Subscribers ORDER BY resourceId, clientId`,
-    ).toArray();
-    return rows as unknown as SubscriberRow[];
-  }
-
-  /** Test-only: dump the ontology KV keys (index + present row versions). */
-  @mesh(requireAdmin)
-  inspectOntologyKv(): { index: string[]; rowVersions: string[] } {
-    const index = this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
-    const rowVersions: string[] = [];
-    for (const [key] of this.ctx.storage.kv.list({ prefix: 'ontology:' })) {
-      if (key === 'ontology:_index') continue;
-      rowVersions.push(key.slice('ontology:'.length));
-    }
-    rowVersions.sort();
-    return { index, rowVersions };
-  }
+  // --- Dev-data lifecycle inspection (Phase 4: moved off the deleted DevStarTest).
+  //     resetDevData lives on base Star now, hard-guarded to .dev instances — these
+  //     hooks run against a StarTest at a {u}.{g}.dev instance. ---
 
   /**
    * Test-only (P3 reset effect): post-reset SQL census. `snapshotCount` /
@@ -262,11 +224,8 @@ export class DevStarTest extends DevStar {
    * Test-only (P3 criterion 7, honest test): perform the reset and, in the SAME
    * invocation, report whether `founderSub` still holds ROOT `admin`. This call's
    * `onBeforeCall` ran with the latch SET (Star warmed pre-reset) → it did NOT
-   * reseed; `resetDevData` is a DIRECT in-class call (`@mesh` only marks the
-   * method — no guard, no `onBeforeCall` on a direct call), so nothing reseeds the
-   * founder grant. Reading it here observes the brief grantless window an external
-   * mesh call can't (the next external admin call's `onBeforeCall` reseeds first).
-   * Returns `false` (grant absent immediately after reset).
+   * reseed; `resetDevData` is a DIRECT in-class call, so nothing reseeds the founder
+   * grant. Reading it here observes the brief grantless window. Returns `false`.
    */
   @mesh(requireAdmin)
   async resetAndProbeRootAdmin(founderSub: string): Promise<boolean> {
@@ -274,14 +233,17 @@ export class DevStarTest extends DevStar {
     return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
   }
 
-  /** Test-only (P3 criterion 7): does `founderSub` hold ROOT `admin`? Called as
-   *  the "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a
-   *  founder caller observes `true`, documenting reseed-on-next-touch. */
+  /** Test-only (P3 criterion 7): does `founderSub` hold ROOT `admin`? Called as the
+   *  "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a founder
+   *  caller observes `true`, documenting reseed-on-next-touch. */
   @mesh(requireAdmin)
   inspectRootAdmin(founderSub: string): boolean {
     return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
   }
 }
+
+// (DevStarTest deleted in Phase 4 — the DevStar→Star collapse. The dev Star is now a
+// StarTest at a {u}.{g}.dev instance; its lifecycle inspection hooks moved onto StarTest.)
 
 // ============================================
 // Inert DEV_CONTAINER serving stub (Phase 3.5a — entrypoint M2/M3 gate test).
@@ -662,6 +624,16 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 
+  /** Apply an ontology directly to a Star (Phase 4: the Galaxy lazy-pull was retired,
+   *  so tests install the compiled validator via `Star.setOntology` — DevStudio's dev
+   *  apply path). Compiles client-side via the pure `compileOntologyVersion`. */
+  callStarApplyOntology(starName: string, versionConfig: OntologyVersionConfig): void {
+    this.resetResults();
+    const row: OntologyVersionRow = compileOntologyVersion(versionConfig);
+    const remote = this.ctn<Star>().setOntology(row);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
   callGalaxyGetLatestOntologyVersion(galaxyName: string): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().getLatestOntologyVersion();
@@ -680,107 +652,25 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- DevStar (DEV_STAR-binding) initiators ---
-  // These hardcode the DEV_STAR binding (the DO→DO route, mirroring how a Galaxy
-  // would address the dev Star). They target the SAME instance name a dev client
-  // uses (`{u}.{g}.dev`), so pairing a DEV_STAR write with a `callStar*` read of
-  // the same name proves DEV_STAR and STAR are different DOs (separate SQLite).
+  // --- Dev-data lifecycle initiators (Phase 4: the .dev Star is the STAR binding at a
+  //     {u}.{g}.dev instance — resetDevData + these inspect hooks live on base
+  //     Star/StarTest, hard-guarded to .dev at runtime). ---
 
-  callDevStarWhoAmI(devStarName: string): void {
+  callStarInspectReset(starName: string): void {
     this.resetResults();
-    const remote = this.ctn<DevStarTest>().whoAmI();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<StarTest>().inspectReset();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callDevStarTransaction(
-    devStarName: string,
-    ontologyVersion: string,
-    ops: Record<string, OperationDescriptor>,
-    newETag?: string,
-  ): void {
+  callStarResetAndProbeRootAdmin(starName: string, founderSub: string): void {
     this.resetResults();
-    const txnETag = newETag ?? crypto.randomUUID();
-    this.lastTxnETag = txnETag;
-    this.lmz.call('DEV_STAR', devStarName,
-      this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
+    const remote = this.ctn<StarTest>().resetAndProbeRootAdmin(founderSub);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callDevStarRead(devStarName: string, ontologyVersion: string, resourceId: string): void {
+  callStarInspectRootAdmin(starName: string, founderSub: string): void {
     this.resetResults();
-    const requestId = crypto.randomUUID();
-    this.lmz.call('DEV_STAR', devStarName,
-      this.ctn<Star>().read(ontologyVersion, resourceId, requestId));
-  }
-
-  /** P2 eager-apply trigger (stands in for Studio's `deploy_to_dev`). The 4-arg
-   *  form carries a result handler so the test can observe both dispatch
-   *  (`callCompleted`, admin path) and rejection (`lastError`, non-admin path);
-   *  the eager apply itself lands asynchronously via the GALAXY round-trip +
-   *  `applyFetchedState` continuation (observed via the debug marker / KV). */
-  callDevStarDeployToDev(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().deployToDev();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarInspectOntologyKv(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectOntologyKv();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarInspectSubscribers(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectSubscribers();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-
-  // --- P3 (data lifecycle / reset) initiators ---
-
-  /** Trigger `resetDevData`. 4-arg form so the test observes completion
-   *  (`callCompleted`, admin path) and rejection (`lastError`, non-admin path). */
-  callDevStarResetDevData(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().resetDevData();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarInspectReset(devStarName: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectReset();
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarResetAndProbeRootAdmin(devStarName: string, founderSub: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().resetAndProbeRootAdmin(founderSub);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarInspectRootAdmin(devStarName: string, founderSub: string): void {
-    this.resetResults();
-    const remote = this.ctn<DevStarTest>().inspectRootAdmin(founderSub);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarCreateNode(devStarName: string, parentId: number, slug: string, label: string): void {
-    this.resetResults();
-    const remote = this.ctn<Star>().dagTree().createNode(parentId, slug, label);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarGetEffectivePermission(devStarName: string, nodeId: number, targetSub?: string): void {
-    this.resetResults();
-    const remote = targetSub
-      ? this.ctn<Star>().dagTree().getEffectivePermission(nodeId, targetSub)
-      : this.ctn<Star>().dagTree().getEffectivePermission(nodeId);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
-  }
-
-  callDevStarSetPermission(devStarName: string, nodeId: number, targetSub: string, level: PermissionTier): void {
-    this.resetResults();
-    const remote = this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level);
-    this.lmz.call('DEV_STAR', devStarName, remote, this.ctn().handleResult(remote));
+    const remote = this.ctn<StarTest>().inspectRootAdmin(founderSub);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }

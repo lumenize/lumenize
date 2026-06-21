@@ -25,7 +25,7 @@ import { TreeSubscriptions } from './tree-subscriptions';
 import { ReloadSubscriptions } from './reload-subscriptions';
 import { OntologyStaleError } from './errors';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
-import type { Galaxy, OntologyVersionRow, OntologyState } from './galaxy';
+import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
@@ -62,7 +62,7 @@ export class Star extends NebulaDO {
     this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx)
     // Null the cached ontology row + validator facet so `onStart` is a COMPLETE
     // (re)init, not just cold-start init. A no-op on cold start (already null),
-    // but load-bearing for `DevStar.resetDevData`'s `this.onStart()` re-init
+    // but load-bearing for `resetDevData`'s `this.onStart()` re-init
     // after `deleteAll()`: `#ensureFacet`/`#installState` short-circuit on a
     // populated `#row` ([star.ts] `#ensureFacet`), so a stale `#row` surviving a
     // wipe would keep authorizing the dropped ontology. (The helper objects above
@@ -110,10 +110,9 @@ export class Star extends NebulaDO {
    * Galaxy DO instance name AND as the namespace prefix on the per-Worker
    * Worker Loader cache (`bundleId = "<universe.galaxy>/<version>"`).
    *
-   * `protected` (not `#`-private) so `DevStar`'s eager-apply trigger can reach
-   * it — a `#`-private member isn't visible to a subclass. It's a pure accessor
-   * over `instanceName`, not dev logic, so exposing it adds no surface a tenant
-   * Star could misuse.
+   * `protected` (historically so a subclass could reach it; the `DevStar` subclass
+   * is gone now, so it's effectively Star-internal). A pure accessor over
+   * `instanceName`, not dev logic — leaving it `protected` adds no misusable surface.
    */
   protected get galaxyId(): string {
     const parts = this.lmz.instanceName!.split('.');
@@ -130,6 +129,14 @@ export class Star extends NebulaDO {
   #isCachedVersion(version: string): boolean {
     const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
     return index !== undefined && index.length > 0 && index[index.length - 1] === version;
+  }
+
+  /** The Star's current ontology version (latest `_index` entry), or `''` if none is
+   *  set yet. Carried in `OntologyStaleError` so a version-skewed client knows what to
+   *  refresh to. */
+  #currentVersion(): string {
+    const index = this.ctx.storage.kv.get<string[]>(INDEX_KEY);
+    return index && index.length > 0 ? index[index.length - 1] : '';
   }
 
   /**
@@ -232,42 +239,6 @@ export class Star extends NebulaDO {
     }
   }
 
-  /**
-   * Continuation hook: install a freshly-fetched `OntologyState` from Galaxy.
-   *
-   * The shared apply step for **both** the lazy cache-miss handlers (which
-   * inline `#installState` today) and `DevStar`'s eager `deploy_to_dev` trigger.
-   * `#installState` is `#`-private, so a subclass continuation handler can't be
-   * it directly — this is the narrow extension point.
-   *
-   * **`public`, NOT `@mesh`** — the same shape as `doTransaction`/`doRead`/
-   * `doSubscribe` (its sibling continuation handlers). The local executor
-   * resolves a continuation handler by name and TypeScript only surfaces it on
-   * `Continuation<this>` if it is `public`; the "not remotely callable" security
-   * boundary is the **absence of `@mesh`** (the executor's call-surface gate),
-   * not the visibility modifier. (A `protected` handler would force an untyped
-   * `(this.ctn() as any)` escape and buys nothing — `protected` is erased at
-   * runtime.) The `@mesh(requireAdmin)` gate lives on the *trigger*, so the hook
-   * itself needs no guard. **Null/Error is a deliberate no-op**:
-   * `getLatestOntologyVersion()` returns `null` on an un-published Galaxy, and a
-   * failed continuation puts an `Error` in `$result`; neither installs anything
-   * (eager-apply always publishes to Galaxy first, so a `null` means "nothing to
-   * apply", not an error). The debug markers make the no-op-vs-applied outcome
-   * observable to tests (the continuation lands asynchronously — there's no
-   * synchronous return to assert on).
-   */
-  applyFetchedState(state: OntologyState | null | Error): void {
-    const log = debug('nebula.Star.applyFetchedState');
-    if (state === null || state instanceof Error) {
-      log.debug('noop', {
-        instanceName: this.lmz.instanceName,
-        reason: state instanceof Error ? 'error' : 'null',
-      });
-      return;
-    }
-    log.debug('applied', { instanceName: this.lmz.instanceName, version: state.row.version });
-    this.#installState(state);
-  }
 
   /**
    * Install a compiled ontology version directly — the **dev-loop apply path**
@@ -282,8 +253,8 @@ export class Star extends NebulaDO {
    * through the DAG `requirePermission` checks, and `onBeforeCall` proves only
    * tenant *scope* (and `<id>.*` widening admits descendant non-admins) — so it
    * carries its own admin gate. An unguarded remote ontology-install would let any
-   * in-scope caller swap the validator. (Contrast `applyFetchedState` above, whose
-   * safety is the *absence* of `@mesh` — it's a continuation handler, not an entry.)
+   * in-scope caller swap the validator — so this is the SOLE ontology-install entry,
+   * `@mesh(requireAdmin)`-gated and frozen in the `Star.prototype` `@mesh`-surface test.
    *
    * `row.version` MUST be content-unique (DevStudio derives it via `git.hashBlob` of
    * the ontology source): the Worker Loader caches the validator bundle by
@@ -366,67 +337,34 @@ export class Star extends NebulaDO {
 
   // ─── Transaction (Handler 1 / Handler 2) ───────────────────────────
 
-  /** Handler 1: Check cache, dispatch to Handler 2 */
+  /** Handler 1: validate the requested ontology version, then dispatch to Handler 2. */
   @mesh()
   transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
     }
-
-    if (this.#isCachedVersion(appVersion)) {
-      // Cache hit — execute directly, skip Galaxy entirely
-      this.doTransaction(null, appVersion, newETag, ops, clientId);
-    } else {
-      // Cache miss — ask Galaxy, carry context in the response handler
-      this.lmz.call(
-        'GALAXY', this.galaxyId,
-        this.ctn<Galaxy>().getLatestOntologyVersion(),
-        this.ctn().doTransaction(
-          this.ctn().$result, appVersion, newETag, ops, clientId
-        )
-      );
+    // No Galaxy lazy-pull (Phase 4): the ontology is applied via `setOntology` (dev) or
+    // the published app-version (prod — Flow 2b lazy-pull deferred). A version the Star
+    // doesn't hold → tell the client to refresh to the Star's current version.
+    if (!this.#isCachedVersion(appVersion)) {
+      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+        this.ctn<NebulaClient>().handleTransactionResult(
+          new OntologyStaleError(appVersion, this.#currentVersion())));
+      return;
     }
+    this.doTransaction(appVersion, newETag, ops, clientId);
   }
 
-  /**
-   * Handler 2: Execute transaction + deliver result to client.
-   * Called directly (with null) on cache hit, or as response handler on cache miss.
-   * When a continuation fails, Mesh puts an Error instance in $result.
-   */
+  /** Handler 2: Execute transaction + deliver result to client. Called directly by
+   *  Handler 1 after the version check (the cache-hit path — the only path now). */
   async doTransaction(
-    fetchedState: OntologyState | null | Error,
     appVersion: string,
     newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
   ) {
     try {
-      // Handle Galaxy fetch failure
-      if (fetchedState instanceof Error) {
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleTransactionResult(fetchedState));
-        return;
-      }
-
-      // Cache miss path: install the fetched state, or surface mismatch / "not found"
-      if (fetchedState !== null) {
-        if (fetchedState.row.version !== appVersion) {
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleTransactionResult(
-              new OntologyStaleError(appVersion, fetchedState.row.version)));
-          return;
-        }
-        this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(appVersion)) {
-        // `null` + no matching cache entry = Galaxy fetch returned no ontology
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleTransactionResult(
-            new Error(`Ontology version '${appVersion}' not found`)));
-        return;
-      }
-      // null + matching cache entry = cache hit; fall through
-
       const { row, facet } = this.#ensureFacet();
       const result = await this.#resources.transaction(ops, row.version, newETag, facet,
         (mutations) => this.#broadcast(mutations, clientId));
@@ -450,57 +388,30 @@ export class Star extends NebulaDO {
 
   // ─── Read (Handler 1 / Handler 2) ──────────────────────────────────
 
-  /** Handler 1: Check cache, dispatch to Handler 2 */
+  /** Handler 1: validate the requested ontology version, then dispatch to Handler 2. */
   @mesh()
   read(appVersion: string, resourceId: string, requestId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('read requires a client origin with instanceName in callChain[0]');
     }
-
-    if (this.#isCachedVersion(appVersion)) {
-      this.doRead(null, appVersion, resourceId, requestId, clientId);
-    } else {
-      this.lmz.call(
-        'GALAXY', this.galaxyId,
-        this.ctn<Galaxy>().getLatestOntologyVersion(),
-        this.ctn().doRead(
-          this.ctn().$result, appVersion, resourceId, requestId, clientId
-        )
-      );
+    if (!this.#isCachedVersion(appVersion)) {
+      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+        this.ctn<NebulaClient>().handleReadResponse(requestId,
+          new OntologyStaleError(appVersion, this.#currentVersion())));
+      return;
     }
+    this.doRead(appVersion, resourceId, requestId, clientId);
   }
 
-  /** Handler 2: Execute read + deliver result to client via handleReadResponse */
+  /** Handler 2: Execute read + deliver result to client via handleReadResponse. */
   doRead(
-    fetchedState: OntologyState | null | Error,
     appVersion: string,
     resourceId: string,
     requestId: string,
     clientId: string,
   ) {
     try {
-      if (fetchedState instanceof Error) {
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleReadResponse(requestId, fetchedState));
-        return;
-      }
-
-      if (fetchedState !== null) {
-        if (fetchedState.row.version !== appVersion) {
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleReadResponse(requestId,
-              new OntologyStaleError(appVersion, fetchedState.row.version)));
-          return;
-        }
-        this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(appVersion)) {
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleReadResponse(requestId,
-            new Error(`Ontology version '${appVersion}' not found`)));
-        return;
-      }
-
       const snapshot = this.#resources.read(resourceId);
 
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -533,26 +444,21 @@ export class Star extends NebulaDO {
       throw new Error('subscribe requires a gateway in callChain.at(-1)');
     }
 
-    if (this.#isCachedVersion(appVersion)) {
-      this.doSubscribe(null, appVersion, resourceType, resourceId, clientId, subscriberBinding);
-    } else {
-      this.lmz.call(
-        'GALAXY', this.galaxyId,
-        this.ctn<Galaxy>().getLatestOntologyVersion(),
-        this.ctn().doSubscribe(
-          this.ctn().$result, appVersion, resourceType, resourceId, clientId, subscriberBinding
-        )
-      );
+    if (!this.#isCachedVersion(appVersion)) {
+      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
+          new OntologyStaleError(appVersion, this.#currentVersion())));
+      return;
     }
+    this.doSubscribe(appVersion, resourceType, resourceId, clientId, subscriberBinding);
   }
 
   /**
-   * Handler 2: Validate ontology, register subscriber, push initial snapshot.
-   * Errors travel through `handleResourceUpdate(rt, rid, error)` — fire-and-forget
-   * + callback correlation, same pattern as `transaction()` / `read()`.
+   * Handler 2: register subscriber + push initial snapshot. Called directly by
+   * Handler 1 after the version check. Errors travel through
+   * `handleResourceUpdate(rt, rid, error)` — same pattern as `transaction()`/`read()`.
    */
   doSubscribe(
-    fetchedState: OntologyState | null | Error,
     appVersion: string,
     resourceType: string,
     resourceId: string,
@@ -560,27 +466,6 @@ export class Star extends NebulaDO {
     subscriberBinding: string,
   ) {
     try {
-      if (fetchedState instanceof Error) {
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, fetchedState));
-        return;
-      }
-
-      if (fetchedState !== null) {
-        if (fetchedState.row.version !== appVersion) {
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-              new OntologyStaleError(appVersion, fetchedState.row.version)));
-          return;
-        }
-        this.#installState(fetchedState);
-      } else if (!this.#isCachedVersion(appVersion)) {
-        this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-          this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-            new Error(`Ontology version '${appVersion}' not found`)));
-        return;
-      }
-
       const snapshot = this.#subscriptions.subscribe(resourceType, resourceId, clientId, subscriberBinding);
 
       this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,

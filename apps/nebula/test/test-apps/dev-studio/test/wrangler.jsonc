@@ -11,7 +11,7 @@
   "durable_objects": {
     "bindings": [
       { "name": "DEV_STUDIO", "class_name": "DevStudio" },
-      { "name": "DEV_STAR", "class_name": "DevStarOntologyProbe" }
+      { "name": "STAR", "class_name": "DevStarOntologyProbe" }
     ]
   },
   "migrations": [

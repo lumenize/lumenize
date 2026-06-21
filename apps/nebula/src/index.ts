@@ -11,10 +11,12 @@ export { DevStudio } from './dev-studio';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';
-export { DevStar } from './dev-star';
 
 // Ontology
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
+// Pure compile fn (`.d.ts` → validator row). Used by DevStudio (dev apply) + test
+// helpers that apply an ontology via `Star.setOntology` without a Galaxy round-trip.
+export { compileOntologyVersion } from './galaxy';
 
 // Resources
 export { Resources, END_OF_TIME } from './resources';
