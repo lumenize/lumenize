@@ -287,6 +287,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Nebula
 
+- [ ] **⚠️ Studio live dev-loop version contract — `appVersion:'dev'` vs the content-hash ontology version (DEPLOY-BLOCKING for the live demo).** Found during the Phase-4 teardown (2026-06-21). In the assembled preview, `DevContainer.fetch()` injects `appVersion: 'dev'` into the shell, but `DevStudio.applyOntology` installs the ontology under a **content-hash** version (`git.hashBlob` of the `.d.ts` — required so the Star's Worker Loader `bundleId = galaxyId/version` cache never serves a stale validator). So the client always sends `'dev'`, the Star's current version is a 40-hex oid → **mismatch → `OntologyStaleError` on every live op**. Deploy-gated (can't surface under vitest-pool-workers; tests use explicit matching version labels, so they're unaffected). **Resolve in the agentic-engine integration** ([nebula-agentic-development-engine.md](nebula-agentic-development-engine.md)): either inject the *real* current version into the shell (DevStudio/DevContainer coordinate it) or relax the version check on the `.dev` instance — **NOT** a `.dev`-special branch in the transaction/read/subscribe hot path (Decision 11 keeps the .dev specialness to `resetDevData` only). Prerequisite for the first working live preview. Also tracked in `nebula-studio.md` Phase 4 part 2 note + [[project_studio_uibuild_pivot]].
+
 ### Ontology depth (post-demo)
 
 Strengthen the case that Nebula's data layer is an *ontology* (not just a typed schema + DAG). Triggered by the 2026-05-03 Kumar article and successors — see [tasks/reference/ontology-research.md](reference/ontology-research.md). Items below in priority order; each is independently shippable.
