@@ -212,7 +212,7 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
   sharding/branching concern (deferred post-demo — `tasks/icebox/nebula-branches.md`), not this task.
   This task removes the **history** growth axis only.
 - **Granularity compression** of history (merging old snapshots) — already rejected as a premature
-  optimization in `docs/nebula-resources-design.md`; debounce covers 90% of the benefit. R2's cheap
+  optimization in `docs/archive-and-outdated/nebula-resources-design.md`; debounce covers 90% of the benefit. R2's cheap
   storage weakens the case for compression even further.
 
 ## Success criteria (when this leaves On Hold)

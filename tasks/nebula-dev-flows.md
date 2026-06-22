@@ -1,6 +1,8 @@
 # Nebula — dev & publish flows (canonical model)
 
-**Status**: working design doc — opened 2026-06-19 (this session). The **canonical participant model + sequence diagrams** for the Studio dev loop and publish. Built by stepping back from the [`nebula-container-dev-loop.md`](archive/nebula-container-dev-loop.md) Phase-3.5 review, which surfaced that the participant model was wrong/incomplete and spans the whole product. Once we're happy with these, several task files get realigned to match (see § *Downstream*). The diagrams graduate to `website/docs/nebula/` when the loop is built (Docusaurus mermaid is enabled).
+**Status**: working design doc — opened 2026-06-19. The **canonical participant model + sequence diagrams** for the Studio dev loop and publish. Built by stepping back from the [`nebula-container-dev-loop.md`](archive/nebula-container-dev-loop.md) Phase-3.5 review, which surfaced that the participant model was wrong/incomplete and spans the whole product. Once we're happy with these, several task files get realigned to match (see § *Downstream*).
+
+> **Disposition — this file does NOT archive.** Unlike build task files (which freeze in `tasks/archive/` when their work lands), this is *living canonical architecture*. When the Studio build is done it **graduates to a permanent home under `docs/`**, likely split: the durable participant model + Decisions 1–11 → **`docs/architecture/nebula-dev-flows.md`** (internal architecture reference), and the user-facing subset of the sequence diagrams → `website/docs/nebula/` (Docusaurus mermaid is enabled). Architecture stays a *living document*; only point-in-time build/decision records freeze in `tasks/archive/`.
 
 ---
 

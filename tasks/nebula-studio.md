@@ -7,7 +7,7 @@
 
 > **Architecture is canonical in [`nebula-dev-flows.md`](nebula-dev-flows.md)** (the Cast, Decisions 1–11, and Flow 1 / 1b / 1c / 2 / 2b). This file is the **build plan**; it references those flows and does **not** restate the model. The **codegen + evaluation** work lives in [`nebula-agentic-development-engine.md`](nebula-agentic-development-engine.md) and comes later — this file wires only a *minimal, unevaluated* system prompt.
 
-**Prerequisites (built):** Resources core (storage + validation/ontology + the `transaction()`/`subscribe()` engine), the Vue frontend (`@lumenize/nebula/frontend`, on `main`), structural DO scope isolation, and the 4th node type (`LumenizeContainer`/`NebulaContainer`, ADR-007 Accepted). **References:** `website/docs/nebula/coding-your-ui.md`; `docs/nebula-resources-design.md`.
+**Prerequisites (built):** Resources core (storage + validation/ontology + the `transaction()`/`subscribe()` engine), the Vue frontend (`@lumenize/nebula/frontend`, on `main`), structural DO scope isolation, and the 4th node type (`LumenizeContainer`/`NebulaContainer`, ADR-007 Accepted). **References:** `website/docs/nebula/coding-your-ui.md`; `docs/archive-and-outdated/nebula-resources-design.md`.
 
 ## Goal
 
