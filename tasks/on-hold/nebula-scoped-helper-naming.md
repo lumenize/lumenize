@@ -22,7 +22,7 @@ That's the whole idea: **make a helper's owner provable from its name, by prefix
 
 The only helper DO that ever existed was `ResourceHistory`, and it was always a *test fixture* — its own docstring said so ("no production caller; it exists only to exercise NebulaDO's tenant isolation"). It was once going to store per-resource history, but that moved to **R2** (`tasks/on-hold/nebula-resource-history-r2.md`), so `ResourceHistory` will never become a real helper. It has been **removed** as part of the Fix-1 work; the tier DOs (Star/Galaxy/Universe) now carry the isolation test coverage directly.
 
-So building the colon-grammar now would be speculative generality for a hypothetical. The most likely *real* future consumer is **access control for the DOs that Cloudflare Think uses** (reached via the integration shim) — but whether those DOs even route through Nebula's `onBeforeCall`, or are secured at the shim boundary instead, is unspecified. The work that would answer this is `tasks/on-hold/think-nebula-integration.md` (shelved — Think not adopted; its DO-containment kernel may resurface for the post-Studio in-app AI context's per-end-user agent facets). Building the grammar before we know the requirement is committing to an answer we haven't earned.
+So building the colon-grammar now would be speculative generality for a hypothetical. The most likely *real* future consumer is **access control for the DOs that Cloudflare Think uses** (reached via the integration shim) — but whether those DOs even route through Nebula's `onBeforeCall`, or are secured at the shim boundary instead, is unspecified. The work that would answer this is `tasks/icebox/think-nebula-integration.md` (shelved — Think not adopted; its DO-containment kernel may resurface for the post-Studio in-app AI context's per-end-user agent facets). Building the grammar before we know the requirement is committing to an answer we haven't earned.
 
 ## What "Fix 2" was (the design, preserved)
 
@@ -46,10 +46,10 @@ So the registry bought only: (a) a prettier error ("name must be `<scope>:<local
 ## When to revive
 
 - A real tenant-scoped helper DO gains a **production caller** (not a fixture), **and** we know its addressing requirements.
-- Most likely trigger (post-Studio): the in-app AI context's per-end-user agent facets, if they route through `onBeforeCall` — see `tasks/on-hold/think-nebula-integration.md` (shelved; Think itself not adopted).
+- Most likely trigger (post-Studio): the in-app AI context's per-end-user agent facets, if they route through `onBeforeCall` — see `tasks/icebox/think-nebula-integration.md` (shelved; Think itself not adopted).
 - On revival, start from **Alternative A** above unless a concrete need for clearer errors / tier-colon-rejection justifies the registry.
 
 ## Related
 - [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) — the shipped **Fix 1** (structural tier-DO isolation) this builds on.
-- [think-nebula-integration.md](think-nebula-integration.md) — shelved (Think not adopted); its DO-containment kernel may resurface for in-app AI agent facets.
+- [think-nebula-integration.md](../icebox/think-nebula-integration.md) — iceboxed (Think not adopted); its DO-containment kernel may resurface for in-app AI agent facets.
 - [mesh-active-callcontext-guard.md](mesh-active-callcontext-guard.md) — closes the raw-RPC bypass around `onBeforeCall` (separate follow-on).

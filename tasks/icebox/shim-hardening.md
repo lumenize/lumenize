@@ -1,6 +1,6 @@
 # Think→Nebula shim hardening (production-grade, for later)
 
-**Status**: **On-hold — moot** (2026-06-16). The in-DO WS shim existed to connect a foreign Cloudflare Think Agent DO to Nebula; **Think is not adopted** (`tasks/on-hold/think-nebula-integration.md`), so the shim isn't needed. Revive only if Think is ever reconsidered. Original framing preserved below.
+**Status**: **Iceboxed — Think not adopted** (2026-06-22; was on-hold 2026-06-16). The in-DO WS shim existed to connect a foreign Cloudflare Think Agent DO to Nebula. Confirmed in code 2026-06-22: the Studio codegen loop (`apps/nebula/src/dev-studio.ts` → `DevStudio.chat`) calls the model through the **Workers AI binding** (`env.AI.run`) — no shim, no outbound WebSocket — so this work has no consumer. Parked indefinitely (`tasks/icebox/think-nebula-integration.md`); revive only if Think is ever reconsidered. Original framing preserved below.
 
 ## Pre-flight: bump Think + agents before building
 Sunil shipped a DO-write-cost optimization (Discord, 2026-06-06) claiming **20–80% lower DO costs**, gated on latest versions. Bump before building on the harness:
@@ -12,7 +12,7 @@ Orthogonal to the bake-off's model-token cost numbers (it's a DO storage/write w
 
 ## Objective
 
-Take the in-DO WS-client shim from "works in the bake-off" to "production-grade for Studio." The artifacts, the multi-tenant security framing, the confinement claim, and the keep-vs-delete-shim *decision* all live in `tasks/think-nebula-integration.md` — read it first; this file is the implementation checklist for whatever it decides.
+Take the in-DO WS-client shim from "works in the bake-off" to "production-grade for Studio." The artifacts, the multi-tenant security framing, the confinement claim, and the keep-vs-delete-shim *decision* all live in `tasks/icebox/think-nebula-integration.md` — read it first; this file is the implementation checklist for whatever it decides.
 
 ## Artifacts (worktree `.claude/worktrees/think-vs-cma`)
 - `think/src/fetch-ws.ts` — `FetchUpgradeWebSocket`.

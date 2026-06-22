@@ -48,8 +48,8 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
    by wake-up sensing at `:840`); bounded disconnect queue (max 100); serial Nebula txn queue
    (self-throttles naturally); eTag-conflict retry capped at 5 (`nebula-client.ts:1020`). None
    keyed on `.overloaded`/`.retryable`. The `.overloaded` handling in `agents`/`partyserver`
-   lives on the **in-app-AI / Think-shim path** (`agents` is a direct dep of `apps/nebula`),
-   **not on the Mesh wire**.
+   lives in the `agents` library (a direct dep of `apps/nebula`), **not on the Mesh wire** —
+   and the Think-shim path it was relevant to is now iceboxed (`tasks/icebox/think-nebula-integration.md`).
 
 5. **DECISION (2026-06-09, revised same day): Mesh exposes a `call()` option `{ readOnly: true }`;
    the *caller declares* read-only-ness and `callRaw` owns the backoff/jitter retry, gated on it.**
