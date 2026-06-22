@@ -1,0 +1,23 @@
+{
+  // R2-OLAP-latency spike — arm 1 (DO SQLite via mesh). Arm 2 (R2 SQL) is queried
+  // from Node over the REST API (no Worker binding exists), so it's not configured here.
+  "name": "r2-olap-latency",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12", // critical.md: >= 2026-03-12
+  "compatibility_flags": ["nodejs_compat"], // NOT nodejs_compat_v2 (memory: nodejs-compat-not-v2-suffix)
+  "durable_objects": {
+    "bindings": [
+      { "name": "HISTORY_STORE", "class_name": "HistoryStoreDO" }
+      // TODO (faithful path): add the mesh Gateway DO binding + the NebulaDO/auth stack
+      // so the Node harness can issue real mesh calls (lmz.call) through the Gateway.
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["HistoryStoreDO"] }
+  ],
+  "r2_buckets": [
+    // For the D4 point-GET latency measurement (blob read by key). Create the bucket and
+    // set the name before running. The R2 SQL arm does NOT use a binding (REST API).
+    { "binding": "HISTORY_R2", "bucket_name": "r2-olap-latency-spike" }
+  ]
+}

@@ -21,7 +21,8 @@
     "experiments/container-agent-channel",
     "experiments/container-node-phase0",
     "experiments/container-egress-catrust",
-    "experiments/interim-dev-loop"
+    "experiments/interim-dev-loop",
+    "experiments/r2-olap-latency"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
