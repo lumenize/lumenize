@@ -17,6 +17,11 @@
   // DevStudio's isomorphic-git/@cloudflare/shell.)
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
+  // Workers AI — DevStudio's codegen engine runs the model through this binding (the
+  // model id is a swappable constant in dev-studio.ts; Studio is model-agnostic). In
+  // local `wrangler dev` this proxies to the account's Workers AI (needs network + the
+  // CLOUDFLARE_* creds already in .dev.vars).
+  "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [
       { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },

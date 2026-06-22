@@ -15,11 +15,12 @@ const DEV_SCOPE = "acme.app.dev";
 // NEBULA_AUTH_BOOTSTRAP_EMAIL in your .dev.vars.
 const DEV_EMAIL = "dev@example.com";
 
-type Msg = { role: "you" | "studio" | "error"; text: string };
+type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
 const input = ref("");
 const connected = ref(false);
 const busy = ref(false);
+const thinking = ref(false); // model is generating — shows the "Studio is thinking…" indicator
 const previewSrc = ref(`/dev-container/${DEV_SCOPE}/`);
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
@@ -77,18 +78,22 @@ async function send() {
   log("you", msg);
   input.value = "";
   busy.value = true;
+  thinking.value = true;
   try {
     const client = nebula.value.client;
     const reply = (await client.lmz.callRaw(
       "DEV_STUDIO",
       DEV_SCOPE,
       client.ctn<DevStudio>().chat(msg),
-    )) as { reply: string; version: string | null };
+    )) as { reply: string; thought: string };
+    thinking.value = false;
+    if (reply.thought) log("thought", reply.thought); // raw model output — collapsible, for prompt iteration
     log("studio", reply.reply);
     reloadPreview();
   } catch (e) {
     log("error", `chat failed: ${(e as Error).message}`);
   } finally {
+    thinking.value = false;
     busy.value = false;
   }
 }
@@ -121,18 +126,27 @@ async function wipe() {
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        <div
-          v-for="(m, i) in messages"
-          :key="i"
-          :class="['chat', m.role === 'you' ? 'chat-end' : 'chat-start']"
-        >
-          <div
-            :class="[
-              'chat-bubble',
-              m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '',
-            ]"
-          >
-            {{ m.text }}
+        <template v-for="(m, i) in messages" :key="i">
+          <!-- Raw model output — collapsed by default; expand to inspect + iterate the prompt. -->
+          <details v-if="m.role === 'thought'" class="text-xs opacity-70">
+            <summary class="cursor-pointer select-none">💭 Studio's thought process</summary>
+            <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.text }}</pre>
+          </details>
+          <div v-else :class="['chat', m.role === 'you' ? 'chat-end' : 'chat-start']">
+            <div
+              :class="[
+                'chat-bubble',
+                m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '',
+              ]"
+            >
+              {{ m.text }}
+            </div>
+          </div>
+        </template>
+        <!-- Waiting indicator while the model generates. -->
+        <div v-if="thinking" class="chat chat-start">
+          <div class="chat-bubble flex items-center gap-2">
+            <Loader2 class="size-4 animate-spin" /> Studio is thinking…
           </div>
         </div>
       </div>

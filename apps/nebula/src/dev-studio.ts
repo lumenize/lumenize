@@ -50,23 +50,27 @@ const AUTHOR = { name: 'DevStudio', email: 'dev@nebula.studio' };
 const PATHS_KEY = 'devstudio:paths';
 const INITED_KEY = 'devstudio:inited';
 
-/** Minimal HTML escape for embedding the chat message into the stub App.vue. */
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
-  );
-}
+/** The codegen model id — the ONE place a vendor id appears. Swappable: Studio is
+ *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
+const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 
-/** The placeholder `App.vue` the STUB codegen writes (step 2) — replaced by the Kimi
- *  engine's real generation later (nebula-agentic-development-engine.md). */
-function stubAppVue(message: string): string {
-  return `<template>
-  <main class="mx-auto max-w-xl p-8 flex flex-col gap-4">
-    <h1 class="text-2xl font-bold">${escapeHtml(message)}</h1>
-    <p class="text-base-content/70">(stub codegen — the Kimi engine will generate the real app here)</p>
-  </main>
-</template>
-`;
+/** Minimal, *unevaluated* system prompt — the make-it-better + eval work is the engine
+ *  file's concern (nebula-agentic-development-engine.md). Constrains the output to one
+ *  self-contained Vue SFC using only the baked libs so the generated app actually runs. */
+const STUDIO_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a single Vue 3 Single-File Component.
+When the user describes an app or a change, output the COMPLETE new contents of src/App.vue.
+Rules:
+- Vue 3 with <script setup lang="ts"> and a <template>.
+- Hold all data in LOCAL reactive state (ref/reactive). Do NOT use any server, database, or external data layer.
+- Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
+- You may import icons from "lucide-vue-next". Do not import any other package.
+- Output ONLY the file, in a single \`\`\`vue fenced code block, with no prose before or after.`;
+
+/** Pull the first fenced code block out of the model output — the generated src/App.vue.
+ *  Returns null when the output has no code block (the UI shows the raw output instead). */
+function extractVueBlock(text: string): string | null {
+  const m = text.match(/```(?:vue|html|ts|typescript)?\s*\n([\s\S]*?)```/);
+  return m ? m[1].trim() : null;
 }
 
 export class DevStudio extends NebulaDO {
@@ -255,33 +259,56 @@ export class DevStudio extends NebulaDO {
   }
 
   /**
-   * STUB codegen (step 2 — the visible loop *without* AI yet). Turns the chat message
-   * into a trivial `App.vue` placeholder + seeds a starter ontology on first run, so the
-   * full loop (chat → write source → push → preview updates) is exercisable before the
-   * Kimi engine is wired — that swaps this body (nebula-agentic-development-engine.md).
-   * The Studio UI reloads the preview iframe on the reply (HMR-under-prefix is deferred).
+   * The codegen turn: send the user's request (with the current `App.vue` for context) to
+   * the model, extract the generated `src/App.vue`, write + push it so the preview updates.
+   * Returns the model's raw output as `thought` so the Studio UI can show the
+   * waiting → thought-process view — visibility for iterating the (deliberately minimal,
+   * unevaluated) prompt; the make-it-better/eval work is the engine file's concern
+   * (nebula-agentic-development-engine.md).
    *
-   * ⚠️ Deploy-gated — calls the container methods (`ensureUp`/`syncToDevContainer`); runs
-   * under `wrangler dev` + Docker Desktop, not vitest-pool-workers.
+   * First cut: a single self-contained Vue SFC (local state, no data layer); data-bound
+   * apps (ontology + client/store) come later. The Studio UI reloads the preview iframe on
+   * the reply (HMR-under-prefix is deferred). ⚠️ Deploy-gated — container calls + the AI
+   * binding; runs under `wrangler dev` (AI proxies to Workers AI), not vitest-pool-workers.
    */
   @mesh(requireAdmin)
-  async chat(message: string): Promise<{ reply: string; version: string | null }> {
+  async chat(message: string): Promise<{ reply: string; thought: string }> {
     await this.ensureUp(); // Flow 1c: container up + source pushed
-    // Seed a starter ontology on first run so the data path has a version.
-    let hasOntology = true;
-    try { await this.#fs.readFile('/' + ONTOLOGY_PATH); } catch { hasOntology = false; }
-    if (!hasOntology) {
-      await this.writeSource(ONTOLOGY_PATH, 'export interface Note {\n  title: string;\n  body: string;\n}\n');
+    let current = '';
+    try { current = await this.#fs.readFile('/src/App.vue'); } catch { /* nothing generated yet */ }
+    const userContent = current
+      ? `Current src/App.vue:\n\`\`\`vue\n${current}\n\`\`\`\n\nUser request: ${message}`
+      : `User request: ${message}`;
+    // The model-catalog types don't cover every @cf model id; run() is treated loosely
+    // (the model is a swappable string anyway).
+    const out = (await (this.env.AI as any).run(STUDIO_MODEL, {
+      messages: [
+        { role: 'system', content: STUDIO_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+    })) as any;
+    // Workers AI returns either the OpenAI-style shape
+    // ({ choices: [{ message: { content, reasoning_content } }] }) or { response } —
+    // handle both so the model stays swappable. `reasoning_content` is the model's
+    // chain-of-thought; `content` carries the fenced src/App.vue.
+    const msg = out?.choices?.[0]?.message ?? {};
+    const content: string =
+      msg.content ?? out?.response ?? (typeof out === 'string' ? out : JSON.stringify(out));
+    const reasoning: string = msg.reasoning_content ?? '';
+    const appVue = extractVueBlock(content);
+    if (appVue) {
+      await this.writeSource('src/App.vue', appVue);
+      await this.syncToDevContainer(['src/App.vue']);
     }
-    await this.writeSource('src/App.vue', stubAppVue(message));
-    await this.syncToDevContainer();
-    let version: string | null = null;
-    try {
-      ({ version } = await this.applyOntologyChange({}));
-    } catch {
-      // best-effort in the stub — the placeholder renders without a live ontology
-    }
-    debug('nebula.DevStudio.chat').debug('stub-generated', { instanceName: this.lmz.instanceName, version });
-    return { reply: `Stub codegen wrote a placeholder app for: "${message}"`, version };
+    const thought = reasoning
+      ? `🧠 Reasoning\n\n${reasoning}\n\n— — —\n\n📄 Output\n\n${content}`
+      : content;
+    debug('nebula.DevStudio.chat').debug('generated', {
+      instanceName: this.lmz.instanceName, applied: !!appVue, contentLen: content.length,
+    });
+    return {
+      reply: appVue ? 'Updated the preview.' : 'I could not extract a file — see the thought process.',
+      thought,
+    };
   }
 }
