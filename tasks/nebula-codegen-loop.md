@@ -1,9 +1,9 @@
 # Nebula — Self-correcting codegen loop
 
-**Status**: **Phases 1–3 BUILT + verified 2026-06-22** (container-free; `/build-task`, 3-phase verifier
-fan-out — all CONFORM, only minor notes, two closed: a package-local `checkTypeScript` test + a
-failing-final-gate recorder assertion). **Phase 4 (live integration into `chat()`, deploy-gated) is the
-remaining work.** Stage-1 and Stage-2 reviewed 2026-06-22.
+**Status**: **All phases BUILT 2026-06-22** (`/build-task`). Phases 1–3 container-free + verified (3-phase
+verifier fan-out — all CONFORM). Phase 4 (live `chat()` wiring) **code-complete**; its live model-turn +
+container-push validation is **deploy-gated** (`it.skip`) — run under `wrangler dev` + Docker Desktop.
+Stage-1 and Stage-2 reviewed 2026-06-22.
 
 Replace the one-shot regex `extractVueBlock` path in `DevStudio.chat()` with a **bounded,
 native tool-calling loop** that feeds a **container-free compile error-tail** back to the model
@@ -203,10 +203,21 @@ turn + container push stays deploy-gated.
   install/wipe — outside the loop.
 
 **Success Criteria** (deploy-gated `it.skip`, assertions intact per testing.md):
-- [ ] Under `wrangler dev` + Docker Desktop, a chat turn drives the loop, **self-corrects on a real compile error** (e.g. the `op:'set'` class), and updates the preview.
-- [ ] The live turn records a `TurnRecord` with populated `toolCalls`/`error`/`validate`.
-- [ ] **SFC mount confidence** (m3): an `it.skip` that mounts a Phase-1-compiled SFC in a real browser and asserts **non-blank render** — the bindings-threaded string-match in Phase 1 SC#3 proves threading, not render; the blank-`<script setup>` bug only surfaces on a real mount (`sfc-compile-needs-bindingmetadata`, testing.md:15).
-- [ ] The deleted regex path (`extractVueBlock`) leaves no caller (`grep` clean).
+- [~] Under `wrangler dev` + Docker Desktop, a chat turn drives the loop, **self-corrects on a real compile error** (e.g. the `op:'set'` class), and updates the preview. **(code wired; deploy-gated `it.skip` — run under `wrangler dev`)**
+- [~] The live turn records a `TurnRecord` with populated `toolCalls`/`error`/`validate`. **(deploy-gated `it.skip`; the container-free recorder round-trip — clean + failing-final-gate — is already covered in `codegen-loop.test.ts`)**
+- [~] **SFC mount confidence** (m3): an `it.skip` that mounts a Phase-1-compiled SFC in a real browser and asserts **non-blank render** — the bindings-threaded string-match in Phase 1 SC#3 proves threading, not render; the blank-`<script setup>` bug only surfaces on a real mount (`sfc-compile-needs-bindingmetadata`, testing.md). **(deploy-gated `it.skip`)**
+- [x] The deleted regex path (`extractVueBlock`) leaves no caller (`grep` clean) — **DONE + verified** (`extractVueBlock` + `STUDIO_SYSTEM_PROMPT` removed; only a historical doc-comment mention remains).
+
+> **Phase 4 CODE COMPLETE 2026-06-22 (live validation deploy-gated).** `chat()`
+> ([dev-studio.ts](../apps/nebula/src/dev-studio.ts)) now drives the loop: `ensureUp` → `runCodegenTurn`
+> (loop + record) → on a **clean finish** push the written source to the container (`syncToDevContainer`)
+> so vite HMR updates the preview. The ontology **install/wipe stays the separate, human-gated apply step**
+> (`applyOntologyChange`, Flow 1b) fired after the loop — `write_file` can only compile (D2). The old
+> regex+one-shot path (`extractVueBlock`, `STUDIO_SYSTEM_PROMPT`, the inline recorder) is deleted. Three
+> deploy-gated `it.skip` tests added (`dev-studio.test.ts`) with intact assertions + blocker comments. The
+> real model turn + container push run under `wrangler dev` + Docker Desktop (`env.AI.run` only proxies to
+> Workers AI there; `DevContainer extends Container` can't construct under pool-workers). Worker still starts
+> clean under real `wrangler dev` (browser project green).
 
 ### Final Verification (every phase)
 - [ ] Tests pass (`npx vitest run` in `apps/nebula`); type-check clean (`npm run type-check`).

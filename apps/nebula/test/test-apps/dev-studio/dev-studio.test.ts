@@ -239,3 +239,42 @@ describe('DevStudio container push (deploy-gated)', () => {
     // the compile-and-apply describe above + baseline/reload-version-contract.test.ts.
   });
 });
+
+describe('DevStudio.chat drives the self-correcting loop (Phase 4 — deploy-gated)', () => {
+  // chat() calls ensureUp (live container) + the loop's callModel (env.AI.run / Workers
+  // AI), neither of which exists under vitest-pool-workers. Run under `wrangler dev` +
+  // Docker Desktop. Assertions kept intact (testing.md it.skip discipline). The
+  // container-free half — the loop driver, the bound, the Rung-1 gates, the recorder
+  // wiring — is fully covered in codegen-loop.test.ts / codegen-gate.test.ts.
+
+  it.skip('a chat turn drives the loop and self-corrects on a real compile error (e.g. op:set), updating the preview', async () => {
+    // Under `wrangler dev` + Docker Desktop, with a real {u}.{g}.dev DevStudio:
+    //   const { reply, thought } = await callStudio(dev, 'chat', ['build a todo list that saves to the backend']);
+    //   expect(reply).toBe('Updated the preview.');
+    //   // The model's first attempt may use a wrong op literal; the Rung-1 gate feeds the
+    //   // error-tail back and the loop self-corrects before mark_complete.
+    //   const app = await callStudio(dev, 'readSource', ['src/App.vue']);
+    //   expect(app).toContain('client.resources.transaction');
+    //   expect(app).not.toMatch(/op:\s*['"]set['"]/);   // the corrected op is create/put
+  });
+
+  it.skip('the live chat turn records a TurnRecord with populated toolCalls/error/validate', async () => {
+    // After the live chat turn, the sandbox Galaxy holds the recorded turn:
+    //   const turns = await callGalaxy(galaxy, 'getTurns', [{}]);
+    //   const t = turns.at(-1);
+    //   expect(t.toolCalls.length).toBeGreaterThan(0);          // real write_file calls
+    //   expect(t.toolCalls.some((c) => c.name === 'mark_complete')).toBe(true);
+    //   expect(t.validate.ok).toBe(true);                       // converged clean
+    //   expect(t.error).toBeUndefined();
+    // (The container-free recorder round-trip — clean + failing-final-gate — is already
+    // covered in codegen-loop.test.ts via the script-replaying probe.)
+  });
+
+  it.skip('SFC mount confidence (m3): a Phase-1-compiled SFC mounts non-blank in a real browser', async () => {
+    // The Phase-1 bindings-threaded string-match ($setup.x not _ctx.x) proves the
+    // threading, NOT that the component renders — the blank-<script setup> bug only
+    // surfaces on a real mount (sfc-compile-needs-bindingmetadata, testing.md). Mount a
+    // gate-approved App.vue in a real browser (chromium project) and assert non-blank:
+    //   await mount(compiledApp); expect(host.textContent.trim().length).toBeGreaterThan(0);
+  });
+});
