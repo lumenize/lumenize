@@ -1,6 +1,6 @@
 /**
  * Rung-1 compile gates — the container-free self-correction signal for the Studio
- * codegen loop (tasks/nebula-codegen-loop.md Phase 1). Given `(path, content)`,
+ * codegen loop (tasks/archive/nebula-codegen-loop.md Phase 1). Given `(path, content)`,
  * dispatch by file extension to the right compiler and return a uniform
  * `{ ok, errorTail? }`: the loop feeds `errorTail` back to the model each round.
  *
@@ -18,7 +18,7 @@
  * pure functions, runnable under vitest-pool-workers with no container and no AI
  * binding. `nodejs_compat` is required (`@vue/compiler-sfc` + the bundled `tsc`).
  *
- * @see tasks/nebula-codegen-loop.md § Phase 1
+ * @see tasks/archive/nebula-codegen-loop.md § Phase 1
  * @see memory sfc-compile-needs-bindingmetadata, tsc-in-workerd-must-bundle
  */
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc';

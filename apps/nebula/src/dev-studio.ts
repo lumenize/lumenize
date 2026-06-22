@@ -330,7 +330,7 @@ export class DevStudio extends NebulaDO {
     return { reply, thought: parts.join('\n\n— — —\n\n') };
   }
 
-  // ─── Self-correcting codegen loop (tasks/nebula-codegen-loop.md) ─────────
+  // ─── Self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md) ─────────
 
   /** Mount (or reuse) the tool-args typia validator facet — derived from
    *  {@link TOOL_ARGS_TYPES} via `generateParseModule` (ADR-001: TS types are the

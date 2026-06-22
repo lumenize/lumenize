@@ -1,5 +1,5 @@
 /**
- * Phase 1 — Rung-1 compile gates (tasks/nebula-codegen-loop.md). The container-free
+ * Phase 1 — Rung-1 compile gates (tasks/archive/nebula-codegen-loop.md). The container-free
  * self-correction signal: `compileSource(path, content)` dispatches by extension and
  * returns `{ ok, errorTail? }`. Runs under vitest-pool-workers — no container, no AI
  * binding (the `dev-studio` project carries `nodejs_compat` + the bundled `tsc`).
@@ -8,7 +8,7 @@
  * broken one returns `ok:false` with an actionable tail — gutting the compiler call
  * collapses the contrast.
  *
- * @see tasks/nebula-codegen-loop.md § Phase 1
+ * @see tasks/archive/nebula-codegen-loop.md § Phase 1
  */
 import { describe, it, expect } from 'vitest';
 import { compileTemplate, parse, compileScript } from '@vue/compiler-sfc';

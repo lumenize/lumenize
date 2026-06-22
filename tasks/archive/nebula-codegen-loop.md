@@ -1,5 +1,13 @@
 # Nebula — Self-correcting codegen loop
 
+> ✅ **COMPLETED + ARCHIVED 2026-06-22.** All four phases built and committed on `feat/nebula-studio`
+> (`d8f4b5f` Phases 1–3, `8fd8f25` Phase 4 chat wiring). Frozen on entry — do not edit. The only
+> deferred piece is **live validation of the Phase-4 `it.skip`s**, which run with `wrangler dev` +
+> Docker Desktop (a test-harness gap — a `studio-e2e` project — NOT a deploy blocker; the `it.skip`s
+> themselves are the reminder). Roadmap successor: the **offline prompt harness**
+> ([`../nebula-agentic-development-engine.md`](../nebula-agentic-development-engine.md)), which imports
+> the standalone `codegen-gate.ts` built here.
+
 **Status**: **All phases BUILT 2026-06-22** (`/build-task`). Phases 1–3 container-free + verified (3-phase
 verifier fan-out — all CONFORM). Phase 4 (live `chat()` wiring) **code-complete**; its live model-turn +
 container-push validation **runs with `wrangler dev`** (`it.skip`) — local, no deploy: under `wrangler dev` + Docker Desktop.

@@ -1,5 +1,5 @@
 /**
- * The self-correcting codegen loop driver (tasks/nebula-codegen-loop.md Phases 2–3).
+ * The self-correcting codegen loop driver (tasks/archive/nebula-codegen-loop.md Phases 2–3).
  * Replaces the one-shot regex `extractVueBlock` path: the model emits `tool_calls`,
  * this driver runs them, feeds the **container-free Rung-1 compile** error-tail back
  * each round, and repeats until `mark_complete` or a bound trips.
@@ -13,7 +13,7 @@
  * the secure-by-default D2 guarantee (an autonomous tool can compile but never install or
  * wipe; install/wipe stays the human-gated apply step fired AFTER the loop, Flow 1b).
  *
- * @see tasks/nebula-codegen-loop.md § Phases 2–3 (D1, D2, D4, D5, D5a, D6, D7, D8)
+ * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3 (D1, D2, D4, D5, D5a, D6, D7, D8)
  */
 import { compileSource, type GateResult } from './codegen-gate';
 import { assertSafeRelPath } from './dev-container';

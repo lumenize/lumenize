@@ -104,7 +104,7 @@ The load-bearing lessons that shape the roadmap:
 ### Studio AI tool surface
 
 Two tiers of tools the codegen loop can call:
-- **Inner / sandbox tools** (no outside world) — owned by [`nebula-codegen-loop.md`](nebula-codegen-loop.md) D1. The **first loop** ships `write_file` (path-dispatched compiler) + `mark_complete`; `write_ontology` is **collapsed into `write_file`** (the server picks the ontology vs SFC compile by path), and `read_file(s)` / `get_recent_errors` as model-pulled tools are **deferred** there (current source + error-tail are pushed in the user layer).
+- **Inner / sandbox tools** (no outside world) — owned by [`nebula-codegen-loop.md`](archive/nebula-codegen-loop.md) D1. The **first loop** ships `write_file` (path-dispatched compiler) + `mark_complete`; `write_ontology` is **collapsed into `write_file`** (the server picks the ontology vs SFC compile by path), and `read_file(s)` / `get_recent_errors` as model-pulled tools are **deferred** there (current source + error-tail are pushed in the user layer).
 - **Outside-world tools (wishlist — deferred, NOT for the first loop):** capabilities that reach the internet, so they **ride the outside-world substrate** ([`nebula-outside-world.md`](nebula-outside-world.md)) — the **`EgressBroker`** (`globalOutbound` → allow-list + SSRF deny) for egress, and the **Galaxy-governed secrets vault** for API keys. Starting the list:
   - **`web_search`** — "find inspiration / a recent development". Needs a paid search API (vibesdk uses **SerpApi/Google**, formatting knowledge-graph + answer-box + organic results into markdown — `worker/agents/tools/toolkit/web-search.ts`). Key → secrets vault (`galaxy-only` mode = platform pays); per-tenant cost angle → `nebula-tenant-ai-billing.md`. *We'll pay for a search API eventually.*
   - **`fetch_url`** — fetch a user-/LLM-supplied URL ("get inspiration from this", "read this recent doc"). **Not in vibesdk** (it only has `web_search`) — ours to design, and the bigger **SSRF** surface: the URL isn't ours, so it MUST route through the broker's deny (internal/metadata ranges) + allow-list, never a bare `fetch`. Output = readable text (HTML→text/markdown).
@@ -271,19 +271,16 @@ caveats, and stop condition in **Part 1 § Pre-build reading**. Output →
 - **Why here:** read-only and parallelizable (good fan-out); directly informs the loop + prompt
   items. Filter for *talking-to-LLMs*, not what-code-to-generate.
 
-### Self-correcting codegen loop — *defined* · ⬅ **NEXT** → spec extracted to [`nebula-codegen-loop.md`](nebula-codegen-loop.md)
-Replace the one-shot regex `extractVueBlock` in `DevStudio.chat()` with a **bounded, native
-tool-calling loop** that feeds a **container-free Rung-1 compile error-tail** back for
-self-correction (vibesdk-informed, Think-free, on `env.AI.run`). The full build-ready spec —
-tool surface (`write_file` + `mark_complete`; compile-only, install/wipe stays human-gated),
-the three-way inner bound, the two compile gates (reuse `compileOntologyVersion`; build the
-standalone SFC gate), prompt structure, recorder wiring, and the live turn (run with `wrangler dev`) — now
-lives in its own file with phases + testable success criteria:
-**[`nebula-codegen-loop.md`](nebula-codegen-loop.md)** (Stage-1 reviewed 2026-06-22).
-- **Why here:** the half of "make it data-bound" that's *buildable now* — a defined build, and
-  the thing that makes the recorder's error capture meaningful.
+### Self-correcting codegen loop — ✅ DONE 2026-06-22 → [`archive/nebula-codegen-loop.md`](archive/nebula-codegen-loop.md)
+> ✅ **Built 2026-06-22** (`d8f4b5f` Phases 1–3, `8fd8f25` Phase 4 chat wiring; `/build-task`, 3-phase
+> verifier fan-out all CONFORM). The one-shot regex `extractVueBlock` is gone — `DevStudio.chat()` now
+> drives a **bounded, native tool-calling loop** that feeds the **container-free Rung-1 compile error-tail**
+> back each round (Think-free, on `env.AI.run`). `write_file` + `mark_complete` (compile-only, install/wipe
+> stays human-gated); the three-way inner bound; the **standalone `codegen-gate.ts`** (the offline harness
+> imports it); prompt structure; recorder wiring. Only the live `chat()` turn is an `it.skip` (run with
+> `wrangler dev` + Docker Desktop). Full spec (frozen): [`archive/nebula-codegen-loop.md`](archive/nebula-codegen-loop.md).
 
-### Offline prompt harness — *defined*
+### Offline prompt harness — *defined* · ⬅ **NEXT**
 Re-run `(systemPrompt, message, current source) → model → output` **independently of the
 browser**, replaying recorded turns as fixtures, with a **container-free Rung-1 validate gate**
 (compile the SFC + compile the ontology + static Nebula-API-usage checks). A vitest-pool-workers

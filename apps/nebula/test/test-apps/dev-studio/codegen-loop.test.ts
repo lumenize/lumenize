@@ -1,5 +1,5 @@
 /**
- * Phase 2–3 — the self-correcting codegen loop (tasks/nebula-codegen-loop.md).
+ * Phase 2–3 — the self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md).
  *
  * Two layers, both container-free, no AI binding (the `dev-studio` project):
  *  - **Loop-logic unit tests** drive `runCodegenLoop` directly with injected fake
@@ -11,7 +11,7 @@
  *    recorder wiring (m4), and the **secure-by-default D2 guard** — a hostile ontology
  *    `write_file` compiles but the `.dev` Star is never installed/wiped.
  *
- * @see tasks/nebula-codegen-loop.md § Phases 2–3
+ * @see tasks/archive/nebula-codegen-loop.md § Phases 2–3
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
