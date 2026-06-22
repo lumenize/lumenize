@@ -1,6 +1,6 @@
 # Spike — R2 OLAP query latency vs Durable Object SQLite
 
-**Status**: Active — exploratory spike. **Not for hand-review** (spike convention; the approach will deviate as we learn). Deliverable = `experiments/r2-olap-latency/RESULTS.md`.
+**Status**: 🧊 **Iceboxed / punted 2026-06-22.** Decision: store the Studio turn-recorder corpus in the **Galaxy DO's SQLite** (mesh-for-free) and **not** benchmark R2 now. The `experiments/r2-olap-latency/` scaffold was removed. The verified CF research below is **preserved** for when **resource-history-on-R2** (ADR-004 / `nebula-resource-history-r2.md` D4) is actually built: R2 SQL / Data Catalog / Pipelines are open-beta + free; R2 SQL is full analytical SQL via CLI/REST (no Worker binding); **Pipelines loads Iceberg via a Worker binding (no token, no Python) — the token is only needed on the R2 SQL *query* side**; plain R2 blob GET/PUT via a bucket binding needs no token at all. Revisit if/when cross-history OLAP on R2 becomes real.
 
 **Closes**: the **R2 latency** open question for unbounded history — [ADR-004](../docs/adr/004-snodgrass-temporal-resources.md)-adjacent, and specifically **D4 ("R2 latency benchmark")** in [`on-hold/nebula-resource-history-r2.md`](on-hold/nebula-resource-history-r2.md). Secondary: confirms the storage philosophy that also covers the Studio turn-recorder corpus.
 
