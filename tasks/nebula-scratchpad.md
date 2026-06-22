@@ -129,6 +129,8 @@ Old-school npm `lumenize` aggregations over temporal data. The star DO will keep
 - Code validation pipeline (generated code → `tsc` check → DWL deploy → integration test)
 - Version control for user-developer-built applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
 
+  > ⚠️ **Partly OBE (2026-06-22).** The git-in-a-DO kernel **shipped differently**: DevStudio is the dev source-of-truth via `@cloudflare/shell` `Workspace` + **isomorphic-git** (not wasm-git) — see `nebula-dev-flows.md` Decision 6. What's still open is the *user-facing* diff/rollback/checkpoint UI. The framing in this bullet is superseded on the mechanics: there is **no `OntologyVersionRow` / Galaxy ontology registry** (DevStudio serves the ontology from its own source tree), **no `.dev`/`.main` URL branches** (rejected — dev is a `.dev` Star *slug*; → `tasks/icebox/nebula-branches.md`), and `deploy_to_dev`/`deploy_to_main` are not the current API. Salvage the *idea* (AI-issued git diff/log/revert over iteration history), re-derive against the current model.
+
   **Three timelines exist in the platform; git would address the missing one.**
   - **Source authoring** (every AI iteration of ontology + UI code) — *not currently addressed; this is what git would cover*.
   - **Schema deployment** (every promoted ontology version) — already addressed by immutable append-only `OntologyVersionRow`.
@@ -165,6 +167,8 @@ The IDE should guide user-developers through a structured flow, not dump them in
 However, this isn't strictly linear in practice — nobody gets the data model perfect on the first try. The user-developer will revisit their ontology as they evolve their UI. The wizard should support this back-and-forth while still enforcing the validation gate: ontology change → migration validated → UI can use the new fields.
 
 ### Database Branching for Test Isolation
+
+> ⚠️ **Assumes superseded substrate (2026-06-22).** "Branch" here predates the rejection of branches as the dev model (dev is a `.dev` Star *slug*, not a branch) and leans on **lazy migration**, now iceboxed (`tasks/icebox/nebula-5.5-schema-evolution.md`; demo handling is a dev-Star reset, not lazy migration). The *ephemeral test-data-isolation* idea may still be worth pursuing, but re-derive it against the current `.dev`-slug + DevStudio model rather than this framing.
 
 Key idea: leverage lazy migrations to create isolated test branches of the Resources database.
 
