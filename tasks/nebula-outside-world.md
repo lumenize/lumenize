@@ -78,6 +78,8 @@ The agent's server code runs in a **facet of the Star DO**. The DO is the **capa
 
 **Does NOT own (agent writes as app code, drawing on recipes):** the actual integrations — email (Resend), payments (Stripe), Slack, Twilio, arbitrary REST APIs. No connector catalog to maintain.
 
+> **Second consumer of this substrate:** the **Studio AI's own outside-world tools** (`web_search`, `fetch_url`) ride the same `EgressBroker` + secrets vault — see [`nebula-agentic-development-engine.md`](nebula-agentic-development-engine.md) § *Studio AI tool surface*. This doc's primary subject is *generated-app* connectivity; the agent's tools are a distinct but substrate-sharing consumer (and the LLM-picks-the-URL `fetch_url` case leans hard on the SSRF deny).
+
 ## Three execution contexts — don't conflate them
 
 1. **Browser SPA** (Vue, client-side) — existing.

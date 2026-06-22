@@ -101,6 +101,17 @@ The load-bearing lessons that shape the roadmap:
    own task file** when picked up — Part 1's decisions are shared, Part 2's roadmap is
    Studio-specific.
 
+### Studio AI tool surface
+
+Two tiers of tools the codegen loop can call:
+- **Inner / sandbox tools** (no outside world): `write_file`, `write_ontology`, `read_file(s)`, `get_recent_errors`, `mark_complete` — specced in Part 2 § *Self-correcting codegen loop*.
+- **Outside-world tools (wishlist — deferred, NOT for the first loop):** capabilities that reach the internet, so they **ride the outside-world substrate** ([`nebula-outside-world.md`](nebula-outside-world.md)) — the **`EgressBroker`** (`globalOutbound` → allow-list + SSRF deny) for egress, and the **Galaxy-governed secrets vault** for API keys. Starting the list:
+  - **`web_search`** — "find inspiration / a recent development". Needs a paid search API (vibesdk uses **SerpApi/Google**, formatting knowledge-graph + answer-box + organic results into markdown — `worker/agents/tools/toolkit/web-search.ts`). Key → secrets vault (`galaxy-only` mode = platform pays); per-tenant cost angle → `nebula-tenant-ai-billing.md`. *We'll pay for a search API eventually.*
+  - **`fetch_url`** — fetch a user-/LLM-supplied URL ("get inspiration from this", "read this recent doc"). **Not in vibesdk** (it only has `web_search`) — ours to design, and the bigger **SSRF** surface: the URL isn't ours, so it MUST route through the broker's deny (internal/metadata ranges) + allow-list, never a bare `fetch`. Output = readable text (HTML→text/markdown).
+  - *(future: image-gen, deploy-preview, …)* — add as needs surface.
+
+These are **agent capabilities** (an engine concern) built **on** the connectivity substrate — the Studio AI is a *second consumer* of it, distinct from giving *generated apps* outside access (`nebula-outside-world.md`'s primary subject). Tool *security* (an LLM choosing egress targets) is a trust-boundary review item when these are built.
+
 ## Resource-metadata conventions the engine consumes
 
 The engine reads the **raw `.d.ts` source** (LLMs read TypeScript natively; a bespoke JSON
