@@ -10,14 +10,38 @@
 
 For the **self-correcting codegen loop** (the next roadmap item) and the future **in-app AI chat**, in rough priority:
 
-1. **Completion-signal tools bound the loop.** A `mark_generation_complete` / `mark_debugging_complete` tool that, when called, *stops* the loop — cleaner than polling or a turn counter alone. Pair with a hard **max-tool-calling-depth per operation** and **loop detection** (below). → our loop's stop condition.
+1. **Completion-signal tools bound the loop.** A `mark_generation_complete` / `mark_debugging_complete` tool that, when called, *stops* the loop — cleaner than polling or a turn counter alone. Pair with a hard **max-tool-calling-depth per operation** and **loop detection** (below). → our loop's stop condition. This bounds the **inner** per-inference tool loop — distinct from the **outer** phasic state machine in #6 (they nest).
 2. **Native tool-calling = Zod schema + impl, split.** Tools declare a schema (→ JSON for the model) + a TypeScript implementation; the loop dispatches `tool_calls`, runs them (topologically by resource conflicts), feeds results back. Port the *shape*; bridge Zod→JSON ourselves for the Workers AI binding (no OpenAI SDK). NOTE: our schema language is TS-types/typia (ADR-001), not Zod — define tool schemas the typia way.
 3. **Error-tail freshness discipline.** Runtime errors are *stale* until deploy→wait→re-fetch; vibesdk's debugger enforces that sync-point. Our **Rung-1 compile error-tail is synchronous** (good), but a *runtime/preview* error-tail needs the deploy→wait→re-fetch cycle before declaring a fix.
 4. **Loop detection guards autonomy.** Detect (a) identical tool-call repeats and (b) text repetition (rolling hash) → abort + retry. Cheap, high-value; adopt for the self-correcting loop.
 5. **Composable system prompt; live state in the *user* layer.** Base role + modular instruction bundles in the system message (stable); inject files/errors/state in the user message. For us: **pin the ontology `.d.ts` in a stable system block**; keep the codegen prompt separate from the in-app-chat prompt.
-6. **Bounded state machine.** Decompose into phases with a `MAX_PHASES` cap + per-phase completion signal + errors fed back to the planner. Maps cleanly onto mesh continuations / DO states.
+6. **Bounded state machine** (the **outer/macro** loop — vibesdk's `phasic` behavior, distinct from #1's inner tool-loop bound). Decompose into phases with a `MAX_PHASES` cap + per-phase completion signal + errors fed back to the planner. Maps cleanly onto mesh continuations / DO states. A *later/optional* adoption — only when one generation needs splitting into phases.
 7. **Token efficiency for in-app chat:** LLM-powered conversation **compactification** (summarize older turns past a 40-turn / ~100k-token threshold, keep the last 10) — but **pin the ontology outside the windowed history** (it's schema, not conversation).
 8. **AI-Gateway metadata tags** (`cf-aig-metadata`) for per-call cost attribution → directly feeds `nebula-tenant-ai-billing.md`.
+
+---
+
+## Provenance & portability matrix
+
+Two adaptation axes per pattern: **Think?** (does it pull in `@cloudflare/think`) and **OpenAI SDK?** (is it coupled to the `openai` client / OpenAI request-response shape). Import-grep-verified 2026-06-22.
+
+| # | Section | vibesdk source | Think? | OpenAI SDK? | Port note |
+|---|---|---|:--:|:--:|---|
+| 1 | Model routing | `inferutils/config.ts` | no | no | pure config data |
+| 2 | System prompts | `prompts.ts` + `operations/*` | no | msg-shape only | assembly is string-level; messages wrap in OpenAI shapes |
+| 3 | Tool defs & loop (inner) | `tools/types.ts`, `inferutils/{toolExecution,core}.ts` | no | **yes** | `toOpenAITool` → OpenAI fn schema; OpenAI-shaped `tool_calls`. Loop *logic* is portable |
+| 4 | State machine (the `phasic` behavior, outer) | `behaviors/phasic.ts` + `operations/Phase*` | no | no | phase decomposition is SDK-agnostic |
+| 5 | Streaming / abort | `inferutils/core.ts` | no | **yes** | `openai/streaming` `Stream` + `AbortController` `signal` |
+| 6 | Token efficiency | `conversationCompactifier.ts`, `core.ts` | no | partial | compaction/trim agnostic; dedup + orphan-filter key on `tool_call_id` |
+| 7 | AI-Gateway | `inferutils/core.ts` | no | partial | gateway is provider-agnostic; wired via the OpenAI client `baseURL`/headers |
+| 8 | Structured output | `core.ts`, `output-formats/*` | no | partial | `response_format: json_schema` is an OpenAI feature; diff parsers are pure |
+| 9 | Long-context | `GenerationContext.ts`, `MessageLoader.ts` | no | no | file filtering + context snapshot are agnostic |
+
+**Think? = all no** — every pattern is shared Think-free infra or the `phasic` behavior (the Think-free sibling of the `think` behavior). Our no-Think stance drops nothing.
+
+**OpenAI SDK? — the practical nuance:** the *yes/partial* rows couple to the OpenAI **shape**, not deeply to the npm client. **Kimi via the Workers AI binding returns OpenAI-style responses** (`choices[0].message`, `tool_calls` — our viability probe), so they port at the shape level; only the *client plumbing* needs swapping for `env.AI.run`: the `openai` npm client itself, the gateway `baseURL`/header wiring (§7), and `response_format: json_schema` (§8 — verify Workers AI/Kimi supports strict JSON-schema response format; else validate post-hoc with typia, which we'd do anyway per ADR-001).
+
+**Inner vs outer loop** (the two "bounding" patterns are different levels): §3 is the **inner** per-inference tool-calling loop (shared core; completion-signal tool + max-tool-depth + loop-detection — *our* settled stop condition); §4 is the **outer/macro** phasic state machine (`MAX_PHASES` across plan→implement phases — a later/optional adoption). They nest.
 
 ---
 
