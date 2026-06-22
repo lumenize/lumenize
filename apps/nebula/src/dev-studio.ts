@@ -31,11 +31,30 @@ import { debug } from '@lumenize/debug';
 import { Workspace, WorkspaceFileSystem } from '@cloudflare/shell';
 import { createGit } from '@cloudflare/shell/git';
 import git from 'isomorphic-git';
+import {
+  generateParseModule,
+  getParserValidatorFacet,
+  type ParserValidator,
+} from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { compileOntologyVersion } from './galaxy';
 import type { Galaxy, TurnRecord } from './galaxy';
 import type { Star } from './star';
 import type { DevContainer, SourceFile } from './dev-container';
+import {
+  runCodegenLoop,
+  assembleCodegenPrompt,
+  CODEGEN_TOOLS,
+  TOOL_ARGS_TYPES,
+  TOOL_ARGS_BUNDLE_ID,
+  TOOL_ARG_TYPE,
+  DEFAULT_LOOP_CONFIG,
+  type CodegenLoopConfig,
+  type CodegenLoopDeps,
+  type ChatMessage,
+  type ModelParams,
+  type LoopResult,
+} from './codegen-loop';
 
 /** The `.dev` data-Star binding. Post-collapse (Decision 2) there is one `STAR`
  *  binding; the dev Star is the `{u}.{g}.dev` *instance* on it. */
@@ -69,6 +88,19 @@ Rules:
 - You may import icons from "lucide-vue-next". Do not import any other package.
 - Output ONLY the file, in a single \`\`\`vue fenced code block, with no prose before or after.`;
 
+/** Minimal, *structural* system bundle for the tool-calling loop — the seed of the
+ *  composable cascade (D7). The make-it-data-bound *content* is the engine file's
+ *  exploratory concern; this only establishes the tool protocol + output constraints.
+ *  Model-agnostic (`studio-model-agnostic-naming`) — no vendor name appears. */
+const STUDIO_LOOP_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a Vue 3 Single-File Component (src/App.vue).
+Use the provided tools — do not output code in your reply:
+- Call write_file with the COMPLETE new contents of a file. The file is compiled immediately and the result is returned; if it does not compile, read the error, fix it, and call write_file again.
+- When every file compiles cleanly and the app is done, call mark_complete.
+Rules:
+- Vue 3 with <script setup lang="ts"> and a <template>.
+- Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
+- You may import icons from "lucide-vue-next". Do not import any other package.`;
+
 /** Pull the first fenced code block out of the model output — the generated src/App.vue.
  *  Returns null when the output has no code block (the UI shows the raw output instead). */
 function extractVueBlock(text: string): string | null {
@@ -83,6 +115,9 @@ export class DevStudio extends NebulaDO {
   #ws!: Workspace;
   #fs!: WorkspaceFileSystem;
   #git!: ReturnType<typeof createGit>;
+  // Re-derivable cache (loss acceptable) — the tool-args typia validator facet
+  // (durable-objects.md "ephemeral caches", same pattern as Star.#facet).
+  #toolArgsFacet?: ParserValidator;
 
   /** Reconstruct the shell Workspace + git over `ctx.storage.sql`, and `git init`
    *  once (latched in kv). Async — runs inside the base `blockConcurrencyWhile`, so
@@ -328,6 +363,106 @@ export class DevStudio extends NebulaDO {
       reply: appVue ? 'Updated the preview.' : 'I could not extract a file — see the thought process.',
       thought,
     };
+  }
+
+  // ─── Self-correcting codegen loop (tasks/nebula-codegen-loop.md) ─────────
+
+  /** Mount (or reuse) the tool-args typia validator facet — derived from
+   *  {@link TOOL_ARGS_TYPES} via `generateParseModule` (ADR-001: TS types are the
+   *  schema). Shared bundle id across tenants (the tool surface is not tenant data). */
+  #ensureToolArgsFacet(): ParserValidator {
+    if (!this.#toolArgsFacet) {
+      this.#toolArgsFacet = getParserValidatorFacet(
+        this.ctx,
+        this.env.LOADER,
+        TOOL_ARGS_BUNDLE_ID,
+        () => generateParseModule(TOOL_ARGS_TYPES),
+      );
+    }
+    return this.#toolArgsFacet;
+  }
+
+  /** D5 trust boundary: typia-validate the untrusted model's tool-call args (shape
+   *  only — path *safety* is `assertSafeRelPath`, enforced in the loop). */
+  async #validateToolArgs(
+    toolName: string,
+    args: unknown,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    const typeName = TOOL_ARG_TYPE[toolName];
+    if (!typeName) return { ok: false, error: `unknown tool '${toolName}'` };
+    const res = await this.#ensureToolArgsFacet().parse(args, typeName);
+    if (res.valid) return { ok: true };
+    const detail = res.errors.map((e) => `${e.path}: expected ${e.expected}`).join('; ');
+    return { ok: false, error: `invalid ${toolName} args — ${detail}` };
+  }
+
+  /**
+   * One model inference for the loop. **Overridable seam** (`protected`, no `@mesh`)
+   * so the Phase-2/3 test harness replays a synthetic script with no AI binding; the
+   * shipping path calls `env.AI.run` with the codegen tools + per-call params (D6).
+   * The model id stays isolated to `STUDIO_MODEL` and is never surfaced.
+   */
+  protected async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
+    // The model-catalog types don't cover every @cf id; run() is treated loosely.
+    return (this.env.AI as any).run(STUDIO_MODEL, {
+      messages,
+      tools: CODEGEN_TOOLS,
+      temperature: params.temperature,
+      max_tokens: params.max_tokens,
+    });
+  }
+
+  /**
+   * Drive one bounded, self-correcting codegen turn: assemble the layered prompt
+   * (ontology pinned in the system block, request + current source in the user
+   * layer — D7), run {@link runCodegenLoop}, and record the turn (the loop is the
+   * first populator of `TurnRecord.toolCalls` / `.error` / `.validate`). Returns the
+   * loop result. `chat()` will call this (Phase 4); install/wipe stays the separate,
+   * human-gated apply step fired AFTER a clean finish (Flow 1b) — never reachable
+   * from the loop's `write_file` tool (D2).
+   *
+   * `protected` (not `@mesh`): an internal capability, not a remote API. The test
+   * harness reaches it through a test-only `@mesh` entry on a subclass.
+   */
+  protected async runCodegenTurn(
+    userRequest: string,
+    config: CodegenLoopConfig = DEFAULT_LOOP_CONFIG,
+  ): Promise<LoopResult> {
+    let currentSource = '';
+    try { currentSource = await this.#fs.readFile('/src/App.vue'); } catch { /* none yet */ }
+    let ontologyDts: string | undefined;
+    try { ontologyDts = await this.#fs.readFile('/' + ONTOLOGY_PATH); } catch { /* none yet */ }
+
+    const initial = assembleCodegenPrompt({
+      systemBundles: [STUDIO_LOOP_SYSTEM_PROMPT],
+      ontologyDts,
+      userRequest,
+      currentSource,
+    });
+    const deps: CodegenLoopDeps = {
+      callModel: (m, p) => this.callModel(m, p),
+      writeFile: (path, content) => this.writeSource(path, content),
+      validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
+    };
+    const result = await runCodegenLoop(initial, deps, config);
+
+    this.#recordTurn({
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+      instance: this.lmz.instanceName!,
+      model: STUDIO_MODEL,
+      systemPrompt: initial.system.content,
+      userMessage: userRequest,
+      currentSource,
+      output: result.output,
+      reasoning: result.reasoning,
+      toolCalls: result.toolCalls,
+      applied: result.appliedPaths.length > 0,
+      appliedPath: result.appliedPaths.at(-1),
+      error: result.lastGate && !result.lastGate.ok ? result.lastGate.errorTail : undefined,
+      validate: result.lastGate,
+    });
+    return result;
   }
 
   /**
