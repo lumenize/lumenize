@@ -104,7 +104,7 @@ The load-bearing lessons that shape the roadmap:
 ### Studio AI tool surface
 
 Two tiers of tools the codegen loop can call:
-- **Inner / sandbox tools** (no outside world): `write_file`, `write_ontology`, `read_file(s)`, `get_recent_errors`, `mark_complete` — specced in Part 2 § *Self-correcting codegen loop*.
+- **Inner / sandbox tools** (no outside world) — owned by [`nebula-codegen-loop.md`](nebula-codegen-loop.md) D1. The **first loop** ships `write_file` (path-dispatched compiler) + `mark_complete`; `write_ontology` is **collapsed into `write_file`** (the server picks the ontology vs SFC compile by path), and `read_file(s)` / `get_recent_errors` as model-pulled tools are **deferred** there (current source + error-tail are pushed in the user layer).
 - **Outside-world tools (wishlist — deferred, NOT for the first loop):** capabilities that reach the internet, so they **ride the outside-world substrate** ([`nebula-outside-world.md`](nebula-outside-world.md)) — the **`EgressBroker`** (`globalOutbound` → allow-list + SSRF deny) for egress, and the **Galaxy-governed secrets vault** for API keys. Starting the list:
   - **`web_search`** — "find inspiration / a recent development". Needs a paid search API (vibesdk uses **SerpApi/Google**, formatting knowledge-graph + answer-box + organic results into markdown — `worker/agents/tools/toolkit/web-search.ts`). Key → secrets vault (`galaxy-only` mode = platform pays); per-tenant cost angle → `nebula-tenant-ai-billing.md`. *We'll pay for a search API eventually.*
   - **`fetch_url`** — fetch a user-/LLM-supplied URL ("get inspiration from this", "read this recent doc"). **Not in vibesdk** (it only has `web_search`) — ours to design, and the bigger **SSRF** surface: the URL isn't ours, so it MUST route through the broker's deny (internal/metadata ranges) + allow-list, never a bare `fetch`. Output = readable text (HTML→text/markdown).
@@ -248,7 +248,7 @@ Get these right *early* — retrofitting them is expensive:
 ## The work, in order
 
 ### Turn recorder — ✅ DONE 2026-06-22
-> ✅ **Built 2026-06-22** (`f0e6865`). Store = the per-tester **Galaxy DO's SQLite** (`Galaxy.recordTurn`/`getTurns` over a `Turns` table); `DevStudio.chat()` fires it fire-and-forget. Full record stored as JSON `payload` = the eval-fixture schema (tool-calling-shaped). Persistence layer tested under pool-workers (round-trip / ordering / admin-gated, mutation-verified, baseline no-regression); the `chat()`→record end-to-end stays deploy-gated. Consent assumed true (per-Galaxy flag backlogged).
+> ✅ **Built 2026-06-22** (`f0e6865`). Store = the per-tester **Galaxy DO's SQLite** (`Galaxy.recordTurn`/`getTurns` over a `Turns` table); `DevStudio.chat()` fires it fire-and-forget. Full record stored as JSON `payload` = the eval-fixture schema (tool-calling-shaped). Persistence layer tested under pool-workers (round-trip / ordering / admin-gated, mutation-verified, baseline no-regression); the `chat()`→record end-to-end is run with `wrangler dev` (env.AI + container, local). Consent assumed true (per-Galaxy flag backlogged).
 
 Persist **every** codegen turn (system prompt, user message, current source, model output incl.
 `reasoning_content`, tool calls, applied/error, Rung-1 validate result) to a **cross-run** store
@@ -260,7 +260,7 @@ log-scraping, this is structured turn capture).
   It accumulates the corpus *while* later items are built, and those real turns become the seed
   fixtures for the offline harness.
 - **Unblocks:** the offline harness; the eval suite (same schema).
-- **Resolved:** stored in the per-tester **Galaxy DO** (mesh-for-free; queryable SQLite). R2 was spiked then punted (`tasks/icebox/spike-r2-olap-latency.md`).
+- **Resolved:** stored in the per-tester **Galaxy DO** (mesh-for-free; queryable SQLite). R2 was spiked then parked on-hold (`tasks/on-hold/spike-r2-olap-latency.md`).
 
 ### vibesdk study — ✅ DONE 2026-06-22
 > ✅ **Done 2026-06-22** → [`reference/vibesdk-llm-patterns.md`](reference/vibesdk-llm-patterns.md) (9 sections + takeaways; 4-agent read-only fan-out over a shallow clone). Headlines for the loop build: **completion-signal tools + max-tool-depth + loop-detection** bound the loop; native tool-calling = **schema+impl split** (typia, not Zod; bridge to Workers AI ourselves); **error-tail freshness = deploy→wait→re-fetch**; **pin the ontology in a stable system block**; **search/replace diffs** (w/ ambiguity scoring) when we move to edits. Confirmed: vibesdk's `ThinkAgent` IS `@cloudflare/think` → our rejection stands; the reusable bit is the phasic state machine.
@@ -271,56 +271,17 @@ caveats, and stop condition in **Part 1 § Pre-build reading**. Output →
 - **Why here:** read-only and parallelizable (good fan-out); directly informs the loop + prompt
   items. Filter for *talking-to-LLMs*, not what-code-to-generate.
 
-### Self-correcting codegen loop — *defined* · ⬅ **NEXT** (build-ready, vibesdk-informed 2026-06-22)
+### Self-correcting codegen loop — *defined* · ⬅ **NEXT** → spec extracted to [`nebula-codegen-loop.md`](nebula-codegen-loop.md)
 Replace the one-shot regex `extractVueBlock` in `DevStudio.chat()` with a **bounded, native
-tool-calling loop** that feeds a **compile error-tail** back for self-correction. The borrow
-decisions below are distilled from [`reference/vibesdk-llm-patterns.md`](reference/vibesdk-llm-patterns.md)
-(its provenance matrix shows all of these are **Think-free** and only **shape-coupled** to the
-OpenAI SDK, which Kimi-via-Workers-AI already mirrors).
-
-**Design — adopt from vibesdk (§ = reference-doc section):**
-1. **Tool surface + a completion signal** (§3). Tools: `write_file`, `write_ontology` (writes the
-   `.d.ts` → triggers compile+install), `read_file(s)`, `get_recent_errors` (the error-tail),
-   `mark_complete`. The `mark_complete` call is the clean loop stop.
-2. **Three-way *inner* bound** (§3, "our settled stop condition"): completion signal +
-   **max-tool-calling-depth** per turn + **loop detection** (identical-tool-call repeat +
-   rolling-hash text-repetition abort). NOT the phasic *outer* state machine (§4) — single
-   self-correcting generation, not a multi-phase builder.
-3. **Error-tail self-correction** (§ Deep-debugger). Feed the **Rung-1 compile** error-tail
-   (SFC compile + ontology compile) back each round — **synchronous**, so simpler than vibesdk's
-   runtime errors. Defer the **deploy→wait→re-fetch freshness** + once-loaded "session" shape to
-   when a *runtime/preview* error-tail is added.
-4. **Prompt restructure** (§2): composable bundles + **pin the ontology `.d.ts` in a stable
-   system block**; live state (current source, error-tail) in the **user** layer; keep the
-   codegen prompt separate from any chat prompt.
-5. **Per-operation model config** (§1, light): a tiny `{ generate, fix }` table — Kimi + a
-   fallback, per-op temp/max-tokens/thinking-budget — behind the existing swappable `STUDIO_MODEL`
-   indirection (never surfaced — `studio-model-agnostic-naming`).
-
-**Adaptations (the matrix's shape-level swaps):** declare tool schemas the **typia/TS-type** way
-(ADR-001, *not* Zod); parse Kimi's **OpenAI-shaped `tool_calls` from `env.AI.run`** (no `openai`
-npm client); **verify Workers AI/Kimi supports `response_format: json_schema`** — else validate
-post-hoc with typia (ADR-001 has us doing that anyway).
-
-**Out of scope / defer (forward-pointers):** conversation compactification → in-app AI chat;
-search/replace diffs + ambiguity scoring → when we move from whole-file regen to **edits**;
-AI-Gateway `cf-aig-metadata` tags → `nebula-tenant-ai-billing.md`; streaming `onChunk` → the
-DX "real-time thought streaming" item (as a Mesh WS primitive); the **phasic outer state
-machine** → only if a generation ever needs splitting into phases. **Skip:** Cloudflare Think,
-the `openai` npm client, codemode.
-
+tool-calling loop** that feeds a **container-free Rung-1 compile error-tail** back for
+self-correction (vibesdk-informed, Think-free, on `env.AI.run`). The full build-ready spec —
+tool surface (`write_file` + `mark_complete`; compile-only, install/wipe stays human-gated),
+the three-way inner bound, the two compile gates (reuse `compileOntologyVersion`; build the
+standalone SFC gate), prompt structure, recorder wiring, and the live turn (run with `wrangler dev`) — now
+lives in its own file with phases + testable success criteria:
+**[`nebula-codegen-loop.md`](nebula-codegen-loop.md)** (Stage-1 reviewed 2026-06-22).
 - **Why here:** the half of "make it data-bound" that's *buildable now* — a defined build, and
   the thing that makes the recorder's error capture meaningful.
-- **Depends on:** the **Rung-1 compile gate** as the error source — container-free (ontology via
-  `compileOntologyVersion` under pool-workers; SFC via `@vue/compiler-sfc` standalone, see
-  `tsc-in-workerd-must-bundle` / `sfc-compile-needs-bindingmetadata`). Build it inline in the
-  loop first, then factor out for the offline harness.
-- **Build/test note:** `chat()` is deploy-gated (AI binding + container), but the **loop
-  mechanics** (tool dispatch, the three-way bound, the compile error-tail) sit on the
-  container-free Rung-1 gate, so most of it is pool-workers-testable; the live model turn stays
-  the deploy/`wrangler dev` check. **First real data-bound prompt progress** can begin here,
-  hand-driven in the browser + the turn recorder, before the offline harness exists.
-- **Process:** big enough for its own `/review-task` pass over this item before `/build-task`.
 
 ### Offline prompt harness — *defined*
 Re-run `(systemPrompt, message, current source) → model → output` **independently of the
@@ -371,8 +332,9 @@ strategy in Part 1 § Evaluation strategy.
   turn). The WS path 101's cleanly, so it looks viable; needs `clientPort`/path tuning.
 - **Real-time thought streaming** — upgrade waiting→thought from after-completion to live token
   streaming (mesh chat-chunk channel + client handler). DX nicety.
-- **First `apps/nebula` deploy** — turn the deploy-gated `it.skip` e2es green on real infra
-  (`nebula-release-process.md` intersects). The local loop works, so not blocking.
+- **First `apps/nebula` deploy** — only needed to invite alpha testers; the assembled-container
+  `it.skip` e2es run locally with `wrangler dev` + Docker Desktop (WARP), so the deploy is NOT a
+  prerequisite for them (`nebula-release-process.md` intersects). The local loop works, not blocking.
 - **Wrangler 4.86→4.103 + vitest-pool-workers bump** — own deliberate task; won't remove the swc
   need (vite/Oxc don't do TC39 decorators); mind the 2022-03↔2023-11 decorator iteration gap.
   Possibly broadens vitest-pool-workers coverage.
