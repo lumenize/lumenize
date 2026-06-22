@@ -186,10 +186,11 @@ export class Star extends NebulaDO {
   #installState(state: OntologyState): void {
     const { row, history } = state;
     let droppedSubscribers: Array<{ subscriberBinding: string; clientId: string }> = [];
+    let isNewVersion = false;
     this.ctx.storage.transactionSync(() => {
       const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
       const prevLatest = prevIndex[prevIndex.length - 1];
-      const isNewVersion = prevLatest !== row.version;
+      isNewVersion = prevLatest !== row.version;
       if (prevLatest && isNewVersion) {
         this.ctx.storage.kv.delete(rowKey(prevLatest));
       }
@@ -237,6 +238,13 @@ export class Star extends NebulaDO {
           this.ctn<NebulaClient>().handleResourceUpdate('', '', staleError));
       }
     }
+
+    // Dev-loop live re-sync (Decision 12 / Flow 1d): a new version makes any live
+    // preview's injected appVersion stale → fan out the reload signal so it
+    // re-fetches the shell at the new version. Dev: the preview is a reload
+    // subscriber; prod: none until publish wires them → no-op. One trigger shared
+    // by dev (`setOntology`) and prod (Galaxy lazy-pull) — both land here.
+    if (isNewVersion) this.broadcastReload();
   }
 
 
@@ -295,6 +303,11 @@ export class Star extends NebulaDO {
    * would keep authorizing the dropped ontology). The DO + `{u}.{g}.dev` registration
    * survive. The founder ROOT-admin grant reseeds on the next admin call's
    * `onBeforeCall` first-touch (the `deleteAll` wiped the latch).
+   *
+   * **`ReloadSubscribers` are preserved across the wipe** (captured → wiped →
+   * restored, in the body) — they are live-preview connection state, not dev data,
+   * and the wipe-in-a-save flow reloads those previews onto the clean Star
+   * (Decision 12 / Flow 1d); forgetting them would strand the preview.
    */
   @mesh(requireAdmin)
   async resetDevData(): Promise<void> {
@@ -303,8 +316,15 @@ export class Star extends NebulaDO {
       throw new Error('resetDevData is only permitted on the .dev sandbox Star');
     }
     await this.ctx.blockConcurrencyWhile(async () => {
+      // Preserve live-preview reload subscriptions across the wipe: they're
+      // live-connection state, NOT dev data, and the wipe-in-a-save flow (Flow 1b)
+      // then RELOADS those very previews onto the clean Star (Decision 12 / Flow 1d).
+      // Capture under the closed gate (no concurrent writes can land), wipe, re-init,
+      // restore onto the fresh `#reloadSubscriptions` (onStart recreated the table).
+      const reloadSubs = this.#reloadSubscriptions.all();
       await this.ctx.storage.deleteAll();
       this.onStart();
+      for (const r of reloadSubs) this.#reloadSubscriptions.register(r.clientId, r.subscriberBinding);
     });
   }
 

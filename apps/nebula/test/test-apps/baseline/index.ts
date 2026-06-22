@@ -96,6 +96,23 @@ export class StarTest extends Star {
   }
 
   /**
+   * Test-only (smoke/browser harness): compile + install an ontology version
+   * directly on this Star — the post-Phase-4 dev apply path (Decision 9: the
+   * Galaxy lazy-pull was removed, so the validator must be PUSHED via
+   * `setOntology`, never fetched on a cache miss). The browser smoke test's
+   * `HarnessNebulaClient` runs in Node and imports from `@lumenize/nebula/client`,
+   * so it can't call the Worker-only `compileOntologyVersion` itself (the main
+   * entry pulls in `cloudflare:workers`, unimportable in Node). This server-side
+   * method compiles the row and hands it to `setOntology`, mirroring
+   * `NebulaClientTest.callStarApplyOntology` (which compiles client-side from a
+   * pool-workers test). Same admin gate as the real `setOntology`.
+   */
+  @mesh(requireAdmin)
+  applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
+    this.setOntology(compileOntologyVersion(versionConfig));
+  }
+
+  /**
    * Test-only: dump the Subscribers table so tests can verify idempotency
    * and row content. PK-ordered. Admin-gated to avoid client tests leaking
    * the registry shape unintentionally.
@@ -116,6 +133,17 @@ export class StarTest extends Star {
       `SELECT clientId, subscriberBinding, subscribedAt FROM TreeSubscribers ORDER BY clientId`,
     ).toArray();
     return rows as unknown as Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }>;
+  }
+
+  /** Test-only (Phase 5): dump the ReloadSubscribers table (the dev-preview reload
+   *  channel) — used to assert connect-gated auto-subscribe + preservation across
+   *  resetDevData (Decision 12 / Flow 1d). */
+  @mesh(requireAdmin)
+  inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
+    ).toArray();
+    return rows as unknown as Array<{ clientId: string; subscriberBinding: string }>;
   }
 
   /**
@@ -294,6 +322,11 @@ export class NebulaClientTest extends NebulaClient {
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
 
+  // --- handleReload capture (the dev-preview reload channel). CUMULATIVE — NOT
+  //     zeroed by resetResults (it's a channel counter; baseline it before the
+  //     action under test, per testing.md). ---
+  reloadCount = 0;
+
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
     if (value instanceof Error) {
@@ -328,6 +361,16 @@ export class NebulaClientTest extends NebulaClient {
   adminEcho(message: string): string {
     this.lastAdminEchoMessage = message;
     return `Admin client echoed: ${message}`;
+  }
+
+  /** Phase 5: count reload-channel deliveries from `Star.broadcastReload`. Calls
+   *  `super.handleReload()` so the real `handleReload → #onReload` path still runs
+   *  (in tests `#onReload` is usually unset → a no-op); the counter proves the
+   *  signal reached the client (Decision 12 / Flow 1d). */
+  @mesh()
+  override handleReload(): void {
+    this.reloadCount++;
+    super.handleReload();
   }
 
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
@@ -538,6 +581,20 @@ export class NebulaClientTest extends NebulaClient {
   callStarInspectTreeSubscribers(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectTreeSubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Phase 5: subscribe to the Star's dev-preview reload channel. Result-handler form
+   *  (deterministic) so a test can await registration before triggering a reload. */
+  callStarSubscribeReload(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().subscribeReload();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarInspectReloadSubscribers(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectReloadSubscribers();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 

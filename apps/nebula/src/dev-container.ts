@@ -41,6 +41,11 @@ import { requireAdmin } from './nebula-do';
  *  `fetch()` proxy can never target it (the port header is stripped). */
 const CMD_PORT = 9000;
 
+/** KV key for the app-version the public `fetch()` injects into the shell. Pushed by
+ *  DevStudio (`setAppVersion`) as the content hash of the ontology source. Persists in
+ *  the DO across container cold-boots (only the container disk reverts, not the DO). */
+const VERSION_KEY = 'devcontainer:appVersion';
+
 /** One pushed source file. */
 export interface SourceFile {
   path: string;
@@ -109,10 +114,25 @@ export class DevContainer extends NebulaContainer {
    *  the durable source — re-pushed on next cold boot, Flow 1c). */
   override sleepAfter = '5m';
 
+  /**
+   * Inject the per-instance preview prefix as a container env var so vite serves under
+   * the matching `base` (Decision 12 / Flow 1d): the preview is served at
+   * `/dev-container/{instance}/`, so vite must emit prefixed asset URLs or they 404 at
+   * the origin root. MUST be set before the container starts — `@cloudflare/containers`
+   * reads `envVars` at start — so we set it from the routed instance name on every entry
+   * path before the first `containerFetch`/proxy triggers start. Re-setting on a warm
+   * container is a harmless no-op (only re-read on a (re)start).
+   */
+  #setPreviewBaseEnv(instance: string | undefined | null): void {
+    if (!instance) return;
+    this.envVars = { ...this.envVars, PREVIEW_BASE: `/dev-container/${instance}/` };
+  }
+
   /** Reach the host-DO-only command-server (`:9000`), self-retrying the cold
    *  container (the first containerFetch races boot, Flow 1c). Non-2xx / non-JSON
    *  surfaces as a typed retryable `ContainerUnavailableError`. */
   async #cmdJson<T>(path: string, init?: RequestInit): Promise<T> {
+    this.#setPreviewBaseEnv(this.lmz.instanceName); // before start: vite base (Flow 1d)
     const res = await this.containerFetch(new Request(`http://cmd.local${path}`, init), CMD_PORT);
     const text = await res.text();
     if (!res.ok) throw new ContainerUnavailableError(res.status, text.slice(0, 120));
@@ -180,6 +200,20 @@ export class DevContainer extends NebulaContainer {
   }
 
   /**
+   * Set the app-version the public `fetch()` injects into the shell's `nebula-scope`
+   * meta. DevStudio pushes it (the server-derived `hashBlob` of the ontology source)
+   * whenever the version changes, so the preview's client sends the SAME version the
+   * `.dev` Star installed — Handler-1 matches instead of `OntologyStaleError` on every
+   * op (Decision 12 / Flow 1d). Stored in the DO's `kv` (the DO persists across
+   * container cold-boots — only the disk reverts), never request-supplied. Sync
+   * (a single `kv.put`, no container round-trip).
+   */
+  @mesh(requireAdmin)
+  setAppVersion(version: string): void {
+    this.ctx.storage.kv.put(VERSION_KEY, version);
+  }
+
+  /**
    * Public preview surface — a three-way branch (never blanket-buffer):
    *  - WS upgrade (vite HMR) → forward `super.fetch()` verbatim (ungated).
    *  - shell `index.html` → buffer + inject the SERVER-DERIVED scope, fresh Response.
@@ -190,6 +224,12 @@ export class DevContainer extends NebulaContainer {
    * NEVER request-supplied — the wrong-Star footgun guard.
    */
   override async fetch(request: Request): Promise<Response> {
+    // Set the preview base BEFORE super.fetch() triggers the container start (envVars are
+    // read at start). On a cold direct GET the instance isn't stamped yet, so read it from
+    // the routing header; warm DOs have `this.lmz.instanceName` (Decision 12 / Flow 1d).
+    this.#setPreviewBaseEnv(
+      request.headers.get('x-lumenize-do-instance-name-or-id') ?? this.lmz.instanceName,
+    );
     if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
       return super.fetch(request); // HMR WebSocket — forward verbatim, never buffer
     }
@@ -204,8 +244,13 @@ export class DevContainer extends NebulaContainer {
       return new Response('Cannot serve preview: missing instance scope', { status: 500 });
     }
     const authScope = activeScope.split('.').slice(0, 2).join('.'); // {u}.{g} from {u}.{g}.dev
+    // The version DevStudio installed on the `.dev` Star (server-derived hashBlob of
+    // the ontology source), pushed here via setAppVersion. Empty until the first
+    // ontology is applied — the preview can't do data ops before then anyway, and
+    // injecting '' (not 'dev') keeps the contract honest (Decision 12 / Flow 1d).
+    const appVersion = this.ctx.storage.kv.get<string>(VERSION_KEY) ?? '';
     const html = await res.text();
-    const injected = injectScopeMeta(html, { activeScope, authScope, appVersion: 'dev' });
+    const injected = injectScopeMeta(html, { activeScope, authScope, appVersion });
     const headers = new Headers(res.headers);
     headers.set('content-type', 'text/html; charset=utf-8');
     headers.delete('content-length'); // body length changed

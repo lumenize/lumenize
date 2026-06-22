@@ -12,9 +12,11 @@ Key shape now: `DevStudio` (`src/dev-studio.ts`, shell `Workspace`+isomorphic-gi
 
 ---
 
-## 🔴 #1 — Live dev-loop version contract (DEPLOY-BLOCKING; the prerequisite for the first working live preview)
+## ✅ #1 — Live dev-loop version contract (DESIGN RESOLVED 2026-06-21 → ready to build)
 
-### The gap
+**Resolved.** Design is canonical in [`nebula-dev-flows.md`](nebula-dev-flows.md) **Decision 12 + Flow 1d** (sequence diagrams + the ordering/no-lock rationale + the hash-vs-GUID + Worker-Loader findings); build plan = [`nebula-studio.md`](nebula-studio.md) **Phase 5**. Picks: inject the real content-hashed version by **push** (`DevContainer.setAppVersion`, replacing the `'dev'` literal); re-sync via the **kept reload channel triggered from `Star.#installState` on `isNewVersion`** (no new `@mesh` surface, no `.dev` hot-path branch); validator **bundle stays on the Star**; reload subscription **dev-only**; rename `applyOntology` → `compileAndInstallOntology`; `resetDevData` preserves `ReloadSubscribers`. The original finding is preserved below for context.
+
+### The gap (original finding)
 In the **assembled live preview** (deploy-gated, so untestable under vitest-pool-workers — that's why the suites are green and this slipped through):
 
 - `DevContainer.fetch()` (`src/dev-container.ts`, the `injectScopeMeta(...)` call) injects **`appVersion: 'dev'`** (a hardcoded constant) into the shell as `<meta name="nebula-scope">`.

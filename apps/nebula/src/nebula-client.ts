@@ -382,6 +382,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (state === 'connected' && this.#orgTreeListener) {
           this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeTree());
         }
+        // Dev-preview reload channel (Decision 12 / Flow 1d): (re)subscribe on every
+        // 'connected' — gated on a configured `onReload`, which the bootstrap sets for
+        // the `.dev` preview ONLY (prod clients leave it unset → no subscription).
+        // Idempotent server-side (INSERT OR REPLACE by clientId), mirroring the orgTree
+        // singleton above; the Star fans out `handleReload` on a version change.
+        if (state === 'connected' && this.#onReload) {
+          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeReload());
+        }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
         // replays the current state once at creation via `connectionState`, so

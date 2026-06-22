@@ -3,7 +3,7 @@
  * SQLite DO), so unlike DevContainer it CAN run under vitest-pool-workers — this
  * project exercises the real node: shell `Workspace` + isomorphic-git (writeSource /
  * commit / readSource / getSourceTree) and the cross-DO compile-and-apply
- * (`applyOntology` → `STAR.setOntology`). Driven via `__executeOperation`
+ * (`compileAndInstallOntology` → `STAR.setOntology`). Driven via `__executeOperation`
  * envelopes (the container-node + interim-dev-loop pattern) — no Gateway/JWT infra.
  *
  * The container-push primitives (`ensureUp`/`syncToDevContainer`) call DEV_CONTAINER

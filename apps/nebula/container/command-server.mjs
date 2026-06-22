@@ -28,14 +28,19 @@ const ROOT = APP_DIR;
 let viteChild = null;
 function startVite() {
   if (viteChild) return;
-  viteChild = spawn("npm", ["run", "dev"], { cwd: APP_DIR, stdio: ["ignore", "pipe", "pipe"] });
+  // vite inherits process.env (passed explicitly for clarity) — incl. PREVIEW_BASE,
+  // which the DevContainer DO sets as a container env var so vite serves under the
+  // per-instance `/dev-container/{scope}/` prefix (Flow 1d). Logged so the base is
+  // visible in the container output when debugging the assembled preview.
+  const previewBase = process.env.PREVIEW_BASE || "/";
+  viteChild = spawn("npm", ["run", "dev"], { cwd: APP_DIR, stdio: ["ignore", "pipe", "pipe"], env: process.env });
   viteChild.stdout.on("data", (d) => process.stdout.write(`[vite] ${d}`));
   viteChild.stderr.on("data", (d) => process.stderr.write(`[vite] ${d}`));
   viteChild.on("exit", (code, signal) => {
     console.log(`[command-server] vite exited code=${code} signal=${signal}`);
     viteChild = null;
   });
-  console.log(`[command-server] vite started pid=${viteChild.pid}`);
+  console.log(`[command-server] vite started pid=${viteChild.pid} PREVIEW_BASE=${previewBase}`);
 }
 function stopVite() {
   return new Promise((res) => {

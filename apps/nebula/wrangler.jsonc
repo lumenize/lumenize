@@ -1,5 +1,6 @@
 {
   "name": "nebula",
+  "main": "src/worker.ts",
   "compatibility_date": "2026-04-01",
   // nodejs_compat is REQUIRED: DevStudio (bound below) transitively imports
   // isomorphic-git + @cloudflare/shell, which import `node:` builtins (buffer/crypto/

@@ -8,7 +8,7 @@
  *    `writeSource` commits to the shell Workspace (distinct git oids), `readSource`
  *    returns the latest, `getSourceTree` returns the tracked tree + HEAD;
  *  - **compile-and-apply** (replaces `DevStar.deployToDev`'s Galaxy pull, Decision 9):
- *    `applyOntology` compiles the ontology `.d.ts` and installs it on the `.dev` Star;
+ *    `compileAndInstallOntology` compiles the ontology `.d.ts` and installs it on the `.dev` Star;
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
  *  - the command surface is **admin-gated**.
  *
@@ -91,15 +91,15 @@ describe('DevStudio source-of-truth (shell Workspace + isomorphic-git)', () => {
 });
 
 describe('DevStudio compile-and-apply to the .dev Star (replaces deployToDev)', () => {
-  it('applyOntology compiles the ontology .d.ts and installs the version on the .dev Star', async () => {
+  it('compileAndInstallOntology compiles the ontology .d.ts and installs the version on the .dev Star', async () => {
     const dev = uniqueDevScope();
     await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
 
-    const { version } = await callStudio(dev, 'applyOntology', [{}]);
+    const { version } = await callStudio(dev, 'compileAndInstallOntology', [{}]);
     expect(version).toMatch(OID_RE);
 
     // Installed on the .dev Star (cross-DO mesh callRaw → setOntology → #installState).
-    // Capable-of-failing: if applyOntology didn't reach the Star, the index is empty.
+    // Capable-of-failing: if compileAndInstallOntology didn't reach the Star, the index is empty.
     const index = await callDevStar(dev, 'inspectOntologyIndex');
     expect(index).toContain(version);
   });
@@ -107,29 +107,29 @@ describe('DevStudio compile-and-apply to the .dev Star (replaces deployToDev)', 
   it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version (Worker Loader cache guard)', async () => {
     const dev = uniqueDevScope();
     await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
-    const r1 = await callStudio(dev, 'applyOntology', [{}]);
+    const r1 = await callStudio(dev, 'compileAndInstallOntology', [{}]);
 
     // Edit the ontology → a DIFFERENT compiled version (git.hashBlob of the source).
     // A constant label (e.g. 'dev') would silently reuse the cached validator bundle.
     await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V2]);
-    const r2 = await callStudio(dev, 'applyOntology', [{}]);
+    const r2 = await callStudio(dev, 'compileAndInstallOntology', [{}]);
     expect(r2.version).not.toBe(r1.version);
 
     const index = await callDevStar(dev, 'inspectOntologyIndex');
     expect(index).toContain(r2.version);
   });
 
-  it('applyOntology({ wipe: true }) wipes the .dev Star BEFORE installing (Flow 1b wipe path)', async () => {
+  it('compileAndInstallOntology({ wipe: true }) wipes the .dev Star BEFORE installing (Flow 1b wipe path)', async () => {
     const dev = uniqueDevScope();
     // Install an initial ontology (no wipe) so the .dev Star already carries state.
     await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V1]);
-    const { version: vA } = await callStudio(dev, 'applyOntology', [{}]);
+    const { version: vA } = await callStudio(dev, 'compileAndInstallOntology', [{}]);
     expect(await callDevStar(dev, 'inspectOntologyIndex')).toContain(vA);
 
     // Change the ontology + apply WITH wipe. resetDevData (deleteAll) must run BEFORE
     // setOntology, so the prior version is gone and only the new one remains.
     await callStudio(dev, 'writeSource', [ONTOLOGY_PATH, TODO_V2]);
-    const { version: vB } = await callStudio(dev, 'applyOntology', [{ wipe: true }]);
+    const { version: vB } = await callStudio(dev, 'compileAndInstallOntology', [{ wipe: true }]);
     expect(vB).not.toBe(vA);
 
     const index = await callDevStar(dev, 'inspectOntologyIndex');
@@ -164,5 +164,15 @@ describe('DevStudio container push (deploy-gated)', () => {
     // the applyChanges push round-trip is deploy-gated. Mechanism proven in
     // experiments/interim-dev-loop (DevStudio→container source transport over mesh).
     // Revive against the first full apps/nebula Worker deploy.
+  });
+
+  it.skip('applyOntologyChange orders the propagation: setAppVersion + source push BEFORE the Star install (Decision 12 / Flow 1d-ii)', () => {
+    // The ordered version-contract propagation (Phase 5): DevStudio.applyOntologyChange
+    // calls DevContainer.setAppVersion(Hnew) + syncToDevContainer FIRST, THEN
+    // compileAndInstallOntology (whose setOntology fires broadcastReload) — so the
+    // reloaded preview re-fetches the shell at the NEW injected version. Deploy-gated:
+    // the container calls need a live container (same as ensureUp/syncToDevContainer).
+    // The Star half (compileAndInstallOntology + the reload trigger) is covered now in
+    // the compile-and-apply describe above + baseline/reload-version-contract.test.ts.
   });
 });

@@ -24,6 +24,7 @@
     "src/**/*"
   ],
   "scripts": {
+    "dev": "wrangler dev",
     "test": "vitest --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project dev-studio --project browser",

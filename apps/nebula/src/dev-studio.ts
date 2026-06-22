@@ -86,7 +86,7 @@ export class DevStudio extends NebulaDO {
    * The engine's core write: persist one edit to the working copy + `git commit`
    * (local, durable — the source-of-truth write). Returns the commit oid. Pushing
    * the change to the DevContainer (`syncToDevContainer`) and applying a changed
-   * ontology (`applyOntology`) are SEPARATE steps the engine composes after — kept
+   * ontology (`compileAndInstallOntology`) are SEPARATE steps the engine composes after — kept
    * separable so the durable write is independently testable (success criterion:
    * "writeSource persists to the Workspace + git commit") and the container push
    * stays deploy-isolated.
@@ -132,15 +132,32 @@ export class DevStudio extends NebulaDO {
     return { head, files };
   }
 
+  /** Read the ontology source + its content-addressed version (`hashBlob` of the
+   *  `.d.ts`). The SINGLE source of the version label — used to install on the Star
+   *  AND (via {@link applyOntologyChange}) to inject into the DevContainer shell, so
+   *  the two always agree by construction (Decision 12 / Flow 1d). */
+  async #readOntology(): Promise<{ types: string; version: string }> {
+    const types = await this.#fs.readFile('/' + ONTOLOGY_PATH);
+    const { oid: version } = await git.hashBlob({ object: types });
+    return { types, version };
+  }
+
   /**
-   * Compile the ontology `.d.ts` to a validator and apply it to the `.dev` Star
+   * Compile the ontology `.d.ts` to a validator and install it on the `.dev` Star
    * (Decision 9 — the Star never compiles; it receives the compiled validator).
-   * REPLACES `DevStar.deployToDev`'s Galaxy round-trip (Phase 4 deletes that) — do
+   * REPLACES `DevStar.deployToDev`'s Galaxy round-trip (Phase 4 deleted that) — do
    * NOT route dev compile through the Galaxy DO.
    *
-   * `version` is content-addressed (`git.hashBlob` of the ontology source) so the
-   * Star's Worker Loader cache (`bundleId = galaxyId/version`) never serves a stale
-   * validator for changed ontology (durable-objects.md § Worker Loader cache).
+   * `version` is content-addressed (`git.hashBlob` of the ontology source — via
+   * `#readOntology`) so the Star's Worker Loader cache (`bundleId = galaxyId/version`)
+   * never serves a stale validator for changed ontology (durable-objects.md § Worker
+   * Loader cache), and the same source pins the same version dev↔prod (Decision 12).
+   *
+   * **Star-only — independently testable.** This installs on the Star (and, on a new
+   * version, the Star fires `broadcastReload`). The DevContainer side (inject the same
+   * version + push source) is the SEPARATE {@link applyOntologyChange} wrapper, which
+   * orders the container push BEFORE this install — keep them separate so this stays
+   * testable without a live container.
    *
    * **Flow 1b wipe gating** (Decision 11): on an ontology change the user decides
    * whether to wipe `.dev` data (breaking edits invalidate stored snapshots). The
@@ -151,17 +168,38 @@ export class DevStudio extends NebulaDO {
    * source-push on this completing (so the preview never lands new code on stale data).
    */
   @mesh(requireAdmin)
-  async applyOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
-    const types = await this.#fs.readFile('/' + ONTOLOGY_PATH);
-    const { oid: version } = await git.hashBlob({ object: types });
+  async compileAndInstallOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
+    const { types, version } = await this.#readOntology();
     const row = compileOntologyVersion({ version, types });
     const instance = this.lmz.instanceName!;
     if (wipe) {
       await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().resetDevData());
     }
     await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().setOntology(row));
-    debug('nebula.DevStudio.applyOntology').debug('applied', { instanceName: instance, version, wiped: wipe });
+    debug('nebula.DevStudio.compileAndInstallOntology').debug('applied', { instanceName: instance, version, wiped: wipe });
     return { version };
+  }
+
+  /**
+   * Propagate an ontology change to the live preview in the order the version
+   * contract requires (Decision 12 / Flow 1d-ii): push the new version + source to
+   * the DevContainer FIRST, THEN install on the `.dev` Star — whose `setOntology`
+   * fires `broadcastReload`, so the reloaded preview re-fetches the shell at the NEW
+   * injected version. Reversing the order would reload the preview onto the OLD
+   * injected version (a transient extra reload until it heals). The Flow-1b wipe
+   * decision is the `wipe` arg.
+   *
+   * ⚠️ Deploy-gated — the container calls (`setAppVersion`/`syncToDevContainer`) need
+   * a live container (same constraint as `ensureUp`/`syncToDevContainer`); the Star
+   * half (`compileAndInstallOntology`) is independently testable.
+   */
+  @mesh(requireAdmin)
+  async applyOntologyChange({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
+    const { version } = await this.#readOntology();
+    const instance = this.lmz.instanceName!;
+    await this.lmz.callRaw(DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().setAppVersion(version));
+    await this.syncToDevContainer([ONTOLOGY_PATH]);
+    return this.compileAndInstallOntology({ wipe });
   }
 
   /**

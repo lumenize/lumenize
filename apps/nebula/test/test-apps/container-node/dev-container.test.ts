@@ -104,13 +104,29 @@ describe('DevContainer command @mesh surface is fully admin-gated', () => {
     expect(nonAdminMeshMethods(DevContainer)).toEqual([]);
   });
 
-  it('the command methods are mesh-callable + requireAdmin (spot-check applyChanges/exec)', () => {
-    for (const name of ['ensureUp', 'applyChanges', 'exec', 'viteControl', 'readFileInContainer']) {
+  it('the command methods are mesh-callable + requireAdmin (spot-check applyChanges/exec/setAppVersion)', () => {
+    for (const name of ['ensureUp', 'applyChanges', 'exec', 'viteControl', 'readFileInContainer', 'setAppVersion']) {
       const fn = (DevContainer.prototype as unknown as Record<string, unknown>)[name] as (...a: unknown[]) => unknown;
       expect(typeof fn).toBe('function');
       expect(isMeshCallable(fn)).toBe(true);
       expect(getMeshGuard(fn)).toBe(requireAdmin);
     }
+  });
+});
+
+describe('DevContainer setAppVersion (the version the public fetch() injects)', () => {
+  // Prototype call with a fake `this` — DevContainer can't construct under
+  // vitest-pool-workers, but setAppVersion is a pure `kv.put` so we can drive it on the
+  // prototype. The fetch()-reads-it-back round-trip is deploy-gated (below).
+  it('stores the version under the DevContainer KV key', () => {
+    const puts: Array<[string, unknown]> = [];
+    const fakeThis = { ctx: { storage: { kv: { put: (k: string, v: unknown) => { puts.push([k, v]); } } } } };
+    const oid = 'a'.repeat(40);
+    (DevContainer.prototype as unknown as Record<string, (...a: unknown[]) => unknown>)
+      .setAppVersion.call(fakeThis, oid);
+    // Capable-of-failing: a wrong key (or no write) breaks the contract with fetch(),
+    // which reads this exact key to inject `appVersion` (Decision 12 / Flow 1d).
+    expect(puts).toEqual([['devcontainer:appVersion', oid]]);
   });
 });
 
@@ -124,6 +140,20 @@ describe('DevContainer assembled-container e2e (deploy-gated)', () => {
     // vitest-pool-workers (`extends Container` won't construct — no container
     // engine). Revive against the first full `apps/nebula` Worker deploy
     // (Docker Desktop + WARP); see tasks/nebula-studio.md § Test strategy.
+  });
+
+  it.skip('version contract: fetch() injects the REAL version → preview ops succeed → ontology change reloads onto the new version (Decision 12 / Flow 1d)', () => {
+    // End-to-end on real infra (the container-free Star↔client reload half is covered
+    // in baseline/reload-version-contract.test.ts):
+    //  1. DevStudio.applyOntologyChange → setAppVersion(Hnew) on this DevContainer +
+    //     compileAndInstallOntology(Hnew) on the .dev Star (ordered: container first).
+    //  2. Preview GET → fetch() injects appVersion = kv.get(VERSION_KEY) = Hnew (NOT
+    //     'dev'); the client sends Hnew → Star Handler-1 MATCHES → ops succeed (no
+    //     OntologyStaleError on every op — the original deploy-blocking gap).
+    //  3. A later ontology change (Hnew') → broadcastReload → the preview's onReload →
+    //     reload → re-fetch injects Hnew' → ops still succeed.
+    // Can't run under vitest-pool-workers (`extends Container` won't construct); revive
+    // against the first full apps/nebula Worker deploy (Docker Desktop + WARP).
   });
 
   it.skip('cold boot re-push: ensureUp boot-race retry + applyChanges(full tree) → preview comes back identical (Flow 1c)', () => {
