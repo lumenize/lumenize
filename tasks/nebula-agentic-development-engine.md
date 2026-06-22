@@ -236,19 +236,24 @@ Get these right *early* — retrofitting them is expensive:
 
 ## The work, in order
 
-### Turn recorder — *defined*
+### Turn recorder — ✅ DONE 2026-06-22
+> ✅ **Built 2026-06-22** (`f0e6865`). Store = the per-tester **Galaxy DO's SQLite** (`Galaxy.recordTurn`/`getTurns` over a `Turns` table); `DevStudio.chat()` fires it fire-and-forget. Full record stored as JSON `payload` = the eval-fixture schema (tool-calling-shaped). Persistence layer tested under pool-workers (round-trip / ordering / admin-gated, mutation-verified, baseline no-regression); the `chat()`→record end-to-end stays deploy-gated. Consent assumed true (per-Galaxy flag backlogged).
+
 Persist **every** codegen turn (system prompt, user message, current source, model output incl.
 `reasoning_content`, tool calls, applied/error, Rung-1 validate result) to a **cross-run** store
-(R2 or a dev-only D1 — *not* per-sandbox `ctx.storage.sql`, which is the wrong home for a corpus
+(R2 or a dev-only mesh DO — *not* per-sandbox `ctx.storage.sql`, which is the wrong home for a corpus
 you query across runs; *not* coupled to the parked Tail-Worker observability design — that's
 log-scraping, this is structured turn capture).
+
 - **Why first:** nearly free — `chat()` already computes everything; persisting is a few lines.
   It accumulates the corpus *while* later items are built, and those real turns become the seed
   fixtures for the offline harness.
 - **Unblocks:** the offline harness; the eval suite (same schema).
-- **Open call:** R2 vs dev-only D1 for the store (decide when building).
+- **Resolved:** stored in the per-tester **Galaxy DO** (mesh-for-free; queryable SQLite). R2 was spiked then punted (`tasks/icebox/spike-r2-olap-latency.md`).
 
-### vibesdk study — *research (read-only)*
+### vibesdk study — ✅ DONE 2026-06-22
+> ✅ **Done 2026-06-22** → [`reference/vibesdk-llm-patterns.md`](reference/vibesdk-llm-patterns.md) (9 sections + takeaways; 4-agent read-only fan-out over a shallow clone). Headlines for the loop build: **completion-signal tools + max-tool-depth + loop-detection** bound the loop; native tool-calling = **schema+impl split** (typia, not Zod; bridge to Workers AI ourselves); **error-tail freshness = deploy→wait→re-fetch**; **pin the ontology in a stable system block**; **search/replace diffs** (w/ ambiguity scoring) when we move to edits. Confirmed: vibesdk's `ThinkAgent` IS `@cloudflare/think` → our rejection stands; the reusable bit is the phasic state machine.
+
 Mine `cloudflare/vibesdk` for the LLM-orchestration layer — full reading list, output sections,
 caveats, and stop condition in **Part 1 § Pre-build reading**. Output →
 `tasks/reference/vibesdk-llm-patterns.md`.
