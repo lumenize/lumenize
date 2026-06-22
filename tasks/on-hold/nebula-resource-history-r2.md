@@ -172,6 +172,9 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
   committing — validate it's not the hundreds-of-ms figure previously assumed. Reuse the
   browser-test/bench harness (see `reference_mesh_browser_test_template`,
   `reference_fanout_bench_setup`).
+  → **Spike: [`../spike-r2-olap-latency.md`](../spike-r2-olap-latency.md)** — benchmarks this point-read
+  latency AND expands it to **R2 SQL OLAP-query latency vs DO SQLite** (the cross-history analytics
+  question), via a Node external observer. R2 SQL + Data Catalog confirmed open-beta + free 2026-06-22.
 - **D5 — Hot-read frequency.** How often do temporal queries / window-of-now tree traversals
   actually hit history vs. current? Drives whether the D2 short-lived cache is worth building and
   what its TTL should be.
