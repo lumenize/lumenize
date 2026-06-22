@@ -24,8 +24,9 @@
  *
  * ⚠️ `extends Container` does NOT construct under vitest-pool-workers
  * ([[container-no-construct-pool-workers]]); the composed seam is tested via
- * non-Container harnesses + the pure helpers below. Assembled-container e2e is a
- * deploy-gated `it.skip` (the first full `apps/nebula` Worker deploy).
+ * non-Container harnesses + the pure helpers below. The assembled-container e2e is an
+ * `it.skip` run with `wrangler dev` + Docker Desktop (the Container runs locally there;
+ * it just can't construct under pool-workers — testing.md § "What a skipped test needs").
  *
  * @see tasks/nebula-studio.md § DevContainer dev loop
  * @see tasks/nebula-dev-flows.md — Flow 1 / 1c + DevContainer internals

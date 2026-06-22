@@ -8,12 +8,12 @@
  * instance identity — never request-supplied; the wrong-Star footgun guard). The
  * prod static-serve injects the same meta. We read it here, never a URL/query value.
  *
- * ⚠️ Deploy-gated wiring: `@lumenize/nebula/frontend` is a private workspace package
- * (not on npm), so it is VENDORED into the container image at deploy build — the seed
+ * ⚠️ Assembled-image wiring: `@lumenize/nebula/frontend` is a private workspace package
+ * (not on npm), so it is VENDORED into the container image at image build — the seed
  * App.vue boots standalone (doesn't import this file) so the image self-validates
  * vite+HMR without the factory; DevStudio's first `applyChanges` pushes an App.vue
  * that imports `{ client, store }` from here once the frontend is vendored. The
- * assembled preview (factory + live Star) rides the deploy-gated e2e (task Phase 3.5).
+ * assembled preview (factory + live Star) rides the e2e run with `wrangler dev` + Docker Desktop (task Phase 3.5).
  */
 // @ts-expect-error — vendored at deploy build (see header); unresolved in the baked tree.
 import { createNebulaClient } from '@lumenize/nebula/frontend';

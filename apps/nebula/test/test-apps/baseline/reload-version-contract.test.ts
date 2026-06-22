@@ -2,8 +2,8 @@
  * Live dev-loop version contract — the reload channel (Phase 5, container-free half).
  *
  * The version *injection* round-trip (DevContainer.fetch injects the real version →
- * preview ops succeed) is deploy-gated (needs a live container) — see the `it.skip` in
- * `container-node/dev-container.test.ts`. What IS testable here is the reload channel
+ * preview ops succeed) needs a live container (run with `wrangler dev` + Docker Desktop) —
+ * see the `it.skip` in `container-node/dev-container.test.ts`. What IS testable here is the reload channel
  * that re-syncs an already-loaded preview when the ontology version changes — it's a
  * pure Star↔client path, no container:
  *  - T1: a NEW ontology version fires `Star.broadcastReload` (from `#installState`) →

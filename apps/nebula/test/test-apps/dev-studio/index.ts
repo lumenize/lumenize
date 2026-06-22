@@ -7,7 +7,7 @@
  * envelopes (the container-node + interim-dev-loop pattern) — no Gateway/JWT infra.
  *
  * The container-push primitives (`ensureUp`/`syncToDevContainer`) call DEV_CONTAINER
- * (`extends Container`, can't construct here) → deploy-gated `it.skip` in the test.
+ * (`extends Container`, can't construct here) → an `it.skip` run with `wrangler dev` + Docker Desktop.
  *
  * `DevStarOntologyProbe` is the `.dev` data-Star target with a single read hook so a
  * test can confirm `setOntology` installed the compiled version.

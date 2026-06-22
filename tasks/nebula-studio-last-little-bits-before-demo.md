@@ -6,7 +6,7 @@
 
 ## What's already done (this session — `feat/nebula-studio`)
 
-Phase 3.5 (DevContainer + DevStudio + `resetDevData`→Star) and Phase 4 (in-DO serve/compile teardown + DevStar→Star collapse + Galaxy lazy-pull removal) are built, green (unit+frontend 197 · baseline 225 · container+dev-studio 23 · deploy-gated `it.skip`s), type-check clean, coverage Stmts 90.39%/Branch 82%. Commits: `5b4e287` (3.5), `4787cea` (P4-1), `e24cac8` (P4-2), `176a35c` (coverage cfg), `7ee89bb` (doc fixups), `fcb1064` (this backlog item). NOT committed: nothing of ours is pending; `docs/` is owned by a separate session — **leave `docs/` alone**.
+Phase 3.5 (DevContainer + DevStudio + `resetDevData`→Star) and Phase 4 (in-DO serve/compile teardown + DevStar→Star collapse + Galaxy lazy-pull removal) are built, green (unit+frontend 197 · baseline 225 · container+dev-studio 23 · plus `it.skip`s run with `wrangler dev`), type-check clean, coverage Stmts 90.39%/Branch 82%. Commits: `5b4e287` (3.5), `4787cea` (P4-1), `e24cac8` (P4-2), `176a35c` (coverage cfg), `7ee89bb` (doc fixups), `fcb1064` (this backlog item). NOT committed: nothing of ours is pending; `docs/` is owned by a separate session — **leave `docs/` alone**.
 
 Key shape now: `DevStudio` (`src/dev-studio.ts`, shell `Workspace`+isomorphic-git, sole source-of-truth) compiles the ontology `.d.ts` → `Star.setOntology` (no Galaxy round-trip) and pushes source to `DevContainer` (`src/dev-container.ts`, vite preview) via `applyChanges`. The dev Star is a plain `Star` at `{u}.{g}.dev` (no DevStar/DEV_STAR). `resetDevData` is on `Star`, hard-guarded to `.dev`.
 
@@ -17,7 +17,7 @@ Key shape now: `DevStudio` (`src/dev-studio.ts`, shell `Workspace`+isomorphic-gi
 **Resolved.** Design is canonical in [`nebula-dev-flows.md`](nebula-dev-flows.md) **Decision 12 + Flow 1d** (sequence diagrams + the ordering/no-lock rationale + the hash-vs-GUID + Worker-Loader findings); build plan = [`nebula-studio.md`](nebula-studio.md) **Phase 5**. Picks: inject the real content-hashed version by **push** (`DevContainer.setAppVersion`, replacing the `'dev'` literal); re-sync via the **kept reload channel triggered from `Star.#installState` on `isNewVersion`** (no new `@mesh` surface, no `.dev` hot-path branch); validator **bundle stays on the Star**; reload subscription **dev-only**; rename `applyOntology` → `compileAndInstallOntology`; `resetDevData` preserves `ReloadSubscribers`. The original finding is preserved below for context.
 
 ### The gap (original finding)
-In the **assembled live preview** (deploy-gated, so untestable under vitest-pool-workers — that's why the suites are green and this slipped through):
+In the **assembled live preview** (runs with `wrangler dev` + Docker Desktop, so untestable under vitest-pool-workers — that's why the suites are green and this slipped through):
 
 - `DevContainer.fetch()` (`src/dev-container.ts`, the `injectScopeMeta(...)` call) injects **`appVersion: 'dev'`** (a hardcoded constant) into the shell as `<meta name="nebula-scope">`.
 - The `nebula.ts` bootstrap (`container/app/src/nebula.ts`) reads that meta and passes `appVersion` to `createNebulaClient({ appVersion, authScope, activeScope })`.
@@ -51,11 +51,11 @@ Alternative (weigh, but likely worse): a *general* (not `.dev`-special) "use-cur
 
 ## Other remaining pre-demo bits
 
-- **First full `apps/nebula` Worker deploy** — a milestone of its own (intersects `nebula-release-process.md`). It unblocks the deploy-gated `it.skip` e2e: the assembled-container fetch()/HMR/`applyChanges` round-trip + the cold-boot re-push (Flow 1c), which `extends Container` can't exercise under vitest-pool-workers ([[container-no-construct-pool-workers]]). The `wrangler.jsonc` `migrations` block (all DOs `new_sqlite_classes`) + `containers` block already exist. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]). ⚠️ Prod `apps/nebula/wrangler.jsonc` `vars` must NOT gain any admin/bootstrap/test-mode var — the deploy-gated e2e admin setup uses a *separate* deployed test-harness wrangler (`nebula-studio.md` § Deploy-gated e2e admin setup).
+- **First full `apps/nebula` Worker deploy** — a milestone of its own (intersects `nebula-release-process.md`), **needed only to invite alpha testers**. It does NOT gate the assembled-container e2e: that fetch()/HMR/`applyChanges` round-trip + cold-boot re-push (Flow 1c) runs locally with `wrangler dev` + Docker Desktop (WARP — [[cf-container-deploy-proxy]]); it just can't run under vitest-pool-workers ([[container-no-construct-pool-workers]]). The `wrangler.jsonc` `migrations` block (all DOs `new_sqlite_classes`) + `containers` block already exist. ⚠️ Prod `apps/nebula/wrangler.jsonc` `vars` must NOT gain any admin/bootstrap/test-mode var — the *deployed*-e2e admin setup (for testers) uses a *separate* deployed test-harness wrangler (`nebula-studio.md` § Deployed-e2e admin setup).
 - **The codegen engine itself** — `nebula-agentic-development-engine.md` (Kimi 2.7 loop driving `DevStudio.writeSource`). That file is under-specified/unreviewed; it's the next big phase and is where the version-contract resolution above will likely land (the live dev-loop UX is its concern). A *minimal unevaluated* system prompt is all the demo needs (`nebula-studio.md` § Minimal codegen system prompt); prompt iteration/evals are deferred.
 - **Kept-but-uncovered code** (deliberate, don't delete): Galaxy `appendOntologyVersion`/`getLatestOntologyVersion`/etc. (→ rename to app-level at publish) + the reload channel (gets its trigger + coverage from the version-contract work above).
 
 ## Suggested sequencing
-1. Resolve the version contract (#1) — design (inject-real-version + reload-on-change), then build + a deploy-gated e2e. This is the live-preview prerequisite.
-2. First `apps/nebula` deploy → turn the `it.skip` e2es green on real infra.
+1. Resolve the version contract (#1) — design (inject-real-version + reload-on-change), then build + an e2e run with `wrangler dev`. This is the live-preview prerequisite.
+2. First `apps/nebula` deploy → invite alpha testers (the `it.skip` e2es already run locally with `wrangler dev`).
 3. Wire the minimal codegen prompt (`nebula-agentic-development-engine.md`) → the cold-start interview → first generated app.

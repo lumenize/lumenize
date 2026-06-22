@@ -231,7 +231,7 @@ export class DevStudio extends NebulaDO {
    * injected version (a transient extra reload until it heals). The Flow-1b wipe
    * decision is the `wipe` arg.
    *
-   * ⚠️ Deploy-gated — the container calls (`setAppVersion`/`syncToDevContainer`) need
+   * ⚠️ Run with `wrangler dev` — the container calls (`setAppVersion`/`syncToDevContainer`) need
    * a live container (same constraint as `ensureUp`/`syncToDevContainer`); the Star
    * half (`compileAndInstallOntology`) is independently testable.
    */
@@ -246,7 +246,7 @@ export class DevStudio extends NebulaDO {
 
   /**
    * Cold-boot population (Flow 1c): wait for the container (boot-race retry inside
-   * `ensureUp`), then push the full source tree. ⚠️ Deploy-gated — `DevContainer`
+   * `ensureUp`), then push the full source tree. ⚠️ Run with `wrangler dev` — `DevContainer`
    * `extends Container` can't construct under vitest-pool-workers; exercised on a
    * deployed Worker (the assembled e2e `it.skip`).
    */
@@ -263,7 +263,7 @@ export class DevStudio extends NebulaDO {
 
   /**
    * Push changed source files to the DevContainer (`applyChanges` → vite HMR, Flow 1).
-   * Default = the full tracked tree; pass `paths` to push a subset. ⚠️ Deploy-gated
+   * Default = the full tracked tree; pass `paths` to push a subset. ⚠️ Run with `wrangler dev`
    * (same reason as `ensureUp`).
    */
   @mesh(requireAdmin)
@@ -290,7 +290,7 @@ export class DevStudio extends NebulaDO {
    * wipes (D2 secure-by-default). Returns `reply` + `thought` for the Studio UI's
    * waiting → thought-process view; the model id is never surfaced (model-agnostic).
    *
-   * ⚠️ Deploy-gated — `ensureUp`/`syncToDevContainer` need a live container and the loop
+   * ⚠️ Run with `wrangler dev` — `ensureUp`/`syncToDevContainer` need a live container and the loop
    * calls `env.AI.run`; runs under `wrangler dev` + Docker Desktop, not vitest-pool-workers.
    */
   @mesh(requireAdmin)

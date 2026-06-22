@@ -235,7 +235,7 @@ describe('DevStudio container push (run with `wrangler dev`)', () => {
     // The ordered version-contract propagation (Phase 5): DevStudio.applyOntologyChange
     // calls DevContainer.setAppVersion(Hnew) + syncToDevContainer FIRST, THEN
     // compileAndInstallOntology (whose setOntology fires broadcastReload) — so the
-    // reloaded preview re-fetches the shell at the NEW injected version. Deploy-gated:
+    // reloaded preview re-fetches the shell at the NEW injected version. Run with `wrangler dev`:
     // the container calls need a live container (same as ensureUp/syncToDevContainer).
     // The Star half (compileAndInstallOntology + the reload trigger) is covered now in
     // the compile-and-apply describe above + baseline/reload-version-contract.test.ts.

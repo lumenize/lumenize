@@ -3,8 +3,9 @@
  * prototype inspection, NOT by constructing the node: `extends Container` can't be
  * built under vitest-pool-workers ([[container-no-construct-pool-workers]]). The
  * assembled-container e2e (fetch() 3-way branch over a live vite container, the
- * applyChanges→/apply round-trip, the request-supplied-scope decoy) is a
- * deploy-gated `it.skip` — it gates on the first full `apps/nebula` Worker deploy.
+ * applyChanges→/apply round-trip, the request-supplied-scope decoy) is an
+ * `it.skip` run with `wrangler dev` + Docker Desktop (the Container runs locally there;
+ * it just can't construct under pool-workers).
  *
  * What IS proven here (each capable-of-failing):
  *  - the writeFile path-traversal guard (`assertSafeRelPath`) — `../` AND absolute
@@ -117,7 +118,7 @@ describe('DevContainer command @mesh surface is fully admin-gated', () => {
 describe('DevContainer setAppVersion (the version the public fetch() injects)', () => {
   // Prototype call with a fake `this` — DevContainer can't construct under
   // vitest-pool-workers, but setAppVersion is a pure `kv.put` so we can drive it on the
-  // prototype. The fetch()-reads-it-back round-trip is deploy-gated (below).
+  // prototype. The fetch()-reads-it-back round-trip is run with `wrangler dev` (below).
   it('stores the version under the DevContainer KV key', () => {
     const puts: Array<[string, unknown]> = [];
     const fakeThis = { ctx: { storage: { kv: { put: (k: string, v: unknown) => { puts.push([k, v]); } } } } };
@@ -130,8 +131,8 @@ describe('DevContainer setAppVersion (the version the public fetch() injects)', 
   });
 });
 
-describe('DevContainer assembled-container e2e (deploy-gated)', () => {
-  it.skip('fetch() 3-way branch + applyChanges round-trip + request-scope decoy (needs a deployed Worker + live container)', () => {
+describe('DevContainer assembled-container e2e (run with `wrangler dev` + Docker Desktop)', () => {
+  it.skip('fetch() 3-way branch + applyChanges round-trip + request-scope decoy (needs `wrangler dev` + Docker Desktop)', () => {
     // Mechanism PROVEN on the torn-down `container-node-phase0` experiment (curl-
     // validated live): the public fetch() injects the server-derived scope, a
     // request-supplied `?activeScope=evil.g.dev` decoy is IGNORED, `cf-container-
@@ -161,6 +162,6 @@ describe('DevContainer assembled-container e2e (deploy-gated)', () => {
     // DevContainer cold boot reverts the disk to the baked image; DevStudio
     // re-pushes the full tree (applyChanges) and the preview is identical, incl.
     // the first containerFetch hitting a not-ready container → ContainerUnavailable
-    // → DO retries → eventually serves. Deploy-gated (same reason as above).
+    // → DO retries → eventually serves. Run with `wrangler dev` (same reason as above).
   });
 });

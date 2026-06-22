@@ -283,7 +283,7 @@ export class StarTest extends Star {
 // shell/asset OR an HMR WS upgrade), so a test can assert the gate passed the
 // request through (M3 = GET/HEAD serving target; M2 = HMR WS allowed) vs. blocked it
 // (405/404/501). The real fetch() 3-way branch + scope injection is tested as pure
-// helpers in container-node/dev-container.test.ts + the deploy-gated e2e.
+// helpers in container-node/dev-container.test.ts + the e2e run with `wrangler dev`.
 // ============================================
 
 export class DevContainerServeStub extends DurableObject {

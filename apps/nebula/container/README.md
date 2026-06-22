@@ -21,14 +21,15 @@ Cloudflare Container running real **vite** that fronts the Studio dev-loop previ
 - `:9000` **command-server** — host-DO-only, reached exclusively by `DevContainer`'s
   internal `containerFetch`; the command `@mesh` methods carry `@mesh(requireAdmin)`.
 
-## Deploy-gated
+## Run with `wrangler dev`
 `extends Container` cannot construct under vitest-pool-workers, so the assembled image
-(vite boot + HMR + the `applyChanges` round-trip) is exercised only on a deployed
-Worker — `wrangler deploy` via **Docker Desktop + WARP** ([[cf-container-deploy-proxy]]);
-CI is the headless fallback. The mechanism is proven on the (torn-down)
+(vite boot + HMR + the `applyChanges` round-trip) is exercised by running it with
+**`wrangler dev` + Docker Desktop** (WARP — [[cf-container-deploy-proxy]]); a `wrangler deploy`
+to Cloudflare is only needed to invite alpha testers. The mechanism is proven on the (torn-down)
 `experiments/container-node-phase0` + `experiments/interim-dev-loop` spikes. Pure
 helpers + the entrypoint gates are unit-tested (see `test/test-apps/container-node/`
 + `test/test-apps/baseline/dev-container-serve-gate.test.ts`).
 
 `@lumenize/nebula/frontend` (the factory `nebula.ts` imports) is a private workspace
-package, so it is **vendored into the image at deploy build** — also deploy-gated.
+package, so it is **vendored into the image at build** — present only in the assembled
+container (exercised by running it with `wrangler dev` + Docker Desktop).
