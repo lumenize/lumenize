@@ -33,6 +33,7 @@ import { createGit } from '@cloudflare/shell/git';
 import git from 'isomorphic-git';
 import { NebulaDO, requireAdmin } from './nebula-do';
 import { compileOntologyVersion } from './galaxy';
+import type { Galaxy, TurnRecord } from './galaxy';
 import type { Star } from './star';
 import type { DevContainer, SourceFile } from './dev-container';
 
@@ -41,6 +42,8 @@ import type { DevContainer, SourceFile } from './dev-container';
 const STAR_BINDING = 'STAR';
 /** The dev preview container binding (per-sandbox, same `{u}.{g}.dev` instance). */
 const DEV_CONTAINER_BINDING = 'DEV_CONTAINER';
+/** This sandbox's Galaxy ({u}.{g}) — the turn-recorder store for the codegen corpus. */
+const GALAXY_BINDING = 'GALAXY';
 
 /** The ontology source file — compiled to the runtime validator (Decision 9: the
  *  ontology is just another source file). */
@@ -306,9 +309,42 @@ export class DevStudio extends NebulaDO {
     debug('nebula.DevStudio.chat').debug('generated', {
       instanceName: this.lmz.instanceName, applied: !!appVue, contentLen: content.length,
     });
+    // Best-effort: record the turn to this sandbox's Galaxy for prompt iteration + eval.
+    this.#recordTurn({
+      id: crypto.randomUUID(),
+      createdAt: Date.now(),
+      instance: this.lmz.instanceName!,
+      model: STUDIO_MODEL,
+      systemPrompt: STUDIO_SYSTEM_PROMPT,
+      userMessage: message,
+      currentSource: current,
+      output: content,
+      reasoning,
+      toolCalls: [],
+      applied: !!appVue,
+      appliedPath: appVue ? 'src/App.vue' : undefined,
+    });
     return {
       reply: appVue ? 'Updated the preview.' : 'I could not extract a file — see the thought process.',
       thought,
     };
+  }
+
+  /**
+   * Fire-and-forget: persist one codegen turn to this sandbox's Galaxy (`{u}.{g}`
+   * derived from the `{u}.{g}.dev` instance). Best-effort telemetry — a recording
+   * failure must never break the dev loop, so it's a 3-arg fire-and-forget mesh
+   * call wrapped in try/catch. The Galaxy's scope pattern `{u}.{g}.*` covers this
+   * dev star's `aud` and the origin user is a galaxy admin, so `recordTurn`'s
+   * onBeforeCall + requireAdmin both pass. The corpus seeds the eval suite —
+   * see tasks/nebula-agentic-development-engine.md Part 2.
+   */
+  #recordTurn(record: TurnRecord): void {
+    try {
+      const galaxy = this.lmz.instanceName!.split('.').slice(0, 2).join('.'); // {u}.{g}
+      this.lmz.call(GALAXY_BINDING, galaxy, this.ctn<Galaxy>().recordTurn(record));
+    } catch (e) {
+      debug('nebula.DevStudio.recordTurn').warn('record failed (non-fatal)', { error: e });
+    }
   }
 }

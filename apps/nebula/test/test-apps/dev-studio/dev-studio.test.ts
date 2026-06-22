@@ -63,6 +63,13 @@ async function callDevStar(instance: string, method: string, args: unknown[] = [
   const stub = (env as any).STAR.getByName(instance);
   return unwrap(await stub.__executeOperation(envelope('STAR', instance, method, args)));
 }
+// The Galaxy ({u}.{g}) is this sandbox's turn-recorder store. recordTurn/getTurns carry the
+// DEV-star aud ({u}.{g}.dev) — the real DevStudio→Galaxy path — which the Galaxy's `{u}.{g}.*`
+// scope pattern covers.
+async function callGalaxy(instance: string, method: string, args: unknown[] = [], claims?: Record<string, unknown>) {
+  const stub = (env as any).GALAXY.getByName(instance);
+  return unwrap(await stub.__executeOperation(envelope('GALAXY', instance, method, args, claims)));
+}
 
 describe('DevStudio source-of-truth (shell Workspace + isomorphic-git)', () => {
   it('writeSource commits distinct oids; readSource returns the latest; getSourceTree tracks the tree + HEAD', async () => {
@@ -155,6 +162,62 @@ describe('DevStudio command surface is admin-gated', () => {
     const tree = await callStudio(dev, 'getSourceTree');
     expect(tree.files.length).toBe(0);
     expect(tree.head).toBeNull();
+  });
+});
+
+describe('DevStudio turn recorder → Galaxy SQLite (persistence layer)', () => {
+  // The deploy-gated half is chat() firing recordTurn (needs the AI binding + container);
+  // here we exercise the pool-workers-testable persistence: Galaxy.recordTurn / getTurns.
+  const uniqueGalaxy = () => `${crypto.randomUUID()}.app`; // {u}.{g}
+  const adminAtDev = (galaxy: string) => ({ aud: `${galaxy}.dev`, access: { admin: true } });
+  const turn = (o: Record<string, unknown> = {}) => ({
+    id: crypto.randomUUID(), createdAt: Date.now(), instance: '', model: 'kimi',
+    systemPrompt: 'sys', userMessage: 'make a todo app', currentSource: '',
+    output: '```vue\n<template/>\n```', reasoning: '', toolCalls: [], applied: true,
+    appliedPath: 'src/App.vue', ...o,
+  });
+
+  it('recordTurn persists a turn; getTurns returns the full record (round-trip)', async () => {
+    const galaxy = uniqueGalaxy();
+    const claims = adminAtDev(galaxy);
+    const rec = turn({ instance: `${galaxy}.dev`, userMessage: 'build a kanban', reasoning: 'planning columns' });
+    await callGalaxy(galaxy, 'recordTurn', [rec], claims);
+
+    const turns = await callGalaxy(galaxy, 'getTurns', [{}], claims);
+    expect(turns.length).toBe(1);
+    // The stored JSON payload IS the eval fixture — every field round-trips.
+    expect(turns[0]).toMatchObject({
+      id: rec.id, instance: `${galaxy}.dev`, userMessage: 'build a kanban',
+      reasoning: 'planning columns', applied: true, appliedPath: 'src/App.vue', toolCalls: [],
+    });
+  });
+
+  it('getTurns orders by createdAt and honors since + limit', async () => {
+    const galaxy = uniqueGalaxy();
+    const claims = adminAtDev(galaxy);
+    const base = Date.now();
+    for (let i = 0; i < 3; i++) {
+      await callGalaxy(galaxy, 'recordTurn',
+        [turn({ id: `t${i}`, createdAt: base + i, instance: `${galaxy}.dev` })], claims);
+    }
+    const all = await callGalaxy(galaxy, 'getTurns', [{}], claims);
+    expect(all.map((t: any) => t.id)).toEqual(['t0', 't1', 't2']); // oldest → newest
+    const since = await callGalaxy(galaxy, 'getTurns', [{ since: base + 1 }], claims);
+    expect(since.map((t: any) => t.id)).toEqual(['t1', 't2']);
+    const limited = await callGalaxy(galaxy, 'getTurns', [{ limit: 1 }], claims);
+    expect(limited.map((t: any) => t.id)).toEqual(['t0']);
+  });
+
+  it('recordTurn is admin-gated — a non-admin (valid dev scope) is rejected; nothing persists', async () => {
+    const galaxy = uniqueGalaxy();
+    const stub = (env as any).GALAXY.getByName(galaxy);
+    const r = await stub.__executeOperation(
+      envelope('GALAXY', galaxy, 'recordTurn', [turn({ instance: `${galaxy}.dev` })], { aud: `${galaxy}.dev` }),
+    );
+    expect(postprocess(r.$error).message).toContain('Admin access required');
+    // Capable-of-failing: the corpus is empty — the rejected write never landed.
+    const turns = await callGalaxy(galaxy, 'getTurns', [{}], adminAtDev(galaxy));
+    expect(turns.length).toBe(0);
   });
 });
 

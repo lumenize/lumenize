@@ -18,6 +18,8 @@ import { Star } from '../../../src/star';
 import { requireAdmin } from '../../../src/nebula-do';
 
 export { DevStudio };
+// The Galaxy ({u}.{g}) is the turn-recorder store DevStudio writes to.
+export { Galaxy } from '../../../src/galaxy';
 
 // The `.dev` data-Star target. Post-collapse (Decision 2) the dev Star is a plain
 // `Star` at a `{u}.{g}.dev` instance — no DevStar subclass.

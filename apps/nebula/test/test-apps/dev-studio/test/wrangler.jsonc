@@ -11,13 +11,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "DEV_STUDIO", "class_name": "DevStudio" },
-      { "name": "STAR", "class_name": "DevStarOntologyProbe" }
+      { "name": "STAR", "class_name": "DevStarOntologyProbe" },
+      { "name": "GALAXY", "class_name": "Galaxy" }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["DevStudio", "DevStarOntologyProbe"]
+      "new_sqlite_classes": ["DevStudio", "DevStarOntologyProbe", "Galaxy"]
     }
   ]
 }
