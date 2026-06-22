@@ -50,6 +50,25 @@ const AUTHOR = { name: 'DevStudio', email: 'dev@nebula.studio' };
 const PATHS_KEY = 'devstudio:paths';
 const INITED_KEY = 'devstudio:inited';
 
+/** Minimal HTML escape for embedding the chat message into the stub App.vue. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
+}
+
+/** The placeholder `App.vue` the STUB codegen writes (step 2) — replaced by the Kimi
+ *  engine's real generation later (nebula-agentic-development-engine.md). */
+function stubAppVue(message: string): string {
+  return `<template>
+  <main class="mx-auto max-w-xl p-8 flex flex-col gap-4">
+    <h1 class="text-2xl font-bold">${escapeHtml(message)}</h1>
+    <p class="text-base-content/70">(stub codegen — the Kimi engine will generate the real app here)</p>
+  </main>
+</template>
+`;
+}
+
 export class DevStudio extends NebulaDO {
   // Caches over `ctx.storage.sql` (the durable Workspace) — reconstructed in onStart,
   // never the source of truth. `!`-asserted: onStart runs (inside the base
@@ -233,5 +252,36 @@ export class DevStudio extends NebulaDO {
       DEV_CONTAINER_BINDING, this.lmz.instanceName!, this.ctn<DevContainer>().applyChanges(files),
     );
     return { written: res.written };
+  }
+
+  /**
+   * STUB codegen (step 2 — the visible loop *without* AI yet). Turns the chat message
+   * into a trivial `App.vue` placeholder + seeds a starter ontology on first run, so the
+   * full loop (chat → write source → push → preview updates) is exercisable before the
+   * Kimi engine is wired — that swaps this body (nebula-agentic-development-engine.md).
+   * The Studio UI reloads the preview iframe on the reply (HMR-under-prefix is deferred).
+   *
+   * ⚠️ Deploy-gated — calls the container methods (`ensureUp`/`syncToDevContainer`); runs
+   * under `wrangler dev` + Docker Desktop, not vitest-pool-workers.
+   */
+  @mesh(requireAdmin)
+  async chat(message: string): Promise<{ reply: string; version: string | null }> {
+    await this.ensureUp(); // Flow 1c: container up + source pushed
+    // Seed a starter ontology on first run so the data path has a version.
+    let hasOntology = true;
+    try { await this.#fs.readFile('/' + ONTOLOGY_PATH); } catch { hasOntology = false; }
+    if (!hasOntology) {
+      await this.writeSource(ONTOLOGY_PATH, 'export interface Note {\n  title: string;\n  body: string;\n}\n');
+    }
+    await this.writeSource('src/App.vue', stubAppVue(message));
+    await this.syncToDevContainer();
+    let version: string | null = null;
+    try {
+      ({ version } = await this.applyOntologyChange({}));
+    } catch {
+      // best-effort in the stub — the placeholder renders without a live ontology
+    }
+    debug('nebula.DevStudio.chat').debug('stub-generated', { instanceName: this.lmz.instanceName, version });
+    return { reply: `Stub codegen wrote a placeholder app for: "${message}"`, version };
   }
 }

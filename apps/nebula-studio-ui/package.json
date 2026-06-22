@@ -1,0 +1,24 @@
+{
+  "name": "nebula-studio-ui",
+  "private": true,
+  "type": "module",
+  "//": "The Studio UI (chat-first authoring SPA). DEV: runs via its own vite dev server + a same-origin proxy to `wrangler dev` (see vite.config.ts + README.md). Deps mirror container/app (no new project deps) + @lumenize/nebula for the mesh client. A workspace member so @lumenize/* resolve. PROD serving (Workers Assets, Decision 3) is a later step.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@lumenize/nebula": "*",
+    "daisyui": "^5.0.0",
+    "lucide-vue-next": "^0.469.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.9.2",
+    "unplugin-swc": "^1.5.9",
+    "vite": "^6.0.7"
+  }
+}
