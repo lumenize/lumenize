@@ -260,18 +260,56 @@ caveats, and stop condition in **Part 1 § Pre-build reading**. Output →
 - **Why here:** read-only and parallelizable (good fan-out); directly informs the loop + prompt
   items. Filter for *talking-to-LLMs*, not what-code-to-generate.
 
-### Self-correcting codegen loop — *defined*
-Replace the one-shot regex `extractVueBlock` with a **bounded, native tool-calling loop**
-(`write_file` / `write_ontology` / `read_errors`) that feeds the **Rung-1 compile error-tail**
-back for self-correction. The probe specified exactly what this needs (Part 1 § What the probe
-established).
+### Self-correcting codegen loop — *defined* · ⬅ **NEXT** (build-ready, vibesdk-informed 2026-06-22)
+Replace the one-shot regex `extractVueBlock` in `DevStudio.chat()` with a **bounded, native
+tool-calling loop** that feeds a **compile error-tail** back for self-correction. The borrow
+decisions below are distilled from [`reference/vibesdk-llm-patterns.md`](reference/vibesdk-llm-patterns.md)
+(its provenance matrix shows all of these are **Think-free** and only **shape-coupled** to the
+OpenAI SDK, which Kimi-via-Workers-AI already mirrors).
+
+**Design — adopt from vibesdk (§ = reference-doc section):**
+1. **Tool surface + a completion signal** (§3). Tools: `write_file`, `write_ontology` (writes the
+   `.d.ts` → triggers compile+install), `read_file(s)`, `get_recent_errors` (the error-tail),
+   `mark_complete`. The `mark_complete` call is the clean loop stop.
+2. **Three-way *inner* bound** (§3, "our settled stop condition"): completion signal +
+   **max-tool-calling-depth** per turn + **loop detection** (identical-tool-call repeat +
+   rolling-hash text-repetition abort). NOT the phasic *outer* state machine (§4) — single
+   self-correcting generation, not a multi-phase builder.
+3. **Error-tail self-correction** (§ Deep-debugger). Feed the **Rung-1 compile** error-tail
+   (SFC compile + ontology compile) back each round — **synchronous**, so simpler than vibesdk's
+   runtime errors. Defer the **deploy→wait→re-fetch freshness** + once-loaded "session" shape to
+   when a *runtime/preview* error-tail is added.
+4. **Prompt restructure** (§2): composable bundles + **pin the ontology `.d.ts` in a stable
+   system block**; live state (current source, error-tail) in the **user** layer; keep the
+   codegen prompt separate from any chat prompt.
+5. **Per-operation model config** (§1, light): a tiny `{ generate, fix }` table — Kimi + a
+   fallback, per-op temp/max-tokens/thinking-budget — behind the existing swappable `STUDIO_MODEL`
+   indirection (never surfaced — `studio-model-agnostic-naming`).
+
+**Adaptations (the matrix's shape-level swaps):** declare tool schemas the **typia/TS-type** way
+(ADR-001, *not* Zod); parse Kimi's **OpenAI-shaped `tool_calls` from `env.AI.run`** (no `openai`
+npm client); **verify Workers AI/Kimi supports `response_format: json_schema`** — else validate
+post-hoc with typia (ADR-001 has us doing that anyway).
+
+**Out of scope / defer (forward-pointers):** conversation compactification → in-app AI chat;
+search/replace diffs + ambiguity scoring → when we move from whole-file regen to **edits**;
+AI-Gateway `cf-aig-metadata` tags → `nebula-tenant-ai-billing.md`; streaming `onChunk` → the
+DX "real-time thought streaming" item (as a Mesh WS primitive); the **phasic outer state
+machine** → only if a generation ever needs splitting into phases. **Skip:** Cloudflare Think,
+the `openai` npm client, codemode.
+
 - **Why here:** the half of "make it data-bound" that's *buildable now* — a defined build, and
-  the thing that makes the recorder's error capture meaningful. Informed by vibesdk's
-  state-machine/tool-def patterns.
-- **Depends on:** vibesdk study (loop shape); the Rung-1 compile gate (the error source — can
-  start inline, then factor out for the harness).
-- **Note:** first real **data-bound prompt progress** can begin here, hand-driven in the browser
-  + the recorder, *before* the offline harness exists.
+  the thing that makes the recorder's error capture meaningful.
+- **Depends on:** the **Rung-1 compile gate** as the error source — container-free (ontology via
+  `compileOntologyVersion` under pool-workers; SFC via `@vue/compiler-sfc` standalone, see
+  `tsc-in-workerd-must-bundle` / `sfc-compile-needs-bindingmetadata`). Build it inline in the
+  loop first, then factor out for the offline harness.
+- **Build/test note:** `chat()` is deploy-gated (AI binding + container), but the **loop
+  mechanics** (tool dispatch, the three-way bound, the compile error-tail) sit on the
+  container-free Rung-1 gate, so most of it is pool-workers-testable; the live model turn stays
+  the deploy/`wrangler dev` check. **First real data-bound prompt progress** can begin here,
+  hand-driven in the browser + the turn recorder, before the offline harness exists.
+- **Process:** big enough for its own `/review-task` pass over this item before `/build-task`.
 
 ### Offline prompt harness — *defined*
 Re-run `(systemPrompt, message, current source) → model → output` **independently of the
