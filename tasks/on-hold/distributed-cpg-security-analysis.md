@@ -3,7 +3,7 @@
 **Status**: On hold — future direction, not committed to scope/timing
 **Origin**: Conversation 2026-05-24 / 2026-05-25 — pitched as a brand-defining feature for Nebula's enterprise-security positioning, built on Mesh primitives.
 **Related**:
-- [tasks/mesh-call-tracing-and-ids.md](../mesh-call-tracing-and-ids.md) — `callChain` observability is the V0 substrate this builds on
+- [tasks/on-hold/mesh-call-tracing-and-ids.md](mesh-call-tracing-and-ids.md) — `callChain` observability is the V0 substrate this builds on
 - [tasks/archive/nebula-frontend.md](../archive/nebula-frontend.md) — Studio's hosted LLM is the eventual audience for any AI-driven surface
 
 ## Opportunity
@@ -54,7 +54,7 @@ Rough sizing: **1–2k LOC** for the lowering pass. Building a Joern competitor 
 
 ## Tractability ladder
 
-- **V0 — `callChain` as first-class observability.** Live distributed call graph + per-node annotations (auth check present? arg schema present? mesh-vs-fanout?). No Joern, no AI. Differentiating on its own. Substrate for V1/V2. (Closest existing task: [tasks/mesh-call-tracing-and-ids.md](../mesh-call-tracing-and-ids.md).)
+- **V0 — `callChain` as first-class observability.** Live distributed call graph + per-node annotations (auth check present? arg schema present? mesh-vs-fanout?). No Joern, no AI. Differentiating on its own. Substrate for V1/V2. (Closest existing task: [tasks/on-hold/mesh-call-tracing-and-ids.md](mesh-call-tracing-and-ids.md).)
 - **V1 — Mesh-aware static lowering + Joern integration.** The lowering pass above. Output: a cross-binary CPG queryable via Joern's existing tooling. Static + dynamic union: static enumerates every callable surface; `callChain` confirms which compositions actually fire.
 - **V2 — LLM as query generator over the cross-binary graph.** Narrow tasks only: "find auth-check inconsistencies across paths leading to sink X", "find paths where untyped argument flows past an `@mesh()` boundary." Not "look for security holes." Frame the AI layer as a query-generator for taint queries, not a freelance vulnerability hunter.
 

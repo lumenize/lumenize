@@ -1,5 +1,7 @@
 # Documentation & Coverage
 
+> 🗄️ **Archived 2026-06-22.** Overcome by events — the discrete "Phase 5.7" deliverable no longer exists; remaining work is tracked in its real homes (`nebula-frontend.md`, repo rules). Frozen — do not update.
+
 **Status**: On Hold — mostly overcome by events (the discrete "Phase 5.7" deliverable no longer exists; remaining work is tracked in its real homes, below)
 
 **Depends on**: Phases 5.1–5.6 (API stable)

@@ -159,7 +159,7 @@ All strategies are local SQLite queries — no network hops.
 - **Interaction with subscriptions (Phase 5.3)?** Subscribe to a query result? Re-run the query when any included resource changes?
 - **Index requirements**: `many` relationships need an index on the FK column in the target type's resources. Does the ontology automatically create these indexes, or does the user-developer declare them?
 - **Return format**: Nested objects (natural but duplicates shared references) or normalized (flat with IDs, client reassembles)? Nested is simpler for the user-developer.
-- **Computed inverse aggregates**: The ontology knows `Todo.assignedTo: Person[]` is a relationship. Can the query engine compute `todoCount` on Person at query time without the user-developer declaring it as a stored field? This would avoid needing cross-resource migrations (see on-hold `nebula-5.5-schema-evolution.md` `migrate` query parameter discussion) for common aggregates like counts, sums, and existence checks.
+- **Computed inverse aggregates**: The ontology knows `Todo.assignedTo: Person[]` is a relationship. Can the query engine compute `todoCount` on Person at query time without the user-developer declaring it as a stored field? This would avoid needing cross-resource migrations (see iceboxed `nebula-5.5-schema-evolution.md` `migrate` query parameter discussion) for common aggregates like counts, sums, and existence checks.
 
 ### Success Criteria (when this resumes)
 

@@ -98,8 +98,8 @@ Once the substrate exists, nearly every need is "done" or "compose two of them":
 
 ## Spikes (companion files)
 
-- `tasks/spike-outside-world-secrets.md` — **first; kicked off.** Two-level encrypted vault + 3-mode resolver + value reaches the facet, never the browser.
-- `tasks/spike-outside-world-outbound.md` — **✅ done.** Egress choke point via `globalOutbound` → `EgressBroker`: a bare `fetch()` is routed through it with no bypass; allow-list + SSRF deny + null-=-no-network all confirmed + mutation-checked.
+- `tasks/archive/spike-outside-world-secrets.md` — **first; kicked off.** Two-level encrypted vault + 3-mode resolver + value reaches the facet, never the browser.
+- `tasks/archive/spike-outside-world-outbound.md` — **✅ done.** Egress choke point via `globalOutbound` → `EgressBroker`: a bare `fetch()` is routed through it with no bypass; allow-list + SSRF deny + null-=-no-network all confirmed + mutation-checked.
 - `tasks/spike-outside-world-inbound.md` — *(to write)* public URL → facet `onRequest`; routing-config dispatch; `verifyWebhook`; input-gate behavior under a slow handler.
 
 ## Sequencing

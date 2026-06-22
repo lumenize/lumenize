@@ -1,5 +1,7 @@
 # Spike: Outside-World Outbound / Egress Choke Point
 
+> 🗄️ **Archived 2026-06-22.** Spike complete (✅ 2026-06-17); result (`globalOutbound` → `EgressBroker`) folded into `nebula-outside-world.md` + `nebula-outside-world-build.md`. Frozen — do not update.
+
 **Status**: Active — exploratory; the second-built of three substrate spikes for `tasks/nebula-outside-world.md`. Not for hand-review. ✅ DONE 2026-06-17.
 
 **Context**: Nebula apps make outbound calls (Resend, Stripe, any REST API) from agent-written server code running in a **DO facet**. The central risk is that outbound `fetch` from *untrusted generated code* is an SSRF cannon (cloud metadata, internal services, cross-tenant). This spike answers the umbrella's single most important open question — **what network authority does a facet have by default, and can a bare `fetch()` bypass a Nebula-controlled egress path?** — and proves the choke point.

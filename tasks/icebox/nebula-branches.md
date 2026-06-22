@@ -1,5 +1,7 @@
 # Nebula Branches (True URL-Level Branching)
 
+> 🧊 **Iceboxed 2026-06-22.** The git-branches dev model is rejected (dev = a `.dev` Star slug, not a branch); this general branching capability has no consumer. Revive only if a product need for true branching appears.
+
 **Status**: On-hold — deferred post-demo. The demo's dev-sandbox need is met by a reserved Star slug instead (`tasks/dev-star.md`); this file is the general branching capability, parked until there's a product reason to build it.
 
 **Companion**: `tasks/dev-star.md` (the demo-critical dev sandbox — a reserved Star slug, **not** a branch).

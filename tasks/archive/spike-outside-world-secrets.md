@@ -1,5 +1,7 @@
 # Spike: Outside-World Secrets Vault
 
+> 🗄️ **Archived 2026-06-22.** Spike Stages 1–2 complete (✅ 2026-06-17); forward work (Stage 3 — wire into real Galaxy/Star) lives in `nebula-outside-world-build.md`. Frozen — do not update.
+
 **Status**: Active — exploratory; the first of three substrate spikes for `tasks/nebula-outside-world.md`. Not for hand-review (the approach will deviate as we learn). Stage 1 kicked off 2026-06-17.
 
 **Context**: Nebula apps talk to the outside world by writing server-side code (an `onRequest` handler + `fetch`) that runs in a **DO facet** the parent DO hands a custom `env`. Those calls need credentials (Resend key, Stripe key, …) the browser must never see. This spike de-risks the **secrets layer**: a two-level encrypted vault + a 3-mode resolver exposed to facet code as `env.secrets.resolve(name)` (model **b** — D1 in the umbrella). Resources are explicitly rejected as a secret store (they sync to the browser).

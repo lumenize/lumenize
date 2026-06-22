@@ -1,5 +1,7 @@
 # Dev-flows realignment — execution tracker
 
+> 🗄️ **Archived 2026-06-22.** Frozen point-in-time record — its job is done (findings absorbed into the 2026-06-20 consolidation). Do not update.
+
 > ⚠️ **SUBSUMED BY THE CONSOLIDATION 2026-06-20** (`nebula-studio-consolidation-plan.md`). Most per-file findings below target files that were **archived or deleted** in the consolidation — their realignment was absorbed into the fold (salvage → `nebula-studio.md` / `nebula-agentic-development-engine.md`) rather than applied in place, so **do not apply them to the gone files**. Findings that survive: `nebula.md` (✅ applied in place) and the `DevStar`→`Star@.dev` term-swaps in still-parked on-hold files (`nebula-skills`, `nebula-studio-eval-suite`, `nebula-5.5-schema-evolution`) — **deferred to un-park**. Kept as the audit record.
 
 Canonical source of truth: [`nebula-dev-flows.md`](nebula-dev-flows.md). Realignment is **one-way** (files conform to it; never the reverse; never relitigate). Generated from the 2026-06-20 read-only conformance audit (18 agents). Detail per file below; check items off as applied.

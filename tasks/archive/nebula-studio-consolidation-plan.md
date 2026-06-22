@@ -1,5 +1,7 @@
 # Studio/dev-loop consolidation — PLAN (2026-06-20, from disposition fan-out: 24 agents)
 
+> 🗄️ **Archived 2026-06-22.** Frozen point-in-time record — the consolidation it planned was executed 2026-06-20. Do not update.
+
 > ✅ **EXECUTED 2026-06-20.** Survivors built (`nebula-studio.md` rewritten; `nebula-agentic-development-engine.md` created — the codegen/eval split landed in a NEW file, not folded into nebula-studio.md), `nebula.md` realigned, 11 archived + 5 deleted via `git mv`/`git rm`, refs repointed (broken-link scan clean). **Not committed** (left for review). This file is the historical record of the plan.
 
 **Final count:** From 24 Studio/dev-loop-cluster files to 4 survivors (nebula-dev-flows.md [canonical, untouched], nebula-dev-flows-realignment.md [revert tracker, untouched], nebula.md [master, realigned in place], nebula-studio.md [THE Studio build file, absorbs ~9 sources]) + 4 untouched on-hold/parking survivors outside the cluster (nebula-scratchpad.md, on-hold/nebula-skills.md, on-hold/nebula-studio-eval-suite.md, on-hold/nebula-5.5-schema-evolution.md, on-hold/nebula-branches.md), with 11 files archived to tasks/archive/ (frozen) and 5 files deleted (after salvage). Net of the active cluster: ~14 files collapse into nebula-studio.md or vanish; nebula-studio.md is the one new consolidated build home.

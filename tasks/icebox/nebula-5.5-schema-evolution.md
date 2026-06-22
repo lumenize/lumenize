@@ -1,5 +1,7 @@
 # Phase 5.5: Schema Evolution (production polish — ON HOLD)
 
+> 🧊 **Iceboxed 2026-06-22.** Built on the eliminated Galaxy-as-ontology-registry model (DevStudio now serves the ontology from its own source tree) — needs a rewrite to be valid again; post-funding. Preserves the `@default` parser-boundary insight. Revive when in-place schema evolution becomes part of the product story.
+
 > **Status note (demo focus)**: The branch-local lazy-migration subset was extracted to [`nebula-lazy-schema-migrations.md`](../archive/nebula-lazy-schema-migrations.md) (formerly `branch-migrations.md`, before that `nebula-5.5-branch-migrations.md`, originally `nebula-5.5-dev-mode-migrations.md`). That subset was **also deferred for the demo (2026-06-15)** and now sits alongside this file in `on-hold/`. This file holds the broader production-polish surface (cross-resource migration callback, version-skew handling, write-back tuning, error-handling UX) and is on hold until post-funding. Both unfreeze together when in-place schema evolution becomes part of the product story; demo handling is parser default-fill + dev-Star reset (see `tasks/dev-star.md`).
 
 **Status**: ON HOLD — see note above

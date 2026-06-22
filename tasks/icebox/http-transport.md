@@ -1,5 +1,7 @@
 # HTTP Transport
 
+> 🧊 **Iceboxed 2026-06-22.** Complete spec, no consumer — the demo (and current product) runs entirely over Mesh/WebSocket. Revive as a v2 item if a REST consumer appears.
+
 **Status**: On Hold — post-demo (the demo runs entirely over Mesh/WebSocket; REST transport is not on the critical path)
 
 **Depends on**: Phase 5.2.3 (Ontology & Resources Integration)

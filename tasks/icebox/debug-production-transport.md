@@ -1,8 +1,10 @@
 # Promote `@lumenize/debug` sink → production transport API
 
-**Status**: On hold — speculative; pick up when a real consumer asks (Sentry forwarder, Logflare, custom HTTP/dashboard). **Scope narrowed 2026-06-14**: bulk Cloudflare analytics (R2/AE) is *out* — that goes via the Tail Worker, not an in-process push. See [nebula-observability-tail-worker-r2-ae.md](./nebula-observability-tail-worker-r2-ae.md).
+> 🧊 **Iceboxed 2026-06-22.** Speculative — no consumer yet (Sentry/Logflare/custom forwarder). Bulk analytics already routes via the Tail Worker, not this. Revive when a real error-forwarding consumer asks.
+
+**Status**: On hold — speculative; pick up when a real consumer asks (Sentry forwarder, Logflare, custom HTTP/dashboard). **Scope narrowed 2026-06-14**: bulk Cloudflare analytics (R2/AE) is *out* — that goes via the Tail Worker, not an in-process push. See [nebula-observability-tail-worker-r2-ae.md](../on-hold/nebula-observability-tail-worker-r2-ae.md).
 **Related**:
-- [tasks/on-hold/nebula-observability-tail-worker-r2-ae.md](./nebula-observability-tail-worker-r2-ae.md) — the **out-of-band** alternative (Tail Worker harvests console → R2/AE). Supersedes this file *for bulk Cloudflare analytics*; this file owns the in-process, portable, full-fidelity, synchronous path. See "Scope boundary" below.
+- [tasks/on-hold/nebula-observability-tail-worker-r2-ae.md](../on-hold/nebula-observability-tail-worker-r2-ae.md) — the **out-of-band** alternative (Tail Worker harvests console → R2/AE). Supersedes this file *for bulk Cloudflare analytics*; this file owns the in-process, portable, full-fidelity, synchronous path. See "Scope boundary" below.
 - Current sink at [packages/debug/src/sink.ts](../../packages/debug/src/sink.ts) — explicitly scoped to tests; module docstring says "Production code MUST NOT depend on this module."
 - LumenizeDO error logging path at [packages/mesh/src/lumenize-do.ts](../../packages/mesh/src/lumenize-do.ts) — uses `debug('lmz.mesh.LumenizeDO.onStart').error(...)` after [cloudflare/workers-sdk#14180](https://github.com/cloudflare/workers-sdk/issues/14180) workaround.
 - Compared design surface: Cloudflare Agents / partyserver's `onError` hook (per-class override point for error policy). See chat history 2026-06-04 for the side-by-side.
@@ -13,7 +15,7 @@ Give framework users a single, documented way to route every `debug()` log entry
 
 ## Scope boundary vs the Tail Worker (why both exist)
 
-This in-process transport and the [Tail Worker harvest](./nebula-observability-tail-worker-r2-ae.md) are **complementary, not competitors** — different layer, different job. The Tail Worker is superior for bulk Cloudflare analytics; it structurally **cannot** do what this path is for:
+This in-process transport and the [Tail Worker harvest](../on-hold/nebula-observability-tail-worker-r2-ae.md) are **complementary, not competitors** — different layer, different job. The Tail Worker is superior for bulk Cloudflare analytics; it structurally **cannot** do what this path is for:
 
 1. **Full structured-clone fidelity.** This hook fires inside `#log` with the *live* `DebugLogOutput` — real `Error` objects (stack, `cause`), `Date`, `Map`, cycles (ADR-002). A Tail Worker only ever sees the already-`JSON.stringify`'d console string, where an `Error` is `{}`. So Sentry-style error capture belongs here.
 2. **Non-Cloudflare runtimes.** `@lumenize/debug` is a public MIT package (Node/Bun/browser). A Tail Worker doesn't exist off Cloudflare; the in-process transport is the only portable forwarding story.

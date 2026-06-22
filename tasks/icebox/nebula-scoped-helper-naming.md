@@ -1,5 +1,7 @@
 # Tenant-Scoped Helper DO Naming — `<scope>:<local>`
 
+> 🧊 **Iceboxed 2026-06-22.** No consumer — Fix 2's only caller (the now-removed `ResourceHistory` test fixture) is gone and the Think consumer is shelved. Revive when a real tenant-scoped helper DO with a production caller lands.
+
 **Status**: **ON HOLD** — split out of [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) on 2026-06-16. That task's **Fix 1** (structural tenant isolation for the *tier* DOs — Star / Galaxy / Universe) shipped as the demo-critical work. This file holds its **Fix 2**: the naming grammar for *helper* DOs. Deferred because **Fix 2's only consumer was a test fixture** (the now-removed `ResourceHistory`). Revive when a **real** tenant-scoped helper DO with a production caller lands.
 
 ## The problem, in plain language (the apartment building)

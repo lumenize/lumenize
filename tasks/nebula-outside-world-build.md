@@ -4,8 +4,8 @@
 
 **Design & decisions**: `tasks/nebula-outside-world.md` (umbrella — B1–B6 blockers, D1 secrets, D2 facet+`globalOutbound`).
 **Proven mechanisms** (spikes, all green + mutation-checked, 2026-06-17):
-- `tasks/spike-outside-world-secrets.md` — AES-256-GCM vault + 3-mode resolver (`apps/nebula/test/spike-secrets-vault/`); facet env-injection + isolation (`apps/nebula/test/test-apps/secrets-facet/`).
-- `tasks/spike-outside-world-outbound.md` — egress choke point via `globalOutbound`→`EgressBroker` (`apps/nebula/test/test-apps/egress-choke/`).
+- `tasks/archive/spike-outside-world-secrets.md` — AES-256-GCM vault + 3-mode resolver (`apps/nebula/test/spike-secrets-vault/`); facet env-injection + isolation (`apps/nebula/test/test-apps/secrets-facet/`).
+- `tasks/archive/spike-outside-world-outbound.md` — egress choke point via `globalOutbound`→`EgressBroker` (`apps/nebula/test/test-apps/egress-choke/`).
 - *(to write)* `tasks/spike-outside-world-inbound.md` — prerequisite for Phase 4.
 
 ## Objective
