@@ -100,5 +100,14 @@ vitest-pool-workers tests can make real external `fetch()` calls and `new WebSoc
 
 **First-run-after-idle failures are cold starts, not bugs.** An external service that sat idle (e.g. Resend) adds latency on the first run after a gap; the same test passes on re-run. Fix = generous `vi.waitFor`/test timeouts on these suites (e2e-email-resend runs 60 s `testTimeout` / 45 s `waitForEmail`) — not mocking, skipping, or hunting a phantom race.
 
+## What a skipped test needs to run — `wrangler dev`, or a deploy to Cloudflare
+An `it.skip`'d test runs somewhere other than the default `vitest`(-pool-workers) suite. **Its skip comment must say which, in plain terms** — not the old catch-all "deploy-gated", which blurred two very different things and wrongly implied a Cloudflare deploy when the work is almost always local:
+
+- **`vitest` / pool-workers** (default) — where almost everything runs.
+- **Run with `wrangler dev`** — needs the real `workerd` runtime (pool-workers can't provide it) but is **local, no deploy**. The cases: the **Workers AI binding** (`env.AI.run` proxies to Workers AI under `wrangler dev`) and **Containers** (`extends Container` can't construct under pool-workers but runs on **Docker Desktop** under `wrangler dev` — see `lumenize-container-local-dev`). Exercise it by driving the running app, or a network harness against an auto-spawned `wrangler dev` (the `browser` project).
+- **Deploy to Cloudflare** (`wrangler deploy` / CI) — only when the test truly needs a *deployed* Worker: real external `fetch()` / `new WebSocket()` to a deployed URL (the `e2e-email` / `fetch`-proxy pattern above).
+
+So a test needing `env.AI.run` and/or a Container is **run with `wrangler dev`** (+ Docker Desktop) — *not* a deploy to Cloudflare. Write the skip comment in those plain terms ("needs `wrangler dev` + Docker Desktop" / "needs a deploy to Cloudflare"); don't coin a "-gated" label. (Legacy "deploy-gated" labels across the nebula container/Studio tests predate this and almost all mean "run with `wrangler dev`".)
+
 ## Real-browser tests: same-origin proxy first
 When a chromium test (`@vitest/browser-playwright`) must reach a self-signed-TLS server (`wrangler dev --local-protocol https`) or cross-origin to a `SameSite=Strict`-cookie endpoint, use a **same-origin Vite proxy plugin** — not chromium launch flags, server-side cookie-attribute rewrites, or CORS plumbing. The proxy terminates TLS server-side (`secure: false` skips Node cert checks; the browser never sees the upstream cert) and puts the test page and the worker on one origin, so `Secure; SameSite=Strict` cookies flow untouched. Canonical implementation: `dynamicEnvProxyPlugin` in `packages/mesh/vitest.config.js`; adoption checklist: `packages/mesh/test/browser/README.md`.

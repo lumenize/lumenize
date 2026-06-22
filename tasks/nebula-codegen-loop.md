@@ -2,7 +2,7 @@
 
 **Status**: **All phases BUILT 2026-06-22** (`/build-task`). Phases 1–3 container-free + verified (3-phase
 verifier fan-out — all CONFORM). Phase 4 (live `chat()` wiring) **code-complete**; its live model-turn +
-container-push validation is **deploy-gated** (`it.skip`) — run under `wrangler dev` + Docker Desktop.
+container-push validation **runs with `wrangler dev`** (`it.skip`) — local, no deploy: under `wrangler dev` + Docker Desktop.
 Stage-1 and Stage-2 reviewed 2026-06-22.
 
 Replace the one-shot regex `extractVueBlock` path in `DevStudio.chat()` with a **bounded,
@@ -186,35 +186,39 @@ the recorder's tool-calling slots — all assertable without the live model.
 **Success Criteria**:
 - [x] Prompt assembly: the ontology source lands in the system block; current source + error-tail land in the user block (assert by string-locating each in the assembled messages). `assembleCodegenPrompt` keeps the system layer **cascade-shaped** (an array of bundles, D7) — the future practice-cascade seam — not a flat string.
 - [x] A simulated loop run records a `TurnRecord` whose `toolCalls` is non-empty and whose `error`/`validate` reflect the final compile result; `getTurns` returns it unchanged (fixture round-trip).
-- [~] `response_format: json_schema` support is **verified** against Workers AI/Kimi — **deploy-gated `it.skip`** (needs the live AI binding; moved to Phase 4). The **fallback** (typia post-validate of tool-call args) is already the shipping path and is fully covered, so shipping does not depend on json_schema support.
+- [~] `response_format: json_schema` support is **verified** against Workers AI/Kimi — **`it.skip`, run with `wrangler dev`** (needs the live AI binding; moved to Phase 4). The **fallback** (typia post-validate of tool-call args) is already the shipping path and is fully covered, so shipping does not depend on json_schema support.
 
 > **Phase 3 DONE 2026-06-22** (the container-free half). Prompt assembly (cascade-shaped system bundles +
 > ontology-pinned block + user layer), per-call generate-vs-fix params (D6 — dropped to fix params on the
 > round after a compile error), and recorder wiring (m4 — the loop is the first populator of
 > `TurnRecord.toolCalls`/`.error`/`.validate`, round-trips through `getTurns`). The json_schema probe is the
-> only deploy-gated piece (Phase 4).
+> only piece needing `wrangler dev` (Phase 4).
 
-### Phase 4: Live integration (deploy-gated)
+### Phase 4: Live integration (run with `wrangler dev`)
+> **"Run with `wrangler dev`" = local, NOT a deploy to Cloudflare.** `env.AI.run` proxies to Workers
+> AI under `wrangler dev`, and the Container runs on Docker Desktop under `wrangler dev` — so the live
+> turn runs locally with **no `wrangler deploy`**. See `.claude/rules/testing.md` § *What a skipped test needs*.
+
 **Goal**: Wire the loop into `DevStudio.chat()`, replacing `extractVueBlock`; the live `env.AI.run`
-turn + container push stays deploy-gated.
+turn + container push are run with `wrangler dev`.
 
 - `chat()` drives the loop; on a clean finish it pushes source to the container (existing
   `syncToDevContainer`) and the **separate, human-gated** ontology apply (Flow 1b) handles
   install/wipe — outside the loop.
 
-**Success Criteria** (deploy-gated `it.skip`, assertions intact per testing.md):
-- [~] Under `wrangler dev` + Docker Desktop, a chat turn drives the loop, **self-corrects on a real compile error** (e.g. the `op:'set'` class), and updates the preview. **(code wired; deploy-gated `it.skip` — run under `wrangler dev`)**
-- [~] The live turn records a `TurnRecord` with populated `toolCalls`/`error`/`validate`. **(deploy-gated `it.skip`; the container-free recorder round-trip — clean + failing-final-gate — is already covered in `codegen-loop.test.ts`)**
-- [~] **SFC mount confidence** (m3): an `it.skip` that mounts a Phase-1-compiled SFC in a real browser and asserts **non-blank render** — the bindings-threaded string-match in Phase 1 SC#3 proves threading, not render; the blank-`<script setup>` bug only surfaces on a real mount (`sfc-compile-needs-bindingmetadata`, testing.md). **(deploy-gated `it.skip`)**
+**Success Criteria** (`it.skip`, run with `wrangler dev`; assertions intact per testing.md):
+- [~] Under `wrangler dev` + Docker Desktop, a chat turn drives the loop, **self-corrects on a real compile error** (e.g. the `op:'set'` class), and updates the preview. **(code wired; `it.skip` — run with `wrangler dev`)**
+- [~] The live turn records a `TurnRecord` with populated `toolCalls`/`error`/`validate`. **(`it.skip`, run with `wrangler dev`; the container-free recorder round-trip — clean + failing-final-gate — is already covered in `codegen-loop.test.ts`)**
+- [~] **SFC mount confidence** (m3): an `it.skip` that mounts a Phase-1-compiled SFC in a real browser and asserts **non-blank render** — the bindings-threaded string-match in Phase 1 SC#3 proves threading, not render; the blank-`<script setup>` bug only surfaces on a real mount (`sfc-compile-needs-bindingmetadata`, testing.md). **(`it.skip`, run with `wrangler dev`)**
 - [x] The deleted regex path (`extractVueBlock`) leaves no caller (`grep` clean) — **DONE + verified** (`extractVueBlock` + `STUDIO_SYSTEM_PROMPT` removed; only a historical doc-comment mention remains).
 
-> **Phase 4 CODE COMPLETE 2026-06-22 (live validation deploy-gated).** `chat()`
+> **Phase 4 CODE COMPLETE 2026-06-22 (live validation runs with `wrangler dev`).** `chat()`
 > ([dev-studio.ts](../apps/nebula/src/dev-studio.ts)) now drives the loop: `ensureUp` → `runCodegenTurn`
 > (loop + record) → on a **clean finish** push the written source to the container (`syncToDevContainer`)
 > so vite HMR updates the preview. The ontology **install/wipe stays the separate, human-gated apply step**
 > (`applyOntologyChange`, Flow 1b) fired after the loop — `write_file` can only compile (D2). The old
 > regex+one-shot path (`extractVueBlock`, `STUDIO_SYSTEM_PROMPT`, the inline recorder) is deleted. Three
-> deploy-gated `it.skip` tests added (`dev-studio.test.ts`) with intact assertions + blocker comments. The
+> `it.skip` tests (run with `wrangler dev`) added (`dev-studio.test.ts`) with intact assertions + blocker comments. The
 > real model turn + container push run under `wrangler dev` + Docker Desktop (`env.AI.run` only proxies to
 > Workers AI there; `DevContainer extends Container` can't construct under pool-workers). Worker still starts
 > clean under real `wrangler dev` (browser project green).
@@ -239,7 +243,7 @@ turn + container push stays deploy-gated.
 ## Notes
 - **Build/test split**: the loop *mechanics* (Phases 1–3) sit on the container-free Rung-1 gate and
   a fake model, so they're pool-workers-testable; only the live model turn + container push (Phase 4)
-  is deploy-gated.
+  is run with `wrangler dev`.
 - **Factor-out hook**: the offline prompt harness (next engine item) needs the *identical* Phase-1
   compile gate — build it as a standalone helper from the start so the harness imports it rather than
   re-deriving it.

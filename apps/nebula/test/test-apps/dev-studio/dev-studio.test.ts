@@ -12,8 +12,9 @@
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
  *  - the command surface is **admin-gated**.
  *
- * The container-push (`ensureUp`/`syncToDevContainer`) is deploy-gated `it.skip`
- * (DEV_CONTAINER `extends Container` can't construct under pool-workers).
+ * The container-push (`ensureUp`/`syncToDevContainer`) is an `it.skip` that runs with `wrangler dev`
+ * (DEV_CONTAINER `extends Container` can't construct under pool-workers, but runs locally on
+ * Docker Desktop under `wrangler dev` — local, no deploy; testing.md § "What a skipped test needs").
  *
  * @see tasks/nebula-studio.md § DevStudio node
  * @see experiments/interim-dev-loop/RESULTS.md — the proven shell+git mechanism
@@ -166,7 +167,7 @@ describe('DevStudio command surface is admin-gated', () => {
 });
 
 describe('DevStudio turn recorder → Galaxy SQLite (persistence layer)', () => {
-  // The deploy-gated half is chat() firing recordTurn (needs the AI binding + container);
+  // The half that needs `wrangler dev` is chat() firing recordTurn (needs the AI binding + container);
   // here we exercise the pool-workers-testable persistence: Galaxy.recordTurn / getTurns.
   const uniqueGalaxy = () => `${crypto.randomUUID()}.app`; // {u}.{g}
   const adminAtDev = (galaxy: string) => ({ aud: `${galaxy}.dev`, access: { admin: true } });
@@ -221,10 +222,11 @@ describe('DevStudio turn recorder → Galaxy SQLite (persistence layer)', () => 
   });
 });
 
-describe('DevStudio container push (deploy-gated)', () => {
-  it.skip('ensureUp/syncToDevContainer push source to DevContainer (needs a deployed Worker + live container)', () => {
+describe('DevStudio container push (run with `wrangler dev`)', () => {
+  it.skip('ensureUp/syncToDevContainer push source to DevContainer (needs `wrangler dev` + Docker Desktop)', () => {
     // DevContainer `extends Container` can't construct under vitest-pool-workers, so
-    // the applyChanges push round-trip is deploy-gated. Mechanism proven in
+    // the applyChanges push round-trip runs under `wrangler dev` + Docker Desktop (local,
+    // no deploy; testing.md § "What a skipped test needs"). Mechanism proven in
     // experiments/interim-dev-loop (DevStudio→container source transport over mesh).
     // Revive against the first full apps/nebula Worker deploy.
   });
@@ -240,10 +242,11 @@ describe('DevStudio container push (deploy-gated)', () => {
   });
 });
 
-describe('DevStudio.chat drives the self-correcting loop (Phase 4 — deploy-gated)', () => {
+describe('DevStudio.chat drives the self-correcting loop (Phase 4 — run with `wrangler dev`)', () => {
   // chat() calls ensureUp (live container) + the loop's callModel (env.AI.run / Workers
   // AI), neither of which exists under vitest-pool-workers. Run under `wrangler dev` +
-  // Docker Desktop. Assertions kept intact (testing.md it.skip discipline). The
+  // Docker Desktop — local, no deploy (testing.md § "What a skipped test needs"). Assertions
+  // kept intact (testing.md it.skip discipline). The
   // container-free half — the loop driver, the bound, the Rung-1 gates, the recorder
   // wiring — is fully covered in codegen-loop.test.ts / codegen-gate.test.ts.
 
