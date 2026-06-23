@@ -15,19 +15,20 @@
 import { LumenizeContainer } from '@lumenize/mesh/container';
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { buildAuthScopePattern, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { enforceScopeReach } from './nebula-do';
 
 /**
  * NebulaContainer — base class for Nebula container nodes.
  *
- * `onBeforeCall()` enforces the SAME structural tenant isolation as NebulaDO: a
- * mesh call is accepted only if its JWT `aud` (active scope) is covered by the
- * scope encoded in this node's **instance name**. A DevContainer is always
+ * `onBeforeCall()` enforces the SAME structural scope reach as NebulaDO, via the
+ * SAME shared {@link enforceScopeReach} helper (composed, not reimplemented —
+ * ADR-007's "one place to audit"): a mesh call is accepted iff the caller is an
+ * `access.admin` whose authority covers this node's **instance name**, OR its JWT
+ * `aud` is covered by the scope encoded in that name. A DevContainer is always
  * addressed by its `parseId`-valid tenant-scoped name `{u}.{g}.dev` (a star-tier
- * id), never a 64-hex DO id, so `buildAuthScopePattern(name)` yields exactly the
- * scope the caller must already hold (the name == routing-key soundness). Scope
- * is derived from the name on every call; there is no trust-on-first-use lock.
+ * id), never a 64-hex DO id, so the derived scope equals the address the caller
+ * must already hold (name == routing-key soundness). No trust-on-first-use lock.
  *
  * The guard runs ONLY on the mesh path (inside `executeEnvelope`). It does NOT
  * cover `fetch()`/`containerFetch` — by design: `fetch()` serves only the public
@@ -38,38 +39,17 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 export class NebulaContainer extends LumenizeContainer {
   onBeforeCall(): void {
     // Scope is derived from this node's instance name (stamped from the
-    // envelope's metadata.callee before onBeforeCall runs). Absent name ⇒ the
-    // call didn't carry callee metadata — fail closed.
+    // envelope's metadata.callee before onBeforeCall runs).
     const name = this.lmz.instanceName;
 
     // Entry marker (internal testing primitive) — mirrors NebulaDO so the guard
     // path is observable from a debug sink. See nebula-container.test.ts.
     debug('nebula.NebulaContainer.onBeforeCall').debug('entry', { instanceName: name });
 
-    if (!name) {
-      throw new Error('Mesh call missing callee instance name');
-    }
-
-    // The platform instance name maps to the accept-all pattern `*`; no
-    // container node is the platform DO, so reject it before it could collapse
-    // the gate.
-    if (isPlatformInstance(name)) {
-      throw new Error('Active-scope mismatch');
-    }
-
-    // Throws on an unparseable name (e.g. >3 segments, illegal slug) — fail
-    // closed rather than swallow.
-    const pattern = buildAuthScopePattern(name);
-
-    const aud = (this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;
-    if (!aud) {
-      throw new Error('Missing active scope (aud)');
-    }
-
-    // Tenant boundary: the active scope must be covered by this node's scope.
-    if (!matchAccess(pattern, aud)) {
-      throw new Error('Active-scope mismatch');
-    }
+    enforceScopeReach(
+      name,
+      this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined,
+    );
   }
 
   /**

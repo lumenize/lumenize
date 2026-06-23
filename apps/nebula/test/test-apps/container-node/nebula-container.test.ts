@@ -25,13 +25,21 @@ const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
 
 // Build a mesh envelope invoking `method(...args)` on the harness, stamping its
 // instanceName from metadata.callee (so onBeforeCall derives scope from it).
-function makeEnvelope(opts: { method: string; args?: any[]; instanceName: string; aud?: string }) {
+function makeEnvelope(opts: {
+  method: string;
+  args?: any[];
+  instanceName: string;
+  aud?: string;
+  access?: { authScopePattern: string; admin?: boolean };
+}) {
   const chain = [
     { type: 'get', key: opts.method },
     { type: 'apply', args: opts.args ?? [] },
   ];
   const callContext: any = { callChain: [], state: {} };
-  if (opts.aud) callContext.originAuth = { sub: 'sys', claims: { aud: opts.aud } };
+  if (opts.aud || opts.access) {
+    callContext.originAuth = { sub: 'sys', claims: { aud: opts.aud, access: opts.access } };
+  }
   return {
     version: 1,
     chain: preprocess(chain),
@@ -139,6 +147,40 @@ describe('NebulaContainer structural scope isolation', () => {
       callContext: { callChain: [], state: {}, originAuth: { sub: 'sys', claims: { aud: scope } } } as any,
     });
     expect(postprocess(r.$error).message).toContain('missing callee instance name');
+  });
+
+  // ── Higher-admin reach parity (the container delegates to the SAME helper) ──
+  // NebulaContainer.onBeforeCall and NebulaDO.onBeforeCall both call the shared
+  // enforceScopeReach (ADR-007, one audit point), so the admin-reach behavior
+  // holds identically here — proven through the REAL container onBeforeCall.
+  // @see tasks/nebula-onbeforecall-higher-admin-reach.md
+  it('a `{u}.*` admin reaches a descendant {u}.{g}.dev container (no aud narrowing)', async () => {
+    const universe = crypto.randomUUID();
+    const scope = `${universe}.app.dev`;
+    const stub = HARNESS().getByName(scope);
+    const w = await stub.__executeOperation(makeEnvelope({
+      method: 'recordValue', args: ['ok'], instanceName: scope,
+      aud: universe, access: { authScopePattern: `${universe}.*`, admin: true },
+    }));
+    expect(w.$error).toBeUndefined();
+    const r = await stub.__executeOperation(makeEnvelope({
+      method: 'readValue', instanceName: scope, aud: scope,
+    }));
+    expect(r.$result).toBe('ok');
+  });
+
+  // B1 parity: a covering NON-admin does NOT get reach — the gate is access.admin,
+  // not pattern-coverage. Mutation: drop `access?.admin &&` in enforceScopeReach
+  // → the write below lands → RED.
+  it('B1: a covering NON-admin (no access.admin) does NOT reach the descendant container', async () => {
+    const universe = crypto.randomUUID();
+    const scope = `${universe}.app.dev`;
+    const stub = HARNESS().getByName(scope);
+    const w = await stub.__executeOperation(makeEnvelope({
+      method: 'recordValue', args: ['leak'], instanceName: scope,
+      aud: universe, access: { authScopePattern: `${universe}.*` /* no admin */ },
+    }));
+    expect(postprocess(w.$error).message).toContain('Active-scope mismatch');
   });
 });
 

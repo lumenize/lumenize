@@ -38,27 +38,91 @@ export function requireAdmin(instance: HasCallContext) {
 }
 
 /**
+ * The structural scope guard shared by every Nebula node type's `onBeforeCall`
+ * (NebulaDO + NebulaContainer) — composed, not reimplemented, per ADR-007 ("one
+ * guard path, one place to audit"). Pure (instance name + verified claims in,
+ * throw-or-return out) so its branches are unit-mutation-testable without a
+ * DO/Container harness.
+ *
+ * Accepts a mesh call iff EITHER:
+ * - **higher-admin reach** — the caller is an `access.admin` whose
+ *   `authScopePattern` covers this node's instance name (one admin identity
+ *   reaches everything in its authority, no per-target `aud` re-mint); OR
+ * - **tenant boundary** — the call's active scope (`aud`) is covered by the scope
+ *   encoded in the instance name (the original check; all a non-admin ever uses).
+ *
+ * The reach clause is **gated on `access.admin`**: pattern-coverage alone is not
+ * authority, so a non-admin with a wildcard pattern keeps today's aud-narrowed
+ * behavior exactly (a descendant it doesn't actively scope to is rejected).
+ *
+ * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
+ * reject, and the `buildAuthScopePattern(name)` parse all run BEFORE the reach
+ * clause — otherwise a wildcard/`*` admin would short-circuit past them, since
+ * `matchAccess('*', x)` is `true` for any string (incl. an unparseable name).
+ *
+ * Every rejection is an `Error` (never a bare string — a thrown string lands in
+ * `lastResult`, not `lastError`).
+ */
+export function enforceScopeReach(
+  name: string | undefined,
+  claims: NebulaJwtPayload | undefined,
+): void {
+  // (a) fail-closed — the envelope carried no callee instance name.
+  if (!name) {
+    throw new Error('Mesh call missing callee instance name');
+  }
+
+  // (b) platform-name reject — `buildAuthScopePattern('nebula-platform')` is `*`
+  // (accept-all); no tier/container node IS the platform DO, so reject it before
+  // the gate could collapse to accept-all. Runs before the reach clause so a
+  // covering admin can't reach a DO masquerading at the platform name.
+  if (isPlatformInstance(name)) {
+    throw new Error('Active-scope mismatch');
+  }
+
+  // (d) throws on an unparseable tier name (e.g. >3 segments, illegal slug) —
+  // fail closed rather than swallow. Before the reach clause for the same reason.
+  const pattern = buildAuthScopePattern(name);
+
+  // Higher-admin reach (gated on access.admin — pattern-coverage is NOT authority).
+  const access = claims?.access;
+  if (access?.admin && access.authScopePattern && matchAccess(access.authScopePattern, name)) {
+    return;
+  }
+
+  // (c) + (e) — the original active-scope tenant boundary (the non-admin path).
+  const aud = claims?.aud;
+  if (!aud) {
+    throw new Error('Missing active scope (aud)');
+  }
+  if (!matchAccess(pattern, aud)) {
+    throw new Error('Active-scope mismatch');
+  }
+}
+
+/**
  * NebulaDO — base class for Universe, Galaxy, and Star.
  *
- * onBeforeCall() enforces **structural** tenant isolation: a mesh call is
- * accepted only if its JWT `aud` (active scope) is covered by the scope encoded
- * in this DO's **instance name**. The name is run through
- * `buildAuthScopePattern` (Star → exact id; Galaxy/Universe → `<id>.*`, which
- * covers the scope itself and every descendant star) and matched against `aud`
- * via `matchAccess`. There is no trust-on-first-use lock and no stored
- * `aud` — scope is derived from the name on every call, so a Galaxy/Universe
- * serves all of its descendant stars and a foreign `aud` is always rejected.
+ * onBeforeCall() enforces **structural** scope reach via the shared
+ * {@link enforceScopeReach} helper (composed, not reimplemented — ADR-007). A
+ * mesh call is accepted iff the caller is an `access.admin` whose authority
+ * covers this DO's **instance name** (higher-admin reach), OR its JWT `aud`
+ * (active scope) is covered by the scope encoded in that name (the tenant
+ * boundary; the non-admin path). The name is run through `buildAuthScopePattern`
+ * (Star → exact id; Galaxy/Universe → `<id>.*`, covering the scope and every
+ * descendant). There is no trust-on-first-use lock and no stored `aud` — scope
+ * is derived from the name on every call.
  *
  * Soundness rests on name == routing key: a tier DO is addressed by the same
  * `parseId`-valid id that becomes its `instanceName` (never a 64-hex DO id), so
  * the derived scope equals the address an attacker must already control.
- * See tasks/nebula-do-scope-isolation.md.
+ * See tasks/nebula-onbeforecall-higher-admin-reach.md and
+ * tasks/archive/nebula-do-scope-isolation.md.
  */
 export class NebulaDO extends LumenizeDO {
   onBeforeCall() {
     // Scope is derived from this DO's instance name (stamped from the envelope's
-    // metadata.callee before onBeforeCall runs). Absent name ⇒ the call didn't
-    // carry callee metadata — fail closed.
+    // metadata.callee before onBeforeCall runs).
     const name = this.lmz.instanceName;
 
     // Entry marker (internal testing primitive): the local-executor path
@@ -66,28 +130,9 @@ export class NebulaDO extends LumenizeDO {
     // its absence on that path is asserted via this sink marker. See T-local-skip.
     debug('nebula.NebulaDO.onBeforeCall').debug('entry', { instanceName: name });
 
-    if (!name) {
-      throw new Error('Mesh call missing callee instance name');
-    }
-
-    // The platform instance name maps to the accept-all pattern `*`; no tier DO
-    // is the platform DO, so reject it before it could collapse the gate.
-    if (isPlatformInstance(name)) {
-      throw new Error('Active-scope mismatch');
-    }
-
-    // Throws on an unparseable tier name (e.g. >3 segments, illegal slug) —
-    // fail closed rather than swallow.
-    const pattern = buildAuthScopePattern(name);
-
-    const aud = (this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined)?.aud;
-    if (!aud) {
-      throw new Error('Missing active scope (aud)');
-    }
-
-    // Tenant boundary: the active scope must be covered by this DO's scope.
-    if (!matchAccess(pattern, aud)) {
-      throw new Error('Active-scope mismatch');
-    }
+    enforceScopeReach(
+      name,
+      this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined,
+    );
   }
 }

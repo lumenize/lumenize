@@ -3,7 +3,7 @@
  */
 
 // DO classes
-export { NebulaDO, requireAdmin } from './nebula-do';
+export { NebulaDO, requireAdmin, enforceScopeReach } from './nebula-do';
 export { NebulaContainer } from './nebula-container';
 export { DevContainer } from './dev-container';
 export type { SourceFile } from './dev-container';

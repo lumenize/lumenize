@@ -15,7 +15,8 @@ import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
-import { Galaxy, Universe, requireAdmin } from '@lumenize/nebula';
+import { Galaxy, Universe, requireAdmin, enforceScopeReach } from '@lumenize/nebula';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
   createAuthenticatedClient,
@@ -155,24 +156,29 @@ describe('structural scope isolation (Fix 1)', () => {
     client[Symbol.dispose]();
   });
 
-  // ── T6 — Tier mismatch (m1/m2) ─────────────────────────────────────────
-  // A galaxy-level aud calling a Star is rejected — the Star's exact pattern
-  // requires the star-level aud. Positive control: the same admin refreshed to
-  // the star activeScope (aud = star) is accepted.
-  it('T6: galaxy-level aud calling a Star is rejected; star-level aud accepted', async () => {
+  // ── T6 — Higher-admin reach: a galaxy admin reaches a descendant Star ────
+  // CHANGED (tasks/nebula-onbeforecall-higher-admin-reach.md): a galaxy admin
+  // (authScopePattern `<g>.*`, aud = galaxy) now REACHES a descendant Star via
+  // the admin-reach clause — no aud narrowing needed. (Was rejected with
+  // 'Active-scope mismatch' under the aud-only gate.) Capable-of-failing: delete
+  // the reach clause in enforceScopeReach → this goes RED (galaxy aud no longer
+  // covers the star's exact pattern).
+  it('T6: a galaxy admin reaches a descendant Star (higher-admin reach)', async () => {
     const browser = new Browser();
     const { galaxy, starA: star } = uniqueGalaxyScope();
 
-    // Galaxy-level founder admin (aud = galaxy) addressing a Star → rejected.
+    // Galaxy-level founder admin (aud = galaxy, admin) addressing a descendant Star.
     const { client: galaxyClient } = await createAuthenticatedClient(
       NebulaClientTest, browser, galaxy, galaxy, 'admin@example.com',
     );
     galaxyClient.callStarWhoAmI(star);
     await vi.waitFor(() => { expect(galaxyClient.callCompleted).toBe(true); });
-    expect(galaxyClient.lastError).toContain('Active-scope mismatch');
+    expect(galaxyClient.lastError).toBeUndefined();
+    expect(galaxyClient.lastResult).toContain('You are');
     galaxyClient[Symbol.dispose]();
 
-    // Positive control: same admin refreshes activeScope to the star (aud = star).
+    // Positive control: the same admin refreshed to the star activeScope (aud =
+    // star) also reaches it — now via the unchanged aud path.
     const { client: starClient } = await createAuthenticatedClient(
       NebulaClientTest, browser, galaxy, star, 'admin@example.com',
     );
@@ -181,6 +187,54 @@ describe('structural scope isolation (Fix 1)', () => {
     expect(starClient.lastError).toBeUndefined();
     expect(starClient.lastResult).toContain('You are');
     starClient[Symbol.dispose]();
+  });
+
+  // ── Reach (positive): a universe admin reaches a descendant Galaxy + Star ─
+  // The headline capability — one `<u>.*` admin identity reaches everything in
+  // its authority with no per-target aud re-mint. (Previously a universe aud
+  // matched no galaxy/star pattern, so every descendant call was rejected.)
+  it('Reach: a universe admin reaches a descendant Galaxy and Star', async () => {
+    const browser = new Browser();
+    const { universe, galaxy, starA: star } = uniqueGalaxyScope();
+
+    // Universe-level founder admin (aud = universe, admin).
+    const { client } = await createAuthenticatedClient(
+      NebulaClientTest, browser, universe, universe, 'admin@example.com',
+    );
+
+    // Reaches the descendant Galaxy (covered by `<u>.*`).
+    client.callGalaxyGetConfig(galaxy);
+    await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
+    expect(client.lastError).toBeUndefined();
+    expect(client.lastResult).toEqual({});
+
+    // Reaches a descendant Star too.
+    client.callStarWhoAmI(star);
+    await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
+    expect(client.lastError).toBeUndefined();
+    expect(client.lastResult).toContain('You are');
+    client[Symbol.dispose]();
+  });
+
+  // ── Exact-star sibling isolation (the post-T6-rewrite anchor for branch e) ─
+  // A star-scoped caller (exact pattern `<u>.<g>.tenant-a`) cannot reach a
+  // SIBLING star `<u>.<g>.tenant-b` even as an admin: the exact pattern doesn't
+  // cover the sibling, so the reach clause is skipped and the aud check also
+  // misses → branch (e). A within-galaxy isolation case + a clean (e) anchor
+  // independent of T6 (which now reaches). Mutation: blank the matchAccess(aud)
+  // reject → this passes.
+  it('exact-star caller is rejected reaching a sibling Star (branch e)', async () => {
+    const browser = new Browser();
+    const { starA, starB } = uniqueGalaxyScope();
+
+    // Founder admin at starA (authScopePattern = exact `starA`, aud = starA).
+    const { client } = await createAuthenticatedClient(
+      NebulaClientTest, browser, starA, starA, 'admin@example.com',
+    );
+    client.callStarWhoAmI(starB);
+    await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
+    expect(client.lastError).toContain('Active-scope mismatch');
+    client[Symbol.dispose]();
   });
 
   // ── T-platform — Platform name is not an any-aud sink (M-1) ─────────────
@@ -408,5 +462,102 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
     } finally {
       clearDebugSink();
     }
+  });
+});
+
+// Minimal verified claims — enforceScopeReach reads only `aud` + `access`.
+// (verifyNebulaAccessToken upstream guarantees the rest; the gate never sees an
+// unverified token.)
+function claims(opts: { aud?: string; authScopePattern?: string; admin?: boolean }): NebulaJwtPayload {
+  const access: { authScopePattern?: string; admin?: boolean } = {};
+  if (opts.authScopePattern !== undefined) access.authScopePattern = opts.authScopePattern;
+  if (opts.admin) access.admin = true;
+  return { aud: opts.aud, access } as unknown as NebulaJwtPayload;
+}
+
+describe('enforceScopeReach (pure shared guard — admin-gated reach + branch matrix)', () => {
+  // This pure function is the single audit point (ADR-007) both NebulaDO and
+  // NebulaContainer onBeforeCall delegate to. Each branch is mutation-validated
+  // here — pure calls, no DO/Container harness — so the integration suites above
+  // only need to confirm the wiring.
+
+  // ── Higher-admin reach (the new clause) — admit a covering ADMIN ──────────
+  it('admits a `*` admin to any tier name (Universe/Galaxy/Star)', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
+  });
+  it('admits a `{u}.*` admin to {u}.{g} and {u}.{g}.{s}', () => {
+    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
+  });
+  it('admits a `{u}.{g}.*` admin to {u}.{g}.{s}', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u.g', authScopePattern: 'u.g.*', admin: true }))).not.toThrow();
+  });
+
+  // ── B1 — the admin GATE: pattern-coverage alone is NOT authority ──────────
+  // Mutation: drop `access?.admin &&` from the reach clause → the reject below
+  // becomes an accept → RED. This is the latent-non-admin-wildcard hole guard.
+  it('B1: a covering NON-admin (no access.admin) is rejected reaching a descendant', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*' /* no admin */ })))
+      .toThrow('Active-scope mismatch');
+  });
+  it('B1 control: the SAME wildcard pattern WITH access.admin reaches it (admin is the gate)', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
+  });
+
+  // ── Tenant boundary (the non-admin path, unchanged) ──────────────────────
+  it('admits a non-admin whose aud is covered by the name (own scope, and Star→own Galaxy)', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' }))).not.toThrow();
+  });
+
+  // ── Isolation: admin authority that doesn't cover the target → aud also misses ─
+  it('rejects a `{u1}.*` admin reaching {u2} (cross-tenant: pattern miss + aud miss)', () => {
+    expect(() => enforceScopeReach('u2.g.s', claims({ aud: 'u1', authScopePattern: 'u1.*', admin: true })))
+      .toThrow('Active-scope mismatch');
+  });
+
+  // ── Fail-closed branches (each mutation-validated by commenting its line) ──
+  it('(a) throws on a missing name', () => {
+    expect(() => enforceScopeReach(undefined, claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' })))
+      .toThrow('missing callee instance name');
+  });
+  it('(b) rejects the platform instance name', () => {
+    expect(() => enforceScopeReach('nebula-platform', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' })))
+      .toThrow('Active-scope mismatch');
+  });
+  it('(d) fails closed on an unparseable name', () => {
+    expect(() => enforceScopeReach('a.b.c.d', claims({ aud: 'a.b.c.d', authScopePattern: 'a.b.c.d' })))
+      .toThrow(/dot-separated segments/);
+    expect(() => enforceScopeReach('Bad.app.tenant', claims({ aud: 'Bad.app.tenant', authScopePattern: 'Bad.app.tenant' })))
+      .toThrow(/Invalid slug/);
+  });
+  it('(c) throws when aud is absent and the reach clause does not fire', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.g.s' /* no aud, no admin */ })))
+      .toThrow('Missing active scope');
+  });
+  it('(e) rejects when aud is not covered by the name and there is no admin-reach', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u.g.other', authScopePattern: 'u.g.other' })))
+      .toThrow('Active-scope mismatch');
+  });
+
+  // ── M1 — fail-closed PRECEDENCE: the reach clause must run AFTER (b)+(d) ───
+  // matchAccess('*', anyString) is true, so a `*` admin would short-circuit past
+  // these if the clause were placed first. Mutation: move the reach clause above
+  // the platform reject / buildAuthScopePattern → both of these go RED.
+  it('M1: a `*` admin still cannot reach the platform name (b before reach)', () => {
+    expect(() => enforceScopeReach('nebula-platform', claims({ aud: 'u', authScopePattern: '*', admin: true })))
+      .toThrow('Active-scope mismatch');
+  });
+  it('M1: a `*` admin still fails closed on a malformed name (d before reach)', () => {
+    expect(() => enforceScopeReach('a.b.c.d', claims({ aud: 'u', authScopePattern: '*', admin: true })))
+      .toThrow(/dot-separated segments/);
+  });
+
+  // ── Pattern-but-no-aud (m2): admitted by the reach clause; unreachable from a
+  // verified token (verifyNebulaAccessToken requires aud), documented not gated. ─
+  it('m2: an admin+pattern token with no aud is admitted by the reach clause (documented unreachable)', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.*', admin: true /* no aud */ }))).not.toThrow();
   });
 });
