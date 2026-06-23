@@ -280,11 +280,12 @@ caveats, and stop condition in **Part 1 § Pre-build reading**. Output →
 > imports it); prompt structure; recorder wiring. Only the live `chat()` turn is an `it.skip` (run with
 > `wrangler dev` + Docker Desktop). Full spec (frozen): [`archive/nebula-codegen-loop.md`](archive/nebula-codegen-loop.md).
 
-### Offline prompt harness — *defined* · ⬅ **NEXT**
+### Offline prompt harness — *spec drafted* · ⬅ **NEXT** → [`nebula-offline-prompt-harness.md`](nebula-offline-prompt-harness.md) (needs `/review-task`)
 Re-run `(systemPrompt, message, current source) → model → output` **independently of the
 browser**, replaying recorded turns as fixtures, with a **container-free Rung-1 validate gate**
 (compile the SFC + compile the ontology + static Nebula-API-usage checks). A vitest-pool-workers
-test or script against the `AI` binding / Workers AI REST.
+test or script against the `AI` binding / Workers AI REST. **First slice = turn extraction**
+(pull recorded `TurnRecord`s out of the dev Galaxy — also the answer to "can we see the turn logs?").
 - **Why here, not first:** the "costlier tooling" — build it once the loop exists and you know
   the turn shape + what's worth asserting. It makes the *next* round of prompt iteration fast
   and independent (the original motivation); the first round runs hand-driven.
