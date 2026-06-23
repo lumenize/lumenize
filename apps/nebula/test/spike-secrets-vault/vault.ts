@@ -13,7 +13,7 @@ const ALG = 'AES-GCM';
 const IV_BYTES = 12;
 
 /** Import a 32-byte raw key (sourced from the NEBULA_SECRETS_KEY Workers Secret). */
-export async function importVaultKey(raw: Uint8Array): Promise<CryptoKey> {
+export async function importVaultKey(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', raw, ALG, false, ['encrypt', 'decrypt']);
 }
 
@@ -80,7 +80,7 @@ function toB64Url(bytes: Uint8Array): string {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function fromB64Url(s: string): Uint8Array {
+function fromB64Url(s: string): Uint8Array<ArrayBuffer> {
   const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);

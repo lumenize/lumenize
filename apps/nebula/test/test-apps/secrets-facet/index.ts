@@ -62,7 +62,7 @@ interface SecretEchoFacet {
 
 export class SecretBrokerDO extends DurableObject {
   async #key(): Promise<CryptoKey> {
-    const b64 = (this.env as Record<string, unknown>)[KEY_VAR] as string;
+    const b64 = (this.env as unknown as Record<string, unknown>)[KEY_VAR] as string;
     const bin = atob(b64);
     const raw = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);

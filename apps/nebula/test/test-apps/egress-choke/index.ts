@@ -68,7 +68,7 @@ interface EgressProbeFacet {
 export class EgressProbeDO extends DurableObject {
   /** Probe with the Nebula broker wired as `globalOutbound`. */
   async probeViaBroker(url: string): Promise<ProbeResult> {
-    const egress = (this.env as Record<string, unknown>).EGRESS as Fetcher;
+    const egress = (this.env as unknown as Record<string, unknown>).EGRESS as Fetcher;
     return this.#facet(egress).probe(url);
   }
 
