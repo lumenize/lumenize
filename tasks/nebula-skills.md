@@ -8,10 +8,10 @@
 
 **DevStudio** = the agentic-coding Durable Object — the thing that runs the LLM coding loop that builds a user-developer's app. It is the *agent*; it drives the rest of the dev cluster (current assumption, may change):
 - **DevContainer** — real-vite build/preview + command channel (`exec`/`writeFile`/`viteControl`) ([[project_studio_uibuild_pivot]]).
-- **DevStar** — ephemeral dev DATA.
+- The **`.dev` Star** — dev DATA (a plain Star at the `.dev` slug; the separate "DevStar" node was collapsed — see [`reference/nebula-dev-flows.md`](reference/nebula-dev-flows.md)).
 - **Galaxy** — published-version registry.
 
-DevStudio writes the user-developer's source into DevContainer and reads/writes DevStar; "publish" is a DevContainer `vite build` → Galaxy. The **engine** is Kimi K2.7 ([[kimi-k27-adoption]]) — no Think/codemode.
+DevStudio **is** the source-of-truth for the user-developer's source (shell `Workspace` + git; it pushes into DevContainer to build/preview) and reads/writes the `.dev` Star; "publish" is a `vite build` → Galaxy. The **engine** is Kimi K2.7 ([[kimi-k27-adoption]]) — no Think/codemode. (Cast is canonical in [`reference/nebula-dev-flows.md`](reference/nebula-dev-flows.md); this file stays wrapper-vague by design.)
 
 ## Core framing: skills are a three-tier prompt, not one growing blob
 
@@ -57,7 +57,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 
 > The heart of this file. Each is a seam DevStudio must expose; the wrapper details inside each are intentionally left open.
 
-1. **Skill registry & loading** — a place skills live (platform-owned; baked-into-image vs DO storage vs a skills-registry DO is open). The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Needs a budget policy for how many skills' indexes ride in context.
+1. **Skill registry & loading** — a place skills live. **RESOLVED (where) — see [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Iteration & deploy model:** the system prompt is a **platform-owned FILE TREE** (`NEBULA.md` base + `skills/*.md` + `rules/*.md`) served from a **dedicated `@cloudflare/shell`-backed registry DO** whose shell/FS methods are exposed over mesh and **read per turn** during prompt assembly — editing the prompt = a git commit into that DO's Workspace, **no redeploy**. v0 = a single platform-scoped, admin-gated tree; the per-Universe/Galaxy cascade (below) is the enterprise-gated extension. The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Still open: the **budget policy** for how many skills' indexes ride in context (the model-self-select vs harness-inject question below).
 
 2. **Base-prompt assembly** — the seam that composes tier-1 (identity/invariants/tool contract) + the skill discovery index + any active rules into what the engine sees each turn. This is the "system prompt builder." Keep tier-1 lean; everything task-shaped is a skill.
 
@@ -98,7 +98,7 @@ Confinement + injection hardening for every seam that touches dev-user content.
 
 ## Open questions
 - **Discovery: in-harness vs model-self-select.** Does the wrapper inject the skill index and decide activation, or does the engine self-select from a listed catalog? This is the central context-budget design surface (Kimi-in-the-loop reading skill files vs harness-managed). Flagged in [[project_flue_eval]] as "the real design surface."
-- **Where skills physically live** — baked into the DevContainer/DevStudio image vs DevStudio DO storage vs a dedicated skills-registry DO. Trades update-propagation against cold-start/simplicity.
+- ~~**Where skills physically live**~~ — **RESOLVED**: a dedicated `@cloudflare/shell`-backed registry DO, read per turn (no redeploy to iterate). See integration-point-1 + [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Iteration & deploy model.
 - **How dev-user context files are ingested/updated** — uploaded, edited in Studio, or derived from the app tree? Who owns the vision-doc lifecycle?
 - **Skill granularity** — one big "build a Nebula app" skill vs many task-shaped skills. (Standard guidance: many small, <500 lines each, references for depth.)
 - **When the product-alignment sub-agent runs** — every turn, at phase boundaries, or on demand? Cost vs safety.
@@ -108,7 +108,7 @@ Confinement + injection hardening for every seam that touches dev-user content.
 
 ## Why parked / resumption trigger
 
-Skills earn their keep once DevStudio is a real, churning agent loop with real user-developer apps to align against. **Un-park when** the §5.3.7 SFC substrate + DevContainer dev-loop ([[project_studio_uibuild_pivot]], Phase 3.5/4) have landed — i.e. there's an actual DevStudio loop generating real apps, and a vision doc to verify against. Before that there's no loop to layer skills onto and no app to align. (Same inflection family as the eval suite, which this should ship alongside.)
+Skills earn their keep once DevStudio is a real, churning agent loop with real user-developer apps to align against. The loop itself has now landed (built — `tasks/archive/nebula-codegen-loop.md`). **Un-park when** [`nebula-pre-alpha.md`](nebula-pre-alpha.md) **Wave 2 data-bound generation** is churning — i.e. the engine is generating real data-bound apps, the registry-DO prompt tree (integration-point-1) is stood up, and there's a vision doc to verify against. Before that there's no real app to align. (Same inflection family as the eval suite, which this should ship alongside.)
 
 ## Related
 - [[project_flue_eval]] — the decision that produced this: borrow the `SKILL.md` standard, reject Flue's runtime.

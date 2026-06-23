@@ -51,18 +51,26 @@ conversations** as they build — to generate valuable feedback and build stakeh
   `discover` / `claimUniverse` / `createGalaxy`) — "the nebula-auth DO that holds all of them."
 - **Root-admin Part 1 — done** (founder admin-on-`ROOT_NODE_ID`; `tasks/on-hold/nebula-star-root-admin.md`).
 
-## The one auth gap (decided: fix now — Wave 1)
+## The one auth gap — ✅ DONE 2026-06-23 (Wave 1, first child)
 
-`NebulaDO.onBeforeCall` matches **the DO's** scope pattern against **the caller's `aud`**, and
-`matchAccess('{u}.{g}.*','*')` is false — so a `*` / `{u}.*` admin can't reach a lower scope without
-narrowing `aud` per target. **Fix:** also allow when the caller's `access.authScopePattern` **covers**
-the target DO's instance (higher admin reaches down; `{u1}` still can't reach `{u2}`, isolation holds).
-Mirror the change in `NebulaContainer`'s parallel guard. **Security-review-gated**; capable-of-failing
-cross-tenant negative tests. (The original scope-isolation design is archived/frozen at
-`tasks/archive/nebula-do-scope-isolation.md` — don't edit it; the new security-model decision lives in
-the child task file below.) This is what lets the inspection instrument (and a Lumenize support engineer)
-read/write/admin anywhere with one identity instead of re-minting per target.
-→ child: [`tasks/nebula-onbeforecall-higher-admin-reach.md`](nebula-onbeforecall-higher-admin-reach.md) *(first child, in review)*.
+`NebulaDO.onBeforeCall` matched **the DO's** scope pattern against **the caller's `aud`**, so a `*` /
+`{u}.*` admin couldn't reach a lower scope without re-minting `aud` per target. **Shipped fix:** a shared
+`enforceScopeReach(name, claims)` guard (one audit point per ADR-007, in `apps/nebula/src/nebula-do.ts`,
+delegated to by both `NebulaDO.onBeforeCall` and `NebulaContainer.onBeforeCall`) admits a caller whose
+`access.authScopePattern` covers the target — **gated on `access.admin`** (pattern-coverage alone is not
+authority, so a non-admin keeps today's aud-narrowed behavior; closes the latent non-admin-wildcard reach
+into the not-DAG-gated `subscribeTree`). `{u1}` still can't reach `{u2}`. This is what lets the inspection
+instrument + a Lumenize support engineer read/write/admin anywhere with one identity. Built + panel-verified;
+child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](archive/nebula-onbeforecall-higher-admin-reach.md).
+
+- **Nugget for the descendant children (inspection instrument + provisioning):** a `*` / `{u}.*` admin
+  *first-touching a fresh descendant Star* now also triggers `Star.onBeforeCall`'s root-admin seeding
+  (`star.ts:94` — it seeds the first scope-admin caller as `ROOT_NODE_ID` admin), which it couldn't before
+  (it couldn't reach the Star at all). Aligned with the reach intent + `nebula-star-root-admin` Part 1, but
+  those children should account for the seeding side effect when a support/inspection identity touches a
+  Star it hasn't before.
+- The original structural scope-isolation design is archived/frozen at
+  `tasks/archive/nebula-do-scope-isolation.md` (don't edit).
 
 ## Two kinds of EXPLORATORY (do not pretend these are pinned)
 
@@ -106,7 +114,7 @@ read/write/admin anywhere with one identity instead of re-minting per target.
   container deploy (not just WARP-from-Mac), concurrency for ~5 external users, DevStudio
   source-of-truth durability, super-admin seed. Validates the loop's live `it.skip`s. Intersects
   `tasks/nebula-release-process.md`. *(Biggest single chunk.)*
-- **`onBeforeCall` higher-admin reach** — the auth gap above.
+- ✅ **`onBeforeCall` higher-admin reach** — the auth gap above (DONE 2026-06-23; archived child).
 - **Capture confirm/extend (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
   events (undo / abandon / feedback), sharing the sink with the feedback button.
 - **Turn-log inspection v0 (manual)** — registry-resolve the user's `{u}` → super-admin (delegated)
@@ -124,8 +132,14 @@ read/write/admin anywhere with one identity instead of re-minting per target.
 **Wave 2 — the long pole (data-bound, exploratory)**
 - **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned
   slug+name + magic-link claim) **+** synthetic (impersonate-only, no claim) subjects **+** act-as
-  wiring. Generic on scope. This is the **push** half; shares the subject/grant/scope core with
-  `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
+  wiring. Generic on scope — but the typical case is **synthetic test users Star-scoped to the `.dev`
+  Star** (the dev app + dev data live there), impersonated to exercise multi-user behavior. The
+  Universe admin's `{u}.*` reach (the Wave-1 `onBeforeCall` change) is what lets them provision + grant
+  into `.dev` without re-minting a per-target token; impersonation downscopes automatically because DAG
+  checks key off the delegated token's `sub` (the test user), never `act` (the admin). This capability
+  is for **all Universe/Galaxy admins editing their apps going forward**, not just pre-alpha. This is the
+  **push** half; shares the subject/grant/scope core with `tasks/nebula-request-access.md` (the **pull**
+  half) — share it, don't fork.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
 - **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run
@@ -180,10 +194,11 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 
 ## Links
 
-- Engine / codegen design + roadmap: `tasks/nebula-agentic-development-engine.md`
+- Engine design (reference, no sequencing): `tasks/reference/nebula-agentic-engine-design.md` — the *what-runs-when* for its work items lives in THIS file (Wave 2: ontology annotations, container vite swc, data-bound generation; the offline harness + eval suite un-park from here)
 - Dev/publish flows: `tasks/reference/nebula-dev-flows.md` · Studio node: `tasks/archive/nebula-studio.md`
 - Replay bench (parked, un-parks in Wave 2): `tasks/on-hold/nebula-offline-prompt-harness.md`
 - Skills (Wave 2): `tasks/nebula-skills.md`
 - Eval suite (parked; regression, later): `tasks/on-hold/nebula-studio-eval-suite.md`
 - Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
-- Release process (Wave 1): `tasks/nebula-release-process.md` · Outside-world (inbound email): `tasks/nebula-outside-world.md`
+- Release process (Wave 1): `tasks/nebula-release-process.md`
+- Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)

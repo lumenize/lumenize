@@ -2,7 +2,7 @@
 
 **Status**: **Iceboxed — Think not adopted** (2026-06-22; was on-hold 2026-06-16). Studio runs Kimi 2.7 via the Workers AI binding + a thin native-tool-calling loop, no Think — confirmed in code 2026-06-22 (`apps/nebula/src/dev-studio.ts` → `DevStudio.chat` → `env.AI.run`, no shim / no outbound WebSocket) — so this file's multi-tenant-containment analysis is parked indefinitely. Its kernel — containing per-tenant agent DOs/facets within Nebula's scope isolation — **may resurface as a new file, reframed away from Think**, for the post-Studio in-app AI chat context (it will not resume from here). Original analysis preserved below; production hardening was in `tasks/icebox/shim-hardening.md` (also iceboxed).
 
-**Decision context**: `tasks/archive/think-vs-cma-bakeoff.md` + `experiments/think-vs-cma/results/RESULTS.md` (decision = Think/Kimi+codemode). Model/eval strategy + vibesdk pattern input: `tasks/nebula-agentic-development-engine.md` (the codegen + eval engine, incl. the vibesdk reading task).
+**Decision context**: `tasks/archive/think-vs-cma-bakeoff.md` + `experiments/think-vs-cma/results/RESULTS.md` (decision = Think/Kimi+codemode). Model/eval strategy + vibesdk pattern input: `tasks/reference/nebula-agentic-engine-design.md` (the codegen engine design reference).
 
 **Pre-flight**: bump `@cloudflare/think` 0.8.3→0.8.4 and `agents` 0.14.2→0.14.3 before building on the harness (a DO write-cost win; rationale in `shim-hardening.md` § Pre-flight).
 

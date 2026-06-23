@@ -1,6 +1,8 @@
 # Nebula Outside-World — Productionization Plan
 
-**Status**: Design — phased build plan. **NOT started. Do NOT build yet.** Gated on (a) the in-flight Studio/branch work settling, and (b) a `/review-task` pass (the open forks below must close first).
+**Status**: Design — phased build plan. **Pulled into the pre-alpha program** ([`nebula-pre-alpha.md`](nebula-pre-alpha.md)) — Larry expects first pre-alpha users to ask for outside-world capabilities (one wants `fetch`, another email). Not "do not build" anymore; **pick up reactively on user demand**, but still **gated on a `/review-task` pass** (the open forks below must close first) + the in-flight Studio/branch work settling (several phases touch `star.ts`).
+
+**Demand-priority ordering (Larry, 2026-06-23) — distinct from the build-readiness phase order below:** user-facing value lands roughly **`fetch` → email → search → secrets (last)**. This is the *capability* priority, not the *phase* order: the phases have hard dependencies (the facet keystone + egress broker underpin all of fetch/email/search), and the secrets **vault infra** (Phase 1) is a *dependency* of secret-at-edge injection even though the user-facing **bring-your-own-key** capability is the lowest priority. **`search` was previously unlisted here — added below** (it's an egress recipe: call a search API through the broker, key in the vault; shares substrate with the engine's `web_search` tool — [`reference/nebula-agentic-engine-design.md`](reference/nebula-agentic-engine-design.md) § Studio AI tool surface). When `/review-task` runs, weigh whether to re-sequence the phases toward this demand order (e.g. a minimal `fetch`-to-allow-listed-public-URL slice before the full vault UX).
 
 **Design & decisions**: `tasks/nebula-outside-world.md` (umbrella — B1–B6 blockers, D1 secrets, D2 facet+`globalOutbound`).
 **Proven mechanisms** (spikes, all green + mutation-checked, 2026-06-17):
@@ -54,7 +56,7 @@ Ordered by readiness (1–3 are spike-proven; 4–5 need their own gates). Each 
 - [ ] `EgressBroker` wired as the facet's `globalOutbound`; a bare `fetch()` in agent code is routed through it (no bypass).
 - [ ] **Per-tenant** allow-list (from connector config / the vault), not a static global one; default-deny + internal/metadata SSRF deny.
 - [ ] Allowed path does the **real** `fetch` (the spike stubbed it); response streamed back; non-GET methods + headers pass through.
-- [ ] **Metering hook** — per-tenant egress counted (ties to `tasks/nebula-tenant-ai-billing.md`).
+- [ ] **Metering hook** — per-tenant egress counted (ties to `tasks/on-hold/nebula-tenant-ai-billing.md`).
 - [ ] **Secret-at-edge injection (option c)** for blessed connectors — the broker adds the `Authorization` header so generated code never sees the credential (depends on Phase 1).
 
 ### Phase 4 — Ingress router (GATED on the inbound spike)
@@ -101,4 +103,5 @@ Ordered by readiness (1–3 are spike-proven; 4–5 need their own gates). Each 
 ## Notes
 - The spikes are tracked under `apps/nebula/test/` with 2 dedicated vitest projects (`secrets-facet`, `egress-choke`) **excluded from `npm test`**. On promotion, the productionized code moves to `src/` with integration tests in the `baseline` test-app (and the spike projects can be retired).
 - **Type-check debt (noted 2026-06-17):** the spike test-apps fail the repo-wide `npm run type-check` (they're excluded from `npm test` but NOT from the type-check) — `test/spike-secrets-vault/vault.ts` (`Uint8Array` → `BufferSource`: the `SharedArrayBuffer`-vs-`ArrayBuffer` lib mismatch, ×2) and `test/test-apps/{secrets-facet,egress-choke}/index.ts` (`Env` → `Record<string, unknown>` cast). Fix on promotion, or sooner if a green repo type-check is needed: route the cast through `unknown` (`as unknown as Record<…>`) and hand WebCrypto a concrete `ArrayBuffer`-backed view.
-- This is substrate; **email/payments/Slack are agent recipes**, not Nebula-owned code (the whole point of the substrate-not-primitives thesis).
+- This is substrate; **email/payments/Slack/search are agent recipes**, not Nebula-owned code (the whole point of the substrate-not-primitives thesis).
+- **Search recipe (added 2026-06-23, demand-priority before secrets):** "let my app search the web" = call a search API (SerpApi/Brave/Google, like vibesdk's `web-search.ts`) **through the `EgressBroker`** (allow-list the provider host) with the API **key from the vault** (likely `galaxy-only` mode = platform pays, with per-tenant metering → [`nebula-tenant-ai-billing.md`](on-hold/nebula-tenant-ai-billing.md)); format results to markdown. **Shares its substrate with the engine's own `web_search` tool** ([`reference/nebula-agentic-engine-design.md`](reference/nebula-agentic-engine-design.md) § Studio AI tool surface) — the difference is consumer (generated app vs the codegen loop), not mechanism. A blessed recipe/helper is the right altitude (the high-risk "LLM/app picks a URL" SSRF case is `fetch_url`, not a fixed-provider search).

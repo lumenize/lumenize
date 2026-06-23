@@ -29,8 +29,10 @@ Prereqs: Docker Desktop running (`docker context use desktop-linux`).
    `App.vue` to the sandbox; the preview pane reloads to show it.
 
 ## Limitations (first cut — iterate from here)
-- **Stub codegen** — `DevStudio.chat` writes a placeholder, not real AI output yet (the
-  Kimi loop is the next step — `tasks/nebula-agentic-development-engine.md`).
+- **Codegen loop** — `DevStudio.chat` drives the real self-correcting tool-calling loop
+  (built; spec frozen at `tasks/archive/nebula-codegen-loop.md`, design ref
+  `tasks/reference/nebula-agentic-engine-design.md`). This README's "first cut" notes predate
+  that landing.
 - **No HMR under the prefix yet** — the preview iframe is force-reloaded on each change
   (HMR-through-proxy is a deferred follow-up).
 - **Fixed dev scope** `acme.app.dev`; dev-login relies on `NEBULA_AUTH_TEST_MODE` (local

@@ -403,7 +403,7 @@ Two external capabilities would change the cold-start / source-transfer story. W
 
 This doc is the **canonical source of truth** for the dev-loop architecture. The downstream realignment was **executed as a consolidation** on 2026-06-20 (plan: [`nebula-studio-consolidation-plan.md`](archive/nebula-studio-consolidation-plan.md); audit/findings: [`nebula-dev-flows-realignment.md`](archive/nebula-dev-flows-realignment.md)). The ~23-file Studio/dev sprawl collapsed to:
 
-- **Survivors:** this file (canonical flows) · [`nebula.md`](nebula.md) (master, realigned) · [`nebula-studio.md`](nebula-studio.md) (the Studio **build** task file) · [`nebula-agentic-development-engine.md`](nebula-agentic-development-engine.md) (codegen + eval).
+- **Survivors** (links updated as files later moved): this file (canonical flows) · the master plan, since superseded by [`../nebula-pre-alpha.md`](../nebula-pre-alpha.md) (`nebula.md` archived) · the Studio **build** task file [`nebula-studio.md`](archive/nebula-studio.md) (since archived — built) · the codegen engine, since split into the design ref [`nebula-agentic-engine-design.md`](nebula-agentic-engine-design.md) (sequencing in pre-alpha).
 - **Archived** (built/ran records, frozen in `tasks/archive/`): `nebula-container-dev-loop`, `dev-star`, `nebula-devcontainer-node-type`, `nebula-do-scope-isolation`, `nebula-self-hosted-assets`, `nebula-studio-compile-pipeline`, `kimi-ui-gen-viability`, `container-vite-spike`, `spike-container-agent-channel`, `nebula-file-storage-backend`, `nebula-lazy-schema-migrations`.
 - **Deleted** (never-built; salvage folded into the survivors): `nebula-app-versioning`, `nebula-studio-llm-strategy`, `nebula-resource-metadata`, `preview-iframe-spike`, `vibesdk-llm-patterns`.
 
