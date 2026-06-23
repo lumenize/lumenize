@@ -317,8 +317,17 @@ export class DevStudio extends NebulaDO {
       reply = "I couldn't finish cleanly — see the thought process.";
     }
 
-    // A useful thought-process view even when the model emitted only tool calls (no text):
-    // reasoning + final output + a short trace of what the loop did.
+    // The tool-calling loop carries the generated code in `write_file` *args*, not the
+    // model's reply text — so surface the final content of each written file here, else the
+    // thought panel loses the code (the one-shot path used to show it inline). Last write
+    // wins per path (self-correction rounds rewrite the same file).
+    const written = new Map<string, string>();
+    for (const tc of result.toolCalls) {
+      const a = tc.args as { path?: string; content?: string } | undefined;
+      if (tc.name === 'write_file' && a?.path && typeof a.content === 'string') {
+        written.set(a.path, a.content);
+      }
+    }
     const files = [...new Set(result.appliedPaths)];
     const compile = result.lastGate
       ? (result.lastGate.ok ? 'compiled ✓' : `compile error:\n${result.lastGate.errorTail}`)
@@ -326,6 +335,7 @@ export class DevStudio extends NebulaDO {
     const parts: string[] = [];
     if (result.reasoning) parts.push(`🧠 Reasoning\n\n${result.reasoning}`);
     if (result.output) parts.push(`📄 ${result.output}`);
+    for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
     parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${compile}`);
     return { reply, thought: parts.join('\n\n— — —\n\n') };
   }
