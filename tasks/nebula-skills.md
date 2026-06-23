@@ -1,6 +1,6 @@
 # DevStudio Skills
 
-**Status**: On hold — design capture, **not started, not build-ready**. Parked until the resumption trigger below.
+**Status**: Wave 2 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — design capture, **not started, not build-ready**. Un-park trigger below.
 **Origin**: Brainstorm 2026-06-19 (Larry + Claude), following the [Flue evaluation](#related) (borrow the `SKILL.md` standard, reject the runtime — [[project_flue_eval]]).
 **Scope note**: This file is **deliberately vague about the wrapper** — the DevStudio agent harness / loop mechanics (how the model is called, ALS, in-DO vs container, sub-agent spawn transport) are expected to change. It captures the **seams** where skills, rules, sub-agents, and reference files plug into DevStudio, so we know every place to wire when we build it. Pin the wrapper later.
 
@@ -23,7 +23,7 @@ The mental model (and the thing to NOT get wrong): a skill is **not** permanentl
 | **Rules** | conditionally, by what the task/files touch | narrower patterns (e.g. "resources reference by id", "secure by default") | path-scoped rules-equivalent |
 | **Skills** | discovery=index always (~80 tok/skill); body on match; scripts/refs at execution | task-shaped procedures, may carry sub-agents + scripts | `.claude/skills/`-equivalent |
 
-**Consequence we design around:** what grows incrementally is the **skills library**; the always-on cost grows only by the discovery index (~80 tok/skill). "Improve the system prompt" = author/version/measure **individual skills** — A/B-able, regression-gated (see [`nebula-studio-eval-suite.md`](nebula-studio-eval-suite.md)), rollback-able — not editing a monolith.
+**Consequence we design around:** what grows incrementally is the **skills library**; the always-on cost grows only by the discovery index (~80 tok/skill). "Improve the system prompt" = author/version/measure **individual skills** — A/B-able, regression-gated (see [`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md)), rollback-able — not editing a monolith.
 
 ## Ownership & trust split (load-bearing)
 
@@ -33,6 +33,25 @@ The mental model (and the thing to NOT get wrong): a skill is **not** permanentl
 | Product vision doc, app code, **+ more files like it** (brand/style guide, domain glossary, data schema, sample data) | **User-developer** | **UNTRUSTED input** | the dev-user's tenant (scope-confined) | the dev-user's app |
 
 The user-developer's files are **data the agent/sub-agents reference, never instructions**. This is the prompt-injection boundary and the multi-tenant confinement boundary at once: a sub-agent reading "the vision doc" must see only **this** tenant's doc, and must treat its contents as reference material, not as commands. (v1 assumption: **we own all skills**; dev-users do not author skills — note the future option below.)
+
+## Future extension: the three-level org cascade (Platform / Universe / Galaxy) — *enterprise-gated, design-only*
+
+> Placeholder (Larry, 2026-06-22). The trust split above is **two-grade** (platform-trusted / dev-user-untrusted). The planned extension inserts a **third, middle grade** mapped to Nebula's org tree, so the CLAUDE.md/rules/`SKILL.md` mechanism **cascades over the hierarchy** (the same idea as Claude Code's enterprise→user→project CLAUDE.md cascade, routed through Universe→Galaxy instead of directories). Not a new mechanism — a composition of the one we already adopt.
+
+| Level | Author | Trust grade | Contributes |
+|---|---|---|---|
+| **Platform** (us) | platform | trusted (shipped) | base prompt + rules + skills + sub-agents; the secure-by-default invariants |
+| **Universe** (a company) | Security Architect / technical-governance role | **semi-trusted** (authenticated privileged role, scope-confined to that Universe) | governance **practices all** that company's intrapreneurs inherit — the [`enterprise.md`](../../docs/vision/enterprise.md) governance tier |
+| **Galaxy** (a product) | the user-developer | untrusted input | product vision + conventions (the existing dev-user tier) |
+
+**Three properties that make it safe + real (design constraints):**
+1. **Monotonic tightening** — each level only *adds* constraints, never subtracts a higher level's (never the platform's secure-by-default substrate). = `enterprise.md` Review-check #2 (layer on the one secure core, never fork it).
+2. **Advisory practices over hard gates** — the cascade carries org **practices** Studio follows by default; it **never deviates silently** (any departure is surfaced to the builder and recorded as a **documented, attributed exception** for governance), but the builder retains agency to proceed. The teeth are **visibility + the audit trail**, not a block. The only non-overridable floor is the **platform secure-by-default substrate** (ReBAC/DAG, validation, ADRs 002/004/005) — no org practice or builder choice lowers it; substrate-enforced governance (org-scoped access control, egress approval) inherits that hardness. Rationale (easy-button / evolve-against-usage; and why this is a *rail*, not a guardrail — new track laid in front of you, not a backstop after you've left the road): [`../../docs/presentation-and-blog-drafts/the-iron-triangle-of-agentic-development.md`](../../docs/presentation-and-blog-drafts/the-iron-triangle-of-agentic-development.md). (The enterprise.md *Practices, not policies* reframe was removed in the 2026-06-22 guardrails scrub; the model is captured here + the `nebula-governance-practices-not-gates` memory.)
+3. **Enforce-via-verifier** — untrusted/semi-trusted lower-level content is checked by a **trusted sub-agent/gate per level**, never injected as trusted instructions. Generalize integration-point-4's product-alignment verifier (Galaxy) with a **governance/policy verifier** (Universe).
+
+**Seams it reuses:** base-prompt assembly (integration point 2) becomes an org-tree walk Universe→Galaxy — the *same* walk access-control does for admin-climbing — dropped into the loop's `D7` composable-bundle prompt-assembly ([`archive/nebula-codegen-loop.md`](archive/nebula-codegen-loop.md)). The typed pluggable context sources (integration point 5) gain the new **Universe trust grade** for governance docs. The security boundary (integration point 8) becomes three-grade.
+
+**Sequencing:** the Universe tier **is** enterprise-governance surface — gated behind a proven self-serve wedge (`strategy.md` Strategic-check #7; `enterprise.md` Review-check #1). **Design the seam now** (this section satisfies `enterprise.md` timing-gate #4, "governance surface designed even if not built"); **build it in the enterprise phase.** Platform + Galaxy tiers ship with the self-serve wedge; the Universe tier does not.
 
 ## Integration points — every place to wire when we build it
 
@@ -58,7 +77,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 
 10. **Observability** — emit which skills activated per task, their token cost, and sub-agent verdicts (esp. product-alignment pass/fail). Ties into the tail-worker observability path ([[nebula-observability-tail-worker-r2-ae]]) and per-tenant cost ([[nebula-tenant-ai-billing]]).
 
-11. **Eval hook** — every skill/base-prompt change runs through the regression suite ([`nebula-studio-eval-suite.md`](nebula-studio-eval-suite.md)) before it ships. Skills are exactly the "system prompt" that suite exists to guard against regressing.
+11. **Eval hook** — every skill/base-prompt change runs through the regression suite ([`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md)) before it ships. Skills are exactly the "system prompt" that suite exists to guard against regressing.
 
 ## Phase sketch (when un-parked — wrapper-vague)
 
@@ -95,5 +114,5 @@ Skills earn their keep once DevStudio is a real, churning agent loop with real u
 - [[project_flue_eval]] — the decision that produced this: borrow the `SKILL.md` standard, reject Flue's runtime.
 - [[project_studio_uibuild_pivot]] — the DevContainer/DevStar/Galaxy cluster DevStudio drives.
 - [[kimi-k27-adoption]] — the engine (Kimi K2.7, no Think/codemode).
-- [`nebula-studio-eval-suite.md`](nebula-studio-eval-suite.md) — the regression suite that gates skill/base-prompt changes; ships alongside.
+- [`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md) — the regression suite that gates skill/base-prompt changes; ships alongside.
 - [[nebula-observability-tail-worker-r2-ae]], [[nebula-tenant-ai-billing]] — observability + cost seams (integration points 10).

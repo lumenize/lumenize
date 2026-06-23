@@ -4,7 +4,7 @@
 **Packages**: none changed by the core decision — `@lumenize/debug` stays as-is. New work lands in a Tail Worker (likely `apps/nebula/` or a small dedicated package) + Cloudflare Pipelines/R2 config.
 **Related**:
 - [tasks/icebox/debug-production-transport.md](../icebox/debug-production-transport.md) — the *in-process* transport API (`addDebugTransport`). **This task is the out-of-band alternative and partly tensions with it — see "Relationship to the transport task" below.**
-- [tasks/nebula-tenant-ai-billing.md](../nebula-tenant-ai-billing.md) — already plans a **Tail Worker** for cpuTime/wallTime keyed by `durableObjectId`. Same Tail Worker should be the single egress point for *all* telemetry, including these logs.
+- [tasks/nebula-tenant-ai-billing.md](nebula-tenant-ai-billing.md) — already plans a **Tail Worker** for cpuTime/wallTime keyed by `durableObjectId`. Same Tail Worker should be the single egress point for *all* telemetry, including these logs.
 - [tasks/on-hold/nebula-resource-history-r2.md](./nebula-resource-history-r2.md) — separate R2 use (resource history); don't conflate the buckets/datasets.
 **Relevant code**:
 - [packages/debug/src/logger.ts](../../packages/debug/src/logger.ts) — `defaultOutput` = `console.debug(JSON.stringify(log, ...))` (`:46`). This is the harvest point; **nothing here changes**.

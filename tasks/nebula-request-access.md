@@ -1,6 +1,6 @@
 # Nebula request-access workflow
 
-**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the "dead/dangling admin at climb termination" design note, split out of [nebula-star-root-admin.md](nebula-star-root-admin.md) Part 2 (last-admin protection).
+**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the "dead/dangling admin at climb termination" design note, split out of [nebula-star-root-admin.md](on-hold/nebula-star-root-admin.md) Part 2 (last-admin protection).
 
 ## What it is (from the docs)
 
@@ -35,3 +35,7 @@ This catches **both P1 and P2** at the moment the dangling grant actually causes
 **Recovery (independent of the above).** A Galaxy/Universe scope-admin can always re-seed a live root admin via `setPermission(ROOT, liveSub, 'admin')` through the `claims.access.admin` bypass — so an adminless org is never *permanently* bricked. The liveness filter is about **detecting and routing around** a dead-admin terminus gracefully, not about recovery.
 
 **Relation to the consistency sweep.** A future cross-DO data-consistency sweep ([backlog.md](backlog.md) § Other Nebula backlog) is the broad janitor — reconcile *all* grants against live subjects, strip orphans, flag adminless Stars. This request-access filter is the targeted, user-facing handling at the one point the problem is observed. Either can land without the other; the filter is cheaper and higher-value first.
+
+## Future enhancement — AI-initiated elevation (further out, on-hold-flavored)
+
+A natural extension once the base flow exists: make the **built product's AI** an initiator of request-access, not just the human. When the in-app assistant determines an answer would be *materially* better with data the asking user can't currently reach, it surfaces that — "I could answer this more completely if you had access to X" — and offers to fire the same governed climb-to-nearest-admin grant request on the user's behalf. Nothing is auto-granted: the grant still goes through a live admin up the org tree; the AI only *initiates* the ask. This is the product embodiment of the strategy's "least-privilege without the quality tax" / "choose 3" claim ([docs/vision/strategy.md](../docs/vision/strategy.md), and the iron-triangle write-up in `docs/presentation-and-blog-drafts/`). Strictly post-demo; depends on the base notify/approve transport above being designed first.

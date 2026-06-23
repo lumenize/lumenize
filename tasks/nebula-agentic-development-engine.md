@@ -27,8 +27,8 @@ shows reasoning + output.
 **DevStudio** (the server node) *runs* the **agentic development engine** — the codegen loop.
 There is no separate "agent" actor.
 
-> **Refs:** architecture/flows = [`nebula-dev-flows.md`](nebula-dev-flows.md) · the dev-loop
-> that *runs* this engine = [`nebula-studio.md`](nebula-studio.md) · parked eval suite =
+> **Refs:** architecture/flows = [`nebula-dev-flows.md`](reference/nebula-dev-flows.md) · the dev-loop
+> that *runs* this engine = [`nebula-studio.md`](archive/nebula-studio.md) · parked eval suite =
 > [`on-hold/nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md) · parked skills
 > = [`on-hold/nebula-skills.md`](on-hold/nebula-skills.md) · viability probe (frozen) =
 > [`archive/decision-studio-codegen-viability-probe.md`](archive/decision-studio-codegen-viability-probe.md)

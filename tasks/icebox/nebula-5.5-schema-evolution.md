@@ -8,7 +8,7 @@
 
 **Depends on**: 5.2.4.2 (parse-validate via DO facet, per-version row storage, Galaxy `_index` mirrored to Star)
 
-**Parent**: `tasks/nebula.md`
+**Parent**: `tasks/archive/nebula.md` (archived)
 
 ## Scope
 

@@ -1,6 +1,6 @@
 # Nebula Release Process
 
-**Status**: On Hold — demo focus. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning); Phases 1–5 (SHA-stamping, `/_version`, `deploy-nebula.sh` split) not started.
+**Status**: Wave 1 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — not started. Picked up when the first prod deploy is imminent. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning); Phases 1–5 (SHA-stamping, `/_version`, `deploy-nebula.sh` split) not started.
 
 ## Objective
 
@@ -70,7 +70,7 @@ Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `em
   2. Reinstalls from the registry (not workspace symlinks) into a deploy staging dir, so what we deploy is the same bytes a fresh `npm install` would produce. (`npm pack` + extract, or a clean clone, or `--workspaces=false` install — pick the simplest that's bit-reproducible.)
   3. Runs `wrangler deploy` with the SHA define from Phase 1.
   4. Verifies `/_version` after deploy and rolls back if the response doesn't match what we just built.
-- Document when to run each script in `tasks/nebula.md` (or a new top-level `RELEASING.md`).
+- Document when to run each script in a new top-level `RELEASING.md`.
 
 **Success criteria**:
 - [ ] `scripts/release.sh` only publishes packages; never deploys Nebula

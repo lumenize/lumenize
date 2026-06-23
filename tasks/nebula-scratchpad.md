@@ -2,7 +2,7 @@
 
 Deferred items, early-stage ideas, and notes captured during planning. Items here aren't committed to any phase yet — they'll be pulled into specific task files when the time comes.
 
-**Referenced from**: `tasks/nebula.md`
+**Referenced from**: `tasks/archive/nebula.md` (archived master map)
 
 ---
 
@@ -42,32 +42,7 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 
 ### Mesh Infrastructure
 
-- **Propagate per-call IDs through `callChain`** — see [tasks/on-hold/mesh-call-tracing-and-ids.md](on-hold/mesh-call-tracing-and-ids.md). A richer design than just adding a single `callId` to `CallContext`: each `callChain[]` entry gets its own `callId`, so `callChain[0].callId` is the traceId and `callChain.at(-1).callId` is the current hop. Closes the Gateway-timestamp correlation gap discussed during 2026-06-02 logging work — multiple WS frames sharing `Date.now()` due to fuzzy invocation boundaries (`feedback_cf_clock_traps.md`) wouldn't be distinguishable by timestamp alone, but per-hop callIds would. Also paired with standardizing `uniqueId()` (monotonic ULID) and `secureToken()` primitives across mesh + nebula. Five-phase plan, not started.
-
 - **Watch for browser ALS polyfills and swap one in when ready**: Today, `packages/mesh/src/lmz-api-context.browser.ts` is a module-scoped-variable shim that preserves context synchronously but not across `await` boundaries — `LumenizeClient` framework code works around this by threading `CallContext` explicitly through closures (refactored 2026-06-03; see `tasks/archive/playwright-test-template.md` § Known blockers #2 for the journey). User code reading `this.lmz.callContext` AFTER an `await` inside a browser-side `@mesh()` handler hits a silent cliff — corrupted with whatever context the most recent concurrent handler set. No current handler does this, so it doesn't bite. **The clean fix is a real ALS polyfill**, but as of 2026-06-03 the available options are weak: `@b9g/async-context` uses `node:async_hooks` internally (defeats our purpose), `@webfill/async-context` is 3+ years stale, `simple-async-context` is unvetted, and `unctx` has a different API model. Userland Promise-then patching can't intercept V8's `await` fast-path; the working alternative requires zone.js-style global Promise replacement, too heavy for a library. The TC39 [AsyncContext proposal](https://github.com/tc39/proposal-async-context) is at Stage 2 — when it advances to Stage 3+ and ships natively in a browser engine, OR when a battle-tested polyfill (TC39-shaped, light-weight, not Node-ALS-internal) appears in the npm ecosystem, swap it in. The mesh-side change at that point is small: rewrite `lmz-api-context.browser.ts` to wrap the polyfill, keep the same `runWithCallContext`/`getCurrentCallContext` exports. The framework-internal explicit threading we added stays as a defense-in-depth — works correctly regardless of whether the polyfill is present. Re-evaluate every ~6 months or when someone needs cross-await callContext reads in a browser handler.
-
-### Star Subscription Design (Phase 5)
-
-Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in Phase 3.1. Full subscription fan-out happens in Phase 5.
-
-**Subscription method**: `Star.subscribe()` — called by clients via mesh. Returns an object shaped for extensibility:
-```
-{ dagTreeState: DagTreeState, /* more properties later */ }
-```
-
-**Subscriber tracking**: Star maintains a subscriber list (outside DagTree — subscriptions are to the Star, not just the tree). Each subscriber entry captures:
-- `sub` from `callContext.originAuth.sub` — **required**, throw if missing (only user-initiated subscriptions, not mesh-to-mesh)
-- `bindingName` and `instanceName` from `callContext.callChain.at(-1)` — the immediate caller (NebulaClientGateway instance) for routing notifications back
-
-**Notification delivery**: On tree mutation, Star iterates subscribers and calls each client's gateway via `this.lmz.call('NEBULA_CLIENT_GATEWAY', gwInstanceName, ...)`. Every online user is a subscriber (at minimum every 15 minutes due to access token TTL refresh).
-
-**Client-side `dag-ops` functions**: The client imports pure functions from `@lumenize/nebula` (`resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`, `validateSlug`, `checkSlugUniqueness`, `detectCycle`) that operate on its local `DagTreeState` copy. These enable pre-validation before mesh calls, permission-aware UI (enable/disable buttons, grey out inaccessible nodes), and local traversal — all with zero round trips. When the subscription pushes an updated `DagTreeState`, the client replaces its local copy and re-runs any needed computations. See `dag-ops.ts` in Phase 3.1 of `tasks/archive/nebula-dag-tree.md`.
-
-**Open questions for Phase 5**:
-- Subscriber cleanup on disconnect (gateway notifies Star when client disconnects?)
-- Does `getEffectivePermission` get called per-subscriber on notification, or is tree structure enough?
-- Subscription to specific subtrees vs. full tree
-- See scratchpad "Fanout Broadcast Tiering" for high subscriber counts
 
 ### DAG Tree Enhancements (from Phase 3.x)
 
@@ -109,10 +84,6 @@ The initial DW validator wrapper (task 5.2.3.7) uses raw Workers RPC — the `Va
 
 **Blocked on**: Discord memory-sharing answer. If DWs get their own memory budget, this becomes the recommended default for Nebula's tsc validation (memory tradeoff row in docs disappears). If shared budget, it's still useful for code organization but doesn't solve the memory constraint. Either way, the NebulaWorker wrapper is worth building — the question is how prominently to recommend it.
 
-### Value Constraints via JSDoc Annotations
-
-Moved to `tasks/on-hold/nebula-orm-and-queries.md` (post-demo). Includes JSDoc constraints (`@min`, `@max`, `@format`) as Part A, M:N relationship design with join tables as Part B, and query-time filtering / bounded hydration in the multi-resource `query()` work as Part C. (`@default` is now handled by the parse-validate package, not this work.)
-
 ### Nebula Licensing (from backlog)
 
 **BSL AI Training Restriction Clause**:
@@ -120,13 +91,16 @@ Moved to `tasks/on-hold/nebula-orm-and-queries.md` (post-demo). Includes JSDoc c
 
 ### Aggregations
 
-Old-school npm `lumenize` aggregations over temporal data. The star DO will keep the most recent copy of every entity and a small cache of history snapshots. Snapshots other than the latest are lazily copied to a DO for that entity which can grow indefinitely.
+Two distinct aggregation needs:
+
+**Historical aggregations** (over temporal data): R2 is the leading implementation approach, tied to `tasks/on-hold/nebula-resource-history-r2.md`. Once snapshot history lands in R2 Iceberg, queries like "open issues per project last 90 days" become R2 SQL queries over the snapshot store.
+
+**Current-state aggregations** (live counts, sums — no history needed): a separate, unaddressed need. Queries like "count of open items per project right now" need a path that doesn't require scanning history. Options: (a) maintained materialized counts in Star SQLite updated on each resource mutation; (b) fan-out query at read time; (c) a generic aggregation DSL in the `query()` API. **Not captured in the R2/resource history plan** — needs its own design.
+
+Original npm `lumenize` had rich aggregation capabilities over temporal data — those are still a goal, now informed by the Snodgrass substrate and the R2 plan.
 
 ### Studio Follow-On
 
-- Training pipeline for Nebula-specialized small language model
-- Prompt engineering library (system prompts, few-shot examples, output validation)
-- Code validation pipeline (generated code → `tsc` check → DWL deploy → integration test)
 - Version control for user-developer-built applications (diff, rollback, branching) — **concrete approach worth exploring: wasm-git running inside a DO/Worker.** Cloudflare maintains a working demo at https://github.com/cloudflare/cloudflare-workers-wasm-demo (git in Zig compiled to WASM, ~5MB blob, pluggable storage backend so we can put the object store in Galaxy SQLite, R2, or a dedicated DO).
 
   > ⚠️ **Partly OBE (2026-06-22).** The git-in-a-DO kernel **shipped differently**: DevStudio is the dev source-of-truth via `@cloudflare/shell` `Workspace` + **isomorphic-git** (not wasm-git) — see `nebula-dev-flows.md` Decision 6. What's still open is the *user-facing* diff/rollback/checkpoint UI. The framing in this bullet is superseded on the mechanics: there is **no `OntologyVersionRow` / Galaxy ontology registry** (DevStudio serves the ontology from its own source tree), **no `.dev`/`.main` URL branches** (rejected — dev is a `.dev` Star *slug*; → `tasks/icebox/nebula-branches.md`), and `deploy_to_dev`/`deploy_to_main` are not the current API. Salvage the *idea* (AI-issued git diff/log/revert over iteration history), re-derive against the current model.

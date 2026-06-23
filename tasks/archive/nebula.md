@@ -5,7 +5,7 @@
 **Auth Package**: `@lumenize/nebula-auth` (separate package in `packages/`, `"private": true`)
 **Built on**: `@lumenize/mesh` (MIT) — extends its classes (including `LumenizeClientGateway` via the mesh-extensibility hooks)
 
-> **What this file is:** the whole-product map — what Nebula is, how it's wired, what's decided, what's live, and what's next. It is **not** a phase ledger. Forward work is **named, not numbered**; the old `5.x`-style phase numbering is retired and survives only as frozen identifiers baked into archived filenames (see *Shipped*). Architecture detail lives in `tasks/nebula-dev-flows.md`; the active build/roadmap docs are linked under *Active work*.
+> **What this file is:** the whole-product map — what Nebula is, how it's wired, what's decided, what's live, and what's next. It is **not** a phase ledger. Forward work is **named, not numbered**; the old `5.x`-style phase numbering is retired and survives only as frozen identifiers baked into archived filenames (see *Shipped*). Architecture detail lives in `tasks/reference/nebula-dev-flows.md`; the active build/roadmap docs are linked under *Active work*.
 
 ---
 
@@ -50,7 +50,7 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
 Investor demo is the near-term focus. The dev-loop **infrastructure is built** and the live Studio loop works end-to-end on real infra — the remaining critical path is codegen *quality*, not plumbing.
 
 - **Agentic development engine** (codegen + eval) — **the active forward-planning doc**: `tasks/nebula-agentic-development-engine.md` (Part 1 design, Part 2 ordered roadmap). Kimi 2.7 via Workers AI, a thin native-tool-calling loop run by DevStudio; no Think, no codemode (ADR-002). Viability validated 2026-06-16. Cheapest next rung: the **turn recorder**.
-- **Nebula Studio** (chat-first authoring; cast: **DevStudio** + **DevContainer** + **Studio UI** + **Preview app**) — dev-loop infra **built 2026-06-21**; build file `tasks/nebula-studio.md` (publish tail is post-demo). Architecture canonical in `tasks/nebula-dev-flows.md`.
+- **Nebula Studio** (chat-first authoring; cast: **DevStudio** + **DevContainer** + **Studio UI** + **Preview app**) — dev-loop infra **built 2026-06-21**; build file `tasks/archive/nebula-studio.md` (publish tail is post-demo). Architecture canonical in `tasks/reference/nebula-dev-flows.md`.
 
 Post-demo work is a **live candidate pool**, not a backlog graveyard — see *Deferred & candidate index*.
 
@@ -83,7 +83,7 @@ The foundation is built and frozen in `tasks/archive/`. Those task files keep ol
 - **Resources core** — storage engine, TS validation/ontology, the `transaction()`/`subscribe()`/`read()` engine → `tasks/archive/nebula-5.1-storage-engine.md`, `tasks/archive/nebula-5.2-tsc-validation.md`; full design `docs/archive-and-outdated/nebula-resources-design.md`.
 - **Vue frontend** — the `@lumenize/nebula/frontend` factory (Vue 3 reactivity behind a path-aware Proxy), merged to `main` 2026-06-15 → `tasks/archive/nebula-frontend.md`; user docs `website/docs/nebula/coding-your-ui.md` + `api-reference.md`.
 - **Structural DO scope isolation** + **dev Star** (reserved `.dev` slug instance) → `tasks/archive/nebula-do-scope-isolation.md`, `tasks/archive/dev-star.md`.
-- **Studio dev-loop infrastructure** — DevStudio/DevContainer, the DevStar→Star collapse, the live version contract (built 2026-06-21; build file `tasks/nebula-studio.md`).
+- **Studio dev-loop infrastructure** — DevStudio/DevContainer, the DevStar→Star collapse, the live version contract (built 2026-06-21; build file `tasks/archive/nebula-studio.md`).
 - **Mesh/platform foundations** — mesh-extensibility hooks, gateway fix, synchronous guards, JWT active-scope-in-`aud` → `tasks/archive/` (mesh-extensibility, nebula-mesh-gateway-fix, nebula-sync-guards-in-lumenize-mesh, nebula-jwt-active-scope).
 
 **Research records:** `tasks/archive/nebula-isolation-blog.md` (DWL/codemode/Containers), `tasks/archive/nebula-ts-as-schema-research.md` (clean decision `docs/adr/001-typescript-as-schema.md`).
@@ -94,10 +94,10 @@ The foundation is built and frozen in `tasks/archive/`. Those task files keep ol
 
 The container-loop pivot is done, so nothing in `on-hold/` is dead — it's a **live candidate pool**, not a graveyard. The immediate "next" is the **Studio engine roadmap** (`tasks/nebula-agentic-development-engine.md` Part 2), *not* this pile. Drift-audited 2026-06-22: all specs are clean on the post-pivot model (no DevStar-class / Galaxy-ontology-registry / branches-as-dev / pull-not-push assumptions); only `tasks/nebula-scratchpad.md` carried stale notes (now annotated). Grouped by what each is actually waiting on:
 
-- **Rides the Studio roadmap** (resume *with* the engine work): `tasks/on-hold/nebula-skills.md`, `tasks/on-hold/nebula-studio-eval-suite.md`, `tasks/nebula-tenant-ai-billing.md`; further out, `tasks/on-hold/distributed-cpg-security-analysis.md` (gated on `tasks/on-hold/mesh-call-tracing-and-ids.md` V0 + Studio LLM infra).
+- **Rides the Studio roadmap** (resume *with* the engine work): `tasks/nebula-skills.md`, `tasks/on-hold/nebula-studio-eval-suite.md`, `tasks/on-hold/nebula-tenant-ai-billing.md`; further out, `tasks/on-hold/distributed-cpg-security-analysis.md` (gated on `tasks/on-hold/mesh-call-tracing-and-ids.md` V0 + Studio LLM infra).
 - **Available now, low-risk quick wins** (gate fully passed, demo-independent): `tasks/nebula-nightly-loop.md` (Phase 0 = `/consolidate-memory`), `tasks/on-hold/dag-client-supplied-nodeid.md`, `tasks/on-hold/broadcast-origin-transparency.md` (prereq scope-isolation landed), `tasks/on-hold/mesh-active-callcontext-guard.md`.
-- **Post-demo backlog** (live, correctly deferred until after the demo): `tasks/on-hold/mesh-overload-backpressure-handling.md`, `tasks/on-hold/mesh-resilience-testing.md`, `tasks/on-hold/mesh-cost-guidance-rebalance.md` (docs pass), `tasks/on-hold/mesh-call-tracing-and-ids.md`, `tasks/on-hold/nebula-orm-and-queries.md`, `tasks/on-hold/nebula-resource-history-r2.md`, `tasks/on-hold/wire-merge-patch-sync.md`, `tasks/on-hold/nebula-release-process.md` + `tasks/on-hold/release-process-improvements.md`, `tasks/on-hold/nebula-observability-tail-worker-r2-ae.md` (also gated on prod volume).
-- **Gated on `tasks/mesh-origin-request.md`**: `tasks/nebula-request-access.md`, `tasks/nebula-star-root-admin.md` Part 1b (Part 2 is ready now).
+- **Post-demo backlog** (live, correctly deferred until after the demo): `tasks/on-hold/mesh-overload-backpressure-handling.md`, `tasks/on-hold/mesh-resilience-testing.md`, `tasks/on-hold/mesh-cost-guidance-rebalance.md` (docs pass), `tasks/on-hold/mesh-call-tracing-and-ids.md`, `tasks/on-hold/nebula-orm-and-queries.md`, `tasks/on-hold/nebula-resource-history-r2.md`, `tasks/on-hold/wire-merge-patch-sync.md`, `tasks/nebula-release-process.md` + `tasks/on-hold/release-process-improvements.md`, `tasks/on-hold/nebula-observability-tail-worker-r2-ae.md` (also gated on prod volume).
+- **Gated on `tasks/on-hold/mesh-origin-request.md`**: `tasks/nebula-request-access.md`, `tasks/on-hold/nebula-star-root-admin.md` Part 1b (Part 2 is ready now).
 
 Scratchpad / early-stage ideas → `tasks/nebula-scratchpad.md`.
 
