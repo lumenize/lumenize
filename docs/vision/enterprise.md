@@ -44,7 +44,7 @@ The dominant enterprise-SaaS pattern of the last 15 years — Slack, Dropbox, Fi
 The enterprise tier is **governance and assurance layered on top of the one secure-by-default core** — never a forked, separate security model. Concretely:
 
 - **Visibility** — an inventory of what's been built, by whom, on what data. (You cannot govern what you cannot see.)
-- **Governance** — org-scoped access control (the ReBAC/DAG model extends to org hierarchy naturally), policy guardrails, and approval flows for outside-world connectivity (the Dynamic Worker / egress story).
+- **Governance** — org-scoped access control (the ReBAC/DAG model extends to org hierarchy naturally) and approval flows for outside-world connectivity (the Dynamic Worker / egress story).
 - **Identity** — SSO, SCIM, directory integration.
 - **Audit & compliance** — audit logs, data-residency controls, SOC 2 / ISO posture, and the evidence trail strict liability now demands.
 
@@ -73,7 +73,7 @@ Until these hold, enterprise effort is premature investment and pulls focus from
 
 ---
 
-## Guardrails (the `/review-task` lens for enterprise tasks)
+## Review checks (the `/review-task` lens for enterprise tasks)
 
 Flag a task that:
 

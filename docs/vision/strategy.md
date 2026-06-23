@@ -5,10 +5,10 @@
 | | |
 |---|---|
 | **Status** | Living doc — current strategy as of 2026-06-21. Update in place; note material pivots with a dated line. |
-| **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the guardrails below should get flagged. |
+| **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the checks below should get flagged. |
 | **Scope** | Nebula the SaaS platform. The MIT packages (Mesh and friends) are the substrate, not the subject. |
 
-This doc is downstream of the macro thesis in `docs/presentation-and-blog-drafts/The coming earthquake.md` (the AI-driven collapse of traditional software roles, the rise of the solopreneur/intrapreneur, and strict-liability law making security non-optional) and upstream of the architecture commitments in `docs/adr/`. Strategy is the *why* those ADRs serve.
+The macro thesis is that AI is the earthquake creating fissures that the traditional software development factory and roles are collapsing into, and at the same time creating new higher ground for the rise of the solopreneur/intrapreneur. 
 
 ---
 
@@ -18,7 +18,7 @@ This doc is downstream of the macro thesis in `docs/presentation-and-blog-drafts
 
 Three load-bearing words, none optional:
 
-- **Secure** — security is the default, not a feature you remember to turn on. This is the wedge (see *Why now*).
+- **Secure** — security is the default, not a feature you remember to turn on; the same access control even governs the built-in end-user-facing AI chat, so it answers only from data the user may already see. This is the wedge (see *Why now*).
 - **SaaS apps** — real products with real end users, not toys or demos. The unit of value is a deployed, multi-tenant, revenue-capable application.
 - **Get paid** — the builder can charge their customers. This is the motivator that outlasts novelty, and it's what makes Nebula a *business platform* rather than a hobby gallery.
 
@@ -30,12 +30,24 @@ The persona is always the **user-developer**: a solopreneur or intrapreneur who 
 
 The agentic-build space is a red ocean (Replit, Lovable, Cursor, v0, Bolt, Claude, …), all converging on integrated deployment. Differentiating on "agent builds your app" is a losing feature war against better-funded incumbents.
 
-Two structural shifts make **secure-by-default** the durable wedge:
+**The wedge is that those apps aren't secure.** The tools reliably generate a working UI — and ship it wide open. The failure compounds at every layer:
 
-1. **Strict liability is law.** The EU Product Liability Directive (2024/2853, effective Dec 2026) and the Cyber Resilience Act treat software as a product under strict liability — "reasonable and customary practice" is no longer a shield. NIS2 adds personal executive liability. When a domain expert ships a SaaS app, they are now *liable* for its security in a way they were not three years ago.
-2. **Attacks run at machine speed.** Autonomous exploitation (Project Shannon-class, ~96% success in published results) targets the application/API/auth layer — exactly the surface a non-expert builder is least equipped to defend.
+- **Authentication** — independent scans find most vulnerabilities in vibe-coded apps are reachable with no authentication at all. ([Escape.tech](https://escape.tech/blog/methodology-how-we-discovered-vulnerabilities-apps-built-with-vibe-coding/), 5,600+ apps, 2025.)
+- **Access control** — missing row-level security is endemic: Lovable's [`CVE-2025-48757`](https://nvd.nist.gov/vuln/detail/CVE-2025-48757) (CVSS 9.3) let anyone read and write arbitrary tables, and one [scan](https://mattpalmer.io/posts/cve-2025-48757/) found **170 live projects** leaking emails, phone numbers, payment data, and API keys.
+- **The agentic layer** — the rung no one has solved: there's no reliable way to stop an AI assistant from answering with data the asking user shouldn't see. [OWASP's LLM Top 10](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) states there is *no fool-proof prevention* for prompt injection; benchmarks find no built-in defense fully blocks exfiltration; and it has already shipped — [`CVE-2025-32711`](https://msrc.microsoft.com/update-guide/vulnerability/CVE-2025-32711) ("EchoLeak") was a **zero-click** leak from *Microsoft 365 Copilot*, the most heavily-resourced AI product on earth.
+
+If Microsoft can't bolt this on safely, a domain expert on Replit can't either. Secure-by-default is the wedge because the entire field is insecure-by-default — and the agentic rung is one nobody else is even structurally attempting.
+
+**And the cost of that insecurity just went up.** Two shifts turn an insecure app from an embarrassment into an existential risk for the builder:
+
+1. **Strict liability is law.** The EU Product Liability Directive (2024/2853, effective Dec 2026) and the Cyber Resilience Act treat software as a product under strict liability — "reasonable and customary practice" is no longer a shield; NIS2 adds personal executive liability. The domain expert who ships is now *liable* in a way they weren't three years ago.
+2. **Attacks run at machine speed.** Autonomous exploitation (Project Shannon-class, ~96% success in published results) targets the application/API/auth layer — exactly the surface these generated apps leave open.
 
 A domain expert building their own SaaS app cannot personally secure it, and the law no longer forgives them for failing to. **Nebula's answer: they don't have to.** The platform's substrate — the ReBAC/DAG access-control model, secure-by-default node core (ADR-007), structured-clone-everywhere correctness (ADR-002), temporal/non-destructive resources (ADR-004), optimistic-concurrency idempotency (ADR-005) — makes the *default* app a secure app. That is a claim our competitors structurally cannot make, because they let you deploy anywhere and write arbitrary server code.
+
+**Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that *can't* leak is the default, not a hardening project.
+
+**Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)), turning the security boundary from a wall into a governed, auditable membrane. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
 
 ---
 
@@ -102,11 +114,11 @@ Community and discovery are an *outcome* of density, never a shortcut to it — 
 
 ---
 
-## Strategic guardrails (the `/review-task` lens)
+## Strategic checks (the `/review-task` lens)
 
 Flag a task that:
 
-1. **Trades away security defaults for flexibility or speed** — the wedge is secure-by-default; a footgun is a strategy violation, not just a bug.
+1. **Trades away security defaults for flexibility, speed, or AI answer quality** — the wedge is secure-by-default; if the AI needs more data, the answer is just-in-time elevation up the org tree, never broader default access. A footgun is a strategy violation, not just a bug.
 2. **Optimizes a vanity metric** (forks, trending, stars) as if it were the business, or builds density-dependent features before single-player value exists.
 3. **Assumes collaboration / multi-user as a primary persona** rather than the ~90%-solo user-developer.
 4. **Weakens the "get-paid" path** — anything that makes it harder for a user-developer to reach or charge end users undercuts the crown-jewel flywheel.
