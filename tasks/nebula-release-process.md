@@ -1,6 +1,6 @@
 # Nebula Release Process
 
-**Status**: Wave 1 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — not started. Picked up when the first prod deploy is imminent. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning); Phases 1–5 (SHA-stamping, `/_version`, `deploy-nebula.sh` split) not started.
+**Status**: Wave 1 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — **not started; descoped + merged 2026-06-23, ready for `/review-task`.** This is now **the first-prod-deploy task** (the pre-alpha "first prod deploy" bullet folded in as Phase 0) AND the reusable deploy/release process. **Scoped to Phases 0–3** for pre-alpha (first-deploy readiness + SHA-stamp/`/_version` + `deploy.sh`); the heavier release-discipline pieces (registry-tarball reproducibility, CI, rollback) are **deferred to [`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md)**. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning).
 
 ## Objective
 
@@ -29,6 +29,33 @@ A robust process that answers, with no human discipline required:
 
 Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `email-test` for now; future apps inherit the pattern.
 
+## Phase 0: First-deploy readiness (merged from the pre-alpha "first prod deploy" bullet)
+
+**Goal**: the one-time things that must be true before `apps/nebula` can serve ~5 external pre-alpha users
+on a real Cloudflare deploy. (These ride the deploy machinery in Phases 1/3; the recurring deploy itself is
+Phase 3.)
+
+**Approach**:
+- **`migrations` block** in `apps/nebula/wrangler.jsonc` — registers every DO class with
+  `new_sqlite_classes` (NOT `new_classes`). **This is a one-way door**: the first prod deploy freezes
+  DO-class add/rename/delete into a migration-forever commitment (`.claude/rules/durable-objects.md` § DO
+  class registration). Enumerate every DO class shipped (Universe/Galaxy/Star/Resources/Subscriptions/DagTree/
+  NebulaContainer/DevContainer/DevStudio/…) before cutting it.
+- **Super-admin seed** — set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` as a deployed Worker secret
+  (`wrangler secret put`, never committed). The deploy script (Phase 3) confirms it's set.
+- **Concurrency sanity** for ~5 external users (no per-tenant limits tripped; DO/Gateway defaults fine — a
+  confirm, not a build).
+- **DevStudio source-of-truth durability** — confirm the shell `Workspace` (git over `ctx.storage.sql`)
+  survives a real deploy + DO restart (it's the dev-user's app source; losing it loses their work).
+- Deploy is **laptop + WARP** for pre-alpha (`cf-container-deploy-proxy`); the headless/CI deploy is
+  deferred → `on-hold/nebula-release-hardening.md`.
+
+**Success criteria**:
+- [ ] `apps/nebula/wrangler.jsonc` has a `migrations` block with all DO classes under `new_sqlite_classes`; the class list is enumerated in this file (pinned) before first deploy.
+- [ ] First prod deploy succeeds from laptop+WARP; super-admin can log in at the reserved `nebula-platform` instance with the seeded email.
+- [ ] The codegen loop's live `it.skip`s (which need `wrangler dev` + Docker today) are validated against the deploy.
+- [ ] DevStudio Workspace source survives a redeploy (a generated app's source is still there after).
+
 ## Phase 1: Version-stamp deployed Workers
 
 **Goal**: every deployed Worker exposes the git SHA it was built from, and tests can assert against it.
@@ -45,7 +72,12 @@ Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `em
 - [ ] `curl https://nebula-browser-test.transformation.workers.dev/_version` returns the SHA the Worker was built from
 - [ ] `wrangler deploy` from a dirty tree marks the deploy `dirty: true` (signals "not reproducible")
 
-## Phase 2: Pre-bench / pre-test deployment guard
+## Phase 2: Pre-bench / pre-test deployment guard *(optional for pre-alpha)*
+
+**Pre-alpha call (unresolved — decide at `/review-task` or build):** this guards *benchmark integrity*, which
+isn't F&F-blocking (we're not benchmarking for pre-alpha users). It's **cheap once Phase 1 exists** (a small
+helper reusing `/_version`), so include it if quick, else defer with the rest of the bench hygiene. Not a
+gate either way.
 
 **Goal**: bench and throughput tests refuse to run unless the deployed worker's SHA matches local `HEAD`.
 
@@ -65,41 +97,27 @@ Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `em
 
 **Approach**:
 - Today: `scripts/release.sh` lerna-publishes every public package. Lerna already skips Nebula because it's `private`.
-- Add: `scripts/deploy-nebula.sh` (or `apps/nebula/scripts/deploy.sh`) that:
-  1. Verifies `package.json` references published `@lumenize/*` versions matching the just-published `lerna.json` version (or a passed-in tag).
-  2. Reinstalls from the registry (not workspace symlinks) into a deploy staging dir, so what we deploy is the same bytes a fresh `npm install` would produce. (`npm pack` + extract, or a clean clone, or `--workspaces=false` install — pick the simplest that's bit-reproducible.)
-  3. Runs `wrangler deploy` with the SHA define from Phase 1.
-  4. Verifies `/_version` after deploy and rolls back if the response doesn't match what we just built.
+- **PINNED (2026-06-23): all logic lives in `apps/nebula/scripts/deploy.sh`.** Two thin wrappers invoke it:
+  the root `package.json` exposes `npm run deploy:nebula`; `apps/nebula/package.json` exposes `npm run deploy`
+  (local, unprefixed). The script:
+  1. Confirms the super-admin secret is set (`NEBULA_AUTH_BOOTSTRAP_EMAIL`, Phase 0) — refuse otherwise.
+  2. Runs `wrangler deploy` with the SHA/dirty define from Phase 1.
+  3. Verifies `/_version` after deploy and surfaces a mismatch (the SHA we just built ≠ what's live).
+  - *(Registry-tarball reinstall + version-match-against-npm + auto-rollback are deferred → `on-hold/nebula-release-hardening.md`. For pre-alpha, `apps/nebula` is `private` and `wrangler deploy` bundles workspace `src/` directly — which is what the tests run — so a workspace-symlink deploy is correct, not the divergence trap.)*
 - Document when to run each script in a new top-level `RELEASING.md`.
 
 **Success criteria**:
-- [ ] `scripts/release.sh` only publishes packages; never deploys Nebula
-- [ ] `scripts/deploy-nebula.sh` only deploys Nebula; refuses to run if `package.json` `@lumenize/*` versions are newer than what's on npm
-- [ ] Post-deploy, `/_version` reports the expected SHA *and* the expected `packageVersion`
+- [ ] `scripts/release.sh` only publishes packages; never deploys Nebula.
+- [ ] `apps/nebula/scripts/deploy.sh` holds the deploy logic; `npm run deploy:nebula` (root) and `npm run deploy` (apps/nebula) both invoke it.
+- [ ] Post-deploy, `/_version` reports the expected SHA *and* the expected `packageVersion`.
 
-## Phase 4: Reproducibility from npm (not workspace)
+## Deferred (post-pre-alpha) → `on-hold/nebula-release-hardening.md`
 
-**Goal**: the deployed Nebula is built from registry tarballs, not workspace symlinks. Otherwise we're testing "Nebula + workspace src", users would get "Nebula + npm dist" — same divergence trap that bit `ts-runtime-parser-validator` (compiled `.js` shape ≠ `.ts` source).
-
-**Approach** (sketch, decide during Phase 3):
-- Option A: `npm pack` every dependency, install Nebula in a temp dir from those tarballs, deploy from there.
-- Option B: clean-clone the repo at the publish tag, run `npm install --omit=dev --workspaces=false` (or with `overrides` pinning), deploy from there.
-- Option C: leave Nebula's workspace links in dev but add a `prepublish-nebula` step that swaps `package.json` to registry refs, deploys, then restores. (Mirrors the existing `prepare-for-publish.sh` / `restore-dev-mode.sh` dance for packages.)
-
-**Success criteria**:
-- [ ] Decision recorded with rationale in this task file (pinned decision)
-- [ ] Chosen approach implemented; deploy from a clean checkout reproduces the deployed bundle byte-for-byte (or close to it — wrangler may stamp build IDs)
-
-## Phase 5: CI wiring & rollback
-
-**Goal**: the manual sequence becomes mechanical.
-
-**Approach** — left open until Phases 1–4 land:
-- Tag-driven: pushing `nebula-vX.Y.Z` triggers `deploy-nebula.sh`.
-- Or: GitHub Actions workflow that runs after `release.sh` succeeds, gated on smoke tests passing against the freshly-deployed test worker.
-- Rollback: `wrangler rollback` (CF supports it) plus a script to redeploy from a prior tag's tarballs. Document the failure modes that should trigger rollback (SHA mismatch in `/_version`, smoke red after deploy, etc.).
-
-**Success criteria**: TBD; defer detailed planning until Phase 4 lands and we know what flow CI is automating.
+The heavier release-discipline pieces are **out of scope for pre-alpha** and split to
+[`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md) (un-park at the **alpha**
+milestone): **Phase A — reproducibility from npm** (deploy from registry tarballs vs workspace symlinks —
+doesn't apply while `apps/nebula` is `private` and `wrangler` bundles `src/`); **Phase B — CI wiring +
+rollback** (incl. the headless/CI container deploy that replaces laptop+WARP; the repo has no CI today).
 
 ## Open questions
 

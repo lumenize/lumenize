@@ -110,10 +110,12 @@ child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](ar
 ## Plan (waves — child task files written ONE AT A TIME, NOT pre-created)
 
 **Wave 1 — infra + the gate**
-- **First prod deploy of `apps/nebula`** — `migrations` block (one-way door from first prod deploy), CI
-  container deploy (not just WARP-from-Mac), concurrency for ~5 external users, DevStudio
-  source-of-truth durability, super-admin seed. Validates the loop's live `it.skip`s. Intersects
-  `tasks/nebula-release-process.md`. *(Biggest single chunk.)*
+- **First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
+  (the first-prod-deploy + deploy-process task — merged 2026-06-23). Phase 0 = first-deploy readiness
+  (`migrations` block one-way door, super-admin seed, concurrency, DevStudio source-of-truth durability,
+  laptop+WARP deploy); Phases 1/3 = SHA-stamp + `/_version` + `apps/nebula/scripts/deploy.sh`. Validates the
+  loop's live `it.skip`s. CI/headless deploy + npm-reproducibility deferred →
+  `tasks/on-hold/nebula-release-hardening.md`. *(Biggest single chunk — ready for `/review-task`.)*
 - ✅ **`onBeforeCall` higher-admin reach** — the auth gap above (DONE 2026-06-23; archived child).
 - **Capture confirm/extend (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
   events (undo / abandon / feedback), sharing the sink with the feedback button.
@@ -200,5 +202,5 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 - Skills (Wave 2): `tasks/nebula-skills.md`
 - Eval suite (parked; regression, later): `tasks/on-hold/nebula-studio-eval-suite.md`
 - Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
-- Release process (Wave 1): `tasks/nebula-release-process.md`
+- First prod deploy + release process (Wave 1, merged): `tasks/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
 - Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
