@@ -122,20 +122,36 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   API-vs-SPA path split clean, exhaustive, and **prod-Assets-ready** (the same prefix rule the deploy task hands
   to Workers Assets). Keep the two-terminal vite+`wrangler dev` setup; **avoid the CF Vite plugin** (workerd-in-vite
   can't construct a `Container` → breaks the DevContainer preview). **`/review-task` ✅ DONE 2026-06-24 (both stages); `/build-task` ✅ deterministic slice DONE 2026-06-24** — spike settled **model A** (proxy carries vite-HMR + `/gateway` mesh + `/dev-container` preview WS together — proven live); landed the `npm run dev:studio` `ttab` launcher (confirmed working live) + a mutation-validated `entrypoint-routing-contract.test.ts` (5 green); model B not needed. **Build complete + verified; child archived → `tasks/archive/`.** Not yet committed.
-- **② Local UI smoke + `it.skip` cleanup** → child [`tasks/nebula-local-smoke.md`](nebula-local-smoke.md)
-  (drafted 2026-06-24; **ready for `/review-task`**). A Playwright **UI-level** smoke driving the *rendered*
-  Studio (**real-email login [identical local+prod, never test-mode]** → shell renders → richer: prompt → preview
-  updates) **+** relocating the deterministic
-  codegen/Container `it.skip`s into a `wrangler dev`(+Docker) `it.runIf` lane — both on one shared harness
-  (Phase-1 exploratory). Scope clarified at draft: the **≥1 Resources hit + the real magic-link loop already
-  exist API-side** in `smoke.test.ts` (not re-done here); the full *manipulate-state-via-the-UI* journey is
-  **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke is **③** (blocked on Decision-3 Assets
+- ✅ **② Local UI smoke + `it.skip` cleanup** → archived child [`tasks/archive/nebula-local-smoke.md`](archive/nebula-local-smoke.md) —
+  **`/review-task` ✅ + `/build-task` ✅ Phases 1–2 DONE + GREEN on real infra 2026-06-24; Phase 3
+  RESOLVED — the codegen/Container `it.skip`s DELETED in favor of top-down coverage → **zero `it.skip` in all of
+  `apps/nebula`**; verifier fan-out clean. ② COMPLETE + ARCHIVED.** A Playwright **UI-level** smoke driving the *rendered*
+  Studio (**real-email login [identical local+prod, never test-mode]** → shell renders → prompt → preview updates →
+  wipe teardown) — the `ui-smoke` vitest project (raw Playwright + `wrangler dev` on the apps/nebula config + Docker +
+  programmatic vite; auto-detect `HAS_DOCKER`/`HAS_CF_CREDS` gating). **Phase 3 re-thought (with Larry):** the
+  codegen/Container `it.skip`s were empty placeholders written low-level only because pool-workers can't build a
+  `Container`/`env.AI` — so rather than port them, they were **deleted** in favor of top-down coverage (the smoke now
+  also asserts a **non-blank** preview render; a new focused **security** decoy test) + existing deterministic suites;
+  residual hardening (cold-boot, ordering, reset generation-counter, Wave-2 version-contract) → `backlog.md`. **Zero
+  `it.skip` in `apps/nebula`.** Scope clarified at draft: the **≥1 Resources hit + the real magic-link
+  loop already exist API-side** in `smoke.test.ts` (not re-done here); the full *manipulate-state-via-the-UI* journey
+  is **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke is **③** (blocked on Decision-3 Assets
   serving). Backlog origin: `tasks/backlog.md` § Testing & Quality.
+  - **Two prod-affecting build outcomes:** **(a)** `apps/nebula` had **no email-sender binding** → real magic-link
+    mail silently dropped; wired it into prod (Option C, Larry) — `services[AUTH_EMAIL_SENDER→NebulaEmailSender]` +
+    `send_email[EMAIL, remote:true]` in `wrangler.jsonc`, `NebulaEmailSender.from` env-configurable (`AUTH_EMAIL_FROM`).
+    **This shrinks ③** (prod email SENDING done; ③ verifies the from-domain is onboarded for CF Email Sending +
+    builds the login UI). **(b)** the review's `test--` scope marker is **invalid** at the `nebula-auth parse-id`
+    layer (rejects consecutive hyphens — a SECOND, stricter slug validator than `dag-ops`); corrected to single-hyphen
+    `test-u0.test-g0.dev`. Backlog item filed to converge the two validators.
 - **③ First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
   (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ DONE 2026-06-24, build-ready**;
   now **resequenced behind ①②**. Phase 0 = first-deploy readiness (`migrations` AUDIT/FREEZE, super-admin seed +
   committed-`vars` backdoor guard, concurrency, DevStudio durability, laptop+WARP) **and — added on return —
-  Decision-3 Workers-Assets serving of the Studio UI + the real magic-link login UI** (reviewed when added);
+  Decision-3 Workers-Assets serving of the Studio UI + the real magic-link login UI** (reviewed when added).
+  **Prod email SENDING now wired by ② (2026-06-24)** — `apps/nebula` carries `AUTH_EMAIL_SENDER`/`send_email`, so ③
+  no longer wires email; it must **verify the prod from-domain is onboarded for CF Email Sending** (else invites
+  silently drop) + still build the real login UI + remove the `.dev.vars` test-mode flag.
   Phases 1/2/3 = SHA-stamp + `/_version` (compare-not-disclose) + bench-staleness guard + `deploy.sh`. CI/headless +
   npm-reproducibility deferred → `tasks/on-hold/nebula-release-hardening.md`.
 - ✅ **`onBeforeCall` higher-admin reach** — the auth gap above (DONE 2026-06-23; archived child).

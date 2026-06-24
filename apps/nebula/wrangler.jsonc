@@ -22,6 +22,19 @@
   // local `wrangler dev` this proxies to the account's Workers AI (needs network + the
   // CLOUDFLARE_* creds already in .dev.vars).
   "ai": { "binding": "AI" },
+  // Magic-link / invite email. NebulaAuth → AUTH_EMAIL_SENDER (self-ref service binding
+  // → the NebulaEmailSender WorkerEntrypoint re-exported from src/worker.ts) → the EMAIL
+  // send_email binding (Cloudflare Email Sending). `remote: true` is a LOCAL-DEV directive
+  // (proxy to the real CF Email Sending service during `wrangler dev`); it is inert on a
+  // deployed worker, which sends directly. The from-address is env-configurable via
+  // AUTH_EMAIL_FROM (default auth@nebula.lumenize.com); test/dev harnesses override it to a
+  // VERIFIED domain (test@lumenize.io) — CF silently drops mail from an unverified sender.
+  "services": [
+    { "binding": "AUTH_EMAIL_SENDER", "service": "nebula", "entrypoint": "NebulaEmailSender" }
+  ],
+  "send_email": [
+    { "name": "EMAIL", "remote": true }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },

@@ -1,16 +1,22 @@
 <script setup lang="ts">
-import { ref, shallowRef } from "vue";
+import { ref, shallowRef, onMounted } from "vue";
 import { Send, RotateCcw, LogIn, Loader2 } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
 
 // --- Dev config (first cut) ---------------------------------------------------------
-// Fixed dev sandbox scope + bootstrap email. DEV_EMAIL MUST match
+// Dev sandbox scope + bootstrap email. DEV_EMAIL MUST match
 // NEBULA_AUTH_BOOTSTRAP_EMAIL in your gitignored root .dev.vars (with
-// NEBULA_AUTH_TEST_MODE=true) — see README.md. The scope is the {u}.{g}.dev instance
-// shared by DevStudio / DevContainer / the dev Star.
-const DEV_SCOPE = "acme.app.dev";
+// NEBULA_AUTH_TEST_MODE=true) — see README.md.
+//
+// The scope is the {u}.{g}.dev instance shared by DevStudio / DevContainer / the dev
+// Star. It is configurable via the `?scope=` query param so the Playwright UI smoke can
+// drive a dedicated `test-u0.test-g0.dev` sandbox (the `test-` prefix is the reaper's
+// auto-reap marker — SINGLE hyphen: nebula-auth's parse-id rejects consecutive hyphens)
+// without colliding with a manual session; manual dev defaults to `acme.app.dev`. Must be
+// a valid `{u}.{g}.dev` instance (server-validated on first call).
+const DEV_SCOPE = new URLSearchParams(location.search).get("scope") ?? "acme.app.dev";
 // Must have a TLD (auth validates /^[^\s@]+@[^\s@]+\.[^\s@]+$/) AND match
 // NEBULA_AUTH_BOOTSTRAP_EMAIL in your .dev.vars.
 const DEV_EMAIL = "dev@example.com";
@@ -66,11 +72,20 @@ async function connect() {
     activeScope: DEV_SCOPE,
     appVersion: "studio-ui", // the Studio UI calls DevStudio, not the ontology — never version-checked
   });
-  nebula.value = n;
-  await n.ready;
+  await n.ready; // throws if not authenticated (no / expired refresh cookie)
+  nebula.value = n; // only adopt the client once the session is live
   connected.value = true;
   log("studio", "Connected. Describe the app you want to build.");
 }
+
+// Auto-connect when a valid refresh cookie is already present — a returning session,
+// or the UI smoke that logs in out-of-band (real magic-link) then loads the Studio.
+// Falls back to the "Log in (dev)" button when not yet authenticated.
+onMounted(() => {
+  connect().catch(() => {
+    /* not authenticated — show the login button */
+  });
+});
 
 async function send() {
   const msg = input.value.trim();

@@ -2,10 +2,11 @@
  * DevContainer (Phase 3.5a) — the composed seam is tested via PURE helpers +
  * prototype inspection, NOT by constructing the node: `extends Container` can't be
  * built under vitest-pool-workers ([[container-no-construct-pool-workers]]). The
- * assembled-container e2e (fetch() 3-way branch over a live vite container, the
- * applyChanges→/apply round-trip, the request-supplied-scope decoy) is an
- * `it.skip` run with `wrangler dev` + Docker Desktop (the Container runs locally there;
- * it just can't construct under pool-workers).
+ * assembled-container behaviors (the applyChanges→preview round-trip + a non-blank
+ * render) are now covered top-down by the `ui-smoke` lane (`test/ui-smoke/smoke.test.ts`);
+ * the request-supplied-scope decoy + command-port-strip are a focused security test there
+ * too. (Version-contract "ops succeed" is Wave-2 data-bound; cold-boot resilience →
+ * backlog.) So this file no longer carries `it.skip` placeholders for them.
  *
  * What IS proven here (each capable-of-failing):
  *  - the writeFile path-traversal guard (`assertSafeRelPath`) — `../` AND absolute
@@ -128,40 +129,5 @@ describe('DevContainer setAppVersion (the version the public fetch() injects)', 
     // Capable-of-failing: a wrong key (or no write) breaks the contract with fetch(),
     // which reads this exact key to inject `appVersion` (Decision 12 / Flow 1d).
     expect(puts).toEqual([['devcontainer:appVersion', oid]]);
-  });
-});
-
-describe('DevContainer assembled-container e2e (run with `wrangler dev` + Docker Desktop)', () => {
-  it.skip('fetch() 3-way branch + applyChanges round-trip + request-scope decoy (needs `wrangler dev` + Docker Desktop)', () => {
-    // Mechanism PROVEN on the torn-down `container-node-phase0` experiment (curl-
-    // validated live): the public fetch() injects the server-derived scope, a
-    // request-supplied `?activeScope=evil.g.dev` decoy is IGNORED, `cf-container-
-    // target-port:9000` is stripped (can't reach the command port), and a write over
-    // the command channel HMRs the browser (~10 ms js-update). It can't run under
-    // vitest-pool-workers (`extends Container` won't construct — no container
-    // engine). Revive against the first full `apps/nebula` Worker deploy
-    // (Docker Desktop + WARP); see tasks/nebula-studio.md § Test strategy.
-  });
-
-  it.skip('version contract: fetch() injects the REAL version → preview ops succeed → ontology change reloads onto the new version (Decision 12 / Flow 1d)', () => {
-    // End-to-end on real infra (the container-free Star↔client reload half is covered
-    // in baseline/reload-version-contract.test.ts):
-    //  1. DevStudio.applyOntologyChange → setAppVersion(Hnew) on this DevContainer +
-    //     compileAndInstallOntology(Hnew) on the .dev Star (ordered: container first).
-    //  2. Preview GET → fetch() injects appVersion = kv.get(VERSION_KEY) = Hnew (NOT
-    //     'dev'); the client sends Hnew → Star Handler-1 MATCHES → ops succeed (no
-    //     OntologyStaleError on every op — the original deploy-blocking gap).
-    //  3. A later ontology change (Hnew') → broadcastReload → the preview's onReload →
-    //     reload → re-fetch injects Hnew' → ops still succeed.
-    // Can't run under vitest-pool-workers (`extends Container` won't construct); revive
-    // against the first full apps/nebula Worker deploy (Docker Desktop + WARP).
-  });
-
-  it.skip('cold boot re-push: ensureUp boot-race retry + applyChanges(full tree) → preview comes back identical (Flow 1c)', () => {
-    // The cold-boot half of the source-of-truth round-trip success criterion: a
-    // DevContainer cold boot reverts the disk to the baked image; DevStudio
-    // re-pushes the full tree (applyChanges) and the preview is identical, incl.
-    // the first containerFetch hitting a not-ready container → ContainerUnavailable
-    // → DO retries → eventually serves. Run with `wrangler dev` (same reason as above).
   });
 });

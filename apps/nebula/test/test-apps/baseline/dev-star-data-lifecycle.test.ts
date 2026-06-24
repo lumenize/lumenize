@@ -289,16 +289,12 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client[Symbol.dispose]();
   });
 
-  it.skip('in-flight write vs reset: a write suspended at parseBatch resumes into the wiped tables (bounded edge)', async () => {
-    // Documented demo contract (§ Dev-data reset → Concurrency assumption):
-    // blockConcurrencyWhile keeps the reset body atomic but does NOT abort a concurrent
-    // doTransaction already suspended at its facet.parseBatch await. Such a write resumes
-    // AFTER the wipe and commits a Snapshot into the freshly-emptied tables, possibly
-    // orphaning Snapshot.nodeId → Nodes. For the demo this is bounded (single-admin; Studio
-    // quiesces its in-flight write queue before reset). The server-side hardening (a
-    // generation counter) is DEFERRED. Skipped (not deleted, per testing.md). Revive when
-    // it lands.
-  });
+  // The bounded "in-flight write vs reset" edge (a doTransaction suspended at
+  // facet.parseBatch resumes AFTER resetDevData's wipe and commits a Snapshot into the
+  // emptied tables, possibly orphaning Snapshot.nodeId → Nodes) is bounded for the demo
+  // (single-admin; Studio quiesces its write queue before reset). The server-side hardening
+  // (a generation counter) is deferred → tasks/backlog.md § Testing & Quality; tracked there
+  // rather than as a placeholder test here.
 
   it('breaking edit → reset loop: stale snapshot invalid under new version; reset; fresh write validates (M5)', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();

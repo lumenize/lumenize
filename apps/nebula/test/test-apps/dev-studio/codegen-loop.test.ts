@@ -386,13 +386,7 @@ const n: number = 'not a number';
     });
   });
 
-  it.skip('response_format: json_schema is supported by Workers AI/Kimi (run with `wrangler dev`)', () => {
-    // Phase 3 SC, the live-binding half: verify env.AI.run accepts response_format:
-    // json_schema for Kimi. Needs the AI binding, so run it with `wrangler dev` (which
-    // proxies env.AI.run to Workers AI) — local, no deploy (testing.md § "What a skipped test needs").
-    // The FALLBACK (typia post-validate of tool-call args) is already the shipping
-    // path and is fully covered above (the real-facet reject + the unit reject), so
-    // shipping does not depend on json_schema support — this probe only tells us
-    // whether we can ALSO constrain the model's output shape up front.
-  });
+  // (The `response_format: json_schema` Workers-AI capability probe was a one-off
+  // investigation, not a regression — the shipping path is the typia post-validate of
+  // tool-call args, fully covered above — so it's not kept as a placeholder test.)
 });

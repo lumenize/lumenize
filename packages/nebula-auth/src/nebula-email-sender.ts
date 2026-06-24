@@ -18,8 +18,22 @@ import { CloudflareEmailSender } from '@lumenize/auth';
 const MAGIC_LINK_INSTANCE_RE = /\/auth\/([^/]+)\/magic-link\?/;
 
 export class NebulaEmailSender extends CloudflareEmailSender {
-  from = 'auth@nebula.lumenize.com';
+  from: string;
   appName = 'Nebula';
+
+  /**
+   * The from-address is env-configurable via `AUTH_EMAIL_FROM` (default: the branded
+   * `auth@nebula.lumenize.com`). A test harness — or a `wrangler dev` lane — overrides
+   * it to a domain VERIFIED on the Cloudflare account (e.g. `test@lumenize.io`): CF Email
+   * Sending silently drops mail from an unverified from-address, so the real-email
+   * round-trip only works from a verified domain. Production leaves it unset → the
+   * branded default. (`env` is `any` to avoid coupling this shared package to any one
+   * consumer's generated `Env`; it only reads the one optional var.)
+   */
+  constructor(ctx: ExecutionContext, env: any) {
+    super(ctx, env);
+    this.from = env?.AUTH_EMAIL_FROM || 'auth@nebula.lumenize.com';
+  }
 
   /**
    * Tag every magic-link email with `X-Lumenize-Auth-Instance: ${instanceName}`,

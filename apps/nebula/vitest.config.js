@@ -178,7 +178,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**'],
         },
       },
       // Frontend project — the @lumenize/nebula/frontend layer (factory + the
@@ -376,6 +376,24 @@ export default defineConfig({
             headless: true,
             instances: [{ browser: 'chromium' }],
           },
+        },
+      },
+      // UI-smoke project — raw Playwright (NOT @vitest/browser) drives the real
+      // vite-served Studio under the model-A dev stack: a globalSetup boots
+      // `wrangler dev` on the apps/nebula config (DEV_STUDIO/DEV_CONTAINER/AI +
+      // Docker DevContainer) AND vite serving apps/nebula-studio-ui, same-origin via
+      // the Studio's own vite proxy (no dynamic-env-proxy needed). describe.runIf
+      // auto-skips when Docker/creds are absent. NOT in the `npm test` project
+      // enumeration (real infra, slow, costs env.AI); run with
+      // `npx vitest run --project ui-smoke`. Excluded from the `unit` catch-all above.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'ui-smoke',
+          include: ['test/ui-smoke/**/*.test.ts'],
+          globalSetup: ['./test/ui-smoke/global-setup.ts'],
+          testTimeout: 120000,
         },
       },
       // Bench project — *.benchmark.ts files using standard it()/expect()

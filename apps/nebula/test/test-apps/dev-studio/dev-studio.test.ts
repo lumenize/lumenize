@@ -12,9 +12,9 @@
  *  - the version is **content-addressed** (the Worker Loader `bundleId` cache guard);
  *  - the command surface is **admin-gated**.
  *
- * The container-push (`ensureUp`/`syncToDevContainer`) is an `it.skip` that runs with `wrangler dev`
- * (DEV_CONTAINER `extends Container` can't construct under pool-workers, but runs locally on
- * Docker Desktop under `wrangler dev` — local, no deploy; testing.md § "What a skipped test needs").
+ * The container-push (`ensureUp`/`syncToDevContainer`) needs a live DEV_CONTAINER (`extends
+ * Container` can't construct under pool-workers) — that behavior is now covered top-down by the
+ * `ui-smoke` lane (`test/ui-smoke/smoke.test.ts`), not by an `it.skip` placeholder here.
  *
  * @see tasks/nebula-studio.md § DevStudio node
  * @see experiments/interim-dev-loop/RESULTS.md — the proven shell+git mechanism
@@ -222,62 +222,10 @@ describe('DevStudio turn recorder → Galaxy SQLite (persistence layer)', () => 
   });
 });
 
-describe('DevStudio container push (run with `wrangler dev`)', () => {
-  it.skip('ensureUp/syncToDevContainer push source to DevContainer (needs `wrangler dev` + Docker Desktop)', () => {
-    // DevContainer `extends Container` can't construct under vitest-pool-workers, so
-    // the applyChanges push round-trip runs under `wrangler dev` + Docker Desktop (local,
-    // no deploy; testing.md § "What a skipped test needs"). Mechanism proven in
-    // experiments/interim-dev-loop (DevStudio→container source transport over mesh).
-    // Revive against the first full apps/nebula Worker deploy.
-  });
-
-  it.skip('applyOntologyChange orders the propagation: setAppVersion + source push BEFORE the Star install (Decision 12 / Flow 1d-ii)', () => {
-    // The ordered version-contract propagation (Phase 5): DevStudio.applyOntologyChange
-    // calls DevContainer.setAppVersion(Hnew) + syncToDevContainer FIRST, THEN
-    // compileAndInstallOntology (whose setOntology fires broadcastReload) — so the
-    // reloaded preview re-fetches the shell at the NEW injected version. Run with `wrangler dev`:
-    // the container calls need a live container (same as ensureUp/syncToDevContainer).
-    // The Star half (compileAndInstallOntology + the reload trigger) is covered now in
-    // the compile-and-apply describe above + baseline/reload-version-contract.test.ts.
-  });
-});
-
-describe('DevStudio.chat drives the self-correcting loop (Phase 4 — run with `wrangler dev`)', () => {
-  // chat() calls ensureUp (live container) + the loop's callModel (env.AI.run / Workers
-  // AI), neither of which exists under vitest-pool-workers. Run under `wrangler dev` +
-  // Docker Desktop — local, no deploy (testing.md § "What a skipped test needs"). Assertions
-  // kept intact (testing.md it.skip discipline). The
-  // container-free half — the loop driver, the bound, the Rung-1 gates, the recorder
-  // wiring — is fully covered in codegen-loop.test.ts / codegen-gate.test.ts.
-
-  it.skip('a chat turn drives the loop and self-corrects on a real compile error (e.g. op:set), updating the preview', async () => {
-    // Under `wrangler dev` + Docker Desktop, with a real {u}.{g}.dev DevStudio:
-    //   const { reply, thought } = await callStudio(dev, 'chat', ['build a todo list that saves to the backend']);
-    //   expect(reply).toBe('Updated the preview.');
-    //   // The model's first attempt may use a wrong op literal; the Rung-1 gate feeds the
-    //   // error-tail back and the loop self-corrects before mark_complete.
-    //   const app = await callStudio(dev, 'readSource', ['src/App.vue']);
-    //   expect(app).toContain('client.resources.transaction');
-    //   expect(app).not.toMatch(/op:\s*['"]set['"]/);   // the corrected op is create/put
-  });
-
-  it.skip('the live chat turn records a TurnRecord with populated toolCalls/error/validate', async () => {
-    // After the live chat turn, the sandbox Galaxy holds the recorded turn:
-    //   const turns = await callGalaxy(galaxy, 'getTurns', [{}]);
-    //   const t = turns.at(-1);
-    //   expect(t.toolCalls.length).toBeGreaterThan(0);          // real write_file calls
-    //   expect(t.toolCalls.some((c) => c.name === 'mark_complete')).toBe(true);
-    //   expect(t.validate.ok).toBe(true);                       // converged clean
-    //   expect(t.error).toBeUndefined();
-    // (The container-free recorder round-trip — clean + failing-final-gate — is already
-    // covered in codegen-loop.test.ts via the script-replaying probe.)
-  });
-
-  it.skip('SFC mount confidence (m3): a Phase-1-compiled SFC mounts non-blank in a real browser', async () => {
-    // The Phase-1 bindings-threaded string-match ($setup.x not _ctx.x) proves the
-    // threading, NOT that the component renders — the blank-<script setup> bug only
-    // surfaces on a real mount (sfc-compile-needs-bindingmetadata, testing.md). Mount a
-    // gate-approved App.vue in a real browser (chromium project) and assert non-blank:
-    //   await mount(compiledApp); expect(host.textContent.trim().length).toBeGreaterThan(0);
-  });
-});
+// The assembled-container + live-`chat()` behaviors (ensureUp/syncToDevContainer push,
+// applyOntologyChange ordering, a chat turn self-correcting + recording a TurnRecord, the
+// non-blank SFC mount) are now covered top-down by the `ui-smoke` lane
+// (`test/ui-smoke/smoke.test.ts`) — and the container-free halves (loop driver, gates,
+// recorder round-trip, self-correction, reload channel) are covered deterministically in
+// codegen-loop.test.ts / codegen-gate.test.ts / baseline/reload-version-contract.test.ts.
+// So no `it.skip` placeholders remain here.
