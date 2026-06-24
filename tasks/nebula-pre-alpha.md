@@ -122,11 +122,15 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   API-vs-SPA path split clean, exhaustive, and **prod-Assets-ready** (the same prefix rule the deploy task hands
   to Workers Assets). Keep the two-terminal vite+`wrangler dev` setup; **avoid the CF Vite plugin** (workerd-in-vite
   can't construct a `Container` → breaks the DevContainer preview). **`/review-task` ✅ DONE 2026-06-24 (both stages); `/build-task` ✅ deterministic slice DONE 2026-06-24** — spike settled **model A** (proxy carries vite-HMR + `/gateway` mesh + `/dev-container` preview WS together — proven live); landed the `npm run dev:studio` `ttab` launcher (confirmed working live) + a mutation-validated `entrypoint-routing-contract.test.ts` (5 green); model B not needed. **Build complete + verified; child archived → `tasks/archive/`.** Not yet committed.
-- **② Local smoke + `it.skip` cleanup** *(bullet only — write the file after ① lands; no stub)*: a Playwright
-  smoke suite under `wrangler dev` — **≥1 Resources hit + ≥1 true UI-level test** (drive the rendered Studio:
-  log in **through the UI via the real magic-link** loop — all-Cloudflare, ~1–3 s for `@lumenize.io` — and assert
-  key elements) — **plus** relocating the deterministic codegen/Container `it.skip`s into a `wrangler dev`(+Docker)
-  lane (`it.runIf`). Details captured in `tasks/backlog.md` § Testing & Quality.
+- **② Local UI smoke + `it.skip` cleanup** → child [`tasks/nebula-local-smoke.md`](nebula-local-smoke.md)
+  (drafted 2026-06-24; **ready for `/review-task`**). A Playwright **UI-level** smoke driving the *rendered*
+  Studio (**real-email login [identical local+prod, never test-mode]** → shell renders → richer: prompt → preview
+  updates) **+** relocating the deterministic
+  codegen/Container `it.skip`s into a `wrangler dev`(+Docker) `it.runIf` lane — both on one shared harness
+  (Phase-1 exploratory). Scope clarified at draft: the **≥1 Resources hit + the real magic-link loop already
+  exist API-side** in `smoke.test.ts` (not re-done here); the full *manipulate-state-via-the-UI* journey is
+  **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke is **③** (blocked on Decision-3 Assets
+  serving). Backlog origin: `tasks/backlog.md` § Testing & Quality.
 - **③ First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
   (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ DONE 2026-06-24, build-ready**;
   now **resequenced behind ①②**. Phase 0 = first-deploy readiness (`migrations` AUDIT/FREEZE, super-admin seed +
