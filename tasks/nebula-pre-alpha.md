@@ -110,12 +110,30 @@ child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](ar
 ## Plan (waves — child task files written ONE AT A TIME, NOT pre-created)
 
 **Wave 1 — infra + the gate**
-- **First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
-  (the first-prod-deploy + deploy-process task — merged 2026-06-23). Phase 0 = first-deploy readiness
-  (`migrations` block one-way door, super-admin seed, concurrency, DevStudio source-of-truth durability,
-  laptop+WARP deploy); Phases 1/3 = SHA-stamp + `/_version` + `apps/nebula/scripts/deploy.sh`. Validates the
-  loop's live `it.skip`s. CI/headless deploy + npm-reproducibility deferred →
-  `tasks/on-hold/nebula-release-hardening.md`. *(Biggest single chunk — ready for `/review-task`.)*
+
+*Resequenced 2026-06-24:* the first prod deploy can't be "usable by F&F" until the Studio UI is **served from
+the deployed Worker** — today it isn't (the `apps/nebula` Worker 404s the root; the Studio UI is a separate
+SPA, `apps/nebula-studio-ui`, served by a second vite terminal in dev). So two prerequisite tasks land **before**
+the (already-reviewed) deploy task. Written **one at a time** — Task ① has a file; Task ② is a bullet only until ① lands.
+
+- ✅ **① Studio UI single-origin local serving (vite proxy + endpoint prefixes)** — **DONE 2026-06-24**, archived
+  child [`tasks/archive/nebula-studio-vite-proxy.md`](archive/nebula-studio-vite-proxy.md) (the frozen prefix
+  contract the deploy task ③ transcribes). The proxy already exists; this makes the
+  API-vs-SPA path split clean, exhaustive, and **prod-Assets-ready** (the same prefix rule the deploy task hands
+  to Workers Assets). Keep the two-terminal vite+`wrangler dev` setup; **avoid the CF Vite plugin** (workerd-in-vite
+  can't construct a `Container` → breaks the DevContainer preview). **`/review-task` ✅ DONE 2026-06-24 (both stages); `/build-task` ✅ deterministic slice DONE 2026-06-24** — spike settled **model A** (proxy carries vite-HMR + `/gateway` mesh + `/dev-container` preview WS together — proven live); landed the `npm run dev:studio` `ttab` launcher (confirmed working live) + a mutation-validated `entrypoint-routing-contract.test.ts` (5 green); model B not needed. **Build complete + verified; child archived → `tasks/archive/`.** Not yet committed.
+- **② Local smoke + `it.skip` cleanup** *(bullet only — write the file after ① lands; no stub)*: a Playwright
+  smoke suite under `wrangler dev` — **≥1 Resources hit + ≥1 true UI-level test** (drive the rendered Studio:
+  log in **through the UI via the real magic-link** loop — all-Cloudflare, ~1–3 s for `@lumenize.io` — and assert
+  key elements) — **plus** relocating the deterministic codegen/Container `it.skip`s into a `wrangler dev`(+Docker)
+  lane (`it.runIf`). Details captured in `tasks/backlog.md` § Testing & Quality.
+- **③ First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
+  (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ DONE 2026-06-24, build-ready**;
+  now **resequenced behind ①②**. Phase 0 = first-deploy readiness (`migrations` AUDIT/FREEZE, super-admin seed +
+  committed-`vars` backdoor guard, concurrency, DevStudio durability, laptop+WARP) **and — added on return —
+  Decision-3 Workers-Assets serving of the Studio UI + the real magic-link login UI** (reviewed when added);
+  Phases 1/2/3 = SHA-stamp + `/_version` (compare-not-disclose) + bench-staleness guard + `deploy.sh`. CI/headless +
+  npm-reproducibility deferred → `tasks/on-hold/nebula-release-hardening.md`.
 - ✅ **`onBeforeCall` higher-admin reach** — the auth gap above (DONE 2026-06-23; archived child).
 - **Capture confirm/extend (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
   events (undo / abandon / feedback), sharing the sink with the feedback button.

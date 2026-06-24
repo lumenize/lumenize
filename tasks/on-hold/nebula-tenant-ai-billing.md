@@ -27,8 +27,18 @@ Don't rely on AI Gateway's cost number for billing — Cloudflare explicitly cal
 `GatewayOptions.metadata` (the `cf-aig-metadata` header) tags each call with `{ tenantId: scope }`. One-line change in the Think arm's `getModel()`. What it buys:
 - **Per-tenant spend limits** (added 2026-06-05): cost-based budgets scoped by metadata dimension → auto-`429` *or* auto-fallback to a cheaper model (Opus→Kimi) on breach. Genuinely useful for the high-volume in-app context.
 - Caching, retries, dynamic/fallback routing, free analytics dashboards.
+- **`cf-aig-custom-cost`** — override the recorded cost with our negotiated per-token input/output rates so the AIG number is *our* cost, not list price (cache hits always record zero). Makes AIG's dashboard honest enough for cross-checking, though the self-owned ledger stays the source of truth.
 
 Treat AIG as an **optional runtime control plane**, not the billing ledger (its cost is the best-effort estimate). For Workers AI/Kimi, routing through AIG is one config field; CMA/Anthropic would need to be fronted by AIG-as-provider to get the same tagging — a minor point favoring Think/Kimi for the volume context.
+
+#### Binding-only — no API key needed (verified 2026-06-24, aligns with the binding-over-API-key preference)
+The entire AIG **instrumentation** path rides the existing `AI` binding (`env.AI`) — nothing in `wrangler.jsonc` beyond the `AI` binding we already have, no API token:
+- `env.AI.run(model, input, { gateway: { id, metadata: { tenantId: scope } } })` — route + tag per tenant.
+- `env.AI.gateway(id).getLog(logId)` / `patchLog(logId, …)` — read back a single request's cost/token detail, or attach feedback/score/metadata after the fact.
+- `env.AI.aiGatewayLogId` — log id of the most recent `run()`, to correlate.
+- The Gateway is created once (dashboard/API at setup); at **runtime** it's binding-only.
+
+**The only thing that needs a Cloudflare API token is reading the *aggregated* analytics back out via the GraphQL Analytics API** (cross-request "sum cost grouped by `tenantId`"). The binding has no cross-request aggregation method — `getLog` is single-log. We avoid that token entirely because the self-owned ledger does the per-tenant aggregation in-process: `env.AI.run()` returns token usage in its response and we already know which Star/scope we're in, so attribution never depends on reading AIG back. Dashboard readout (no key, browser login) remains available for eyeballing.
 
 ### DO compute (CPU + wall-clock) — the part I initially mis-scoped as "hard"
 Inside the DO the clock is dead (clock-trap), so you can't time CPU/wall in-isolate. But Cloudflare hands you the **billed** numbers out-of-band — two ways:
@@ -86,3 +96,4 @@ With the Tail Worker path making most dimensions *directly* attributable, the fa
 - CPU/wall via trace logs: [tasks/archive/proxy-fetch-performance-experiments.md](archive/proxy-fetch-performance-experiments.md).
 - Clock-trap (why in-isolate timing is dead): `feedback_cf_clock_traps.md` (memory).
 - AI Gateway: custom metadata, spend limits (2026-06-05), pricing (core free); verified against Cloudflare docs 2026-06-06.
+- AI Gateway Workers-binding surface (`run`/`gateway(id).getLog`/`patchLog`/`aiGatewayLogId`, `cf-aig-custom-cost`) is binding-only — no API token; only the GraphQL Analytics readout needs a CF token, which we avoid. Verified against Cloudflare docs 2026-06-24: [Worker binding methods](https://developers.cloudflare.com/ai-gateway/integrations/worker-binding-methods/), [custom metadata](https://developers.cloudflare.com/ai-gateway/observability/custom-metadata/), [analytics](https://developers.cloudflare.com/ai-gateway/observability/analytics/).

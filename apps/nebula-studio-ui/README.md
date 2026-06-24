@@ -17,15 +17,20 @@ Prereqs: Docker Desktop running (`docker context use desktop-linux`).
    (`dev@example.com` must match `DEV_EMAIL` in `src/App.vue`.) Then run `npm install` at the
    **repo root** to register this new workspace.
 
-2. **Terminal A — the Worker** (API + DevContainer): `cd apps/nebula && npm run dev`
-   (`wrangler dev`, default `http://localhost:8787`).
+2. **One command (recommended)** — from the repo root, `npm run dev:studio`. It opens both
+   processes in titled Terminal tabs via [`ttab`](https://www.npmjs.com/package/ttab) (run via
+   `npx`, no global install). **One-time:** grant your terminal **Accessibility** permission
+   (System Settings ▸ Privacy & Security ▸ Accessibility → enable Terminal.app / iTerm.app), or
+   `ttab` can't open tabs. Then open <http://localhost:5174>.
 
-3. **Terminal B — the Studio UI**: `cd apps/nebula-studio-ui && npm run dev` (or from the
-   repo root, `npm run dev -w nebula-studio-ui`) — vite on `:5174`, proxying `/auth`
-   `/gateway` `/dev-container` → `:8787`. Open <http://localhost:5174>. *(If wrangler chose
-   a non-8787 port, set `NEBULA_WORKER_URL`.)*
+   *Or by hand (two terminals):*
+   - **Terminal A — the Worker** (API + DevContainer): `cd apps/nebula && npm run dev`
+     (`wrangler dev`, default `http://localhost:8787`).
+   - **Terminal B — the Studio UI**: `cd apps/nebula-studio-ui && npm run dev` — vite on
+     `:5174`, proxying `/auth` `/gateway` `/dev-container` → `:8787`. *(If wrangler chose a
+     non-8787 port, set `NEBULA_WORKER_URL` — `dev:studio` forwards it if you set it in your shell.)*
 
-4. Click **Log in (dev)**, then describe a change. The stub codegen writes a placeholder
+3. Click **Log in (dev)**, then describe a change. The stub codegen writes a placeholder
    `App.vue` to the sandbox; the preview pane reloads to show it.
 
 ## Limitations (first cut — iterate from here)

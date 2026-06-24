@@ -1,132 +1,135 @@
 # Nebula Release Process
 
-**Status**: Wave 1 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — **not started; descoped + merged 2026-06-23, ready for `/review-task`.** This is now **the first-prod-deploy task** (the pre-alpha "first prod deploy" bullet folded in as Phase 0) AND the reusable deploy/release process. **Scoped to Phases 0–3** for pre-alpha (first-deploy readiness + SHA-stamp/`/_version` + `deploy.sh`); the heavier release-discipline pieces (registry-tarball reproducibility, CI, rollback) are **deferred to [`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md)**. Short-term mitigations are in place (bench files carry the "deploy first or you're measuring stale code" warning).
+**Status**: Wave 1 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — **`/review-task` ✅ DONE 2026-06-24 (both stages), build-ready; not started.** **Resequenced 2026-06-24 BEHIND** ② the local smoke + `it.skip` cleanup (master-plan bullet) — ① `archive/nebula-studio-vite-proxy.md` (single-origin local serving) is ✅ **done** (model A; the frozen prefix contract this task transcribes). A deploy isn't F&F-usable until the Studio UI is served from the Worker. **On return, Phase 0 GAINS** two readiness items not in the current review: **Decision-3 Workers-Assets serving of the Studio UI** (`vite build` `nebula-studio-ui` → `assets` binding → entrypoint fallthrough; **EXTEND** `apps/nebula/test/test-apps/baseline/entrypoint-routing-contract.test.ts` with the model-B SPA-fallback assertions — `/` + `/app` → `index.html` via `env.ASSETS.fetch`, `/_version` + API keep precedence — rather than a new test) **+ the real magic-link login UI** (the dev `NEBULA_AUTH_TEST_MODE` button never deploys) — both get reviewed when added. This is **the first-prod-deploy task** (the pre-alpha "first prod deploy" bullet folded in as Phase 0) AND the reusable deploy/release process. **Scoped to Phases 0–3** for pre-alpha (first-deploy readiness + SHA-stamp/`/_version` + bench-staleness guard + `deploy.sh`); the heavier release-discipline pieces (registry-tarball reproducibility, CI, rollback) are **deferred to [`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md)**. Short-term mitigations are in place (the `.benchmark.ts` files carry the "deploy first or you're measuring stale code" warning).
 
 ## Objective
 
-Build a release process for Nebula that fits its actual nature — an **app** that gets `wrangler deploy`d, not a package that gets `npm publish`d — and that prevents the "tested locally, deployed something else" failure mode.
+Build a release process for Nebula that fits its actual nature — an **app** that gets `wrangler deploy`d (which also builds + pushes the DevContainer Docker image), not a package that gets `npm publish`d — and that prevents the "tested locally, deployed something else" failure mode.
 
 ## Background
 
-The repo's existing release flow (`scripts/release.sh` + Lerna `version` / `publish from-package`) treats every workspace as a publishable package: bump version, build to `dist/`, push to npm. Nebula is `private: true` so Lerna already skips its publish step, but that's the *only* way Nebula is acknowledged by the release flow. Its real release — `wrangler deploy` — happens (today) entirely outside the script.
+The repo's existing release flow (`scripts/release.sh` + Lerna `version` / `publish from-package`) treats every workspace as a publishable **package**. Nebula is `private: true` so Lerna already skips it — `release.sh` never touches Nebula at all. Nebula's real release — `wrangler deploy` — happens (today) entirely outside any script, by hand.
 
-Three concrete symptoms of the mismatch surfaced during the parse-validate release pre-flight (2026-04-30):
+**Lerna's only role is the npm *package* publish** (synchronized version + `publish from-package`). It does nothing for a Nebula deploy; `wrangler deploy` does the real work (worker bundle + container image). So this task does not extend Lerna — it adds a *separate* Nebula deploy path beside the existing package path.
 
-1. **`apps/nebula/test/browser/{transactions.bench.ts, throughput.benchmark.ts}`** target the deployed `nebula-browser-test.transformation.workers.dev` worker. There is no version-stamp on that worker and no check that it matches local `HEAD`. The benchmark numbers in `RESULTS.md` / `THROUGHPUT-RESULTS.md` could have been measured against any prior commit.
-2. **Smoke tests** (`smoke.test.ts`) hit local `wrangler dev` for the code under test — fine — but the email-magic-link path bounces through deployed Email Routing → deployed `email-test` worker → WS callback. A drift between local Nebula (HEAD) and deployed `email-test` worker (whenever) is invisible until something changes the wire format.
-3. **Deploy is manual.** `wrangler deploy` is run by hand, after-the-fact, with no enforced ordering against package publishes Nebula consumes (`@lumenize/nebula-auth`, `@lumenize/ts-runtime-parser-validator`, `@lumenize/mesh`, etc.). A deploy can be cut against a `package.json` that references package versions newer than what's actually live on npm.
+Three concrete symptoms of the missing deploy discipline surfaced during the parse-validate release pre-flight (2026-04-30):
 
-The short-term fix landed alongside this task (2026-04-30): warning headers were added to the two `.bench` / `.benchmark` files reminding the operator to deploy first, and those files were moved off the default `npm test` path so they don't run unintentionally. That's a reader-visible reminder, not a guarantee.
+1. **`apps/nebula/test/browser/{transactions.benchmark.ts, throughput.benchmark.ts}`** target the deployed `nebula-browser-test.transformation.workers.dev` worker. There is no version-stamp on that worker and no check that it matches local `HEAD`. The benchmark numbers in `RESULTS.md` / `THROUGHPUT-RESULTS.md` could have been measured against any prior commit. **Phase 2 is the permanent fix for this.**
+2. **Smoke tests** (`smoke.test.ts`) hit local `wrangler dev` for the code under test — fine — but the email-magic-link path bounces through deployed Email Routing → the deployed `email-test` worker (`tooling/email-test/`) → WS callback. A drift between local Nebula (HEAD) and the deployed `email-test` worker (whenever) is invisible until something changes the wire format.
+3. **Deploy is manual.** `wrangler deploy` is run by hand, after-the-fact, with no enforced ordering against package publishes Nebula consumes. **Phase 3 is the permanent fix for this.**
+
+The short-term mitigation already landed (2026-04-30): warning headers in the `.benchmark.ts` files reminding the operator to deploy first, and those files run on demand only (`npm run bench`, `npm run bench:throughput`), not on the default `npm test` path. That's a reader-visible reminder, not a guarantee — this task replaces it.
 
 ## Goals
 
 A robust process that answers, with no human discipline required:
 
-- **Did the deployed Nebula match the local commit when bench/throughput were measured?**
-- **Did the deployed Nebula's `package.json` resolve to the actual published `@lumenize/*` versions on npm, not workspace symlinks?**
-- **Are package publishes and Nebula deploys ordered correctly?**
-- **What's the rollback story?**
+- **Did the deployed Nebula match the local commit when bench/throughput were measured?** (Phases 1–2)
+- **Are package publishes and Nebula deploys ordered correctly, and is the deploy a single repeatable command?** (Phase 3)
+
+Deferred to [`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md) (un-park at alpha — do **not** build here):
+- *Did the deployed Nebula resolve to the **published** `@lumenize/*` npm versions, not workspace symlinks?* — Phase A (reproducibility). Doesn't apply while `apps/nebula` is `private` and `wrangler` bundles workspace `src/` directly (which is exactly what the tests run).
+- *What's the rollback story?* — Phase B (rollback + CI).
 
 Non-goal: solving every monorepo "apps vs packages" pattern. Just Nebula and `email-test` for now; future apps inherit the pattern.
 
-## Phase 0: First-deploy readiness (merged from the pre-alpha "first prod deploy" bullet)
+**Out of scope here (a separate release vehicle, not a Worker deploy):** updating the platform-owned prompt tree (`NEBULA.md` + `skills/*.md` + `rules/*.md`). Per [`nebula-pre-alpha.md`](nebula-pre-alpha.md) that ships as a **git commit into the registry DO's `Workspace` over mesh — no redeploy** (Wave-2 substrate). `deploy.sh` must **not** fold in prompt-tree updates; when the Wave-2 substrate lands, the prompt-tree push gets its **own** `apps/nebula/package.json` script (e.g. `npm run push:prompt`) for Larry to run, distinct from `npm run deploy`.
 
-**Goal**: the one-time things that must be true before `apps/nebula` can serve ~5 external pre-alpha users
-on a real Cloudflare deploy. (These ride the deploy machinery in Phases 1/3; the recurring deploy itself is
-Phase 3.)
+## Phase 0: First-deploy readiness
+
+**Goal**: the one-time things that must be true before `apps/nebula` can serve ~5 external pre-alpha users on a real Cloudflare deploy. (These ride the deploy machinery in Phases 1/3; the recurring deploy itself is Phase 3.)
 
 **Approach**:
-- **`migrations` block** in `apps/nebula/wrangler.jsonc` — registers every DO class with
-  `new_sqlite_classes` (NOT `new_classes`). **This is a one-way door**: the first prod deploy freezes
-  DO-class add/rename/delete into a migration-forever commitment (`.claude/rules/durable-objects.md` § DO
-  class registration). Enumerate every DO class shipped (Universe/Galaxy/Star/Resources/Subscriptions/DagTree/
-  NebulaContainer/DevContainer/DevStudio/…) before cutting it.
-- **Super-admin seed** — set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` as a deployed Worker secret
-  (`wrangler secret put`, never committed). The deploy script (Phase 3) confirms it's set.
-- **Concurrency sanity** for ~5 external users (no per-tenant limits tripped; DO/Gateway defaults fine — a
-  confirm, not a build).
-- **DevStudio source-of-truth durability** — confirm the shell `Workspace` (git over `ctx.storage.sql`)
-  survives a real deploy + DO restart (it's the dev-user's app source; losing it loses their work).
-- Deploy is **laptop + WARP** for pre-alpha (`cf-container-deploy-proxy`); the headless/CI deploy is
-  deferred → `on-hold/nebula-release-hardening.md`.
+- **Audit + freeze the `migrations` block** in `apps/nebula/wrangler.jsonc`. The block **already exists** (tag `v1`, 8 classes under `new_sqlite_classes` — `NebulaClientGateway, Universe, Galaxy, Star, DevStudio, DevContainer, NebulaAuth, NebulaAuthRegistry`). In **local dev it stays freely editable** (every vitest / `wrangler dev` run behaves like a fresh deploy). The first prod deploy is a **one-way door**: from then on the list is **append-only** (DO-class add/rename/delete = a migration forever; old rows may not be trimmable — assume not). So the Phase-0 work is a *verification*, not creation:
+  - Confirm `migrations` `new_sqlite_classes` **exactly matches** `durable_objects.bindings` (and `src/worker.ts` re-exports) — same set, nothing extra, nothing missing.
+  - Confirm **every** class is `new_sqlite_classes`, **never** `new_classes` (sync storage throws on a non-SQLite DO — hard deploy failure). See `.claude/rules/durable-objects.md` § DO class registration.
+  - This is the last thing checked before cutting the first deploy.
+- **Super-admin seed** — set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` as a deployed Worker **secret** (`wrangler secret put`, never committed). It auto-admins the first subject registering that email.
+- **Secure-by-default guard against a committed bootstrap-email backdoor** — a bootstrap email in a committed `wrangler.jsonc` `vars` block is a *standing admin backdoor* (`.claude/rules/packaging.md`: committed vars are world-readable and deploy with the worker). Confirming the *secret* is set does nothing to stop someone (or an LLM) **also** putting it in `vars`. Add a guard to `scripts/audit-test-mode.sh` (already gating `*_TEST_MODE`, wired into `test-code.sh` + `prepare-for-publish.sh`) that **fails** if `NEBULA_AUTH_BOOTSTRAP_EMAIL` / `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` appears in a committed `wrangler.jsonc`. **Not** a widening of the shared `$PATTERN` — that also scans `package.json` / `*.sh` / `.dev.vars`, so it would false-flag this task's own `deploy.sh` (which names the var) and the committed `.dev.vars.example`. Make it a **separate scan scoped to the wrangler-config include-glob**, with a per-file allow-comment skip for the sanctioned deployed-test-harness exception packaging.md permits. (The var legitimately lives in `vitest.config.js` bindings — never flag those.)
+- **Concurrency sanity** for ~5 external users (no per-tenant limits tripped; DO/Gateway defaults fine — a confirm, not a build).
+- **DevStudio source-of-truth durability** — confirm the shell `Workspace` (git over `ctx.storage.sql`) survives a real deploy + DO restart (it's the dev-user's app source; losing it loses their work).
+- Deploy is **laptop + WARP** for pre-alpha (`cf-container-deploy-proxy`, which also pushes the DevContainer image); the headless/CI deploy is deferred → `on-hold/nebula-release-hardening.md`.
 
 **Success criteria**:
-- [ ] `apps/nebula/wrangler.jsonc` has a `migrations` block with all DO classes under `new_sqlite_classes`; the class list is enumerated in this file (pinned) before first deploy.
-- [ ] First prod deploy succeeds from laptop+WARP; super-admin can log in at the reserved `nebula-platform` instance with the seeded email.
-- [ ] The codegen loop's live `it.skip`s (which need `wrangler dev` + Docker today) are validated against the deploy.
-- [ ] DevStudio Workspace source survives a redeploy (a generated app's source is still there after).
+- [ ] In `apps/nebula/wrangler.jsonc` (the prod config only — the bench worker legitimately diverges with its own chain), the set of **`class_name`** values in `durable_objects.bindings` exactly matches `migrations` `new_sqlite_classes` and the `src/worker.ts` re-export set — compared on **class name, not binding name** (`NEBULA_CLIENT_GATEWAY` → `NebulaClientGateway`); all `new_sqlite_classes`, no `new_classes`. Frozen as the last step before first deploy.
+- [ ] The Phase-0 audit guard **fails** if a `*_BOOTSTRAP_EMAIL` is found in a committed `wrangler.jsonc`, and **passes on the current tree** (does not flag `deploy.sh`, `.dev.vars.example`, or `vitest.config.*`).
+- [ ] First prod deploy succeeds from laptop+WARP, the DevContainer image builds + pushes, the worker boots; super-admin can log in at the reserved `nebula-platform` instance with the seeded email. *(The deploy smoke check for THIS task = `deploy.sh`'s `/_version?sha=` byte-check (curl from bash, not vitest) + this manual super-admin login — distinct from the codegen-skip check below. A richer **automated UI-level smoke** (Playwright drives the rendered Studio: log in through the UI, assert key elements, then a multi-step journey) is net-new, NOT this task, and is **blocked on the Studio UI being served from the deploy** (see Open questions) → `tasks/backlog.md` § Testing & Quality.)*
+- [ ] The codegen loop's live `it.skip`s are exercised under `wrangler dev` + Docker — their existing pre-deploy home. They construct the DevStudio/DevContainer DOs **in-process** (needing a real `env.AI` + a **constructible** `Container`, which vitest-pool-workers can't build), so there's no URL to redirect them at — a **pre-deploy gate**, not a deploy check. **A manual `wrangler dev` + Docker pass suffices for the first deploy**; promoting the deterministic ones to a durable `runIf` lane (and keeping the live-`chat()` turns skip-by-default) is a separate test-infra task → `tasks/backlog.md` § Testing & Quality. *(Deployed-target vitest does exist — the bench suite's browser project hits a deployed worker over the network — these skips just aren't among them.)*
+- [ ] DevStudio Workspace source survives a redeploy — by construction it lives in `ctx.storage.sql` (survives code deploys like all DO storage); confirm once by hand (write source → second `wrangler deploy` → `getSourceTree` shows the same HEAD oid).
 
 ## Phase 1: Version-stamp deployed Workers
 
-**Goal**: every deployed Worker exposes the git SHA it was built from, and tests can assert against it.
+**Goal**: every deployed Worker exposes the git SHA it was built from, and tests can assert against it. The **SHA is the identity** (precise); the `package.json` `version` rides alongside as a coarse human label (`0.24.0` today), **not** locked to the Lerna package stream (see Open questions).
 
 **Approach**:
-- Use Wrangler's `define` (or `vars`) to inject `__GIT_SHA__` and `__BUILD_TIME__` at deploy time:
+- **Inject the stamp at deploy time; read it through a dev-safe guard.** `deploy.sh` (Phase 3) computes the values into shell vars **first, before any build step touches the tree** (so a clean checkout never stamps dirty), then passes them as Wrangler `--define`:
+  ```sh
+  GIT_SHA=$(git rev-parse HEAD)
+  DIRTY=$([ -z "$(git status --porcelain)" ] && echo clean || echo dirty)
+  wrangler deploy --define __GIT_SHA__:"\"$GIT_SHA\"" --define __DIRTY__:"\"$DIRTY\"" --define __BUILD_TIME__:"\"$(date -u +%FT%TZ)\""
   ```
-  wrangler deploy --define __GIT_SHA__:"\"$(git rev-parse HEAD)\"" --define __DIRTY__:"\"$([ -z \"$(git status --porcelain)\" ] && echo clean || echo dirty)\""
-  ```
-- Add a `/_version` (or RPC) endpoint to Nebula that returns `{ sha, dirty, buildTime, packageVersion }`.
-- Same for `email-test` and the `nebula-browser-test` test worker.
+  *(Illustrative only — `deploy.sh` is the single canonical home for this nested escaping; never re-type it inline elsewhere.)*
+- **`--define` globals are absent everywhere except a real deploy** (vitest-pool-workers, `wrangler dev`, the bench worker's local-spawn mode inject none). `entrypoint.ts` is imported by the baseline app, the bench worker, and **every** test app — so a handler reading bare `__GIT_SHA__` would fail type-check (TS2304) and throw `ReferenceError` at request time, breaking the **whole suite + dev loop**, not just deploy. Therefore: `declare const __GIT_SHA__: string` (etc.) and read through a guarded helper returning a **dev sentinel** when undefined — `typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'dev'` (and `dirty: true` in dev).
+- **`/_version` is a Worker `fetch` endpoint that COMPARES, never DISCLOSES — one uniform public route, no gating, no mesh.** Add it as an early literal `url.pathname === '/_version'` branch at the **top of `entrypoint.fetch`** — the **Worker** HTTP boundary, before any DO dispatch (it reads the bundle-baked `--define` globals; no DO, no storage, no mesh — putting it in a DO would force a mesh method or a raw DO fetch, both heavier and both entangling a bundle fact with DO machinery). It does **not return the SHA**: the caller **submits** its expected SHA (`GET /_version?sha=<local HEAD>`) and the endpoint replies `{ match, dirty }` after a **constant-time** compare against `__GIT_SHA__` — never echoing the deployed SHA (nor `buildTime`, nor a dependency list) in the body or in any error. Because nothing sensitive leaves the worker, the route is **public and identical on prod and the bench worker** (no Bearer gate, no public-vs-gated split — *that* is what idea-3 buys: the disclosure surface, and with it the whole gating problem, simply disappears). Both real callers fit it — the Phase-2 guard and the Phase-3 self-check each already know the SHA they expect and only want yes/no; `{match:true}` doubles as the liveness signal. *(The coarse `package.json` version label, if ever wanted, lives in the deploy log / git tag — not worth its own surface.)*
+- **Per-worker deploy of the stamp.** `nebula-browser-test` is a SEPARATE worker (own `apps/nebula/test/browser/worker/wrangler.jsonc`, own `index.ts` wrapping the prod entrypoint, `StarTest`/`BenchAgent`/`BenchFanoutTier`/EMAIL/rate-limiter, own 7-tag migrations chain) — deploy via `wrangler deploy --config test/browser/worker/wrangler.jsonc` with its **own** `--define`, **never `--name`**. The compare route lives in the shared prod `entrypoint.fetch`, so the bench worker gets it via passthrough for free (it's harmless either way — it discloses nothing). `email-test` (`tooling/email-test/`) is a *standalone* worker (own `fetch`, `EmailTestDO`, no Nebula entrypoint import) — it does **not** get `/_version` for free; stamping it needs a ~4-line compare route in its own `index.ts` **plus** the `--define` in its own `--config` deploy (see the email-test open question — pinned to defer for pre-alpha).
 
 **Success criteria**:
-- [ ] `curl https://nebula-browser-test.transformation.workers.dev/_version` returns the SHA the Worker was built from
-- [ ] `wrangler deploy` from a dirty tree marks the deploy `dirty: true` (signals "not reproducible")
+- [ ] vitest + `wrangler dev` still boot `entrypoint`; `/_version` is dev-safe (`declare const` + sentinel — never throws). In dev (no `--define`) a compare returns `{ match: false, dirty: true }`, and the Phase-2 guard is `BENCH_BASE_URL`-gated so it never calls it locally anyway.
+- [ ] `GET <bench URL>/_version?sha=<the SHA it was deployed at>` → `{ match: true }`; a wrong SHA → `{ match: false }`. The deployed SHA never appears in any response body, on either worker.
+- [ ] Prod `/_version` behaves identically (public, leaks nothing) — confirm by inspecting the response shape, no auth needed.
+- [ ] A `wrangler deploy` from a dirty tree makes the compare report `dirty: true`.
 
-## Phase 2: Pre-bench / pre-test deployment guard *(optional for pre-alpha)*
+## Phase 2: Bench-staleness guard (the permanent fix for symptom #1)
 
-**Pre-alpha call (unresolved — decide at `/review-task` or build):** this guards *benchmark integrity*, which
-isn't F&F-blocking (we're not benchmarking for pre-alpha users). It's **cheap once Phase 1 exists** (a small
-helper reusing `/_version`), so include it if quick, else defer with the rest of the bench hygiene. Not a
-gate either way.
+**In scope** — this is the no-human-discipline fix for the originating symptom (benches measured against stale deploys). It is **not invite-blocking** (we don't benchmark for pre-alpha users), so it **sequences after Phase 1** and off the invite path — but it is cheap once Phase 1's stamp exists and it permanently closes the footgun, so it is built here, not deferred.
 
-**Goal**: bench and throughput tests refuse to run unless the deployed worker's SHA matches local `HEAD`.
+**Goal**: bench and throughput tests refuse to run against a stale **deployed** bench worker.
 
 **Approach**:
-- Helper in `apps/nebula/test/browser/` (e.g. `assert-deployed-version.ts`) that fetches `/_version` from the configured base URL and compares to `git rev-parse HEAD`. Exits with a clear "deployed=A, local=B; run `npm run deploy:test-worker` first" if they differ.
-- Wire into the bench and throughput entrypoints (or as a vitest `globalSetup` for the benchmark project).
-- New script: `npm run deploy:test-worker` runs `wrangler deploy --name nebula-browser-test` with the SHA define from Phase 1. Bench README points users at it.
+- Helper in `apps/nebula/test/browser/` (e.g. `assert-deployed-version.ts`) that — **only in deployed mode** — calls `GET <BENCH_BASE_URL>/_version?sha=$(git rev-parse HEAD)` and reads the `{ match, dirty }` reply: fail fast on `match:false` with a clear "deployed != local HEAD; run `npm run deploy:test-worker` first", and warn on `match:true, dirty:true` ("deployed from a dirty tree — numbers not reproducible"). The helper never needs to *see* the deployed SHA — it only submits its own.
+- **Gate the guard on `BENCH_BASE_URL`.** With no `BENCH_BASE_URL` the bench auto-spawns a local `wrangler dev` against workspace `src/` (which IS `HEAD` by construction and injects no `--define`) — an unconditional check would fetch an unsubstituted `__GIT_SHA__` literal (or the dev sentinel) and spuriously fail. The deployed-mode gate (`!!process.env.BENCH_BASE_URL`) already exists at `benchmark.ts:239`; the guard must use the same gate.
+- Wire into the `.benchmark.ts` entrypoints (or a vitest `globalSetup` for the `browser-bench` project).
+- New script: `npm run deploy:test-worker` runs `wrangler deploy --config test/browser/worker/wrangler.jsonc` with the SHA define from Phase 1. The bench README points at it.
 
 **Success criteria**:
-- [ ] Running `npm run bench` against a stale deployment fails fast with a SHA-mismatch message
-- [ ] Running `npm run deploy:test-worker && npm run bench` succeeds end-to-end
-- [ ] The recorded numbers in `RESULTS.md` / `THROUGHPUT-RESULTS.md` cite the SHA they were measured against (small footnote)
+- [ ] Capable-of-failing: deploy at SHA A, advance `HEAD` to B, run with `BENCH_BASE_URL` set → the guard fails fast with the SHA-mismatch message.
+- [ ] `npm run bench` with **no** `BENCH_BASE_URL` (local mode) still passes — the guard short-circuits.
+- [ ] `npm run deploy:test-worker && BENCH_BASE_URL=… npm run bench` succeeds end-to-end.
+- [ ] The numbers in `RESULTS.md` / `THROUGHPUT-RESULTS.md` cite the SHA they were measured against — **written programmatically** from local `HEAD` *after* the guard confirms `match:true` (so deployed == HEAD == the cited SHA, no drift), not a hand-typed footnote.
 
-## Phase 3: Separate the Nebula release from the package release
+## Phase 3: A first-class Nebula deploy flow, separate from the package release
 
-**Goal**: distinct, individually-runnable flows for "publish packages to npm" vs "deploy Nebula to Cloudflare".
+**Goal**: a single repeatable Nebula deploy command, distinct from the package publish. (`scripts/release.sh` **already** only publishes packages and never touches Nebula — Lerna skips it as `private`. So this phase is purely *additive*: a new `deploy.sh`, not a refactor of `release.sh`.)
 
 **Approach**:
-- Today: `scripts/release.sh` lerna-publishes every public package. Lerna already skips Nebula because it's `private`.
-- **PINNED (2026-06-23): all logic lives in `apps/nebula/scripts/deploy.sh`.** Two thin wrappers invoke it:
-  the root `package.json` exposes `npm run deploy:nebula`; `apps/nebula/package.json` exposes `npm run deploy`
-  (local, unprefixed). The script:
-  1. Confirms the super-admin secret is set (`NEBULA_AUTH_BOOTSTRAP_EMAIL`, Phase 0) — refuse otherwise.
-  2. Runs `wrangler deploy` with the SHA/dirty define from Phase 1.
-  3. Verifies `/_version` after deploy and surfaces a mismatch (the SHA we just built ≠ what's live).
-  - *(Registry-tarball reinstall + version-match-against-npm + auto-rollback are deferred → `on-hold/nebula-release-hardening.md`. For pre-alpha, `apps/nebula` is `private` and `wrangler deploy` bundles workspace `src/` directly — which is what the tests run — so a workspace-symlink deploy is correct, not the divergence trap.)*
-- Document when to run each script in a new top-level `RELEASING.md`.
+- **PINNED (2026-06-23): all deploy logic lives in `apps/nebula/scripts/deploy.sh`.** Two thin wrappers invoke it: the root `package.json` exposes `npm run deploy:nebula`; `apps/nebula/package.json` exposes `npm run deploy` (local, unprefixed). The script:
+  1. Computes `GIT_SHA` + `DIRTY` into shell vars **first** (before any build/bundle step mutates the tree — see Phase 1).
+  2. Confirms the super-admin secret is set — **name-only** via `wrangler secret list` (there is no value-retrieving command; never echo a secret). Refuse if absent. (The committed-`vars` backdoor check is the separate Phase-0 audit guard.)
+  3. Runs `wrangler deploy` (which also builds + pushes the DevContainer image) with the `--define` stamp from step 1.
+  4. **Self-checks** the new build is live by calling `GET <prod URL>/_version?sha=$GIT_SHA` and asserting `{ match: true }` — this is the *same* public compare endpoint (Phase 1), which doubles as the liveness signal (a reply at all = serving; `match:true` = the bytes we just built). It discloses nothing, needs **no admin token**, and surfaces a failure if the worker doesn't answer or reports `match:false` (stale cache / failed deploy).
+  - **No Lerna, no version-lock, no registry-tarball reinstall.** For pre-alpha `apps/nebula` is `private` and `wrangler` bundles workspace `src/` directly — which is what the tests run — so a workspace-symlink deploy is correct, not the divergence trap. (Reproducibility-from-npm + auto-rollback → `on-hold/nebula-release-hardening.md`.)
+  - Any secret `deploy.sh` reads comes from env / `.dev.vars` (never a literal), with no `set -x` around lines that touch it.
+- Document when to run each flow (package publish vs Nebula deploy) in a new top-level `RELEASING.md`.
 
 **Success criteria**:
-- [ ] `scripts/release.sh` only publishes packages; never deploys Nebula.
+- [ ] `scripts/release.sh` still only publishes packages; never deploys Nebula. (Confirm — already true.)
 - [ ] `apps/nebula/scripts/deploy.sh` holds the deploy logic; `npm run deploy:nebula` (root) and `npm run deploy` (apps/nebula) both invoke it.
-- [ ] Post-deploy, `/_version` reports the expected SHA *and* the expected `packageVersion`.
+- [ ] Post-deploy, the `/_version?sha=` self-check returns `{ match: true }` (confirms the freshly-built worker is serving the bytes just deployed); `deploy.sh` holds no admin token and emits no secret in its output.
+- [ ] `RELEASING.md` exists and says which flow to run when.
 
 ## Deferred (post-pre-alpha) → `on-hold/nebula-release-hardening.md`
 
-The heavier release-discipline pieces are **out of scope for pre-alpha** and split to
-[`on-hold/nebula-release-hardening.md`](on-hold/nebula-release-hardening.md) (un-park at the **alpha**
-milestone): **Phase A — reproducibility from npm** (deploy from registry tarballs vs workspace symlinks —
-doesn't apply while `apps/nebula` is `private` and `wrangler` bundles `src/`); **Phase B — CI wiring +
-rollback** (incl. the headless/CI container deploy that replaces laptop+WARP; the repo has no CI today).
+Un-park at the **alpha** milestone: **Phase A — reproducibility from npm** (deploy from registry tarballs vs workspace symlinks — doesn't apply while `apps/nebula` is `private` and `wrangler` bundles `src/`); **Phase B — CI wiring + rollback** (the headless/CI container deploy that replaces laptop+WARP; `wrangler rollback`; the repo has no CI today).
 
 ## Open questions
 
-- **Version-locking apps with packages** — `nebula-auth` (a package) currently version-locks with the rest via Lerna. Should Nebula (the app) version with packages, or have its own version stream? Both have arguments. Resolve before Phase 3.
-- **What about `email-test`?** It's a deployed Worker too, currently in `packages/auth/test/e2e-email/`. Same staleness problem. Probably needs its own deploy script + version assertion. Could ride on Phase 1 / 2 for free.
-- **Dirty-tree deploys** — block them, warn-and-allow, or stamp them as `dirty:true` in `/_version`? Current draft says stamp, not block. Revisit.
-- **Future apps in `apps/`** — assume the Nebula pattern generalizes. If we add another app and the assumptions break, refactor then.
+- **App vs package versioning — RESOLVED for pre-alpha: do NOT version-lock.** Nebula deploys are identified by **SHA** (precise) + `apps/nebula`'s own `package.json` `version` (coarse label). Lerna is not involved in deploys. (Re-evaluate a lock only once CI deploys packages-first.)
+  - *Open sub-threads (noted, not decided here):* (a) a **compatibility-date-style** scheme like Cloudflare's — note the thing that already behaves like a compat-date for Nebula is the **append-only migrations tag chain**, not semver; (b) whether to eventually **drop Lerna** for plain npm workspaces now that workspaces cover more (Lerna's remaining value is synchronized versioning of the published packages). Both are separate discussions.
+- **`email-test`** (`tooling/email-test/`) is a deployed Worker with the same staleness problem (symptom #2). It is a *standalone* worker (own `fetch`, no Nebula entrypoint), so it does **not** get `/_version` for free — stamping it costs a ~4-line route in its own `index.ts` + the `--define` in its own `--config` deploy. **Pre-alpha call (pinned): accept the gap, don't build a third stamp+guard.** Unlike the opt-in benches, the magic-link smoke path runs in the default `npm test`, so a wire-format drift between `HEAD` and the deployed email-test worker **breaks the smoke test loudly** (not silently) — caught, just not pre-empted. Revisit (ride the Phase-1 pattern) at alpha if it bites.
+- **Dirty-tree deploys** — block, warn-and-allow, or stamp `dirty:true`? Current pin: **stamp** (surfaced as `dirty:true` in the `/_version` compare reply), don't block. Revisit if it bites.
+- **Future apps in `apps/`** — assume the Nebula pattern generalizes; refactor if a second app breaks the assumptions.
 
 ## Notes
 
-- Short-term mitigation already in place (2026-04-30): warning headers in both `.bench` / `.benchmark` files, plus they run on demand only (`npm run bench`, `npm run test:throughput`), not in `npm test`. This task supersedes those mitigations once Phase 2 lands.
-- Memory entry referencing the deployed test worker subdomain and configured secrets lives in `MEMORY.md` under "Active: parse-validate release publish" — keep that in sync if the test worker name or config changes.
+- Short-term mitigation already in place (2026-04-30): warning headers in the `.benchmark.ts` files, plus they run on demand only (`npm run bench`, `npm run bench:throughput`), not in `npm test`. This task supersedes those once Phase 2 lands.
+- Memory entry referencing the deployed test worker subdomain and configured secrets lives in `MEMORY.md` under the parse-validate-release notes — keep that in sync if the test worker name or config changes.
