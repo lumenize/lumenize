@@ -2,6 +2,7 @@
 	"name": "capn-web-comparison-basics-and-types",
 	"version": "0.24.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
@@ -15,10 +16,10 @@
 		"@lumenize/routing": "*",
 		"@lumenize/rpc": "*",
 		"@lumenize/testing": "*",
-		"@vitest/coverage-istanbul": "3.2.4",
+		"@vitest/coverage-istanbul": "4.1.4",
 		"capnweb": "^0.1.0",
 		"typescript": "^5.9.2",
-		"vitest": "3.2.4",
+		"vitest": "4.1.4",
 		"wrangler": "^4.86.0"
 	}
 }

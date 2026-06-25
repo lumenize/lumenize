@@ -119,15 +119,17 @@ jobs:
 
       - name: Run doc-test examples (no coverage)
         run: |
-          # Run tests for all doc-test subdirectories without coverage
+          # Run-all-then-fail so one failing doc-test doesn't mask the rest.
+          failed=""
           for dir in doc-test/*/*/; do
             if [ -f "$dir/package.json" ]; then
-              echo "Running tests for $(basename $(dirname $dir))/$(basename $dir)..."
+              echo "Running tests for $(basename $(dirname "$dir"))/$(basename "$dir")..."
               cd "$dir"
-              npm run test || exit 1
+              npm run test || failed="$failed $(basename "$dir")"
               cd - > /dev/null
             fi
           done
+          if [ -n "$failed" ]; then echo "❌ Failed doc-tests:$failed"; exit 1; fi
 
   sonarcloud-analysis:
     needs: [run-packages-tests-with-coverage, run-doc-tests]
