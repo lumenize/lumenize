@@ -5,6 +5,11 @@ import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
 
+// ⚠️ TEMP INTERIM — NOT the model. The dev-login below (`acme.app.dev`, NEBULA_AUTH_TEST_MODE,
+// the one-click dev button) is a dead interim kept only for the local dev loop. B2 replaces it with
+// discovery-resolved scope + real-email magic-link login — every actor (users, tests, you) self-provisions
+// one uniform way (no hardcoded scope). See tasks/nebula-release-process.md § B2 + the `interim-unlearning-tax`
+// rule. Don't treat `acme.app.dev` / test-mode as the model.
 // --- Dev config (first cut) ---------------------------------------------------------
 // Dev sandbox scope + bootstrap email. DEV_EMAIL MUST match
 // NEBULA_AUTH_BOOTSTRAP_EMAIL in your gitignored root .dev.vars (with

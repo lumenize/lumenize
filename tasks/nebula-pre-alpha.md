@@ -155,13 +155,14 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   Sequenced behind ①②. Phase 0 = first-deploy readiness, split
   into **(A) one-time gates** (`migrations` AUDIT/FREEZE, super-admin seed,
   concurrency, DevStudio durability, laptop+WARP) and **(B) two builds** — Workers-Assets serving of the Studio SPA
-  + the real magic-link login UI. **Re-review pins (2026-06-25):** the deployed Studio is **configured to the
-  operator's OWN provisioned Universe** (`{u}.{g}.dev`, claimed via the existing `claimUniverse`/`createGalaxy`,
-  survives upgrades — replaces the throwaway `acme.app.dev` test scope), login at that scope (NOT a `nebula-platform`
-  two-scope login); **self-provisioning IS the model** (Turnstile + email are the gates, already built) — **no UI
-  scope-pin, no seed-login gate** (those were friction defending a throwaway scope; the M2/M-1 "pin + seed-first"
-  framing was dropped — Turnstile, not a UI pin, is the real gate; Turnstile-off compute-abuse is the documented
-  residual). Assets served via **`run_worker_first` as a route LIST** (not `true`) — so `entrypoint.ts` is
+  + the real magic-link login UI. **Re-review pins (2026-06-25):** the deployed Studio resolves each
+  actor's scope via **discovery** — **every actor (real users, tests, you) self-provisions one uniform way**, no
+  operator special-case, no hardcoded `acme.app.dev` (dead interim — see `interim-unlearning-tax`). Two **claiming**
+  flows (diagrammed in `nebula-release-process.md` B2): **Flow A** = the slug-claim primitive (Universe *or* Star) →
+  first-access founder-admin (first toucher, `star.ts:75`; NOT bootstrap-dependent); **Flow B** = a Universe admin's
+  *create-app* (`createGalaxy` + a `.dev`-`Star` slug-claim → a plain `.dev` `Star` + `DevStudio` + `DevContainer`).
+  Turnstile + email are the real gates (Turnstile **off** for pre-alpha — compute-abuse is the documented residual);
+  no scope to pin because discovery resolves it. Assets served via **`run_worker_first` as a route LIST** (not `true`) — so `entrypoint.ts` is
   **unchanged** (no `env.ASSETS` in code → no guard, no type-cast, no test rewrite; bench/baseline harnesses
   untouched), real SPA serving verified at the **prod URL**; **no dedicated bootstrap-email-in-`vars` guard**
   (de-alarmed — it's an identifier, not a backdoor; convention + secret-preflight suffice) + the migrations

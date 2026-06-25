@@ -1,5 +1,11 @@
 # Nebula Studio UI (dev — rough first cut)
 
+> ⚠️ **TEMP dev-login recipe — NOT the model.** The `NEBULA_AUTH_TEST_MODE` + one-click "Log in (dev)" +
+> `acme.app.dev` flow documented below is a dead interim kept only for the local dev loop. The real model:
+> **every actor (users, tests, you) self-provisions one uniform way** — real-email magic-link login →
+> discovery-resolved scope → (first-run) claim a slug. B2 replaces this recipe; see
+> [`tasks/nebula-release-process.md`](../../tasks/nebula-release-process.md) § B2 + the `interim-unlearning-tax` rule.
+
 The chat-first authoring SPA: talks to **DevStudio** over mesh and embeds the running
 **Preview app** in an iframe. This is a deliberately rough first cut to iterate on by
 playing — see *Limitations* below.
