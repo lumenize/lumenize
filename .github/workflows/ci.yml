@@ -73,7 +73,10 @@ jobs:
             if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
               echo "Running tests with coverage for $(basename $dir)..."
               cd "$dir"
-              npm run test -- --coverage || exit 1
+              # --retry=2 self-heals cold-start flakes on the over-the-web e2e
+              # suites (deployed test-endpoints / email infra). Real failures
+              # still fail all 3 attempts; stable suites never trigger a retry.
+              npm run test -- --coverage --retry=2 || exit 1
               cd - > /dev/null
             fi
           done
