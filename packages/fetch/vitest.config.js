@@ -21,8 +21,9 @@ export default defineConfig({
     globals: true,
     dangerouslyIgnoreUnhandledErrors: true,
 
-    // 10 second timeout for external network calls
-    testTimeout: 10000,
+    // 30s per-test ceiling — headroom for deployed-worker cold starts on the
+    // over-the-web suites, above the 15s vi.waitFor used to poll for results.
+    testTimeout: 30000,
 
     include: ['test/**/*.test.ts'],
 

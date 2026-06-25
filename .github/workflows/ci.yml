@@ -68,18 +68,22 @@ jobs:
 
       - name: Run tests with coverage for all packages
         run: |
-          # Run vitest with coverage for all packages in packages/ directory
+          # Run vitest with coverage for every package. Run-all-then-fail: a flake
+          # in one package must not mask the packages after it (collect failures,
+          # fail at the end). --retry=2 self-heals cold-start flakes on the
+          # over-the-web e2e suites (deployed test-endpoints / email infra); the
+          # suites are made retry-safe (unique per-run instance names) so a retry
+          # can't accumulate state. Real failures still fail all 3 attempts.
+          failed=""
           for dir in packages/*/; do
             if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
               echo "Running tests with coverage for $(basename $dir)..."
               cd "$dir"
-              # --retry=2 self-heals cold-start flakes on the over-the-web e2e
-              # suites (deployed test-endpoints / email infra). Real failures
-              # still fail all 3 attempts; stable suites never trigger a retry.
-              npm run test -- --coverage --retry=2 || exit 1
+              npm run test -- --coverage --retry=2 || failed="$failed $(basename "$dir")"
               cd - > /dev/null
             fi
           done
+          if [ -n "$failed" ]; then echo "❌ Failed packages:$failed"; exit 1; fi
 
   run-doc-tests:
     runs-on: ubuntu-latest
