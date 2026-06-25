@@ -44,17 +44,10 @@ jobs:
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
-        run: |
-          # RESEND_API_KEY + TEST_TOKEN are worker bindings the auth e2e suites
-          # read from .dev.vars (symlinked into each test dir by postinstall in
-          # the `npm ci` step below — so this must precede it). Written to a file,
-          # never stdout; GitHub also masks these secrets in logs.
-          {
-            printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
-            printf 'TEST_TOKEN=%s\n' "$TEST_TOKEN"
-            # Non-secret public URL of the deployed test-endpoints worker (fetch suite).
-            printf 'TEST_ENDPOINTS_URL=%s\n' 'https://test-endpoints.transformation.workers.dev'
-          } > .dev.vars
+        # Writes .dev.vars (secrets + generated ephemeral JWT keys + non-secret
+        # test config) BEFORE npm ci so postinstall symlinks it into each test
+        # dir as worker bindings. See scripts/ci-write-dev-vars.mjs.
+        run: node scripts/ci-write-dev-vars.mjs
 
       - name: Clean npm cache
         run: npm cache clean --force
@@ -69,6 +62,9 @@ jobs:
           # decorator transforms) must match the installed @swc/core version.
           npm install --no-save @rollup/rollup-linux-x64-gnu
           npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
+
+      - name: Install Playwright chromium (mesh real-browser project)
+        run: npx playwright install --with-deps chromium
 
       - name: Run tests with coverage for all packages
         run: |
