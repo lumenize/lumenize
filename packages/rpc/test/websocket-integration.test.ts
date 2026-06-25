@@ -459,7 +459,9 @@ describe('WebSocket Shim Integration', () => {
   });
 
   // KEPT: Stress test to verify no resource accumulation over many lifecycles
-  it('should handle many sequential client lifecycles without leaking resources', async () => {
+  // 30s timeout: 100 sequential WS round-trips fit easily on fast dev hardware
+  // but exceed the 2s default under CI contention (slower, shared runners).
+  it('should handle many sequential client lifecycles without leaking resources', { timeout: 30000 }, async () => {
     // Create and dispose 100 clients sequentially
     // If cleanup is broken (event handlers not removed, connections not closed, etc.),
     // this will eventually fail or cause observable issues
