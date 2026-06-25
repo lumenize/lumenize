@@ -19,9 +19,14 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+      - name: SonarQube Cloud Scan
+        # sonarcloud-github-action is deprecated; sonarqube-scan-action is the
+        # current action for SonarCloud (now "SonarQube Cloud"). Its bundled
+        # scanner CLI 7.x requires SONAR_HOST_URL set explicitly, otherwise JRE
+        # provisioning fails with "Failed to query JRE metadata ... SONAR_TOKEN".
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
 
