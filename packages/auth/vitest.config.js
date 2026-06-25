@@ -1,5 +1,28 @@
 import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { generateKeyPairSync } from "node:crypto";
+
+// Ephemeral Ed25519 JWT keypairs, generated fresh each run and injected as
+// miniflare bindings (which take precedence over .dev.vars). The auth suites
+// otherwise read these keys only from the gitignored .dev.vars, so they
+// couldn't run in a secret-less environment (CI, cloud agents). Two independent
+// keypairs (BLUE/GREEN) so key-rotation paths work; PRIMARY_JWT_KEY (in
+// wrangler.jsonc) selects the signer and both public keys are tried on verify.
+function ed25519TestKeyPair() {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  return {
+    public: publicKey.export({ type: "spki", format: "pem" }),
+    private: privateKey.export({ type: "pkcs8", format: "pem" }),
+  };
+}
+const blueKey = ed25519TestKeyPair();
+const greenKey = ed25519TestKeyPair();
+const JWT_TEST_KEYS = {
+  JWT_PUBLIC_KEY_BLUE: blueKey.public,
+  JWT_PRIVATE_KEY_BLUE: blueKey.private,
+  JWT_PUBLIC_KEY_GREEN: greenKey.public,
+  JWT_PRIVATE_KEY_GREEN: greenKey.private,
+};
 
 export default defineConfig({
   test: {
@@ -32,6 +55,7 @@ export default defineConfig({
           wrangler: { configPath: './wrangler.jsonc' },
           miniflare: {
             bindings: {
+              ...JWT_TEST_KEYS,
               LUMENIZE_AUTH_TEST_MODE: 'true',
               LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
               DEBUG: 'auth',
