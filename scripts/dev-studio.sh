@@ -10,8 +10,9 @@
 #   • macOS Accessibility permission for your terminal (ttab drives Terminal.app / iTerm via AppleScript):
 #       System Settings ▸ Privacy & Security ▸ Accessibility → enable Terminal.app / iTerm.app.
 #   • Docker Desktop running (`docker context use desktop-linux`) — the Worker tab needs it for the DevContainer.
-#   • The dev-login flags in the gitignored root .dev.vars (NEBULA_AUTH_TEST_MODE=true,
-#     NEBULA_AUTH_BOOTSTRAP_EMAIL=dev@example.com) — see apps/nebula-studio-ui/README.md.
+#   • The dev-login knobs in the gitignored root .dev.vars (see .dev.vars.example
+#     and apps/nebula-studio-ui/README.md for the exact vars — not named here, per
+#     the secret-boundary invariant below).
 #
 # Secret boundary (structural): this launcher NEVER names a secret/test-mode flag. The dev-login knobs live
 # ONLY in .dev.vars (read by `wrangler dev` automatically). The launcher passes through ONLY a closed allowlist
