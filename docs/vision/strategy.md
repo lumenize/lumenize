@@ -7,6 +7,7 @@
 | **Status** | Living doc — current strategy as of 2026-06-21. Update in place; note material pivots with a dated line. |
 | **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the checks below should get flagged. |
 | **Scope** | Nebula the SaaS platform. The MIT packages (Mesh and friends) are the substrate, not the subject. |
+| **Convention** | This doc + `enterprise.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. |
 
 The macro thesis is that AI is the earthquake creating fissures that the traditional software development factory and roles are collapsing into, and at the same time creating new higher ground for the rise of the solopreneur/intrapreneur. 
 
