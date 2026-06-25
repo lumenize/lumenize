@@ -83,6 +83,7 @@ export default defineConfig({
           wrangler: { configPath: './test/e2e-email/wrangler.jsonc' },
           miniflare: {
             bindings: {
+              ...JWT_TEST_KEYS,
               DEBUG: 'auth',
             },
           },
@@ -104,6 +105,7 @@ export default defineConfig({
           wrangler: { configPath: './test/e2e-email-resend/wrangler.jsonc' },
           miniflare: {
             bindings: {
+              ...JWT_TEST_KEYS,
               DEBUG: 'auth',
             },
           },
@@ -129,6 +131,7 @@ export default defineConfig({
           wrangler: { configPath: './test/hono/wrangler.jsonc' },
           miniflare: {
             bindings: {
+              ...JWT_TEST_KEYS,
               LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'test@lumenize.io',
               DEBUG: 'auth',
             },

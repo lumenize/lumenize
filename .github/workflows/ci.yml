@@ -22,6 +22,12 @@ jobs:
 
   run-packages-tests-with-coverage:
     runs-on: ubuntu-latest
+    env:
+      # pool-workers' remote proxy (for the EMAIL / Cloudflare Email Sending
+      # binding the auth e2e + hono suites use) authenticates to Cloudflare via
+      # these. Node-side process env, not worker bindings.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -33,6 +39,20 @@ jobs:
         with:
           node-version: '22'
           cache: ''  # Disable built-in npm caching to avoid conflicts
+
+      - name: Reconstruct .dev.vars from secrets (worker bindings for e2e suites)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
+        run: |
+          # RESEND_API_KEY + TEST_TOKEN are worker bindings the auth e2e suites
+          # read from .dev.vars (symlinked into each test dir by postinstall in
+          # the `npm ci` step below — so this must precede it). Written to a file,
+          # never stdout; GitHub also masks these secrets in logs.
+          {
+            printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
+            printf 'TEST_TOKEN=%s\n' "$TEST_TOKEN"
+          } > .dev.vars
 
       - name: Clean npm cache
         run: npm cache clean --force
