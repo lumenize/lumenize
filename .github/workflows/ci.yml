@@ -91,6 +91,13 @@ jobs:
           done
           if [ -n "$failed" ]; then echo "❌ Failed packages:$failed"; exit 1; fi
 
+      - name: Upload coverage (lcov) for the SonarCloud job
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: packages/*/coverage/lcov.info
+          if-no-files-found: warn
+
   run-doc-tests:
     runs-on: ubuntu-latest
     steps:
