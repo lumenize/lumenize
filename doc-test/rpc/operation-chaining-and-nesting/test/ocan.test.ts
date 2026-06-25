@@ -151,8 +151,8 @@ The fact that you can see exactly what it's doing under the covers by
 showing the actual data structure that's going over the wire is a great 
 example of how Lumenize prioritizes DDX over everything else.
 
-The [byte count for the above payload is 4x-5x larger than the equivalent we measured for Cap'n Web](/docs/rpc/capn-web-comparison-performance#payload-byte-count-small-payloads). We 
-could eliminate that delta by using an integer code for the operation and 1-2 
+The byte count for the above payload is larger than it strictly needs to be. We
+could eliminate the overhead by using an integer code for the operation and 1-2
 character keys. '__isNestedOperation' shown below could have been '_n'.
 
 However, DDX doesn't just apply to our users. It applies to our own 
