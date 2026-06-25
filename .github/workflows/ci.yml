@@ -66,6 +66,12 @@ jobs:
       - name: Install Playwright chromium (mesh real-browser project)
         run: npx playwright install --with-deps chromium
 
+      - name: Build ts-runtime-parser-validator bundle (gitignored dist artifact)
+        # esbuild-bundles typia+typescript into dist/deps.bundle.mjs for in-worker
+        # type parsing. dist/ is gitignored and not built by npm ci, so the whole
+        # package's tests fail with "Cannot find module ../dist/deps.bundle.mjs".
+        run: npm run bundle -w @lumenize/ts-runtime-parser-validator
+
       - name: Run tests with coverage for all packages
         run: |
           # Run vitest with coverage for every package. Run-all-then-fail: a flake

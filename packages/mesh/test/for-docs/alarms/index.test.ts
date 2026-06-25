@@ -14,7 +14,10 @@ import { it, expect } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import type { ReminderDO } from './reminder-do.js';
 
-it('demonstrates alarm scheduling patterns', async () => {
+// 20s timeout (vs the 2s global): real CF alarm scheduling + delivery is
+// contention-fragile and needs generous headroom on shared CI runners — see
+// the alarm-wait note in .claude/rules/testing.md.
+it('demonstrates alarm scheduling patterns', { timeout: 20000 }, async () => {
   // ============================================
   // Quick Start: Schedule and trigger a follow-up
   // ============================================
