@@ -135,8 +135,9 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   residual hardening (cold-boot, ordering, reset generation-counter, Wave-2 version-contract) → `backlog.md`. **Zero
   `it.skip` in `apps/nebula`.** Scope clarified at draft: the **≥1 Resources hit + the real magic-link
   loop already exist API-side** in `smoke.test.ts` (not re-done here); the full *manipulate-state-via-the-UI* journey
-  is **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke is **③** (blocked on Decision-3 Assets
-  serving). Backlog origin: `tasks/backlog.md` § Testing & Quality.
+  is **Wave 2** (Studio doesn't wire Resources yet); a **prod** UI smoke (re-target this lane at the deployed URL) is a
+  **backlog** item that ③ *unblocks* (by serving the Studio from the Worker — Decision-3 Assets), not a ③ deliverable;
+  ③'s pre-deploy gate is the local `ui-smoke` lane. Backlog origin: `tasks/backlog.md` § Testing & Quality.
   - **Two prod-affecting build outcomes:** **(a)** `apps/nebula` had **no email-sender binding** → real magic-link
     mail silently dropped; wired it into prod (Option C, Larry) — `services[AUTH_EMAIL_SENDER→NebulaEmailSender]` +
     `send_email[EMAIL, remote:true]` in `wrangler.jsonc`, `NebulaEmailSender.from` env-configurable (`AUTH_EMAIL_FROM`).
@@ -145,10 +146,26 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
     layer (rejects consecutive hyphens — a SECOND, stricter slug validator than `dag-ops`); corrected to single-hyphen
     `test-u0.test-g0.dev`. Backlog item filed to converge the two validators.
 - **③ First prod deploy of `apps/nebula`** → child [`tasks/nebula-release-process.md`](nebula-release-process.md)
-  (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ DONE 2026-06-24, build-ready**;
-  now **resequenced behind ①②**. Phase 0 = first-deploy readiness (`migrations` AUDIT/FREEZE, super-admin seed +
-  committed-`vars` backdoor guard, concurrency, DevStudio durability, laptop+WARP) **and — added on return —
-  Decision-3 Workers-Assets serving of the Studio UI + the real magic-link login UI** (reviewed when added).
+  (first-prod-deploy + deploy-process — merged 2026-06-23). **`/review-task` ✅ FULLY REVIEWED (core 2026-06-24 +
+  focused Phase-0 re-review + whole-file conformance re-review 2026-06-25) — BUILD-READY. ⏭️ NEXT (fresh session):
+  `/build-task` BATCH 1 = B1 (Assets via `run_worker_first` route-list) + the migrations-audit script** (locally
+  verifiable, no deploy; B1 step 1 = the `vite build`-over-decorated-dep de-risk spike). **Batch 2** (with the deploy)
+  = Phases 1–3 + B2 (login swap) + first deploy; B2 held so local `dev:studio` keeps its one-click login while
+  iterating. After batch 1: a fresh session **reviews Phases 1–3 in detail** (they came back near-clean — quick).
+  Sequenced behind ①②. Phase 0 = first-deploy readiness, split
+  into **(A) one-time gates** (`migrations` AUDIT/FREEZE, super-admin seed,
+  concurrency, DevStudio durability, laptop+WARP) and **(B) two builds** — Workers-Assets serving of the Studio SPA
+  + the real magic-link login UI. **Re-review pins (2026-06-25):** the deployed Studio is **configured to the
+  operator's OWN provisioned Universe** (`{u}.{g}.dev`, claimed via the existing `claimUniverse`/`createGalaxy`,
+  survives upgrades — replaces the throwaway `acme.app.dev` test scope), login at that scope (NOT a `nebula-platform`
+  two-scope login); **self-provisioning IS the model** (Turnstile + email are the gates, already built) — **no UI
+  scope-pin, no seed-login gate** (those were friction defending a throwaway scope; the M2/M-1 "pin + seed-first"
+  framing was dropped — Turnstile, not a UI pin, is the real gate; Turnstile-off compute-abuse is the documented
+  residual). Assets served via **`run_worker_first` as a route LIST** (not `true`) — so `entrypoint.ts` is
+  **unchanged** (no `env.ASSETS` in code → no guard, no type-cast, no test rewrite; bench/baseline harnesses
+  untouched), real SPA serving verified at the **prod URL**; **no dedicated bootstrap-email-in-`vars` guard**
+  (de-alarmed — it's an identifier, not a backdoor; convention + secret-preflight suffice) + the migrations
+  freeze is **scripted** in `deploy.sh` preflight; `vite build` over the decorated dep is an **early de-risk spike**.
   **Prod email SENDING now wired by ② (2026-06-24)** — `apps/nebula` carries `AUTH_EMAIL_SENDER`/`send_email`, so ③
   no longer wires email; it must **verify the prod from-domain is onboarded for CF Email Sending** (else invites
   silently drop) + still build the real login UI + remove the `.dev.vars` test-mode flag.
@@ -183,7 +200,10 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
 - **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run
-  in preview (`unplugin-swc` for TC39 decorators + image rebuild; engine DX-backlog item).
+  in preview (`unplugin-swc` for TC39 decorators + image rebuild; engine DX-backlog item). This is also when
+  the container first needs the **unpublished `@lumenize/nebula` source**: **vendor `src/` into the image**
+  (`file:`/workspace ref, the same bundle-from-`src/` move the rest of the deploy uses) — **not** a public-npm
+  publish (Nebula is `UNLICENSED`). See `nebula-release-process.md` Phase 3 § *Dependency resolution*.
 - **Data-bound generation (EXPLORATORY)** — the empirical prompt loop. **Un-parks** the replay harness
   (`tasks/on-hold/nebula-offline-prompt-harness.md`) + the **skills** (`tasks/nebula-skills.md`).
   Dogfood secret-santa-grade apps with synthetic users + impersonation. Includes the UX-exploratory UI
