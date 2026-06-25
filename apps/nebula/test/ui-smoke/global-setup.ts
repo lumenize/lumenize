@@ -21,7 +21,7 @@
  *
  * @see tasks/nebula-local-smoke.md — Phase 1 (exploratory harness)
  */
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
@@ -50,6 +50,12 @@ export default async function setup(project: TestProject) {
   }
 
   const testToken = readTestToken();
+
+  // apps/nebula/wrangler.jsonc now declares an `assets` block (the Studio SPA prod-serving
+  // config); wrangler HARD-ERRORS if `assets.directory` is absent. `dist` is gitignored
+  // (built only at deploy), and this lane serves the Studio via vite (not Assets), so an
+  // EMPTY dir satisfies wrangler with zero build. mkdir it before spawning wrangler dev.
+  mkdirSync(resolvePath(STUDIO_UI_DIR, 'dist'), { recursive: true });
 
   // 1. wrangler dev on the apps/nebula config. `--var NEBULA_AUTH_BOOTSTRAP_EMAIL`
   //    overrides the .dev.vars default (dev@example.com) to test@lumenize.io — the

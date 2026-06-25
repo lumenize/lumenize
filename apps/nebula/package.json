@@ -24,7 +24,7 @@
     "src/**/*"
   ],
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "mkdir -p ../nebula-studio-ui/dist && wrangler dev",
     "test": "vitest --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
@@ -34,7 +34,9 @@
     "bench:fanout": "vitest --run --project browser-bench fanout.benchmark",
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "audit:migrations": "node scripts/audit-migrations.mjs",
+    "audit:migrations:selftest": "node scripts/audit-migrations.selftest.mjs"
   },
   "keywords": [
     "cloudflare",

@@ -59,6 +59,35 @@
       "instance_type": "standard-1"
     }
   ],
+  // Serve the Studio SPA from Workers Assets (declarative routing — no Worker code).
+  // `directory` is the `vite build` output of apps/nebula-studio-ui (gitignored; built
+  // by deploy.sh BEFORE `wrangler deploy` so the upload sees it). `run_worker_first` is a
+  // ROUTE LIST, not `true`: the Worker runs first ONLY for these API prefixes + /_version;
+  // every other path is served directly by the assets layer (SPA index.html for /, /app,
+  // and any unmatched path) WITHOUT invoking the Worker — so the shared entrypoint.ts is
+  // untouched and never references env.ASSETS (no binding read in code; no terminal guard).
+  //   - `*` is DEEP-matching: "glob patterns with * for deep matching" — it matches zero or
+  //     more of ANY character, crossing path segments AND dots (CF docs / 2025-06-17 advanced
+  //     -routing changelog; the `/api/*` example matches the multi-segment `/api/docs/*`). So
+  //     `/dev-container/*` matches the deep dotted preview sub-assets
+  //     (`/dev-container/acme.app.dev/assets/index-<hash>.js`) → Worker-served, not shadowed
+  //     by the SPA. `!`-negation is also supported (negative patterns take precedence); unused
+  //     here. Verified against the CF docs at build time (nebula-release-process.md, m-3).
+  //   - PROD config ONLY — NOT the baseline test-app, NOT the bench worker (their wranglers
+  //     have no assets layer by design). `binding` is declared for convention/forward-compat
+  //     but no code reads env.ASSETS, so no `npm run types` regen is required.
+  //   - ⚠️ wrangler HARD-ERRORS if `directory` is ABSENT (an EMPTY dir is fine — reads 0
+  //     files). `dist` is gitignored (built by deploy.sh before `wrangler deploy`), so the
+  //     `wrangler dev` lanes that load THIS config (the `dev` npm script + the ui-smoke
+  //     global-setup) `mkdir -p ../nebula-studio-ui/dist` first — zero-build, keeps a fresh
+  //     checkout's dev loop working. The empty assets layer is inert under `wrangler dev`:
+  //     the browser hits vite (:5174); only the run_worker_first API prefixes reach here.
+  "assets": {
+    "directory": "../nebula-studio-ui/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/auth/*", "/gateway/*", "/dev-container/*", "/_version"]
+  },
   // FIRST migrations block (apps/nebula has never deployed). DO class registry, NOT
   // SQL migration. Every class is `new_sqlite_classes` — all use sync storage
   // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make
