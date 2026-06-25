@@ -52,6 +52,8 @@ jobs:
           {
             printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY"
             printf 'TEST_TOKEN=%s\n' "$TEST_TOKEN"
+            # Non-secret public URL of the deployed test-endpoints worker (fetch suite).
+            printf 'TEST_ENDPOINTS_URL=%s\n' 'https://test-endpoints.transformation.workers.dev'
           } > .dev.vars
 
       - name: Clean npm cache
@@ -60,8 +62,13 @@ jobs:
       - name: Install dependencies (skip optional to avoid Rollup bug)
         run: npm ci --no-optional
 
-      - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu
+      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
+        run: |
+          # --no-optional (above) strips these platform-specific native deps;
+          # re-add the Linux ones explicitly. SWC's binding (used by fetch/mesh
+          # decorator transforms) must match the installed @swc/core version.
+          npm install --no-save @rollup/rollup-linux-x64-gnu
+          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
 
       - name: Run tests with coverage for all packages
         run: |
@@ -93,8 +100,13 @@ jobs:
       - name: Install dependencies (skip optional to avoid Rollup bug)
         run: npm ci --no-optional
 
-      - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu
+      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
+        run: |
+          # --no-optional (above) strips these platform-specific native deps;
+          # re-add the Linux ones explicitly. SWC's binding (used by fetch/mesh
+          # decorator transforms) must match the installed @swc/core version.
+          npm install --no-save @rollup/rollup-linux-x64-gnu
+          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
 
       - name: Run doc-test examples (no coverage)
         run: |
