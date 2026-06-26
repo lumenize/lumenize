@@ -1163,7 +1163,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(resp.headers.get('Location')).toContain('error=invalid_token');
     });
 
-    it('reusing a magic link token redirects with error', async () => {
+    it('reusing a magic link token within its TTL still logs in (email-prefetch tolerance)', async () => {
       const instance = `ml-reuse-${generateUuid().slice(0, 8)}`;
 
       // Get magic link
@@ -1174,15 +1174,17 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       const { magic_link } = await mlResp.json() as any;
 
-      // First click — consumes the token
+      // First click — logs in.
       const resp1 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp1.status).toBe(302);
       expect(resp1.headers.get('Location')).toBe('/app');
 
-      // Second click — token already used/deleted
+      // Second click within the TTL — STILL logs in. An email scanner's prefetch consumes the link
+      // before the user's real click; a strict one-time token would lock them out (the 2026-06-26
+      // `invalid_token` stopper). Reusable-until-expiry keeps the user's click working.
       const resp2 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp2.status).toBe(302);
-      expect(resp2.headers.get('Location')).toContain('error=');
+      expect(resp2.headers.get('Location')).toBe('/app');
     });
 
     it('accept-invite with missing invite_token returns 400', async () => {

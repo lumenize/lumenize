@@ -301,17 +301,21 @@ export class NebulaAuth extends DurableObject {
 
     const magicLink = rows[0];
 
-    // No `used` check needed — tokens are deleted on use (line below),
-    // so a reused token will hit the rows.length === 0 branch above.
-
     if (Date.now() > magicLink.expiresAt) {
       const auditLog = debug('nebula-auth.NebulaAuth.login.failed');
       auditLog.warn('Expired magic link token', { reason: 'token_expired', email: magicLink.email });
       return this.#redirectWithError('token_expired');
     }
 
-    // Delete the token (single-use)
-    this.#sql`DELETE FROM MagicLinks WHERE token = ${token}`;
+    // Reusable until EXPIRY — NOT strictly single-use. Deliberate: email security scanners / mail
+    // clients PREFETCH links to scan them, consuming a one-time token before the user's real click
+    // (the user then lands on `invalid_token` — observed 2026-06-26). A scanner prefetches at email
+    // ARRIVAL while the user may click much later, so a short post-use grace doesn't help; the token
+    // must stay valid for its whole TTL. The expiry gate above bounds the replay window
+    // (MAGIC_LINK_TTL = 30 min) and `#ensureSchema` sweeps expired rows. Record first-use in `used`
+    // for audit (doesn't gate). Tradeoff: replayable within its TTL — acceptable for pre-alpha;
+    // strict single-use needs an interstitial confirm page a scanner can't click → backlog § Nebula Auth.
+    this.#sql`UPDATE MagicLinks SET used = ${Date.now()} WHERE token = ${token} AND used = 0`;
 
     // Check if subject already has emailVerified (skip registry if so)
     const preVerifyRows = this.#sql`

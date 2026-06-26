@@ -202,19 +202,26 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       expect(parsed.sub.length).toBe(36); // UUID
     });
 
-    it('rejects already-used magic link', async () => {
+    it('magic link is reusable within its TTL (email-prefetch tolerance); a bogus token is rejected', async () => {
       const instanceName = 'login-reuse-1';
       const stub = env.NEBULA_AUTH.getByName(instanceName);
 
       const magicLink = await requestMagicLink(stub, instanceName, 'onetime@example.com');
 
-      // First use — succeeds
+      // First use — succeeds.
       await clickMagicLink(stub, magicLink);
 
-      // Second use — fails (token deleted)
-      const resp = await stub.fetch(new Request(magicLink, { redirect: 'manual' }));
-      expect(resp.status).toBe(302);
-      expect(resp.headers.get('Location')).toContain('error=invalid_token');
+      // Second use within the TTL — STILL succeeds: an email scanner's PREFETCH must not lock the
+      // user out (it would consume a strict one-time token before the real click). The token stays
+      // valid until it expires, not single-use.
+      const reuse = await stub.fetch(new Request(magicLink, { redirect: 'manual' }));
+      expect(reuse.status).toBe(302);
+      expect(reuse.headers.get('Location')).not.toContain('error');
+
+      // But a token that was never issued is still rejected (consume still validates).
+      const bogus = magicLink.replace(/one_time_token=[^&]*/, 'one_time_token=never-issued');
+      const rejected = await stub.fetch(new Request(bogus, { redirect: 'manual' }));
+      expect(rejected.headers.get('Location')).toContain('error=invalid_token');
     });
 
     it('same email → same subject ID across logins', async () => {
