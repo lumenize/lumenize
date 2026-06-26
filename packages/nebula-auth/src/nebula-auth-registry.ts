@@ -15,7 +15,7 @@ import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { REGISTRY_SCHEMAS } from './schemas';
 import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
-import { parseId, isValidSlug } from './parse-id';
+import { parseId, isValidSlug, isDevAuthoringStar, matchAccess } from './parse-id';
 import type { AccessEntry, DiscoveryEntry } from './types';
 
 export class NebulaAuthRegistry extends DurableObject {
@@ -185,11 +185,17 @@ export class NebulaAuthRegistry extends DurableObject {
   /**
    * Claim a star slug. Validates parent galaxy exists, checks availability,
    * records instance, RPCs to NA.
+   *
+   * `callerAccess` (the Worker-verified JWT access claim, when present) gates a `.dev`
+   * AUTHORING-Star claim to parent-Galaxy admins (m2); other star claims stay open. The Worker
+   * router only forwards `callerAccess` for a `.dev` claim, so a missing claim there is a hard
+   * reject — never a silent open.
    */
   async claimStar(
     universeGalaxyStarId: string,
     email: string,
     origin: string,
+    callerAccess?: AccessEntry,
   ): Promise<{ message: string; magicLinkUrl?: string }> {
     this.#ensureSchema();
     const log = debug('nebula-auth.Registry.claimStar');
@@ -218,6 +224,17 @@ export class NebulaAuthRegistry extends DurableObject {
     `;
     if (parentRows.length === 0) {
       throw new RegistryError(400, 'parent_not_found', `Parent galaxy "${parentGalaxy}" does not exist`);
+    }
+
+    // m2 (tasks/nebula-release-process.md): claiming a `.dev` AUTHORING Star is gated to
+    // parent-Galaxy admins — a non-admin first-toucher would seed an adminless root (star.ts).
+    // claim ≠ USE: USING an existing `.dev` Star is governed by DAG grants, not this gate, and
+    // non-`.dev` star claims stay open (Turnstile-only). Mirrors createGalaxy's admin-over-parent.
+    if (isDevAuthoringStar(universeGalaxyStarId) && !this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
+      throw new RegistryError(
+        403, 'forbidden',
+        `Claiming the "${universeGalaxyStarId}" authoring Star requires admin over the parent galaxy "${parentGalaxy}"`,
+      );
     }
 
     // Check availability
@@ -327,9 +344,13 @@ export class NebulaAuthRegistry extends DurableObject {
           return Response.json(result);
         }
         case 'claim-star': {
-          const { universeGalaxyStarId, email } = await request.json() as { universeGalaxyStarId: string; email: string };
+          // `verifiedAccess` is injected by the Worker router ONLY for a `.dev` authoring-Star
+          // claim (after JWT verify) — see router.ts. The registry enforces the parent-admin gate.
+          const { universeGalaxyStarId, email, verifiedAccess } = await request.json() as {
+            universeGalaxyStarId: string; email: string; verifiedAccess?: AccessEntry;
+          };
           const origin = url.origin;
-          const result = await this.claimStar(universeGalaxyStarId, email, origin);
+          const result = await this.claimStar(universeGalaxyStarId, email, origin, verifiedAccess);
           return Response.json(result);
         }
         case 'create-galaxy': {
@@ -391,6 +412,17 @@ export class NebulaAuthRegistry extends DurableObject {
     if (access.authScopePattern === universe) return true;
 
     return false;
+  }
+
+  /**
+   * Check if the caller's access claim grants admin over a galaxy (the parent of a `.dev`
+   * authoring Star). Mirrors {@link NebulaAuthRegistry.#hasAdminOverUniverse} one tier down, via
+   * the canonical hierarchy matcher: `*` (platform), `u.*` (universe admin — covers the galaxy),
+   * `u.g.*` (galaxy admin), or an exact admin `u.g` all qualify. Undefined / non-admin → false.
+   */
+  #hasAdminOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
+    if (!access?.admin) return false;
+    return matchAccess(access.authScopePattern, galaxyId);
   }
 }
 

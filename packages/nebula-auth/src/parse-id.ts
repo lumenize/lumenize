@@ -86,6 +86,25 @@ export function isPlatformInstance(id: string): boolean {
 }
 
 /**
+ * True iff `id` is a `{u}.{g}.dev` AUTHORING-Star slug (3 segments, star segment === `dev`).
+ *
+ * The `.dev` authoring Star is the dev-user's app-authoring scope (DevStudio + DevContainer + the
+ * `.dev` Star). CLAIMING it is gated to parent-Galaxy admins (m2,
+ * tasks/nebula-release-process.md) because a non-admin first-toucher would seed an adminless root;
+ * other (non-`.dev`) star claims stay open. Single-sources that "is it a `.dev` authoring star?"
+ * predicate for both the Worker router (pre-JWT) and the registry (enforcement). Returns false for
+ * any malformed / non-star id rather than throwing.
+ */
+export function isDevAuthoringStar(id: string): boolean {
+  try {
+    const parsed = parseId(id);
+    return parsed.tier === 'star' && parsed.star === 'dev';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Derive the parent instanceName from a parsed id.
  * Universe-tier instances have no parent (returns undefined).
  *

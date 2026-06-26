@@ -5,26 +5,18 @@ import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
 
-// ⚠️ TEMP INTERIM — NOT the model. The dev-login below (`acme.app.dev`, NEBULA_AUTH_TEST_MODE,
-// the one-click dev button) is a dead interim kept only for the local dev loop. B2 replaces it with
-// discovery-resolved scope + real-email magic-link login — every actor (users, tests, you) self-provisions
-// one uniform way (no hardcoded scope). See tasks/nebula-release-process.md § B2 + the `interim-unlearning-tax`
-// rule. Don't treat `acme.app.dev` / test-mode as the model.
-// --- Dev config (first cut) ---------------------------------------------------------
-// Dev sandbox scope + bootstrap email. DEV_EMAIL MUST match
-// NEBULA_AUTH_BOOTSTRAP_EMAIL in your gitignored root .dev.vars (with
-// NEBULA_AUTH_TEST_MODE=true) — see README.md.
+// Every actor (real users, tests, you) self-provisions ONE uniform way — real-email magic-link
+// login → discovery resolves your scope → (first-run) claim a slug. No hardcoded scope, no
+// test-mode shortcut (B2, tasks/nebula-release-process.md).
 //
-// The scope is the {u}.{g}.dev instance shared by DevStudio / DevContainer / the dev
-// Star. It is configurable via the `?scope=` query param so the Playwright UI smoke can
-// drive a dedicated `test-u0.test-g0.dev` sandbox (the `test-` prefix is the reaper's
-// auto-reap marker — SINGLE hyphen: nebula-auth's parse-id rejects consecutive hyphens)
-// without colliding with a manual session; manual dev defaults to `acme.app.dev`. Must be
-// a valid `{u}.{g}.dev` instance (server-validated on first call).
-const DEV_SCOPE = new URLSearchParams(location.search).get("scope") ?? "acme.app.dev";
-// Must have a TLD (auth validates /^[^\s@]+@[^\s@]+\.[^\s@]+$/) AND match
-// NEBULA_AUTH_BOOTSTRAP_EMAIL in your .dev.vars.
-const DEV_EMAIL = "dev@example.com";
+// `scope` is the {u}.{g}.dev / {u} instance the Studio talks to (DevStudio / DevContainer / Star).
+// It comes from, in order: an explicit `?scope=` override (the Playwright ui-smoke + manual
+// debugging drive a dedicated `test-…` sandbox this way), then a returning session's remembered
+// scope (localStorage), else it's resolved from discovery when you log in. The `test-` prefix is
+// the reaper's auto-reap marker (single hyphen — nebula-auth's parse-id rejects consecutive ones).
+const SCOPE_KEY = "nebula.scope";
+const urlScope = new URLSearchParams(location.search).get("scope") ?? undefined;
+const scope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
 
 type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
@@ -32,63 +24,125 @@ const input = ref("");
 const connected = ref(false);
 const busy = ref(false);
 const thinking = ref(false); // model is generating — shows the "Studio is thinking…" indicator
-const previewSrc = ref(`/dev-container/${DEV_SCOPE}/`);
+const previewSrc = ref(""); // set once a scope is resolved + connected
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
+
+// --- Login state ---
+const email = ref("");
+const sentTo = ref<string | null>(null); // "magic link sent to X" confirmation
+const needsClaim = ref(false); // discovery returned 0 scopes → show the claim-a-slug input
+const claimSlug = ref("");
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
 /** Force the preview iframe to re-fetch (HMR-under-prefix is deferred, so a source
  *  change needs a reload to show). */
 function reloadPreview() {
-  previewSrc.value = `/dev-container/${DEV_SCOPE}/?t=${Date.now()}`;
+  if (scope.value) previewSrc.value = `/dev-container/${scope.value}/?t=${Date.now()}`;
 }
 
-/** Dev-only login: NEBULA_AUTH_TEST_MODE=true makes the magic-link endpoint return the
- *  link in the response (`?_test=true`) instead of emailing it; the bootstrap email is
- *  promoted to admin. Same-origin via the vite proxy so the refresh cookie lands here. */
-async function devLogin() {
+/** Remember the resolved scope BEFORE the magic-link round-trip, so the post-redirect reload
+ *  (landing at NEBULA_AUTH_REDIRECT, no `?scope=`) can auto-connect to it. */
+function rememberScope(s: string) {
+  scope.value = s;
+  localStorage.setItem(SCOPE_KEY, s);
+}
+
+/** Unauthenticated, email-keyed scope discovery (precedes any token). */
+async function discover(emailAddr: string): Promise<{ instanceName: string; isAdmin: boolean }[]> {
+  const res = await fetch(`/auth/discover`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: emailAddr }),
+  });
+  if (!res.ok) throw new Error(`discover ${res.status}: ${await res.text().catch(() => "")}`);
+  return (await res.json()) as { instanceName: string; isAdmin: boolean }[];
+}
+
+/** Real-email login: resolve the scope (explicit `?scope=` wins, else discovery), then send the
+ *  magic link to it. Clicking the emailed link sets the per-scope refresh cookie and lands here. */
+async function sendMagicLink() {
+  const e = email.value.trim();
+  if (!e || busy.value) return;
   busy.value = true;
   try {
-    const res = await fetch(`/auth/${DEV_SCOPE}/email-magic-link?_test=true`, {
+    let target = urlScope; // explicit `?scope=` (ui-smoke / manual debug) bypasses discovery
+    if (!target) {
+      const entries = await discover(e);
+      if (entries.length === 1) {
+        target = entries[0]!.instanceName;
+      } else if (entries.length === 0) {
+        needsClaim.value = true; // first-run — offer to claim a slug
+        return;
+      } else {
+        // >1 scope → the discovery picker is a Wave-2 UI; not built this round.
+        log("error", `${entries.length} workspaces found for ${e} — the picker is a later feature. Use ?scope= for now.`);
+        return;
+      }
+    }
+    rememberScope(target);
+    const res = await fetch(`/auth/${target}/email-magic-link`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email: DEV_EMAIL }),
+      body: JSON.stringify({ email: e }),
     });
-    const body = await res.json().catch(() => ({} as any));
-    if (!res.ok) throw new Error(`magic-link ${res.status}: ${JSON.stringify(body)}`);
-    // Test-mode response key is `magic_link` (snake_case); a few fallbacks just in case.
-    const link: string | undefined = body.magic_link ?? body.links?.[0] ?? body.link ?? body.magicLink;
-    if (!link) throw new Error(`no magic link in response (is NEBULA_AUTH_TEST_MODE=true?) — ${JSON.stringify(body)}`);
-    // Follow same-origin (path+query only) so the refresh cookie is set on this origin.
-    const u = new URL(link, location.origin);
-    await fetch(u.pathname + u.search, { credentials: "include", redirect: "manual" }).catch(() => {});
-    await connect();
-  } catch (e) {
-    log("error", `Login failed: ${(e as Error).message}`);
+    if (!res.ok) throw new Error(`magic-link ${res.status}: ${await res.text().catch(() => "")}`);
+    sentTo.value = e;
+  } catch (err) {
+    log("error", `Login failed: ${(err as Error).message}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** First-run (no scope for this email yet): claim a Universe slug. `claim-universe` also sends the
+ *  magic link, so the flow continues identically to a returning login. */
+async function claimUniverse() {
+  const slug = claimSlug.value.trim();
+  const e = email.value.trim();
+  if (!slug || !e || busy.value) return;
+  busy.value = true;
+  try {
+    const res = await fetch(`/auth/claim-universe`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ slug, email: e }),
+    });
+    if (!res.ok) throw new Error(`claim ${res.status}: ${await res.text().catch(() => "")}`);
+    rememberScope(slug);
+    needsClaim.value = false;
+    sentTo.value = e;
+  } catch (err) {
+    log("error", `Claim failed: ${(err as Error).message}`);
   } finally {
     busy.value = false;
   }
 }
 
 async function connect() {
+  if (!scope.value) throw new Error("no scope to connect to");
   const n = createNebulaClient({
-    authScope: DEV_SCOPE,
-    activeScope: DEV_SCOPE,
+    authScope: scope.value,
+    activeScope: scope.value,
     appVersion: "studio-ui", // the Studio UI calls DevStudio, not the ontology — never version-checked
   });
   await n.ready; // throws if not authenticated (no / expired refresh cookie)
   nebula.value = n; // only adopt the client once the session is live
   connected.value = true;
+  previewSrc.value = `/dev-container/${scope.value}/`;
+  localStorage.setItem(SCOPE_KEY, scope.value); // remember for the next visit
   log("studio", "Connected. Describe the app you want to build.");
 }
 
-// Auto-connect when a valid refresh cookie is already present — a returning session,
-// or the UI smoke that logs in out-of-band (real magic-link) then loads the Studio.
-// Falls back to the "Log in (dev)" button when not yet authenticated.
+// Auto-connect when a scope is known (explicit `?scope=`, or a remembered session) AND a valid
+// refresh cookie is already present — a returning session, or the ui-smoke that logs in
+// out-of-band (real magic-link) then loads the Studio. Falls back to the login form otherwise.
 onMounted(() => {
+  if (!scope.value) return; // no known scope yet → show the email-login form
   connect().catch(() => {
-    /* not authenticated — show the login button */
+    /* not authenticated — show the login form */
   });
 });
 
@@ -103,7 +157,7 @@ async function send() {
     const client = nebula.value.client;
     const reply = (await client.lmz.callRaw(
       "DEV_STUDIO",
-      DEV_SCOPE,
+      scope.value!,
       client.ctn<DevStudio>().chat(msg),
     )) as { reply: string; thought: string };
     thinking.value = false;
@@ -123,7 +177,7 @@ async function wipe() {
   busy.value = true;
   try {
     const client = nebula.value.client;
-    await client.lmz.callRaw("STAR", DEV_SCOPE, client.ctn<Star>().resetDevData());
+    await client.lmz.callRaw("STAR", scope.value!, client.ctn<Star>().resetDevData());
     log("studio", "Wiped .dev data.");
     reloadPreview();
   } catch (e) {
@@ -172,11 +226,45 @@ async function wipe() {
       </div>
 
       <footer class="p-4 border-t border-base-300">
-        <button v-if="!connected" class="btn btn-primary w-full" :disabled="busy" @click="devLogin">
-          <Loader2 v-if="busy" class="size-4 animate-spin" />
-          <LogIn v-else class="size-4" />
-          Log in (dev)
-        </button>
+        <!-- Unauthenticated: real-email magic-link login (+ a minimal first-run slug claim). -->
+        <div v-if="!connected" class="flex flex-col gap-2">
+          <p v-if="sentTo" class="text-sm opacity-80">
+            Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
+          </p>
+          <template v-else>
+            <!-- Email → "send magic link". This is the unique unauthenticated control. -->
+            <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
+              <input
+                v-model="email"
+                type="email"
+                class="input input-bordered"
+                placeholder="you@example.com"
+                :disabled="busy"
+              />
+              <button class="btn btn-primary" :disabled="busy || !email.trim()">
+                <Loader2 v-if="busy" class="size-4 animate-spin" />
+                <LogIn v-else class="size-4" />
+                Send magic link
+              </button>
+            </form>
+            <!-- First-run: no workspace for this email yet → claim a Universe slug. -->
+            <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
+              <p class="text-sm opacity-80">No workspace yet — claim one:</p>
+              <input
+                v-model="claimSlug"
+                class="input input-bordered"
+                placeholder="your-universe-slug"
+                :disabled="busy"
+              />
+              <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
+                <Loader2 v-if="busy" class="size-4 animate-spin" />
+                <LogIn v-else class="size-4" />
+                Claim &amp; send magic link
+              </button>
+            </form>
+          </template>
+        </div>
+        <!-- Authenticated: the chat composer. -->
         <form v-else class="flex gap-2" @submit.prevent="send">
           <input
             v-model="input"

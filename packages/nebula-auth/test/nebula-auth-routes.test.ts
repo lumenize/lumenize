@@ -202,6 +202,21 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(body.error).toBe('parent_not_found');
     });
 
+    it('POST /auth/claim-star for a `.dev` authoring star requires a JWT (m2 parent-admin gate)', async () => {
+      // A `.dev` claim is parent-Galaxy-admin gated, so the router demands a Bearer token before
+      // forwarding (the registry then enforces admin-over-parent). No token → 401. The non-`.dev`
+      // claim test above needs no token — claim ≠ use, the gate is `.dev`-only.
+      const resp = await SELF.fetch(new Request(registryUrl('claim-star'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          universeGalaxyStarId: 'some-univ.some-galaxy.dev',
+          email: 'dev@example.com',
+        }),
+      }));
+      expect(resp.status).toBe(401);
+    });
+
     it('POST /auth/create-galaxy requires JWT', async () => {
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
         method: 'POST',
@@ -1362,6 +1377,26 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(starResp.status).toBe(200);
       const starBody = await starResp.json() as any;
       expect(starBody.magicLinkUrl).toBeDefined();
+
+      // 5b. Claim the `.dev` AUTHORING star — the m2 gate requires the parent-Galaxy admin JWT, so
+      //     this closes the POSITIVE router→registry loop: the router verifies the Bearer token and
+      //     injects verifiedAccess, the registry's #hasAdminOverGalaxy passes (the universe-admin
+      //     token `${universe}.*` covers `${galaxyId}`), and the claim succeeds. (The negative path —
+      //     a `.dev` claim with no JWT → 401 — is covered above.)
+      const devStarResp = await SELF.fetch(new Request(registryUrl('claim-star'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${access_token}`,
+        },
+        body: JSON.stringify({
+          universeGalaxyStarId: `${galaxyId}.dev`,
+          email: 'dev-author@example.com',
+        }),
+      }));
+      expect(devStarResp.status, 'a parent-Galaxy admin should claim the .dev star through the Worker').toBe(200);
+      const devStarBody = await devStarResp.json() as any;
+      expect(devStarBody.magicLinkUrl).toContain(`${galaxyId}.dev/magic-link`);
 
       // 6. Verify discovery shows both admin entries
       const discoverResp = await SELF.fetch(new Request(registryUrl('discover'), {

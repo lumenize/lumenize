@@ -26,6 +26,7 @@ import { describe, it, expect, inject } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withCommitStamp } from './bench-commit-stamp';
 import { AgentsHarnessClient } from './agents-harness-client';
 
 const RAMP_N_VALUES = (process.env.FANOUT_N_VALUES ?? '10,50,100')
@@ -272,7 +273,7 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Cloudflare Agents)', ()
         ``,
       ];
       const summaryPath = path.join(__dirname, `RESULTS-fanout-agents-${label}.md`);
-      fs.writeFileSync(summaryPath, lines.join('\n'));
+      fs.writeFileSync(summaryPath, withCommitStamp(lines.join('\n')));
       console.log(`[fanout-agents-bench] summary → ${summaryPath}`);
 
       expect(stepResults.length).toBe(RAMP_N_VALUES.length);

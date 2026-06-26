@@ -221,6 +221,72 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // ============================================
+  // claimStar — `.dev` authoring-Star parent-admin gate (m2, nebula-release-process.md)
+  // ============================================
+
+  describe('claimStar — .dev authoring-Star parent-admin gate (m2)', () => {
+    // Provision `${u}` universe + `${u}.app` galaxy; return the `.dev` star id under it.
+    async function setupGalaxy(u: string) {
+      const registry = getRegistry();
+      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
+      await registry.createGalaxy(`${u}.app`, { authScopePattern: `${u}.*`, admin: true });
+      return { registry, devStar: `${u}.app.dev` };
+    }
+
+    it('rejects a .dev claim from a non-admin caller', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-nonadmin');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
+          { authScopePattern: 'm2-nonadmin.*', admin: false }),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('rejects a .dev claim with no caller access at all', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-noaccess');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost'),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('rejects a .dev claim from an admin of a DIFFERENT galaxy (wrong scope)', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-wrongscope');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
+          { authScopePattern: 'm2-wrongscope.other.*', admin: true }),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('a galaxy admin (u.g.*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-galadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: 'm2-galadmin.app.*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-galadmin.app.dev/magic-link');
+    });
+
+    it('a universe admin (u.*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-univadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: 'm2-univadmin.*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-univadmin.app.dev/magic-link');
+    });
+
+    it('a platform admin (*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-platadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: '*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-platadmin.app.dev/magic-link');
+    });
+
+    it('a NON-.dev star claim stays open — no caller access required (claim ≠ use; gate is .dev-only)', async () => {
+      const { registry } = await setupGalaxy('m2-opentenant');
+      // A plain tenant star (not `.dev`) is NOT parent-admin gated — it claims openly, exactly as
+      // before m2. Pins the gate's scope to `.dev`; widening it to all stars would red this.
+      const result = await registry.claimStar('m2-opentenant.app.tenant', 'tenant@example.com', 'http://localhost');
+      expect(result.magicLinkUrl).toContain('/auth/m2-opentenant.app.tenant/magic-link');
+    });
+  });
+
+  // ============================================
   // Galaxy Creation
   // ============================================
 

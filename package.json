@@ -39,6 +39,7 @@
     "clean:all": "npm run clean && npm run clean:deps && npm install",
     "release:dry-run": "./scripts/release-dry-run.sh",
     "release": "./scripts/release.sh",
+    "deploy:nebula": "bash apps/nebula/scripts/deploy.sh",
     "restore-dev-mode": "./scripts/restore-dev-mode.sh"
   },
   "devDependencies": {

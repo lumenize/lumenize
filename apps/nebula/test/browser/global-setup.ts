@@ -23,10 +23,54 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
+import { execSync } from 'node:child_process';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 
 const WRANGLER_CONFIG = './test/browser/worker/wrangler.jsonc';
+
+/**
+ * Bench-staleness guard (Phase 2: tasks/nebula-release-process.md). The SINGLE deployed-mode
+ * chokepoint: this globalSetup is shared by BOTH the `browser-bench` project (the *.benchmark.ts
+ * files) AND the `browser` project (the deployed *.test.ts files), so checking here covers EVERY
+ * deployed run in one place — never wire the per-file `const isDeployed = !!process.env.BENCH_BASE_URL`
+ * locals (those are per-`it` skip copies that miss the .test.ts files).
+ *
+ * Submits local HEAD to the deployed worker's public `/_version?sha=` compare endpoint (Phase 1):
+ * throws fast on `match:false` (deployed != local HEAD → numbers would measure stale code), warns
+ * on `match:true, dirty:true` (deployed-from-dirty → not reproducible). The guard only ever submits
+ * its own SHA — the endpoint never discloses the deployed one.
+ */
+async function assertDeployedMatchesHead(baseUrl: string): Promise<void> {
+  const headSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+  const url = `${baseUrl.replace(/\/$/, '')}/_version?sha=${headSha}`;
+
+  let body: { match: boolean; dirty: boolean };
+  try {
+    const res = await fetch(url);
+    body = (await res.json()) as { match: boolean; dirty: boolean };
+  } catch (err) {
+    throw new Error(
+      `Bench-staleness guard: could not reach ${url} to verify the deployed worker matches local ` +
+      `HEAD. Is BENCH_BASE_URL correct and the worker deployed? Underlying error: ${(err as Error).message}`,
+    );
+  }
+
+  if (!body.match) {
+    throw new Error(
+      `Bench-staleness guard: the deployed bench worker at ${baseUrl} was NOT built from local HEAD ` +
+      `(${headSha}). Benchmark numbers would be measured against stale code. ` +
+      `Run \`npm run deploy:test-worker\` first.`,
+    );
+  }
+  if (body.dirty) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `⚠️  Bench-staleness guard: deployed worker matches HEAD but was deployed from a DIRTY tree — ` +
+      `benchmark numbers are not reproducible. Commit and redeploy for publishable numbers.`,
+    );
+  }
+}
 
 let cleanupWrangler: (() => Promise<void>) | null = null;
 
@@ -55,6 +99,8 @@ export default async function setup(project: TestProject) {
   // email-test WebSocket; everything else lives on the deployed Worker.
   const overrideBaseUrl = process.env.BENCH_BASE_URL;
   if (overrideBaseUrl) {
+    // Refuse to run against a stale deploy BEFORE provisioning the URL to the tests.
+    await assertDeployedMatchesHead(overrideBaseUrl);
     project.provide('wranglerBaseUrl', overrideBaseUrl);
     project.provide('emailTestToken', testToken);
     return; // No wrangler-dev to tear down.

@@ -29,7 +29,7 @@ import { HAS_DOCKER, HAS_CF_CREDS } from './gates';
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
  *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
  *  stricter nebula-auth `parse-id.isValidSlug` (ALSO no consecutive hyphens), so a single
- *  hyphen — NOT `test--`. Separate from Larry's manual `acme.app.dev`; ends in `.dev` so
+ *  hyphen — NOT `test--`. Separate from any manually-claimed scope; ends in `.dev` so
  *  `resetDevData` (the teardown) accepts it. */
 const TEST_SCOPE = 'test-u0.test-g0.dev';
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
@@ -74,50 +74,61 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
 
       // Capable-of-failing: each waitFor auto-waits and THROWS (fails the test) if the
       // element never appears — reds if the SPA fails to mount (build/bundle break) or
-      // the shell doesn't render. The header + login button + preview iframe are the
-      // key shell elements; the login button confirms auto-connect correctly FAILED
-      // with no cookie (the negative control for the auth path).
+      // the shell doesn't render. The send-magic-link control (email field + "Send magic
+      // link" submit) is the DISCRIMINATING unauthenticated marker — the post-login chat
+      // ALSO renders a <form>+<input>, so "a form exists" would be vacuous. Its presence
+      // confirms auto-connect correctly FAILED with no cookie (the auth-path negative control).
       await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
-      await page.getByRole('button', { name: /Log in \(dev\)/ }).waitFor({ state: 'visible' });
+      await page.getByPlaceholder('you@example.com').waitFor({ state: 'visible' });
+      await page.getByRole('button', { name: /Send magic link/ }).waitFor({ state: 'visible' });
       expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
     } finally {
       await ctx.close();
     }
   });
 
-  it('real-email login → Studio reaches connected + shell renders', async () => {
+  it('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // 1. REAL magic-link, out-of-band (Node-side helpers only). Listen first, then POST.
+    // 1. Load the Studio at the explicit test scope. ui-smoke DELIBERATELY stays on the
+    //    explicit-scope path (`?scope=` → the per-scope POST) — it covers the FORM WIRING, NOT
+    //    App.vue's discovery-resolve branch (discovery's automated coverage is the deferred
+    //    random-scope-per-run upgrade, backlog.md:110). Don't over-credit this as discovery cover.
+    await page.goto(`${viteBaseUrl}/?scope=${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+
+    // 2. Arm the email waiter BEFORE driving the form (listen first, then send), then DRIVE the
+    //    real-email login form — type the email + click "Send magic link" — in place of the old
+    //    Node-side fetch POST. This gives the form capable-of-failing coverage under vite-dev.
     const waiter = waitForEmail({ testToken, instance: TEST_SCOPE });
     let link: string;
     try {
-      const res = await fetch(`${workerBaseUrl}/auth/${TEST_SCOPE}/email-magic-link`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: ADMIN_EMAIL }),
-      });
-      expect(res.ok, `email-magic-link POST should succeed: ${res.status}`).toBe(true);
+      await page.getByPlaceholder('you@example.com').fill(ADMIN_EMAIL);
+      await page.getByRole('button', { name: /Send magic link/ }).click();
+      // The "sent" confirmation only renders if the POST succeeded (sendMagicLink sets it on the
+      // 2xx path only) — reds if the form misfired or the magic-link POST 4xx'd.
+      await page.getByText(/Magic link sent to/).waitFor({ state: 'visible', timeout: 30_000 });
       link = extractMagicLink(await waiter.emailPromise);
     } finally {
       waiter.cleanup();
     }
 
-    // 2. Navigate the magic link THROUGH the vite origin (not the worker host) so the
+    // 3. Navigate the magic link THROUGH the vite origin (not the worker host) so the
     //    Set-Cookie lands on the Studio origin. context.request shares the context's
     //    cookie jar, so the refresh cookie is captured without loading a page.
     const u = new URL(link);
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
-    // 3. Load the authenticated Studio → onMounted auto-connect uses the cookie.
+    // 4. Reload the authenticated Studio → onMounted auto-connect uses the cookie.
     await page.goto(`${viteBaseUrl}/?scope=${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
-    // Capable-of-failing: reds if the shell fails to render or the /gateway connect
-    // never completes. The chat input only renders when `connected` (the v-else form),
-    // and the login button is gone — both prove the WS session is live.
+    // Capable-of-failing: reds if the shell fails to render or the /gateway connect never
+    // completes. The chat input ("Describe a change…") only renders when `connected` (the v-else
+    // form), AND the send-magic-link control is gone (count==0). The count==0 is load-bearing: the
+    // email-login form sits in the SAME `v-if="!connected"` slot, so a failed connect would leave
+    // it present — removing that gate (mutation) would red this.
     await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
-    expect(await page.getByRole('button', { name: /Log in \(dev\)/ }).count()).toBe(0);
+    expect(await page.getByRole('button', { name: /Send magic link/ }).count()).toBe(0);
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
 

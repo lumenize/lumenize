@@ -1,27 +1,36 @@
 # Nebula Studio UI (dev — rough first cut)
 
-> ⚠️ **TEMP dev-login recipe — NOT the model.** The `NEBULA_AUTH_TEST_MODE` + one-click "Log in (dev)" +
-> `acme.app.dev` flow documented below is a dead interim kept only for the local dev loop. The real model:
-> **every actor (users, tests, you) self-provisions one uniform way** — real-email magic-link login →
-> discovery-resolved scope → (first-run) claim a slug. B2 replaces this recipe; see
-> [`tasks/nebula-release-process.md`](../../tasks/nebula-release-process.md) § B2 + the `interim-unlearning-tax` rule.
-
 The chat-first authoring SPA: talks to **DevStudio** over mesh and embeds the running
 **Preview app** in an iframe. This is a deliberately rough first cut to iterate on by
 playing — see *Limitations* below.
+
+## Login model — everyone self-provisions, one uniform way
+
+There is **no dev-only login shortcut**. Real users, tests, and you all log in the same way:
+
+1. **Enter your email → "Send magic link".** The Studio resolves your scope via **discovery**
+   (`/auth/discover`), then sends a magic link to your one scope. Click the link in your email →
+   you land authenticated.
+2. **First run (no scope yet)** → the form offers to **claim a Universe slug**; claiming sends the
+   magic link to the new scope. First access makes you its founder-admin.
+3. **Returning** → the Studio remembers your last scope (localStorage) and auto-connects when a
+   valid refresh cookie is present; otherwise it shows the email form again.
+
+An explicit `?scope=<id>` query param **overrides discovery** for a fixed scope — used by the
+Playwright `ui-smoke` lane (a dedicated `test-…` sandbox) and for manual debugging. The `test-`
+prefix is the reaper's auto-reap marker (single hyphen — `parse-id` rejects consecutive hyphens).
 
 ## Run (local dev — two processes)
 
 Prereqs: Docker Desktop running (`docker context use desktop-linux`).
 
-1. **One-time** — add to the **gitignored** root `/.dev.vars` (local-only; never committed
-   or deployed — these are privilege/test knobs):
+1. **One-time** — add to the **gitignored** root `/.dev.vars` (local-only; never committed or
+   deployed):
    ```
-   NEBULA_AUTH_TEST_MODE=true
    NEBULA_AUTH_BOOTSTRAP_EMAIL=dev@example.com
    ```
-   (`dev@example.com` must match `DEV_EMAIL` in `src/App.vue`.) Then run `npm install` at the
-   **repo root** to register this new workspace.
+   This seeds the first-login admin for the local `wrangler dev` lanes (it's an admin seed, not a
+   bypass flag). Then run `npm install` at the **repo root** to register this workspace.
 
 2. **One command (recommended)** — from the repo root, `npm run dev:studio`. It opens both
    processes in titled Terminal tabs via [`ttab`](https://www.npmjs.com/package/ttab) (run via
@@ -36,16 +45,17 @@ Prereqs: Docker Desktop running (`docker context use desktop-linux`).
      `:5174`, proxying `/auth` `/gateway` `/dev-container` → `:8787`. *(If wrangler chose a
      non-8787 port, set `NEBULA_WORKER_URL` — `dev:studio` forwards it if you set it in your shell.)*
 
-3. Click **Log in (dev)**, then describe a change. The stub codegen writes a placeholder
-   `App.vue` to the sandbox; the preview pane reloads to show it.
+3. **Log in with your email** (the magic link arrives by real email — local dev sends from the
+   account's verified Email Sending domain), then describe a change. The codegen loop writes the
+   generated app to the sandbox; the preview pane reloads to show it.
+
+   > For a throwaway sandbox, append `?scope=test-yourname.test-app.dev` — first login at a fresh
+   > `.dev` scope makes you its founder-admin.
 
 ## Limitations (first cut — iterate from here)
-- **Codegen loop** — `DevStudio.chat` drives the real self-correcting tool-calling loop
-  (built; spec frozen at `tasks/archive/nebula-codegen-loop.md`, design ref
-  `tasks/reference/nebula-agentic-engine-design.md`). This README's "first cut" notes predate
-  that landing.
 - **No HMR under the prefix yet** — the preview iframe is force-reloaded on each change
   (HMR-through-proxy is a deferred follow-up).
-- **Fixed dev scope** `acme.app.dev`; dev-login relies on `NEBULA_AUTH_TEST_MODE` (local
-  only — unreachable in a deployed Worker, since `.dev.vars` is never deployed).
-- **Prod serving** via Workers Assets (Decision 3) is a later step; dev uses vite + proxy.
+- **Discovery picker (>1 scope) is Wave 2** — the form handles exactly one resolved scope today;
+  more than one logs a pointer (use `?scope=` meanwhile).
+- **Prod serving** is via Workers Assets (the deployed Worker serves the built SPA); local dev
+  uses vite + proxy.

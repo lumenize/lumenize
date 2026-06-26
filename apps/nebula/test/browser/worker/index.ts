@@ -98,6 +98,13 @@ export default {
       return Response.json({ id: id.toString(), jurisdiction, colo });
     }
 
+    // FORWARD GUARD (Phase 1, nebula-release-process.md): the shared prod entrypoint's
+    // `/_version` build-compare route is reached HERE via this trailing fallthrough — NOT as a
+    // "first statement", so the entrypoint's can't-be-reordered defense doesn't hold on the bench
+    // worker. Never add a catch-all route ABOVE this fallthrough that would shadow `/_version`
+    // (or any prod path). The bench deploy's own `--define __GIT_SHA__` substitutes the global the
+    // imported prod `entrypoint` reads (this file bundles separately). Harmless either way —
+    // `/_version` discloses nothing.
     return entrypoint.fetch(request);
   },
 };

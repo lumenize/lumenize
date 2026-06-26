@@ -16,7 +16,7 @@ import {
   verifyTurnstileToken,
 } from '@lumenize/auth';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
-import { matchAccess, parseId } from './parse-id';
+import { matchAccess, parseId, isDevAuthoringStar } from './parse-id';
 import {
   NEBULA_AUTH_PREFIX,
   NEBULA_AUTH_ISSUER,
@@ -212,6 +212,37 @@ async function handleRegistryPath(
       return jsonError(400, 'invalid_request', 'Request body must be JSON');
     }
     body.verifiedAccess = jwtResult.payload.access;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  // claim-star — Turnstile (above) PLUS a conditional JWT gate for `.dev` AUTHORING-Star claims
+  // (m2 parent-admin gate). A `.dev` claim must come from a parent-Galaxy admin, so verify the JWT
+  // and inject the verified access claim; the registry enforces. Other star claims stay open
+  // (Turnstile-only) — claim ≠ use. Reading the body here doesn't touch the Authorization header
+  // checkJwtForRegistry reads.
+  if (endpoint === 'claim-star') {
+    let body: Record<string, any>;
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch (err) {
+      debug('nebula-auth.router.bodyParse').debug('claim-star body not JSON', {
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+
+    if (isDevAuthoringStar(body.universeGalaxyStarId)) {
+      const jwtResult = await checkJwtForRegistry(request, env);
+      if ('error' in jwtResult) return jwtResult.error;
+      body.verifiedAccess = jwtResult.payload.access;
+    }
 
     const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
     return registryStub.fetch(new Request(request.url, {
