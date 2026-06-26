@@ -16,6 +16,14 @@
   // tsc bundle were deleted with the in-DO serve path; the flag now survives for
   // DevStudio's isomorphic-git/@cloudflare/shell.)
   "compatibility_flags": ["nodejs_compat"],
+  // Branded custom domain. Cloudflare auto-provisions the proxied DNS record + edge cert for this
+  // hostname on the `lumenize.com` zone (active on this account) at `wrangler deploy`. Magic-link
+  // URLs follow the request origin, so hitting this domain brands them; the JWT issuer
+  // (NEBULA_AUTH_ISSUER) is independently `https://nebula.lumenize.com` regardless. The default
+  // `*.workers.dev` URL stays enabled alongside (no `workers_dev:false`).
+  "routes": [
+    { "pattern": "nebula.lumenize.com", "custom_domain": true }
+  ],
   "worker_loaders": [{ "binding": "LOADER" }],
   // Workers AI — DevStudio's codegen engine runs the model through this binding (the
   // model id is a swappable constant in dev-studio.ts; Studio is model-agnostic). In
