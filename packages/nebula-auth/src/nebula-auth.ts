@@ -352,13 +352,15 @@ export class NebulaAuth extends DurableObject {
 
     const refreshToken = await this.#generateRefreshToken(subject.sub);
 
-    // Carry the scope on the redirect so the landing SPA can auto-connect WITHOUT any local state.
-    // The magic link opens a fresh tab (and may be a different origin), so localStorage from the
-    // login tab can't be relied on — the scope must travel in the URL. (Observed 2026-06-26: users
-    // landed at a bare /app still showing the login form because the SPA didn't know the scope.)
-    const sep = this.#redirect.includes('?') ? '&' : '?';
+    // Carry the scope on the redirect as a PATH segment (`/app/{scope}`) so the landing SPA can
+    // auto-connect WITHOUT any local state. The magic link opens a fresh tab (and may be a different
+    // origin), so localStorage from the login tab can't be relied on — the scope must travel in the
+    // URL. (Observed 2026-06-26: users landed at a bare /app still showing the login form because the
+    // SPA didn't know the scope.) Path form over `?scope=`: the scope here is the dot-free Universe
+    // slug, so it never collides with an asset extension, and the SPA single-page-app fallback serves
+    // index.html for it.
     const location = this.#instanceName
-      ? `${this.#redirect}${sep}scope=${encodeURIComponent(this.#instanceName)}`
+      ? `${this.#redirect.replace(/\/$/, '')}/${encodeURIComponent(this.#instanceName)}`
       : this.#redirect;
 
     return new Response(null, {

@@ -11,7 +11,13 @@ import type { DevStudio, Star } from "@lumenize/nebula";
 // `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
 // you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
 const SCOPE_KEY = "nebula.authScope";
-const urlScope = new URLSearchParams(location.search).get("scope") ?? undefined;
+// Scope from the path (`/app/{scope}` — the canonical form the magic link redirects to) first, then
+// `?scope=` (legacy links / ui-smoke), then the remembered authScope. The path segment carries the
+// dot-free Universe slug, so it never collides with asset extensions.
+const pathScope = location.pathname.match(/^\/app\/([^/?#]+)/)?.[1];
+const urlScope = (pathScope && decodeURIComponent(pathScope))
+  || new URLSearchParams(location.search).get("scope")
+  || undefined;
 const authScope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
 const activeScope = ref<string | undefined>(authScope.value);
 
@@ -565,12 +571,12 @@ async function logout() {
               <p class="text-sm opacity-80 mt-1">Each app you build is a Galaxy in your Universe. You can have as many as you like.</p>
             </div>
             <div class="border border-base-300 rounded-box p-4">
-              <p class="font-medium">⭐ Star — a workspace</p>
-              <p class="text-sm opacity-80 mt-1">Your app's <span class="font-mono">.dev</span> Star is your authoring sandbox — where you describe changes and see them live. (Later, each of your app's tenants/users gets their own Star.)</p>
+              <p class="font-medium">🧪 Development workspace — where you build</p>
+              <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data. (Later, each of your app's end-customers gets their own isolated <span class="font-medium">Star</span> — a tenant.)</p>
             </div>
           </div>
           <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>
-          <p v-else class="opacity-80">Next: open <span class="font-medium">Manage my scopes</span> (top right) to add a Galaxy, then a Star — then open the Star to start building.</p>
+          <p v-else class="opacity-80">Next: just type a name for your app in the chat on the left and I'll set it up — or open <span class="font-medium">Manage my scopes</span> (top right) to build it by hand.</p>
         </div>
 
         <!-- Hierarchy manager. -->
@@ -612,7 +618,7 @@ async function logout() {
             <template v-for="s in scopes" :key="s.instanceName">
               <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
                 <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
-                <span class="text-xs opacity-40">{{ s.tier }}</span>
+                <span class="text-xs opacity-40">{{ s.isDev ? "test data" : s.tier }}</span>
 
                 <button v-if="s.isDev" class="btn btn-xs btn-primary" :disabled="busy" @click="openStar(s.instanceName)">
                   <FolderOpen class="size-3.5" /> Open
@@ -620,8 +626,8 @@ async function logout() {
                 <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
                   <Plus class="size-3.5" /> Galaxy
                 </button>
-                <button v-else-if="s.tier === 'galaxy' && !hasDevStar(s.instanceName)" class="btn btn-xs btn-ghost" :disabled="busy" @click="addStar(s.instanceName)">
-                  <Plus class="size-3.5" /> Star
+                <button v-else-if="s.tier === 'galaxy' && !hasDevStar(s.instanceName)" class="btn btn-xs btn-ghost" :disabled="busy" @click="addStar(s.instanceName)" title="Create a private development workspace to build &amp; test this app">
+                  <Plus class="size-3.5" /> Test data
                 </button>
 
                 <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
