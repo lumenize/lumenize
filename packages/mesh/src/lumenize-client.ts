@@ -382,6 +382,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
+  #refreshInFlight: Promise<void> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -982,6 +983,43 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
     // Trust boundary: see the constructor's claims assignment.
     this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
+  }
+
+  /** Ensure a non-expired access token is in memory — refresh via the configured `refresh` source
+   *  if missing or within 30s of expiry. De-dupes concurrent refreshes so a WS-connect refresh and
+   *  an authedFetch refresh share one in-flight call (never two consumers of the rotating cookie). */
+  async #ensureFreshToken(): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    const exp = (this.#claims as { exp?: number } | null)?.exp;
+    if (this.#accessToken && typeof exp === 'number' && exp - 30 > now) return;
+    this.#refreshInFlight ??= this.#refreshToken().finally(() => { this.#refreshInFlight = null; });
+    await this.#refreshInFlight;
+  }
+
+  /**
+   * Make an authenticated HTTP request, injecting the in-memory access token as a `Bearer` header.
+   *
+   * The token NEVER leaves the client: subclasses (e.g. NebulaClient) use this to call authed HTTP
+   * endpoints that are NOT on the mesh (a registry route), so app/page code never handles the
+   * credential AND there is a SINGLE token authority — no second consumer racing the rotating
+   * refresh cookie (the 2026-06-26 back-to-back-refresh hang). Refreshes if the token is missing /
+   * near-expiry, and retries ONCE on a 401 (token rejected mid-flight). `protected`, not public,
+   * precisely so the bearer is reachable by subclasses but never by callers of the client.
+   */
+  protected async authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const fetchFn = this.#config.fetch ?? fetch;
+    const withAuth = (token: string): RequestInit => ({
+      ...init,
+      headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` },
+    });
+    await this.#ensureFreshToken();
+    let res = await fetchFn(url, withAuth(this.#accessToken!));
+    if (res.status === 401) {
+      this.#accessToken = null; // force a fresh mint, then retry once
+      await this.#ensureFreshToken();
+      res = await fetchFn(url, withAuth(this.#accessToken!));
+    }
+    return res;
   }
 
   /**

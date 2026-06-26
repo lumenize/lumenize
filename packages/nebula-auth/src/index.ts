@@ -11,6 +11,9 @@
 export { NebulaAuth } from './nebula-auth';
 export { NebulaAuthRegistry } from './nebula-auth-registry';
 
+// Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
+export type { AffectedScope, ScopeDeletionBlocker, ScopeDeletionPlan } from './nebula-auth-registry';
+
 // Email sender (WorkerEntrypoint for service binding)
 export { NebulaEmailSender } from './nebula-email-sender';
 

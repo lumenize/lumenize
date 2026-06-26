@@ -216,53 +216,16 @@ async function wipe() {
 }
 
 // ── account + hierarchy ────────────────────────────────────────────────────────
-/** Mint an access token from the (HttpOnly) refresh cookie at `authScope` — the Bearer for the
- *  authed registry routes. Its admin pattern (e.g. `u.*`) covers create-galaxy / create-star / the
- *  whole tree, regardless of which Star is currently active. */
-async function getAccessToken(): Promise<string> {
-  if (!authScope.value) throw new Error("not connected");
-  const res = await fetch(`/auth/${authScope.value}/refresh-token`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ activeScope: authScope.value }),
-  });
-  if (!res.ok) throw new Error(`refresh ${res.status}`);
-  return ((await res.json()) as { access_token: string }).access_token;
-}
-
-function emailFromToken(token: string): string | undefined {
-  try {
-    const part = token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/");
-    return (JSON.parse(atob(part)) as { email?: string }).email;
-  } catch {
-    return undefined;
-  }
-}
-
-async function authedPost(endpoint: string, body: Record<string, unknown>): Promise<any> {
-  const token = await getAccessToken();
-  const res = await fetch(`/auth/${endpoint}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${endpoint} ${res.status}: ${await res.text().catch(() => "")}`);
-  return res.json();
-}
+// The client (NebulaClient.scopes) owns EVERY authed registry call — the JWT never leaves it, so
+// there's no token plumbing in the view, a single auth authority, and no cookie-rotation race (the
+// 2026-06-26 back-to-back-refresh hang). App code just calls methods and reacts.
 
 async function loadScopes() {
-  const token = await getAccessToken();
-  accountEmail.value = emailFromToken(token) ?? accountEmail.value;
-  const res = await fetch(`/auth/my-scopes`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: "{}",
-  });
-  if (!res.ok) throw new Error(`my-scopes ${res.status}`);
-  const data = (await res.json()) as { scopes: Scope[] };
+  const client = nebula.value?.client;
+  if (!client) return;
+  accountEmail.value = (client.claims as { email?: string } | null)?.email ?? accountEmail.value;
   // Render order: parents before children, so the indent reads as a tree.
-  scopes.value = (data.scopes ?? []).sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+  scopes.value = (await client.scopes.list()).sort((a, b) => a.instanceName.localeCompare(b.instanceName));
 }
 
 async function openManage() {
@@ -298,7 +261,7 @@ async function addGalaxy(universe: string) {
   if (!slug || busy.value) return;
   busy.value = true;
   try {
-    await authedPost("create-galaxy", { universeGalaxyId: `${universe}.${slug}` });
+    await nebula.value!.client.scopes.createGalaxy(universe, slug);
     addChildFor.value = null;
     addChildSlug.value = "";
     await loadScopes();
@@ -313,7 +276,7 @@ async function addStar(galaxy: string) {
   if (busy.value) return;
   busy.value = true;
   try {
-    await authedPost("create-star", { universeGalaxyStarId: `${galaxy}.dev` });
+    await nebula.value!.client.scopes.createStar(galaxy);
     await loadScopes();
   } catch (e) {
     log("error", `Could not add star: ${(e as Error).message}`);
@@ -350,7 +313,7 @@ async function openStar(star: string) {
 async function openDeleteConfirm(target: string) {
   busy.value = true;
   try {
-    deletePlan.value = (await authedPost("delete-scope-plan", { target })) as DeletionPlan;
+    deletePlan.value = await nebula.value!.client.scopes.deletePlan(target);
     deleteTarget.value = target;
   } catch (e) {
     log("error", `Could not plan delete: ${(e as Error).message}`);
@@ -370,7 +333,7 @@ async function confirmDelete() {
   if (!target || !plan || plan.blockedBy.length > 0 || busy.value) return;
   busy.value = true;
   try {
-    const { affected } = (await authedPost("delete-scope", { target })) as { affected: Scope[] };
+    const { affected } = await nebula.value!.client.scopes.delete(target);
     // Fan out the platform-DO teardown via mesh (the registry cleared its own rows already).
     const client = nebula.value?.client;
     if (client) {
@@ -502,7 +465,10 @@ async function logout() {
 
     <!-- Stage: account bar + help / hierarchy manager / preview -->
     <section class="flex-1 bg-base-100 flex flex-col min-w-0">
-      <div v-if="connected" class="relative flex items-center justify-end px-3 py-2 border-b border-base-300">
+      <div v-if="connected" class="relative flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
+        <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
+          <Loader2 class="size-3.5 animate-spin" /> Working…
+        </span>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
           <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
@@ -568,7 +534,10 @@ async function logout() {
 
           <!-- Hierarchy tree. -->
           <div v-else class="flex flex-col gap-2">
-            <p v-if="!scopes.length && !busy" class="text-sm opacity-60">No scopes yet.</p>
+            <p v-if="busy && !scopes.length" class="text-sm opacity-60 flex items-center gap-2">
+              <Loader2 class="size-4 animate-spin" /> Loading your scopes…
+            </p>
+            <p v-else-if="!scopes.length" class="text-sm opacity-60">No scopes yet.</p>
             <template v-for="s in scopes" :key="s.instanceName">
               <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
                 <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
@@ -591,7 +560,9 @@ async function logout() {
               <!-- inline "name a Galaxy" input under a Universe row -->
               <form v-if="addChildFor === s.instanceName" class="flex gap-2 items-center" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
                 <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="galaxy-slug (your app)" :disabled="busy" />
-                <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">Add</button>
+                <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">
+                  <Loader2 v-if="busy" class="size-3.5 animate-spin" /> Add
+                </button>
               </form>
             </template>
           </div>

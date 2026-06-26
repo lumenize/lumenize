@@ -14,7 +14,7 @@
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import type { NebulaJwtPayload, AffectedScope, ScopeDeletionPlan } from '@lumenize/nebula-auth';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
 import {
@@ -515,6 +515,46 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.clearAccessToken();
     this.disconnect();
+  }
+
+  // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────
+  //
+  // The nebula-auth registry endpoints are HTTP routes (NOT on the mesh), so they need a Bearer
+  // header — supplied by the base `authedFetch`, which keeps the JWT INSIDE the client (the bearer
+  // never reaches UI/page code, and there's a single token authority — no cookie-rotation race).
+  // App code calls `client.scopes.createGalaxy(...)` etc. and reacts to the result; it never touches
+  // a token. (Platform-DO `teardown` after a delete still goes over the mesh — see the UI.)
+
+  get scopes() {
+    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
+    const post = async (endpoint: string, body: Record<string, unknown> = {}): Promise<unknown> => {
+      const res = await this.authedFetch(`${base}/auth/${endpoint}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        throw new Error(`${endpoint} ${res.status}: ${await res.text().catch(() => '')}`);
+      }
+      return res.json();
+    };
+    return {
+      /** The caller's manageable instance tree (Universe + descendants). */
+      list: async (): Promise<AffectedScope[]> =>
+        ((await post('my-scopes')) as { scopes: AffectedScope[] }).scopes,
+      /** Create a Galaxy `{universe}.{galaxySlug}` (admin over the universe). */
+      createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
+        post('create-galaxy', { universeGalaxyId: `${universe}.${galaxySlug}` }) as Promise<{ instanceName: string }>,
+      /** Create the `.dev` authoring Star under `{galaxy}` — in-session, no email. */
+      createStar: (galaxy: string): Promise<{ instanceName: string }> =>
+        post('create-star', { universeGalaxyStarId: `${galaxy}.dev` }) as Promise<{ instanceName: string }>,
+      /** Read-only deletion plan for the confirm screen (cascade down + prune up + blockers). */
+      deletePlan: (target: string): Promise<ScopeDeletionPlan> =>
+        post('delete-scope-plan', { target }) as Promise<ScopeDeletionPlan>,
+      /** Execute the cascade delete; returns the affected set for the platform-DO teardown fan-out. */
+      delete: (target: string): Promise<{ affected: AffectedScope[] }> =>
+        post('delete-scope', { target }) as Promise<{ affected: AffectedScope[] }>,
+    };
   }
 
   // ─── Serial mesh-submit gate ──────────────────────────────────────────────
