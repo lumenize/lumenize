@@ -19,11 +19,14 @@
   // Branded custom domain. Cloudflare auto-provisions the proxied DNS record + edge cert for this
   // hostname on the `lumenize.com` zone (active on this account) at `wrangler deploy`. Magic-link
   // URLs follow the request origin, so hitting this domain brands them; the JWT issuer
-  // (NEBULA_AUTH_ISSUER) is independently `https://nebula.lumenize.com` regardless. The default
-  // `*.workers.dev` URL stays enabled alongside (no `workers_dev:false`).
+  // (NEBULA_AUTH_ISSUER) is independently `https://nebula.lumenize.com` regardless.
   "routes": [
     { "pattern": "nebula.lumenize.com", "custom_domain": true }
   ],
+  // Keep the `*.workers.dev` URL enabled ALONGSIDE the custom domain. Adding `routes` flips
+  // wrangler's default to DISABLE workers.dev, so this must be explicit — it's a stable fallback
+  // while the custom-domain cert provisions, and keeps `nebula.transformation.workers.dev` live.
+  "workers_dev": true,
   "worker_loaders": [{ "binding": "LOADER" }],
   // Workers AI — DevStudio's codegen engine runs the model through this binding (the
   // model id is a swappable constant in dev-studio.ts; Studio is model-agnostic). In
