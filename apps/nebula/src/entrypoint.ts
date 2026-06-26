@@ -82,12 +82,14 @@ async function onBeforeConnect(request: Request): Promise<Response | Request> {
   const log = debug('nebula.entrypoint.onBeforeConnect');
   const token = extractWebSocketToken(request);
   if (!token) {
-    log.debug('rejected: missing access token', { url: request.url });
+    // Log the pathname, NOT request.url — a full URL can carry a query-string secret (security.md
+    // § Never log secrets). The WS token rides the subprotocol, so the pathname is all we need.
+    log.debug('rejected: missing access token', { path: new URL(request.url).pathname });
     return new Response('Unauthorized: missing access token', { status: 401 });
   }
   const jwt = await verifyNebulaAccessToken(token, env);
   if (!jwt) {
-    log.debug('rejected: invalid JWT', { url: request.url });
+    log.debug('rejected: invalid JWT', { path: new URL(request.url).pathname });
     return new Response('Forbidden: invalid JWT', { status: 403 });
   }
   const headers = new Headers(request.headers);

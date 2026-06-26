@@ -121,6 +121,12 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "NEBULA_AUTH_REDIRECT": "/app",
+    // Pre-alpha observability — @lumenize/debug gates ALL output (even errors) on this, so prod is
+    // otherwise silent. SAFE to leave ON for pre-alpha (incl. real F&F) because no log statement may
+    // emit a secret (security.md § Never log secrets — audited clean 2026-06-26: identifiers +
+    // pathnames only, never tokens/JWTs/links/full-URLs). Revisit at alpha/public for log volume +
+    // cost, and to scope it down. Emails/subs are identifiers (not secrets) and may be logged.
+    "DEBUG": "auth,nebula-auth,nebula,mesh,routing",
     // Magic-link / invite from-address. MUST be a CF-verified Email Sending sender or CF SILENTLY
     // DROPS the mail. The shared nebula-auth code default (`auth@nebula.lumenize.com`) is NOT
     // verified; `lumenize.io` IS, so send from it (no DNS work). The app ORIGIN + JWT issuer stay
