@@ -251,7 +251,7 @@ async function wipe() {
   try {
     const client = nebula.value.client;
     await client.lmz.callRaw("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
-    log("studio", "Wiped .dev data.");
+    log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
     log("error", `wipe failed: ${(e as Error).message}`);
@@ -588,7 +588,11 @@ async function logout() {
             </div>
             <div class="border border-base-300 rounded-box p-4">
               <p class="font-medium">🧪 Development workspace — where you build</p>
-              <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data. (Later, each of your app's end-customers gets their own isolated <span class="font-medium">Star</span> — a tenant.)</p>
+              <p class="text-sm opacity-80 mt-1">While you build an app it has a private development workspace: you describe changes, see them live, and fill it with throwaway test data.</p>
+            </div>
+            <div class="border border-base-300 rounded-box p-4">
+              <p class="font-medium">⭐ Star — a tenant (later)</p>
+              <p class="text-sm opacity-80 mt-1">When your app goes live, each of your end-customers gets their own isolated Star — their private copy of the app with their own data. You don't create these by hand; they arrive via sign-up or invite.</p>
             </div>
           </div>
           <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>

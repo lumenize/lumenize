@@ -57,7 +57,7 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
     if (authed) {
       try {
         await authed.page.getByRole('button', { name: /Wipe/ }).click();
-        await authed.page.getByText('Wiped .dev data.').waitFor({ state: 'visible', timeout: 15_000 });
+        await authed.page.getByText('Wiped the development test data.').waitFor({ state: 'visible', timeout: 15_000 });
       } catch {
         /* best-effort */
       }
