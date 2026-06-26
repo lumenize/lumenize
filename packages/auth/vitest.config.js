@@ -24,6 +24,17 @@ const JWT_TEST_KEYS = {
   JWT_PRIVATE_KEY_GREEN: greenKey.private,
 };
 
+// --- Opt-out gating for the secret-less lane (tasks/lumenize-email.md Phase 1) ---
+// e2e-email + hono declare a `send_email` binding with `remote: true`, which
+// vitest-pool-workers establishes at POOL LOAD — with no Cloudflare creds the
+// whole project fails to load (0 tests run), so path-level it.skipIf can't help.
+// Omit them at the PROJECT level when the lane has no CF creds. Signal = the
+// OPT-OUT flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less Claude-hosted
+// lane; local (`wrangler login` OAuth) and CI (CLOUDFLARE_API_TOKEN job env) leave
+// it unset, so the CF canary runs there. e2e-email-resend has no remote binding and
+// its secrets live in .dev.vars (not process.env), so it stays unconditional.
+const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
+
 export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
@@ -72,11 +83,12 @@ export default defineConfig({
           ],
         },
       },
-      {
+      ...(includeCfRemote ? [{
         // E2E email test via Cloudflare Email Sending — the default path.
         // Real sends + real Email Routing — no test mode.
         // groupOrder 1: runs after main tests, serialized with resend/hono to
         // avoid race on shared EmailTestDO (all listen for test@lumenize.io).
+        // Omitted when LUMENIZE_NO_CF_REMOTE is set (no Cloudflare remote-proxy creds).
         extends: true,
         plugins: [cloudflareTest({
           isolatedStorage: false,
@@ -94,7 +106,7 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
           include: ['test/e2e-email/**/*.test.ts'],
         },
-      },
+      }] : []),
       {
         // E2E email test via ResendEmailSender — smoke test keeping the
         // Resend path exercised alongside the default Cloudflare path.
@@ -122,9 +134,10 @@ export default defineConfig({
           include: ['test/e2e-email-resend/**/*.test.ts'],
         },
       },
-      {
+      ...(includeCfRemote ? [{
         // Hono integration test (real Cloudflare Email Sending — no test mode)
         // groupOrder 3: runs last to avoid shared EmailTestDO race.
+        // Omitted when LUMENIZE_NO_CF_REMOTE is set (no Cloudflare remote-proxy creds).
         extends: true,
         plugins: [cloudflareTest({
           isolatedStorage: false,
@@ -143,7 +156,7 @@ export default defineConfig({
           sequence: { groupOrder: 3 },
           include: ['test/hono/**/*.test.ts'],
         },
-      },
+      }] : []),
     ],
   },
 });

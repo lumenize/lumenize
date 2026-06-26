@@ -112,11 +112,11 @@ The detailed, phased productionization plan lives in **`tasks/nebula-outside-wor
 2. Two-level secrets vault + `env.secrets.resolve`.
 3. Ingress router + scheduler.
 4. Security stdlib (`verifyWebhook`, durable outbox).
-5. **Email as the first recipe** — agent wires Resend both directions end-to-end; demo-relevant.
+5. **Email as the first recipe** — agent wires Resend both directions end-to-end; demo-relevant. The **transport** is now factored out into **`@lumenize/email`** (provider-agnostic Cloudflare/Resend transports + a `createEmailTransport` selection factory — see [`tasks/lumenize-email.md`](lumenize-email.md)); the agent's recipe / a blessed helper builds on that rather than re-implementing a provider call.
 
 ## Open forks (resolve before/within `/review-task`)
 
-- **Outbound email provider** (Resend / Postmark / SES) and the **shared `nebula.app` domain vs per-tenant custom-domain** deliverability-isolation decision. The facet model makes per-tenant-account the default, which sidesteps most of this.
+- **Outbound email provider** (Resend / Postmark / SES) and the **shared `nebula.app` domain vs per-tenant custom-domain** deliverability-isolation decision. The facet model makes per-tenant-account the default, which sidesteps most of this. **`@lumenize/email`** ([`tasks/lumenize-email.md`](lumenize-email.md)) now owns the provider-agnostic transport, and is designed to back a deferred mesh **`this.svc.email`** capability whose **first real consumer is this project**. Open fork: does *generated-app* email use `this.svc.email` (Nebula-mediated, Nebula's account) or stay the **tenant's-own-account-via-`EgressBroker`** recipe (B4 reputation isolation) — or both (platform/framework email via `this.svc.email`, generated-app email via the tenant recipe)? Resolve in this file's `/review-task`; whichever way, the `@lumenize/email` transports are the building block.
 - **Connector altitude** — a curated catalog of blessed connectors (Stripe, Slack, Resend) with vetted security helpers vs a fully generic "describe any REST API + key." Lean: generic substrate + a small set of blessed recipes/helpers for the high-risk cases.
 - **Secret-at-edge injection (option c)** — for blessed connectors, have `env.fetch` inject the credential so generated code never sees it at all. Stronger than model (b); offer it for Resend/Stripe while keeping (b) for the long tail.
 

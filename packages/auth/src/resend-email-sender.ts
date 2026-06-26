@@ -1,49 +1,19 @@
+import { createEmailTransport } from '@lumenize/email';
+import type { ResolvedEmail } from '@lumenize/email';
 import { AuthEmailSenderBase } from './auth-email-sender-base';
-import type { ResolvedEmail } from './types';
 
 /**
- * Email sender that delivers via [Resend](https://resend.com) (`https://api.resend.com/emails`).
+ * @deprecated **Transition shim** — being removed in the breaking migration to
+ * the provider-by-env model. Extend {@link AuthEmailSenderBase} instead and set
+ * `EMAIL_PROVIDER=resend` (or omit the `EMAIL` binding) to select Resend.
  *
- * Requires `RESEND_API_KEY` in the Worker's environment. Constructs the Resend
- * `from` field as `"${appName} <${from}>"` (e.g., `"My App <auth@myapp.com>"`).
- *
- * Extend this class, set `from`, and export from your Worker entry point.
- * For bring-your-own-provider, extend {@link AuthEmailSenderBase} instead.
- *
- * @see https://lumenize.com/docs/auth/getting-started#email-provider — setup walkthrough
- * @see https://lumenize.com/docs/auth/configuration#email-provider — reference (class hierarchy, overridable methods)
+ * Kept temporarily so existing `extends ResendEmailSender` consumers compile;
+ * forces the Resend provider.
  */
 export class ResendEmailSender extends AuthEmailSenderBase {
-  // Subclass must set `from` — inherited abstract requirement
   from!: string;
 
   async sendEmail(email: ResolvedEmail): Promise<void> {
-    const apiKey = (this.env as any).RESEND_API_KEY;
-    if (!apiKey) {
-      throw new Error('RESEND_API_KEY is not set in environment');
-    }
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from: `${email.appName} <${email.from}>`,
-        to: email.to,
-        subject: email.subject,
-        html: email.html,
-        reply_to: email.replyTo,
-        // Resend accepts arbitrary custom headers via the `headers` field.
-        // See https://resend.com/docs/api-reference/emails/send-email
-        headers: email.headers,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Resend API error: ${response.status} - ${errorText}`);
-    }
+    await createEmailTransport(this.env as object, { provider: 'resend' }).sendEmail(email);
   }
 }

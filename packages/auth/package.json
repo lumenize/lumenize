@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@lumenize/debug": "^0.26.0",
+    "@lumenize/email": "^0.26.0",
     "@lumenize/routing": "^0.26.0"
   },
   "peerDependencies": {

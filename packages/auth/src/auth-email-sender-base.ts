@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createEmailTransport } from '@lumenize/email';
 import type { EmailMessage, ResolvedEmail } from './types';
 
 // ============================================
@@ -141,13 +142,14 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
   }
 
   /**
-   * Deliver the resolved email. Subclasses must implement this
-   * with their email provider's API call.
-   *
-   * @param email - Fully resolved email with `to`, `subject`, `html`, `from`, `replyTo`, `appName`
-   * @see https://lumenize.com/docs/auth/getting-started#bring-your-own-provider
+   * Deliver the resolved email. Composes a transport from `@lumenize/email` and
+   * selects the provider from the environment (`EMAIL` binding → Cloudflare,
+   * `EMAIL_PROVIDER` to force a provider, else Resend). Override only to force a
+   * specific provider; most subclasses just set `from` and let the env decide.
    */
-  abstract sendEmail(email: ResolvedEmail): Promise<void>;
+  async sendEmail(email: ResolvedEmail): Promise<void> {
+    await createEmailTransport(this.env as object).sendEmail(email);
+  }
 
   // ============================================
   // Overridable template methods (return HTML)
