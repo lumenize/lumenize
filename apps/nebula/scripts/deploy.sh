@@ -34,14 +34,20 @@ echo "▸ Deploying nebula @ ${GIT_SHA} (${DIRTY} tree)"
 echo "▸ Preflight: migrations / DO-class consistency (one-way door)"
 node "$SCRIPT_DIR/audit-migrations.mjs"   # exits non-zero on any inconsistency
 
-echo "▸ Preflight: super-admin bootstrap secret is set"
-# NAME-only check — `wrangler secret list` prints names, never values; never echo a secret.
-if ! wrangler secret list 2>/dev/null | grep -q 'NEBULA_AUTH_BOOTSTRAP_EMAIL'; then
-  echo "❌ NEBULA_AUTH_BOOTSTRAP_EMAIL is not set on the deployed worker." >&2
-  echo "   The super-admin seed must exist before the first deploy:" >&2
-  echo "     wrangler secret put NEBULA_AUTH_BOOTSTRAP_EMAIL   # then enter larry@lumenize.com" >&2
-  exit 1
-fi
+echo "▸ Preflight: required deployed secrets are set"
+# NAME-only check — `wrangler secret list` prints names, never values; never echo a secret. The JWT
+# signing keys are REQUIRED: without them, login + cookie succeed but minting the session token
+# throws "JWT private key not configured" and the SPA silently bounces to the login form (observed
+# 2026-06-26). BLUE is PRIMARY_JWT_KEY; GREEN is optional (rotation). Values come from your .dev.vars.
+SECRET_LIST="$(wrangler secret list 2>/dev/null)"
+for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE; do
+  if ! printf '%s' "$SECRET_LIST" | grep -q "\"$s\""; then
+    echo "❌ Required secret '$s' is not set on the deployed worker." >&2
+    echo "   Set it (value from the gitignored root .dev.vars), e.g.:" >&2
+    echo "     V=\$(grep \"^$s=\" .dev.vars | sed 's/^[^=]*=//'); printf '%s' \"\$V\" | wrangler secret put $s" >&2
+    exit 1
+  fi
+done
 
 # 3. Build the Studio SPA so the `assets` upload sees it. `dist` is gitignored AND its presence is
 #    load-bearing: wrangler HARD-ERRORS if `assets.directory` is absent (an empty dir is fine, but a
