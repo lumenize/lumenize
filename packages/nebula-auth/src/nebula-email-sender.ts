@@ -1,10 +1,11 @@
 /**
  * Nebula-branded email sender.
  *
- * Extends CloudflareEmailSender with Nebula branding.
+ * Extends `AuthEmailSenderBase` with Nebula branding; the provider is auto-detected
+ * from the env (Cloudflare via the `EMAIL` binding in Nebula deployments).
  * Customize templates in follow-on work (see tasks/nebula-auth.md § Email Template Customization).
  */
-import { CloudflareEmailSender } from '@lumenize/auth';
+import { AuthEmailSenderBase } from '@lumenize/auth';
 
 /**
  * Matches the `instanceName` segment of a Nebula magic-link URL.
@@ -17,7 +18,7 @@ import { CloudflareEmailSender } from '@lumenize/auth';
  */
 const MAGIC_LINK_INSTANCE_RE = /\/auth\/([^/]+)\/magic-link\?/;
 
-export class NebulaEmailSender extends CloudflareEmailSender {
+export class NebulaEmailSender extends AuthEmailSenderBase {
   from: string;
   appName = 'Nebula';
 

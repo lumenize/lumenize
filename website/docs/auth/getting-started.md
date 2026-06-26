@@ -109,7 +109,7 @@ Without `AUTH_EMAIL_SENDER`, magic links and invites are silently dropped. Users
 [Cloudflare Email Sending](https://developers.cloudflare.com/email-service/) is available on the Workers Paid plan (entry tier $5/month). If you'd rather stay on the free tier, see [Using Resend instead](/docs/auth/using-resend-instead) — Resend has a 100-email-per-day free tier.
 :::
 
-This package works with Cloudflare Email Sending (in open beta) using a binding rather than the REST API — no API key to manage. You add one entry to `wrangler.jsonc`, and `CloudflareEmailSender` handles the rest behind the same template/subject interface as every other sender.
+This package works with Cloudflare Email Sending (in open beta) using a binding rather than the REST API — no API key to manage. You add one entry to `wrangler.jsonc` (the `EMAIL` binding), and the Cloudflare email transport handles the rest behind the `AuthEmailSenderBase` template/subject interface.
 
 **1. Onboard your domain to Cloudflare Email Sending**
 
@@ -118,15 +118,15 @@ In the Cloudflare dashboard, go to **Email Services → Email Sending → Onboar
 **2. Create your AuthEmailSender class**
 
 ```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
-import { CloudflareEmailSender } from '@lumenize/auth';
+import { AuthEmailSenderBase } from '@lumenize/auth';
 
-export class AuthEmailSender extends CloudflareEmailSender {
+export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@myapp.com';  // must be on a domain you've onboarded to Cloudflare Email Sending
   // Override templates, subjects, replyTo, or appName here — see Customizing Email
 }
 ```
 
-That's it. `CloudflareEmailSender` handles delivery, default HTML templates, and default subject lines. Export this class from your Worker entry point alongside your other classes.
+That's it. With the `EMAIL` binding present, your sender delivers via Cloudflare Email Sending (the default provider); `AuthEmailSenderBase` provides the default HTML templates and subject lines. Export this class from your Worker entry point alongside your other classes.
 
 **3. Add bindings to wrangler.jsonc**
 

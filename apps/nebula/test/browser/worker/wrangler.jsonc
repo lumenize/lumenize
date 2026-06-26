@@ -71,8 +71,8 @@
       "entrypoint": "BenchFanoutTier"
     }
   ],
-  // Cloudflare Email Sending binding used by CloudflareEmailSender (which
-  // NebulaEmailSender extends, after the migration on main). `remote: true`
+  // Cloudflare Email Sending binding (env.EMAIL.send) that NebulaEmailSender's
+  // env-selected Cloudflare transport uses. `remote: true`
   // proxies to the real Cloudflare Email Sending service so the test
   // exercises the full email round-trip via the deployed email-test Worker.
   "send_email": [

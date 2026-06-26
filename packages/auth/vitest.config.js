@@ -108,7 +108,7 @@ export default defineConfig({
         },
       }] : []),
       {
-        // E2E email test via ResendEmailSender — smoke test keeping the
+        // E2E email test via Resend (selected with EMAIL_PROVIDER=resend) — smoke test keeping the
         // Resend path exercised alongside the default Cloudflare path.
         // groupOrder 2: runs after e2e-email to avoid shared EmailTestDO race.
         extends: true,

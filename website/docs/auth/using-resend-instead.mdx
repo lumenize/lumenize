@@ -3,9 +3,9 @@ title: Using Resend instead
 description: Configure @lumenize/auth to send via Resend rather than Cloudflare Email Sending
 ---
 
-The default email provider for `@lumenize/auth` is [Cloudflare Email Sending](/docs/auth/getting-started#email-provider) — it's a native Worker binding, no API key, and fits the Cloudflare-first posture of this monorepo. But Cloudflare Email Sending requires the Workers Paid plan, and you may already use Resend elsewhere or want the 100-emails-per-day free tier.
+The default email provider for `@lumenize/auth` is [Cloudflare Email Sending](/docs/auth/getting-started#email-provider) — a native Worker binding, no API key, fitting the Cloudflare-first posture of this monorepo. But it requires the Workers Paid plan, and you may already use Resend elsewhere or want its 100-emails-per-day free tier.
 
-`ResendEmailSender` is a drop-in alternative that implements the same `AuthEmailSenderBase` contract. Everything else in the auth package — templates, subjects, the `AUTH_EMAIL_SENDER` service binding, the `from`/`replyTo`/`appName` settings — is identical.
+**The provider is chosen by the environment, not by your code.** Your `AuthEmailSender` always extends `AuthEmailSenderBase`; to send via Resend, set `EMAIL_PROVIDER=resend` (or simply omit the `EMAIL` binding) and provide `RESEND_API_KEY`. Templates, subjects, the `AUTH_EMAIL_SENDER` service binding, and the `from`/`replyTo`/`appName` settings are all identical.
 
 ## When to choose Resend
 
@@ -19,7 +19,7 @@ Otherwise, the default [Cloudflare Email Sending path](/docs/auth/getting-starte
 
 **1. Create a Resend account and verify your domain**
 
-Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) to your domain — Resend's dashboard walks you through it.
+Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) — Resend's dashboard walks you through it.
 
 **2. Generate an API key**
 
@@ -35,20 +35,21 @@ wrangler secret put RESEND_API_KEY
 
 **3. Create your AuthEmailSender class**
 
-```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
-import { ResendEmailSender } from '@lumenize/auth';
+The same class as the default path — it extends `AuthEmailSenderBase` regardless of provider:
 
-export class AuthEmailSender extends ResendEmailSender {
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
+import { AuthEmailSenderBase } from '@lumenize/auth';
+
+export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@myapp.com';  // must match your verified Resend domain
-  // Override templates, subjects, replyTo, or appName here — same as CloudflareEmailSender
 }
 ```
 
-Export this class from your Worker entry point alongside your other classes. `ResendEmailSender` handles delivery, default HTML templates, and default subject lines — same as `CloudflareEmailSender`.
+Export this class from your Worker entry point alongside your other classes. `AuthEmailSenderBase` provides the default HTML templates and subject lines; the Resend transport (selected by env, below) handles delivery.
 
-**4. Add the service binding to wrangler.jsonc**
+**4. Select Resend in wrangler.jsonc**
 
-Unlike the Cloudflare path, there's no `send_email` binding — Resend is a plain HTTPS API, so the only wiring is the self-referencing service binding that lets the Auth DO reach your entrypoint:
+There's no `send_email` binding for Resend — it's a plain HTTPS API. Wire the self-referencing service binding, and set `EMAIL_PROVIDER` to `resend` so the choice is explicit (omitting the `EMAIL` binding also selects Resend, but an explicit `EMAIL_PROVIDER` avoids a silent fallback if the binding is ever dropped):
 
 ```jsonc
 {
@@ -58,14 +59,17 @@ Unlike the Cloudflare path, there's no `send_email` binding — Resend is a plai
       "service": "your-worker-name",       // must match your wrangler.jsonc "name"
       "entrypoint": "AuthEmailSender"
     }
-  ]
+  ],
+  "vars": {
+    "EMAIL_PROVIDER": "resend"
+  }
 }
 ```
 
 ## Customizing templates
 
-Template and subject overrides work identically to the default path — you just extend `ResendEmailSender` instead of `CloudflareEmailSender`. See [Customizing Email](/docs/auth/customizing-email) for the patterns; swap the base class name and everything else applies.
+Template and subject overrides work identically to the default path — see [Customizing Email](/docs/auth/customizing-email). You extend the same `AuthEmailSenderBase`; only the environment differs.
 
 ## Switching providers later
 
-Moving between providers is a one-line change in your `AuthEmailSender` class (change the base class) plus the corresponding `wrangler.jsonc` update — add or remove the `send_email` binding, add or remove `RESEND_API_KEY`. No schema migrations, no template rewrites.
+Switching providers is an **environment change, not a code change**: add or remove the `EMAIL` binding, set or unset `EMAIL_PROVIDER`, add or remove `RESEND_API_KEY`. Your `AuthEmailSender` class never changes. No schema migrations, no template rewrites.

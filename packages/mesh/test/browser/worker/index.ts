@@ -21,7 +21,7 @@ import {
   LumenizeAuth,
   createAuthRoutes,
   createRouteDORequestAuthHooks,
-  CloudflareEmailSender,
+  AuthEmailSenderBase,
 } from '@lumenize/auth';
 import { LumenizeClientGateway } from '../../../src/index.js';
 
@@ -36,7 +36,7 @@ export { SpellCheckWorker, type SpellFinding } from '../../for-docs/getting-star
  * Email Sending; `auth@example.com` (the example in the doc) wouldn't
  * actually deliver.
  */
-export class AuthEmailSender extends CloudflareEmailSender {
+export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@nebula.lumenize.com';
 }
 
