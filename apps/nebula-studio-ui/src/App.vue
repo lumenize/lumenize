@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted } from "vue";
-import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, FolderOpen } from "lucide-vue-next";
+import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
@@ -11,13 +11,12 @@ import type { DevStudio, Star } from "@lumenize/nebula";
 // `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
 // you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
 const SCOPE_KEY = "nebula.authScope";
-// Scope from the path (`/app/{scope}` — the canonical form the magic link redirects to) first, then
-// `?scope=` (legacy links / ui-smoke), then the remembered authScope. The path segment carries the
-// dot-free Universe slug, so it never collides with asset extensions.
+// Scope comes from the path: `/app/{scope}` — the canonical, and ONLY, form the magic link redirects
+// to. There is deliberately NO `?scope=` fallback: a second way in is an interim that gets reached for
+// later (the unlearning tax). The single-page-application fallback serves index.html for `/app/*`
+// (prod Workers Assets; dev via the vite plugin), so the scope rides the path.
 const pathScope = location.pathname.match(/^\/app\/([^/?#]+)/)?.[1];
-const urlScope = (pathScope && decodeURIComponent(pathScope))
-  || new URLSearchParams(location.search).get("scope")
-  || undefined;
+const urlScope = pathScope ? decodeURIComponent(pathScope) : undefined;
 const authScope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
 const activeScope = ref<string | undefined>(authScope.value);
 
@@ -105,7 +104,7 @@ async function sendMagicLink() {
   if (!e || busy.value) return;
   busy.value = true;
   try {
-    let target = urlScope; // explicit `?scope=` (ui-smoke / manual debug) bypasses discovery
+    let target = urlScope; // an explicit `/app/{scope}` (the post-login redirect / ui-smoke) bypasses discovery
     if (!target) {
       const entries = await discover(e);
       if (entries.length === 1) {
@@ -115,7 +114,7 @@ async function sendMagicLink() {
         needsClaim.value = true;
         return;
       } else {
-        log("error", `${entries.length} workspaces for ${e} — the picker is a later feature. Use ?scope= for now.`);
+        log("error", `${entries.length} workspaces for ${e} — the picker is a later feature. Open the per-workspace link for now.`);
         return;
       }
     }
@@ -174,26 +173,31 @@ async function connect() {
   await nudgeNextStep();
 }
 
-/** Guide the user to their next step from the SERVER tree (not local state — the magic link opens a
- *  fresh tab). In a `.dev` Star → ready to author. At a Universe → nudge them to create/open an app
- *  right here in the chat ("B" — the frictionless first-use guidance). */
+/** Route a returning builder from the SERVER tree (not local state — the magic link opens a fresh
+ *  tab). Already in a `.dev` workspace → ready to author. Otherwise, by app count: none → nudge to
+ *  create the first (chat composer = "name your app", "B"); exactly one → drop them straight into
+ *  developing it; several → open the scopes manager to choose. */
 async function nudgeNextStep() {
   if (isDevStar(activeScope.value)) {
     log("studio", "Connected. Describe the app you want to build.");
     return;
   }
+  let galaxies: Scope[] = [];
   try {
     const list = await nebula.value!.client.scopes.list();
     scopes.value = list.sort((a, b) => a.instanceName.localeCompare(b.instanceName));
-    const hasApp = list.some((s) => s.tier === "galaxy");
-    log(
-      "studio",
-      hasApp
-        ? "Welcome back. Type a name below to spin up a new app, or open an existing one from “Manage my scopes” (top right)."
-        : "Welcome! Let’s create your first app — type a name for it below and I’ll set it up for you.",
-    );
+    galaxies = list.filter((s) => s.tier === "galaxy");
   } catch {
     log("studio", "Welcome! Type a name for your first app below to get started.");
+    return;
+  }
+  if (galaxies.length === 0) {
+    log("studio", "Welcome! Let’s create your first app — type a name for it below and I’ll set it up for you.");
+  } else if (galaxies.length === 1) {
+    await develop(galaxies[0]!.instanceName); // one app → straight into building it
+  } else {
+    await openManage(); // several apps → choose in the scopes manager
+    log("studio", "Welcome back. Pick an app to develop, or type a name in the chat to create a new one.");
   }
 }
 
@@ -292,10 +296,14 @@ function closeManage() {
   addChildFor.value = null;
 }
 
-/** Indent depth for the tree (universe 0, galaxy 1, star 2). */
+/** Indent depth for the tree (universe 0, galaxy/app 1 — `.dev` workspaces aren't tree rows). */
 const depth = (s: Scope) => s.instanceName.split(".").length - 1;
-/** A galaxy already has its `.dev` authoring Star → show "Open" on it, not "+ add Star". */
+/** Whether a galaxy's `.dev` development workspace exists yet (created with the app; `develop`
+ *  lazily creates it for any app made before that). */
 const hasDevStar = (galaxy: string) => scopes.value.some((s) => s.instanceName === `${galaxy}.dev`);
+/** Tree rows = the hierarchy WITHOUT the `.dev` development workspaces — those aren't tenants and
+ *  aren't shown as rows; you reach one via a galaxy's "Develop" button. */
+const treeScopes = computed(() => scopes.value.filter((s) => !s.isDev));
 
 async function addGalaxy(universe: string) {
   const slug = addChildSlug.value.trim();
@@ -303,27 +311,35 @@ async function addGalaxy(universe: string) {
   busy.value = true;
   try {
     await nebula.value!.client.scopes.createGalaxy(universe, slug);
+    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`); // its dev workspace, implicit
     addChildFor.value = null;
     addChildSlug.value = "";
     await loadScopes();
   } catch (e) {
-    log("error", `Could not add galaxy: ${(e as Error).message}`);
+    log("error", `Could not add app: ${(e as Error).message}`);
   } finally {
     busy.value = false;
   }
 }
 
-async function addStar(galaxy: string) {
+/** Open a galaxy's private `.dev` development workspace to author it: switch the working scope +
+ *  reconnect (authScope/cookie unchanged; our admin token reaches it). The workspace is created with
+ *  the app (lazily here for older apps); it is never shown or deleted from the tree — only wiped. */
+async function develop(galaxy: string) {
   if (busy.value) return;
-  busy.value = true;
-  try {
-    await nebula.value!.client.scopes.createStar(galaxy);
-    await loadScopes();
-  } catch (e) {
-    log("error", `Could not add star: ${(e as Error).message}`);
-  } finally {
+  if (!hasDevStar(galaxy)) {
+    busy.value = true;
+    try {
+      await nebula.value!.client.scopes.createStar(galaxy);
+      await loadScopes();
+    } catch (e) {
+      log("error", `Could not start the development workspace: ${(e as Error).message}`);
+      busy.value = false;
+      return;
+    }
     busy.value = false;
   }
+  await openStar(`${galaxy}.dev`);
 }
 
 /** Enter a `.dev` Star to author: switch the working scope + reconnect (authScope/cookie unchanged;
@@ -615,19 +631,16 @@ async function logout() {
               <Loader2 class="size-4 animate-spin" /> Loading your scopes…
             </p>
             <p v-else-if="!scopes.length" class="text-sm opacity-60">No scopes yet.</p>
-            <template v-for="s in scopes" :key="s.instanceName">
+            <template v-for="s in treeScopes" :key="s.instanceName">
               <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
                 <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
-                <span class="text-xs opacity-40">{{ s.isDev ? "test data" : s.tier }}</span>
+                <span class="text-xs opacity-40">{{ s.tier === "galaxy" ? "app" : s.tier }}</span>
 
-                <button v-if="s.isDev" class="btn btn-xs btn-primary" :disabled="busy" @click="openStar(s.instanceName)">
-                  <FolderOpen class="size-3.5" /> Open
+                <button v-if="s.tier === 'galaxy'" class="btn btn-xs btn-primary" :disabled="busy" @click="develop(s.instanceName)" title="Open this app's private development workspace to build &amp; test it">
+                  <Hammer class="size-3.5" /> Develop
                 </button>
                 <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
                   <Plus class="size-3.5" /> Galaxy
-                </button>
-                <button v-else-if="s.tier === 'galaxy' && !hasDevStar(s.instanceName)" class="btn btn-xs btn-ghost" :disabled="busy" @click="addStar(s.instanceName)" title="Create a private development workspace to build &amp; test this app">
-                  <Plus class="size-3.5" /> Test data
                 </button>
 
                 <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">

@@ -70,7 +70,7 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      await page.goto(`${viteBaseUrl}/?scope=${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
       // Capable-of-failing: each waitFor auto-waits and THROWS (fails the test) if the
       // element never appears — reds if the SPA fails to mount (build/bundle break) or
@@ -91,11 +91,12 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // 1. Load the Studio at the explicit test scope. ui-smoke DELIBERATELY stays on the
-    //    explicit-scope path (`?scope=` → the per-scope POST) — it covers the FORM WIRING, NOT
-    //    App.vue's discovery-resolve branch (discovery's automated coverage is the deferred
-    //    random-scope-per-run upgrade, backlog.md:110). Don't over-credit this as discovery cover.
-    await page.goto(`${viteBaseUrl}/?scope=${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    // 1. Load the Studio at the explicit test scope via the canonical path form (`/app/{scope}`,
+    //    the same form the magic link redirects to). ui-smoke DELIBERATELY uses the explicit-scope
+    //    path — it covers the FORM WIRING, NOT App.vue's discovery-resolve branch (discovery's
+    //    automated coverage is the deferred random-scope-per-run upgrade, backlog.md:110). Don't
+    //    over-credit this as discovery cover.
+    await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
     // 2. Arm the email waiter BEFORE driving the form (listen first, then send), then DRIVE the
     //    real-email login form — type the email + click "Send magic link" — in place of the old
@@ -120,7 +121,7 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
     await ctx.request.get(`${viteBaseUrl}${u.pathname}${u.search}`);
 
     // 4. Reload the authenticated Studio → onMounted auto-connect uses the cookie.
-    await page.goto(`${viteBaseUrl}/?scope=${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${viteBaseUrl}/app/${TEST_SCOPE}`, { waitUntil: 'domcontentloaded' });
 
     // Capable-of-failing: reds if the shell fails to render or the /gateway connect never
     // completes. The chat input ("Describe a change…") only renders when `connected` (the v-else
