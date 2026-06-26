@@ -19,6 +19,7 @@ type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
 const input = ref("");
 const connected = ref(false);
+const connecting = ref(false); // post-magic-link auto-connect in flight (shows "Signing you in…")
 const busy = ref(false);
 const thinking = ref(false);
 const previewSrc = ref("");
@@ -50,6 +51,10 @@ const isDevStar = (s?: string) => !!s && s.split(".").length === 3 && s.endsWith
 const stageMode = computed<"manage" | "preview" | "help">(() =>
   manageOpen.value ? "manage" : connected.value && isDevStar(activeScope.value) ? "preview" : "help",
 );
+
+// A session worth a "Log out" affordance even before the WS connects (e.g. a stale cookie that
+// failed to auto-connect, or a half-finished login) — so logout never vanishes when the avatar does.
+const hasSession = computed(() => !!(authScope.value || localStorage.getItem(SCOPE_KEY)));
 
 function reloadPreview() {
   if (activeScope.value) previewSrc.value = `/dev-container/${activeScope.value}/?t=${Date.now()}`;
@@ -160,21 +165,51 @@ async function connect() {
   connected.value = true;
   if (isDevStar(activeScope.value)) previewSrc.value = `/dev-container/${activeScope.value}/`;
   localStorage.setItem(SCOPE_KEY, authScope.value);
-  log("studio", "Connected.");
+  await nudgeNextStep();
+}
+
+/** Guide the user to their next step from the SERVER tree (not local state — the magic link opens a
+ *  fresh tab). In a `.dev` Star → ready to author. At a Universe → nudge them to create/open an app
+ *  right here in the chat ("B" — the frictionless first-use guidance). */
+async function nudgeNextStep() {
+  if (isDevStar(activeScope.value)) {
+    log("studio", "Connected. Describe the app you want to build.");
+    return;
+  }
+  try {
+    const list = await nebula.value!.client.scopes.list();
+    scopes.value = list.sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+    const hasApp = list.some((s) => s.tier === "galaxy");
+    log(
+      "studio",
+      hasApp
+        ? "Welcome back. Type a name below to spin up a new app, or open an existing one from “Manage my scopes” (top right)."
+        : "Welcome! Let’s create your first app — type a name for it below and I’ll set it up for you.",
+    );
+  } catch {
+    log("studio", "Welcome! Type a name for your first app below to get started.");
+  }
 }
 
 onMounted(() => {
   if (!authScope.value) return;
-  connect().catch(() => {
-    /* not authenticated — show the login form */
-  });
+  connecting.value = true;
+  connect()
+    .catch(() => {
+      /* not authenticated — show the login form */
+    })
+    .finally(() => {
+      connecting.value = false;
+    });
 });
 
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
   if (!isDevStar(activeScope.value)) {
-    log("error", "Open a .dev Star first (Manage my scopes → Open) — there's nothing to author here yet.");
+    // At a Universe — the composer creates an app (guided first-run "B") instead of chatting.
+    input.value = "";
+    await createApp(msg);
     return;
   }
   log("you", msg);
@@ -310,6 +345,27 @@ async function openStar(star: string) {
   }
 }
 
+/** Guided first-run ("B"): one app name → Galaxy + its `.dev` Star + open it, so a fresh user goes
+ *  straight from their Universe to authoring without hunting through "Manage my scopes". The explicit
+ *  per-row builder is still there for power users; this is the frictionless path. */
+async function createApp(name: string) {
+  const universe = authScope.value;
+  const slug = slugify(name);
+  if (!slug || !universe || busy.value) return;
+  busy.value = true;
+  try {
+    await nebula.value!.client.scopes.createGalaxy(universe, slug);
+    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`);
+  } catch (e) {
+    log("error", `Could not create app: ${(e as Error).message}`);
+    busy.value = false;
+    return;
+  }
+  busy.value = false;
+  await openStar(`${universe}.${slug}.dev`); // reconnects + clears chat + manages its own busy
+  log("studio", `Your app “${slug}” is ready. Now describe what you want to build.`);
+}
+
 async function openDeleteConfirm(target: string) {
   busy.value = true;
   try {
@@ -381,8 +437,13 @@ function resetToLoggedOut() {
 
 async function logout() {
   menuOpen.value = false;
+  // Works whether or not the WS is up: connected → client.logout(); otherwise best-effort hit the
+  // logout endpoint for the remembered scope (clears the HttpOnly cookie a stale session left behind).
+  const client = nebula.value?.client as { logout?: () => Promise<void> } | undefined;
+  const scope = authScope.value ?? localStorage.getItem(SCOPE_KEY) ?? undefined;
   try {
-    await (nebula.value?.client as { logout?: () => Promise<void> } | undefined)?.logout?.();
+    if (client?.logout) await client.logout();
+    else if (scope) await fetch(`/auth/${scope}/logout`, { method: "POST", credentials: "include" }).catch(() => {});
   } catch {
     /* best-effort */
   }
@@ -429,34 +490,44 @@ async function logout() {
       <footer class="p-4 border-t border-base-300">
         <!-- Unauthenticated: email magic-link login (+ a first-run Universe claim). -->
         <div v-if="!connected" class="flex flex-col gap-2">
-          <p v-if="sentTo" class="text-sm opacity-80">
-            Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
-          </p>
+          <!-- Post-magic-link auto-connect in flight — don't flash the login form. -->
+          <div v-if="connecting" class="flex items-center gap-2 text-sm opacity-80 py-2">
+            <Loader2 class="size-4 animate-spin" /> Signing you in…
+          </div>
           <template v-else>
-            <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
-              <input v-model="email" type="email" class="input input-bordered" placeholder="you@example.com" :disabled="busy" />
-              <button class="btn btn-primary" :disabled="busy || !email.trim()">
-                <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Send magic link
-              </button>
-            </form>
-            <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
-              <p class="text-sm opacity-80">Name your <span class="font-medium">Universe</span> (see the guide on the right):</p>
-              <input v-model="claimSlug" class="input input-bordered font-mono" placeholder="your-universe-slug" :disabled="busy" />
-              <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
-                <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Claim &amp; send magic link
-              </button>
-            </form>
+            <p v-if="sentTo" class="text-sm opacity-80">
+              Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
+            </p>
+            <template v-else>
+              <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
+                <input v-model="email" type="email" class="input input-bordered" placeholder="you@example.com" :disabled="busy" />
+                <button class="btn btn-primary" :disabled="busy || !email.trim()">
+                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Send magic link
+                </button>
+              </form>
+              <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
+                <p class="text-sm opacity-80">Name your <span class="font-medium">Universe</span> (see the guide on the right):</p>
+                <input v-model="claimSlug" class="input input-bordered font-mono" placeholder="your-universe-slug" :disabled="busy" />
+                <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
+                  <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Claim &amp; send magic link
+                </button>
+              </form>
+            </template>
+            <!-- Logout escape hatch even with no avatar (stale cookie / half-finished login). -->
+            <button v-if="hasSession" type="button" class="btn btn-ghost btn-xs self-start opacity-70" @click="logout">
+              <LogOut class="size-3.5" /> Log out
+            </button>
           </template>
         </div>
-        <!-- Authenticated: chat composer. -->
+        <!-- Authenticated: chat composer in a .dev Star, OR the guided "name your app" creator at a Universe. -->
         <form v-else class="flex gap-2" @submit.prevent="send">
           <input
             v-model="input"
             class="input input-bordered flex-1"
-            :placeholder="isDevStar(activeScope) ? 'Describe a change…' : 'Open a .dev Star to start authoring'"
-            :disabled="busy || !isDevStar(activeScope)"
+            :placeholder="isDevStar(activeScope) ? 'Describe a change…' : 'Name your app to create it…'"
+            :disabled="busy"
           />
-          <button class="btn btn-primary" :disabled="busy || !input.trim() || !isDevStar(activeScope)">
+          <button class="btn btn-primary" :disabled="busy || !input.trim()">
             <Loader2 v-if="busy" class="size-4 animate-spin" /><Send v-else class="size-4" />
           </button>
         </form>
