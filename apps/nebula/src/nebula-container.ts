@@ -16,7 +16,7 @@ import { LumenizeContainer } from '@lumenize/mesh/container';
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { enforceScopeReach } from './nebula-do';
+import { enforceScopeReach, requireAdmin } from './nebula-do';
 
 /**
  * NebulaContainer — base class for Nebula container nodes.
@@ -69,6 +69,24 @@ export class NebulaContainer extends LumenizeContainer {
       'last',
       value,
     );
+  }
+
+  /**
+   * Tear this container node down — destroy the running container instance AND wipe its storage.
+   * The NebulaContainer counterpart of `NebulaDO.teardown` (the deprovision-cascade primitive),
+   * `@mesh(requireAdmin)`-gated by the same wall. `destroy()` (from `@cloudflare/containers`) is
+   * the NebulaContainer-specific step beyond the DO wipe — it fully stops + removes the container;
+   * it's best-effort (a container that never started has nothing to destroy, and an idle container
+   * sleeps to zero instances regardless). Stop compute first, then clear the DO store.
+   */
+  @mesh(requireAdmin)
+  async teardown(): Promise<void> {
+    try {
+      await this.destroy();
+    } catch {
+      // best-effort: never-started / already-gone container has nothing to destroy.
+    }
+    await this.ctx.storage.deleteAll();
   }
 
   /** Read back the value written by {@link recordValue} (scope-gated read). */

@@ -5,7 +5,7 @@
  * functions for @mesh(guard) decorators.
  */
 
-import { LumenizeDO } from '@lumenize/mesh';
+import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { buildAuthScopePattern, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
@@ -120,6 +120,26 @@ export function enforceScopeReach(
  * tasks/archive/nebula-do-scope-isolation.md.
  */
 export class NebulaDO extends LumenizeDO {
+  /**
+   * Tear this node down — wipe ALL of its storage. The destructive deprovision primitive the
+   * scope-deletion cascade fans out to (and the one a future soft-delete reaper will call after
+   * its grace window — so this is the foundation, NOT a stopgap). Distinct from
+   * `Star.resetDevData`, which wipes then RE-INITS to keep the live `.dev` sandbox usable:
+   * teardown does not re-init, because the node is being removed from existence, not reset.
+   *
+   * `@mesh(requireAdmin)` + `onBeforeCall`'s scope-reach gate it — only an admin whose authority
+   * covers this instance can fire it (the same wall as every other admin mutator; not in the
+   * non-admin frozen surface). `deleteAll()` is the sanctioned async-storage exception (no sync
+   * variant); it clears the entire private store (SQL + KV + alarms). `blockConcurrencyWhile`
+   * closes the input gate so nothing lands mid-wipe (the sync `requireAdmin` already ran).
+   */
+  @mesh(requireAdmin)
+  async teardown(): Promise<void> {
+    await this.ctx.blockConcurrencyWhile(async () => {
+      await this.ctx.storage.deleteAll();
+    });
+  }
+
   onBeforeCall() {
     // Scope is derived from this DO's instance name (stamped from the envelope's
     // metadata.callee before onBeforeCall runs).

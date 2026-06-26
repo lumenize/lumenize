@@ -46,7 +46,9 @@ export interface RouteNebulaAuthOptions {
 }
 
 // Registry endpoint suffixes (exact match after prefix)
-const REGISTRY_ENDPOINTS = new Set(['discover', 'claim-universe', 'claim-star', 'create-galaxy']);
+const REGISTRY_ENDPOINTS = new Set([
+  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'delete-scope-plan', 'delete-scope',
+]);
 
 // Auth-flow endpoints on NA instances (no JWT required — token/cookie validated by DO)
 const AUTH_FLOW_SUFFIXES = new Set([
@@ -212,6 +214,35 @@ async function handleRegistryPath(
       return jsonError(400, 'invalid_request', 'Request body must be JSON');
     }
     body.verifiedAccess = jwtResult.payload.access;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  // delete-scope-plan / delete-scope — authenticated admin ops (no Turnstile). Verify the JWT and
+  // inject BOTH the verified access claim AND the verified caller email (the registry's
+  // "no other users" guard needs a TRUSTED caller identity — never client-supplied, which a caller
+  // could spoof to exclude a victim and delete a shared scope). The registry enforces admin-over-scope.
+  if (endpoint === 'delete-scope-plan' || endpoint === 'delete-scope') {
+    const jwtResult = await checkJwtForRegistry(request, env);
+    if ('error' in jwtResult) return jwtResult.error;
+
+    let body: Record<string, any>;
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch (err) {
+      debug('nebula-auth.router.bodyParse').debug('delete-scope body not JSON', {
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+    body.verifiedAccess = jwtResult.payload.access;
+    body.callerEmail = jwtResult.payload.email;
 
     const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
     return registryStub.fetch(new Request(request.url, {

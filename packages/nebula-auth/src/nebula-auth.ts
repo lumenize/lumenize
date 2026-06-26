@@ -105,6 +105,17 @@ export class NebulaAuth extends DurableObject {
   }
 
   /**
+   * Deprovision THIS NebulaAuth instance — wipe ALL of its storage (subjects, magic links, refresh
+   * tokens, invites). Called by the registry's scope-deletion cascade (registry → NebulaAuth, both
+   * nebula-auth; reached only via the internal `NEBULA_AUTH` binding, never an external route, so it
+   * inherits the registry's already-performed admin check — like `registerEmail`/`removeEmail`).
+   * The scope is being removed, so no re-init: a future touch re-creates schema via `#ensureSchema`.
+   */
+  async teardownInstance(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+  }
+
+  /**
    * Extract the instanceName from the URL path.
    * URL format: {prefix}/{instanceName}/endpoint
    * The instanceName is the segment after the prefix and before the endpoint.

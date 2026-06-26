@@ -15,8 +15,31 @@ import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { REGISTRY_SCHEMAS } from './schemas';
 import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
-import { parseId, isValidSlug, isDevAuthoringStar, matchAccess } from './parse-id';
+import { parseId, isValidSlug, isDevAuthoringStar, matchAccess, getParentId } from './parse-id';
 import type { AccessEntry, DiscoveryEntry } from './types';
+
+/** One instance in a scope-deletion plan — enough for the client to teardown the right DOs. */
+export interface AffectedScope {
+  instanceName: string;
+  /** 'universe' | 'galaxy' | 'star' — picks the tier DO binding to teardown. */
+  tier: string;
+  /** A `{u}.{g}.dev` authoring Star → the client also tears down DevStudio + DevContainer. */
+  isDev: boolean;
+}
+
+/** A reason a scope can't be deleted: another user is attached to an affected scope. */
+export interface ScopeDeletionBlocker {
+  instanceName: string;
+  email: string;
+}
+
+/** The read-only deletion plan that feeds the confirm screen. */
+export interface ScopeDeletionPlan {
+  /** The full cascade set (target + descendants + pruned-up empty ancestors), wipe order. */
+  affected: AffectedScope[];
+  /** Non-empty → deletion is refused (a shared scope); each entry names who/where. */
+  blockedBy: ScopeDeletionBlocker[];
+}
 
 export class NebulaAuthRegistry extends DurableObject {
   #schemaInitialized = false;
@@ -317,7 +340,141 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   // ============================================
-  // HTTP fetch handler — 4 public endpoints
+  // Scope deletion — cascade teardown (plan + execute)
+  // ============================================
+
+  /**
+   * Read-only deletion PLAN (feeds the confirm screen). Computes the full cascade — the target +
+   * all registered descendants (down), plus any ancestor left with no remaining descendants and no
+   * other users (prune up) — and any blockers (another user attached to an affected scope). Throws
+   * 403 if the caller isn't admin over the target. Mutates nothing.
+   */
+  planScopeDeletion(target: string, callerEmail: string, callerAccess: AccessEntry): ScopeDeletionPlan {
+    this.#ensureSchema();
+    return this.#computeDeletionPlan(target, callerEmail.toLowerCase(), callerAccess);
+  }
+
+  /**
+   * Execute the cascade: re-verify admin + re-run the guard, then for each affected scope wipe the
+   * NebulaAuth subjects (within nebula-auth) and remove the registry `Instances` + `Emails` rows.
+   * Returns the affected set so the Worker-side caller fans out platform-DO `teardown()` (the
+   * registry cannot reach platform DOs — dependency direction). Throws 403 (not admin) or 409 (a
+   * shared scope blocks the delete).
+   */
+  async executeScopeDeletion(
+    target: string, callerEmail: string, callerAccess: AccessEntry,
+  ): Promise<{ affected: AffectedScope[] }> {
+    this.#ensureSchema();
+    const lc = callerEmail.toLowerCase();
+    const plan = this.#computeDeletionPlan(target, lc, callerAccess);
+    if (plan.blockedBy.length > 0) {
+      throw new RegistryError(
+        409, 'scope_in_use',
+        `Cannot delete: other users are attached to ${plan.blockedBy.map(b => b.instanceName).join(', ')}`,
+      );
+    }
+
+    const log = debug('nebula-auth.Registry.executeScopeDeletion');
+    for (const scope of plan.affected) {
+      // Wipe the per-scope NebulaAuth subjects/tokens (registry → NebulaAuth, both nebula-auth).
+      const naStub = (this.env as any).NEBULA_AUTH.getByName(scope.instanceName);
+      try {
+        await naStub.teardownInstance();
+      } catch (err) {
+        log.warn('NebulaAuth teardown failed (continuing)', {
+          instanceName: scope.instanceName, error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      // Remove the registry rows → discovery no longer returns it (the clean-slate effect).
+      this.ctx.storage.sql.exec('DELETE FROM Emails WHERE instanceName = ?', scope.instanceName);
+      this.ctx.storage.sql.exec('DELETE FROM Instances WHERE instanceName = ?', scope.instanceName);
+    }
+
+    log.info('Scope deleted', { target, callerEmail: lc, affected: plan.affected.map(a => a.instanceName) });
+    return { affected: plan.affected };
+  }
+
+  #computeDeletionPlan(target: string, callerEmailLc: string, callerAccess: AccessEntry): ScopeDeletionPlan {
+    if (target === PLATFORM_INSTANCE_NAME) {
+      throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_INSTANCE_NAME}" cannot be deleted`);
+    }
+    let parsed;
+    try {
+      parsed = parseId(target);
+    } catch {
+      throw new RegistryError(400, 'invalid_id', 'Invalid scope id');
+    }
+
+    // Authorization: the caller must be admin over the TARGET (its wildcard covers descendants too).
+    if (!this.#hasAdminOverScope(callerAccess, target)) {
+      throw new RegistryError(403, 'forbidden', `Caller is not an admin of "${target}"`);
+    }
+
+    // Down: the target + all registered descendants.
+    const down = this.#sql`
+      SELECT instanceName FROM Instances
+      WHERE instanceName = ${target} OR instanceName LIKE ${target + '.%'}
+    `.map(r => r.instanceName as string);
+
+    // Nothing registered at the target → nothing to delete.
+    if (!down.includes(target)) {
+      return { affected: [], blockedBy: [] };
+    }
+
+    // Guard: any OTHER user on any down-set scope blocks the whole delete (no prune, no wipe).
+    const blockedBy = this.#otherUsers(down, callerEmailLc);
+    if (blockedBy.length > 0) {
+      return { affected: down.map(n => this.#toAffected(n)), blockedBy };
+    }
+
+    // Prune up: for each ancestor — wipe it iff the caller admins it AND it's left with no remaining
+    // registered descendants outside the wipe set AND no other users. Admin coverage is monotonic
+    // up the tree (prefix patterns), so the first un-admined ancestor stops the walk. An ancestor
+    // that exists only conceptually (not registered) is skipped but doesn't block the walk upward.
+    const wipe = new Set(down);
+    let ancestor = getParentId(parsed);
+    while (ancestor) {
+      if (!this.#hasAdminOverScope(callerAccess, ancestor)) break;
+      const isRegistered = this.#sql`SELECT 1 FROM Instances WHERE instanceName = ${ancestor}`.length > 0;
+      if (isRegistered) {
+        const childrenRemaining = this.#sql`
+          SELECT instanceName FROM Instances WHERE instanceName LIKE ${ancestor + '.%'}
+        `.map(r => r.instanceName as string).filter(n => !wipe.has(n));
+        if (childrenRemaining.length > 0) break; // still has live descendants
+        if (this.#otherUsers([ancestor], callerEmailLc).length > 0) break; // someone else uses it
+        wipe.add(ancestor);
+      }
+      ancestor = getParentId(parseId(ancestor));
+    }
+
+    const ancestors = [...wipe].filter(n => !down.includes(n));
+    return { affected: [...down, ...ancestors].map(n => this.#toAffected(n)), blockedBy: [] };
+  }
+
+  #toAffected(instanceName: string): AffectedScope {
+    const p = parseId(instanceName);
+    return { instanceName, tier: p.tier, isDev: p.tier === 'star' && p.star === 'dev' };
+  }
+
+  #otherUsers(instanceNames: string[], callerEmailLc: string): ScopeDeletionBlocker[] {
+    const out: ScopeDeletionBlocker[] = [];
+    for (const name of instanceNames) {
+      const rows = this.#sql`
+        SELECT DISTINCT email FROM Emails WHERE instanceName = ${name} AND email != ${callerEmailLc}
+      `;
+      for (const r of rows) out.push({ instanceName: name, email: r.email as string });
+    }
+    return out;
+  }
+
+  /** Admin over `scope` iff the access claim is admin AND its pattern covers the scope. */
+  #hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
+    if (!access?.admin) return false;
+    return matchAccess(access.authScopePattern, scope);
+  }
+
+  // ============================================
+  // HTTP fetch handler — public endpoints
   // ============================================
 
   async fetch(request: Request): Promise<Response> {
@@ -367,6 +524,31 @@ export class NebulaAuthRegistry extends DurableObject {
           }
           const result = this.createGalaxy(universeGalaxyId, verifiedAccess);
           return Response.json(result, { status: 201 });
+        }
+        case 'delete-scope-plan': {
+          // JWT already verified by router — verified access + caller email injected.
+          const { target, verifiedAccess, callerEmail } = await request.json() as {
+            target: string; verifiedAccess?: AccessEntry; callerEmail?: string;
+          };
+          if (!verifiedAccess || !callerEmail) {
+            return Response.json(
+              { error: 'invalid_request', error_description: 'Missing verified caller identity' },
+              { status: 400 },
+            );
+          }
+          return Response.json(this.planScopeDeletion(target, callerEmail, verifiedAccess));
+        }
+        case 'delete-scope': {
+          const { target, verifiedAccess, callerEmail } = await request.json() as {
+            target: string; verifiedAccess?: AccessEntry; callerEmail?: string;
+          };
+          if (!verifiedAccess || !callerEmail) {
+            return Response.json(
+              { error: 'invalid_request', error_description: 'Missing verified caller identity' },
+              { status: 400 },
+            );
+          }
+          return Response.json(await this.executeScopeDeletion(target, callerEmail, verifiedAccess));
         }
         default:
           return new Response('Not Found', { status: 404 });

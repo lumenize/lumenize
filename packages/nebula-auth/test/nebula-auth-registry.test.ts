@@ -375,6 +375,122 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // ============================================
+  // Scope deletion — cascade teardown (plan + execute)
+  // ============================================
+
+  describe('scope deletion (cascade teardown)', () => {
+    const OWNER = 'owner@example.com';
+    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+
+    it('plan: a solo `.dev` star → affected is just that star, no blockers (carries tier + isDev)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del1-u.app.dev', true);
+
+      const plan = await registry.planScopeDeletion('del1-u.app.dev', OWNER, ADMIN_OVER('del1-u'));
+      expect(plan.blockedBy).toEqual([]);
+      expect(plan.affected).toEqual([
+        { instanceName: 'del1-u.app.dev', tier: 'star', isDev: true },
+      ]);
+    });
+
+    it('plan: prune-up wipes a registered ancestor left empty + user-less', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del3-u', true); // universe registered
+      await registry.registerEmail(OWNER, 'del3-u.app.dev', true); // its only descendant
+
+      const plan = await registry.planScopeDeletion('del3-u.app.dev', OWNER, ADMIN_OVER('del3-u'));
+      expect(plan.blockedBy).toEqual([]);
+      const names = plan.affected.map(a => a.instanceName).sort();
+      expect(names).toEqual(['del3-u', 'del3-u.app.dev']); // pruned up to the now-empty universe
+    });
+
+    it('plan: prune-up STOPS at an ancestor that still has another live child', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del4-u', true);
+      await registry.registerEmail(OWNER, 'del4-u.app.dev', true);
+      await registry.registerEmail(OWNER, 'del4-u.app.other', true); // a sibling star survives
+
+      const plan = await registry.planScopeDeletion('del4-u.app.dev', OWNER, ADMIN_OVER('del4-u'));
+      // Only the target — the universe keeps its other star, so it is NOT pruned.
+      expect(plan.affected.map(a => a.instanceName)).toEqual(['del4-u.app.dev']);
+    });
+
+    it('plan: deleting a higher node cascades DOWN to descendants', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del2-u', true);
+      await registry.registerEmail(OWNER, 'del2-u.app.dev', true);
+
+      const plan = await registry.planScopeDeletion('del2-u', OWNER, ADMIN_OVER('del2-u'));
+      expect(plan.affected.map(a => a.instanceName).sort()).toEqual(['del2-u', 'del2-u.app.dev']);
+    });
+
+    it('guard: another user on the target blocks the delete (plan reports who/where)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del5-u.app.dev', true);
+      await registry.registerEmail('other@example.com', 'del5-u.app.dev', false);
+
+      const plan = await registry.planScopeDeletion('del5-u.app.dev', OWNER, ADMIN_OVER('del5-u'));
+      expect(plan.blockedBy).toEqual([{ instanceName: 'del5-u.app.dev', email: 'other@example.com' }]);
+    });
+
+    it('execute: solo delete removes the registry rows (discovery → empty, slug free) + returns affected', async () => {
+      const registry = getRegistry();
+      // Unique email — the registry DO is shared across tests, so `discover` is email-global;
+      // a per-test email keeps the "discovery → empty" assertion isolated (testing.md pollution).
+      const solo = 'solo6@example.com';
+      await registry.registerEmail(solo, 'del6-u.app.dev', true);
+
+      const result = await registry.executeScopeDeletion('del6-u.app.dev', solo, ADMIN_OVER('del6-u'));
+      expect(result.affected.map(a => a.instanceName)).toEqual(['del6-u.app.dev']);
+      expect(await registry.discover(solo)).toEqual([]); // Emails gone → clean first-run
+      expect(await registry.checkSlugAvailable('del6-u.app.dev')).toBe(true); // Instances gone
+    });
+
+    it('execute: refuses (throws) when another user is attached, and removes nothing', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del7-u.app.dev', true);
+      await registry.registerEmail('other@example.com', 'del7-u.app.dev', false);
+
+      await expect(
+        registry.executeScopeDeletion('del7-u.app.dev', OWNER, ADMIN_OVER('del7-u')),
+      ).rejects.toThrow(/other users/);
+      // Nothing wiped — the slug is still taken.
+      expect(await registry.checkSlugAvailable('del7-u.app.dev')).toBe(false);
+    });
+
+    it('authz: a non-admin (or wrong-scope) caller is rejected (403)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del8-u.app.dev', true);
+
+      await expect(
+        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'del8-u.*', admin: false }),
+      ).rejects.toThrow(/not an admin/);
+      await expect(
+        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'other-univ.*', admin: true }),
+      ).rejects.toThrow(/not an admin/);
+    });
+
+    it('prune-up authz: a star-only admin deletes their star but does NOT prune the universe', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del9-u', true);
+      await registry.registerEmail(OWNER, 'del9-u.app.dev', true);
+
+      // Exact star-tier admin pattern — covers the star, NOT the parent universe.
+      const plan = await registry.planScopeDeletion(
+        'del9-u.app.dev', OWNER, { authScopePattern: 'del9-u.app.dev', admin: true },
+      );
+      expect(plan.affected.map(a => a.instanceName)).toEqual(['del9-u.app.dev']); // universe NOT pruned
+    });
+
+    it('reserved platform instance cannot be deleted', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.planScopeDeletion('nebula-platform', OWNER, { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/cannot be deleted/);
+    });
+  });
+
+  // ============================================
   // NA→R Wiring: magic link first-verify registers email
   // ============================================
 
