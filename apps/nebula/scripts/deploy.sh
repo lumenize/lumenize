@@ -18,9 +18,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$APP_DIR"
 
-# The public origin for the post-deploy self-check. Defaults to the JWT-issuer domain
-# (NEBULA_AUTH_ISSUER); override with NEBULA_PROD_URL for a workers.dev / custom-domain target.
-PROD_URL="${NEBULA_PROD_URL:-https://nebula.lumenize.com}"
+# The public origin for the post-deploy self-check is derived from the deploy output below
+# (the URL wrangler actually reports) — or forced via NEBULA_PROD_URL. The hardcoded fallback
+# is the JWT-issuer domain (NEBULA_AUTH_ISSUER), used only if neither is available.
+PROD_URL_FALLBACK="https://nebula.lumenize.com"
 
 # 1. Compute the build stamp FIRST — before any build/bundle step mutates the tree, so a clean
 #    checkout never stamps `dirty`. Sets GIT_SHA / DIRTY / BUILD_TIME / WRANGLER_DEFINE_ARGS.
@@ -60,15 +61,24 @@ echo "▸ AUTH_EMAIL_FROM resolves to: ${EMAIL_FROM:-<UNSET — defaults to UNVE
 #    bindings stall on account resolution). The vite-build → deploy → /_version self-check below
 #    IS the validation path.
 echo "▸ wrangler deploy (worker bundle + DevContainer image)"
-wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}"
+# tee → a log so we can self-check the URL wrangler ACTUALLY reports (no custom domain means the
+# worker lands on *.workers.dev, not the issuer domain). pipefail (set -o above) still aborts on a
+# wrangler failure even through the pipe.
+DEPLOY_LOG="$(mktemp)"
+wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
 
 # 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the same
 #    public compare endpoint (Phase 1). It discloses nothing, needs no admin token; a reply at all
 #    = serving, and `match:true` = the bytes we just deployed (catches a stale cache / failed deploy).
+#    Prefer an explicit NEBULA_PROD_URL; else the URL wrangler just printed; else the issuer domain.
+PROD_URL="${NEBULA_PROD_URL:-$(grep -oE 'https://[a-zA-Z0-9._-]+\.workers\.dev' "$DEPLOY_LOG" | head -1)}"
+PROD_URL="${PROD_URL:-$PROD_URL_FALLBACK}"
+rm -f "$DEPLOY_LOG"
 echo "▸ Self-check: GET ${PROD_URL}/_version?sha=${GIT_SHA}"
 VERSION_JSON="$(curl -fsS "${PROD_URL}/_version?sha=${GIT_SHA}" || true)"
 if [ -z "$VERSION_JSON" ]; then
   echo "❌ Self-check: ${PROD_URL}/_version did not respond. Deploy may have failed, or DNS/cache isn't ready yet." >&2
+  echo "   (If you use a custom domain, set NEBULA_PROD_URL=https://your-domain before deploy.)" >&2
   exit 1
 fi
 case "$VERSION_JSON" in
