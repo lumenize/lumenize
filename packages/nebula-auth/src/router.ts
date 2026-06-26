@@ -47,7 +47,8 @@ export interface RouteNebulaAuthOptions {
 
 // Registry endpoint suffixes (exact match after prefix)
 const REGISTRY_ENDPOINTS = new Set([
-  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'delete-scope-plan', 'delete-scope',
+  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
+  'delete-scope-plan', 'delete-scope',
 ]);
 
 // Auth-flow endpoints on NA instances (no JWT required — token/cookie validated by DO)
@@ -212,6 +213,28 @@ async function handleRegistryPath(
         error: err instanceof Error ? err.message : String(err),
       });
       return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+    body.verifiedAccess = jwtResult.payload.access;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  // create-star / my-scopes — authenticated admin ops (no Turnstile). Verify the JWT and inject the
+  // verified access claim; the registry enforces admin-over-parent (create-star) / scopes the tree.
+  if (endpoint === 'create-star' || endpoint === 'my-scopes') {
+    const jwtResult = await checkJwtForRegistry(request, env);
+    if ('error' in jwtResult) return jwtResult.error;
+
+    let body: Record<string, any> = {};
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch {
+      // my-scopes carries no body — that's fine; create-star's missing id is caught downstream.
     }
     body.verifiedAccess = jwtResult.payload.access;
 

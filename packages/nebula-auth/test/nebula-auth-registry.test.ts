@@ -375,6 +375,74 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // ============================================
+  // createStar (in-session, no email) + myScopeTree
+  // ============================================
+
+  describe('createStar (in-session) + myScopeTree', () => {
+    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+
+    async function galaxy(u: string) {
+      const registry = getRegistry();
+      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
+      await registry.createGalaxy(`${u}.app`, ADMIN_OVER(u));
+      return registry;
+    }
+
+    it('creates a .dev star in-session — NO email, registers the instance', async () => {
+      const registry = await galaxy('cs-ok');
+      const result = await registry.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'));
+      expect(result).toEqual({ instanceName: 'cs-ok.app.dev' });
+      expect((result as any).magicLinkUrl).toBeUndefined(); // no email round-trip
+      expect(await registry.checkSlugAvailable('cs-ok.app.dev')).toBe(false);
+    });
+
+    it('rejects a non-galaxy-admin caller', async () => {
+      const registry = await galaxy('cs-nonadmin');
+      await expect(
+        registry.createStar('cs-nonadmin.app.dev', { authScopePattern: 'cs-nonadmin.*', admin: false }),
+      ).rejects.toThrow(/not an admin of the parent galaxy/);
+    });
+
+    it('rejects a star under a nonexistent galaxy', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.createStar('cs-noparent.app.dev', { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it('rejects a non-star tier id', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.createStar('cs-bad.app', { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/3-segment/);
+    });
+
+    it('myScopeTree returns the universe + descendants for a universe admin', async () => {
+      const registry = await galaxy('cs-tree');
+      await registry.createStar('cs-tree.app.dev', ADMIN_OVER('cs-tree'));
+
+      const tree = await registry.myScopeTree(ADMIN_OVER('cs-tree'));
+      const names = tree.map((s: any) => s.instanceName).sort();
+      expect(names).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
+      // carries tier + isDev so the client can render + pick bindings
+      expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual(
+        { instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
+    });
+
+    it('myScopeTree returns [] for a non-admin', async () => {
+      const registry = await galaxy('cs-empty');
+      expect(await registry.myScopeTree({ authScopePattern: 'cs-empty.*', admin: false })).toEqual([]);
+    });
+
+    it('myScopeTree scopes to the caller — an exact star-pattern admin sees only that star', async () => {
+      const registry = await galaxy('cs-exact');
+      await registry.createStar('cs-exact.app.dev', ADMIN_OVER('cs-exact'));
+      const tree = await registry.myScopeTree({ authScopePattern: 'cs-exact.app.dev', admin: true });
+      expect(tree.map((s: any) => s.instanceName)).toEqual(['cs-exact.app.dev']);
+    });
+  });
+
+  // ============================================
   // Scope deletion — cascade teardown (plan + execute)
   // ============================================
 

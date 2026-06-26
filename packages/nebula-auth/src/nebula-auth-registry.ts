@@ -339,6 +339,71 @@ export class NebulaAuthRegistry extends DurableObject {
     return { instanceName: universeGalaxyId };
   }
 
+  /**
+   * Create a Star IN-SESSION — registers the instance, NO magic-link email. Distinct from
+   * {@link claimStar} (which emails a link, for the original cross-user claim flow): when an admin
+   * builds their OWN hierarchy, they already hold a session that reaches the new Star (higher-admin
+   * reach) and first access seeds them founder-admin, so a per-Star email would be pure friction.
+   * Admin-gated over the parent galaxy (mirrors claimStar's m2 gate). Caller (router) pre-verifies
+   * the JWT and passes the verified access claim.
+   */
+  createStar(universeGalaxyStarId: string, callerAccess: AccessEntry): { instanceName: string } {
+    this.#ensureSchema();
+
+    let parsed;
+    try {
+      parsed = parseId(universeGalaxyStarId);
+    } catch {
+      throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyStarId format');
+    }
+    if (parsed.tier !== 'star') {
+      throw new RegistryError(400, 'invalid_tier', 'create-star requires a 3-segment id (universe.galaxy.star)');
+    }
+
+    const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
+    if (!this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
+      throw new RegistryError(403, 'forbidden', `Caller is not an admin of the parent galaxy "${parentGalaxy}"`);
+    }
+
+    const parentRows = this.#sql`SELECT 1 FROM Instances WHERE instanceName = ${parentGalaxy}`;
+    if (parentRows.length === 0) {
+      throw new RegistryError(400, 'parent_not_found', `Parent galaxy "${parentGalaxy}" does not exist`);
+    }
+
+    if (!this.checkSlugAvailable(universeGalaxyStarId)) {
+      throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
+    }
+
+    this.ctx.storage.sql.exec(
+      'INSERT INTO Instances (instanceName, createdAt) VALUES (?, ?)',
+      universeGalaxyStarId, Date.now(),
+    );
+    debug('nebula-auth.Registry.createStar').info('Star created in-session', { universeGalaxyStarId });
+    return { instanceName: universeGalaxyStarId };
+  }
+
+  /**
+   * The caller's manageable scope tree — every instance under their admin authority (Universe +
+   * descendants), for the Scopes hierarchy view. Keyed on the verified admin SCOPE, NOT email:
+   * `createGalaxy`/`createStar` register an instance without an email mapping, so `discover` (email-
+   * keyed) wouldn't surface a galaxy you just created; this does. Flat list; the client nests by id.
+   */
+  myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
+    this.#ensureSchema();
+    if (!callerAccess?.admin) return [];
+    const pattern = callerAccess.authScopePattern;
+    let rows: any[];
+    if (pattern === '*') {
+      rows = this.#sql`SELECT instanceName FROM Instances`;
+    } else if (pattern.endsWith('.*')) {
+      const prefix = pattern.slice(0, -2);
+      rows = this.#sql`SELECT instanceName FROM Instances WHERE instanceName = ${prefix} OR instanceName LIKE ${prefix + '.%'}`;
+    } else {
+      rows = this.#sql`SELECT instanceName FROM Instances WHERE instanceName = ${pattern}`;
+    }
+    return rows.map(r => this.#toAffected(r.instanceName as string));
+  }
+
   // ============================================
   // Scope deletion — cascade teardown (plan + execute)
   // ============================================
@@ -524,6 +589,28 @@ export class NebulaAuthRegistry extends DurableObject {
           }
           const result = this.createGalaxy(universeGalaxyId, verifiedAccess);
           return Response.json(result, { status: 201 });
+        }
+        case 'create-star': {
+          const { universeGalaxyStarId, verifiedAccess } = await request.json() as {
+            universeGalaxyStarId: string; verifiedAccess?: AccessEntry;
+          };
+          if (!verifiedAccess) {
+            return Response.json(
+              { error: 'invalid_request', error_description: 'Missing verified access claim' },
+              { status: 400 },
+            );
+          }
+          return Response.json(this.createStar(universeGalaxyStarId, verifiedAccess), { status: 201 });
+        }
+        case 'my-scopes': {
+          const { verifiedAccess } = await request.json() as { verifiedAccess?: AccessEntry };
+          if (!verifiedAccess) {
+            return Response.json(
+              { error: 'invalid_request', error_description: 'Missing verified access claim' },
+              { status: 400 },
+            );
+          }
+          return Response.json({ scopes: this.myScopeTree(verifiedAccess) });
         }
         case 'delete-scope-plan': {
           // JWT already verified by router — verified access + caller email injected.
