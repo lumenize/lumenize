@@ -1,63 +1,78 @@
 <script setup lang="ts">
-import { ref, shallowRef, onMounted } from "vue";
-import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft } from "lucide-vue-next";
+import { ref, shallowRef, computed, onMounted } from "vue";
+import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, FolderOpen } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
 
-// Every actor (real users, tests, you) self-provisions ONE uniform way — real-email magic-link
-// login → discovery resolves your scope → (first-run) claim a slug. No hardcoded scope, no
-// test-mode shortcut (B2, tasks/nebula-release-process.md).
-//
-// `scope` is the {u}.{g}.dev / {u} instance the Studio talks to (DevStudio / DevContainer / Star).
-// It comes from, in order: an explicit `?scope=` override (the Playwright ui-smoke + manual
-// debugging drive a dedicated `test-…` sandbox this way), then a returning session's remembered
-// scope (localStorage), else it's resolved from discovery when you log in.
-const SCOPE_KEY = "nebula.scope";
+// You build your hierarchy explicitly — claim a Universe, add a Galaxy, add a `.dev` Star, open it
+// to author. No magic first-run, no `?scope=` sidestep (tasks/nebula-release-process.md § B2 + the
+// hierarchy-builder sidebar). `authScope` = where you logged in (the refresh-cookie scope);
+// `activeScope` = the scope you're working IN (a `.dev` Star under your authority). They differ once
+// you "open" a Star: your Universe cookie mints a token whose admin pattern reaches the Star.
+const SCOPE_KEY = "nebula.authScope";
 const urlScope = new URLSearchParams(location.search).get("scope") ?? undefined;
-const scope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
+const authScope = ref<string | undefined>(urlScope ?? localStorage.getItem(SCOPE_KEY) ?? undefined);
+const activeScope = ref<string | undefined>(authScope.value);
 
 type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
 const input = ref("");
 const connected = ref(false);
 const busy = ref(false);
-const thinking = ref(false); // model is generating — shows the "Studio is thinking…" indicator
-const previewSrc = ref(""); // set once a scope is resolved + connected
+const thinking = ref(false);
+const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
-// --- Login state ---
+// login
 const email = ref("");
-const sentTo = ref<string | null>(null); // "magic link sent to X" confirmation
-const needsClaim = ref(false); // discovery returned 0 scopes → show the claim-a-slug input
+const sentTo = ref<string | null>(null);
+const needsClaim = ref(false);
 const claimSlug = ref("");
 
-// --- Account / manage-scopes state ---
-const menuOpen = ref(false); // account dropdown
-const manageOpen = ref(false); // the big pane shows Manage-my-scopes instead of the preview
+// account / hierarchy
+const menuOpen = ref(false);
+const manageOpen = ref(false);
 const accountEmail = ref<string | null>(null);
-const scopes = ref<{ instanceName: string; isAdmin: boolean }[]>([]);
-type AffectedScope = { instanceName: string; tier: string; isDev: boolean };
-type DeletionPlan = { affected: AffectedScope[]; blockedBy: { instanceName: string; email: string }[] };
+type Scope = { instanceName: string; tier: string; isDev: boolean };
+const scopes = ref<Scope[]>([]);
+const addChildFor = ref<string | null>(null); // a Universe row whose "name a Galaxy" input is open
+const addChildSlug = ref("");
+type DeletionPlan = { affected: Scope[]; blockedBy: { instanceName: string; email: string }[] };
 const deleteTarget = ref<string | null>(null);
 const deletePlan = ref<DeletionPlan | null>(null);
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
-/** Force the preview iframe to re-fetch (HMR-under-prefix is deferred, so a source
- *  change needs a reload to show). */
+const isDevStar = (s?: string) => !!s && s.split(".").length === 3 && s.endsWith(".dev");
+// Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
+// you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
+const stageMode = computed<"manage" | "preview" | "help">(() =>
+  manageOpen.value ? "manage" : connected.value && isDevStar(activeScope.value) ? "preview" : "help",
+);
+
 function reloadPreview() {
-  if (scope.value) previewSrc.value = `/dev-container/${scope.value}/?t=${Date.now()}`;
+  if (activeScope.value) previewSrc.value = `/dev-container/${activeScope.value}/?t=${Date.now()}`;
 }
 
-/** Remember the resolved scope BEFORE the magic-link round-trip, so the post-redirect reload
- *  (landing at NEBULA_AUTH_REDIRECT, no `?scope=`) can auto-connect to it. */
-function rememberScope(s: string) {
-  scope.value = s;
-  localStorage.setItem(SCOPE_KEY, s);
+// ── Universe-slug suggestion ─────────────────────────────────────────────────
+// Company domain → the domain (john@acme.com → acme-com); a common/shared personal domain → the
+// local part (cassidy.perkins@lumenize.com → cassidy-perkins). Sanitized to a valid slug.
+const COMMON_DOMAINS = new Set([
+  "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com", "aol.com", "live.com",
+  "msn.com", "proton.me", "protonmail.com", "me.com",
+  "maccherone.com", "lumenize.com", // alpha-user shared domains → treat like personal
+]);
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-");
+}
+function suggestUniverseSlug(emailAddr: string): string {
+  const [local, domain] = emailAddr.toLowerCase().split("@");
+  if (!domain) return slugify(local ?? "");
+  return COMMON_DOMAINS.has(domain) ? slugify(local ?? "") : slugify(domain);
 }
 
-/** Unauthenticated, email-keyed scope discovery (precedes any token). */
+// ── login ────────────────────────────────────────────────────────────────────
 async function discover(emailAddr: string): Promise<{ instanceName: string; isAdmin: boolean }[]> {
   const res = await fetch(`/auth/discover`, {
     method: "POST",
@@ -68,8 +83,12 @@ async function discover(emailAddr: string): Promise<{ instanceName: string; isAd
   return (await res.json()) as { instanceName: string; isAdmin: boolean }[];
 }
 
-/** Real-email login: resolve the scope (explicit `?scope=` wins, else discovery), then send the
- *  magic link to it. Clicking the emailed link sets the per-scope refresh cookie and lands here. */
+function rememberAuthScope(s: string) {
+  authScope.value = s;
+  activeScope.value = s;
+  localStorage.setItem(SCOPE_KEY, s);
+}
+
 async function sendMagicLink() {
   const e = email.value.trim();
   if (!e || busy.value) return;
@@ -81,15 +100,15 @@ async function sendMagicLink() {
       if (entries.length === 1) {
         target = entries[0]!.instanceName;
       } else if (entries.length === 0) {
-        needsClaim.value = true; // first-run — offer to claim a slug
+        claimSlug.value = suggestUniverseSlug(e); // prefill the suggestion
+        needsClaim.value = true;
         return;
       } else {
-        // >1 scope → the discovery picker is a Wave-2 UI; not built this round.
-        log("error", `${entries.length} workspaces found for ${e} — the picker is a later feature. Use ?scope= for now.`);
+        log("error", `${entries.length} workspaces for ${e} — the picker is a later feature. Use ?scope= for now.`);
         return;
       }
     }
-    rememberScope(target);
+    rememberAuthScope(target);
     const res = await fetch(`/auth/${target}/email-magic-link`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -105,8 +124,6 @@ async function sendMagicLink() {
   }
 }
 
-/** First-run (no scope for this email yet): claim a Universe slug. `claim-universe` also sends the
- *  magic link, so the flow continues identically to a returning login. */
 async function claimUniverse() {
   const slug = claimSlug.value.trim();
   const e = email.value.trim();
@@ -120,7 +137,7 @@ async function claimUniverse() {
       body: JSON.stringify({ slug, email: e }),
     });
     if (!res.ok) throw new Error(`claim ${res.status}: ${await res.text().catch(() => "")}`);
-    rememberScope(slug);
+    rememberAuthScope(slug);
     needsClaim.value = false;
     sentTo.value = e;
   } catch (err) {
@@ -131,25 +148,23 @@ async function claimUniverse() {
 }
 
 async function connect() {
-  if (!scope.value) throw new Error("no scope to connect to");
+  if (!authScope.value) throw new Error("no scope to connect to");
+  if (!activeScope.value) activeScope.value = authScope.value;
   const n = createNebulaClient({
-    authScope: scope.value,
-    activeScope: scope.value,
-    appVersion: "studio-ui", // the Studio UI calls DevStudio, not the ontology — never version-checked
+    authScope: authScope.value,
+    activeScope: activeScope.value,
+    appVersion: "studio-ui",
   });
-  await n.ready; // throws if not authenticated (no / expired refresh cookie)
-  nebula.value = n; // only adopt the client once the session is live
+  await n.ready; // throws if not authenticated
+  nebula.value = n;
   connected.value = true;
-  previewSrc.value = `/dev-container/${scope.value}/`;
-  localStorage.setItem(SCOPE_KEY, scope.value); // remember for the next visit
-  log("studio", "Connected. Describe the app you want to build.");
+  if (isDevStar(activeScope.value)) previewSrc.value = `/dev-container/${activeScope.value}/`;
+  localStorage.setItem(SCOPE_KEY, authScope.value);
+  log("studio", "Connected.");
 }
 
-// Auto-connect when a scope is known (explicit `?scope=`, or a remembered session) AND a valid
-// refresh cookie is already present — a returning session, or the ui-smoke that logs in
-// out-of-band (real magic-link) then loads the Studio. Falls back to the login form otherwise.
 onMounted(() => {
-  if (!scope.value) return; // no known scope yet → show the email-login form
+  if (!authScope.value) return;
   connect().catch(() => {
     /* not authenticated — show the login form */
   });
@@ -158,6 +173,10 @@ onMounted(() => {
 async function send() {
   const msg = input.value.trim();
   if (!msg || !nebula.value || busy.value) return;
+  if (!isDevStar(activeScope.value)) {
+    log("error", "Open a .dev Star first (Manage my scopes → Open) — there's nothing to author here yet.");
+    return;
+  }
   log("you", msg);
   input.value = "";
   busy.value = true;
@@ -166,11 +185,11 @@ async function send() {
     const client = nebula.value.client;
     const reply = (await client.lmz.callRaw(
       "DEV_STUDIO",
-      scope.value!,
+      activeScope.value!,
       client.ctn<DevStudio>().chat(msg),
     )) as { reply: string; thought: string };
     thinking.value = false;
-    if (reply.thought) log("thought", reply.thought); // raw model output — collapsible, for prompt iteration
+    if (reply.thought) log("thought", reply.thought);
     log("studio", reply.reply);
     reloadPreview();
   } catch (e) {
@@ -182,11 +201,11 @@ async function send() {
 }
 
 async function wipe() {
-  if (!nebula.value || busy.value) return;
+  if (!nebula.value || busy.value || !isDevStar(activeScope.value)) return;
   busy.value = true;
   try {
     const client = nebula.value.client;
-    await client.lmz.callRaw("STAR", scope.value!, client.ctn<Star>().resetDevData());
+    await client.lmz.callRaw("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
     log("studio", "Wiped .dev data.");
     reloadPreview();
   } catch (e) {
@@ -196,24 +215,22 @@ async function wipe() {
   }
 }
 
-// ─── Account + Manage my scopes ──────────────────────────────────────────────
-
-/** Mint a short-lived access token from the (HttpOnly) refresh cookie for the connected scope —
- *  used as the Bearer for the authed `delete-scope*` routes (the registry is HTTP, not mesh). */
+// ── account + hierarchy ────────────────────────────────────────────────────────
+/** Mint an access token from the (HttpOnly) refresh cookie at `authScope` — the Bearer for the
+ *  authed registry routes. Its admin pattern (e.g. `u.*`) covers create-galaxy / create-star / the
+ *  whole tree, regardless of which Star is currently active. */
 async function getAccessToken(): Promise<string> {
-  if (!scope.value) throw new Error("not connected");
-  const res = await fetch(`/auth/${scope.value}/refresh-token`, {
+  if (!authScope.value) throw new Error("not connected");
+  const res = await fetch(`/auth/${authScope.value}/refresh-token`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ activeScope: scope.value }),
+    body: JSON.stringify({ activeScope: authScope.value }),
   });
   if (!res.ok) throw new Error(`refresh ${res.status}`);
   return ((await res.json()) as { access_token: string }).access_token;
 }
 
-/** Read the (already-verified-server-side) email claim out of the access token — used to list the
- *  caller's own scopes via discovery. No client-side trust: the server re-verifies on every route. */
 function emailFromToken(token: string): string | undefined {
   try {
     const part = token.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/");
@@ -223,16 +240,40 @@ function emailFromToken(token: string): string | undefined {
   }
 }
 
+async function authedPost(endpoint: string, body: Record<string, unknown>): Promise<any> {
+  const token = await getAccessToken();
+  const res = await fetch(`/auth/${endpoint}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${endpoint} ${res.status}: ${await res.text().catch(() => "")}`);
+  return res.json();
+}
+
+async function loadScopes() {
+  const token = await getAccessToken();
+  accountEmail.value = emailFromToken(token) ?? accountEmail.value;
+  const res = await fetch(`/auth/my-scopes`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`my-scopes ${res.status}`);
+  const data = (await res.json()) as { scopes: Scope[] };
+  // Render order: parents before children, so the indent reads as a tree.
+  scopes.value = (data.scopes ?? []).sort((a, b) => a.instanceName.localeCompare(b.instanceName));
+}
+
 async function openManage() {
   menuOpen.value = false;
   manageOpen.value = true;
   deletePlan.value = null;
   deleteTarget.value = null;
+  addChildFor.value = null;
   busy.value = true;
   try {
-    const token = await getAccessToken();
-    accountEmail.value = emailFromToken(token) ?? null;
-    scopes.value = accountEmail.value ? await discover(accountEmail.value) : [];
+    await loadScopes();
   } catch (e) {
     log("error", `Could not load scopes: ${(e as Error).message}`);
   } finally {
@@ -244,21 +285,72 @@ function closeManage() {
   manageOpen.value = false;
   deletePlan.value = null;
   deleteTarget.value = null;
+  addChildFor.value = null;
 }
 
-/** Open the destructive-delete confirm screen — fetches the exact cascade PLAN (down + prune-up +
- *  other-user blockers) so you eyeball precisely what gets wiped before arming the button. */
+/** Indent depth for the tree (universe 0, galaxy 1, star 2). */
+const depth = (s: Scope) => s.instanceName.split(".").length - 1;
+/** A galaxy already has its `.dev` authoring Star → show "Open" on it, not "+ add Star". */
+const hasDevStar = (galaxy: string) => scopes.value.some((s) => s.instanceName === `${galaxy}.dev`);
+
+async function addGalaxy(universe: string) {
+  const slug = addChildSlug.value.trim();
+  if (!slug || busy.value) return;
+  busy.value = true;
+  try {
+    await authedPost("create-galaxy", { universeGalaxyId: `${universe}.${slug}` });
+    addChildFor.value = null;
+    addChildSlug.value = "";
+    await loadScopes();
+  } catch (e) {
+    log("error", `Could not add galaxy: ${(e as Error).message}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function addStar(galaxy: string) {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    await authedPost("create-star", { universeGalaxyStarId: `${galaxy}.dev` });
+    await loadScopes();
+  } catch (e) {
+    log("error", `Could not add star: ${(e as Error).message}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** Enter a `.dev` Star to author: switch the working scope + reconnect (authScope/cookie unchanged;
+ *  our admin token reaches it). */
+async function openStar(star: string) {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    try {
+      await (nebula.value?.client as { disconnect?: () => unknown } | undefined)?.disconnect?.();
+    } catch {
+      /* old WS best-effort */
+    }
+    activeScope.value = star;
+    const n = createNebulaClient({ authScope: authScope.value!, activeScope: star, appVersion: "studio-ui" });
+    await n.ready;
+    nebula.value = n;
+    previewSrc.value = `/dev-container/${star}/`;
+    messages.value = [];
+    manageOpen.value = false;
+  } catch (e) {
+    log("error", `Could not open ${star}: ${(e as Error).message}`);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function openDeleteConfirm(target: string) {
   busy.value = true;
   try {
-    const token = await getAccessToken();
-    const res = await fetch(`/auth/delete-scope-plan`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ target }),
-    });
-    if (!res.ok) throw new Error(`plan ${res.status}: ${await res.text().catch(() => "")}`);
-    deletePlan.value = (await res.json()) as DeletionPlan;
+    deletePlan.value = (await authedPost("delete-scope-plan", { target })) as DeletionPlan;
     deleteTarget.value = target;
   } catch (e) {
     log("error", `Could not plan delete: ${(e as Error).message}`);
@@ -278,17 +370,8 @@ async function confirmDelete() {
   if (!target || !plan || plan.blockedBy.length > 0 || busy.value) return;
   busy.value = true;
   try {
-    const token = await getAccessToken();
-    // 1. Registry clears its own rows + the per-scope NebulaAuth subjects (→ discovery goes empty).
-    const res = await fetch(`/auth/delete-scope`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ target }),
-    });
-    if (!res.ok) throw new Error(`delete ${res.status}: ${await res.text().catch(() => "")}`);
-    const { affected } = (await res.json()) as { affected: AffectedScope[] };
-
-    // 2. Fan out the platform-DO teardown via mesh (the registry can't reach platform DOs).
+    const { affected } = (await authedPost("delete-scope", { target })) as { affected: Scope[] };
+    // Fan out the platform-DO teardown via mesh (the registry cleared its own rows already).
     const client = nebula.value?.client;
     if (client) {
       const ctnT = () => client.ctn<{ teardown(): Promise<void> }>().teardown();
@@ -301,12 +384,12 @@ async function confirmDelete() {
         }
       }
     }
-
-    if (affected.some((a) => a.instanceName === scope.value)) {
-      resetToLoggedOut(); // we just deleted the scope we were in → back to a clean first-run
+    cancelDelete();
+    if (affected.some((a) => a.instanceName === authScope.value)) {
+      resetToLoggedOut(); // deleted the scope we logged in at → clean first-run
     } else {
-      cancelDelete();
-      await openManage(); // refresh the remaining list
+      if (affected.some((a) => a.instanceName === activeScope.value)) activeScope.value = authScope.value;
+      await loadScopes();
     }
   } catch (e) {
     log("error", `Delete failed: ${(e as Error).message}`);
@@ -323,7 +406,8 @@ function resetToLoggedOut() {
   deleteTarget.value = null;
   connected.value = false;
   nebula.value = null;
-  scope.value = undefined;
+  authScope.value = undefined;
+  activeScope.value = undefined;
   previewSrc.value = "";
   messages.value = [];
   sentTo.value = null;
@@ -337,7 +421,7 @@ async function logout() {
   try {
     await (nebula.value?.client as { logout?: () => Promise<void> } | undefined)?.logout?.();
   } catch {
-    /* best-effort — clear local state regardless */
+    /* best-effort */
   }
   resetToLoggedOut();
 }
@@ -345,130 +429,125 @@ async function logout() {
 
 <template>
   <div class="h-screen flex" data-theme="dark">
-    <!-- Chat pane -->
+    <!-- Chat rail -->
     <section class="w-[28rem] shrink-0 flex flex-col border-r border-base-300 bg-base-200">
       <header class="p-4 border-b border-base-300 flex items-center justify-between">
         <h1 class="text-lg font-bold">Nebula Studio</h1>
-        <button class="btn btn-sm btn-ghost" :disabled="busy || !connected" title="Wipe .dev data" @click="wipe">
+        <button
+          v-if="isDevStar(activeScope)"
+          class="btn btn-sm btn-ghost"
+          :disabled="busy || !connected"
+          title="Wipe .dev data"
+          @click="wipe"
+        >
           <RotateCcw class="size-4" /> Wipe
         </button>
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
         <template v-for="(m, i) in messages" :key="i">
-          <!-- Raw model output — collapsed by default; expand to inspect + iterate the prompt. -->
           <details v-if="m.role === 'thought'" class="text-xs opacity-70">
             <summary class="cursor-pointer select-none">💭 Studio's thought process</summary>
             <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.text }}</pre>
           </details>
           <div v-else :class="['chat', m.role === 'you' ? 'chat-end' : 'chat-start']">
             <div
-              :class="[
-                'chat-bubble',
-                m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '',
-              ]"
+              :class="['chat-bubble', m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '']"
             >
               {{ m.text }}
             </div>
           </div>
         </template>
-        <!-- Waiting indicator while the model generates. -->
         <div v-if="thinking" class="chat chat-start">
-          <div class="chat-bubble flex items-center gap-2">
-            <Loader2 class="size-4 animate-spin" /> Studio is thinking…
-          </div>
+          <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>
         </div>
       </div>
 
       <footer class="p-4 border-t border-base-300">
-        <!-- Unauthenticated: real-email magic-link login (+ a minimal first-run slug claim). -->
+        <!-- Unauthenticated: email magic-link login (+ a first-run Universe claim). -->
         <div v-if="!connected" class="flex flex-col gap-2">
           <p v-if="sentTo" class="text-sm opacity-80">
             Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
           </p>
           <template v-else>
-            <!-- Email → "send magic link". This is the unique unauthenticated control. -->
             <form v-if="!needsClaim" class="flex flex-col gap-2" @submit.prevent="sendMagicLink">
-              <input
-                v-model="email"
-                type="email"
-                class="input input-bordered"
-                placeholder="you@example.com"
-                :disabled="busy"
-              />
+              <input v-model="email" type="email" class="input input-bordered" placeholder="you@example.com" :disabled="busy" />
               <button class="btn btn-primary" :disabled="busy || !email.trim()">
-                <Loader2 v-if="busy" class="size-4 animate-spin" />
-                <LogIn v-else class="size-4" />
-                Send magic link
+                <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Send magic link
               </button>
             </form>
-            <!-- First-run: no workspace for this email yet → claim a Universe slug. -->
             <form v-else class="flex flex-col gap-2" @submit.prevent="claimUniverse">
-              <p class="text-sm opacity-80">No workspace yet — claim one:</p>
-              <input
-                v-model="claimSlug"
-                class="input input-bordered"
-                placeholder="your-universe-slug"
-                :disabled="busy"
-              />
+              <p class="text-sm opacity-80">Name your <span class="font-medium">Universe</span> (see the guide on the right):</p>
+              <input v-model="claimSlug" class="input input-bordered font-mono" placeholder="your-universe-slug" :disabled="busy" />
               <button class="btn btn-primary" :disabled="busy || !claimSlug.trim()">
-                <Loader2 v-if="busy" class="size-4 animate-spin" />
-                <LogIn v-else class="size-4" />
-                Claim &amp; send magic link
+                <Loader2 v-if="busy" class="size-4 animate-spin" /><LogIn v-else class="size-4" /> Claim &amp; send magic link
               </button>
             </form>
           </template>
         </div>
-        <!-- Authenticated: the chat composer. -->
+        <!-- Authenticated: chat composer. -->
         <form v-else class="flex gap-2" @submit.prevent="send">
           <input
             v-model="input"
             class="input input-bordered flex-1"
-            placeholder="Describe a change…"
-            :disabled="busy"
+            :placeholder="isDevStar(activeScope) ? 'Describe a change…' : 'Open a .dev Star to start authoring'"
+            :disabled="busy || !isDevStar(activeScope)"
           />
-          <button class="btn btn-primary" :disabled="busy || !input.trim()">
-            <Loader2 v-if="busy" class="size-4 animate-spin" />
-            <Send v-else class="size-4" />
+          <button class="btn btn-primary" :disabled="busy || !input.trim() || !isDevStar(activeScope)">
+            <Loader2 v-if="busy" class="size-4 animate-spin" /><Send v-else class="size-4" />
           </button>
         </form>
       </footer>
     </section>
 
-    <!-- Stage pane: account bar (top-right) + preview OR manage-my-scopes -->
+    <!-- Stage: account bar + help / hierarchy manager / preview -->
     <section class="flex-1 bg-base-100 flex flex-col min-w-0">
-      <!-- Account bar — only once connected. The avatar menu is the persistent account control. -->
       <div v-if="connected" class="relative flex items-center justify-end px-3 py-2 border-b border-base-300">
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
-          <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content">
-            <User class="size-4" />
-          </span>
+          <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
         </button>
-        <div
-          v-if="menuOpen"
-          class="absolute right-2 top-12 z-20 w-52 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col"
-        >
+        <div v-if="menuOpen" class="absolute right-2 top-12 z-20 w-52 p-1 rounded-box border border-base-300 bg-base-200 shadow-lg flex flex-col">
           <button class="btn btn-sm btn-ghost justify-start" @click="openManage">Manage my scopes</button>
-          <button class="btn btn-sm btn-ghost justify-start" @click="logout">
-            <LogOut class="size-4" /> Log out
-          </button>
+          <button class="btn btn-sm btn-ghost justify-start" @click="logout"><LogOut class="size-4" /> Log out</button>
         </div>
       </div>
 
-      <!-- Manage my scopes (the stage switches contents) OR the live preview. -->
       <div class="flex-1 min-h-0 overflow-auto">
-        <div v-if="manageOpen" class="p-6 flex flex-col gap-4 max-w-2xl">
+        <!-- Help / intro (default + first use). -->
+        <div v-if="stageMode === 'help'" class="p-8 max-w-2xl flex flex-col gap-5">
+          <h2 class="text-xl font-bold">Welcome to Nebula</h2>
+          <p class="opacity-80">You build inside a simple three-level hierarchy. You'll create it yourself, one level at a time.</p>
+          <div class="flex flex-col gap-4">
+            <div class="border border-base-300 rounded-box p-4">
+              <p class="font-medium">🌌 Universe — that's you</p>
+              <p class="text-sm opacity-80 mt-1">Your top-level space. If you have a company or a brand, that's probably the best choice for your Universe slug. If you're a solopreneur, you might use your name.</p>
+            </div>
+            <div class="border border-base-300 rounded-box p-4">
+              <p class="font-medium">✨ Galaxy — an app</p>
+              <p class="text-sm opacity-80 mt-1">Each app you build is a Galaxy in your Universe. You can have as many as you like.</p>
+            </div>
+            <div class="border border-base-300 rounded-box p-4">
+              <p class="font-medium">⭐ Star — a workspace</p>
+              <p class="text-sm opacity-80 mt-1">Your app's <span class="font-mono">.dev</span> Star is your authoring sandbox — where you describe changes and see them live. (Later, each of your app's end-users gets their own Star.)</p>
+            </div>
+          </div>
+          <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>
+          <p v-else class="opacity-80">Next: open <span class="font-medium">Manage my scopes</span> (top right) to add a Galaxy, then a Star — then open the Star to start building.</p>
+        </div>
+
+        <!-- Hierarchy manager. -->
+        <div v-else-if="stageMode === 'manage'" class="p-6 flex flex-col gap-4 max-w-2xl">
           <div class="flex items-center justify-between">
             <h2 class="text-lg font-bold">Manage my scopes</h2>
-            <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Preview</button>
+            <button class="btn btn-sm btn-ghost" @click="closeManage"><ChevronLeft class="size-4" /> Back</button>
           </div>
           <p v-if="accountEmail" class="text-sm opacity-70">Signed in as <span class="font-mono">{{ accountEmail }}</span></p>
 
-          <!-- Destructive confirm — shows the EXACT cascade before arming the button. -->
+          <!-- Destructive confirm. -->
           <div v-if="deletePlan" class="border border-error/60 rounded-box p-4 flex flex-col gap-3">
             <p class="font-medium">Delete <span class="font-mono">{{ deleteTarget }}</span>?</p>
-            <p class="text-sm opacity-80">This permanently wipes (no undo — soft-delete/restore is a later feature):</p>
+            <p class="text-sm opacity-80">Permanently wipes (no undo):</p>
             <ul class="text-sm flex flex-col gap-1">
               <li v-for="a in deletePlan.affected" :key="a.instanceName">
                 <span class="font-mono">{{ a.instanceName }}</span>
@@ -476,45 +555,49 @@ async function logout() {
               </li>
             </ul>
             <p v-if="deletePlan.blockedBy.length" class="text-sm text-error">
-              Blocked — other users are attached to
-              {{ deletePlan.blockedBy.map((b) => `${b.instanceName} (${b.email})`).join(", ") }}.
+              Blocked — other users are attached to {{ deletePlan.blockedBy.map((b) => `${b.instanceName} (${b.email})`).join(", ") }}.
             </p>
             <p v-else class="text-sm text-success">No other users — safe to wipe.</p>
             <div class="flex gap-2">
               <button class="btn btn-sm" :disabled="busy" @click="cancelDelete">Cancel</button>
-              <button
-                class="btn btn-sm btn-error"
-                :disabled="busy || deletePlan.blockedBy.length > 0"
-                @click="confirmDelete"
-              >
-                <Loader2 v-if="busy" class="size-4 animate-spin" />
-                <Trash2 v-else class="size-4" />
-                Delete permanently
+              <button class="btn btn-sm btn-error" :disabled="busy || deletePlan.blockedBy.length > 0" @click="confirmDelete">
+                <Loader2 v-if="busy" class="size-4 animate-spin" /><Trash2 v-else class="size-4" /> Delete permanently
               </button>
             </div>
           </div>
 
-          <!-- Scope list. -->
+          <!-- Hierarchy tree. -->
           <div v-else class="flex flex-col gap-2">
             <p v-if="!scopes.length && !busy" class="text-sm opacity-60">No scopes yet.</p>
-            <div
-              v-for="s in scopes"
-              :key="s.instanceName"
-              class="flex items-center justify-between border border-base-300 rounded-box p-3"
-            >
-              <span class="font-mono text-sm">{{ s.instanceName }}</span>
-              <button
-                class="btn btn-xs btn-ghost text-error"
-                :disabled="busy"
-                title="Delete scope"
-                @click="openDeleteConfirm(s.instanceName)"
-              >
-                <Trash2 class="size-4" />
-              </button>
-            </div>
+            <template v-for="s in scopes" :key="s.instanceName">
+              <div class="flex items-center gap-2 border border-base-300 rounded-box p-2.5" :style="{ marginLeft: depth(s) * 20 + 'px' }">
+                <span class="font-mono text-sm flex-1 truncate">{{ s.instanceName }}</span>
+                <span class="text-xs opacity-40">{{ s.tier }}</span>
+
+                <button v-if="s.isDev" class="btn btn-xs btn-primary" :disabled="busy" @click="openStar(s.instanceName)">
+                  <FolderOpen class="size-3.5" /> Open
+                </button>
+                <button v-else-if="s.tier === 'universe'" class="btn btn-xs btn-ghost" :disabled="busy" @click="addChildFor = addChildFor === s.instanceName ? null : s.instanceName">
+                  <Plus class="size-3.5" /> Galaxy
+                </button>
+                <button v-else-if="s.tier === 'galaxy' && !hasDevStar(s.instanceName)" class="btn btn-xs btn-ghost" :disabled="busy" @click="addStar(s.instanceName)">
+                  <Plus class="size-3.5" /> Star
+                </button>
+
+                <button class="btn btn-xs btn-ghost text-error" :disabled="busy" title="Delete" @click="openDeleteConfirm(s.instanceName)">
+                  <Trash2 class="size-3.5" />
+                </button>
+              </div>
+              <!-- inline "name a Galaxy" input under a Universe row -->
+              <form v-if="addChildFor === s.instanceName" class="flex gap-2 items-center" :style="{ marginLeft: (depth(s) + 1) * 20 + 'px' }" @submit.prevent="addGalaxy(s.instanceName)">
+                <input v-model="addChildSlug" class="input input-bordered input-sm flex-1 font-mono" placeholder="galaxy-slug (your app)" :disabled="busy" />
+                <button class="btn btn-sm btn-primary" :disabled="busy || !addChildSlug.trim()">Add</button>
+              </form>
+            </template>
           </div>
         </div>
 
+        <!-- Live preview. -->
         <iframe v-else :src="previewSrc" class="w-full h-full border-0" title="Preview" />
       </div>
     </section>
