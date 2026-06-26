@@ -31,7 +31,8 @@ export async function requestMagicLink(stub: any, instanceName: string, email: s
 export async function clickMagicLink(stub: any, magicLinkUrl: string): Promise<{ setCookie: string; refreshToken: string }> {
   const resp = await stub.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));
   expect(resp.status).toBe(302);
-  expect(resp.headers.get('Location')).toBe('/app');
+  // Redirect lands on /app and now carries `?scope=` so the SPA auto-connects (no localStorage).
+  expect(resp.headers.get('Location')).toMatch(/^\/app(\?|$)/);
   const setCookie = resp.headers.get('Set-Cookie')!;
   expect(setCookie).toContain('refresh-token=');
   const refreshToken = setCookie.split(';')[0].split('=')[1];

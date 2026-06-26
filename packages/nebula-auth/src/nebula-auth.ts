@@ -352,10 +352,19 @@ export class NebulaAuth extends DurableObject {
 
     const refreshToken = await this.#generateRefreshToken(subject.sub);
 
+    // Carry the scope on the redirect so the landing SPA can auto-connect WITHOUT any local state.
+    // The magic link opens a fresh tab (and may be a different origin), so localStorage from the
+    // login tab can't be relied on — the scope must travel in the URL. (Observed 2026-06-26: users
+    // landed at a bare /app still showing the login form because the SPA didn't know the scope.)
+    const sep = this.#redirect.includes('?') ? '&' : '?';
+    const location = this.#instanceName
+      ? `${this.#redirect}${sep}scope=${encodeURIComponent(this.#instanceName)}`
+      : this.#redirect;
+
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': this.#redirect,
+        'Location': location,
         'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
       }
     });

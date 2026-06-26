@@ -298,7 +298,8 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       // Click it
       const resp = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp.status).toBe(302);
-      expect(resp.headers.get('Location')).toBe('/app');
+      // Lands on /app AND carries the scope so the SPA can auto-connect with no local state.
+      expect(resp.headers.get('Location')).toMatch(/^\/app\?scope=/);
       expect(resp.headers.get('Set-Cookie')).toContain('refresh-token=');
     });
 
@@ -1174,17 +1175,17 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       const { magic_link } = await mlResp.json() as any;
 
-      // First click — logs in.
+      // First click — logs in (redirect lands on /app, carrying ?scope= for the SPA).
       const resp1 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp1.status).toBe(302);
-      expect(resp1.headers.get('Location')).toBe('/app');
+      expect(resp1.headers.get('Location')).toMatch(/^\/app\?scope=/);
 
       // Second click within the TTL — STILL logs in. An email scanner's prefetch consumes the link
       // before the user's real click; a strict one-time token would lock them out (the 2026-06-26
       // `invalid_token` stopper). Reusable-until-expiry keeps the user's click working.
       const resp2 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp2.status).toBe(302);
-      expect(resp2.headers.get('Location')).toBe('/app');
+      expect(resp2.headers.get('Location')).toMatch(/^\/app\?scope=/);
     });
 
     it('accept-invite with missing invite_token returns 400', async () => {

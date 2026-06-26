@@ -529,7 +529,7 @@ async function logout() {
             </div>
             <div class="border border-base-300 rounded-box p-4">
               <p class="font-medium">⭐ Star — a workspace</p>
-              <p class="text-sm opacity-80 mt-1">Your app's <span class="font-mono">.dev</span> Star is your authoring sandbox — where you describe changes and see them live. (Later, each of your app's end-users gets their own Star.)</p>
+              <p class="text-sm opacity-80 mt-1">Your app's <span class="font-mono">.dev</span> Star is your authoring sandbox — where you describe changes and see them live. (Later, each of your app's tenants/users gets their own Star.)</p>
             </div>
           </div>
           <p v-if="!connected" class="opacity-80">Claim your Universe on the left to get started.</p>
