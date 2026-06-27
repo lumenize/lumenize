@@ -1,5 +1,7 @@
 # `@lumenize/email` package + drop `CLOUDFLARE_API_TOKEN` from the plaintext lane
 
+> **ARCHIVED 2026-06-26 — COMPLETE.** All 5 phases shipped + committed (`e97cb0b` / `5cd4a52` / `2e9dac7` + the P5 capturing-sender commit). Deferred items re-homed: `FallbackEmailTransport` → `backlog.md`; mesh `this.svc.email` → `nebula-outside-world.md`; the nebula.lumenize.com `from`-switch + e2e-resend canary → `backlog.md`. Frozen point-in-time record — do not edit.
+
 **Status**: **DONE** (breaking M1 path; reviewed via Stage-1 framing ×2 + Stage-2 conformance ×2 + a spike + a Phase-4 verifier fan-out). **Phases 1–5 committed** 2026-06-26: `e97cb0b` (P1–3), `5cd4a52` (P4 rip-out), `2e9dac7` (verifier fixups), + P5 (capturing test sender). `@lumenize/email` built; auth/nebula-auth refactored onto it; `CloudflareEmailSender`/`ResendEmailSender` removed (provider chosen by env); all email docs pass `check-examples`; nebula-auth email uncaught-rejections eliminated. Verified green throughout: auth 154 + nebula-auth 308 + apps/nebula baseline 455 (no regression); auth/email/mesh type-clean. **NOTE:** repo-wide `type-check` + `check-examples` reds are **pre-existing non-email** (the parent-child session's `nebula-auth-registry` AccessEntry + `fetch`/`nebula`-teardown type errors; `ts-runtime-validator` docs now excluded), **not** this work. Breaking-but-*minor* (pre-1.0.0, bump chosen **manually** in `scripts/release.sh`). Split from the former `cloud-tests-email-and-nebula.md`; the `apps/nebula`-in-CI half is [`tasks/nebula-in-ci.md`](nebula-in-ci.md) (deferred — consumes this).
 
 ## Goal
@@ -89,7 +91,7 @@ CI is green (memory `project_ci_cloud_tests`). The blocker for a secret-less hos
 
 ## Deferred / later (pointers, not built here)
 - **Mesh `this.svc.email` capability** — per-node mesh capability (ADR-007, like `this.svc.sql`) backed by `createEmailTransport`. Deferred to its first real consumer, [`nebula-outside-world`](nebula-outside-world.md) (which owns the open generated-app-email model: Nebula-mediated `this.svc.email` vs tenant's-own-account-via-`EgressBroker`).
-- **`FallbackEmailTransport` (Axis B runtime resilience)** — retry the other provider on primary failure. Prod-only; needs a prod Resend key + unsettled double-send semantics. Its own item.
+- **`FallbackEmailTransport`** — **MOVED to `backlog.md`** (2026-06-26). (Was: retry the other provider on primary failure; prod-only, needs a prod Resend key, unsettled double-send semantics.)
 
 ## Open / to-verify at build
 - **`ResolvedEmail.to`** is a single `string` today (not `string[]`); keep unless a consumer needs multi-recipient.

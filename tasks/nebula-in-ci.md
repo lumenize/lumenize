@@ -1,6 +1,6 @@
 # Bring `apps/nebula` into the CI / cloud-test lanes
 
-**Status**: DEFERRED — not started. Split out of the former `cloud-tests-email-and-nebula.md` (2026-06-26). **Do AFTER [`tasks/lumenize-email.md`](lumenize-email.md)** — it consumes that work. Per Larry: *"We'll start over with analysis/discussion when we get to expanding CI to nebula."* Treat the scope below as **captured notes, not a designed plan** — re-review/`/review-task` before building.
+**Status**: DEFERRED — not started. Split out of the former `cloud-tests-email-and-nebula.md` (2026-06-26). **Do AFTER [`tasks/lumenize-email.md`](archive/lumenize-email.md)** (✅ DONE + archived 2026-06-26) — it consumes that work. Per Larry: *"We'll start over with analysis/discussion when we get to expanding CI to nebula."* Treat the scope below as **captured notes, not a designed plan** — re-review/`/review-task` before building.
 
 ## Why deferred / separate
 `apps/nebula` was deliberately excluded from CI (the loop is `packages/*` only). Including it is a bigger lift across Docker / `env.AI` / browser gating, and it depends on the email-send unification landing first so `nebula-auth`'s email tests stop needing the CF token (resolved by `tasks/lumenize-email.md`).
@@ -17,6 +17,6 @@
 - `apps/nebula` uses `CLOUDFLARE_API_TOKEN` in its **own** env (containers / deploy) — independent of the email canary; analyze that exposure separately when this is picked up.
 
 ## Related
-- [`tasks/lumenize-email.md`](lumenize-email.md) — prerequisite (email-send unification + secret-presence gating).
+- [`tasks/lumenize-email.md`](archive/lumenize-email.md) — prerequisite, ✅ DONE 2026-06-26 (email-send unification + secret-presence gating).
 - Memory `project_ci_cloud_tests` — the CI-green recipe.
 - Memory `project_nebula_pre_alpha` — first CF deploy ~2026-06-30; this CI work is downstream of the deploy work, not a blocker for it.
