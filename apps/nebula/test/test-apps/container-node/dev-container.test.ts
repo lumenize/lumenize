@@ -170,11 +170,15 @@ describe('DevContainer cold-container recovery (idle-sleep wake)', () => {
     expect(isDocumentRequest(new Request('https://x/app.js', { headers: { 'sec-fetch-dest': 'script', accept: '*/*' } }))).toBe(false);
   });
 
-  it('wakingPreviewPage self-heals: 200 HTML carrying the auto-reload meta', async () => {
+  it('wakingPreviewPage: 200 HTML with a MANUAL reload and NO auto-reload loop', async () => {
     const res = wakingPreviewPage();
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/text\/html/);
-    // The meta-refresh IS the self-healing mechanism — drop it and the page never retries.
-    expect(await res.text()).toMatch(/http-equiv="refresh"/i);
+    const html = await res.text();
+    // Manual reload only.
+    expect(html).toMatch(/location\.reload/);
+    // Guard against re-introducing the auto-reload loop — the 2026-06-27 regression that hammered a
+    // stuck container and blocked the idle-eviction that clears its stale running-flag.
+    expect(html).not.toMatch(/http-equiv=["']?refresh/i);
   });
 });

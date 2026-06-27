@@ -132,21 +132,28 @@ export function isDocumentRequest(request: Request): boolean {
 }
 
 /**
- * Self-healing interstitial served when the dev container idle-slept: a friendly "Waking…" page that
- * auto-reloads every 2s (`<meta http-equiv=refresh>`). Each reload re-requests the preview; once the
- * runtime's `running` flag re-syncs the base auto-starts the container and serves the real app, so the
- * page replaces itself — no manual reload, no raw error. Pure (no container round-trip).
+ * Friendly interstitial served when the container proxy fails (idle-slept with a stale `running`
+ * flag, or a start that failed / hit capacity). It carries a **manual** Reload button and deliberately
+ * does **NOT** auto-reload. Two reasons (the 2026-06-27 regression that proved both): (1) these are
+ * *failure* states, not a normal cold boot — the base proxy already *waits* for a healthy cold start,
+ * so a retry doesn't speed a genuine failure, it just hammers it; (2) every proxy attempt calls the
+ * base's `renewActivityTimeout`, so a tight reload loop keeps the DO from idle-evicting — and that
+ * eviction is precisely what clears a stale `running` flag. Auto-reload therefore *prevents* recovery.
+ * Pure (no container round-trip). A proper instant force-restart (stop+start, bypassing the stale-flag
+ * fast-path) is the follow-up; until then a stuck container self-recovers once traffic stops (≤sleepAfter).
  */
 export function wakingPreviewPage(): Response {
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">` +
-    `<title>Waking your preview…</title><meta http-equiv="refresh" content="2">` +
+    `<title>Waking your preview…</title>` +
     `<style>body{font-family:system-ui,sans-serif;margin:0;height:100vh;display:grid;place-items:center;` +
     `background:#1d232a;color:#a6adbb}.box{text-align:center}.s{font-size:1.4rem;animation:p 1.5s ease-in-out infinite}` +
-    `@keyframes p{50%{opacity:.4}}p{opacity:.6;font-size:.85rem}</style></head>` +
+    `@keyframes p{50%{opacity:.4}}p{opacity:.6;font-size:.85rem}button{font:inherit;margin-top:1rem;padding:.5rem 1rem;` +
+    `border-radius:.5rem;border:1px solid #3b4451;background:#2a323c;color:#a6adbb;cursor:pointer}</style></head>` +
     `<body><div class="box"><div class="s">⏳ Waking your preview…</div>` +
-    `<p>It idle-slept to save resources — reconnecting automatically.</p></div></body></html>`;
+    `<p>It idle-slept to save resources. Give it a moment, then reload.</p>` +
+    `<button onclick="location.reload()">Reload</button></div></body></html>`;
   return new Response(html, {
     status: 200,
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
@@ -283,10 +290,11 @@ export class DevContainer extends NebulaContainer {
     const res = await super.fetch(request);
 
     // Cold-container recovery (idle-sleep → stale `running` flag → base proxy 5xx it can't restart
-    // past; see isContainerColdResponse). On the top-level preview navigation, serve a self-healing
-    // waking page that auto-reloads until the flag re-syncs and the base auto-starts. Assets fall
-    // through to the existing stream path and are re-fetched by that reload. A genuine app error
-    // (non-cold body) passes through untouched — never masked.
+    // past; see isContainerColdResponse). On the top-level preview navigation, serve a friendly
+    // waking page with a MANUAL reload — NOT an auto-reload loop: retrying a failure state just
+    // hammers it, and each attempt renews the activity timeout, blocking the idle-eviction that
+    // clears the stale flag (the 2026-06-27 regression). A genuine app error (non-cold body) passes
+    // through untouched — never masked.
     if (isDocumentRequest(request) && !res.ok) {
       const body = await res.text();
       if (isContainerColdResponse(res.status, body)) return wakingPreviewPage();
