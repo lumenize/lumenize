@@ -378,17 +378,15 @@ async function openStar(star: string) {
     nebula.value = n;
     messages.value = [];
     manageOpen.value = false;
-    previewSrc.value = `/dev-container/${star}/`; // immediate feedback (the waking page if the container is cold)
-    // Push the built source to the (possibly cold) container so the preview shows the actual app —
-    // NOT the baked "warming up" placeholder. A plain open/refresh never re-pushed before; only chat
-    // did (chat()'s first step is ensureUp → boot + applyChanges the full tree). Reload after the push
-    // so the iframe picks it up (HMR isn't wired through the path-prefix proxy yet).
-    try {
-      await n.client.lmz.callRaw("DEV_STUDIO", star, n.client.ctn<DevStudio>().ensureUp());
-      previewSrc.value = `/dev-container/${star}/?t=${Date.now()}`;
-    } catch {
-      log("studio", 'Preview is still warming up — if it doesn’t appear shortly, ask me to “show my app”.');
-    }
+    previewSrc.value = `/dev-container/${star}/`; // render the stage NOW (waking page if the container is cold)
+    // Push the built source to the (possibly cold) container so the preview shows the actual app, not
+    // the baked "warming up" placeholder. Do it in the BACKGROUND — NEVER await it here: a slow/stuck
+    // container would otherwise hang the whole stage with no error (the 2026-06-27 "main stage never
+    // refreshes" regression). When the push lands, reload the preview to pick it up (guard against a
+    // stale reload if the user navigated away meanwhile).
+    void n.client.lmz.callRaw("DEV_STUDIO", star, n.client.ctn<DevStudio>().ensureUp())
+      .then(() => { if (activeScope.value === star) previewSrc.value = `/dev-container/${star}/?t=${Date.now()}`; })
+      .catch(() => { log("studio", 'Preview is still warming up — if it doesn’t appear, hit the Reload button (top right).'); });
   } catch (e) {
     log("error", `Could not open ${star}: ${(e as Error).message}`);
   } finally {
