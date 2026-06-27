@@ -34,6 +34,14 @@ const JWT_TEST_KEYS = {
 // it unset, so the CF canary runs there. e2e-email-resend has no remote binding and
 // its secrets live in .dev.vars (not process.env), so it stays unconditional.
 const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
+// Loud omission (iteration lane only): if the flag drops the CF-remote projects,
+// SAY SO — so a green run in the hosted / no-creds lane is never mistaken for full
+// coverage (incl. by an agent reporting "tests pass"). CI never sets the flag — it
+// runs these and red-fails on a dead key — so this only fires in the constrained
+// iteration lane, never as a CI safety net.
+if (!includeCfRemote) {
+  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING e2e-email + hono (Cloudflare Email Sending path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
+}
 
 export default defineConfig({
   test: {
