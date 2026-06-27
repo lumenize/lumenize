@@ -1,6 +1,6 @@
 ---
 title: Access control
-description: Nebula's org/permission tree — how resources attach to nodes, how grants cascade additively, and the two ways to share: a grant vs. a second parent.
+description: "Nebula's org/permission tree — how resources attach to nodes, how grants cascade additively, and the two ways to share: a grant vs. a second parent."
 ---
 
 # Access control

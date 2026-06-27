@@ -196,13 +196,7 @@ const config: Config = {
       [
         checkExamplesPlugin,
         {
-          // 'ts-runtime-validator/' — the @lumenize/ts-runtime-validator package was
-          // deleted (deprecated, superseded by ts-runtime-parser-validator). Its docs
-          // are kept on disk so the two frozen blog posts' /docs/ts-runtime-validator/*
-          // links still resolve, but they @check-example the now-deleted package, so
-          // they're excluded from validation (kept static). (Pattern matches the
-          // deprecated dir, NOT ts-runtime-parser-validator/.)
-          exclude: ['_archived', 'ts-runtime-validator/'],
+          exclude: ['_archived'],
         },
       ],
   ],
