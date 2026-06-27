@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
-import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
+import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { DevStudio, Star } from "@lumenize/nebula";
@@ -512,10 +512,10 @@ async function logout() {
           v-if="isDevStar(activeScope)"
           class="btn btn-sm btn-ghost"
           :disabled="busy || !connected"
-          title="Wipe .dev data"
+          title="Wipe the development test data"
           @click="wipe"
         >
-          <RotateCcw class="size-4" /> Wipe
+          <Eraser class="size-4" /> Wipe
         </button>
       </header>
 
@@ -591,6 +591,15 @@ async function logout() {
         <span v-if="busy" class="mr-auto flex items-center gap-1.5 text-xs opacity-70">
           <Loader2 class="size-3.5 animate-spin" /> Working…
         </span>
+        <button
+          v-if="isDevStar(activeScope)"
+          class="btn btn-sm btn-ghost btn-square"
+          :disabled="busy"
+          title="Reload preview"
+          @click="reloadPreview"
+        >
+          <RotateCw class="size-4" />
+        </button>
         <button class="btn btn-sm btn-ghost gap-2" title="Account" @click="menuOpen = !menuOpen">
           <span v-if="accountEmail" class="text-xs opacity-60">{{ accountEmail }}</span>
           <span class="inline-flex items-center justify-center size-7 rounded-full bg-primary text-primary-content"><User class="size-4" /></span>
