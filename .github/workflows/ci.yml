@@ -4,10 +4,14 @@ on:
   pull_request:
     branches:
       - main
-  # TEMP (experiment): run CI on pushes to this feature branch so we can get a
-  # green run on GitHub's hardware without opening a PR into main. Revert after.
+  # Run CI on pushes too: main = post-merge verification (catches anything the PR
+  # gate didn't); feat/nebula-studio = continuous feedback on the active feature
+  # branch (surfaces in GitHub Desktop's commit history). Drop feat/nebula-studio
+  # from this list once it merges to main. `main` is branch-protected to require
+  # the audit/test/doc checks before merge (Sonar stays advisory).
   push:
     branches:
+      - main
       - feat/nebula-studio
 
 jobs:
