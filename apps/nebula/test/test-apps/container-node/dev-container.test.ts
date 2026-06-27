@@ -18,7 +18,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
-import { DevContainer, assertSafeRelPath, injectScopeMeta } from '../../../src/dev-container';
+import {
+  DevContainer,
+  assertSafeRelPath,
+  injectScopeMeta,
+  isContainerColdResponse,
+  isDocumentRequest,
+  wakingPreviewPage,
+} from '../../../src/dev-container';
 import { requireAdmin } from '../../../src/nebula-do';
 
 describe('DevContainer writeFile path-traversal guard (assertSafeRelPath)', () => {
@@ -129,5 +136,45 @@ describe('DevContainer setAppVersion (the version the public fetch() injects)', 
     // Capable-of-failing: a wrong key (or no write) breaks the contract with fetch(),
     // which reads this exact key to inject `appVersion` (Decision 12 / Flow 1d).
     expect(puts).toEqual([['devcontainer:appVersion', oid]]);
+  });
+});
+
+describe('DevContainer cold-container recovery (idle-sleep wake)', () => {
+  // The exact response a slept container produces (base proxy hit a stale `running` flag). Both
+  // operands of the compound condition are mutation-checked below.
+  it('flags the real "not running" proxy 500 as cold', () => {
+    expect(
+      isContainerColdResponse(500, 'Error proxying request to container: The container is not running, consider calling start()'),
+    ).toBe(true);
+    expect(isContainerColdResponse(503, 'There is no Container instance available at this time.')).toBe(true);
+    expect(isContainerColdResponse(429, 'rate limited')).toBe(true); // 429 is a cold status too
+  });
+
+  // Body operand: a genuine app 500 (no cold phrase) must NOT be masked → mutating the regex to
+  // always-match reds this; without it we'd loop a waking page over a real vite error.
+  it('does NOT flag a genuine app 500 as cold (no masking)', () => {
+    expect(isContainerColdResponse(500, '<pre>SyntaxError: Unexpected token in App.vue</pre>')).toBe(false);
+    expect(isContainerColdResponse(500, 'Internal Server Error')).toBe(false);
+  });
+
+  // Status operand: a cold-looking BODY at an OK status isn't cold → mutating away the status guard
+  // reds this.
+  it('does NOT flag a non-error status even with a container-ish body', () => {
+    expect(isContainerColdResponse(200, 'starting the container, not running yet')).toBe(false);
+    expect(isContainerColdResponse(404, 'not running')).toBe(false);
+  });
+
+  it('isDocumentRequest: navigation yes, sub-asset no', () => {
+    expect(isDocumentRequest(new Request('https://x/', { headers: { 'sec-fetch-dest': 'document' } }))).toBe(true);
+    expect(isDocumentRequest(new Request('https://x/', { headers: { accept: 'text/html,application/xhtml+xml' } }))).toBe(true);
+    expect(isDocumentRequest(new Request('https://x/app.js', { headers: { 'sec-fetch-dest': 'script', accept: '*/*' } }))).toBe(false);
+  });
+
+  it('wakingPreviewPage self-heals: 200 HTML carrying the auto-reload meta', async () => {
+    const res = wakingPreviewPage();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/text\/html/);
+    // The meta-refresh IS the self-healing mechanism — drop it and the page never retries.
+    expect(await res.text()).toMatch(/http-equiv="refresh"/i);
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted } from "vue";
+import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCcw, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
@@ -212,6 +212,25 @@ onMounted(() => {
       connecting.value = false;
     });
 });
+
+// When the tab is backgrounded long enough for the dev container to idle-sleep (~5m), re-request the
+// preview on return so it wakes — the DevContainer serves a self-healing "waking" page until it's back
+// up. Gated on a long absence so quick tab-switches (container still warm) don't reload needlessly. The
+// mesh client reconnects its own gateway WS via its backoff; this covers the preview the client doesn't own.
+let hiddenAt = 0;
+function onVisibilityChange() {
+  if (document.visibilityState === "hidden") {
+    hiddenAt = Date.now();
+    return;
+  }
+  const awayMs = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = 0;
+  if (awayMs > 4 * 60_000 && connected.value && isDevStar(activeScope.value)) {
+    reloadPreview();
+  }
+}
+onMounted(() => document.addEventListener("visibilitychange", onVisibilityChange));
+onUnmounted(() => document.removeEventListener("visibilitychange", onVisibilityChange));
 
 async function send() {
   const msg = input.value.trim();

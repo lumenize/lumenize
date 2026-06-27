@@ -107,6 +107,52 @@ export function injectScopeMeta(
   return html.includes('<head>') ? html.replace('<head>', `<head>\n    ${meta}`) : `${meta}\n${html}`;
 }
 
+/**
+ * A non-OK proxy response that signals the container is cold/slept/provisioning — NOT a genuine app
+ * error. When a container idle-sleeps, the `@cloudflare/containers` base proxy can hit a momentarily
+ * stale `running` flag, skip its own auto-restart, and return a 5xx whose body carries one of these
+ * runtime/base phrases (the monitor corrects the flag within ~a second, so a retry succeeds). 429/503
+ * are always container-infra (capacity / no-instance — never an app's doing for a navigation); the
+ * ambiguous 500/502 is matched by BODY signature so a genuine vite/app 500 is NOT masked.
+ * Pure + synchronous so it's unit-testable without a live container.
+ */
+export function isContainerColdResponse(status: number, body: string): boolean {
+  if (status === 429 || status === 503) return true; // rate-limited / no-instance — always container-infra, never an app's doing for a navigation
+  if (status !== 500 && status !== 502) return false;
+  return /not running|proxying request to container|Failed to start container|suddenly disconnected|provisioning/i.test(
+    body,
+  );
+}
+
+/** True for a top-level preview navigation (vs a sub-asset request). Only the navigation gets the
+ *  self-healing waking page; assets pass through and are re-fetched by the page's own reload. Pure. */
+export function isDocumentRequest(request: Request): boolean {
+  if (request.headers.get('sec-fetch-dest') === 'document') return true;
+  return (request.headers.get('accept') ?? '').includes('text/html');
+}
+
+/**
+ * Self-healing interstitial served when the dev container idle-slept: a friendly "Waking…" page that
+ * auto-reloads every 2s (`<meta http-equiv=refresh>`). Each reload re-requests the preview; once the
+ * runtime's `running` flag re-syncs the base auto-starts the container and serves the real app, so the
+ * page replaces itself — no manual reload, no raw error. Pure (no container round-trip).
+ */
+export function wakingPreviewPage(): Response {
+  const html =
+    `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+    `<title>Waking your preview…</title><meta http-equiv="refresh" content="2">` +
+    `<style>body{font-family:system-ui,sans-serif;margin:0;height:100vh;display:grid;place-items:center;` +
+    `background:#1d232a;color:#a6adbb}.box{text-align:center}.s{font-size:1.4rem;animation:p 1.5s ease-in-out infinite}` +
+    `@keyframes p{50%{opacity:.4}}p{opacity:.6;font-size:.85rem}</style></head>` +
+    `<body><div class="box"><div class="s">⏳ Waking your preview…</div>` +
+    `<p>It idle-slept to save resources — reconnecting automatically.</p></div></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
+  });
+}
+
 export class DevContainer extends NebulaContainer {
   /** Public vite preview surface. The base `fetch()` pins the public proxy here and
    *  strips `cf-container-target-port`, so a browser can only reach vite. */
@@ -235,6 +281,18 @@ export class DevContainer extends NebulaContainer {
       return super.fetch(request); // HMR WebSocket — forward verbatim, never buffer
     }
     const res = await super.fetch(request);
+
+    // Cold-container recovery (idle-sleep → stale `running` flag → base proxy 5xx it can't restart
+    // past; see isContainerColdResponse). On the top-level preview navigation, serve a self-healing
+    // waking page that auto-reloads until the flag re-syncs and the base auto-starts. Assets fall
+    // through to the existing stream path and are re-fetched by that reload. A genuine app error
+    // (non-cold body) passes through untouched — never masked.
+    if (isDocumentRequest(request) && !res.ok) {
+      const body = await res.text();
+      if (isContainerColdResponse(res.status, body)) return wakingPreviewPage();
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    }
+
     if (!(res.headers.get('content-type') ?? '').includes('text/html')) {
       return res; // assets stream through unchanged
     }
