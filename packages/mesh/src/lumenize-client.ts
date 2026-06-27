@@ -386,6 +386,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
+  #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #currentCallContext: CallContext | null = null;
   #WebSocketClass: typeof WebSocket;
@@ -812,6 +813,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #handleOpen(): void {
     // Reset reconnect attempts on successful connection
     this.#reconnectAttempts = 0;
+    this.#reauthAttemptedThisCycle = false; // fresh cycle — re-arm the once-per-cycle re-auth
 
     // State will be set to 'connected' when we receive connection_status message
     // This ensures we don't miss the subscriptionRequired info
@@ -870,6 +872,22 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   #scheduleReconnect(): void {
+    // Reactive re-auth: the browser hides a failed WS *upgrade*'s HTTP status, so an auth-rejected
+    // reconnect (token expired/rotated/revoked/clock-skewed) is indistinguishable from a generic 1006 —
+    // we can't read the 401 off the socket. So once the reconnect ITSELF has also failed (`>= 1` prior
+    // attempt — a single drop is more likely a transient blip the SAME token recovers from), force a
+    // token re-auth ONCE: null it so the next `#connectInternal` refreshes (`#needsTokenRefresh` → true).
+    // The refresh ENDPOINT's response IS readable — 200 → fresh token (the reconnect then succeeds);
+    // 401/403 → `#refreshToken` throws `LoginRequiredError` → `onLoginRequired`. Bounded by
+    // `#reauthAttemptedThisCycle` (reset on a successful open), so a network outage costs at most one
+    // extra refresh, never a refresh loop, and a freshly-refreshed token isn't re-nulled. Complements
+    // the proactive `#needsTokenRefresh` exp-check (which only catches a readably-past `exp`); this also
+    // covers BLUE/GREEN key rotation, revocation, and client/server clock skew.
+    if (!this.#reauthAttemptedThisCycle && this.#accessToken && this.#reconnectAttempts >= 1) {
+      this.#reauthAttemptedThisCycle = true;
+      this.#accessToken = null;
+    }
+
     // Calculate delay with exponential backoff
     const delay = Math.min(
       INITIAL_RECONNECT_DELAY_MS * Math.pow(2, this.#reconnectAttempts),

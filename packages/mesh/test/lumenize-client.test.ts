@@ -944,6 +944,48 @@ describe('Token refresh', () => {
     client.disconnect();
   });
 
+  it('force-refreshes ONCE on a reconnect failure even when the token looks fresh by exp (auth reject unreadable off the WS)', async () => {
+    let refreshCount = 0;
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCount++;
+        return { access_token: createFakeJwt({ sub: 'user', exp: future }) };
+      },
+    });
+
+    // First connect refreshes the missing token → `#claims.exp` is FUTURE, so the token looks fresh.
+    await new Promise(r => setTimeout(r, 20));
+    expect(refreshCount).toBe(1);
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    // 1st drop (generic 1006 — the unreadable upgrade-reject the browser gives us): a single drop is
+    // likely a transient blip, so the fresh-looking token is REUSED with no refresh.
+    ws1.simulateClose(1006, 'bad response from the server');
+    client.connect(); // trigger the scheduled reconnect now (mirrors the 4409 stale-close test)
+    const ws2 = createdWebSockets[1];
+    expect(ws2).toBeDefined();
+    expect(refreshCount).toBe(1); // one drop isn't enough — token reused
+
+    // 2nd consecutive failure: now the reconnect itself failed, so the token is the suspect (a
+    // key-rotation / clock-skew / revocation reject that looks fresh by `exp`). Force-reauth once →
+    // refresh before retrying.
+    ws2.simulateClose(1006, 'bad response from the server');
+    client.connect();
+    await new Promise(r => setTimeout(r, 20));
+
+    // Capable-of-failing: without the threshold-gated force-reauth, the fresh-looking token is reused
+    // with no refresh, so refreshCount stays 1 (and the gateway keeps rejecting it — the loop).
+    expect(refreshCount).toBe(2);
+    client.disconnect();
+  });
+
   it('calls onLoginRequired when refresh fails', async () => {
     let loginRequiredCalled = false;
     let refreshCallCount = 0;
