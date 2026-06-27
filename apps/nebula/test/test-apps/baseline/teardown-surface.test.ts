@@ -22,7 +22,7 @@ describe('teardown() deprovision primitive — mesh-callable + admin-gated on ev
     ['DevStudio', DevStudio],
   ])('%s.teardown is @mesh(requireAdmin)', (_name, ctor) => {
     // Resolves the inherited NebulaDO.prototype.teardown via the prototype chain.
-    const fn = (ctor.prototype as Record<string, unknown>).teardown as ((...a: unknown[]) => unknown) | undefined;
+    const fn = (ctor.prototype as unknown as Record<string, unknown>).teardown as ((...a: unknown[]) => unknown) | undefined;
     expect(typeof fn).toBe('function');
     expect(isMeshCallable(fn!)).toBe(true);
     expect(getMeshGuard(fn!)).toBe(requireAdmin);

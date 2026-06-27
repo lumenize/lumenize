@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import type { AccessEntry } from '@lumenize/nebula-auth';
 import { fullLogin, requestMagicLink, clickMagicLink, refreshAndParse, adminRequest, url } from './test-helpers';
 
 /** Get the singleton registry stub (cast to any for RPC method access) */
@@ -468,7 +469,7 @@ describe('NebulaAuthRegistry', () => {
 
       const plan = await registry.planScopeDeletion('del3-u.app.dev', OWNER, ADMIN_OVER('del3-u'));
       expect(plan.blockedBy).toEqual([]);
-      const names = plan.affected.map(a => a.instanceName).sort();
+      const names = plan.affected.map((a: { instanceName: string }) => a.instanceName).sort();
       expect(names).toEqual(['del3-u', 'del3-u.app.dev']); // pruned up to the now-empty universe
     });
 
@@ -480,7 +481,7 @@ describe('NebulaAuthRegistry', () => {
 
       const plan = await registry.planScopeDeletion('del4-u.app.dev', OWNER, ADMIN_OVER('del4-u'));
       // Only the target — the universe keeps its other star, so it is NOT pruned.
-      expect(plan.affected.map(a => a.instanceName)).toEqual(['del4-u.app.dev']);
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del4-u.app.dev']);
     });
 
     it('plan: deleting a higher node cascades DOWN to descendants', async () => {
@@ -489,7 +490,7 @@ describe('NebulaAuthRegistry', () => {
       await registry.registerEmail(OWNER, 'del2-u.app.dev', true);
 
       const plan = await registry.planScopeDeletion('del2-u', OWNER, ADMIN_OVER('del2-u'));
-      expect(plan.affected.map(a => a.instanceName).sort()).toEqual(['del2-u', 'del2-u.app.dev']);
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName).sort()).toEqual(['del2-u', 'del2-u.app.dev']);
     });
 
     it('guard: another user on the target blocks the delete (plan reports who/where)', async () => {
@@ -509,7 +510,7 @@ describe('NebulaAuthRegistry', () => {
       await registry.registerEmail(solo, 'del6-u.app.dev', true);
 
       const result = await registry.executeScopeDeletion('del6-u.app.dev', solo, ADMIN_OVER('del6-u'));
-      expect(result.affected.map(a => a.instanceName)).toEqual(['del6-u.app.dev']);
+      expect(result.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del6-u.app.dev']);
       expect(await registry.discover(solo)).toEqual([]); // Emails gone → clean first-run
       expect(await registry.checkSlugAvailable('del6-u.app.dev')).toBe(true); // Instances gone
     });
@@ -547,7 +548,7 @@ describe('NebulaAuthRegistry', () => {
       const plan = await registry.planScopeDeletion(
         'del9-u.app.dev', OWNER, { authScopePattern: 'del9-u.app.dev', admin: true },
       );
-      expect(plan.affected.map(a => a.instanceName)).toEqual(['del9-u.app.dev']); // universe NOT pruned
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del9-u.app.dev']); // universe NOT pruned
     });
 
     it('reserved platform instance cannot be deleted', async () => {

@@ -18,7 +18,7 @@ import { FetchTimeoutError } from '@lumenize/fetch';
 // CI runs with `vitest --retry`, and a retry re-runs the test body — so without
 // a fresh DO each call, a late callback from the prior attempt would leave
 // callCount at 2 ("expected 2 to be 1"). uniq() gives every (re)run its own DO.
-const uniq = (base) => `${base}-${crypto.randomUUID()}`;
+const uniq = (base: string) => `${base}-${crypto.randomUUID()}`;
 
 describe('proxyFetch - Basic Flow', () => {
   test('makes successful fetch and delivers result via worker callback', async () => {
