@@ -130,7 +130,7 @@ That's it. With the `EMAIL` binding present, your sender delivers via Cloudflare
 
 **3. Add bindings to wrangler.jsonc**
 
-Two bindings: the self-referencing service binding that lets the Auth DO call your `AuthEmailSender`, and the `send_email` binding that `CloudflareEmailSender` uses to send.
+Two bindings: the self-referencing service binding that lets the Auth DO call your `AuthEmailSender`, and the `send_email` (EMAIL) binding that the Cloudflare email transport uses to send.
 
 ```jsonc
 {

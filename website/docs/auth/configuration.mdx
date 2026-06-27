@@ -69,8 +69,7 @@ LumenizeAuth requires outgoing email for magic links, admin notifications, appro
 
 ```
 WorkerEntrypoint                     (Cloudflare)
-  └─ AuthEmailSenderBase             (@lumenize/auth — templates, subjects, from/replyTo/appName;
-       │                              sendEmail() composes a transport from @lumenize/email, chosen by env)
+  └─ AuthEmailSenderBase             (@lumenize/auth — templates, subjects, from/replyTo/appName)
        └─ AuthEmailSender            (you — set from; provider chosen by env, not by base class)
 
 Provider selection (in AuthEmailSenderBase.sendEmail, via @lumenize/email's createEmailTransport):
@@ -112,7 +111,7 @@ All methods receive the corresponding `EmailMessage` variant as their argument.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `from` | Yes | — | Bare sender email address (e.g., `'auth@myapp.com'`). Both `CloudflareEmailSender` and `ResendEmailSender` use `appName` as the `From:` display name (`"${appName} <${from}>"`). |
+| `from` | Yes | — | Bare sender email address (e.g., `'auth@myapp.com'`). Both the Cloudflare and Resend transports use `appName` as the `From:` display name (`"${appName} <${from}>"`). |
 | `replyTo` | No | `no-reply@{domain}` | Reply-to address. Domain is extracted from `from`. |
 | `appName` | No | `'Lumenize'` | Used in default templates and the `From:` display name. |
 

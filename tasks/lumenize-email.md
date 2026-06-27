@@ -76,7 +76,7 @@ CI is green (memory `project_ci_cloud_tests`). The blocker for a secret-less hos
 - [ ] **`cd website && npm run check-examples` is GREEN** — the "all suites green" vitest gate does NOT run the docs checker, so without this the non-breaking-docs claim is unverifiable.
 - [ ] **Do NOT migrate frozen artifacts that match the grep**: `website/blog/2026-04-17-auth-now-on-cloudflare-email/index.md` (contains `extends ResendEmailSender`/`CloudflareEmailSender`) is a published, frozen post (blog-posts-frozen rule) — the removed class names are correct as of its date; leave it. Those names live in the canonical migration note now.
 - [ ] **One canonical before→after migration note** (the release note the breaking bump requires) owns the complete external-consumer migration (`extends CloudflareEmailSender`/`ResendEmailSender` → `extends AuthEmailSenderBase` + provider-by-env) and acknowledges the Resend-selection change **once** — not scattered per doc.
-- [ ] **Flag the next release as a breaking change → a *minor* semver bump** (we're pre-1.0.0, so a breaking change is officially minor, not major; workflow.md § Releases).
+- [ ] **Flag the next release as a breaking change → a *minor* semver bump** (we're pre-1.0.0, so a breaking change is officially minor, not major; workflow.md § Releases). The bump is chosen **manually** at release (`scripts/release.sh` interactive prompt → pick *minor*); the commit's `feat(email)!:` title + `BREAKING CHANGE:` footer are advisory flags for the releaser, **not** auto-detected (no conventional-commits config in Lerna).
 - [ ] All suites + the deployed browser workers (under `wrangler dev`) green.
 
 ### Phase 5 — Quiet nebula-auth's fire-and-forget email-send rejections (cleanup; do last)
