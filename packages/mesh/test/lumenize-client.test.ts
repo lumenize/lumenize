@@ -17,6 +17,7 @@ import {
   type ConnectionState,
   mesh,
 } from '../src/index.js';
+import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from '../src/ws-heartbeat.js';
 
 // ============================================
 // Minimal WebSocket Stub for Unit Testing
@@ -1604,5 +1605,35 @@ describe('Disconnect cleanup', () => {
     // Disconnect should clear the reconnect timer
     client.disconnect();
     expect(client.connectionState).toBe('disconnected');
+  });
+});
+
+describe('WebSocket heartbeat (keepalive)', () => {
+  beforeEach(() => { createdWebSockets = []; });
+
+  it('sends a keepalive ping on the interval while connected; pong does not disrupt', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+      heartbeatIntervalMs: 20, // tiny so it fires within the test (prod default is 30s)
+    });
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    await new Promise(r => setTimeout(r, 75)); // a few intervals
+    const pings = ws.getSentMessages().filter((m: string) => m === WS_HEARTBEAT_PING);
+    // Capable-of-failing: without the heartbeat there are ZERO pings → a long quiet turn idle-drops
+    // the WS and the completed turn's reply can't be delivered.
+    expect(pings.length).toBeGreaterThanOrEqual(2);
+
+    // The gateway's auto-pong is keepalive, not a mesh message — it must not disrupt the connection.
+    ws.simulateMessage(WS_HEARTBEAT_PONG);
+    expect(client.connectionState).toBe('connected');
+
+    client.disconnect(); // stops the interval (no leaked timer)
   });
 });

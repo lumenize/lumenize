@@ -1,6 +1,7 @@
 import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth/client';
+import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from './ws-heartbeat.js';
 import {
   newContinuation,
   executeOperationChain,
@@ -215,6 +216,13 @@ export interface LumenizeClientConfig {
    */
   onConnectionError?: (error: Error) => void;
 
+  /**
+   * WebSocket keepalive ping cadence in ms (default {@link WS_HEARTBEAT_INTERVAL_MS} = 30s). Keeps a
+   * long, quiet turn from idle-dropping the gateway WS (the gateway auto-pongs without waking). Mainly
+   * a testing override — set small to exercise the heartbeat without a 30s wait. `<= 0` disables it.
+   */
+  heartbeatIntervalMs?: number;
+
   // --- Testing overrides (see @lumenize/testing docs) ---
 
   /**
@@ -388,6 +396,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #reconnectAttempts = 0;
   #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
+  #heartbeatTimer?: ReturnType<typeof setInterval>; // WS keepalive while connected (started on open)
   #currentCallContext: CallContext | null = null;
   #WebSocketClass: typeof WebSocket;
   #lmzApi: LmzApiClient | null = null;
@@ -592,6 +601,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   disconnect(): void {
     // Clear reconnect timer
     this.#clearReconnectTimeout();
+    this.#stopHeartbeat();
 
     // Close WebSocket
     if (this.#ws) {
@@ -814,6 +824,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // Reset reconnect attempts on successful connection
     this.#reconnectAttempts = 0;
     this.#reauthAttemptedThisCycle = false; // fresh cycle — re-arm the once-per-cycle re-auth
+    this.#startHeartbeat(); // keepalive so a long, quiet turn doesn't idle-drop this socket
 
     // State will be set to 'connected' when we receive connection_status message
     // This ensures we don't miss the subscriptionRequired info
@@ -821,6 +832,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
   #handleClose(code: number, reason: string): void {
     this.#ws = null;
+    this.#stopHeartbeat(); // socket gone — the next successful open re-arms it
 
     // Check if this is an auth-related close
     // 4400 (no token) and 4403 (invalid signature) are unlikely since the auth
@@ -946,6 +958,29 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     if (this.#reconnectTimeoutId) {
       clearTimeout(this.#reconnectTimeoutId);
       this.#reconnectTimeoutId = undefined;
+    }
+  }
+
+  /** Start the WS keepalive: send a small ping every `heartbeatIntervalMs` so the edge won't idle-close
+   *  the socket during a long, quiet turn (the gateway auto-pongs without waking — see ws-heartbeat.ts).
+   *  Idempotent (stops any prior timer first); `<= 0` disables it. Started on open, stopped on close. */
+  #startHeartbeat(): void {
+    this.#stopHeartbeat();
+    const interval = this.#config.heartbeatIntervalMs ?? WS_HEARTBEAT_INTERVAL_MS;
+    if (interval <= 0) return;
+    this.#heartbeatTimer = setInterval(() => {
+      try {
+        this.#ws?.send(WS_HEARTBEAT_PING);
+      } catch {
+        /* socket mid-close — the next reconnect re-arms */
+      }
+    }, interval);
+  }
+
+  #stopHeartbeat(): void {
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
     }
   }
 
@@ -1080,6 +1115,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // ============================================
 
   #handleMessage(data: string): void {
+    // Heartbeat auto-pong from the gateway — keepalive only, not a mesh message (and not JSON, so it
+    // must be skipped BEFORE the parse below or it logs a spurious parse error every cadence).
+    if (data === WS_HEARTBEAT_PONG) return;
+
     let message: GatewayMessage;
     try {
       // Use JSON.parse - postprocessing is done per-field as needed

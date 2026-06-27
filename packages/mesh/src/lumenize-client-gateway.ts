@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
+import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
 import type { CallEnvelope } from './lmz-api.js';
 import type { NodeType, NodeIdentity, CallContext, OriginAuth } from './types.js';
 import {
@@ -276,6 +277,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
     }
 
     this.ctx.acceptWebSocket(server);
+    // Keepalive: auto-pong the client's heartbeat ping at the runtime level — keeps a long, quiet turn
+    // from idle-dropping the socket, WITHOUT waking this hibernated DO (no per-ping wall-clock cost).
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG));
     server.serializeAttachment(attachment);
 
     // Resolve any pending reconnect waiters
