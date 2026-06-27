@@ -73,23 +73,15 @@ jobs:
         run: npm run bundle -w @lumenize/ts-runtime-parser-validator
 
       - name: Run tests with coverage for all packages
-        run: |
-          # Run vitest with coverage for every package. Run-all-then-fail: a flake
-          # in one package must not mask the packages after it (collect failures,
-          # fail at the end). --retry=2 self-heals cold-start flakes on the
-          # over-the-web e2e suites (deployed test-endpoints / email infra); the
-          # suites are made retry-safe (unique per-run instance names) so a retry
-          # can't accumulate state. Real failures still fail all 3 attempts.
-          failed=""
-          for dir in packages/*/; do
-            if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
-              echo "Running tests with coverage for $(basename $dir)..."
-              cd "$dir"
-              npm run test -- --coverage --retry=2 || failed="$failed $(basename "$dir")"
-              cd - > /dev/null
-            fi
-          done
-          if [ -n "$failed" ]; then echo "❌ Failed packages:$failed"; exit 1; fi
+        # Shared discovery with local dev (scripts/test-code.sh) so a package can
+        # never be tested locally but silently skipped in CI (that drifted once:
+        # email/debug use vitest.config.ts, which the old `vitest.config.js`-glob
+        # loop missed). --scope packages excludes apps/ (deferred → nebula-in-ci.md)
+        # and tooling/ (updated + run manually, not real-code-dependent). --run-all:
+        # a flake in one package can't mask later ones; --retry 2 self-heals
+        # cold-start flakes on the over-the-web e2e suites (retry-safe via unique
+        # per-run instance names). Real failures still fail all 3 attempts.
+        run: ./scripts/test-code.sh --scope packages --coverage --retry 2 --run-all
 
       - name: Upload coverage (lcov) for the SonarCloud job
         uses: actions/upload-artifact@v4
