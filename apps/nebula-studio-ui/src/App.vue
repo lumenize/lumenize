@@ -376,9 +376,19 @@ async function openStar(star: string) {
     const n = createNebulaClient({ authScope: authScope.value!, activeScope: star, appVersion: "studio-ui" });
     await n.ready;
     nebula.value = n;
-    previewSrc.value = `/dev-container/${star}/`;
     messages.value = [];
     manageOpen.value = false;
+    previewSrc.value = `/dev-container/${star}/`; // immediate feedback (the waking page if the container is cold)
+    // Push the built source to the (possibly cold) container so the preview shows the actual app —
+    // NOT the baked "warming up" placeholder. A plain open/refresh never re-pushed before; only chat
+    // did (chat()'s first step is ensureUp → boot + applyChanges the full tree). Reload after the push
+    // so the iframe picks it up (HMR isn't wired through the path-prefix proxy yet).
+    try {
+      await n.client.lmz.callRaw("DEV_STUDIO", star, n.client.ctn<DevStudio>().ensureUp());
+      previewSrc.value = `/dev-container/${star}/?t=${Date.now()}`;
+    } catch {
+      log("studio", 'Preview is still warming up — if it doesn’t appear shortly, ask me to “show my app”.');
+    }
   } catch (e) {
     log("error", `Could not open ${star}: ${(e as Error).message}`);
   } finally {
