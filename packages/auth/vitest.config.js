@@ -43,6 +43,17 @@ if (!includeCfRemote) {
   console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING e2e-email + hono (Cloudflare Email Sending path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
 }
 
+// Cold-start self-heal for the external-email-delivery projects (e2e-email,
+// e2e-email-resend, hono). The first send after the Resend/Cloudflare → Email
+// Routing → deployed EmailTestDO chain has been idle can exceed the wait window
+// (empirically the very first send in a fresh container; re-runs land in ~1s on
+// the now-warm path). A retry re-sends and hits the warm path. This pins the
+// self-heal to the SUITE, mirroring CI's `--retry 2` (ci.yml) but independent of
+// invocation — so the secret-less cloud lane and local `npm run test:code`, which
+// pass no `--retry`, get the same cold-start cushion CI does. Generous timeouts
+// (60s/45s below) remain the first line; retry covers the cold tail beyond them.
+const EMAIL_DELIVERY_RETRY = 2;
+
 export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
@@ -111,6 +122,7 @@ export default defineConfig({
         test: {
           name: 'e2e-email',
           testTimeout: 30000, // 30s — real email delivery can take 10-15s
+          retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
           sequence: { groupOrder: 1 },
           include: ['test/e2e-email/**/*.test.ts'],
         },
@@ -138,6 +150,7 @@ export default defineConfig({
           // the 200 OK, so a real-user click can't race the commit. The bump
           // is cushion for Resend variability on cold-start sequential runs.
           testTimeout: 60000,
+          retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
           sequence: { groupOrder: 2 },
           include: ['test/e2e-email-resend/**/*.test.ts'],
         },
@@ -161,6 +174,7 @@ export default defineConfig({
         test: {
           name: 'hono',
           testTimeout: 30000,
+          retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
           sequence: { groupOrder: 3 },
           include: ['test/hono/**/*.test.ts'],
         },
