@@ -81,7 +81,11 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
       await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
       await page.getByPlaceholder('you@example.com').waitFor({ state: 'visible' });
       await page.getByRole('button', { name: /Send magic link/ }).waitFor({ state: 'visible' });
-      expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
+      // The preview iframe is correctly ABSENT pre-login: the stage is the help/intro until you
+      // connect AND open a dev workspace (it's `v-else` after help/manage). A `1` here would mean a
+      // preview leaked into the unauthenticated shell. (Was `1` before the help/manage/preview stage
+      // refactor, when the iframe was always mounted.)
+      expect(await page.locator('iframe[title="Preview"]').count()).toBe(0);
     } finally {
       await ctx.close();
     }

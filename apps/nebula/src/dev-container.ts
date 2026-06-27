@@ -205,11 +205,35 @@ export class DevContainer extends NebulaContainer {
     });
   }
 
-  /** Liveness/cold-boot probe (no child spawn). DevStudio's `ensureUp` driver waits
-   *  on this through the boot-race retry before pushing the source tree. */
+  /**
+   * Liveness probe + STUCK-container recovery. DevStudio's `ensureUp` (and so `chat` + the Studio's
+   * open/refresh) awaits this before pushing source, so the recovery rides those existing paths.
+   *
+   * A healthz probe normally also cold-starts the container (its `containerFetch` waits for the port).
+   * But a slept container can leave a **stale `this.container.running` flag** the base proxy can't
+   * restart past — `start()`/`startAndWaitForPorts()` both fast-path on that flag — so the probe just
+   * gets "not running" forever (the 2026-06-27 stuck state; recovers in the cloud only via idle-evict).
+   * On a failed probe we **force a clean restart**: `destroy()` SIGKILLs unconditionally (unlike
+   * `stop()`, which guards on `if (running)`), resetting the flag to false; the re-probe's
+   * `containerFetch` then sees `running=false` and auto-starts a fresh container. ONE retry only — no
+   * loop; if it still fails, surface it (a state only eviction clears, or genuine capacity).
+   *
+   * ⚠️ Verified live (`extends Container` can't construct under pool-workers) — see
+   * [[feedback_test_container_changes_with_wrangler_dev]].
+   */
   @mesh(requireAdmin)
   async ensureUp(): Promise<{ ok: boolean }> {
-    return this.#cmdJson('/healthz');
+    try {
+      return await this.#cmdJson('/healthz');
+    } catch {
+      this.#setPreviewBaseEnv(this.lmz.instanceName); // envVars are read at (re)start
+      try {
+        await this.destroy(); // SIGKILL → resets the stale `running` flag (stop() would no-op on it)
+      } catch {
+        /* already gone / destroy raced — the re-probe below still boots from a clean flag */
+      }
+      return await this.#cmdJson('/healthz'); // running=false now → containerFetch auto-starts clean
+    }
   }
 
   /**
