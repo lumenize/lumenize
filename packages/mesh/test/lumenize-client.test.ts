@@ -905,6 +905,45 @@ describe('Token refresh', () => {
     client.disconnect();
   });
 
+  it('refreshes a token that EXPIRED while idle on reconnect (not only a missing one)', async () => {
+    let refreshCount = 0;
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCount++;
+        // 1st mint is already-expired (simulates the access token aging out over a long idle);
+        // the reconnect's refresh returns a fresh one so the retry can succeed.
+        return { access_token: createFakeJwt({ sub: 'user', exp: refreshCount === 1 ? past : future }) };
+      },
+    });
+
+    // First connect refreshes the missing token → `#claims.exp` is now in the PAST.
+    await new Promise(r => setTimeout(r, 20));
+    expect(refreshCount).toBe(1);
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    // Network drop → reconnect with a PRESENT-but-EXPIRED token. The client MUST refresh before the
+    // WS upgrade — else the gateway rejects it ("bad response from the server") and #scheduleReconnect
+    // loops forever with the same dead token (the chat-down-after-hours bug).
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+    client.connect(); // trigger the reconnect now (timers mocked — mirrors the 4409 stale-close test)
+    await new Promise(r => setTimeout(r, 20));
+
+    // Capable-of-failing: the old `if (!#accessToken)` guard skipped the refresh because a token was
+    // present, so refreshCount would stay 1 and the new socket would carry the expired token.
+    expect(refreshCount).toBe(2);
+    expect(createdWebSockets[1]).toBeDefined();
+    client.disconnect();
+  });
+
   it('calls onLoginRequired when refresh fails', async () => {
     let loginRequiredCalled = false;
     let refreshCallCount = 0;

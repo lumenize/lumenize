@@ -720,9 +720,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
             : crypto.randomUUID().slice(0, 8);
           this.#instanceName = `${this.#claims?.sub}.${tabId}`;
         }
-      } else if (!this.#accessToken) {
-        // instanceName already set, just need the token
-        await this.#refreshToken();
+      } else if (this.#needsTokenRefresh()) {
+        // instanceName already set. Refresh when the token is MISSING or its `exp` says it's expiring:
+        // a reconnect after a long idle has a set-but-EXPIRED token, and reusing it makes the gateway
+        // reject the WS upgrade ("bad response from the server"), which `#scheduleReconnect` then
+        // retries forever with the same dead token (the chat-down-after-hours bug). The OLD guard was
+        // `!this.#accessToken` — it only refreshed a MISSING token, never an expired one. The check is
+        // SYNCHRONOUS so a fresh/opaque token adds NO await here, keeping the synchronous-WS-creation
+        // path synchronous.
+        await this.#ensureFreshToken();
       }
 
       // Build WebSocket URL
@@ -985,15 +991,29 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
   }
 
-  /** Ensure a non-expired access token is in memory — refresh via the configured `refresh` source
-   *  if missing or within 30s of expiry. De-dupes concurrent refreshes so a WS-connect refresh and
-   *  an authedFetch refresh share one in-flight call (never two consumers of the rotating cookie). */
+  /** Ensure a usable access token is in memory — refresh via the configured `refresh` source when it's
+   *  MISSING or a readable `exp` says it's within 30s of expiry. De-dupes concurrent refreshes so a
+   *  WS-connect refresh and an authedFetch refresh share one in-flight call (never two consumers of the
+   *  rotating cookie). A present token with NO readable `exp` (an opaque / caller-supplied token, or a
+   *  fake test token) is left ALONE — we can't judge its expiry, so trust it rather than force a refresh
+   *  the caller may not have configured. The expiry refresh only kicks in once `#claims.exp` is known
+   *  (i.e. after a prior refresh parsed it) — exactly the reconnect-after-idle case this fixes. */
   async #ensureFreshToken(): Promise<void> {
-    const now = Math.floor(Date.now() / 1000);
-    const exp = (this.#claims as { exp?: number } | null)?.exp;
-    if (this.#accessToken && typeof exp === 'number' && exp - 30 > now) return;
+    if (!this.#needsTokenRefresh()) return;
     this.#refreshInFlight ??= this.#refreshToken().finally(() => { this.#refreshInFlight = null; });
     await this.#refreshInFlight;
+  }
+
+  /** Synchronous "would `#ensureFreshToken` refresh?" — true when the token is MISSING or a readable
+   *  `exp` is within 30s of expiry. A present token with NO readable `exp` (opaque / caller-supplied /
+   *  fake test token) returns false: we can't judge its expiry, so trust it. Used to GATE the await in
+   *  `#connectInternal` so a fresh/opaque token keeps WS creation synchronous (many tests + the cold
+   *  synchronous-connect path depend on the socket existing in the same tick). */
+  #needsTokenRefresh(): boolean {
+    if (!this.#accessToken) return true;
+    const exp = (this.#claims as { exp?: number } | null)?.exp;
+    if (typeof exp !== 'number') return false;
+    return exp - 30 <= Math.floor(Date.now() / 1000);
   }
 
   /**
