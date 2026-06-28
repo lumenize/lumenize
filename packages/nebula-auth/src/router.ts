@@ -87,6 +87,29 @@ function json401(error: string, description: string): Response {
   );
 }
 
+/**
+ * Forward a request to a DO with a **materialized** body, not the live stream.
+ *
+ * Forwarding the original request's body stream across the Worker→DO boundary and
+ * returning the DO's response races under `wrangler dev` on Linux: the Worker's request
+ * context can tear down while the DO is still attached to the stream, throwing
+ * "Can't read from request stream after response has been sent" → the runtime answers
+ * `503`. Prod + pool-workers + macOS `wrangler dev` tolerate it; the Linux CI runner does
+ * not. Reconstructing the request gives the DO a self-contained body and makes the forward
+ * deterministic — this is the "always consume" half of the router's body discipline (the
+ * field-injecting handlers above already reconstruct). GET/HEAD carry no body to dangle.
+ */
+async function forwardToDo(stub: DurableObjectStub, request: Request): Promise<Response> {
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  if (!hasBody) return stub.fetch(request);
+  const buffered = await request.arrayBuffer();
+  return stub.fetch(new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: buffered,
+  }));
+}
+
 // ============================================
 // Worker
 // ============================================
@@ -308,7 +331,7 @@ async function handleRegistryPath(
 
   // Forward to registry DO
   const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-  return registryStub.fetch(request);
+  return forwardToDo(registryStub, request);
 }
 
 // ============================================
@@ -341,7 +364,7 @@ async function handleInstancePath(
       if (turnstileResult) return turnstileResult;
     }
     const naStub = env.NEBULA_AUTH.getByName(instanceName);
-    return naStub.fetch(request);
+    return forwardToDo(naStub, request);
   }
 
   // Authenticated endpoints: JWT verify + scope match + rate limit
@@ -349,7 +372,7 @@ async function handleInstancePath(
   if (authResult) return authResult;
 
   const naStub = env.NEBULA_AUTH.getByName(instanceName);
-  return naStub.fetch(request);
+  return forwardToDo(naStub, request);
 }
 
 // ============================================
