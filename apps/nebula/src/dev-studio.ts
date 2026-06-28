@@ -40,6 +40,7 @@ import { NebulaDO, requireAdmin } from './nebula-do';
 import { compileOntologyVersion } from './galaxy';
 import type { Galaxy, TurnRecord } from './galaxy';
 import type { Star } from './star';
+import type { NebulaClient } from './nebula-client';
 import type { DevContainer, SourceFile } from './dev-container';
 import {
   runCodegenLoop,
@@ -63,6 +64,10 @@ const STAR_BINDING = 'STAR';
 const DEV_CONTAINER_BINDING = 'DEV_CONTAINER';
 /** This sandbox's Galaxy ({u}.{g}) — the turn-recorder store for the codegen corpus. */
 const GALAXY_BINDING = 'GALAXY';
+/** The per-client Gateway DO — DevStudio delivers a finished turn's result back to
+ *  the originating client through it (direct delivery, addressed by the client's
+ *  stable instanceName, so it survives a WS drop+reconnect during a long turn). */
+const CLIENT_GATEWAY_BINDING = 'NEBULA_CLIENT_GATEWAY';
 
 /** The ontology source file — compiled to the runtime validator (Decision 9: the
  *  ontology is just another source file). */
@@ -287,14 +292,23 @@ export class DevStudio extends NebulaDO {
    * Install/wipe is deliberately NOT here: a changed ontology is applied to the `.dev`
    * Star via the SEPARATE, human-gated apply step ({@link applyOntologyChange}, Flow 1b)
    * fired after the loop — the loop's `write_file` tool only compiles, never installs or
-   * wipes (D2 secure-by-default). Returns `reply` + `thought` for the Studio UI's
-   * waiting → thought-process view; the model id is never surfaced (model-agnostic).
+   * wipes (D2 secure-by-default).
+   *
+   * **Fired one-way, NOT awaited** (`client.chat` uses `lmz.call`, not `callRaw`): a
+   * turn can run for minutes, during which the client WS may drop and reconnect. The
+   * result is delivered back via {@link deliverTurnResult} as a SEPARATE direct-delivery
+   * call addressed to the client's stable `instanceName` (`clientId`, passed explicitly
+   * by the client — see [[client-calls-use-direct-delivery]]), so it lands on whatever
+   * socket is current rather than the dead originating one. `turnId` (client-generated)
+   * is carried out and mirrored back so the client correlates the result to its pending
+   * turn. The `{ reply, thought }` return is retained for the test harness; production
+   * delivery is via `onChatResult`. The model id is never surfaced (model-agnostic).
    *
    * ⚠️ Run with `wrangler dev` — `ensureUp`/`syncToDevContainer` need a live container and the loop
    * calls `env.AI.run`; runs under `wrangler dev` + Docker Desktop, not vitest-pool-workers.
    */
   @mesh(requireAdmin)
-  async chat(message: string): Promise<{ reply: string; thought: string }> {
+  async chat(turnId: string, clientId: string, message: string): Promise<{ reply: string; thought: string }> {
     await this.ensureUp(); // Flow 1c: container up + source pushed
     const result = await this.runCodegenTurn(message);
     // On a clean finish, push the written source so the live preview updates (source-of-
@@ -337,7 +351,34 @@ export class DevStudio extends NebulaDO {
     if (result.output) parts.push(`📄 ${result.output}`);
     for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
     parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${compile}`);
-    return { reply, thought: parts.join('\n\n— — —\n\n') };
+    const payload = { reply, thought: parts.join('\n\n— — —\n\n') };
+    this.deliverTurnResult(turnId, clientId, payload);
+    return payload;
+  }
+
+  /**
+   * Deliver a finished turn's result back to the originating client by **direct
+   * delivery** — a NEW one-way mesh call to the client's Gateway, addressed by the
+   * client's stable `instanceName` (`clientId`), so a WS drop+reconnect during the
+   * turn doesn't strand the reply (the Gateway routes to whatever socket is current).
+   * NO `newChain`: the originating client's `originAuth` must ride through so the
+   * Gateway's aud check passes — exactly as Star's result callbacks do. Fire-and-forget
+   * + try/catch: a delivery failure must never break the dev loop (the turn is already
+   * committed to the Workspace + recorded to Galaxy). `protected` so the test harness
+   * can exercise it without the AI/container-bound `chat`. See
+   * [[client-calls-use-direct-delivery]].
+   */
+  protected deliverTurnResult(
+    turnId: string,
+    clientId: string,
+    payload: { reply: string; thought: string },
+  ): void {
+    try {
+      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+        this.ctn<NebulaClient>().onChatResult(turnId, payload.reply, payload.thought));
+    } catch (e) {
+      debug('nebula.DevStudio.chat').warn('turn-result delivery failed (non-fatal)', { error: e });
+    }
   }
 
   // ─── Self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md) ─────────

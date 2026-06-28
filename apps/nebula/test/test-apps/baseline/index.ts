@@ -78,6 +78,18 @@ export class StarTest extends Star {
     );
   }
 
+  /** Test-only stand-in for `DevStudio.chat` (resilient-turn-delivery.md): receive a
+   *  fired turn (the client-generated `turnId` + the client's *explicit* instanceName +
+   *  the message) and echo the result straight back to that client via `onChatResult`
+   *  (the direct-delivery pattern). Proves `NebulaClient.chat` fires `turnId`+`clientId`
+   *  correctly and the client correlates the result by `turnId`. */
+  @mesh(requireAdmin)
+  runFakeTurn(turnId: string, clientId: string, message: string): void {
+    const ctn = this.ctn() as any;
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+      ctn.onChatResult(turnId, `echo: ${message}`, `thought: ${message}`));
+  }
+
   /**
    * Test-only: dump the ontology-related KV keys so tests can verify the
    * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
@@ -375,6 +387,36 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Test initiators (tests call these to trigger outbound mesh calls) ---
   // Uses this.lmz.call() with this.ctn<TargetType>().method(args) continuation pattern
+
+  // --- Resilient chat-turn delivery (resilient-turn-delivery.md) ---
+
+  /** Register a pending turn for a known `turnId` WITHOUT firing a call — lets a test
+   *  hold a pending turn across a forced reconnect, then deliver `onChatResult` to it.
+   *  Reuses the production `trackTurn` (protected) so it exercises the real pending map. */
+  registerPendingTurnForTest(turnId: string): Promise<{ reply: string; thought: string }> {
+    return this.trackTurn(turnId);
+  }
+
+  /** Exercise the real `chat()` shape against a stand-in (`StarTest.runFakeTurn`) rather
+   *  than DEV_STUDIO (absent from this app): register a pending turn, fire the turn with
+   *  this client's *explicit* instanceName, resolve when `onChatResult` echoes back. */
+  chatViaStarForTest(starInstanceName: string, message: string): Promise<{ reply: string; thought: string }> {
+    const turnId = crypto.randomUUID();
+    const clientId = this.lmz.instanceName;
+    const pending = this.trackTurn(turnId);
+    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakeTurn(turnId, clientId, message));
+    return pending;
+  }
+
+  /** Fire an `onChatResult` delivery at a client via Star (the DO→client direct-delivery
+   *  path) — used to deliver to a client AFTER a forced reconnect, proving the result
+   *  lands on the *current* socket, not the dead originating one. */
+  triggerOnChatResultForTest(
+    starInstanceName: string, targetClientId: string, turnId: string, reply: string, thought: string,
+  ): void {
+    this.lmz.call('STAR', starInstanceName,
+      this.ctn<StarTest>().callClient(targetClientId, 'onChatResult', turnId, reply, thought));
+  }
 
   callStarWhoAmI(starInstanceName: string): void {
     this.resetResults();

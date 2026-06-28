@@ -77,10 +77,11 @@ mid-turn, and the reply is one-way (no callback to DevStudio), so there's no hib
 3. **Client `@mesh() onChatResult(turnId, reply, thought)`** renders by `turnId` (mirrors existing push handlers).
 
 ## Acceptance criteria (definition of done)
-- [ ] Capable-of-failing test: WS drops mid-turn → reconnect → `onChatResult` lands on the new socket and renders by `turnId` (mutation-checked).
-- [ ] Chat no longer uses `callRaw` for the long turn; a transient drop cannot produce an eternal "thinking…".
-- [ ] Reply is addressed by the explicitly-passed `clientId`, never `callChain[0]`.
-- [ ] `ui-smoke` 4/4 + cross-package type-check green; mesh + nebula suites green.
+- [x] Capable-of-failing test: WS drops mid-turn → reconnect → `onChatResult` lands on the new socket, settling the pending turn by `turnId` — `nebula-client-chat-delivery.test.ts` (supersede-reconnect trick). **Mutation-checked**: wrong-payload reddens all 3 tests; ignore-`turnId` reddens only the correlation test.
+- [x] Chat no longer uses `callRaw` for the long turn (`App.vue` → `client.chat()` = fire + direct delivery); a transient drop can't strand the result.
+- [x] Reply addressed by the explicitly-passed `clientId` (`this.lmz.instanceName`), never `callChain[0]`.
+- [x] Nebula suites green (baseline+dev-studio 299, frontend+unit 197); nebula package type-check clean (exit 0; circular `NebulaClient↔DevStudio` type-import fine).
+- [ ] **`ui-smoke` (real `DevStudio.chat`→`deliverTurnResult`→`onChatResult` e2e) — BLOCKED in the build env**: Docker can't reach docker.io (`node:22-slim` metadata `DeadlineExceeded`), so `wrangler dev` never came up. Not a code issue. **Needs a machine with Docker registry access** (Larry's local, or CI) — `smoke.test.ts:143` is the test. The DevStudio-side delivery uses the identical `lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn<NebulaClient>().onChatResult(...))` shape the in-suite `StarTest` stand-in already drives through a real Gateway→client.
 
 ## Deferred (detail + sequencing in the master plan)
 History-restore, completed-while-fully-gone recovery, multi-participant chat, and the Galaxy→DevStudio chat

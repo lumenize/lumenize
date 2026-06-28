@@ -33,6 +33,7 @@ import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import type { Star } from './star';
+import type { DevStudio } from './dev-studio';
 
 const log = debug('lumenize.nebula-client');
 
@@ -67,6 +68,12 @@ export interface OntologyStaleInfo {
   reason: 'ontology-stale';
   clientVersion: string;
   currentVersion: string;
+}
+
+/** The result of a codegen chat turn, delivered to {@link NebulaClient.onChatResult}. */
+export interface ChatTurnResult {
+  reply: string;
+  thought: string;
 }
 
 /**
@@ -301,6 +308,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * `handleReadResponse(requestId, result)` which settles the matching entry.
    */
   #pendingReads = new Map<string, PendingRead>();
+
+  /**
+   * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
+   * fired one-way at DevStudio ({@link chat}) — NOT an awaited `callRaw` — and
+   * settled when DevStudio delivers the result back via the {@link onChatResult}
+   * push (direct delivery addressed to this client's stable `instanceName`, so it
+   * survives a WS drop+reconnect mid-turn). The Promise lives in memory; it does
+   * NOT survive a page reload (history-restore is the deferred reactive-chat work).
+   * See [[client-calls-use-direct-delivery]].
+   */
+  #pendingTurns = new Map<string, { resolve: (r: ChatTurnResult) => void; reject: (e: Error) => void }>();
 
   constructor(config: NebulaClientConfig) {
     const {
@@ -1105,6 +1123,52 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   @mesh()
   handleReload(): void {
     this.#onReload?.();
+  }
+
+  /**
+   * Fire a codegen turn at DevStudio and resolve when its result is delivered
+   * back via {@link onChatResult}. Uses fire-and-forget + **direct delivery**, NOT
+   * an awaited `callRaw`: a turn can run for minutes, during which the client WS
+   * may drop and reconnect — the result is addressed to this client's stable
+   * `instanceName`, so the Gateway routes it to whatever socket is current rather
+   * than stranding it on the original socket (the "thinking… forever" bug). The
+   * returned Promise survives a reconnect (same JS context) but NOT a page reload —
+   * history-restore on refresh is the deferred reactive-chat work. The client passes
+   * its own `instanceName` explicitly (not `callChain[0]`). See ADR-003 +
+   * [[client-calls-use-direct-delivery]].
+   */
+  chat(message: string): Promise<ChatTurnResult> {
+    const turnId = crypto.randomUUID();
+    const clientId = this.lmz.instanceName;
+    const pending = this.trackTurn(turnId);
+    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().chat(turnId, clientId, message));
+    return pending;
+  }
+
+  /**
+   * Register an in-flight turn keyed by `turnId` and return its Promise — settled
+   * by {@link onChatResult}. No call is fired here (that's {@link chat}'s job).
+   * `protected` so a test subclass can register a turn without a real DevStudio.
+   */
+  protected trackTurn(turnId: string): Promise<ChatTurnResult> {
+    return new Promise<ChatTurnResult>((resolve, reject) => {
+      this.#pendingTurns.set(turnId, { resolve, reject });
+    });
+  }
+
+  /**
+   * Receive a completed codegen turn's result from DevStudio. Direct delivery,
+   * addressed to this client's `instanceName`, so it lands on whatever socket is
+   * current after a reconnect. Settles the matching {@link chat} Promise by
+   * `turnId`; an unknown `turnId` (page reloaded mid-turn, or duplicate delivery)
+   * is ignored. `@mesh()` because it arrives over the Gateway like the other pushes.
+   */
+  @mesh()
+  onChatResult(turnId: string, reply: string, thought: string): void {
+    const pending = this.#pendingTurns.get(turnId);
+    if (!pending) return;
+    this.#pendingTurns.delete(turnId);
+    pending.resolve({ reply, thought });
   }
 
   /**

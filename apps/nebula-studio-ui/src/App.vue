@@ -247,11 +247,10 @@ async function send() {
   thinking.value = true;
   try {
     const client = nebula.value.client;
-    const reply = (await client.lmz.callRaw(
-      "DEV_STUDIO",
-      activeScope.value!,
-      client.ctn<DevStudio>().chat(msg),
-    )) as { reply: string; thought: string };
+    // Resilient delivery: client.chat() fires the turn one-way and resolves when the
+    // result is delivered back via onChatResult (direct delivery by instanceName), so a
+    // WS drop+reconnect mid-turn no longer strands the reply. NOT an awaited callRaw.
+    const reply = await client.chat(msg);
     thinking.value = false;
     if (reply.thought) log("thought", reply.thought);
     log("studio", reply.reply);
