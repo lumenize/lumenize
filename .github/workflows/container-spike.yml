@@ -24,6 +24,11 @@ on:
       - 'apps/nebula/src/dev-container.ts'
       - 'apps/nebula/test/ui-smoke/**'
 
+# Cancel a superseded spike run when a newer commit is pushed (per-workflow, per-ref).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   container-spike:
     runs-on: ubuntu-latest

@@ -14,6 +14,14 @@ on:
       - main
       - feat/nebula-studio
 
+# Cancel superseded in-progress runs of THIS workflow on the SAME ref (per-workflow,
+# per-branch) when a newer commit is pushed — kills the run pile-up, frees runners,
+# faster feedback on the tip. Scoped to the ref so pushes to other branches don't
+# cancel each other; a PR's required check gates on the latest commit's run anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit-test-mode:
     runs-on: ubuntu-latest
