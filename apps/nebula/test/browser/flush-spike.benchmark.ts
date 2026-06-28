@@ -43,7 +43,10 @@
  *         already in place.
  * ──────────────────────────────────────────────────────────────────────────
  *
- * Run: `cd apps/nebula && BENCH_BASE_URL=https://nebula-browser-test.transformation.workers.dev npx vitest run --project browser flush-spike`
+ * Run: `cd apps/nebula && BENCH_BASE_URL=https://nebula-browser-test.transformation.workers.dev npx vitest run --project browser-bench flush-spike`
+ *   (a `*.benchmark.ts` measurement spike — the on-demand `browser-bench` lane, NOT the
+ *    always-on `npm test` `browser` project; its 33 timed iterations are a perf probe with
+ *    soft sanity assertions, not a correctness gate.)
  */
 
 import { describe, it, inject, expect } from 'vitest';

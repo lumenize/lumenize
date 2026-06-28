@@ -145,18 +145,22 @@ export default defineConfig({
     testTimeout: 10000,
     globals: true,
     dangerouslyIgnoreUnhandledErrors: true,
-    // CPU-constrained-lane parallelism cap. The `browser` project's real-WS e2e (an
-    // external `wrangler dev` + WebSocket round-trips, e.g. flush-spike's 33 timed
-    // iterations) is wall-clock-sensitive: when it runs concurrently with the CPU-bound
-    // pool-workers projects it gets starved past its timeout — the "isolation flips the
-    // result" signature in testing.md. The hosted plaintext sandbox sets
-    // LUMENIZE_NO_CF_REMOTE (its shared 4 vCPUs are weaker than a GHA runner's); there we
-    // run files serially so those tests never compete for cores. Gate on the explicit lane
-    // flag, NOT CPU count — the sandbox is also 4 cores, so a count test couldn't tell it
-    // apart from GHA. UNSET in GHA (4-vCPU runner + `--retry 2` already passes) and local
-    // (fast), so their timing is untouched. (Env reads at config-eval are fine here: this
-    // is a process env var the lane sets, not a `.dev.vars` secret — see testing.md.)
-    ...(process.env.LUMENIZE_NO_CF_REMOTE ? { fileParallelism: false } : {}),
+    // CPU-constrained-lane serialization. The `browser` project's real-WS e2e (an external
+    // `wrangler dev` + WebSocket round-trips — magic-link auth, multi-client Gateway fan-out,
+    // round-trip latency) is broadly wall-clock-sensitive: run concurrently with the CPU-bound
+    // pool-workers projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
+    // past their timeout every run (which one varies — the "isolation flips the result"
+    // signature in testing.md). Empirically this is NOT localized to one test, so run files
+    // serially when the hosted plaintext lane flag (LUMENIZE_NO_CF_REMOTE) is set, so no two
+    // compete for cores. Gate on the explicit lane flag, NOT CPU count — the sandbox is also
+    // 4 cores, indistinguishable from a GHA runner by count. UNSET in GHA (4-vCPU runner +
+    // `--retry 2` already passes) and local (fast), so their timing is untouched: the spread is
+    // empty there. (A process env var the lane sets, not a `.dev.vars` secret — see testing.md.)
+    // `retry: 2` mirrors CI's `test-code.sh --retry 2`: even SERIAL, an occasional real-WS e2e
+    // (e.g. multi-client's 8 concurrent Gateway handshakes) exceeds its timeout on pure sandbox
+    // variance, so retry catches the residual flake that serialization can't. The `npm test`
+    // default carries no retry (local/GHA are fast); this adds it only for the constrained lane.
+    ...(process.env.LUMENIZE_NO_CF_REMOTE ? { fileParallelism: false, retry: 2 } : {}),
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
