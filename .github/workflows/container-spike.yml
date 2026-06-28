@@ -58,16 +58,11 @@ jobs:
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
         run: node scripts/ci-write-dev-vars.mjs
 
-      - name: Add CLOUDFLARE_ACCOUNT_ID + DEBUG to .dev.vars
-        # CLOUDFLARE_: ui-smoke's gate greps .dev.vars for /^CLOUDFLARE_/
-        # (test/ui-smoke/gates.ts); ci-write-dev-vars.mjs doesn't write one. The
-        # account ID is a non-secret identifier — adding it flips HAS_CF_CREDS true.
-        # DEBUG: make the wrangler-dev worker emit @lumenize/debug logs so the forwarded
-        # stdio (UI_SMOKE_DEBUG on the run step) shows WHY the magic-link send fails.
-        # (Diagnostic — remove once the lane is green.)
-        run: |
-          echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}" >> .dev.vars
-          echo "DEBUG=nebula-auth,auth,email,nebula" >> .dev.vars
+      - name: Add CLOUDFLARE_ACCOUNT_ID to .dev.vars (satisfies the HAS_CF_CREDS gate)
+        # ui-smoke's gate greps .dev.vars for /^CLOUDFLARE_/ (test/ui-smoke/gates.ts);
+        # ci-write-dev-vars.mjs doesn't write one. The account ID is a non-secret
+        # identifier — adding it flips HAS_CF_CREDS true so the lane actually runs.
+        run: echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}" >> .dev.vars
 
       - name: Clean npm cache
         run: npm cache clean --force
@@ -104,6 +99,4 @@ jobs:
         # cold-boot budget is 120s. If HAS_DOCKER && HAS_CF_CREDS aren't both true the
         # describe.runIf skips — check the log for "skipped" vs a real container error.
         working-directory: apps/nebula
-        env:
-          UI_SMOKE_DEBUG: '1'   # forward the wrangler-dev subprocess stdio (worker @lumenize/debug logs) into the run log
         run: npx vitest run --project ui-smoke
