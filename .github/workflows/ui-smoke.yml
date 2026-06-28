@@ -1,36 +1,37 @@
-name: Container spike (nebula-in-ci Phase 1)
+name: UI smoke (container + AI + login)
 
-# EXPLORATORY SPIKE — tasks/nebula-in-ci.md Phase 1. The open question: does a real
-# Cloudflare Container boot under `wrangler dev` on a HEADLESS LINUX runner? Locally
-# this runs only on macOS Docker Desktop; `extends Container` can't construct under
-# pool-workers (packages/mesh/test/container/precheck.test.ts). This job runs the
-# `ui-smoke` lane (real `wrangler dev` + Docker + the DevContainer image) on
-# ubuntu-latest to find out. Expected to need iteration — the deliverable is a
-# recorded finding (boots? cold-boot timing? what failed), not a green required check.
+# The `apps/nebula` ui-smoke lane: a REAL Cloudflare Container (DevContainer image)
+# under `wrangler dev` on ubuntu-latest + vite + Playwright, driving the full Studio
+# loop (magic-link login → connected → AI codegen turn → preview rendered in the
+# container). `extends Container` can't construct under pool-workers
+# (packages/mesh/test/container/precheck.test.ts), so this is the only lane that
+# exercises a real container in CI. Proven viable on a headless GHA runner 2026-06-28
+# (tasks/nebula-in-ci.md Phase 1).
 #
-# Kept OUT of ci.yml so a heavy/flaky spike never gates the protected `main` checks.
-# `workflow_dispatch` alone is only triggerable once the file reaches the DEFAULT
-# branch (a GitHub constraint) — so on this feature branch we ALSO trigger on push,
-# path-filtered to container-relevant changes so unrelated pushes don't run this
-# heavy Docker job. Remove the push trigger once the spike has its answer (spike
-# hygiene — workflow.md § Experiments).
+# Kept SEPARATE from ci.yml (a ~2.5-min Docker build) and PATH-FILTERED so it runs only
+# on container/Studio/ui-smoke changes — never on every push. Not a required check
+# unless added to branch protection. `workflow_dispatch` for manual runs.
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/nebula-studio]
-    paths:
-      - '.github/workflows/container-spike.yml'
+  pull_request:
+    branches: [main]
+    paths: &ui-smoke-paths
+      - '.github/workflows/ui-smoke.yml'
       - 'apps/nebula/container/**'
       - 'apps/nebula/src/dev-container.ts'
+      - 'apps/nebula/src/dev-studio.ts'
       - 'apps/nebula/test/ui-smoke/**'
+  push:
+    branches: [main, feat/nebula-studio]
+    paths: *ui-smoke-paths
 
-# Cancel a superseded spike run when a newer commit is pushed (per-workflow, per-ref).
+# Cancel a superseded run when a newer commit is pushed (per-workflow, per-ref).
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  container-spike:
+  ui-smoke:
     runs-on: ubuntu-latest
     env:
       # wrangler dev authenticates the remote bindings (env.AI → Workers AI, and the
@@ -92,11 +93,12 @@ jobs:
       - name: Build ts-runtime-parser-validator bundle (gitignored dist artifact)
         run: npm run bundle -w @lumenize/ts-runtime-parser-validator
 
-      - name: Run the ui-smoke lane (the spike — does the container boot?)
+      - name: Run the ui-smoke lane (container + AI + login)
         # global-setup spawns `wrangler dev` (containers + env.AI) + vite, then
         # Playwright drives the magic-link → container → AI → preview flow. The
         # container image (./apps/nebula/container/Dockerfile) builds + boots here;
-        # cold-boot budget is 120s. If HAS_DOCKER && HAS_CF_CREDS aren't both true the
-        # describe.runIf skips — check the log for "skipped" vs a real container error.
+        # cold-boot budget is 120s. The lane self-gates (describe.runIf) on Docker +
+        # AI-path + email creds — if any is absent it skips cleanly; check the log for
+        # "skipped" vs a real failure.
         working-directory: apps/nebula
         run: npx vitest run --project ui-smoke
