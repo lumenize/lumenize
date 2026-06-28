@@ -81,7 +81,7 @@ mid-turn, and the reply is one-way (no callback to DevStudio), so there's no hib
 - [x] Chat no longer uses `callRaw` for the long turn (`App.vue` → `client.chat()` = fire + direct delivery); a transient drop can't strand the result.
 - [x] Reply addressed by the explicitly-passed `clientId` (`this.lmz.instanceName`), never `callChain[0]`.
 - [x] Nebula suites green (baseline+dev-studio 299, frontend+unit 197); nebula package type-check clean (exit 0; circular `NebulaClient↔DevStudio` type-import fine).
-- [ ] **`ui-smoke` (real `DevStudio.chat`→`deliverTurnResult`→`onChatResult` e2e) — BLOCKED in the build env**: Docker can't reach docker.io (`node:22-slim` metadata `DeadlineExceeded`), so `wrangler dev` never came up. Not a code issue. **Needs a machine with Docker registry access** (Larry's local, or CI) — `smoke.test.ts:143` is the test. The DevStudio-side delivery uses the identical `lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn<NebulaClient>().onChatResult(...))` shape the in-suite `StarTest` stand-in already drives through a real Gateway→client.
+- [x] **`ui-smoke` 4/4 green** (under `wrangler dev` + Docker) — incl. `smoke.test.ts:143` `prompt → DevStudio.chat → codegen → preview → reply-bubble` with no error bubble: the real `client.chat → DevStudio.chat → deliverTurnResult → onChatResult → render` loop. (First attempt was env-blocked by an unreachable docker.io; resolved by pre-pulling `node:22-slim`.)
 
 ## Deferred (detail + sequencing in the master plan)
 History-restore, completed-while-fully-gone recovery, multi-participant chat, and the Galaxy→DevStudio chat
