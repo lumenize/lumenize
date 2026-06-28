@@ -76,16 +76,20 @@ jobs:
         # package's tests fail with "Cannot find module ../dist/deps.bundle.mjs".
         run: npm run bundle -w @lumenize/ts-runtime-parser-validator
 
-      - name: Run tests with coverage for all packages
+      - name: Run tests with coverage for all packages + apps
         # Shared discovery with local dev (scripts/test-code.sh) so a package can
         # never be tested locally but silently skipped in CI (that drifted once:
         # email/debug use vitest.config.ts, which the old `vitest.config.js`-glob
-        # loop missed). --scope packages excludes apps/ (deferred → nebula-in-ci.md)
-        # and tooling/ (updated + run manually, not real-code-dependent). --run-all:
-        # a flake in one package can't mask later ones; --retry 2 self-heals
-        # cold-start flakes on the over-the-web e2e suites (retry-safe via unique
-        # per-run instance names). Real failures still fail all 3 attempts.
-        run: ./scripts/test-code.sh --scope packages --coverage --retry 2 --run-all
+        # loop missed). --scope "packages apps" runs every workspace's `test`
+        # script. apps/nebula's always-on lanes (unit/frontend/baseline/container/
+        # dev-studio/browser) are account-light — the browser lane sends via Resend,
+        # not CF `send_email remote:true` (tasks/nebula-in-ci.md). ui-smoke (real
+        # Docker container + AI) is NOT in `npm test` — it runs in the separate
+        # container-spike workflow. tooling/ stays out (updated + run manually).
+        # --run-all: a flake in one package can't mask later ones; --retry 2
+        # self-heals cold-start flakes on the over-the-web e2e suites (retry-safe via
+        # unique per-run instance names). Real failures still fail all 3 attempts.
+        run: ./scripts/test-code.sh --scope "packages apps" --coverage --retry 2 --run-all
 
       - name: Upload coverage (lcov) for the SonarCloud job
         uses: actions/upload-artifact@v4

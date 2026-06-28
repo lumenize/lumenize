@@ -1,0 +1,75 @@
+name: Container spike (nebula-in-ci Phase 1)
+
+# EXPLORATORY SPIKE — tasks/nebula-in-ci.md Phase 1. The open question: does a real
+# Cloudflare Container boot under `wrangler dev` on a HEADLESS LINUX runner? Locally
+# this runs only on macOS Docker Desktop; `extends Container` can't construct under
+# pool-workers (packages/mesh/test/container/precheck.test.ts). This job runs the
+# `ui-smoke` lane (real `wrangler dev` + Docker + the DevContainer image) on
+# ubuntu-latest to find out. Expected to need iteration — the deliverable is a
+# recorded finding (boots? cold-boot timing? what failed), not a green required check.
+#
+# Manual trigger only (workflow_dispatch): pick the branch in the Actions tab. Kept
+# OUT of ci.yml so a heavy/flaky spike never gates the protected `main` checks.
+on:
+  workflow_dispatch:
+
+jobs:
+  container-spike:
+    runs-on: ubuntu-latest
+    env:
+      # wrangler dev authenticates the remote bindings (env.AI → Workers AI, and the
+      # send_email remote:true binding the PROD apps/nebula config still carries) via
+      # these. GHA has CF creds — this is the "ui-smoke in GHA" target, where the AI
+      # half is still the binding (Phase 2's REST swap is for the hosted lane only).
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: ''
+
+      - name: Confirm Docker is available (HAS_DOCKER probe = `docker info`)
+        run: docker info
+
+      - name: Reconstruct .dev.vars from secrets
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
+        run: node scripts/ci-write-dev-vars.mjs
+
+      - name: Add CLOUDFLARE_ACCOUNT_ID to .dev.vars (satisfies the HAS_CF_CREDS gate)
+        # ui-smoke's gate greps .dev.vars for /^CLOUDFLARE_/ (test/ui-smoke/gates.ts);
+        # ci-write-dev-vars.mjs doesn't write one. The account ID is a non-secret
+        # identifier — adding it flips HAS_CF_CREDS true so the lane actually runs.
+        run: echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}" >> .dev.vars
+
+      - name: Clean npm cache
+        run: npm cache clean --force
+
+      - name: Install dependencies (skip optional to avoid Rollup bug)
+        run: npm ci --no-optional
+
+      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
+        run: |
+          npm install --no-save @rollup/rollup-linux-x64-gnu
+          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
+
+      - name: Install Playwright chromium (ui-smoke drives a real browser)
+        run: npx playwright install --with-deps chromium
+
+      - name: Build ts-runtime-parser-validator bundle (gitignored dist artifact)
+        run: npm run bundle -w @lumenize/ts-runtime-parser-validator
+
+      - name: Run the ui-smoke lane (the spike — does the container boot?)
+        # global-setup spawns `wrangler dev` (containers + env.AI) + vite, then
+        # Playwright drives the magic-link → container → AI → preview flow. The
+        # container image (./apps/nebula/container/Dockerfile) builds + boots here;
+        # cold-boot budget is 120s. If HAS_DOCKER && HAS_CF_CREDS aren't both true the
+        # describe.runIf skips — check the log for "skipped" vs a real container error.
+        working-directory: apps/nebula
+        run: npx vitest run --project ui-smoke
