@@ -65,10 +65,17 @@ jobs:
       - name: Install dependencies (skip optional to avoid Rollup bug)
         run: npm ci --no-optional
 
-      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
+      - name: Explicitly install Rollup + SWC + lightningcss Linux bindings (after npm ci)
         run: |
           npm install --no-save @rollup/rollup-linux-x64-gnu
           npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
+          # ui-smoke spawns vite against nebula-studio-ui; vite's CSS pipeline needs
+          # lightningcss's native binary — another --no-optional casualty (the
+          # packages job doesn't run vite, so it never hit this). lightningcss's
+          # `exports` blocks require('lightningcss/package.json'), so read the version
+          # off disk; the native pkg must match it exactly.
+          LCSS_VER=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/lightningcss/package.json','utf8')).version")
+          npm install --no-save "lightningcss-linux-x64-gnu@${LCSS_VER}"
 
       - name: Install Playwright chromium (ui-smoke drives a real browser)
         run: npx playwright install --with-deps chromium
