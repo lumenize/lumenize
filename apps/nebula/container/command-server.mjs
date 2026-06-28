@@ -26,29 +26,60 @@ const ROOT = APP_DIR;
 
 // --- vite child management ------------------------------------------------------------------
 let viteChild = null;
+// Event-driven preview readiness (NO polling): vite prints "ready in …" / "Local:" on
+// listen, exactly once per start. We watch the child's stdout for that marker, flip
+// `viteReady`, and resolve any held `/vite/ready` waiters. This is vite's own listen
+// event surfaced over the command channel — never a port-poll.
+let viteReady = false;
+let viteReadyWaiters = [];
+function markViteReady() {
+  if (viteReady) return;
+  viteReady = true;
+  const waiters = viteReadyWaiters;
+  viteReadyWaiters = [];
+  for (const resolve of waiters) resolve();
+}
 function startVite() {
   if (viteChild) return;
+  viteReady = false; // a fresh child re-announces "ready" on its own listen
   // vite inherits process.env (passed explicitly for clarity) — incl. PREVIEW_BASE,
   // which the DevContainer DO sets as a container env var so vite serves under the
   // per-instance `/dev-container/{scope}/` prefix (Flow 1d). Logged so the base is
   // visible in the container output when debugging the assembled preview.
   const previewBase = process.env.PREVIEW_BASE || "/";
   viteChild = spawn("npm", ["run", "dev"], { cwd: APP_DIR, stdio: ["ignore", "pipe", "pipe"], env: process.env });
-  viteChild.stdout.on("data", (d) => process.stdout.write(`[vite] ${d}`));
+  viteChild.stdout.on("data", (d) => {
+    process.stdout.write(`[vite] ${d}`);
+    if (!viteReady && /ready in |Local:\s*http/i.test(String(d))) markViteReady();
+  });
   viteChild.stderr.on("data", (d) => process.stderr.write(`[vite] ${d}`));
   viteChild.on("exit", (code, signal) => {
     console.log(`[command-server] vite exited code=${code} signal=${signal}`);
     viteChild = null;
+    viteReady = false;
   });
   console.log(`[command-server] vite started pid=${viteChild.pid} PREVIEW_BASE=${previewBase}`);
 }
 function stopVite() {
+  viteReady = false;
   return new Promise((res) => {
     if (!viteChild) return res();
     const child = viteChild;
     child.once("exit", () => res());
     child.kill("SIGTERM");
     setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 2000);
+  });
+}
+/** Resolve when vite is serving: immediate if already ready, else HELD until the
+ *  stdout ready event (one request resolved by an event — no polling), bounded by a
+ *  safety timeout so a never-ready vite can't hang the caller forever. */
+function awaitViteReady(timeoutMs = 30000) {
+  if (viteReady) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => { if (!done) { done = true; resolve(val); } };
+    viteReadyWaiters.push(() => finish(true));
+    setTimeout(() => finish(false), timeoutMs);
   });
 }
 
@@ -117,6 +148,7 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://localhost");
     if (req.method === "GET" && url.pathname === "/healthz") return json(res, 200, { ok: true });
+    if (req.method === "GET" && url.pathname === "/vite/ready") return json(res, 200, { ok: true, ready: await awaitViteReady() });
 
     if (req.method === "POST" && url.pathname === "/exec") return json(res, 200, await runBuffered(await readBody(req)));
     if (req.method === "POST" && url.pathname === "/write") return json(res, 200, await writeConfined(await readBody(req)));

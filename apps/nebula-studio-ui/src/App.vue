@@ -3,7 +3,7 @@ import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
-import type { DevStudio, Star } from "@lumenize/nebula";
+import type { Star } from "@lumenize/nebula";
 
 // You build your hierarchy explicitly — claim a Universe, add a Galaxy, add a `.dev` Star, open it
 // to author. No magic first-run, no `?scope=` sidestep (tasks/nebula-release-process.md § B2 + the
@@ -164,11 +164,15 @@ async function connect() {
     authScope: authScope.value,
     activeScope: activeScope.value,
     appVersion: "studio-ui",
+    onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
   });
   await n.ready; // throws if not authenticated
   nebula.value = n;
   connected.value = true;
-  if (isDevStar(activeScope.value)) previewSrc.value = `/dev-container/${activeScope.value}/`;
+  if (isDevStar(activeScope.value)) {
+    previewSrc.value = `/dev-container/${activeScope.value}/`; // cold waking page until ready…
+    n.client.warmPreview(); // …then auto-refresh when vite is serving (onPreviewReady push)
+  }
   localStorage.setItem(SCOPE_KEY, authScope.value);
   await nudgeNextStep();
 }
@@ -372,20 +376,23 @@ async function openStar(star: string) {
       /* old WS best-effort */
     }
     activeScope.value = star;
-    const n = createNebulaClient({ authScope: authScope.value!, activeScope: star, appVersion: "studio-ui" });
+    const n = createNebulaClient({
+      authScope: authScope.value!,
+      activeScope: star,
+      appVersion: "studio-ui",
+      onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
+    });
     await n.ready;
     nebula.value = n;
     messages.value = [];
     manageOpen.value = false;
     previewSrc.value = `/dev-container/${star}/`; // render the stage NOW (waking page if the container is cold)
-    // Push the built source to the (possibly cold) container so the preview shows the actual app, not
-    // the baked "warming up" placeholder. Do it in the BACKGROUND — NEVER await it here: a slow/stuck
-    // container would otherwise hang the whole stage with no error (the 2026-06-27 "main stage never
-    // refreshes" regression). When the push lands, reload the preview to pick it up (guard against a
-    // stale reload if the user navigated away meanwhile).
-    void n.client.lmz.callRaw("DEV_STUDIO", star, n.client.ctn<DevStudio>().ensureUp())
-      .then(() => { if (activeScope.value === star) previewSrc.value = `/dev-container/${star}/?t=${Date.now()}`; })
-      .catch(() => { log("studio", 'Preview is still warming up — if it doesn’t appear, hit the Reload button (top right).'); });
+    // Bring the (possibly cold) container up + push source, and auto-refresh the iframe when vite is
+    // actually serving — via the onPreviewReady push (event-driven, fire-and-forget). NEVER await here: a
+    // slow/stuck container must not hang the stage (the 2026-06-27 "main stage never refreshes" regression).
+    // The readiness signal is addressed by instanceName, so it survives a WS reconnect during the boot;
+    // the manual Reload button (top right) stays as the missed-signal fallback.
+    n.client.warmPreview();
   } catch (e) {
     log("error", `Could not open ${star}: ${(e as Error).message}`);
   } finally {

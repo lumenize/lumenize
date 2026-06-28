@@ -381,6 +381,46 @@ export class DevStudio extends NebulaDO {
     }
   }
 
+  /**
+   * Bring the dev preview up and tell the client when vite is actually serving, so the
+   * Studio auto-refreshes the iframe (no manual Reload). Fired **one-way** by the client
+   * (not awaited `callRaw`): the container boot can take tens of seconds, during which
+   * the client WS may drop+reconnect — readiness is delivered back via
+   * {@link deliverPreviewReady} (direct delivery by the client's stable `instanceName`),
+   * so it lands on whatever socket is current. `ensureUp` brings the container up +
+   * (re)pushes source (Flow 1c); `awaitPreviewReady` then blocks on vite's stdout ready
+   * event (no polling). Unconfirmed readiness (timeout/throw) still signals — the iframe
+   * load + manual Reload fallback cover it.
+   *
+   * ⚠️ Run with `wrangler dev` — needs a live container (same constraint as `ensureUp`).
+   */
+  @mesh(requireAdmin)
+  async warmPreview(clientId: string): Promise<void> {
+    await this.ensureUp();
+    try {
+      await this.lmz.callRaw(
+        DEV_CONTAINER_BINDING, this.lmz.instanceName!, this.ctn<DevContainer>().awaitPreviewReady(),
+      );
+    } catch (e) {
+      debug('nebula.DevStudio.warmPreview').warn('preview-readiness unconfirmed (signalling anyway)', { error: e });
+    }
+    this.deliverPreviewReady(this.lmz.instanceName!, clientId);
+  }
+
+  /**
+   * Tell the originating client the preview is ready, by direct delivery — a one-way
+   * mesh call to the client's Gateway addressed by its stable `instanceName` (`clientId`),
+   * so a WS reconnect during the boot doesn't strand it. Same shape + rationale (no
+   * `newChain`) as {@link deliverTurnResult}; fire-and-forget + try/catch.
+   */
+  protected deliverPreviewReady(scope: string, clientId: string): void {
+    try {
+      this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope));
+    } catch (e) {
+      debug('nebula.DevStudio.warmPreview').warn('preview-ready delivery failed (non-fatal)', { error: e });
+    }
+  }
+
   // ─── Self-correcting codegen loop (tasks/archive/nebula-codegen-loop.md) ─────────
 
   /** Mount (or reuse) the tool-args typia validator facet — derived from

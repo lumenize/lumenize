@@ -137,6 +137,17 @@ describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Dock
     await page.getByRole('heading', { name: 'Nebula Studio' }).waitFor({ state: 'visible' });
     expect(await page.locator('iframe[title="Preview"]').count()).toBe(1);
 
+    // Auto-refresh (preview-ready-autorefresh.md): connect() fired warmPreview(); when vite is
+    // serving, DevStudio's handlePreviewReady push triggers reloadPreview, bumping the iframe src
+    // with a `?t=` cache-buster — with NO manual Reload click. Capable-of-failing: without the
+    // warmPreview→onPreviewReady path nothing bumps the src on login, so this times out (the src
+    // stays the bare `/dev-container/{scope}/`). Generous timeout for the cold container boot.
+    await page.waitForFunction(
+      () => (document.querySelector('iframe[title="Preview"]')?.getAttribute('src') ?? '').includes('?t='),
+      undefined,
+      { timeout: 180_000, polling: 500 },
+    );
+
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });
 

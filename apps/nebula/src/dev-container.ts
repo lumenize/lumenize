@@ -237,6 +237,18 @@ export class DevContainer extends NebulaContainer {
   }
 
   /**
+   * Resolve when vite is actually serving the preview (`:5173`) — **event-driven, no
+   * polling**: the command-server holds this request until vite's own stdout `ready`
+   * event fires (or a safety timeout → `ready:false`). DevStudio's `warmPreview` awaits
+   * this before signalling the client, so the auto-refresh lands on a serving preview,
+   * not a mid-boot one. ⚠️ Verified live ([[feedback_test_container_changes_with_wrangler_dev]]).
+   */
+  @mesh(requireAdmin)
+  async awaitPreviewReady(): Promise<{ ok: boolean; ready: boolean }> {
+    return this.#cmdJson('/vite/ready');
+  }
+
+  /**
    * Write DevStudio's pushed source files into the working tree (the `applyChanges`
    * receiver — Flow 1 / 1c). Validates every path shape FIRST (defense-in-depth;
    * the command-server re-validates at the write boundary), then forwards the batch

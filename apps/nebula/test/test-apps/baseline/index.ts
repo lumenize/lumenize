@@ -90,6 +90,16 @@ export class StarTest extends Star {
       ctn.onChatResult(turnId, `echo: ${message}`, `thought: ${message}`));
   }
 
+  /** Test-only stand-in for `DevStudio.warmPreview`'s signal (preview-ready-autorefresh.md):
+   *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
+   *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
+   *  the `onPreviewReady` hook. */
+  @mesh(requireAdmin)
+  runFakePreviewWarm(clientId: string): void {
+    const ctn = this.ctn() as any;
+    this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn.handlePreviewReady(this.lmz.instanceName));
+  }
+
   /**
    * Test-only: dump the ontology-related KV keys so tests can verify the
    * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
@@ -406,6 +416,14 @@ export class NebulaClientTest extends NebulaClient {
     const pending = this.trackTurn(turnId);
     this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakeTurn(turnId, clientId, message));
     return pending;
+  }
+
+  /** Exercise `warmPreview`'s fire shape against the StarTest stand-in (DEV_STUDIO is absent
+   *  here): fire with this client's *explicit* instanceName; the stand-in echoes
+   *  `handlePreviewReady` → the `onPreviewReady` hook fires. */
+  warmPreviewViaStarForTest(starInstanceName: string): void {
+    const clientId = this.lmz.instanceName;
+    this.lmz.call('STAR', starInstanceName, this.ctn<StarTest>().runFakePreviewWarm(clientId));
   }
 
   /** Fire an `onChatResult` delivery at a client via Star (the DO→client direct-delivery

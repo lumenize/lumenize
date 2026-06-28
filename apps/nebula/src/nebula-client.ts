@@ -132,6 +132,14 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * means opted-out (a non-preview client simply ignores reload signals).
    */
   onReload?: () => void;
+  /**
+   * Optional hook invoked when DevStudio signals the dev preview is up and serving
+   * (the {@link NebulaClient.handlePreviewReady} push, in response to
+   * {@link NebulaClient.warmPreview}). The Studio uses it to auto-refresh the preview
+   * iframe — no manual Reload. `scope` is the dev star the readiness is for (ignore if
+   * the UI has since switched scopes).
+   */
+  onPreviewReady?: (scope: string) => void;
 }
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
@@ -212,6 +220,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #appVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   #onReload?: () => void;
+  #onPreviewReady?: (scope: string) => void;
   // Captured for `logout()` (the embedded refresh closure reads them too, but a
   // method can't reach the constructor's `config`). `#baseUrl` may be undefined
   // when the browser auto-detects it for the WS URL — logout falls back to the
@@ -327,6 +336,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       appVersion,
       onShouldRefreshUI,
       onReload,
+      onPreviewReady,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -422,6 +432,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#appVersion = appVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
     this.#onReload = onReload;
+    this.#onPreviewReady = onPreviewReady;
     this.#baseUrl = config.baseUrl;
     this.#fetchFn = config.fetch ?? fetch;
 
@@ -1169,6 +1180,29 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     if (!pending) return;
     this.#pendingTurns.delete(turnId);
     pending.resolve({ reply, thought });
+  }
+
+  /**
+   * Ask DevStudio to bring the dev preview up and signal when vite is serving, so the
+   * UI can auto-refresh the iframe (no manual Reload). Fire-and-forget (NOT awaited
+   * `callRaw`) — the container boot is long and the readiness comes back via the
+   * {@link handlePreviewReady} push (direct delivery by this client's stable
+   * `instanceName`), so it survives a WS reconnect during the boot. Passes its own
+   * `instanceName` explicitly as the reply target.
+   */
+  warmPreview(): void {
+    const clientId = this.lmz.instanceName;
+    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().warmPreview(clientId));
+  }
+
+  /**
+   * Receive DevStudio's "preview is serving" signal (direct delivery, addressed to this
+   * client's `instanceName`). Invokes the `onPreviewReady` hook so the UI can refresh
+   * the preview iframe. `@mesh()` because it arrives over the Gateway like the other pushes.
+   */
+  @mesh()
+  handlePreviewReady(scope: string): void {
+    this.#onPreviewReady?.(scope);
   }
 
   /**
