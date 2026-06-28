@@ -23,6 +23,8 @@ A distributed flow touches many nodes: client → Gateway → Star → Worker �
 
 Within a single DO/Worker hop, the transport *is* an awaited Workers RPC: `callRawImpl` does `await stub.__executeOperation(envelope)` and that hop's result or error rides back in the RPC response. The await spans exactly one hop — never a path. We have considered converting even this to two one-way calls; since no user-developer code could tell the difference, that remains an open mechanism choice (it would mainly relocate error/overload classification — see the backpressure design), not a revision of this decision. The WS legs have no such exception — there is nothing to await.
 
+This exception also does **not** license an *awaited* call whose result must return across a **client connection**, nor one that spans **long-running** work: the client-side `callRaw` await is sugar bound to the originating socket, so a client-WS drop or a DO hibernation strands the result and the caller hangs forever (the Studio chat "thinking… forever" failure, 2026-06). Such flows use direct delivery — the client *fires*, and the result is delivered to a `@mesh()` handler on the client addressed by its `instanceName` — never an awaited `callRaw`. Everyday enforcement lives in `.claude/rules/mesh.md` (§ `callRaw` is mesh).
+
 ## Alternatives considered
 
 | Approach | Why rejected |

@@ -209,6 +209,14 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   (`tasks/on-hold/nebula-offline-prompt-harness.md`) + the **skills** (`tasks/nebula-skills.md`).
   Dogfood secret-santa-grade apps with synthetic users + impersonation. Includes the UX-exploratory UI
   questions above.
+- **Query subscriptions → reactive AI chat** — `tasks/nebula-query-subscriptions.md` (subscribe to a query
+  across Resources; parent-child via FK; id-delta fanout + per-id permission recheck) is the **substrate**.
+  On it, a **`reactive-ai-chat` child task — write it once query-subscriptions lands, do NOT pre-create** —
+  models each **chat turn as a child Resource** (FK → the chat) so a single subscription delivers
+  **history-restore on refresh**, **completed-while-disconnected recovery**, and **multi-participant chat**
+  (a coach / UX designer now; teammates later). It also fixes a **known storage mistake**: chat is recorded
+  on **Galaxy** (`dev-studio.ts:455`) but belongs on the per-app **DevStudio** — relocate it here.
+  **Prereq:** live turn-delivery (`tasks/resilient-turn-delivery.md`), which deliberately defers all of this.
 
 **Wave 3 — invite + scale the feedback loop**
 - **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
@@ -263,3 +271,4 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 - Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
 - First prod deploy + release process (Wave 1, merged): `tasks/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
 - Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
+- Resilient chat delivery (smaller, prereq): `tasks/resilient-turn-delivery.md` · query subscriptions (Wave 2 substrate): `tasks/nebula-query-subscriptions.md` · reactive AI chat (future child — depends on query-subscriptions, turn = child Resource)
