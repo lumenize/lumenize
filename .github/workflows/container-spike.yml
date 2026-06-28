@@ -66,16 +66,20 @@ jobs:
         run: npm ci --no-optional
 
       - name: Explicitly install Rollup + SWC + lightningcss Linux bindings (after npm ci)
+        # --no-optional (above) strips platform-specific native deps; re-add the Linux
+        # ones. ONE combined `npm install` — separate sequential installs prune each
+        # other's --no-save'd optionals (the lightningcss install was wiping the swc
+        # binding the prior line added), so request all three at once. ui-smoke needs
+        # lightningcss too (it spawns vite against nebula-studio-ui; the packages job
+        # never runs vite, so it only needed rollup+swc). lightningcss's `exports`
+        # blocks require() of its package.json, so read the version off disk.
         run: |
-          npm install --no-save @rollup/rollup-linux-x64-gnu
-          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
-          # ui-smoke spawns vite against nebula-studio-ui; vite's CSS pipeline needs
-          # lightningcss's native binary — another --no-optional casualty (the
-          # packages job doesn't run vite, so it never hit this). lightningcss's
-          # `exports` blocks require('lightningcss/package.json'), so read the version
-          # off disk; the native pkg must match it exactly.
+          SWC_VER=$(node -p 'require("@swc/core/package.json").version')
           LCSS_VER=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/lightningcss/package.json','utf8')).version")
-          npm install --no-save "lightningcss-linux-x64-gnu@${LCSS_VER}"
+          npm install --no-save \
+            @rollup/rollup-linux-x64-gnu \
+            "@swc/core-linux-x64-gnu@${SWC_VER}" \
+            "lightningcss-linux-x64-gnu@${LCSS_VER}"
 
       - name: Install Playwright chromium (ui-smoke drives a real browser)
         run: npx playwright install --with-deps chromium
