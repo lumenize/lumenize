@@ -8,10 +8,21 @@ name: Container spike (nebula-in-ci Phase 1)
 # ubuntu-latest to find out. Expected to need iteration — the deliverable is a
 # recorded finding (boots? cold-boot timing? what failed), not a green required check.
 #
-# Manual trigger only (workflow_dispatch): pick the branch in the Actions tab. Kept
-# OUT of ci.yml so a heavy/flaky spike never gates the protected `main` checks.
+# Kept OUT of ci.yml so a heavy/flaky spike never gates the protected `main` checks.
+# `workflow_dispatch` alone is only triggerable once the file reaches the DEFAULT
+# branch (a GitHub constraint) — so on this feature branch we ALSO trigger on push,
+# path-filtered to container-relevant changes so unrelated pushes don't run this
+# heavy Docker job. Remove the push trigger once the spike has its answer (spike
+# hygiene — workflow.md § Experiments).
 on:
   workflow_dispatch:
+  push:
+    branches: [feat/nebula-studio]
+    paths:
+      - '.github/workflows/container-spike.yml'
+      - 'apps/nebula/container/**'
+      - 'apps/nebula/src/dev-container.ts'
+      - 'apps/nebula/test/ui-smoke/**'
 
 jobs:
   container-spike:
