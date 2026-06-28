@@ -14,6 +14,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] **`this.svc.ai` capability — wrap the hand-rolled Workers-AI REST call (Mesh product feedback from Nebula).** `apps/nebula/src/dev-studio.ts` `callModel` now hand-rolls a `fetch()` to Workers AI (token-authed REST, `unwrapWorkersAiRest`) because the `env.AI` binding can't authenticate in the secret-less hosted lane (`tasks/nebula-in-ci.md` Phase 2). Per ADR-007, the durable form is a **per-node `this.svc.ai` capability** composed in like `this.svc.sql`/`this.svc.email`. The wrap should NOT merely relocate the REST call — it should **move the blocking AI `fetch()` off the DO's wall-clock** (two-one-way to a Worker), so it isn't mistaken for a pure refactor (`mesh.md` § two-one-way + `durable-objects.md` § wall-clock). Deferred to its first real consumer; until then Nebula keeps the in-`callModel` REST seam.
+
 - [ ] Investigate use of waitUntil in lmz-api.ts. Do we actually need it? If we do, does it keep the DO in wall-clock billing mode? If we switched to making call always be two one-way calls, would we need it?
 
 - [ ] Split `getting-started/index.test.ts` so it's a clean 1:1 match with `getting-started.mdx`

@@ -19,12 +19,14 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   runCodegenLoop,
   assembleCodegenPrompt,
+  parseModelTurn,
   DEFAULT_LOOP_CONFIG,
   type CodegenLoopDeps,
   type CodegenLoopConfig,
   type ChatMessage,
   type ModelParams,
 } from '../../../src/codegen-loop';
+import { unwrapWorkersAiRest } from '../../../src/dev-studio';
 
 // ─── Fake-model + deps scaffolding (unit layer) ──────────────────────────
 
@@ -389,4 +391,37 @@ const n: number = 'not a number';
   // (The `response_format: json_schema` Workers-AI capability probe was a one-off
   // investigation, not a regression — the shipping path is the typia post-validate of
   // tool-call args, fully covered above — so it's not kept as a placeholder test.)
+});
+
+// ─── Workers-AI REST envelope (Phase 2 callModel swap) ───────────────────────
+//
+// The hosted-lane `callModel` calls Workers AI over REST, which wraps the binding's
+// result in `{ result, success, errors }`. `unwrapWorkersAiRest` must yield the SAME
+// shape `env.AI.run` returns, so `parseModelTurn` reads it unchanged — otherwise the
+// REST swap silently no-ops (zero tool_calls → loop "stops"). Cheap + deterministic
+// (no fetch); only REST exercises the unwrap (the binding path returns the inner shape
+// directly), so the ui-smoke GHA lane — which uses the binding — can't catch this.
+describe('Phase 2 — Workers-AI REST envelope unwrap feeds parseModelTurn', () => {
+  it('unwraps `.result` so a wrapped REST envelope parses identically to the binding shape', () => {
+    const inner = resp([toolCall('writeSource', { path: 'App.vue', source: 'x' })]);
+    const restEnvelope = { result: inner, success: true, errors: [], messages: [] };
+
+    // unwrap === the inner binding-shape value
+    expect(unwrapWorkersAiRest(restEnvelope)).toEqual(inner);
+    // and it parses to the same tool_call the binding path would
+    const fromRest = parseModelTurn(unwrapWorkersAiRest(restEnvelope));
+    const fromBinding = parseModelTurn(inner);
+    expect(fromRest.toolCalls).toEqual(fromBinding.toolCalls);
+    expect(fromRest.toolCalls[0]).toMatchObject({ name: 'writeSource' });
+  });
+
+  it('passes through an already-unwrapped (AI-Gateway provider-native) response', () => {
+    const inner = resp([toolCall('writeSource', { path: 'A.vue', source: 'y' })]);
+    expect(unwrapWorkersAiRest(inner)).toEqual(inner); // no `success` key → returned as-is
+  });
+
+  it('throws on `success: false` rather than returning an undefined result (no silent empty turn)', () => {
+    expect(() => unwrapWorkersAiRest({ result: null, success: false, errors: [{ message: 'boom' }] }))
+      .toThrow(/success=false/);
+  });
 });

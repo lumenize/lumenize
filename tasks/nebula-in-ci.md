@@ -6,7 +6,8 @@
 - ✅ **Resend switch (Phase 3 blocker B1)** — `browser`/`chromium` worker config off CF `send_email remote:true` → `EMAIL_PROVIDER: resend`, `from` → `auth@test.lumenize.com`. **Verified**: `browser` lane green (5 passed incl. magic-link auth via Resend, no CF creds); full apps/nebula always-on suite green (**524 passed**).
 - ✅ **CI wiring (Phase 3)** — `.github/workflows/ci.yml` test job now `--scope "packages apps"`. Proves out on push.
 - ✅ **Container spike harness (Phase 1)** — `.github/workflows/ui-smoke.yml` (workflow_dispatch). **Empirical boot result needs a push/dispatch on a GHA runner** (+ separately, the hosted sandbox).
-- ⏸ **Phase 2 (callModel REST swap + ui-smoke prod-config Resend + gate split)** — held: gated on the spike result + Larry minting the `WORKERS_AI_TOKEN`.
+- ✅ **Phase 1 DONE** — ui-smoke 4/4 green on a headless GHA runner (container builds+boots+serves + Resend login + AI turn); the auth `503` root-caused + fixed (`forwardToDo`). Lane productionized → [`ui-smoke.yml`](../.github/workflows/ui-smoke.yml).
+- 🟡 **Phase 2 CORE done + verified (GHA-safe); hosted-boot remains.** `DevStudio.callModel` is now a **hybrid**: `WORKERS_AI_TOKEN` present → Workers-AI **REST** (`unwrapWorkersAiRest`, shape verified live), else the `env.AI` binding (GHA/local). Gate `HAS_CF_CREDS` → **`HAS_AI_PATH`** (creds *or* token). Cheap shape probe (3 tests) + dev-studio lane 41/41 + apps/nebula tsc clean. Mesh `this.svc.ai` backlog item filed. **Remaining (needs the hosted sandbox):** does the prod config boot under `wrangler dev` with **no CF creds** — the `send_email remote:true` binding may need dropping in a hosted boot variant — and the capable-of-failing check (unset token in hosted → fails).
 - Build order note: spike-first was pinned because the spike gates *ui-smoke-in-hosted*; the Resend switch + CI wiring don't touch that gate, so they were done first without jumping the dependency.
 
 ## Goal

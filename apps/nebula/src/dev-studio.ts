@@ -81,6 +81,24 @@ const INITED_KEY = 'devstudio:inited';
  *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
 const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 
+/**
+ * Unwrap a Workers AI `/ai/run` REST envelope to the same value `env.AI.run` returns.
+ *
+ * The direct REST endpoint wraps the result in `{ result, success, errors }` (verified
+ * live); an AI-Gateway `workers-ai` response may already be the provider-native
+ * (unwrapped) shape — handle both. Throws on `success: false`. Exported so the cheap
+ * `dev-studio` shape probe can assert the unwrap feeds {@link parseModelTurn} unchanged
+ * (the binding path needs no unwrap, so only REST exercises this).
+ */
+export function unwrapWorkersAiRest(json: unknown): unknown {
+  if (json && typeof json === 'object' && 'success' in json) {
+    const j = json as { result?: unknown; success?: boolean; errors?: unknown };
+    if (!j.success) throw new Error(`Workers AI REST returned success=false: ${JSON.stringify(j.errors ?? [])}`);
+    return j.result;
+  }
+  return json;
+}
+
 /** Minimal, *structural* system bundle for the tool-calling loop — the seed of the
  *  composable cascade (D7). The make-it-data-bound *content* is the engine file's
  *  exploratory concern; this only establishes the tool protocol + output constraints.
@@ -454,18 +472,60 @@ export class DevStudio extends NebulaDO {
 
   /**
    * One model inference for the loop. **Overridable seam** (`protected`, no `@mesh`)
-   * so the Phase-2/3 test harness replays a synthetic script with no AI binding; the
-   * shipping path calls `env.AI.run` with the codegen tools + per-call params (D6).
+   * so the Phase-2/3 test harness replays a synthetic script with no AI binding.
+   *
+   * Two shipping transports, selected by `WORKERS_AI_TOKEN` presence:
+   * - **token present → Workers-AI REST** ({@link callModelRest}). The hosted lane has
+   *   no CF account creds, so the `env.AI` binding can't authenticate there; a scoped
+   *   plaintext token + REST works in every lane (and powers the nightly replay loop).
+   * - **token absent → the `env.AI` binding** — GHA/local, where account creds are
+   *   present. So a token-less hosted lane fails (the binding can't auth without creds),
+   *   which is the point: a green hosted turn proves it went through REST.
+   *
    * The model id stays isolated to `STUDIO_MODEL` and is never surfaced.
    */
   protected async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
-    // The model-catalog types don't cover every @cf id; run() is treated loosely.
-    return (this.env.AI as any).run(STUDIO_MODEL, {
+    const body = {
       messages,
       tools: CODEGEN_TOOLS,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
+    };
+    // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY are runtime env (`.dev.vars`
+    // / `wrangler secret`), not committed wrangler vars, so they're absent from the
+    // generated `Env` — widen at the read (packaging.md).
+    const env = this.env as Env & { WORKERS_AI_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string };
+    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, body);
+    // The model-catalog types don't cover every @cf id; run() is treated loosely.
+    return (this.env.AI as any).run(STUDIO_MODEL, body);
+  }
+
+  /**
+   * Workers AI over REST — the hosted-lane AI path (no `env.AI` binding there). Routes
+   * through an AI Gateway when `CF_AI_GATEWAY` is set (cost/latency analytics), else the
+   * direct account endpoint. The `/ai/run` response wraps the binding's result in
+   * `{ result, success, errors }` (verified against the live API) — {@link unwrapWorkersAiRest}
+   * unwraps `.result` so {@link parseModelTurn} reads the same shape the binding returns.
+   * **Never log the token or the `Authorization` header** (security.md); errors carry the
+   * URL `pathname` + status only (the token rides the header, never the URL).
+   */
+  async #callModelRest(
+    env: { CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string },
+    token: string,
+    body: unknown,
+  ): Promise<unknown> {
+    const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+    if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
+    const url = env.CF_AI_GATEWAY
+      ? `https://gateway.ai.cloudflare.com/v1/${accountId}/${env.CF_AI_GATEWAY}/workers-ai/${STUDIO_MODEL}`
+      : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${STUDIO_MODEL}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
+    if (!resp.ok) throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}`);
+    return unwrapWorkersAiRest(await resp.json());
   }
 
   /**

@@ -25,16 +25,30 @@ export const HAS_DOCKER: boolean = (() => {
   }
 })();
 
-/**
- * The `CLOUDFLARE_*` creds are present in the root `.dev.vars` (symlinked into
- * `apps/nebula`). `wrangler dev` needs them to proxy `env.AI` to Workers AI and to
- * reach the deployed `email-test` Worker for the real magic-link round-trip.
- */
-export const HAS_CF_CREDS: boolean = (() => {
+/** Raw `.dev.vars` text (symlinked into `apps/nebula`), read once for the cred probes. */
+const DEV_VARS: string = (() => {
   try {
-    const devVars = readFileSync(resolvePath(process.cwd(), '.dev.vars'), 'utf8');
-    return /^CLOUDFLARE_/m.test(devVars);
+    return readFileSync(resolvePath(process.cwd(), '.dev.vars'), 'utf8');
   } catch {
-    return false;
+    return '';
   }
 })();
+
+/**
+ * `CLOUDFLARE_*` creds in `.dev.vars` → `wrangler dev` can proxy the `env.AI` binding to
+ * Workers AI (the GHA/local AI path). Absent in the secret-less hosted lane.
+ */
+export const HAS_CF_CREDS: boolean = /^CLOUDFLARE_/m.test(DEV_VARS);
+
+/**
+ * A Workers-AI REST token → the hosted-lane AI path, where there are no CF account creds
+ * for the binding (`DevStudio.callModel` selects REST when this is present).
+ */
+export const HAS_WORKERS_AI_TOKEN: boolean = /^WORKERS_AI_TOKEN=/m.test(DEV_VARS);
+
+/**
+ * ui-smoke has an AI path iff the binding (CF creds) **or** the REST token is available.
+ * This is the gate the lane runs on — GHA satisfies it via creds, the hosted lane via the
+ * token. (Email rides Resend + `TEST_TOKEN`, present in every target lane.)
+ */
+export const HAS_AI_PATH: boolean = HAS_CF_CREDS || HAS_WORKERS_AI_TOKEN;

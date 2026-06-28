@@ -5,7 +5,7 @@
  * The layer above ①'s routing-contract test and the API-level `smoke.test.ts`: it
  * confirms the Studio actually works end-to-end through the UI before F&F invites.
  *
- * Gated `describe.runIf(HAS_DOCKER && HAS_CF_CREDS)` — skips cleanly with no failure
+ * Gated `describe.runIf(HAS_DOCKER && HAS_AI_PATH)` — skips cleanly with no failure
  * when the real infra is absent (default `npm test` doesn't even enumerate this
  * project; run it with `npx vitest run --project ui-smoke`).
  *
@@ -24,7 +24,7 @@
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { waitForEmail, extractMagicLink } from '../browser/auth-bootstrap';
-import { HAS_DOCKER, HAS_CF_CREDS } from './gates';
+import { HAS_DOCKER, HAS_AI_PATH } from './gates';
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
  *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
@@ -35,7 +35,7 @@ const TEST_SCOPE = 'test-u0.test-g0.dev';
 /** Bootstrap admin email = the address CF Email Routing forwards to the email-test Worker. */
 const ADMIN_EMAIL = 'test@lumenize.io';
 
-describe.runIf(HAS_DOCKER && HAS_CF_CREDS)('Studio UI smoke (wrangler dev + Docker)', () => {
+describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docker)', () => {
   let browser: Browser;
   let viteBaseUrl: string;
   let workerBaseUrl: string;
