@@ -23,8 +23,35 @@
  */
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { existsSync, readdirSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { waitForEmail, extractMagicLink } from '../browser/auth-bootstrap';
 import { HAS_DOCKER, HAS_AI_PATH } from './gates';
+
+/**
+ * Chromium executable for the raw-Playwright driver. Returns `undefined` (→ Playwright's
+ * default launch) when the version Playwright pins is installed — GHA/local, where
+ * `playwright install` provides it. When that pinned build is ABSENT but a pre-installed
+ * Chromium exists under `PLAYWRIGHT_BROWSERS_PATH` (the Claude Code web image ships a build
+ * that may not match the pinned version), fall back to launching it by path — the image's
+ * documented contract is "use executablePath, never `playwright install`". Skips the
+ * `chromium_headless_shell-` dirs (reduced binary) in favor of the full browser under a
+ * `chromium-` dir (its `chrome-linux/chrome` or `chrome-linux64/chrome`), which drives
+ * headless fine.
+ */
+function resolveChromiumExecutable(): string | undefined {
+  if (existsSync(chromium.executablePath())) return undefined; // pinned build present
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return undefined; // let launch() produce its own error
+  for (const dir of readdirSync(root)) {
+    if (!dir.startsWith('chromium-')) continue;
+    for (const sub of ['chrome-linux/chrome', 'chrome-linux64/chrome']) {
+      const candidate = resolvePath(root, dir, sub);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
  *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
@@ -47,7 +74,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     viteBaseUrl = inject('viteBaseUrl');
     workerBaseUrl = inject('workerBaseUrl');
     testToken = inject('emailTestToken');
-    browser = await chromium.launch();
+    browser = await chromium.launch({ executablePath: resolveChromiumExecutable() });
   });
 
   afterAll(async () => {

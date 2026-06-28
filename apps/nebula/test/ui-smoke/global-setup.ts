@@ -21,7 +21,7 @@
  *
  * @see tasks/nebula-local-smoke.md — Phase 1 (exploratory harness)
  */
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, copyFileSync, rmSync, existsSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
@@ -31,6 +31,26 @@ import { HAS_DOCKER, HAS_AI_PATH } from './gates';
 /** apps/nebula config — vitest cwd is the apps/nebula package dir. */
 const WRANGLER_CONFIG = './wrangler.jsonc';
 const STUDIO_UI_DIR = resolvePath(process.cwd(), '../nebula-studio-ui');
+
+/** DevContainer build-context root (the dir wrangler builds `./container/Dockerfile` from). */
+const CONTAINER_CTX_DIR = resolvePath(process.cwd(), 'container');
+/** Where the optional sandbox-proxy CA is staged for the Dockerfile's prod-inert hook. Gitignored. */
+const STAGED_CA_PATH = resolvePath(CONTAINER_CTX_DIR, 'ccr-ca.crt');
+
+/**
+ * Stage the sandbox egress-proxy CA into the DevContainer build context so the image's
+ * `npm install` trusts the TLS-intercepting proxy (the Dockerfile's prod-inert `ccr-ca.crt*`
+ * hook picks it up). Sandboxes that re-terminate TLS publish the bundle via the standard
+ * CA env vars; absent those (GHA, local dev — direct internet), this is a no-op and the
+ * Dockerfile hook stays inert. Returns a cleanup that removes the staged file.
+ */
+function stageContainerProxyCa(): () => void {
+  const caSource = process.env.NODE_EXTRA_CA_CERTS || process.env.SSL_CERT_FILE;
+  if (!caSource || !existsSync(caSource)) return () => {};
+  mkdirSync(CONTAINER_CTX_DIR, { recursive: true });
+  copyFileSync(caSource, STAGED_CA_PATH);
+  return () => rmSync(STAGED_CA_PATH, { force: true });
+}
 
 /** TEST_TOKEN authenticates the deployed `email-test` Worker WebSocket (real magic-link loop). */
 function readTestToken(): string {
@@ -75,9 +95,15 @@ export default async function setup(project: TestProject) {
   // is the "hosted boot variant that drops the send_email remote:true binding" the task
   // file calls for, achieved with one flag instead of a forked wrangler config.
   const hostedLocalBoot = !process.env.CLOUDFLARE_API_TOKEN;
+  // Stage the egress-proxy CA into the container build context so the DevContainer's
+  // `npm install` trusts the sandbox's TLS interception (no-op when not in such a sandbox).
+  const unstageCa = stageContainerProxyCa();
   const { baseUrl: workerBaseUrl, cleanup } = await spawnWranglerDev({
     configPath: WRANGLER_CONFIG,
-    readyTimeoutMs: 120_000,
+    // The cold DevContainer image build (apt + the baked-UI-lib `npm install`) is markedly
+    // slower in the hosted sandbox than on a GHA runner, where 120s suffices. Give the
+    // hosted local boot generous headroom; GHA keeps the tighter budget.
+    readyTimeoutMs: hostedLocalBoot ? 300_000 : 120_000,
     extraArgs: [
       ...(hostedLocalBoot ? ['--local'] : []),
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
@@ -118,6 +144,7 @@ export default async function setup(project: TestProject) {
   return async () => {
     await vite?.close();
     await wranglerCleanup?.();
+    unstageCa();
   };
 }
 

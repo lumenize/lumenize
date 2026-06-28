@@ -22,6 +22,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends git \
 
 WORKDIR /workspace/app
 
+# Optional sandbox-proxy CA hook (PROD-INERT). Some build environments — e.g. Claude
+# Code on the web — route container-build egress through a TLS-terminating proxy whose
+# CA the base image doesn't trust, so the `npm install` below fails
+# SELF_SIGNED_CERT_IN_CHAIN. When such a lane drops a `ccr-ca.crt` into the build context
+# (apps/nebula/test/ui-smoke/global-setup.ts does this ONLY in that lane; the file is
+# gitignored and ABSENT in prod/CI), trust it for this build's npm. The glob makes the
+# COPY a no-op when the CA is absent — `app/package.json` is the always-present sibling
+# that keeps COPY legal with zero matches (a lone non-matching glob would error). In
+# prod nothing is staged → no `cafile` is set → npm behaves exactly as before. This
+# never ships a CA into the prod image. (--network host does NOT help: the proxy
+# intercepts host-network builds too; only CA trust fixes it.)
+COPY app/package.json ccr-ca.crt* /ccr/
+RUN if [ -f /ccr/ccr-ca.crt ]; then \
+      npm config set cafile /ccr/ccr-ca.crt && echo "ui-smoke: trusting sandbox proxy CA for build npm"; \
+    fi
+
 # Install the baked UI-lib set first for layer caching (package.json changes rarely
 # vs. source). This is the curated dependency surface — "remove a lib" = stop
 # importing it (vite tree-shakes); pulling a NON-baked package is the only thing
