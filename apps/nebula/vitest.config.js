@@ -145,6 +145,18 @@ export default defineConfig({
     testTimeout: 10000,
     globals: true,
     dangerouslyIgnoreUnhandledErrors: true,
+    // CPU-constrained-lane parallelism cap. The `browser` project's real-WS e2e (an
+    // external `wrangler dev` + WebSocket round-trips, e.g. flush-spike's 33 timed
+    // iterations) is wall-clock-sensitive: when it runs concurrently with the CPU-bound
+    // pool-workers projects it gets starved past its timeout — the "isolation flips the
+    // result" signature in testing.md. The hosted plaintext sandbox sets
+    // LUMENIZE_NO_CF_REMOTE (its shared 4 vCPUs are weaker than a GHA runner's); there we
+    // run files serially so those tests never compete for cores. Gate on the explicit lane
+    // flag, NOT CPU count — the sandbox is also 4 cores, so a count test couldn't tell it
+    // apart from GHA. UNSET in GHA (4-vCPU runner + `--retry 2` already passes) and local
+    // (fast), so their timing is untouched. (Env reads at config-eval are fine here: this
+    // is a process env var the lane sets, not a `.dev.vars` secret — see testing.md.)
+    ...(process.env.LUMENIZE_NO_CF_REMOTE ? { fileParallelism: false } : {}),
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
