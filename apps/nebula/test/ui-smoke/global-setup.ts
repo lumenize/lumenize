@@ -62,10 +62,24 @@ export default async function setup(project: TestProject) {
   //    address CF Email Routing forwards to the email-test Worker AND the bootstrap
   //    admin email (first login at a scope → admin). Container image build can be slow
   //    on a cold boot, so allow a generous ready timeout.
+  // Hosted lane (no CF account creds): boot `wrangler dev --local`, which disables
+  // remote bindings. The prod apps/nebula config declares two — the `env.AI` Workers-AI
+  // binding and the `send_email remote:true` binding — and a remote binding establishes
+  // its proxy session at startup, which HARD-FAILS without a CLOUDFLARE_API_TOKEN
+  // ("You must be logged in to use wrangler dev in remote mode"). The hosted lane needs
+  // NEITHER binding: email rides Resend (EMAIL_PROVIDER, below) over HTTP, and AI rides
+  // the Workers-AI REST path (DevStudio.#callModelRest, selected by WORKERS_AI_TOKEN) —
+  // so dropping the remote bindings via --local loses nothing. The GHA lane DOES carry a
+  // token and uses the live `env.AI` binding (Phase-2 note in tasks/nebula-in-ci.md), so
+  // it must stay non-local; gate on the token wrangler itself reads for remote mode. This
+  // is the "hosted boot variant that drops the send_email remote:true binding" the task
+  // file calls for, achieved with one flag instead of a forked wrangler config.
+  const hostedLocalBoot = !process.env.CLOUDFLARE_API_TOKEN;
   const { baseUrl: workerBaseUrl, cleanup } = await spawnWranglerDev({
     configPath: WRANGLER_CONFIG,
     readyTimeoutMs: 120_000,
     extraArgs: [
+      ...(hostedLocalBoot ? ['--local'] : []),
       '--var', 'NEBULA_AUTH_BOOTSTRAP_EMAIL:test@lumenize.io',
       // Send the magic-link via Resend (EMAIL_PROVIDER) from Resend's VERIFIED domain
       // (test.lumenize.com) — so the run needs NO CF email creds and works in every

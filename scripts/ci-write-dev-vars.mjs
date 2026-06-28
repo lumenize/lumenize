@@ -43,5 +43,24 @@ const lines = [
   `JWT_PRIVATE_KEY_GREEN="${green.priv}"`,
   `JWT_PUBLIC_KEY_GREEN="${green.pub}"`,
 ];
+
+// Optional: the apps/nebula ui-smoke lane's Workers-AI REST path. Passed through
+// only when present in the environment, so the package lane (ci.yml — neither var
+// set) is unaffected. The lane's gate (apps/nebula/test/ui-smoke/gates.ts) greps
+// .dev.vars for WORKERS_AI_TOKEN / CLOUDFLARE_*, and DevStudio.#callModelRest reads
+// BOTH off env (the token authenticates the request; the account id builds the REST
+// URL) — so a token without the account id would flip the gate true but then throw
+// at call time. Add them together. CLOUDFLARE_ACCOUNT_ID is a non-secret identifier;
+// WORKERS_AI_TOKEN is a scoped Workers-AI secret (never logged — security.md). The
+// GHA ui-smoke workflow appends CLOUDFLARE_ACCOUNT_ID in a separate step and relies
+// on the env.AI binding for auth; the hosted lane has no binding, so it needs the
+// token in .dev.vars too — which only this passthrough provides.
+const optional = (name) => {
+  const v = process.env[name];
+  if (v) lines.push(`${name}=${v}`);
+};
+optional('WORKERS_AI_TOKEN');
+optional('CLOUDFLARE_ACCOUNT_ID');
+
 writeFileSync('.dev.vars', lines.join('\n') + '\n');
 console.log(`ci-write-dev-vars: wrote .dev.vars (${lines.length} entries; values not shown).`);
