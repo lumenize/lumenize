@@ -71,16 +71,14 @@
       "entrypoint": "BenchFanoutTier"
     }
   ],
-  // Cloudflare Email Sending binding (env.EMAIL.send) that NebulaEmailSender's
-  // env-selected Cloudflare transport uses. `remote: true`
-  // proxies to the real Cloudflare Email Sending service so the test
-  // exercises the full email round-trip via the deployed email-test Worker.
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true
-    }
-  ],
+  // NO Cloudflare Email Sending binding — the magic-link login is incidental
+  // here (it mints a session JWT; the lane tests Gateway/bench/multi-client),
+  // so the email transport is free to change. Selecting Resend (below) instead
+  // of CF `send_email remote:true` lets this lane run in EVERY environment —
+  // including the secret-less Claude-hosted lane (no CF creds) — since a
+  // `remote:true` binding would establish its proxy at pool-load and fail
+  // there. The CF Email Sending path itself is covered by
+  // packages/auth/test/e2e-email. (tasks/nebula-in-ci.md "Email everywhere = Resend".)
   "ratelimits": [
     {
       "name": "NEBULA_AUTH_RATE_LIMITER",
@@ -94,6 +92,10 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "NEBULA_AUTH_REDIRECT": "/app",
+    // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
+    // .dev.vars + `test.lumenize.com` verified as a Resend sending domain — same
+    // setup as packages/auth/test/e2e-email-resend.
+    "EMAIL_PROVIDER": "resend",
     // Allow Playwright + Vite dev/preview origins so the browser test page can
     // call this deployed-via-miniflare worker cross-origin. Empty in production
     // (single-origin deploy); per-test config provides whatever origins the
