@@ -29,6 +29,15 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Author**: Cloudflare
 - **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety, (5) made schedule/getSchedule/cancelSchedule methods synchronous, (6) added triggerAlarms() testing helper for reliable alarm testing.
 
+## durable-utils — SQLSchemaMigrations (Vendored & modified)
+- **Source**: https://github.com/lambrospetrou/durable-utils (`src/sql-migrations.ts`)
+- **License**: MIT (https://github.com/lambrospetrou/durable-utils/blob/main/LICENSE)
+- **Used In**: `packages/sql-migrations/src/index.ts` (copied and modified)
+- **Purpose**: An id-gated SQL schema-migration runner for SQLite-backed Durable Objects (`@lumenize/sql-migrations`).
+- **Date Added**: 2026-06-29
+- **Author**: Lambros Petrou
+- **Note**: Vendored from durable-utils' `SQLSchemaMigrations` with modifications: (1) storage access ported from the legacy async API (`doStorage.get/put/transaction`) to Cloudflare's synchronous API (`ctx.storage.kv.get/put` + `ctx.storage.transactionSync`), so `runAll()` is synchronous and callable from a DO constructor body; (2) deliberately narrowed public surface — dropped `keyNameTrackingLastMigrationID`, the `sqlGen` callback, and `hasMigrationsToRun()` (the marker key name is fixed); (3) added per-migration `params` for bound (`?`) values. The MIT copyright is retained in the file header.
+
 ## typia (Copied — partial)
 - **Source**: https://github.com/samchon/typia (tag `v12.0.2`)
 - **License**: MIT (https://github.com/samchon/typia/blob/master/LICENSE)

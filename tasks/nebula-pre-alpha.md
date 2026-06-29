@@ -192,13 +192,20 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   *(Absorbs the dissolved offline-harness extraction. Fanout, not a central sink, is the accepted design
   for the rare cross-Universe question.)* **Fanout target moves `Galaxy.getTurns` → `DevStudio` turn Resources
   once Child 3 relocates turns.**
-- **Data-use consent flag** — add `improveProductConsent` column to `NebulaAuthRegistry`'s `Instances`
-  table (`packages/nebula-auth/src/schemas.ts` `REGISTRY_SCHEMAS`). Generically named (consent to use
-  your data to improve the product — never `nebula`/`studio`-specific, so nebula-auth stays
-  product-agnostic). Surface a notice at the slug-pick prompt. **Assume `true` for now** (hard yes for
-  F&F testers). `SELECT instanceName FROM Instances WHERE improveProductConsent = 1` gives the corpus
-  pool. Home: the auth registry (self-signup is an auth feature; consent lives where the `claimUniverse`
-  call happens).
+- **Data-use consent flag** — **designed child, 2-stage `/review-task` complete 2026-06-29**:
+  [`nebula-consent-flag.md`](nebula-consent-flag.md). Adds a **nullable** `improveProductConsent` column to
+  `NebulaAuthRegistry`'s `Instances` table. **Consent is per-scope, Universe-level now** (`claimUniverse`
+  sets the Universe row `=1`, conflict-safe; sub-instance rows stay `NULL` = "inherit from nearest ancestor"
+  — the column is already per-level-ready, so galaxy/star consent later is UI-only, no migration). Corpus =
+  `WHERE improveProductConsent = 1 AND instanceName != PLATFORM_INSTANCE_NAME` (the reserved `nebula-platform`
+  row is excluded). Generically named (never `nebula`/`studio`-specific). **Assume `true` for now** (hard yes
+  for F&F). Home: the auth registry (consent lives where `claimUniverse` happens). **Why a task file:** it's the
+  **first prod DO schema migration** — which spun out a **prerequisite MIT package**.
+  - **Prereq: [`@lumenize/sql-migrations`](archive/sql-migrations.md)** — a minimal id-gated DO SQL schema-migration
+    runner (vendored+modified from durable-utils, MIT → sync storage API; `ctx.storage.kv` marker +
+    `transactionSync`; deliberately narrowed surface + a `params` bind). **NOT a pre-alpha child — a standalone
+    substrate package**; 2-stage `/review-task` complete 2026-06-29; **build FIRST** (the consent flag consumes
+    it, and `apps/nebula`'s imminent index-column migrations are the second consumer). **✅ BUILT + verified + archived 2026-06-29** (`packages/sql-migrations/`, [`archive/sql-migrations.md`](archive/sql-migrations.md)); consent flag builds on it next.
 
 **Wave 2 — the long pole (data-bound, exploratory)** — *the chat thread (last bullet) is being built FIRST; see Current focus. The items below are orthogonal/soft-adjacent, not prereqs of it.*
 - **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned

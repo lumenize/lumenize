@@ -324,6 +324,15 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // SQL Migrations
+    {
+      type: 'category',
+      label: 'SQL Migrations',
+      items: [
+        'sql-migrations/index',
+      ],
+    },
+
     // TypeScript Runtime Parser-Validator (typia-based; supersedes
     // @lumenize/ts-runtime-validator, deprecated as of v0.25 and since
     // removed. In-site links to the old package were repointed here; external
