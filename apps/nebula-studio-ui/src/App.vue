@@ -34,6 +34,7 @@ const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 const email = ref("");
 const sentTo = ref<string | null>(null);
 const needsClaim = ref(false);
+const sessionExpired = ref(false); // a mid-session terminal auth failure flipped us back to login
 const claimSlug = ref("");
 
 // account / hierarchy
@@ -157,6 +158,17 @@ async function claimUniverse() {
   }
 }
 
+/** A terminal auth failure (refresh token expired/invalid) on an ALREADY-connected tab — fired
+ *  by the mesh client's onLoginRequired. A full reload re-runs connect() and falls back to the
+ *  login form; an OPEN tab has no such path, so without this it stays stuck on a dead session
+ *  ("warming up" forever). Mirror the reload: drop to the login view + tell the user why. */
+function onSessionExpired() {
+  connected.value = false;
+  busy.value = false;
+  connecting.value = false;
+  sessionExpired.value = true;
+}
+
 async function connect() {
   if (!authScope.value) throw new Error("no scope to connect to");
   if (!activeScope.value) activeScope.value = authScope.value;
@@ -165,10 +177,12 @@ async function connect() {
     activeScope: activeScope.value,
     appVersion: "studio-ui",
     onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
+    onLoginRequired: onSessionExpired,
   });
   await n.ready; // throws if not authenticated
   nebula.value = n;
   connected.value = true;
+  sessionExpired.value = false;
   if (isDevStar(activeScope.value)) {
     previewSrc.value = `/dev-container/${activeScope.value}/`; // cold waking page until ready…
     n.client.warmPreview(); // …then auto-refresh when vite is serving (onPreviewReady push)
@@ -381,6 +395,7 @@ async function openStar(star: string) {
       activeScope: star,
       appVersion: "studio-ui",
       onPreviewReady: (scope) => { if (scope === activeScope.value) reloadPreview(); },
+      onLoginRequired: onSessionExpired,
     });
     await n.ready;
     nebula.value = n;
@@ -550,6 +565,9 @@ async function logout() {
             <Loader2 class="size-4 animate-spin" /> Signing you in…
           </div>
           <template v-else>
+            <p v-if="sessionExpired && !sentTo" class="text-sm text-warning">
+              Your session expired — please sign in again.
+            </p>
             <p v-if="sentTo" class="text-sm opacity-80">
               Magic link sent to <span class="font-mono">{{ sentTo }}</span> — check your email to finish signing in.
             </p>

@@ -402,9 +402,6 @@ export class NebulaAuth extends DurableObject {
       return this.#errorResponse(401, 'token_expired', 'Refresh token expired');
     }
 
-    // Revoke old refresh token (rotation)
-    this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE tokenHash = ${tokenHash}`;
-
     const subjectRows = this.#sql`
       SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE sub = ${storedToken.subjectId}
@@ -440,7 +437,13 @@ export class NebulaAuth extends DurableObject {
     }
 
     const newAccessToken = await this.#generateAccessToken(subject, { activeScope: body.activeScope });
-    const newRefreshToken = await this.#generateRefreshToken(storedToken.subjectId);
+
+    // No rotation (decision 2026-06-29 — see security.md § refresh tokens): re-issue the SAME
+    // refresh token with a slid expiry, so overlapping refreshes (reconnect + proactive
+    // #ensureFreshToken + authedFetch) can't race a single-use token into a spurious logout.
+    // The strong cookie attributes (HttpOnly, Secure, SameSite=Strict, Path-scoped, host-only)
+    // carry theft resistance; logout still revokes; WebAuthN/MFA before beta restores depth.
+    this.#sql`UPDATE RefreshTokens SET expiresAt = ${Date.now() + (REFRESH_TOKEN_TTL * 1000)} WHERE tokenHash = ${tokenHash}`;
 
     return new Response(JSON.stringify({
       access_token: newAccessToken,
@@ -451,7 +454,7 @@ export class NebulaAuth extends DurableObject {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken)
+        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
       }
     });
   }

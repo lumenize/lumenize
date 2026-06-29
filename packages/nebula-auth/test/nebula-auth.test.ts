@@ -452,42 +452,41 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       expect(resp.status).toBe(401);
     });
 
-    it('rotates refresh token — old token invalidated', async () => {
-      const instanceName = 'rt-rotate';
+    it('does NOT rotate — the same refresh token stays valid for reuse (no-rotation policy)', async () => {
+      // Decision 2026-06-29: rotation dropped (see security.md § refresh tokens). A refresh
+      // re-issues the SAME token; the old value is NOT revoked, so overlapping refreshes can't
+      // race it into a spurious logout. Capable-of-failing: re-introducing rotation would 401
+      // the second use here with token_revoked.
+      const instanceName = 'rt-no-rotate';
       const stub = env.NEBULA_AUTH.getByName(instanceName);
 
-      // Use clickMagicLink (not fullLogin) to get a fresh, unused refresh token
       const magicLink = await requestMagicLink(stub, instanceName, 'rotate@example.com');
-      const { refreshToken: oldToken } = await clickMagicLink(stub, magicLink);
+      const { refreshToken: token } = await clickMagicLink(stub, magicLink);
 
-      // First refresh — succeeds (and rotates)
+      // First refresh — succeeds.
       const resp1 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
+        headers: { 'Cookie': `refresh-token=${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp1.status).toBe(200);
 
-      // Second use of old token — fails (revoked by rotation)
+      // Second use of the SAME token — STILL succeeds (no rotation, not revoked).
       const resp2 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
+        headers: { 'Cookie': `refresh-token=${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeScope: instanceName }),
       }));
-      expect(resp2.status).toBe(401);
-      const body = await resp2.json() as any;
-      expect(body.error).toBe('token_revoked');
+      expect(resp2.status).toBe(200);
     });
 
-    it('new refresh token works after rotation', async () => {
-      const instanceName = 'rt-new-works';
+    it('refresh re-sets the SAME token cookie (sliding, not a new token)', async () => {
+      const instanceName = 'rt-same-cookie';
       const stub = env.NEBULA_AUTH.getByName(instanceName);
 
-      // Use clickMagicLink (not fullLogin) to get a fresh, unused refresh token
       const magicLink = await requestMagicLink(stub, instanceName, 'newrt@example.com');
       const { refreshToken: oldToken } = await clickMagicLink(stub, magicLink);
 
-      // Refresh once to get new token
       const resp1 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
         headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
@@ -495,13 +494,14 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       }));
       expect(resp1.status).toBe(200);
       const newCookie = resp1.headers.get('Set-Cookie')!;
-      const newToken = newCookie.split(';')[0].split('=')[1];
-      expect(newToken).not.toBe(oldToken);
+      const reissued = newCookie.split(';')[0].split('=')[1];
+      // Same value re-set (sliding the Max-Age), NOT a rotated-to-new token.
+      expect(reissued).toBe(oldToken);
 
-      // Use new token — succeeds
+      // Still usable.
       const resp2 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${newToken}`, 'Content-Type': 'application/json' },
+        headers: { 'Cookie': `refresh-token=${reissued}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp2.status).toBe(200);
