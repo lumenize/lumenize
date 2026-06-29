@@ -2,7 +2,7 @@
 #
 # Shared install/setup spine for EVERY lane that runs the test suites — CI
 # (.github/workflows/ci.yml's two jobs + ui-smoke.yml) and the hosted Claude Code
-# web sandbox (scripts/cloud-setup.sh). One source of truth for the two parts that
+# web sandbox (scripts/claude-web-setup.sh). One source of truth for the two parts that
 # have drifted (or would) when each lane open-codes them:
 #   1. ORDER — `.dev.vars` must be written BEFORE `npm ci`, because postinstall
 #      (setup-symlinks.sh) symlinks it into every package/test dir as worker bindings.

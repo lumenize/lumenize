@@ -26,7 +26,7 @@
 #                                      #   also the signal that this env is provisioned for ui-smoke.
 #     CLOUDFLARE_ACCOUNT_ID=...        # non-secret identifier; the Workers-AI REST URL needs it.
 #   Setup script field:
-#     bash scripts/cloud-setup.sh
+#     bash scripts/claude-web-setup.sh
 #
 # Deliberately NOT here:
 #   - CLOUDFLARE_API_TOKEN — too powerful to expose as plaintext env-config; the hosted
@@ -88,4 +88,4 @@ else
   echo "   WORKERS_AI_TOKEN unset — not an ui-smoke lane; skipping docker start"
 fi
 
-echo "✅ cloud-setup complete — run:  npm run test:code  (or, for the full Studio lane:  cd apps/nebula && npx vitest run --project ui-smoke)"
+echo "✅ claude-web-setup complete — run:  npm run test:code  (or, for the full Studio lane:  cd apps/nebula && npx vitest run --project ui-smoke)"
