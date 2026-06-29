@@ -218,6 +218,12 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   on **Galaxy** (`dev-studio.ts:455`) but belongs on the per-app **DevStudio** — relocate it here.
   **Prereq DONE:** live turn-delivery shipped 2026-06-29 (`tasks/archive/resilient-turn-delivery.md`) — it
   deliberately deferred all of the above to here.
+  **This refactor must also close a known chat hang** (deferred 2026-06-29 since chat is being replaced):
+  the interim fire-and-forget `client.chat()` resolves ONLY on `onChatResult` and has **no error/timeout
+  path** — if `DevStudio.chat` throws server-side (before `deliverTurnResult`), no `onChatResult` is sent →
+  `client.chat()` hangs → the composer's `busy` sticks → UI frozen (ui-smoke in PR #15 exposed this; the
+  old awaited-`callRaw` chat rejected on a server error, so `busy` cleared). The reactive-Resource model
+  fixes it by construction (turn state is a subscribed Resource, not a single awaited promise) — confirm it.
 
 **Wave 3 — invite + scale the feedback loop**
 - **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
