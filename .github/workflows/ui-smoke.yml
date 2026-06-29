@@ -8,22 +8,19 @@ name: UI smoke (container + AI + login)
 # exercises a real container in CI. Proven viable on a headless GHA runner 2026-06-28
 # (tasks/nebula-in-ci.md Phase 1).
 #
-# Kept SEPARATE from ci.yml (a ~2.5-min Docker build) and PATH-FILTERED so it runs only
-# on container/Studio/ui-smoke changes — never on every push. Not a required check
-# unless added to branch protection. `workflow_dispatch` for manual runs.
+# Kept as its OWN job/runner (not folded into ci.yml) so the heavy ~2.5-min Docker build
+# runs ISOLATED — never concurrently with the CPU-bound pool-workers lanes in the packages
+# job. The runner is 4 vCPUs; running ui-smoke's WS/Playwright-timing-sensitive flow
+# alongside those starves it (the hosted lane serializes `fileParallelism` for the same
+# reason), so isolation is the point. Runs on every push/PR (NOT path-filtered) so it's
+# part of the regular CI flow, plus `workflow_dispatch` for manual / post-deploy runs. Not
+# a required check unless added to branch protection.
 on:
   workflow_dispatch:
   pull_request:
     branches: [main]
-    paths: &ui-smoke-paths
-      - '.github/workflows/ui-smoke.yml'
-      - 'apps/nebula/container/**'
-      - 'apps/nebula/src/dev-container.ts'
-      - 'apps/nebula/src/dev-studio.ts'
-      - 'apps/nebula/test/ui-smoke/**'
   push:
     branches: [main, feat/nebula-studio]
-    paths: *ui-smoke-paths
 
 # Cancel a superseded run when a newer commit is pushed (per-workflow, per-ref).
 concurrency:

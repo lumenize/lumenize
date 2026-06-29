@@ -73,7 +73,8 @@ jobs:
         # dev-studio/browser) are account-light — the browser lane sends via Resend,
         # not CF `send_email remote:true` (tasks/nebula-in-ci.md). ui-smoke (real
         # Docker container + AI) is NOT in `npm test` — it runs in the separate
-        # container-spike workflow. tooling/ stays out (updated + run manually).
+        # ui-smoke.yml workflow (every push/PR, its own runner, isolated from these
+        # CPU-bound pool-workers lanes). tooling/ stays out (updated + run manually).
         # --run-all: a flake in one package can't mask later ones; --retry 2
         # self-heals cold-start flakes on the over-the-web e2e suites (retry-safe via
         # unique per-run instance names). Real failures still fail all 3 attempts.
