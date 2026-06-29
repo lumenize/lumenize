@@ -52,37 +52,17 @@ jobs:
           node-version: '22'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Reconstruct .dev.vars from secrets (worker bindings for e2e suites)
+      - name: Install + setup (shared scripts/ci-install.sh)
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
-        # Writes .dev.vars (secrets + generated ephemeral JWT keys + non-secret
-        # test config) BEFORE npm ci so postinstall symlinks it into each test
-        # dir as worker bindings. See scripts/ci-write-dev-vars.mjs.
-        run: node scripts/ci-write-dev-vars.mjs
-
-      - name: Clean npm cache
-        run: npm cache clean --force
-
-      - name: Install dependencies (skip optional to avoid Rollup bug)
-        run: npm ci --no-optional
-
-      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
-        run: |
-          # --no-optional (above) strips these platform-specific native deps;
-          # re-add the Linux ones explicitly. SWC's binding (used by fetch/mesh
-          # decorator transforms) must match the installed @swc/core version.
-          npm install --no-save @rollup/rollup-linux-x64-gnu
-          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
-
-      - name: Install Playwright chromium (mesh real-browser project)
-        run: npx playwright install --with-deps chromium
-
-      - name: Build ts-runtime-parser-validator bundle (gitignored dist artifact)
-        # esbuild-bundles typia+typescript into dist/deps.bundle.mjs for in-worker
-        # type parsing. dist/ is gitignored and not built by npm ci, so the whole
-        # package's tests fail with "Cannot find module ../dist/deps.bundle.mjs".
-        run: npm run bundle -w @lumenize/ts-runtime-parser-validator
+        # Same spine the hosted lane (scripts/cloud-setup.sh) + ui-smoke.yml run, so the
+        # install steps can't drift. --dev-vars writes .dev.vars (secrets + ephemeral JWT
+        # keys) BEFORE npm ci so postinstall symlinks it into each test dir; --chromium
+        # installs the browser for mesh's real-browser project; --bundle builds the
+        # gitignored ts-runtime-parser-validator dist. No --lightningcss (this job runs no
+        # vite). The Rollup/SWC native-binding re-install lives inside the script.
+        run: ./scripts/ci-install.sh --cache-clean --dev-vars --chromium --bundle
 
       - name: Run tests with coverage for all packages + apps
         # Shared discovery with local dev (scripts/test-code.sh) so a package can
@@ -118,19 +98,10 @@ jobs:
           node-version: '22'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Clean npm cache
-        run: npm cache clean --force
-
-      - name: Install dependencies (skip optional to avoid Rollup bug)
-        run: npm ci --no-optional
-
-      - name: Explicitly install Rollup + SWC Linux bindings (after npm ci)
-        run: |
-          # --no-optional (above) strips these platform-specific native deps;
-          # re-add the Linux ones explicitly. SWC's binding (used by fetch/mesh
-          # decorator transforms) must match the installed @swc/core version.
-          npm install --no-save @rollup/rollup-linux-x64-gnu
-          npm install --no-save "@swc/core-linux-x64-gnu@$(node -p 'require("@swc/core/package.json").version')"
+      - name: Install + setup (shared scripts/ci-install.sh)
+        # Core install only — the doc-test job needs deps + the Rollup/SWC native
+        # bindings, but no .dev.vars, bundle, chromium, or lightningcss.
+        run: ./scripts/ci-install.sh --cache-clean
 
       - name: Run doc-test examples (no coverage)
         run: |

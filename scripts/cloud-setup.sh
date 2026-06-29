@@ -49,38 +49,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-echo "▸ [1/4] Reconstruct .dev.vars from environment secrets (+ ephemeral JWT keys)"
-# Must run BEFORE `npm ci`: postinstall (setup-symlinks.sh) symlinks the root
-# .dev.vars into every package/test dir that has a wrangler.jsonc.
-node scripts/ci-write-dev-vars.mjs
+echo "▸ [1/2] Install deps + native bindings + bundle (shared scripts/ci-install.sh)"
+# Same spine CI runs (.github/workflows/ci.yml, ui-smoke.yml) — single source so the
+# install steps can't drift between lanes. --dev-vars reconstructs .dev.vars from the
+# env secrets BEFORE npm ci; --lightningcss adds the vite binding the ui-smoke lane needs
+# (harmless for the package suite); --bundle builds ts-runtime-parser-validator's dist.
+# No --chromium: the web image pre-ships Chromium (PLAYWRIGHT_BROWSERS_PATH); the ui-smoke
+# driver launches it via executablePath (test/ui-smoke/smoke.test.ts). No --cache-clean:
+# the sandbox starts from a fresh image, not a shared runner cache.
+bash scripts/ci-install.sh --dev-vars --lightningcss --bundle
 
-echo "▸ [2/4] npm ci --no-optional (skip optional deps to avoid the Rollup arm64 lockfile bug)"
-npm ci --no-optional
-
-echo "▸ [3/5] Install the Linux x64 native bindings npm ci --no-optional stripped"
-# The committed lockfile carries arm64 optional deps (maintainer is on Apple
-# Silicon), so the x64 Rollup + SWC + lightningcss native binaries are absent on this
-# x64 box. Re-add them in ONE `npm install` — separate sequential `--no-save` installs
-# PRUNE each other's optionals (npm recomputes the tree each time and drops the prior
-# line's --no-save'd binding), so request all three at once. SWC's binding must match
-# the installed @swc/core version; lightningcss's `exports` blocks require() of its
-# package.json, so read its version off disk. (lightningcss is the vite dep the apps/nebula
-# `ui-smoke` lane needs — vite serving nebula-studio-ui; the package suite never runs vite
-# but installing it always is harmless and keeps this to one prune-safe install. This
-# mirrors the GHA ui-smoke workflow's combined-install step.)
-SWC_VER="$(node -p 'require("@swc/core/package.json").version')"
-LCSS_VER="$(node -p "JSON.parse(require('fs').readFileSync('node_modules/lightningcss/package.json','utf8')).version")"
-npm install --no-save \
-  @rollup/rollup-linux-x64-gnu \
-  "@swc/core-linux-x64-gnu@${SWC_VER}" \
-  "lightningcss-linux-x64-gnu@${LCSS_VER}"
-
-echo "▸ [4/5] Build the gitignored ts-runtime-parser-validator dist bundle"
-# dist/deps.bundle.mjs (typia + typescript) is gitignored and not produced by
-# npm ci, so that package's tests fail with "Cannot find module ../dist/deps.bundle.mjs".
-npm run bundle -w @lumenize/ts-runtime-parser-validator
-
-echo "▸ [5/5] Start the Docker daemon for the apps/nebula ui-smoke lane (if configured)"
+echo "▸ [2/2] Start the Docker daemon for the apps/nebula ui-smoke lane (if configured)"
 # The ui-smoke lane (`npx vitest run --project ui-smoke`) boots a real Cloudflare
 # Container (DevContainer image) under `wrangler dev`, which needs a running Docker
 # daemon — its gate is `docker info` (test/ui-smoke/gates.ts `HAS_DOCKER`). Docker is
@@ -95,7 +74,9 @@ if [ -n "${WORKERS_AI_TOKEN:-}" ]; then
   if docker info >/dev/null 2>&1; then
     echo "   docker daemon already running — skipping"
   elif command -v dockerd >/dev/null 2>&1; then
-    nohup dockerd >/tmp/dockerd.log 2>&1 &
+    # setsid + </dev/null detaches dockerd into its own session so it survives this
+    # setup shell exiting (more robust than a bare `nohup &` for the setup→session handoff).
+    setsid dockerd >/tmp/dockerd.log 2>&1 </dev/null &
     for _ in $(seq 1 15); do docker info >/dev/null 2>&1 && break; sleep 1; done
     docker info >/dev/null 2>&1 \
       && echo "   docker daemon started ($(docker info --format '{{.ServerVersion}}'))" \

@@ -53,45 +53,18 @@ jobs:
       - name: Confirm Docker is available (HAS_DOCKER probe = `docker info`)
         run: docker info
 
-      - name: Reconstruct .dev.vars from secrets
+      - name: Install + setup (shared scripts/ci-install.sh)
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
-        run: node scripts/ci-write-dev-vars.mjs
-
-      - name: Add CLOUDFLARE_ACCOUNT_ID to .dev.vars (satisfies the HAS_CF_CREDS gate)
-        # ui-smoke's gate greps .dev.vars for /^CLOUDFLARE_/ (test/ui-smoke/gates.ts);
-        # ci-write-dev-vars.mjs doesn't write one. The account ID is a non-secret
-        # identifier — adding it flips HAS_CF_CREDS true so the lane actually runs.
-        run: echo "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}" >> .dev.vars
-
-      - name: Clean npm cache
-        run: npm cache clean --force
-
-      - name: Install dependencies (skip optional to avoid Rollup bug)
-        run: npm ci --no-optional
-
-      - name: Explicitly install Rollup + SWC + lightningcss Linux bindings (after npm ci)
-        # --no-optional (above) strips platform-specific native deps; re-add the Linux
-        # ones. ONE combined `npm install` — separate sequential installs prune each
-        # other's --no-save'd optionals (the lightningcss install was wiping the swc
-        # binding the prior line added), so request all three at once. ui-smoke needs
-        # lightningcss too (it spawns vite against nebula-studio-ui; the packages job
-        # never runs vite, so it only needed rollup+swc). lightningcss's `exports`
-        # blocks require() of its package.json, so read the version off disk.
-        run: |
-          SWC_VER=$(node -p 'require("@swc/core/package.json").version')
-          LCSS_VER=$(node -p "JSON.parse(require('fs').readFileSync('node_modules/lightningcss/package.json','utf8')).version")
-          npm install --no-save \
-            @rollup/rollup-linux-x64-gnu \
-            "@swc/core-linux-x64-gnu@${SWC_VER}" \
-            "lightningcss-linux-x64-gnu@${LCSS_VER}"
-
-      - name: Install Playwright chromium (ui-smoke drives a real browser)
-        run: npx playwright install --with-deps chromium
-
-      - name: Build ts-runtime-parser-validator bundle (gitignored dist artifact)
-        run: npm run bundle -w @lumenize/ts-runtime-parser-validator
+        # Same spine the hosted lane (scripts/cloud-setup.sh) + ci.yml run, so the install
+        # steps can't drift. --lightningcss adds the vite binding this lane needs (it spawns
+        # vite against nebula-studio-ui); --chromium installs the real browser the Playwright
+        # driver uses; --bundle builds the ts-runtime-parser-validator dist. --dev-vars writes
+        # .dev.vars from secrets — and passes the job-env CLOUDFLARE_ACCOUNT_ID through
+        # (ci-write-dev-vars.mjs), which flips the lane's HAS_CF_CREDS/HAS_AI_PATH gate true,
+        # so no separate "append CLOUDFLARE_ACCOUNT_ID" step is needed.
+        run: ./scripts/ci-install.sh --cache-clean --dev-vars --lightningcss --chromium --bundle
 
       - name: Run the ui-smoke lane (container + AI + login)
         # global-setup spawns `wrangler dev` (containers + env.AI) + vite, then
