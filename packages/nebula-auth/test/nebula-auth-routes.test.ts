@@ -1483,4 +1483,84 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(resp.status).toBe(200);
     });
   });
+
+  // ============================================
+  // Outbound-URL host-awareness — Phase 0 guard
+  // (tasks/on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)
+  //
+  // Invariant: every user-facing URL we mint (magic-link URL, post-login redirect) follows the
+  // INBOUND request host, never a pinned platform host. The JWT issuer is the ONE deliberately
+  // fixed canonical host (it's an identity claim, not a routed URL) — guarded in the inverse below.
+  //
+  // Why this guard exists: when hosted apps move to lumenize.dev + customer custom domains, a single
+  // hardcoded host in any minting site silently breaks login — the refresh cookie lands on the wrong
+  // origin, the user just logs in twice and never reports it. These tests go red the moment a minting
+  // site pins a host. Mutation-checked: changing `const baseUrl = url.origin` (nebula-auth.ts
+  // #handleEmailMagicLink) to `NEBULA_AUTH_ISSUER` turns the cross-host assertions red.
+  // ============================================
+  describe('Outbound URL host-awareness (Phase 0 guard)', () => {
+    const scope = 'guard-universe';
+    const ISSUER_HOST = new URL(NEBULA_AUTH_ISSUER).host; // nebula.lumenize.com
+
+    async function magicLinkFrom(host: string): Promise<string> {
+      const resp = await SELF.fetch(new Request(`https://${host}${PREFIX}/${scope}/email-magic-link?_test=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'guard@example.com' }),
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json() as any;
+      expect(body.magic_link).toBeDefined();
+      return body.magic_link as string;
+    }
+
+    it('mints the magic-link URL on the inbound host, not a fixed platform host', async () => {
+      // The default hosted-app host shape.
+      const onDev = await magicLinkFrom('app.acme.lumenize.dev');
+      expect(new URL(onDev).origin).toBe('https://app.acme.lumenize.dev');
+
+      // A DIFFERENT inbound host (a customer custom domain) must yield a DIFFERENT magic-link host —
+      // proves the host is DERIVED from the request, not a constant.
+      const onCustom = await magicLinkFrom('acme.com');
+      expect(new URL(onCustom).origin).toBe('https://acme.com');
+
+      // The canonical issuer host must never leak into a link minted on another host.
+      // Discriminator: the wrong impl (baseUrl = issuer) WOULD contain it (not a vacuous negative).
+      expect(onDev).not.toContain(ISSUER_HOST);
+      expect(onCustom).not.toContain(ISSUER_HOST);
+    });
+
+    it('post-login redirect Location follows the inbound host (stays relative)', async () => {
+      const magicLink = await magicLinkFrom('acme.com');
+      const click = await SELF.fetch(new Request(magicLink, { redirect: 'manual' }));
+      expect(click.status).toBe(302);
+      const location = click.headers.get('Location')!;
+      // Invariant: relative (host-following) OR absolute-on-the-inbound-host — never a pinned foreign
+      // host. Today it's relative (`/app/{scope}`); this locks that in.
+      const followsHost = location.startsWith('/') || new URL(location, magicLink).host === 'acme.com';
+      expect(followsHost).toBe(true);
+      expect(location).not.toContain(ISSUER_HOST);
+    });
+
+    it('keeps the JWT issuer fixed (canonical) even when login happens on a custom host', async () => {
+      // The inverse invariant: issuer is identity, not routing — it must NOT follow the inbound host.
+      const host = 'acme.com';
+      const magicLink = await magicLinkFrom(host);
+      const click = await SELF.fetch(new Request(magicLink, { redirect: 'manual' }));
+      expect(click.status).toBe(302);
+      const refreshToken = click.headers.get('Set-Cookie')!.split(';')[0]!.split('=')[1]!;
+
+      const refresh = await SELF.fetch(new Request(`https://${host}${PREFIX}/${scope}/refresh-token`, {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: scope }),
+      }));
+      expect(refresh.status).toBe(200);
+      const { access_token } = await refresh.json() as any;
+      const payloadB64 = access_token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/');
+      const claims = JSON.parse(atob(payloadB64));
+      expect(claims.iss).toBe(NEBULA_AUTH_ISSUER);
+      expect(claims.iss).not.toContain(host);
+    });
+  });
 });
