@@ -56,7 +56,7 @@ jobs:
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
-        # Same spine the hosted lane (scripts/cloud-setup.sh) + ui-smoke.yml run, so the
+        # Same spine the hosted lane (scripts/claude-web-setup.sh) + ui-smoke.yml run, so the
         # install steps can't drift. --dev-vars writes .dev.vars (secrets + ephemeral JWT
         # keys) BEFORE npm ci so postinstall symlinks it into each test dir; --chromium
         # installs the browser for mesh's real-browser project; --bundle builds the

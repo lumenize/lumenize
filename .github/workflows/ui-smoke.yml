@@ -54,7 +54,7 @@ jobs:
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
-        # Same spine the hosted lane (scripts/cloud-setup.sh) + ci.yml run, so the install
+        # Same spine the hosted lane (scripts/claude-web-setup.sh) + ci.yml run, so the install
         # steps can't drift. --lightningcss adds the vite binding this lane needs (it spawns
         # vite against nebula-studio-ui); --chromium installs the real browser the Playwright
         # driver uses; --bundle builds the ts-runtime-parser-validator dist. --dev-vars writes
