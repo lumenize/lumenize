@@ -140,6 +140,19 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * the UI has since switched scopes).
    */
   onPreviewReady?: (scope: string) => void;
+  /**
+   * Which mesh binding hosts this client's Resources (the data-plane: transaction /
+   * read / subscribe / unsubscribe / dagTree, + the org-tree & reload channels).
+   * Default `'STAR'` (the Nebula UI — unchanged). The **chat** client sets
+   * `'DEV_STUDIO'` so its `Session`/`Turn` Resources live on DevStudio (Child 1).
+   * The codegen path (`chat`/`warmPreview`) always targets `DEV_STUDIO` regardless.
+   *
+   * NOTE: a `'DEV_STUDIO'`-bound client must NOT enable `onReload`/an org-tree
+   * listener in Child 1 — DevStudio hosts neither `subscribeReload` nor
+   * `subscribeTree` (those stay Star/preview concerns); both are gated off and inert
+   * unless configured. Child 3 revisits a live participant view.
+   */
+  resourceHostBinding?: string;
 }
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
@@ -218,6 +231,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
   #appVersion: string;
+  /** Binding hosting this client's Resources (default 'STAR'; 'DEV_STUDIO' for chat). */
+  #resourceHostBinding: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
   #onReload?: () => void;
   #onPreviewReady?: (scope: string) => void;
@@ -337,6 +352,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       onShouldRefreshUI,
       onReload,
       onPreviewReady,
+      resourceHostBinding,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -408,7 +424,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // tests) that don't render the tree don't register/broadcast needlessly.
         // Idempotent server-side (INSERT OR REPLACE).
         if (state === 'connected' && this.#orgTreeListener) {
-          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeTree());
+          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeTree());
         }
         // Dev-preview reload channel (Decision 12 / Flow 1d): (re)subscribe on every
         // 'connected' — gated on a configured `onReload`, which the bootstrap sets for
@@ -416,7 +432,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // Idempotent server-side (INSERT OR REPLACE by clientId), mirroring the orgTree
         // singleton above; the Star fans out `handleReload` on a version change.
         if (state === 'connected' && this.#onReload) {
-          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeReload());
+          this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeReload());
         }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
@@ -430,6 +446,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#authScope = authScope;
     this.#activeScope = activeScope;
     this.#appVersion = appVersion;
+    this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
     this.#onShouldRefreshUI = onShouldRefreshUI;
     this.#onReload = onReload;
     this.#onPreviewReady = onPreviewReady;
@@ -610,7 +627,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // eTag — resources.ts Step 4.5a); stable across reconnect replays because
     // the engine re-sends the same submissions.
     const meshNewETag = next.subs[0]!.newETag;
-    this.lmz.call('STAR', this.#activeScope,
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope,
       this.ctn<Star>().transaction(this.#appVersion, meshNewETag, this.#buildMeshOps(next.subs)));
   }
 
@@ -684,7 +701,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #resubscribeAll(): void {
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     }
   }
@@ -895,25 +912,25 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   readonly orgTree = {
     createNode: (parentNodeId: number, slug: string, label: string): Promise<number> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
     addEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
     reparentNode: (childNodeId: number, oldParentId: number, newParentId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
     deleteNode: (nodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
     undeleteNode: (nodeId: number): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
     renameNode: (nodeId: number, newSlug: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
     relabelNode: (nodeId: number, newLabel: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
     setPermission: (nodeId: number, targetSub: string, level: PermissionTier): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
     revokePermission: (nodeId: number, targetSub: string): Promise<void> =>
-      this.lmz.callRaw('STAR', this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
   };
 
   /**
@@ -931,7 +948,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
-    this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -955,7 +972,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingSubscribes.set(key, { resolve, reject });
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     });
   }
@@ -974,7 +991,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     const version = options?.appVersion ?? this.#appVersion;
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingReads.set(requestId, { resolve, reject });
-      this.lmz.call('STAR', this.#activeScope,
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().read(version, resourceId, requestId));
     });
   }

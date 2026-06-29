@@ -15,6 +15,9 @@ export {
   NebulaClientGateway,
   Universe,
   Galaxy,
+  // DevStudio (Child 1) — bound at DEV_STUDIO so a real NebulaClient (configured
+  // resourceHostBinding: 'DEV_STUDIO') can host Session/Turn Resources on it (Phase 5 e2e).
+  DevStudio,
   entrypoint as default,
 } from '@lumenize/nebula';
 
@@ -331,6 +334,11 @@ export class NebulaClientTest extends NebulaClient {
   // --- Result storage for test assertions ---
   lastResult: any = undefined;
   lastError: string | undefined = undefined;
+  /** The delivered Error object itself (structured-clone reconstructs it as a plain
+   *  Error with `name` + custom props preserved — `instanceof` does not survive).
+   *  Lets a test assert the *typed* error that crossed the capability's delivery,
+   *  e.g. distinct `NodeNotFoundError` vs `PermissionDeniedError` (review m6). */
+  lastErrorObject: Error | undefined = undefined;
   callCompleted = false;
   lastEchoMessage: string | undefined = undefined;
   lastAdminEchoMessage: string | undefined = undefined;
@@ -364,6 +372,7 @@ export class NebulaClientTest extends NebulaClient {
   resetResults(): void {
     this.lastResult = undefined;
     this.lastError = undefined;
+    this.lastErrorObject = undefined;
     this.callCompleted = false;
     this.lastResourceUpdate = undefined;
     this.resourceUpdateCount = 0;
@@ -679,6 +688,7 @@ export class NebulaClientTest extends NebulaClient {
 
     if (result instanceof Error) {
       this.lastError = result.message;
+      this.lastErrorObject = result;
       this.lastResult = undefined;
     } else {
       this.lastResult = result;
@@ -698,6 +708,7 @@ export class NebulaClientTest extends NebulaClient {
 
     if (result instanceof Error) {
       this.lastError = result.message;
+      this.lastErrorObject = result;
       this.lastResult = undefined;
     } else {
       this.lastResult = result;
@@ -716,6 +727,7 @@ export class NebulaClientTest extends NebulaClient {
     this.resourceUpdateCount++;
     if (result instanceof Error) {
       this.lastError = result.message;
+      this.lastErrorObject = result;
       this.lastResourceUpdate = undefined;
     } else {
       this.lastResourceUpdate = { resourceType, resourceId, snapshot: result };

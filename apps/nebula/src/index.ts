@@ -31,6 +31,19 @@ export type { OperationDescriptor as WireOperationDescriptor } from './resources
 export { Subscriptions } from './subscriptions';
 export type { SubscriberRow } from './subscriptions';
 
+// Resource data-plane capability (Child 1) — the composable host for Resources,
+// shared by Star + DevStudio (ADR-007).
+export { ResourceDataPlane } from './resource-data-plane';
+export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './resource-data-plane';
+
+// DevStudio's platform-fixed Session/Turn ontology + its getOntology() provider.
+export {
+  SESSION_TURN_TYPES,
+  SESSION_TURN_ONTOLOGY_VERSION,
+  SESSION_TURN_BUNDLE_ID,
+  createResourceOntologyProvider,
+} from './devstudio-resource-ontology';
+
 // Errors
 export {
   OntologyStaleError, isOntologyStaleError,

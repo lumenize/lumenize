@@ -205,5 +205,6 @@ Filled in only after the flows above are signed off (listed so nothing is forgot
 - **`QuerySubs` table** schema + lookup keys.
 - **DagTree** batch permission API (`evaluatePermissions` / `canRead(sub, nodeId)`) — the non-throwing, no-short-circuit shape.
 - **Client-side** query-subscription handle, refcount, membership-set merge, lazy per-resource subscribe.
+- **`getOntology()` seam widening** — Child 1 (`tasks/archive/nebula-devstudio-data-plane.md`) pins the data-plane capability's ontology-provider seam to `{ version, facet }` (no standalone relationship data — it's baked into the compiled facet, and Child 1 has no reader). **Child 2 is the first reader:** widen the seam to `{ version, facet, relationships }` (the `relationships` field on `OntologyVersionRow`, `galaxy.ts:38`) so the subscribed to-one field can be validated against the ontology at `subscribeQuery` time. The same widened seam must be satisfiable by *both* providers — Star's Galaxy-cached one and DevStudio's platform-constant one.
 - **Build phases.**
 - **Open sub-questions:** live-delta denied-notice vs silent-filter; drop-vs-skip subscription on lost access; whether tree-change re-eval should scope to affected nodes (optimization) vs re-evaluate all live subs.

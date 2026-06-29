@@ -1,13 +1,21 @@
 /**
  * Star — singleton per star (e.g., instanceName = "acme.app.tenant-a")
  *
- * Owns a DAG tree for organizing resources and controlling access,
- * and a Resources class for temporal resource storage.
+ * Owns a DAG tree for organizing resources and controlling access, and a
+ * resource data-plane for temporal resource storage.
  *
- * Resource operations go through ontology-aware mesh methods that use a
- * two-handler continuation pattern: Handler 1 checks the local ontology
- * cache and dispatches; Handler 2 always does the actual work, loading
- * the per-version validator facet on demand.
+ * The data-plane (DagTree + Resources + Subscriptions + Handler 2 + the mutation
+ * broadcast) is composed from the shared {@link ResourceDataPlane} capability
+ * (ADR-007 — composition, not reimplementation), so DevStudio can host Resources
+ * the same way. Star retains the Galaxy-multi-version machinery the capability
+ * deliberately excludes: the **Handler 1** ontology-version gate, ontology
+ * install/cache (`#ensureFacet`/`#installState`/`setOntology`), and the
+ * non-resource org-tree + dev-preview-reload channels.
+ *
+ * Resource operations use a two-handler continuation pattern: Handler 1 (on
+ * Star) checks the local ontology cache and dispatches; Handler 2 (in the
+ * capability) does the actual work against the per-version validator facet that
+ * Star's `getOntology()` provider supplies.
  */
 
 import { mesh } from '@lumenize/mesh';
@@ -17,14 +25,14 @@ import {
 } from '@lumenize/ts-runtime-parser-validator';
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireAdmin } from './nebula-do';
-import { DagTree } from './dag-tree';
+import type { DagTree } from './dag-tree';
 import { ROOT_NODE_ID } from './dag-ops';
-import { Resources } from './resources';
-import { Subscriptions } from './subscriptions';
 import { TreeSubscriptions } from './tree-subscriptions';
 import { ReloadSubscriptions } from './reload-subscriptions';
 import { OntologyStaleError } from './errors';
-import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
+import { ResourceDataPlane } from './resource-data-plane';
+import type { BroadcastTarget } from './resource-data-plane';
+import type { OperationDescriptor, Snapshot } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
@@ -33,30 +41,36 @@ const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
 
 export class Star extends NebulaDO {
-  #dagTree!: DagTree
-  #resources!: Resources
-  #subscriptions!: Subscriptions
+  #dataPlane!: ResourceDataPlane
   #treeSubscriptions!: TreeSubscriptions
   #reloadSubscriptions!: ReloadSubscriptions
   #row: OntologyVersionRow | null = null
   #facet: ParserValidator | null = null
 
   onStart() {
-    this.#dagTree = new DagTree(
+    this.#dataPlane = new ResourceDataPlane(
       this.ctx,
       () => this.lmz.callContext,
+      // Ontology-provider seam: Star's source is the Galaxy-cached row.
+      () => {
+        const { row, facet } = this.#ensureFacet();
+        return { version: row.version, facet };
+      },
+      // Host-side mesh I/O — continuations built with Star's own this.ctn/this.lmz/this.svc.
+      {
+        deliverTransactionResult: (clientId, result) =>
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handleTransactionResult(result)),
+        deliverReadResponse: (clientId, requestId, result) =>
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handleReadResponse(requestId, result)),
+        deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
+        broadcastResourceUpdate: (resourceId, snapshot, targets) =>
+          this.#broadcastResourceUpdate(resourceId, snapshot, targets),
+      },
       () => this.#onDagChanged(),
-    )
-    this.#resources = new Resources(
-      this.ctx,
-      () => this.lmz.callContext,
-      this.#dagTree,
-    )
-    this.#subscriptions = new Subscriptions(
-      this.ctx,
-      () => this.lmz.callContext,
-      this.#dagTree,
-      this.#resources,
     )
     this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
     this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx)
@@ -65,8 +79,8 @@ export class Star extends NebulaDO {
     // but load-bearing for `resetDevData`'s `this.onStart()` re-init
     // after `deleteAll()`: `#ensureFacet`/`#installState` short-circuit on a
     // populated `#row` ([star.ts] `#ensureFacet`), so a stale `#row` surviving a
-    // wipe would keep authorizing the dropped ontology. (The helper objects above
-    // are likewise reassigned to fresh empty-cache instances.)
+    // wipe would keep authorizing the dropped ontology. (The data-plane + helper
+    // objects above are likewise reassigned to fresh empty-cache instances.)
     this.#row = null
     this.#facet = null
   }
@@ -95,7 +109,7 @@ export class Star extends NebulaDO {
     const auth = this.lmz.callContext.originAuth
     const claims = auth?.claims as NebulaJwtPayload | undefined
     if (!claims?.access?.admin || !auth?.sub) return
-    this.#dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
+    this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
 
@@ -202,7 +216,7 @@ export class Star extends NebulaDO {
       // same version (defensive: shouldn't happen given #isCachedVersion
       // guards upstream) shouldn't churn existing subscriptions.
       if (isNewVersion && prevLatest) {
-        droppedSubscribers = this.#subscriptions.clear();
+        droppedSubscribers = this.#dataPlane.clearSubscribers();
       }
     });
     this.#row = row;
@@ -338,7 +352,7 @@ export class Star extends NebulaDO {
    */
   @mesh()
   dagTree(): DagTree {
-    return this.#dagTree
+    return this.#dataPlane.dagTree
   }
 
   // ─── Config ────────────────────────────────────────────────────────
@@ -355,9 +369,11 @@ export class Star extends NebulaDO {
     return this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
   }
 
-  // ─── Transaction (Handler 1 / Handler 2) ───────────────────────────
+  // ─── Transaction (Handler 1 → capability Handler 2) ─────────────────
 
-  /** Handler 1: validate the requested ontology version, then dispatch to Handler 2. */
+  /** Handler 1: validate the requested ontology version, then dispatch to the
+   *  capability's Handler 2. The version-gate is Galaxy-multi-version-specific and
+   *  stays on Star (D8); the capability never sees `appVersion`. */
   @mesh()
   transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
@@ -373,40 +389,10 @@ export class Star extends NebulaDO {
           new OntologyStaleError(appVersion, this.#currentVersion())));
       return;
     }
-    this.doTransaction(appVersion, newETag, ops, clientId);
+    this.#dataPlane.doTransaction(newETag, ops, clientId);
   }
 
-  /** Handler 2: Execute transaction + deliver result to client. Called directly by
-   *  Handler 1 after the version check (the cache-hit path — the only path now). */
-  async doTransaction(
-    appVersion: string,
-    newETag: string,
-    ops: Record<string, OperationDescriptor>,
-    clientId: string,
-  ) {
-    try {
-      const { row, facet } = this.#ensureFacet();
-      const result = await this.#resources.transaction(ops, row.version, newETag, facet,
-        (mutations) => this.#broadcast(mutations, clientId));
-
-      // Deliver result to client
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleTransactionResult(result));
-    } catch (err) {
-      debug('nebula.Star.doTransaction').error('handler threw', {
-        clientId,
-        appVersion,
-        bundleId: this.#row ? `${this.galaxyId}/${this.#row.version}` : undefined,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
-      });
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleTransactionResult(
-          err instanceof Error ? err : new Error(String(err))));
-    }
-  }
-
-  // ─── Read (Handler 1 / Handler 2) ──────────────────────────────────
+  // ─── Read (Handler 1 → capability Handler 2) ────────────────────────
 
   /** Handler 1: validate the requested ontology version, then dispatch to Handler 2. */
   @mesh()
@@ -421,36 +407,10 @@ export class Star extends NebulaDO {
           new OntologyStaleError(appVersion, this.#currentVersion())));
       return;
     }
-    this.doRead(appVersion, resourceId, requestId, clientId);
+    this.#dataPlane.doRead(resourceId, requestId, clientId);
   }
 
-  /** Handler 2: Execute read + deliver result to client via handleReadResponse. */
-  doRead(
-    appVersion: string,
-    resourceId: string,
-    requestId: string,
-    clientId: string,
-  ) {
-    try {
-      const snapshot = this.#resources.read(resourceId);
-
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleReadResponse(requestId, snapshot));
-    } catch (err) {
-      debug('nebula.Star.doRead').error('handler threw', {
-        clientId,
-        resourceId,
-        appVersion,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
-      });
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleReadResponse(requestId,
-          err instanceof Error ? err : new Error(String(err))));
-    }
-  }
-
-  // ─── Subscribe (Handler 1 / Handler 2) ─────────────────────────────
+  // ─── Subscribe (Handler 1 → capability Handler 2) ───────────────────
 
   /** Handler 1: Check cache, dispatch to Handler 2 */
   @mesh()
@@ -470,39 +430,7 @@ export class Star extends NebulaDO {
           new OntologyStaleError(appVersion, this.#currentVersion())));
       return;
     }
-    this.doSubscribe(appVersion, resourceType, resourceId, clientId, subscriberBinding);
-  }
-
-  /**
-   * Handler 2: register subscriber + push initial snapshot. Called directly by
-   * Handler 1 after the version check. Errors travel through
-   * `handleResourceUpdate(rt, rid, error)` — same pattern as `transaction()`/`read()`.
-   */
-  doSubscribe(
-    appVersion: string,
-    resourceType: string,
-    resourceId: string,
-    clientId: string,
-    subscriberBinding: string,
-  ) {
-    try {
-      const snapshot = this.#subscriptions.subscribe(resourceType, resourceId, clientId, subscriberBinding);
-
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, snapshot));
-    } catch (err) {
-      debug('nebula.Star.doSubscribe').error('handler threw', {
-        clientId,
-        resourceType,
-        resourceId,
-        appVersion,
-        error: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : undefined,
-      });
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId,
-          err instanceof Error ? err : new Error(String(err))));
-    }
+    this.#dataPlane.doSubscribe(resourceType, resourceId, clientId, subscriberBinding);
   }
 
   // ─── Unsubscribe ───────────────────────────────────────────────────
@@ -530,7 +458,7 @@ export class Star extends NebulaDO {
     if (!clientId) {
       throw new Error('unsubscribe requires a client origin with instanceName in callChain[0]');
     }
-    this.#subscriptions.removeSubscriber(resourceId, clientId);
+    this.#dataPlane.removeSubscriber(resourceId, clientId);
   }
 
   // ─── OrgTree (dedicated channel) ───────────────────────────────────
@@ -558,7 +486,7 @@ export class Star extends NebulaDO {
       throw new Error('subscribeTree requires a gateway in callChain.at(-1)');
     }
     // getState() enforces the auth gate (#requireAuth) and is the value source.
-    const state = this.#dagTree.getState();
+    const state = this.#dataPlane.dagTree.getState();
     this.#treeSubscriptions.register(clientId, subscriberBinding);
     this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
       this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state }));
@@ -641,41 +569,29 @@ export class Star extends NebulaDO {
   #onDagChanged() {
     const subscribers = this.#treeSubscriptions.all();
     if (subscribers.length === 0) return;
-    const state = this.#dagTree.getState();
+    const state = this.#dataPlane.dagTree.getState();
     const targets = subscribers.map(s => ({ bindingName: s.subscriberBinding, instanceName: s.clientId }));
     const remote = this.ctn<NebulaClient>().handleOrgTreeUpdate({ value: state });
     this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onTreeBroadcastResult() });
   }
 
   /**
-   * Resource-mutation broadcast (Phase 5.3.2 / Phase 5b primitive lift).
-   * Called from `Resources.transaction` via the `onMutations` callback
-   * after a successful commit. For each mutated resource, look up
-   * subscribers and dispatch `handleResourceUpdate` to each — excluding
-   * the originator (they already receive the authoritative result via
-   * `handleTransactionResult`).
+   * Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
+   * `broadcastResourceUpdate` impl the data-plane invokes per committed mutation.
+   * Builds the `handleResourceUpdate` continuation + dispatches `svc.broadcast`
+   * (the framework primitive that picks a direct loop vs. recursive Worker tier
+   * automatically; see `packages/mesh/src/broadcast.ts`). `targets` is already
+   * filtered (originator excluded) by the data-plane.
    *
-   * Per the pinned subscribe-time-only guard semantics, we do NOT re-check
-   * DAG read permission per subscriber per push. Permission revocation
-   * mid-subscription is accepted for demo (Phase -1 Open Q2).
+   * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult` partial
+   * continuation the framework completes with the per-target result. On
+   * `ClientDisconnectedError`, `onBroadcastResult` drops the leaked subscriber row
+   * (via the capability) using `clientInstanceName` carried on the error.
    *
-   * Uses `this.svc.broadcast` — the framework primitive that picks between
-   * a direct loop (`targets.length ≤ directThreshold`) and a recursive
-   * Worker tier (`> directThreshold`) automatically. See
-   * `packages/mesh/src/broadcast.ts` and `tasks/fanout-scaling-benchmark.md`.
-   *
-   * **Drop-on-failed-fanout (v2):** `svc.broadcast` is given an `onResult`
-   * partial continuation that the framework completes by appending the
-   * per-target call result. On `ClientDisconnectedError`, we drop the leaked
-   * subscriber row using `clientInstanceName` carried on the error itself
-   * (no separate target arg needed in the handler signature). For
-   * unavailable Gateway / transient errors we keep the row — over-eager
-   * deletion would over-cleanup.
+   * The `STAR_BROADCAST_*` env knobs exist only for the fanout-scaling bench;
+   * production sets none.
    */
-  #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string) {
-    // Per-Star bench overrides. All env vars exist for the fanout-scaling
-    // bench; production sets none.
-    //
+  #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]) {
     //   STAR_BROADCAST_DIRECT_THRESHOLD — override svc.broadcast's
     //     direct-vs-tree cutoff. `Infinity` forces direct (naive loop);
     //     `0` forces tree; numeric overrides the framework default of 100.
@@ -689,18 +605,12 @@ export class Star extends NebulaDO {
         ? Infinity
         : parseInt(rawThreshold, 10);
     const omitOnResult = (this.env as any)?.STAR_BROADCAST_OMIT_ON_RESULT === '1';
-    for (const [resourceId, snapshot] of mutations) {
-      const subscribers = this.#subscriptions.forResource(resourceId);
-      const targets = subscribers
-        .filter(sub => sub.clientId !== originatorClientId)
-        .map(sub => ({ bindingName: sub.subscriberBinding, instanceName: sub.clientId }));
-      const remote = this.ctn<NebulaClient>().handleResourceUpdate(
-        snapshot.meta.typeName, resourceId, snapshot);
-      const opts: { directThreshold?: number; onResult?: any } = {};
-      if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
-      if (directThreshold !== undefined) opts.directThreshold = directThreshold;
-      this.svc.broadcast(targets, remote, opts);
-    }
+    const remote = this.ctn<NebulaClient>().handleResourceUpdate(
+      snapshot.meta.typeName, resourceId, snapshot);
+    const opts: { directThreshold?: number; onResult?: any } = {};
+    if (!omitOnResult) opts.onResult = this.ctn<Star>().onBroadcastResult(resourceId);
+    if (directThreshold !== undefined) opts.directThreshold = directThreshold;
+    this.svc.broadcast(targets, remote, opts);
   }
 
   /**
@@ -720,7 +630,7 @@ export class Star extends NebulaDO {
   onBroadcastResult(resourceId: string, result?: unknown): void {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
       const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
-      if (clientId) this.#subscriptions.removeSubscriber(resourceId, clientId);
+      if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
   }

@@ -16,8 +16,11 @@ import { mesh } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
 import { Star } from '../../../src/star';
 import { requireAdmin } from '../../../src/nebula-do';
-import { DEFAULT_LOOP_CONFIG } from '../../../src/codegen-loop';
+import { DEFAULT_LOOP_CONFIG, TOOL_ARGS_BUNDLE_ID, TOOL_ARGS_TYPES } from '../../../src/codegen-loop';
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
+import { getParserValidatorFacet, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
+import type { ParseResult } from '@lumenize/ts-runtime-parser-validator';
+import { createResourceOntologyProvider } from '../../../src/devstudio-resource-ontology';
 
 // The Galaxy ({u}.{g}) is the turn-recorder store DevStudio writes to.
 export { Galaxy } from '../../../src/galaxy';
@@ -61,6 +64,36 @@ export class DevStudioLoopProbe extends DevStudio {
     // runCodegenTurn + callModel are protected on DevStudio — reachable here.
     const result = await this.runCodegenTurn(userRequest, cfg);
     return { result, seenMessages: this.#seenMessages };
+  }
+
+  // --- Child 1 resource data-plane facet hooks (Phase 3) ---
+  // These mount + exercise the Session/Turn facet the way DevStudio.onStart's
+  // composed data-plane does, without needing a Gateway/client (the real client
+  // resource round-trip is Phase 5). The provider is reconstructed here (same
+  // bundleId → same cached facet) since the composed `#dataPlane` is private.
+
+  /** Parse a value through the Session/Turn facet, with the tool-args facet ALSO
+   *  mounted in THIS DO first — a passing Turn parse therefore proves no Worker-Loader
+   *  bundleId cross-wiring (M2) on top of the ADR-006 embed-guard (SC3). */
+  @mesh(requireAdmin)
+  async parseSessionTurnForTest(typeName: string, value: unknown): Promise<ParseResult> {
+    // If the Session/Turn bundleId collided with the tool-args id, the facet
+    // below would serve THIS validator and a valid Turn would fail to parse.
+    getParserValidatorFacet(this.ctx, this.env.LOADER, TOOL_ARGS_BUNDLE_ID, () => generateParseModule(TOOL_ARGS_TYPES));
+    const { facet } = createResourceOntologyProvider(this.ctx, this.env.LOADER)();
+    return facet.parse(value, typeName);
+  }
+
+  /** The fixed Session/Turn ontology version (server-sourced) — for the wipe/re-init check. */
+  @mesh(requireAdmin)
+  resourceOntologyVersionForTest(): string {
+    return createResourceOntologyProvider(this.ctx, this.env.LOADER)().version;
+  }
+
+  /** Re-run onStart to simulate a DO restart / re-init (M3 wipe-recovery). */
+  @mesh(requireAdmin)
+  async reInitForTest(): Promise<void> {
+    await this.onStart();
   }
 }
 

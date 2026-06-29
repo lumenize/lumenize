@@ -618,6 +618,53 @@ describe('star-resources', () => {
       admin[Symbol.dispose]();
       user[Symbol.dispose]();
     });
+
+    // m6 (Child 1 / nebula-devstudio-data-plane.md): the capability's Handler-2
+    // catch (doRead/doTransaction) must deliver the ORIGINAL typed error, so a
+    // not-found node and a permission denial stay distinguishable downstream by
+    // `name` + property (detect by name, NOT instanceof — structured-clone drops
+    // instanceof but preserves name + custom props). A broadened catch that
+    // flattened to a generic Error (or conflated the two) would redden this.
+    it('m6: not-found-node vs permission-denied deliver DISTINCT typed errors through the capability', async () => {
+      const star = uniqueStar();
+      const { client: admin, accessToken } = await adminClient(star);
+
+      // Set up a resource on a private node with NO grant for the user.
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
+      await waitForResult(admin);
+      const nodeId = admin.lastResult as number;
+      const resourceId = generateUuid();
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
+      });
+      await waitForSuccess(admin);
+
+      // (1) permission-denied READ → PermissionDeniedError via doRead's catch.
+      const { client: user } = await userClient(star, accessToken);
+      user.callStarRead(star, ONTOLOGY_VERSION, resourceId);
+      await waitForError(user);
+      const permErr = user.lastErrorObject!;
+      expect(permErr.name).toBe('PermissionDeniedError');
+      // property check (the detection contract is name + property, not instanceof)
+      expect(typeof (permErr as unknown as { tier?: unknown }).tier).toBe('string');
+      expect(typeof (permErr as unknown as { nodeId?: unknown }).nodeId).toBe('number');
+
+      // (2) not-found node via create on a nonexistent nodeId → NodeNotFoundError
+      //     via doTransaction's catch.
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: 99999, value: makeTestValue() },
+      });
+      await waitForError(admin);
+      const notFoundErr = admin.lastErrorObject!;
+      expect(notFoundErr.name).toBe('NodeNotFoundError');
+      expect((notFoundErr as unknown as { nodeId?: unknown }).nodeId).toBe(99999);
+
+      // Distinct — the catch did not conflate a malformed request with a permission failure.
+      expect(notFoundErr.name).not.toBe(permErr.name);
+
+      admin[Symbol.dispose]();
+      user[Symbol.dispose]();
+    });
   });
 
   // ─── Resource Moves ───────────────────────────────────────────────

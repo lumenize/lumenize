@@ -42,6 +42,11 @@ import type { Galaxy, TurnRecord } from './galaxy';
 import type { Star } from './star';
 import type { NebulaClient } from './nebula-client';
 import type { DevContainer, SourceFile } from './dev-container';
+import { ResourceDataPlane } from './resource-data-plane';
+import type { BroadcastTarget } from './resource-data-plane';
+import { createResourceOntologyProvider } from './devstudio-resource-ontology';
+import type { DagTree } from './dag-tree';
+import type { OperationDescriptor, Snapshot } from './resources';
 import {
   runCodegenLoop,
   assembleCodegenPrompt,
@@ -122,6 +127,10 @@ export class DevStudio extends NebulaDO {
   // Re-derivable cache (loss acceptable) — the tool-args typia validator facet
   // (durable-objects.md "ephemeral caches", same pattern as Star.#facet).
   #toolArgsFacet?: ParserValidator;
+  // The composable resource data-plane (Child 1) — hosts the chat Session/Turn
+  // Resources. Constructed in onStart with the platform-fixed Session/Turn
+  // ontology provider; reconstructed on every (re)init like Star's.
+  #dataPlane!: ResourceDataPlane;
 
   /** Reconstruct the shell Workspace + git over `ctx.storage.sql`, and `git init`
    *  once (latched in kv). Async — runs inside the base `blockConcurrencyWhile`, so
@@ -134,6 +143,30 @@ export class DevStudio extends NebulaDO {
       await this.#git.init({ defaultBranch: 'main' });
       this.ctx.storage.kv.put(INITED_KEY, true);
     }
+    // Compose the resource data-plane (Child 1) — the chat Session/Turn host. The
+    // ontology provider compiles the platform-fixed Session/Turn types ON this DO
+    // (re-derived from source on every (re)init, so it survives eviction/restart —
+    // there is no Galaxy registry for it). No org-tree subscribe channel here
+    // (Out-of-scope), so onDagChanged is a no-op.
+    this.#dataPlane = new ResourceDataPlane(
+      this.ctx,
+      () => this.lmz.callContext,
+      createResourceOntologyProvider(this.ctx, this.env.LOADER),
+      {
+        deliverTransactionResult: (clientId, result) =>
+          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+            this.ctn<NebulaClient>().handleTransactionResult(result)),
+        deliverReadResponse: (clientId, requestId, result) =>
+          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+            this.ctn<NebulaClient>().handleReadResponse(requestId, result)),
+        deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
+          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+            this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
+        broadcastResourceUpdate: (resourceId, snapshot, targets) =>
+          this.#broadcastResourceUpdate(resourceId, snapshot, targets),
+      },
+      () => { /* no org-tree subscribe channel on DevStudio */ },
+    );
   }
 
   #trackedPaths(): Set<string> {
@@ -436,6 +469,90 @@ export class DevStudio extends NebulaDO {
       this.lmz.call(CLIENT_GATEWAY_BINDING, clientId, this.ctn<NebulaClient>().handlePreviewReady(scope));
     } catch (e) {
       debug('nebula.DevStudio.warmPreview').warn('preview-ready delivery failed (non-fatal)', { error: e });
+    }
+  }
+
+  // ─── Resource data-plane surface (chat Session/Turn Resources, Child 1) ─────────
+  //
+  // `@mesh()` — **NOT** `@mesh(requireAdmin)` (unlike every codegen/source method
+  // above): chat participants are non-admin but DAG-granted (D4). `onBeforeCall`
+  // (NebulaDO base) still aud-locks `{u}.{g}.dev`; the per-op DAG read/write check
+  // lives inside the data-plane (Resources/DagTree), exactly as on Star. These are
+  // **Handler 1** wrappers; Handler 2 lives in the capability. The ontology-version
+  // gate is a no-op here (one fixed code-defined version, D8): the wrapper accepts
+  // the client's `appVersion` but ignores it — Handler 2 stamps the version solely
+  // from `getOntology()`.
+
+  /** Handler 1: dispatch a transaction into the capability (no version-gate, D8). */
+  @mesh()
+  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): void {
+    void appVersion; // version-gate is a no-op on DevStudio (one fixed ontology, D8)
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('transaction requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.doTransaction(newETag, ops, clientId);
+  }
+
+  /** Handler 1: dispatch a read into the capability. */
+  @mesh()
+  read(appVersion: string, resourceId: string, requestId: string): void {
+    void appVersion;
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('read requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.doRead(resourceId, requestId, clientId);
+  }
+
+  /** Handler 1: dispatch a single-resource subscribe into the capability. */
+  @mesh()
+  subscribe(appVersion: string, resourceType: string, resourceId: string): void {
+    void appVersion;
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribe requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribe requires a gateway in callChain.at(-1)');
+    }
+    this.#dataPlane.doSubscribe(resourceType, resourceId, clientId, subscriberBinding);
+  }
+
+  /** Drop the caller's subscriber row for `(resourceType, resourceId)`. */
+  @mesh()
+  unsubscribe(resourceType: string, resourceId: string): void {
+    void resourceType;
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('unsubscribe requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.removeSubscriber(resourceId, clientId);
+  }
+
+  /** Single `@mesh()` entry for the DagTree API (per-op auth inside DagTree). */
+  @mesh()
+  dagTree(): DagTree {
+    return this.#dataPlane.dagTree;
+  }
+
+  /** Host-side fanout for one mutated resource — the {@link ResourceHostBridge}
+   *  `broadcastResourceUpdate` impl. No bench knobs (Star-only); plain `svc.broadcast`
+   *  with drop-on-failed-fanout cleanup via {@link onBroadcastResult}. */
+  #broadcastResourceUpdate(resourceId: string, snapshot: Snapshot, targets: BroadcastTarget[]): void {
+    const remote = this.ctn<NebulaClient>().handleResourceUpdate(
+      snapshot.meta.typeName, resourceId, snapshot);
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onBroadcastResult(resourceId) });
+  }
+
+  /** Per-target broadcast result handler — drop a subscriber whose Gateway reported
+   *  it disconnected (`ClientDisconnectedError`). `@mesh()` for the tier-worker path. */
+  @mesh()
+  onBroadcastResult(resourceId: string, result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
     }
   }
 

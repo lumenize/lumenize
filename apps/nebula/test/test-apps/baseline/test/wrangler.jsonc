@@ -10,6 +10,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
+      { "name": "DEV_STUDIO", "class_name": "DevStudio" },
       { "name": "DEV_CONTAINER", "class_name": "DevContainerServeStub" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
@@ -23,6 +24,7 @@
         "Universe",
         "Galaxy",
         "StarTest",
+        "DevStudio",
         "DevContainerServeStub",
         "NebulaAuth",
         "NebulaAuthRegistry"
