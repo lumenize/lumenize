@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "container-node-phase0",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  // node:async_hooks (the mesh callContext ALS) needs nodejs_compat.
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "max_instances": 1,
+      "class_name": "SmokeContainer",
+      "image": "./Dockerfile",
+      // Phase-3 sizing pin: dev instance >= standard-1 (1/2 vCPU) so a `vite build`
+      // can't starve the command channel the way the ¼-vCPU default did (spike Q2).
+      "instance_type": "standard-1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SMOKE", "class_name": "SmokeContainer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["SmokeContainer"] }
+  ]
+}

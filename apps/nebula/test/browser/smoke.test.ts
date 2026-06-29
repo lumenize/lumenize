@@ -8,9 +8,9 @@
  *   2. auth — Real magic-link flow via deployed email-test Worker.
  *      Exercises Cloudflare Email Sending → Email Routing → WebSocket push
  *      → Browser cookie jar → /auth/<scope>/refresh-token.
- *   3. round-trip — NebulaClient → Gateway → Star → Galaxy → Star → result
- *      callback. Uses the real magic-link flow, then fires an ontology
- *      registration on Galaxy and a transaction on Star.
+ *   3. round-trip — NebulaClient → Gateway → Star → result callback. Uses the
+ *      real magic-link flow, then installs an ontology version directly on the
+ *      Star (the post-Phase-4 dev apply path) and fires a transaction on Star.
  *
  * Why split: when a failure happens, the per-`it` boundary tells you whether
  * the bundle, auth, or mesh path broke without reading the stack trace.
@@ -43,9 +43,9 @@ function uniqueStar(): string {
 /**
  * Test-side NebulaClient. The Star round-trip uses the public
  * `client.resources.transaction()` API (Promise-returning, framework-managed
- * eTag) — no `@mesh()` overrides needed for that path. The Galaxy ontology
- * registration still goes through the test-initiator pattern because
- * `appendOntologyVersion` is admin-only and has no public-API surface.
+ * eTag) — no `@mesh()` overrides needed for that path. The ontology install
+ * still goes through the test-initiator pattern because `applyOntologyForTest`
+ * is admin-only and has no public-API surface.
  */
 class HarnessNebulaClient extends NebulaClient {
   lastResult: any = undefined;
@@ -59,7 +59,7 @@ class HarnessNebulaClient extends NebulaClient {
   }
 
   // Generic handler for callXxx initiators that explicitly forward via
-  // `this.ctn().handleResult(remote)` — Galaxy ontology registration uses
+  // `this.ctn().handleResult(remote)` — the Star ontology install uses
   // this pattern.
   handleResult(value: any): void {
     if (value instanceof Error) {
@@ -72,10 +72,13 @@ class HarnessNebulaClient extends NebulaClient {
     this.callCompleted = true;
   }
 
-  callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: { version: string; types: string }): void {
+  // Install a compiled ontology directly on the Star — the post-Phase-4 dev
+  // apply path. `StarTest.applyOntologyForTest` compiles server-side because
+  // this Node-side client can't import the Worker-only `compileOntologyVersion`.
+  callStarApplyOntology(starInstanceName: string, versionConfig: { version: string; types: string }): void {
     this.resetResults();
-    const remote = (this.ctn() as any).appendOntologyVersion(versionConfig);
-    this.lmz.call('GALAXY', galaxyName, remote, (this.ctn() as any).handleResult(remote));
+    const remote = (this.ctn() as any).applyOntologyForTest(versionConfig);
+    this.lmz.call('STAR', starInstanceName, remote, (this.ctn() as any).handleResult(remote));
   }
 }
 
@@ -113,12 +116,11 @@ describe('browser harness', () => {
     expect(tokenBody.access_token.split('.')).toHaveLength(3);
   });
 
-  it('3. round-trip — NebulaClient → Gateway → Star → Galaxy → result', async () => {
+  it('3. round-trip — NebulaClient → Gateway → Star → result', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const browser = new Browser();
     const scope = uniqueStar();
-    const galaxyName = scope.split('.').slice(0, 2).join('.');
 
     // 1. Bootstrap admin via real magic-link → cookie captured
     await bootstrapAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
@@ -143,14 +145,18 @@ describe('browser harness', () => {
         expect(client.connectionState).toBe('connected');
       });
 
-      // 4. Register an ontology version on the Galaxy. Bootstrap admin email
-      //    becomes founder/admin at first instance, which is required for
-      //    appendOntologyVersion (gated by requireAdmin).
-      client.callGalaxyAppendOntologyVersion(galaxyName, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
+      // 4. Install an ontology version directly on the Star — the post-Phase-4
+      //    dev apply path (Decision 9). Phase 4 removed the Star's Galaxy
+      //    lazy-pull, so a transaction at version 'v1' would hit OntologyStaleError
+      //    on a cache miss; the compiled validator must be PUSHED via setOntology.
+      //    `StarTest.applyOntologyForTest` compiles server-side (this Node-side
+      //    client can't import the Worker-only `compileOntologyVersion`). Bootstrap
+      //    admin (founder at first instance) satisfies the requireAdmin gate.
+      client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);
       });
-      expect(client.lastError, 'ontology registration should not error').toBeUndefined();
+      expect(client.lastError, 'ontology install should not error').toBeUndefined();
 
       // 5. Fire a transaction creating a single resource on the Star, using
       //    the public `client.resources.transaction()` API. Resolves with a

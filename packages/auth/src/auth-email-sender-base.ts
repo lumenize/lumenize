@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
+import { createEmailTransport } from '@lumenize/email';
 import type { EmailMessage, ResolvedEmail } from './types';
 
 // ============================================
@@ -63,15 +64,11 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
  * has no dependency on `@lumenize/mesh`. The Auth DO communicates with this entrypoint
  * via plain Workers RPC through the `AUTH_EMAIL_SENDER` service binding.
  *
- * Subclasses must implement:
- * - `from` — bare sender email address (e.g., `'auth@myapp.com'`)
- * - `sendEmail(email)` — deliver the fully resolved email via your provider
- *
- * Optionally override `replyTo`, `appName`, any of the 5 template methods,
- * or any of the 5 subject methods.
- *
- * For the default Resend implementation, extend {@link ResendEmailSender} instead.
- * For bring-your-own-provider, extend this class directly.
+ * Extend it and set `from`; the provider is chosen by the environment via
+ * `@lumenize/email`'s `createEmailTransport` (the `EMAIL` binding → Cloudflare;
+ * `EMAIL_PROVIDER=resend` or no `EMAIL` binding → Resend). Optionally override
+ * `replyTo`, `appName`, any of the 5 template methods, or any of the 5 subject
+ * methods. Override `sendEmail` only to force a specific transport.
  *
  * @see https://lumenize.com/docs/auth/getting-started#email-provider — setup walkthrough
  * @see https://lumenize.com/docs/auth/configuration#email-provider — reference (class hierarchy, overridable methods)
@@ -141,13 +138,14 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
   }
 
   /**
-   * Deliver the resolved email. Subclasses must implement this
-   * with their email provider's API call.
-   *
-   * @param email - Fully resolved email with `to`, `subject`, `html`, `from`, `replyTo`, `appName`
-   * @see https://lumenize.com/docs/auth/getting-started#bring-your-own-provider
+   * Deliver the resolved email. Composes a transport from `@lumenize/email` and
+   * selects the provider from the environment (`EMAIL` binding → Cloudflare,
+   * `EMAIL_PROVIDER` to force a provider, else Resend). Override only to force a
+   * specific provider; most subclasses just set `from` and let the env decide.
    */
-  abstract sendEmail(email: ResolvedEmail): Promise<void>;
+  async sendEmail(email: ResolvedEmail): Promise<void> {
+    await createEmailTransport(this.env as object).sendEmail(email);
+  }
 
   // ============================================
   // Overridable template methods (return HTML)

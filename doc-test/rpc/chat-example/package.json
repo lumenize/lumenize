@@ -2,6 +2,7 @@
 	"name": "rpc-chat-example",
 	"version": "0.24.0",
 	"private": true,
+	"type": "module",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
@@ -13,9 +14,9 @@
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.15.1",
 		"@lumenize/testing": "*",
-		"@vitest/coverage-istanbul": "3.2.4",
+		"@vitest/coverage-istanbul": "4.1.4",
 		"typescript": "^5.9.2",
-		"vitest": "3.2.4",
+		"vitest": "4.1.4",
 		"wrangler": "^4.86.0"
 	}
 }

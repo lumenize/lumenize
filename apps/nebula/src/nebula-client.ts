@@ -14,7 +14,7 @@
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
-import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import type { NebulaJwtPayload, AffectedScope, ScopeDeletionPlan } from '@lumenize/nebula-auth';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
 import {
@@ -33,6 +33,7 @@ import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import type { Star } from './star';
+import type { DevStudio } from './dev-studio';
 
 const log = debug('lumenize.nebula-client');
 
@@ -67,6 +68,12 @@ export interface OntologyStaleInfo {
   reason: 'ontology-stale';
   clientVersion: string;
   currentVersion: string;
+}
+
+/** The result of a codegen chat turn, delivered to {@link NebulaClient.onChatResult}. */
+export interface ChatTurnResult {
+  reply: string;
+  thought: string;
 }
 
 /**
@@ -118,6 +125,21 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * the originating Promise's `{ resolution: 'ontology-stale' }` outcome.
    */
   onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  /**
+   * Optional hook invoked when the dev Star signals a fresh compile landed (the
+   * Studio dev-preview reload channel — `Star.broadcastReload`). Typical preview
+   * implementation: `() => window.location.reload()`. No default — undefined
+   * means opted-out (a non-preview client simply ignores reload signals).
+   */
+  onReload?: () => void;
+  /**
+   * Optional hook invoked when DevStudio signals the dev preview is up and serving
+   * (the {@link NebulaClient.handlePreviewReady} push, in response to
+   * {@link NebulaClient.warmPreview}). The Studio uses it to auto-refresh the preview
+   * iframe — no manual Reload. `scope` is the dev star the readiness is for (ignore if
+   * the UI has since switched scopes).
+   */
+  onPreviewReady?: (scope: string) => void;
 }
 
 type SubscribeKey = string; // `${resourceType}:${resourceId}`
@@ -197,6 +219,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #activeScope: string;
   #appVersion: string;
   #onShouldRefreshUI?: (info: OntologyStaleInfo) => void;
+  #onReload?: () => void;
+  #onPreviewReady?: (scope: string) => void;
   // Captured for `logout()` (the embedded refresh closure reads them too, but a
   // method can't reach the constructor's `config`). `#baseUrl` may be undefined
   // when the browser auto-detects it for the WS URL — logout falls back to the
@@ -294,12 +318,25 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #pendingReads = new Map<string, PendingRead>();
 
+  /**
+   * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
+   * fired one-way at DevStudio ({@link chat}) — NOT an awaited `callRaw` — and
+   * settled when DevStudio delivers the result back via the {@link onChatResult}
+   * push (direct delivery addressed to this client's stable `instanceName`, so it
+   * survives a WS drop+reconnect mid-turn). The Promise lives in memory; it does
+   * NOT survive a page reload (history-restore is the deferred reactive-chat work).
+   * See [[client-calls-use-direct-delivery]].
+   */
+  #pendingTurns = new Map<string, { resolve: (r: ChatTurnResult) => void; reject: (e: Error) => void }>();
+
   constructor(config: NebulaClientConfig) {
     const {
       authScope,
       activeScope,
       appVersion,
       onShouldRefreshUI,
+      onReload,
+      onPreviewReady,
       onConnectionStateChange: userOnConnectionStateChange,
       ...baseConfig
     } = config;
@@ -373,6 +410,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         if (state === 'connected' && this.#orgTreeListener) {
           this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeTree());
         }
+        // Dev-preview reload channel (Decision 12 / Flow 1d): (re)subscribe on every
+        // 'connected' — gated on a configured `onReload`, which the bootstrap sets for
+        // the `.dev` preview ONLY (prod clients leave it unset → no subscription).
+        // Idempotent server-side (INSERT OR REPLACE by clientId), mirroring the orgTree
+        // singleton above; the Star fans out `handleReload` on a version change.
+        if (state === 'connected' && this.#onReload) {
+          this.lmz.call('STAR', this.#activeScope, this.ctn<Star>().subscribeReload());
+        }
         this.#prevConnectionState = state;
         // Factory listener mirrors state into store.lmz.connection.* (it also
         // replays the current state once at creation via `connectionState`, so
@@ -386,6 +431,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#activeScope = activeScope;
     this.#appVersion = appVersion;
     this.#onShouldRefreshUI = onShouldRefreshUI;
+    this.#onReload = onReload;
+    this.#onPreviewReady = onPreviewReady;
     this.#baseUrl = config.baseUrl;
     this.#fetchFn = config.fetch ?? fetch;
 
@@ -497,6 +544,46 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.clearAccessToken();
     this.disconnect();
+  }
+
+  // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────
+  //
+  // The nebula-auth registry endpoints are HTTP routes (NOT on the mesh), so they need a Bearer
+  // header — supplied by the base `authedFetch`, which keeps the JWT INSIDE the client (the bearer
+  // never reaches UI/page code, and there's a single token authority — no cookie-rotation race).
+  // App code calls `client.scopes.createGalaxy(...)` etc. and reacts to the result; it never touches
+  // a token. (Platform-DO `teardown` after a delete still goes over the mesh — see the UI.)
+
+  get scopes() {
+    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
+    const post = async (endpoint: string, body: Record<string, unknown> = {}): Promise<unknown> => {
+      const res = await this.authedFetch(`${base}/auth/${endpoint}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        throw new Error(`${endpoint} ${res.status}: ${await res.text().catch(() => '')}`);
+      }
+      return res.json();
+    };
+    return {
+      /** The caller's manageable instance tree (Universe + descendants). */
+      list: async (): Promise<AffectedScope[]> =>
+        ((await post('my-scopes')) as { scopes: AffectedScope[] }).scopes,
+      /** Create a Galaxy `{universe}.{galaxySlug}` (admin over the universe). */
+      createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
+        post('create-galaxy', { universeGalaxyId: `${universe}.${galaxySlug}` }) as Promise<{ instanceName: string }>,
+      /** Create the `.dev` authoring Star under `{galaxy}` — in-session, no email. */
+      createStar: (galaxy: string): Promise<{ instanceName: string }> =>
+        post('create-star', { universeGalaxyStarId: `${galaxy}.dev` }) as Promise<{ instanceName: string }>,
+      /** Read-only deletion plan for the confirm screen (cascade down + prune up + blockers). */
+      deletePlan: (target: string): Promise<ScopeDeletionPlan> =>
+        post('delete-scope-plan', { target }) as Promise<ScopeDeletionPlan>,
+      /** Execute the cascade delete; returns the affected set for the platform-DO teardown fan-out. */
+      delete: (target: string): Promise<{ affected: AffectedScope[] }> =>
+        post('delete-scope', { target }) as Promise<{ affected: AffectedScope[] }>,
+    };
   }
 
   // ─── Serial mesh-submit gate ──────────────────────────────────────────────
@@ -653,6 +740,56 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
       const snapshot = this.#subscribeResource(resourceType, resourceId);
       let disposed = false;
+      return {
+        snapshot,
+        [Symbol.dispose]: (): void => {
+          if (disposed) return; // per-handle idempotent
+          disposed = true;
+          this.#disposeSubscription(resourceType, resourceId);
+        },
+      };
+    },
+
+    /**
+     * Create a resource and subscribe to it in one call — the ergonomic form of
+     * the **create-then-subscribe** pattern the server requires (a subscribe to
+     * a not-yet-existent resource is rejected; the server has no
+     * subscribe-before-create path). Returns a `using`-compatible
+     * {@link ResourceSubscription} **synchronously** — refcount + `[Symbol.dispose]`
+     * behave exactly as {@link resources.subscribe} — but the underlying
+     * `Star.subscribe` is deferred until the `create` transaction commits, so
+     * `.snapshot` resolves with the freshly-created snapshot. If the create does
+     * NOT commit (already exists, permission, validation), `.snapshot` **rejects**
+     * — use plain `subscribe` for a resource that already exists.
+     *
+     * Pure client-side sequencing over the two existing primitives (`transaction`
+     * then `subscribe`); no special server path, and it routes to the active
+     * scope's Star binding like every other resource call. Disposing before the
+     * create lands cancels the pending subscription (the already-submitted create
+     * is not unwound).
+     */
+    createAndSubscribe: (
+      resourceType: string,
+      resourceId: string,
+      nodeId: number,
+      value: unknown,
+    ): ResourceSubscription => {
+      const key = `${resourceType}:${resourceId}`;
+      this.#subscribeRefcount.set(key, (this.#subscribeRefcount.get(key) ?? 0) + 1);
+      let disposed = false;
+      const snapshot = (async (): Promise<Snapshot | null> => {
+        const outcome = await this.resources.transaction({
+          [resourceId]: { op: 'create', typeName: resourceType, nodeId, value },
+        });
+        if (outcome.kind !== 'committed') {
+          throw new Error(
+            `createAndSubscribe: create of (${resourceType}, ${resourceId}) did not commit ` +
+            `— outcome '${outcome.kind}'; use subscribe() for a resource that already exists`,
+          );
+        }
+        if (disposed) return null; // disposed before the create landed — don't arm the subscription
+        return this.#subscribeResource(resourceType, resourceId);
+      })();
       return {
         snapshot,
         [Symbol.dispose]: (): void => {
@@ -983,6 +1120,89 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   @mesh()
   handleOrgTreeUpdate(envelope: { value: DagTreeState }): void {
     this.#orgTreeListener?.(envelope.value);
+  }
+
+  /**
+   * Receive a dev-preview reload signal from the Star (`Star.broadcastReload`). The
+   * channel is kept for the **publish-refresh signal** — its former trigger
+   * (`DevStar.compileSFC`) was retired in Phase 4 (vite owns compile); publish will
+   * fan this out so live previews re-fetch. Invokes the optional `onReload` hook
+   * (the preview wires `() => window.location.reload()`); a non-preview client
+   * without the hook ignores it. `@mesh()` because the signal arrives via
+   * `svc.broadcast` through the Gateway.
+   */
+  @mesh()
+  handleReload(): void {
+    this.#onReload?.();
+  }
+
+  /**
+   * Fire a codegen turn at DevStudio and resolve when its result is delivered
+   * back via {@link onChatResult}. Uses fire-and-forget + **direct delivery**, NOT
+   * an awaited `callRaw`: a turn can run for minutes, during which the client WS
+   * may drop and reconnect — the result is addressed to this client's stable
+   * `instanceName`, so the Gateway routes it to whatever socket is current rather
+   * than stranding it on the original socket (the "thinking… forever" bug). The
+   * returned Promise survives a reconnect (same JS context) but NOT a page reload —
+   * history-restore on refresh is the deferred reactive-chat work. The client passes
+   * its own `instanceName` explicitly (not `callChain[0]`). See ADR-003 +
+   * [[client-calls-use-direct-delivery]].
+   */
+  chat(message: string): Promise<ChatTurnResult> {
+    const turnId = crypto.randomUUID();
+    const clientId = this.lmz.instanceName;
+    const pending = this.trackTurn(turnId);
+    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().chat(turnId, clientId, message));
+    return pending;
+  }
+
+  /**
+   * Register an in-flight turn keyed by `turnId` and return its Promise — settled
+   * by {@link onChatResult}. No call is fired here (that's {@link chat}'s job).
+   * `protected` so a test subclass can register a turn without a real DevStudio.
+   */
+  protected trackTurn(turnId: string): Promise<ChatTurnResult> {
+    return new Promise<ChatTurnResult>((resolve, reject) => {
+      this.#pendingTurns.set(turnId, { resolve, reject });
+    });
+  }
+
+  /**
+   * Receive a completed codegen turn's result from DevStudio. Direct delivery,
+   * addressed to this client's `instanceName`, so it lands on whatever socket is
+   * current after a reconnect. Settles the matching {@link chat} Promise by
+   * `turnId`; an unknown `turnId` (page reloaded mid-turn, or duplicate delivery)
+   * is ignored. `@mesh()` because it arrives over the Gateway like the other pushes.
+   */
+  @mesh()
+  onChatResult(turnId: string, reply: string, thought: string): void {
+    const pending = this.#pendingTurns.get(turnId);
+    if (!pending) return;
+    this.#pendingTurns.delete(turnId);
+    pending.resolve({ reply, thought });
+  }
+
+  /**
+   * Ask DevStudio to bring the dev preview up and signal when vite is serving, so the
+   * UI can auto-refresh the iframe (no manual Reload). Fire-and-forget (NOT awaited
+   * `callRaw`) — the container boot is long and the readiness comes back via the
+   * {@link handlePreviewReady} push (direct delivery by this client's stable
+   * `instanceName`), so it survives a WS reconnect during the boot. Passes its own
+   * `instanceName` explicitly as the reply target.
+   */
+  warmPreview(): void {
+    const clientId = this.lmz.instanceName;
+    this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().warmPreview(clientId));
+  }
+
+  /**
+   * Receive DevStudio's "preview is serving" signal (direct delivery, addressed to this
+   * client's `instanceName`). Invokes the `onPreviewReady` hook so the UI can refresh
+   * the preview iframe. `@mesh()` because it arrives over the Gateway like the other pushes.
+   */
+  @mesh()
+  handlePreviewReady(scope: string): void {
+    this.#onPreviewReady?.(scope);
   }
 
   /**

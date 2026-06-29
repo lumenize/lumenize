@@ -6,6 +6,12 @@
 **/test/**/*.d.ts
 **/test/**/*.d.ts.map
 
+# ...but DO track hand-written .d.ts test FIXTURES (source, not compiled output).
+# The rules above target generated/compiled .d.ts (worker-configuration.d.ts,
+# stale tsc output); these schema fixtures are `?raw`-imported by for-docs tests
+# and must ship, or the test fails in CI with ENOENT on './schema.d.ts'.
+!**/test/**/schema.d.ts
+
 # Coverage output
 **/coverage/
 

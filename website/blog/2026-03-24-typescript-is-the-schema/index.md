@@ -88,7 +88,7 @@ Two real tradeoffs:
 - **No value constraints yet** — tsc checks types, not ranges or string formats. There's no `.email()` or `.min(1)` today. We're [adding JSDoc-based value constraints](/blog/write-your-types-once#one-type-multiple-uses) so you can annotate `/** @format email */` directly on your interfaces — standard JSDoc that your editor already understands.
 - **\~15-25ms per validation** — this is the real tsc compiler running, not a reimplementation. Fast enough for write paths (transactions, form submissions), not for per-keystroke validation.
 
-The type coverage, on the other hand, is far broader than you might expect. The full tsc type system works: generics, conditional types, template literal types, custom mapped types, all standard utility types (`Partial`, `Pick`, `Record`, `Uppercase`, ...), Maps, Sets, Dates, cyclic references, and more. The [Type Support page](/docs/ts-runtime-validator/type-support) has the receipts — tested examples for every category.
+The type coverage, on the other hand, is far broader than you might expect. The full tsc type system works: generics, conditional types, template literal types, custom mapped types, all standard utility types (`Partial`, `Pick`, `Record`, `Uppercase`, ...), Maps, Sets, Dates, cyclic references, and more. The [Type Support page](/docs/ts-runtime-parser-validator/type-support) has the receipts — tested examples for every category.
 
 This is not (yet) a universal replacement for Zod. For heavy use of format/range validation today, Zod remains an excellent choice... at least until we implement our planed format/range validation using annotations. But when LLMs are part of your workflow — generating code, calling tools, validating data — TypeScript is the language they know best. Add zero DSL to learn and real tsc diagnostics, and the tradeoff is worth it.<sup>1</sup>
 
@@ -108,6 +108,6 @@ The Cloudflare findings confirmed the intuition from multiple angles. Code Mode 
 npm install @lumenize/ts-runtime-parser-validator
 ```
 
-The [package documentation](/docs/ts-runtime-validator/) covers the full API. The [Type Support & Validation Boundaries](/docs/ts-runtime-validator/type-support) page has tested examples for every supported type — spoiler: it's everything except functions.
+The [package documentation](/docs/ts-runtime-parser-validator/) covers the full API. The [Type Support & Validation Boundaries](/docs/ts-runtime-parser-validator/type-support) page has tested examples for every supported type — spoiler: it's everything except functions.
 
 TypeScript is already the schema. Now it can be the validator too.

@@ -3,7 +3,7 @@
 **Date**: 2026-06-11 (records the concurrency commitment, in force since Resources shipped; idempotency semantics hardened 2026-06-10)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence / history**: `apps/nebula/src/resources.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), `tasks/nebula-frontend.md` § 5.3.7 + `tasks/factory-conflict-outcome.md` (client outcome state machine)
+**Evidence / history**: `apps/nebula/src/resources.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), `tasks/nebula-frontend.md` § 5.3.7 + `tasks/archive/factory-conflict-outcome.md` (client outcome state machine)
 
 ## Context
 
@@ -16,7 +16,7 @@ Writers are browsers with debounced auto-submit (and LLM agents) that disconnect
 - Every write names the eTag it read (expected) and the eTag it will create (`newETag`, client-supplied). An expected-eTag mismatch is a conflict — never a silent overwrite.
 - eTags are forward-only: once a resource moves past an eTag, nothing takes it back. That makes "this batch already committed" and "this eTag is stale" *monotonic* conclusions — true forever once observed.
 - **Idempotency = `newETag` replay detection.** A retried transaction whose `newETag` is already committed (any resource of the batch at `newETag` ⇒ the atomic batch committed) short-circuits to success. No idempotency keys, no dedupe table — the eTag already uniquely names the transition, and a ledger would trade a narrow limitation for a constant per-transaction write cost.
-- Conflicts surface as transaction outcomes resolved by handlers (per-call → per-type → framework default), with the common-ancestor `base` available for 3-way merge — **client-held, not a history lookup** (ADR-004's debounce-collapse means history can't reliably supply the divergence point; see ADR-004's corrected consequence and [tasks/factory-conflict-outcome.md](../../tasks/factory-conflict-outcome.md) invariant 5).
+- Conflicts surface as transaction outcomes resolved by handlers (per-call → per-type → framework default), with the common-ancestor `base` available for 3-way merge — **client-held, not a history lookup** (ADR-004's debounce-collapse means history can't reliably supply the divergence point; see ADR-004's corrected consequence and [tasks/archive/factory-conflict-outcome.md](../../tasks/archive/factory-conflict-outcome.md) invariant 5).
 - **Corollary — the monotonic pre-check rule:** a fast-fail check *outside* the transaction is permitted only when its conclusion is monotonic (replay-already-committed, eTag-conflict). Non-monotonic conclusions — permission denied, not-found — stay authoritative *inside* the transaction, because they can flip concurrently (an admin grants mid-flight).
 
 ## Alternatives considered

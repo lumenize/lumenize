@@ -5,7 +5,7 @@
  */
 import { expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { generateUuid, parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
@@ -15,6 +15,45 @@ export const ORIGIN = 'http://localhost';
 
 function authUrl(path: string): string {
   return `${ORIGIN}${PREFIX}/${path}`;
+}
+
+/**
+ * A unique 3-segment star id (`<universe>.app.tenant`) for claim-sensitive
+ * tests. Each call yields a fresh universe so distinct `it` blocks never share
+ * a Star/Galaxy/Universe DO instance (the "isolation flips the result"
+ * footgun — see testing.md). `star == authScope == activeScope`, so it can mint
+ * exactly one star-level `aud`; it cannot produce two sibling stars under one
+ * galaxy (use `uniqueGalaxyScope()` for that).
+ */
+export function uniqueStar(): string {
+  return `s-${generateUuid().slice(0, 8)}.app.tenant`;
+}
+
+/**
+ * A unique galaxy plus two sibling stars beneath it — the fixture for the
+ * shared-Galaxy multi-star scenario. `starA`/`starB` share one Galaxy DO
+ * (`galaxy`), which is exactly the collision under test; across `it` blocks the
+ * galaxy id is unique so suites don't cross-pollute.
+ */
+export function uniqueGalaxyScope(): {
+  universe: string;
+  galaxy: string;
+  starA: string;
+  starB: string;
+  /** The reserved dev-sandbox Star under this galaxy (`{u}.{g}.dev`). A plain `Star`
+   *  at a `.dev` instance (Decision 2 — no DevStar class/binding); shares the Galaxy
+   *  DO with `starA`/`starB`. See tasks/nebula-studio.md § Dev-data reset. */
+  dev: string;
+} {
+  const universe = `g-${generateUuid().slice(0, 8)}`;
+  const galaxy = `${universe}.app`;
+  return {
+    universe,
+    galaxy,
+    starA: `${galaxy}.tenant-a`,
+    starB: `${galaxy}.tenant-b`,
+    dev: `${galaxy}.dev`,
+  };
 }
 
 /**

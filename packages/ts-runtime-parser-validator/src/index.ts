@@ -6,6 +6,8 @@
  */
 
 export { generateParseModule } from './generate-parse-module';
+export { checkTypeScript } from './virtual-ts-host';
+export type { CheckResult } from './virtual-ts-host';
 export { extractTypeMetadata } from './extract-type-metadata';
 export type {
   TypeMetadata,

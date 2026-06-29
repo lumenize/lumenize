@@ -13,9 +13,16 @@ import { parse, RequestSync, ResponseSync } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 import { FetchTimeoutError } from '@lumenize/fetch';
 
+// Unique per-invocation local-DO instance name. These suites hit the deployed
+// test-endpoints worker over the web, so a cold start can flake an attempt;
+// CI runs with `vitest --retry`, and a retry re-runs the test body — so without
+// a fresh DO each call, a late callback from the prior attempt would leave
+// callCount at 2 ("expected 2 to be 1"). uniq() gives every (re)run its own DO.
+const uniq = (base: string) => `${base}-${crypto.randomUUID()}`;
+
 describe('proxyFetch - Basic Flow', () => {
   test('makes successful fetch and delivers result via worker callback', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('test'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'simple-test');
     const url = testEndpoints.buildUrl('/uuid');
@@ -28,7 +35,7 @@ describe('proxyFetch - Basic Flow', () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });  // headroom for deployed-worker cold starts
 
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -42,7 +49,7 @@ describe('proxyFetch - Basic Flow', () => {
   });
 
   test('fetches with RequestSync including headers and body', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('request-sync-test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('request-sync-test'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'request-sync-test');
     const url = testEndpoints.buildUrl('/echo');
@@ -64,7 +71,7 @@ describe('proxyFetch - Basic Flow', () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });  // headroom for deployed-worker cold starts
 
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -81,7 +88,7 @@ describe('proxyFetch - Basic Flow', () => {
   });
 
   test('handles fetch timeout via alarm when worker delivery is simulated to fail', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('timeout-test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('timeout-test'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'timeout-test');
     const url = testEndpoints.buildUrl('/uuid');  // Any endpoint is fine, we're simulating delivery failure
@@ -119,7 +126,7 @@ describe('proxyFetch - Basic Flow', () => {
   });
 
   test('idempotency: result delivery wins race, timeout becomes noop', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('race-test-1');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('race-test-1'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'race-test-1');
     const url = testEndpoints.buildUrl('/uuid');
@@ -132,7 +139,7 @@ describe('proxyFetch - Basic Flow', () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });  // headroom for deployed-worker cold starts
 
     // Check result was delivered by worker
     const result = parse(serialized);
@@ -148,7 +155,7 @@ describe('proxyFetch - Basic Flow', () => {
   });
 
   test('idempotency: timeout wins race, result delivery becomes noop', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('race-test-2');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('race-test-2'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'race-test-2');
     const url = testEndpoints.buildUrl('/delay/1000');
@@ -189,7 +196,7 @@ describe('proxyFetch - Basic Flow', () => {
 
 describe('proxyFetch - Error Handling', () => {
   test('receives ResponseSync (not Error) for HTTP 404', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('http-404-test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('http-404-test'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'http-404-test');
     const url = testEndpoints.buildUrl('/status/404');
@@ -201,7 +208,7 @@ describe('proxyFetch - Error Handling', () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });  // headroom for deployed-worker cold starts
 
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -214,7 +221,7 @@ describe('proxyFetch - Error Handling', () => {
   });
 
   test('handles fetch errors gracefully', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('error-test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('error-test'));
     await stub.clearResults();
     const url = 'https://definitely-does-not-exist-12345.invalid';
     
@@ -237,7 +244,7 @@ describe('proxyFetch - Error Handling', () => {
   });
 
   test('handles fetch timeout via AbortController', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('abort-test');
+    const stub = env.TEST_SIMPLE_DO.getByName(uniq('abort-test'));
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'abort-test');
     const url = testEndpoints.buildUrl('/delay/10000');  // 10 second delay

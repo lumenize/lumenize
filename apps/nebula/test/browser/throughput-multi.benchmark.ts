@@ -1,7 +1,9 @@
 /**
  * ⚠ Hits the deployed `nebula-browser-test` worker. Run
- *   `wrangler deploy --config test/browser/worker/wrangler.jsonc`
- * BEFORE this bench, or you're measuring stale code.
+ *   `npm run deploy:test-worker`
+ * BEFORE this bench, or you're measuring stale code. The shared global-setup staleness
+ * guard (Phase 2, `tasks/nebula-release-process.md`) now hard-fails a `BENCH_BASE_URL`
+ * run whose deploy != local HEAD, so a stale deploy can't silently slip through.
  *
  * Phase 5 of `tasks/gateway-hop-benchmark.md`: does Gateway-DO fanout
  * raise peak per-Star throughput? Compares two load shapes at the same
@@ -49,6 +51,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import { ThroughputHarnessClient } from './throughput-harness-client';
 import { bootstrapAdmin } from './auth-bootstrap';
@@ -460,7 +463,7 @@ describe('Phase 5 throughput comparison: Shape A vs Shape B', () => {
       console.log(`[multi] raw data → ${rawPath}`);
 
       const summaryPath = path.join(__dirname, `THROUGHPUT-MULTI-${label}.md`);
-      fs.writeFileSync(summaryPath, buildMarkdown({ label, baseUrl, galaxyScope, rows }));
+      fs.writeFileSync(summaryPath, withCommitStamp(buildMarkdown({ label, baseUrl, galaxyScope, rows })));
       console.log(`[multi] summary → ${summaryPath}`);
 
       // Sanity assertions

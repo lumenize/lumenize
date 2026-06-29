@@ -1,5 +1,5 @@
-import { CloudflareEmailSender } from '@lumenize/auth';
+import { AuthEmailSenderBase } from '@lumenize/auth';
 
-export class AuthEmailSender extends CloudflareEmailSender {
+export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@example.com';
 }

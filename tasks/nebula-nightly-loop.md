@@ -15,7 +15,7 @@ The loop hands Larry, at his ~8am start, **one artifact he reads** (a morning di
 
 ## Context (verified on-disk 2026-06-14)
 
-- Solo project, one long-running branch (`feat/nebula-ui`), sequential implementation.
+- Solo project, one long-running branch (`feat/nebula-studio`), sequential implementation.
 - Existing scaffolding the loop REUSES rather than reinvents: `.claude/rules/`, ADRs, task files, retros, `/review-task` (reviewer panels + adversarial verify + survivors/dropped finding records), `/build-task` (phase verifiers), the file-based memory system, MEMORY.md, and the round-N **findings-JSON chaining** (`priorFindings`).
 - A per-phase retro already PROPOSES process changes (human-gated) but never edits its own governing rules.
 - **The overnight unit is CODE & DESIGN OPTIMIZATION passes** — the same work as a live `/review-task` or `/code-review` over a spec/doc/source file (e.g. a review of `coding-your-ui.md`). It is **NOT** evals/bake-offs/experiments (those run later on a separate metered API like Kimi/Think). So the pass is **Claude-authored on Larry's subscription — ONE token meter, shared with daytime work.**
@@ -36,7 +36,7 @@ The loop hands Larry, at his ~8am start, **one artifact he reads** (a morning di
 
 Because this work touches real files (no `experiments/` sandbox), safety comes from the OUTPUT and from gates, not from the area being "safe":
 
-1. **Never an autonomous commit to the long-running branch** (`feat/nebula-ui` or any). The pass emits FINDINGS + a PROPOSED DIFF on a dedicated worktree branch; Larry wakes to a reviewable diff and accepts/tosses.
+1. **Never an autonomous commit to the long-running branch** (`feat/nebula-studio` or any). The pass emits FINDINGS + a PROPOSED DIFF on a dedicated worktree branch; Larry wakes to a reviewable diff and accepts/tosses.
 2. **The dirty working tree is the real collision surface, not HEAD.** See the pre-flight gate below — a dirty tree forces FINDINGS-ONLY for the whole night.
 3. **Two modes**, but mode is GATED, not merely chosen by the agent (see Mode selection):
    - **APPLY** (draft a diff) — only for a stabilized area on a provably clean tree with no live session.

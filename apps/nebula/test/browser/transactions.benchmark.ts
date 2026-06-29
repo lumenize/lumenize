@@ -1,8 +1,9 @@
 /**
  * ⚠ Hits the deployed `nebula-browser-test` worker. Run
- *   `wrangler deploy --config test/browser/worker/wrangler.jsonc`
- * BEFORE this bench, or you're measuring stale code. No automatic
- * version-pinning today — see `tasks/nebula-release-process.md`.
+ *   `npm run deploy:test-worker`
+ * BEFORE this bench, or you're measuring stale code. The shared global-setup staleness
+ * guard (Phase 2, `tasks/nebula-release-process.md`) now hard-fails a `BENCH_BASE_URL`
+ * run whose deploy != local HEAD, so a stale deploy can't silently slip through.
  *
  * Sequential latency bench for the integrated parse-validate stack, with
  * **per-call hop decomposition** via the marker-frame instrumentation in
@@ -51,6 +52,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient, type DecomposedCallResult } from './harness-client';
@@ -209,7 +211,7 @@ function buildMarkdown(args: {
     `To redeploy after code changes:`,
     ``,
     '```',
-    `cd apps/nebula && npx wrangler deploy --config test/browser/worker/wrangler.jsonc`,
+    `cd apps/nebula && npm run deploy:test-worker`,
     '```',
     ``,
   ];
@@ -327,7 +329,7 @@ describe('transactions latency (decomposed)', () => {
       console.log(`[transactions-bench] raw data → ${rawPath}`);
 
       const summaryPath = path.join(__dirname, `RESULTS-${label}.md`);
-      fs.writeFileSync(summaryPath, buildMarkdown({ label, baseUrl, galaxyScope, blocks }));
+      fs.writeFileSync(summaryPath, withCommitStamp(buildMarkdown({ label, baseUrl, galaxyScope, blocks })));
       console.log(`[transactions-bench] summary → ${summaryPath}`);
 
       // Sanity assertions — the bench itself shouldn't pass if something is

@@ -1,0 +1,4 @@
+# Regenerable artifacts (the build output + dev logs)
+*.log
+prod/public/
+dist/

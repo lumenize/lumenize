@@ -31,8 +31,15 @@ function dynamicEnvProxyPlugin({
   prefix = '/worker',
   envVar = 'WRANGLER_PROXY_TARGET',
   approvedOrigin,
+  // When false, forward the path verbatim instead of stripping `prefix`. Used by
+  // the self-hosted-assets Phase-1 preview proxy: `Star.onRequest` injects an
+  // absolute `<base href="/dev-star/{instance}/">` (it can't know a proxy
+  // prefix), so the iframe must reach the worker at that exact path — a
+  // path-preserving `/dev-star` proxy, not the `/worker`-stripping one. The
+  // static preview GET is ungated, so it needs none of the cookie/origin plumbing.
+  strip = true,
 } = {}) {
-  const stripPrefix = (path) => path.replace(new RegExp(`^${prefix}`), '') || '/';
+  const stripPrefix = (path) => (strip ? path.replace(new RegExp(`^${prefix}`), '') || '/' : path);
   return {
     name: `dynamic-env-proxy:${prefix}`,
     async configureServer(server) {
@@ -114,15 +121,46 @@ export default defineConfig({
   // `approvedOrigin` rewrites the forwarded Origin to a value in the test
   // worker's LUMENIZE_APPROVED_ORIGINS (http://localhost:5173) so NebulaAuth's
   // origin allow-list passes regardless of vitest-browser's dynamic port.
-  plugins: [dynamicEnvProxyPlugin({
-    prefix: '/worker',
-    envVar: 'WRANGLER_PROXY_TARGET',
-    approvedOrigin: 'http://localhost:5173',
-  })],
+  plugins: [
+    dynamicEnvProxyPlugin({
+      prefix: '/worker',
+      envVar: 'WRANGLER_PROXY_TARGET',
+      approvedOrigin: 'http://localhost:5173',
+    }),
+    // Path-preserving proxy so the self-hosted-assets Phase-1 chromium test can
+    // load a DevStar-served preview same-origin at the exact path its injected
+    // `<base href="/dev-star/{instance}/">` expects (see `strip` above).
+    // `approvedOrigin` rewrites the forwarded Origin to one in the worker's
+    // LUMENIZE_APPROVED_ORIGINS — module-script / dynamic-import requests carry an
+    // Origin header (the dynamic vitest-browser port, NOT same as the proxied
+    // worker host), which the entrypoint's CORS allowlist would otherwise 403.
+    dynamicEnvProxyPlugin({
+      prefix: '/dev-star',
+      envVar: 'WRANGLER_PROXY_TARGET',
+      strip: false,
+      approvedOrigin: 'http://localhost:5173',
+    }),
+  ],
   test: {
     testTimeout: 10000,
     globals: true,
     dangerouslyIgnoreUnhandledErrors: true,
+    // CPU-constrained-lane serialization. The `browser` project's real-WS e2e (an external
+    // `wrangler dev` + WebSocket round-trips — magic-link auth, multi-client Gateway fan-out,
+    // round-trip latency) is broadly wall-clock-sensitive: run concurrently with the CPU-bound
+    // pool-workers projects on the hosted sandbox's shared 4 vCPUs, *some* of them get starved
+    // past their timeout every run (which one varies — the "isolation flips the result"
+    // signature in testing.md). Empirically this is NOT localized to one test, so run files
+    // serially when the hosted plaintext lane flag (LUMENIZE_NO_CF_REMOTE) is set, so no two
+    // compete for cores. Gate on the explicit lane flag, NOT CPU count — the sandbox is also
+    // 4 cores, indistinguishable from a GHA runner by count. UNSET in GHA (4-vCPU runner +
+    // `--retry 2` already passes) and local (fast), so their timing is untouched: the spread is
+    // empty there. (A process env var the lane sets, not a `.dev.vars` secret — see testing.md.)
+    // `retry: 2` mirrors CI's `test-code.sh --retry 2`: even SERIAL, an occasional real-WS e2e
+    // (e.g. multi-client's 8 concurrent Gateway handshakes) exceeds its timeout on pure sandbox
+    // variance, so retry catches the residual flake that serialization can't. The `npm test`
+    // default carries no retry (local/GHA are fast); this adds it only for the constrained lane.
+    ...(process.env.LUMENIZE_NO_CF_REMOTE ? { fileParallelism: false, retry: 2 } : {}),
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
@@ -132,6 +170,10 @@ export default defineConfig({
         '**/dist/**',
         '**/*.config.*',
         '**/test/**/*.test.ts',
+        // The baked DevContainer image source (vite app skeleton — .vue/.ts) runs
+        // INSIDE the container, not under vitest; the istanbul instrumenter can't parse
+        // its SFCs. It's deploy-gated, not Worker `src`. Exclude it from coverage.
+        '**/container/**',
       ],
       skipFull: false,
       all: false,
@@ -152,7 +194,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**'],
+          exclude: ['test/test-apps/**', 'test/browser/**', 'test/chromium/**', 'test/frontend/**', 'test/ui-smoke/**'],
         },
       },
       // Frontend project — the @lumenize/nebula/frontend layer (factory + the
@@ -199,6 +241,74 @@ export default defineConfig({
           // phase-0b real-Star precedent. Fast tests are unaffected (a timeout
           // only bites when exceeded). vi.waitFor stays at the setup.ts 5s default.
           testTimeout: 30000,
+        },
+      },
+      // Secrets-facet spike project (tasks/spike-outside-world-secrets.md Stage 2):
+      // a minimal capability-broker DO that loads a throwaway facet via the
+      // Worker Loader and injects a resolved secret through its custom env. Own
+      // wrangler (LOADER binding + the SecretBrokerDO) so it doesn't touch the
+      // baseline app. NEBULA_SECRETS_KEY is a test-only 32-byte AES key (bytes
+      // 0..31, base64) in miniflare.bindings — never in wrangler vars (it's a
+      // secret). Not in the `npm test` project list; run explicitly with
+      // `npx vitest run --project secrets-facet`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/secrets-facet/test/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              NEBULA_SECRETS_KEY: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
+            },
+          },
+        })],
+        test: {
+          name: 'secrets-facet',
+          include: ['test/test-apps/secrets-facet/**/*.test.ts'],
+        },
+      },
+      // Egress-choke spike project (tasks/spike-outside-world-outbound.md): a
+      // facet loaded with an EgressBroker WorkerEntrypoint wired as its
+      // globalOutbound, proving a bare fetch() is routed through the Nebula
+      // choke point (allow-list + SSRF deny) with no bypass. Own wrangler
+      // (LOADER + EgressProbeDO + the self-ref EGRESS service binding). Not in
+      // `npm test`; run with `npx vitest run --project egress-choke`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/egress-choke/test/wrangler.jsonc' },
+        })],
+        test: {
+          name: 'egress-choke',
+          include: ['test/test-apps/egress-choke/**/*.test.ts'],
+        },
+      },
+      // NebulaContainer (4th node type, Phase 3) — structural scope-isolation
+      // guard verified against a harness that borrows NebulaContainer's real
+      // prototype methods (NebulaContainer itself can't construct under
+      // pool-workers; see tasks/nebula-devcontainer-node-type.md Phase 2/3).
+      // Not in `npm test`; run with `npx vitest run --project container`.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/container-node/test/wrangler.jsonc' },
+        })],
+        test: {
+          name: 'container',
+          include: ['test/test-apps/container-node/**/*.test.ts'],
+        },
+      },
+      // DevStudio node (Phase 3.5b) — shell Workspace + isomorphic-git source-of-truth
+      // + the cross-DO compile-and-apply to the .dev Star. DevStudio extends NebulaDO
+      // (constructable under pool-workers, unlike DevContainer). Own wrangler
+      // (DEV_STUDIO + STAR probe + LOADER). nodejs_compat for shell/isomorphic-git.
+      {
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/test-apps/dev-studio/test/wrangler.jsonc' },
+        })],
+        test: {
+          name: 'dev-studio',
+          include: ['test/test-apps/dev-studio/**/*.test.ts'],
         },
       },
       // Browser project — Node-side vitest tests using @lumenize/testing's
@@ -282,6 +392,24 @@ export default defineConfig({
             headless: true,
             instances: [{ browser: 'chromium' }],
           },
+        },
+      },
+      // UI-smoke project — raw Playwright (NOT @vitest/browser) drives the real
+      // vite-served Studio under the model-A dev stack: a globalSetup boots
+      // `wrangler dev` on the apps/nebula config (DEV_STUDIO/DEV_CONTAINER/AI +
+      // Docker DevContainer) AND vite serving apps/nebula-studio-ui, same-origin via
+      // the Studio's own vite proxy (no dynamic-env-proxy needed). describe.runIf
+      // auto-skips when Docker/creds are absent. NOT in the `npm test` project
+      // enumeration (real infra, slow, costs env.AI); run with
+      // `npx vitest run --project ui-smoke`. Excluded from the `unit` catch-all above.
+      {
+        extends: true,
+        plugins: [swcPlugin],
+        test: {
+          name: 'ui-smoke',
+          include: ['test/ui-smoke/**/*.test.ts'],
+          globalSetup: ['./test/ui-smoke/global-setup.ts'],
+          testTimeout: 120000,
         },
       },
       // Bench project — *.benchmark.ts files using standard it()/expect()

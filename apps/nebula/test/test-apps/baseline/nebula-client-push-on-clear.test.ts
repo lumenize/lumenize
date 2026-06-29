@@ -79,7 +79,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     // Star (cache miss → fetch → install). prevLatest is empty before that
     // first install, so push-on-clear does NOT fire for it (#installState
     // skips clear when there's no prior version — see star.ts).
-    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: TEST_TYPES });
+    a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
     await waitForResult(a.client);
 
     // Create 3 resources at v1 (this also lazily installs v1 on Star).
@@ -106,7 +106,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     refreshHookSpy.mockReset();
 
     // Append v2 to Galaxy.
-    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
+    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForResult(a.client);
 
     // Trigger Star.#installState(v2): use a v2 read via per-call override.

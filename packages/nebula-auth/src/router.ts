@@ -16,7 +16,7 @@ import {
   verifyTurnstileToken,
 } from '@lumenize/auth';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
-import { matchAccess, parseId } from './parse-id';
+import { matchAccess, parseId, isDevAuthoringStar } from './parse-id';
 import {
   NEBULA_AUTH_PREFIX,
   NEBULA_AUTH_ISSUER,
@@ -46,7 +46,10 @@ export interface RouteNebulaAuthOptions {
 }
 
 // Registry endpoint suffixes (exact match after prefix)
-const REGISTRY_ENDPOINTS = new Set(['discover', 'claim-universe', 'claim-star', 'create-galaxy']);
+const REGISTRY_ENDPOINTS = new Set([
+  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
+  'delete-scope-plan', 'delete-scope',
+]);
 
 // Auth-flow endpoints on NA instances (no JWT required — token/cookie validated by DO)
 const AUTH_FLOW_SUFFIXES = new Set([
@@ -82,6 +85,29 @@ function json401(error: string, description: string): Response {
       },
     },
   );
+}
+
+/**
+ * Forward a request to a DO with a **materialized** body, not the live stream.
+ *
+ * Forwarding the original request's body stream across the Worker→DO boundary and
+ * returning the DO's response races under `wrangler dev` on Linux: the Worker's request
+ * context can tear down while the DO is still attached to the stream, throwing
+ * "Can't read from request stream after response has been sent" → the runtime answers
+ * `503`. Prod + pool-workers + macOS `wrangler dev` tolerate it; the Linux CI runner does
+ * not. Reconstructing the request gives the DO a self-contained body and makes the forward
+ * deterministic — this is the "always consume" half of the router's body discipline (the
+ * field-injecting handlers above already reconstruct). GET/HEAD carry no body to dangle.
+ */
+async function forwardToDo(stub: DurableObjectStub, request: Request): Promise<Response> {
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  if (!hasBody) return stub.fetch(request);
+  const buffered = await request.arrayBuffer();
+  return stub.fetch(new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: buffered,
+  }));
 }
 
 // ============================================
@@ -221,9 +247,91 @@ async function handleRegistryPath(
     }));
   }
 
+  // create-star / my-scopes — authenticated admin ops (no Turnstile). Verify the JWT and inject the
+  // verified access claim; the registry enforces admin-over-parent (create-star) / scopes the tree.
+  if (endpoint === 'create-star' || endpoint === 'my-scopes') {
+    const jwtResult = await checkJwtForRegistry(request, env);
+    if ('error' in jwtResult) return jwtResult.error;
+
+    let body: Record<string, any> = {};
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch {
+      // my-scopes carries no body — that's fine; create-star's missing id is caught downstream.
+    }
+    body.verifiedAccess = jwtResult.payload.access;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  // delete-scope-plan / delete-scope — authenticated admin ops (no Turnstile). Verify the JWT and
+  // inject BOTH the verified access claim AND the verified caller email (the registry's
+  // "no other users" guard needs a TRUSTED caller identity — never client-supplied, which a caller
+  // could spoof to exclude a victim and delete a shared scope). The registry enforces admin-over-scope.
+  if (endpoint === 'delete-scope-plan' || endpoint === 'delete-scope') {
+    const jwtResult = await checkJwtForRegistry(request, env);
+    if ('error' in jwtResult) return jwtResult.error;
+
+    let body: Record<string, any>;
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch (err) {
+      debug('nebula-auth.router.bodyParse').debug('delete-scope body not JSON', {
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+    body.verifiedAccess = jwtResult.payload.access;
+    body.callerEmail = jwtResult.payload.email;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
+  // claim-star — Turnstile (above) PLUS a conditional JWT gate for `.dev` AUTHORING-Star claims
+  // (m2 parent-admin gate). A `.dev` claim must come from a parent-Galaxy admin, so verify the JWT
+  // and inject the verified access claim; the registry enforces. Other star claims stay open
+  // (Turnstile-only) — claim ≠ use. Reading the body here doesn't touch the Authorization header
+  // checkJwtForRegistry reads.
+  if (endpoint === 'claim-star') {
+    let body: Record<string, any>;
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch (err) {
+      debug('nebula-auth.router.bodyParse').debug('claim-star body not JSON', {
+        path: new URL(request.url).pathname,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+
+    if (isDevAuthoringStar(body.universeGalaxyStarId)) {
+      const jwtResult = await checkJwtForRegistry(request, env);
+      if ('error' in jwtResult) return jwtResult.error;
+      body.verifiedAccess = jwtResult.payload.access;
+    }
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+  }
+
   // Forward to registry DO
   const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-  return registryStub.fetch(request);
+  return forwardToDo(registryStub, request);
 }
 
 // ============================================
@@ -256,7 +364,7 @@ async function handleInstancePath(
       if (turnstileResult) return turnstileResult;
     }
     const naStub = env.NEBULA_AUTH.getByName(instanceName);
-    return naStub.fetch(request);
+    return forwardToDo(naStub, request);
   }
 
   // Authenticated endpoints: JWT verify + scope match + rate limit
@@ -264,7 +372,7 @@ async function handleInstancePath(
   if (authResult) return authResult;
 
   const naStub = env.NEBULA_AUTH.getByName(instanceName);
-  return naStub.fetch(request);
+  return forwardToDo(naStub, request);
 }
 
 // ============================================

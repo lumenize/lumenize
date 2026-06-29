@@ -1,153 +1,137 @@
 /**
- * universeGalaxyStarId binding tests
+ * Structural tier-DO scope binding (Fix 1).
  *
- * Tests NebulaDO.onBeforeCall() — permanently locks each DO instance to
- * the active scope that first accessed it.
+ * Each tier DO (Star / Galaxy / Universe) accepts a mesh call iff the caller's
+ * `aud` is covered by the scope encoded in the DO's instance name — there is no
+ * trust-on-first-use lock. This suite is the per-tier positive/negative grid;
+ * the broader capable-of-failing matrix (pre-claim, fail-closed branches,
+ * widening invariant, platform sink, malformed names) lives in
+ * `scope-isolation.test.ts`.
+ *
+ * @see tasks/nebula-do-scope-isolation.md
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from '../../test-helpers';
+import {
+  createAuthenticatedClient,
+  uniqueGalaxyScope,
+  uniqueStar,
+} from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-describe('universeGalaxyStarId binding', () => {
+describe('structural tier-DO scope binding', () => {
+  describe('star-level', () => {
+    it('accepts the matching star aud, rejects a foreign star aud', async () => {
+      const starA = uniqueStar();
+      const starB = uniqueStar();
 
-  // ============================================
-  // Star-level binding
-  // ============================================
-
-  describe('star-level binding', () => {
-    it('binds Star and ResourceHistory to the creating active scope, rejects cross-scope access', async () => {
-      const browser = new Browser();
-      const starA = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
-      const starB = `acme-${generateUuid().slice(0, 8)}.app.tenant-b`;
-      const resourceId = generateUuid();
-
-      // Create admin + subject for star A
+      const browserA = new Browser();
       const { client: clientA } = await createAuthenticatedClient(
-        NebulaClientTest, browser, starA, starA, 'alice@example.com',
+        NebulaClientTest, browserA, starA, starA, 'alice@example.com',
       );
 
-      // Call Star method → universeGalaxyStarId stored
-      clientA.callStarWhoAmI(starA);
-      await vi.waitFor(() => {
-        expect(clientA.lastResult).toContain('You are');
-      });
+      // Own star → accepted (exact pattern matches the aud).
+      clientA.callStarGetConfig(starA);
+      await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
+      expect(clientA.lastError).toBeUndefined();
+      expect(clientA.lastResult).toBeDefined();
 
-      // Call ResourceHistory → universeGalaxyStarId stored from callContext
-      clientA.callResourceHistoryGetHistory(resourceId);
-      await vi.waitFor(() => {
-        expect(clientA.lastResult).toContain(resourceId);
-      });
-
-      // Create client for star B (different active scope)
+      // A different star's aud reaching star A → rejected.
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
         NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
+      clientB.callStarGetConfig(starA);
+      await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
+      expect(clientB.lastError).toContain('Active-scope mismatch');
 
-      // Client B tries to call the SAME ResourceHistory UUID → active-scope mismatch
-      clientB.callResourceHistoryGetHistory(resourceId);
-      await vi.waitFor(() => {
-        expect(clientB.lastError).toContain('Active-scope mismatch');
-      });
-
-      // Cleanup
       clientA[Symbol.dispose]();
       clientB[Symbol.dispose]();
     });
 
-    it('admin with wildcard JWT can access star-level ResourceHistory', async () => {
+    it('admin wildcard: a universe admin refreshed to the star activeScope is accepted', async () => {
       const browser = new Browser();
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
-      const resourceId = generateUuid();
 
-      // Create star-level subject and access ResourceHistory
-      const { client: starClient } = await createAuthenticatedClient(
-        NebulaClientTest, browser, star, star, 'alice@example.com',
-      );
-      starClient.callResourceHistoryGetHistory(resourceId);
-      await vi.waitFor(() => {
-        expect(starClient.lastResult).toContain(resourceId);
-      });
-      starClient[Symbol.dispose]();
-
-      // Now universe admin accesses same ResourceHistory with matching active scope
-      const adminBrowser = new Browser();
+      // Universe admin authenticates at the universe but refreshes activeScope to
+      // the star — its aud is the star, so the Star's exact pattern accepts it.
       const { client: adminClient } = await createAuthenticatedClient(
-        NebulaClientTest, adminBrowser, universe, star, 'admin@example.com',
+        NebulaClientTest, browser, universe, star, 'admin@example.com',
       );
-      adminClient.callResourceHistoryGetHistory(resourceId);
-      await vi.waitFor(() => {
-        expect(adminClient.lastResult).toContain(resourceId);
-      });
+      adminClient.callStarGetConfig(star);
+      await vi.waitFor(() => { expect(adminClient.callCompleted).toBe(true); });
+      expect(adminClient.lastError).toBeUndefined();
+      expect(adminClient.lastResult).toBeDefined();
+
       adminClient[Symbol.dispose]();
     });
   });
 
-  // ============================================
-  // Galaxy-level binding
-  // ============================================
-
-  describe('galaxy-level binding', () => {
-    it('binds Galaxy to creating active scope, rejects different galaxy', async () => {
+  describe('galaxy-level', () => {
+    it('accepts sibling stars under the galaxy, rejects a foreign galaxy', async () => {
       const browser = new Browser();
-      const galaxy = `acme-${generateUuid().slice(0, 8)}.app`;
-      const otherGalaxy = `acme-${generateUuid().slice(0, 8)}.other`;
+      const { galaxy, starA, starB } = uniqueGalaxyScope();
 
-      // Client with aud = galaxy connects, calls Galaxy method
+      // Two sibling stars share the one Galaxy DO; the `<galaxy>.*` pattern
+      // covers both descendants (widening positive — the multi-star case).
       const { client: clientA } = await createAuthenticatedClient(
-        NebulaClientTest, browser, galaxy, galaxy, 'alice@example.com',
+        NebulaClientTest, browser, galaxy, starA, 'admin@example.com',
       );
-      clientA.callGalaxyGetConfig(galaxy);
-      await vi.waitFor(() => {
-        expect(clientA.lastResult).toEqual({});
-      });
-      clientA[Symbol.dispose]();
-
-      // Different client with different galaxy aud tries same Galaxy instance → rejected
-      const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
-        NebulaClientTest, browserB, otherGalaxy, otherGalaxy, 'bob@example.com',
+        NebulaClientTest, browser, galaxy, starB, 'admin@example.com',
       );
+
+      clientA.callGalaxyGetConfig(galaxy);
+      await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
+      expect(clientA.lastError).toBeUndefined();
+      expect(clientA.lastResult).toEqual({});
+
       clientB.callGalaxyGetConfig(galaxy);
-      await vi.waitFor(() => {
-        expect(clientB.lastError).toContain('Active-scope mismatch');
-      });
+      await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
+      expect(clientB.lastError).toBeUndefined();
+      expect(clientB.lastResult).toEqual({});
+
+      clientA[Symbol.dispose]();
       clientB[Symbol.dispose]();
+
+      // A different galaxy's aud reaching this Galaxy → rejected.
+      const otherGalaxy = uniqueGalaxyScope().galaxy;
+      const browserOther = new Browser();
+      const { client: clientOther } = await createAuthenticatedClient(
+        NebulaClientTest, browserOther, otherGalaxy, otherGalaxy, 'carol@example.com',
+      );
+      clientOther.callGalaxyGetConfig(galaxy);
+      await vi.waitFor(() => { expect(clientOther.callCompleted).toBe(true); });
+      expect(clientOther.lastError).toContain('Active-scope mismatch');
+      clientOther[Symbol.dispose]();
     });
   });
 
-  // ============================================
-  // Universe-level binding
-  // ============================================
-
-  describe('universe-level binding', () => {
-    it('binds Universe to creating active scope, rejects different universe', async () => {
-      const browser = new Browser();
+  describe('universe-level', () => {
+    it('accepts the matching universe aud, rejects a foreign universe', async () => {
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const otherUniverse = `other-${generateUuid().slice(0, 8)}`;
 
-      // Client with aud = universe connects, calls Universe method
+      const browser = new Browser();
       const { client: clientA } = await createAuthenticatedClient(
-        NebulaClientTest, browser, universe, universe, 'alice@example.com',
+        NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
       clientA.callUniverseGetConfig(universe);
-      await vi.waitFor(() => {
-        expect(clientA.lastResult).toEqual({});
-      });
+      await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
+      expect(clientA.lastError).toBeUndefined();
+      expect(clientA.lastResult).toEqual({});
       clientA[Symbol.dispose]();
 
-      // Different client with different universe aud tries same Universe instance → rejected
+      // A different universe's aud reaching this Universe → rejected.
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
         NebulaClientTest, browserB, otherUniverse, otherUniverse, 'bob@example.com',
       );
       clientB.callUniverseGetConfig(universe);
-      await vi.waitFor(() => {
-        expect(clientB.lastError).toContain('Active-scope mismatch');
-      });
+      await vi.waitFor(() => { expect(clientB.callCompleted).toBe(true); });
+      expect(clientB.lastError).toContain('Active-scope mismatch');
       clientB[Symbol.dispose]();
     });
   });

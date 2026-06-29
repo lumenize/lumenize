@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import type { AccessEntry } from '@lumenize/nebula-auth';
 import { fullLogin, requestMagicLink, clickMagicLink, refreshAndParse, adminRequest, url } from './test-helpers';
 
 /** Get the singleton registry stub (cast to any for RPC method access) */
@@ -221,6 +222,72 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // ============================================
+  // claimStar — `.dev` authoring-Star parent-admin gate (m2, nebula-release-process.md)
+  // ============================================
+
+  describe('claimStar — .dev authoring-Star parent-admin gate (m2)', () => {
+    // Provision `${u}` universe + `${u}.app` galaxy; return the `.dev` star id under it.
+    async function setupGalaxy(u: string) {
+      const registry = getRegistry();
+      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
+      await registry.createGalaxy(`${u}.app`, { authScopePattern: `${u}.*`, admin: true });
+      return { registry, devStar: `${u}.app.dev` };
+    }
+
+    it('rejects a .dev claim from a non-admin caller', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-nonadmin');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
+          { authScopePattern: 'm2-nonadmin.*', admin: false }),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('rejects a .dev claim with no caller access at all', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-noaccess');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost'),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('rejects a .dev claim from an admin of a DIFFERENT galaxy (wrong scope)', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-wrongscope');
+      await expect(
+        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
+          { authScopePattern: 'm2-wrongscope.other.*', admin: true }),
+      ).rejects.toThrow(/admin over the parent galaxy/);
+    });
+
+    it('a galaxy admin (u.g.*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-galadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: 'm2-galadmin.app.*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-galadmin.app.dev/magic-link');
+    });
+
+    it('a universe admin (u.*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-univadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: 'm2-univadmin.*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-univadmin.app.dev/magic-link');
+    });
+
+    it('a platform admin (*) can claim the .dev authoring star', async () => {
+      const { registry, devStar } = await setupGalaxy('m2-platadmin');
+      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
+        { authScopePattern: '*', admin: true });
+      expect(result.magicLinkUrl).toContain('/auth/m2-platadmin.app.dev/magic-link');
+    });
+
+    it('a NON-.dev star claim stays open — no caller access required (claim ≠ use; gate is .dev-only)', async () => {
+      const { registry } = await setupGalaxy('m2-opentenant');
+      // A plain tenant star (not `.dev`) is NOT parent-admin gated — it claims openly, exactly as
+      // before m2. Pins the gate's scope to `.dev`; widening it to all stars would red this.
+      const result = await registry.claimStar('m2-opentenant.app.tenant', 'tenant@example.com', 'http://localhost');
+      expect(result.magicLinkUrl).toContain('/auth/m2-opentenant.app.tenant/magic-link');
+    });
+  });
+
+  // ============================================
   // Galaxy Creation
   // ============================================
 
@@ -305,6 +372,190 @@ describe('NebulaAuthRegistry', () => {
           { authScopePattern: 'dup-gal-univ.*', admin: true },
         ),
       ).rejects.toThrow(/already claimed/);
+    });
+  });
+
+  // ============================================
+  // createStar (in-session, no email) + myScopeTree
+  // ============================================
+
+  describe('createStar (in-session) + myScopeTree', () => {
+    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+
+    async function galaxy(u: string) {
+      const registry = getRegistry();
+      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
+      await registry.createGalaxy(`${u}.app`, ADMIN_OVER(u));
+      return registry;
+    }
+
+    it('creates a .dev star in-session — NO email, registers the instance', async () => {
+      const registry = await galaxy('cs-ok');
+      const result = await registry.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'));
+      expect(result).toEqual({ instanceName: 'cs-ok.app.dev' });
+      expect((result as any).magicLinkUrl).toBeUndefined(); // no email round-trip
+      expect(await registry.checkSlugAvailable('cs-ok.app.dev')).toBe(false);
+    });
+
+    it('rejects a non-galaxy-admin caller', async () => {
+      const registry = await galaxy('cs-nonadmin');
+      await expect(
+        registry.createStar('cs-nonadmin.app.dev', { authScopePattern: 'cs-nonadmin.*', admin: false }),
+      ).rejects.toThrow(/not an admin of the parent galaxy/);
+    });
+
+    it('rejects a star under a nonexistent galaxy', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.createStar('cs-noparent.app.dev', { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/does not exist/);
+    });
+
+    it('rejects a non-star tier id', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.createStar('cs-bad.app', { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/3-segment/);
+    });
+
+    it('myScopeTree returns the universe + descendants for a universe admin', async () => {
+      const registry = await galaxy('cs-tree');
+      await registry.createStar('cs-tree.app.dev', ADMIN_OVER('cs-tree'));
+
+      const tree = await registry.myScopeTree(ADMIN_OVER('cs-tree'));
+      const names = tree.map((s: any) => s.instanceName).sort();
+      expect(names).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
+      // carries tier + isDev so the client can render + pick bindings
+      expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual(
+        { instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
+    });
+
+    it('myScopeTree returns [] for a non-admin', async () => {
+      const registry = await galaxy('cs-empty');
+      expect(await registry.myScopeTree({ authScopePattern: 'cs-empty.*', admin: false })).toEqual([]);
+    });
+
+    it('myScopeTree scopes to the caller — an exact star-pattern admin sees only that star', async () => {
+      const registry = await galaxy('cs-exact');
+      await registry.createStar('cs-exact.app.dev', ADMIN_OVER('cs-exact'));
+      const tree = await registry.myScopeTree({ authScopePattern: 'cs-exact.app.dev', admin: true });
+      expect(tree.map((s: any) => s.instanceName)).toEqual(['cs-exact.app.dev']);
+    });
+  });
+
+  // ============================================
+  // Scope deletion — cascade teardown (plan + execute)
+  // ============================================
+
+  describe('scope deletion (cascade teardown)', () => {
+    const OWNER = 'owner@example.com';
+    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+
+    it('plan: a solo `.dev` star → affected is just that star, no blockers (carries tier + isDev)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del1-u.app.dev', true);
+
+      const plan = await registry.planScopeDeletion('del1-u.app.dev', OWNER, ADMIN_OVER('del1-u'));
+      expect(plan.blockedBy).toEqual([]);
+      expect(plan.affected).toEqual([
+        { instanceName: 'del1-u.app.dev', tier: 'star', isDev: true },
+      ]);
+    });
+
+    it('plan: prune-up wipes a registered ancestor left empty + user-less', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del3-u', true); // universe registered
+      await registry.registerEmail(OWNER, 'del3-u.app.dev', true); // its only descendant
+
+      const plan = await registry.planScopeDeletion('del3-u.app.dev', OWNER, ADMIN_OVER('del3-u'));
+      expect(plan.blockedBy).toEqual([]);
+      const names = plan.affected.map((a: { instanceName: string }) => a.instanceName).sort();
+      expect(names).toEqual(['del3-u', 'del3-u.app.dev']); // pruned up to the now-empty universe
+    });
+
+    it('plan: prune-up STOPS at an ancestor that still has another live child', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del4-u', true);
+      await registry.registerEmail(OWNER, 'del4-u.app.dev', true);
+      await registry.registerEmail(OWNER, 'del4-u.app.other', true); // a sibling star survives
+
+      const plan = await registry.planScopeDeletion('del4-u.app.dev', OWNER, ADMIN_OVER('del4-u'));
+      // Only the target — the universe keeps its other star, so it is NOT pruned.
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del4-u.app.dev']);
+    });
+
+    it('plan: deleting a higher node cascades DOWN to descendants', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del2-u', true);
+      await registry.registerEmail(OWNER, 'del2-u.app.dev', true);
+
+      const plan = await registry.planScopeDeletion('del2-u', OWNER, ADMIN_OVER('del2-u'));
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName).sort()).toEqual(['del2-u', 'del2-u.app.dev']);
+    });
+
+    it('guard: another user on the target blocks the delete (plan reports who/where)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del5-u.app.dev', true);
+      await registry.registerEmail('other@example.com', 'del5-u.app.dev', false);
+
+      const plan = await registry.planScopeDeletion('del5-u.app.dev', OWNER, ADMIN_OVER('del5-u'));
+      expect(plan.blockedBy).toEqual([{ instanceName: 'del5-u.app.dev', email: 'other@example.com' }]);
+    });
+
+    it('execute: solo delete removes the registry rows (discovery → empty, slug free) + returns affected', async () => {
+      const registry = getRegistry();
+      // Unique email — the registry DO is shared across tests, so `discover` is email-global;
+      // a per-test email keeps the "discovery → empty" assertion isolated (testing.md pollution).
+      const solo = 'solo6@example.com';
+      await registry.registerEmail(solo, 'del6-u.app.dev', true);
+
+      const result = await registry.executeScopeDeletion('del6-u.app.dev', solo, ADMIN_OVER('del6-u'));
+      expect(result.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del6-u.app.dev']);
+      expect(await registry.discover(solo)).toEqual([]); // Emails gone → clean first-run
+      expect(await registry.checkSlugAvailable('del6-u.app.dev')).toBe(true); // Instances gone
+    });
+
+    it('execute: refuses (throws) when another user is attached, and removes nothing', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del7-u.app.dev', true);
+      await registry.registerEmail('other@example.com', 'del7-u.app.dev', false);
+
+      await expect(
+        registry.executeScopeDeletion('del7-u.app.dev', OWNER, ADMIN_OVER('del7-u')),
+      ).rejects.toThrow(/other users/);
+      // Nothing wiped — the slug is still taken.
+      expect(await registry.checkSlugAvailable('del7-u.app.dev')).toBe(false);
+    });
+
+    it('authz: a non-admin (or wrong-scope) caller is rejected (403)', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del8-u.app.dev', true);
+
+      await expect(
+        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'del8-u.*', admin: false }),
+      ).rejects.toThrow(/not an admin/);
+      await expect(
+        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'other-univ.*', admin: true }),
+      ).rejects.toThrow(/not an admin/);
+    });
+
+    it('prune-up authz: a star-only admin deletes their star but does NOT prune the universe', async () => {
+      const registry = getRegistry();
+      await registry.registerEmail(OWNER, 'del9-u', true);
+      await registry.registerEmail(OWNER, 'del9-u.app.dev', true);
+
+      // Exact star-tier admin pattern — covers the star, NOT the parent universe.
+      const plan = await registry.planScopeDeletion(
+        'del9-u.app.dev', OWNER, { authScopePattern: 'del9-u.app.dev', admin: true },
+      );
+      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del9-u.app.dev']); // universe NOT pruned
+    });
+
+    it('reserved platform instance cannot be deleted', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.planScopeDeletion('nebula-platform', OWNER, { authScopePattern: '*', admin: true }),
+      ).rejects.toThrow(/cannot be deleted/);
     });
   });
 

@@ -52,7 +52,9 @@ interface WaitForEmailOptions {
    * Omit to subscribe to ALL emails (legacy single-tenant behavior).
    */
   instance?: string;
-  /** Timeout in ms before giving up. Default: 20000 (20s) */
+  /** Timeout in ms before giving up. Default: 60000 (60s) — generous for cold-start
+   *  email latency on CI runners (the e2e-email-resend suites use 45–60s); a received
+   *  email resolves immediately, so the higher ceiling never slows the warm path. */
   timeout?: number;
 }
 
@@ -66,7 +68,7 @@ export function waitForEmail(options: WaitForEmailOptions): {
   emailPromise: Promise<StoredEmail>;
   cleanup: () => void;
 } {
-  const { testToken, instance, timeout = 20_000 } = options;
+  const { testToken, instance, timeout = 60_000 } = options;
   const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
 
   let ws: WebSocket;

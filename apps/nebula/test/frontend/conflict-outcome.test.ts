@@ -1,6 +1,6 @@
 /**
  * Conflict / outcome state machine — property tests ported from the isolation
- * detour (tasks/factory-conflict-outcome.md § Tests; the vue-factory spike was
+ * detour (tasks/archive/factory-conflict-outcome.md § Tests; the vue-factory spike was
  * removed in 5.3.7/P11). The harness is a scripted mock
  * server + captured store effects / flash classes, with the REAL debounce queue
  * underneath (so occupancy, timeout, and connection-gate behavior are the
@@ -12,7 +12,8 @@
  *    / `ontology-stale`), per api-reference § TransactionOutcome.
  *  - The spike's "mixed-fate" mock test is removed (it scripts a response the
  *    atomic all-or-nothing server cannot produce); the atomic-batch-precedence
- *    behavior is a real-Star e2e probe (§5.3.8) — placeholder it.skip below.
+ *    behavior is a real-Star e2e probe tracked with the §5.3.8 for-docs probes (see the
+ *    note below — no placeholder test here).
  *  - Mn7: per-conclusion-kind held-fanout DROP-vs-APPLY matrix.
  *  - Mn8: connection-gated rollback parameterized over every non-connected literal.
  *
@@ -251,15 +252,12 @@ describe('single resource terminal kinds', () => {
 
 // ─── 2. Atomic-batch precedence (round-4 recast — real-Star e2e) ─────────────
 
-describe('atomic-batch precedence', () => {
-  // The spike's old "mixed-fate {A:use-server, B:permission-denied, C:committed}
-  // → top-level ok" test scripted a response the atomic all-or-nothing server
-  // CANNOT produce (server step precedence: permission before conflict ⟹ one
-  // response = one failure class; a sibling's conflict snapshot is never
-  // disclosed). The faithful test runs against a real Star, so it lives with the
-  // §5.3.8 for-docs probes (atomic-batch precedence), not against this mock.
-  it.skip('A would conflict + B permission-denied → whole batch rejected, A never disclosed (real-Star e2e — §5.3.8)', () => {});
-});
+// Atomic-batch precedence ("A would conflict + B permission-denied → whole batch rejected,
+// A never disclosed"): the spike's old mock-level test scripted a response the atomic
+// all-or-nothing server CANNOT produce (server step precedence: permission before conflict ⟹
+// one response = one failure class; a sibling's conflict snapshot is never disclosed). The
+// faithful test is a real-Star e2e → tracked with the §5.3.8 for-docs probes, NOT as a mock
+// here (so no placeholder `it.skip` in this file).
 
 // ─── 3. Handler fall-through (M9) ───────────────────────────────────────────
 

@@ -1,8 +1,9 @@
 /**
  * ⚠ Hits the deployed `nebula-browser-test` worker. Run
- *   `wrangler deploy --name nebula-browser-test` (or equivalent for your test
- *   stack) BEFORE this bench, or you're measuring stale code. No automatic
- *   version-pinning today — see `tasks/nebula-release-process.md`.
+ *   `npm run deploy:test-worker`
+ * BEFORE this bench, or you're measuring stale code. The shared global-setup staleness
+ * guard (Phase 2, `tasks/nebula-release-process.md`) now hard-fails a `BENCH_BASE_URL`
+ * run whose deploy != local HEAD, so a stale deploy can't silently slip through.
  *
  * Throughput / saturation bench — measures per-Star ceiling under N concurrent
  * in-flight transactions from one client (galaxy-scoped).
@@ -28,6 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { withCommitStamp } from './bench-commit-stamp';
 import { ThroughputHarnessClient } from './throughput-harness-client';
 import { bootstrapAdmin } from './auth-bootstrap';
 
@@ -353,9 +355,9 @@ describe('parse-validate throughput', () => {
       console.log(`[throughput] raw data → ${rawPath}`);
 
       const summaryPath = path.join(__dirname, `THROUGHPUT-RESULTS-${label}.md`);
-      fs.writeFileSync(summaryPath, buildMarkdown({
+      fs.writeFileSync(summaryPath, withCommitStamp(buildMarkdown({
         label, baseUrl, galaxyScope, pingMean, pingMin, pingMax, preWarmMean, steps: summaries,
-      }));
+      })));
       console.log(`[throughput] summary → ${summaryPath}`);
 
       // Sanity check: throughput at N=1 should be > 0; total errors should be a small fraction.

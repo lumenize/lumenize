@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "interim-dev-loop",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  // isomorphic-git / @cloudflare/shell touch node: builtins (buffer/crypto/path).
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    { "max_instances": 1, "class_name": "DevContainer", "image": "./Dockerfile", "instance_type": "standard-1" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEV_STUDIO", "class_name": "DevStudio" },
+      { "name": "DEV_CONTAINER", "class_name": "DevContainer" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DevStudio", "DevContainer"] }]
+}

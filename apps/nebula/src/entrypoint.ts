@@ -7,7 +7,10 @@
  * Routing layers:
  * 1. /auth/... → routeNebulaAuthRequest (login, refresh, invite, etc.)
  * 2. /gateway/... → routeDORequest with prefix:'gateway' (WebSocket mesh connections)
- * 3. /{BINDING}/... → routeDORequest without prefix (blocked for now)
+ * 3. /{BINDING}/... → routeDORequest without prefix — opened ONLY for the dev
+ *    preview serve: GET/HEAD to DEV_CONTAINER reaches `DevContainer.fetch()`;
+ *    every other method is 405, every other binding is 404. (HMR WS to
+ *    DEV_CONTAINER is allowed; every other direct WS is 501.)
  * 4. Fallback → 404
  *
  * Cross-origin browser access is gated by the `LUMENIZE_APPROVED_ORIGINS` env
@@ -34,17 +37,59 @@ function buildCorsOptions(approvedOrigins: string | undefined): CorsOptions {
 
 const corsOptions = buildCorsOptions(env.LUMENIZE_APPROVED_ORIGINS);
 
+// --- Build stamp (Phase 1) -----------------------------------------------------------
+// These globals are injected ONLY by a real `wrangler deploy` via Wrangler `--define`
+// (deploy.sh / deploy:test-worker). vitest-pool-workers, `wrangler dev`, and the bench
+// worker's local-spawn inject NONE. entrypoint.ts is imported by the baseline app, the
+// bench worker, and every test app — so a handler reading a BARE `__GIT_SHA__` would fail
+// type-check (TS2304) and throw `ReferenceError` at request time, breaking the whole suite
+// + dev loop. Read through `typeof`-guarded helpers that return a dev sentinel when absent.
+declare const __GIT_SHA__: string;
+declare const __DIRTY__: string;
+
+/** The git SHA this bundle was built from, or `'dev'` for any non-deploy (unstamped) run. */
+function buildSha(): string {
+  return typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'dev';
+}
+
+/** Whether the deploy was cut from a dirty tree. `true` in dev (numbers never reproducible). */
+function buildDirty(): boolean {
+  return typeof __DIRTY__ !== 'undefined' ? __DIRTY__ === 'dirty' : true;
+}
+
+/**
+ * `GET /_version?sha=<expected>` — a public, side-effect-free build-COMPARE endpoint that
+ * never DISCLOSES the deployed SHA (nor buildTime, nor any dependency list). The caller
+ * SUBMITS the SHA it expects; the worker replies `{ match, dirty }` after a plain compare
+ * against the bundle-baked `__GIT_SHA__`. Because nothing sensitive leaves the worker, the
+ * route is public and identical on prod and the bench worker — no Bearer gate, no public/
+ * gated split. Its two callers are the Phase-2 staleness guard and the Phase-3 deploy
+ * self-check; `{ match: true }` doubles as the liveness signal. Runs at the Worker HTTP
+ * boundary before any DO dispatch (reads only the `--define` globals — no DO/storage/mesh).
+ * Returns `undefined` for any other path so the caller falls through to the normal routing.
+ */
+function handleVersion(request: Request): Response | undefined {
+  const url = new URL(request.url);
+  if (url.pathname !== '/_version') return undefined;
+  const expected = url.searchParams.get('sha');
+  // A missing/empty ?sha never spuriously matches the dev sentinel or a real SHA.
+  const match = expected != null && expected.length > 0 && expected === buildSha();
+  return Response.json({ match, dirty: buildDirty() });
+}
+
 /** Verifies JWT from WebSocket subprotocol and forwards it as Authorization header. */
 async function onBeforeConnect(request: Request): Promise<Response | Request> {
   const log = debug('nebula.entrypoint.onBeforeConnect');
   const token = extractWebSocketToken(request);
   if (!token) {
-    log.debug('rejected: missing access token', { url: request.url });
+    // Log the pathname, NOT request.url — a full URL can carry a query-string secret (security.md
+    // § Never log secrets). The WS token rides the subprotocol, so the pathname is all we need.
+    log.debug('rejected: missing access token', { path: new URL(request.url).pathname });
     return new Response('Unauthorized: missing access token', { status: 401 });
   }
   const jwt = await verifyNebulaAccessToken(token, env);
   if (!jwt) {
-    log.debug('rejected: invalid JWT', { url: request.url });
+    log.debug('rejected: invalid JWT', { path: new URL(request.url).pathname });
     return new Response('Forbidden: invalid JWT', { status: 403 });
   }
   const headers = new Headers(request.headers);
@@ -54,6 +99,13 @@ async function onBeforeConnect(request: Request): Promise<Response | Request> {
 
 export default {
   async fetch(request: Request) {
+    // 0. Build-compare fast-path — the LITERAL first statement (defense-in-depth: it can't be
+    //    reordered behind a future handler). Public, side-effect-free, discloses nothing.
+    //    (The real prod shadow-prevention is `/_version`'s presence in wrangler.jsonc's
+    //    `run_worker_first` array, B1 — not this statement order.)
+    const versionResponse = handleVersion(request);
+    if (versionResponse) return versionResponse;
+
     // 1. Auth routes (login, refresh, invite, etc.)
     const authResponse = await routeNebulaAuthRequest(request, env, { cors: corsOptions });
     if (authResponse) return authResponse;
@@ -70,13 +122,34 @@ export default {
     });
     if (gatewayResponse) return gatewayResponse;
 
-    // 3. Direct DO access (no /gateway/ prefix) — fully blocked for now
+    // 3. Direct DO access (no /gateway/ prefix) — opened ONLY for the dev preview
+    //    serve. Bounded so it doesn't expose every method/binding: only GET/HEAD to
+    //    DEV_CONTAINER passes through to `DevContainer.fetch()` (the ungated static
+    //    read — no JWT, since browsers don't attach Authorization to document/
+    //    sub-resource loads; the data is gated on the WS/mesh path). Other methods →
+    //    405; other bindings (incl. the raw NEBULA_AUTH GET handlers) → 404. (The
+    //    in-DO `Star.onRequest` serve was retired in Phase 4 — STAR/DEV_STAR are no
+    //    longer serving targets; prod serve is Workers Assets.) WS to a non-
+    //    DEV_CONTAINER DO is never allowed (mesh WS terminates at the Gateway).
     const directResponse = await routeDORequest(request, env, {
       cors: corsOptions,
-      onBeforeRequest() {  // Will be implemented when we add resources support
-        return new Response('Not Implemented', { status: 501 });
+      onBeforeRequest(request, { doNamespace }) {
+        // DEV_CONTAINER is the only direct-serve target: the dev preview shell + vite
+        // assets via the DO `fetch()` proxy (GET/HEAD).
+        if (doNamespace !== env.DEV_CONTAINER) {
+          return new Response('Not Found', { status: 404 });
+        }
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
+        }
+        return undefined; // GET/HEAD to DEV_CONTAINER → DevContainer.fetch
       },
-      onBeforeConnect() {  // No plans to ever implement
+      onBeforeConnect(request, { doNamespace }) {
+        // M2: the vite HMR WebSocket to DEV_CONTAINER is allowed, ungated — like the
+        // preview shell. No tenant data flows over HMR (the scope is injected
+        // server-side; DevContainer.onBeforeCall guards the mesh path, not fetch()).
+        // Every OTHER direct WS to a DO stays closed — mesh WS terminates at the Gateway.
+        if (doNamespace === env.DEV_CONTAINER) return undefined;
         return new Response('Not Implemented', { status: 501 });
       },
     });

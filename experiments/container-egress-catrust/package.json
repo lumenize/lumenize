@@ -1,0 +1,12 @@
+{
+  "name": "container-egress-catrust",
+  "private": true,
+  "type": "module",
+  "description": "Close the Phase-3 deferred egress blocker: does the CF container ephemeral-CA trust recipe (copy /etc/cloudflare/certs/cloudflare-containers-ca.crt + update-ca-certificates) let an allow-listed HTTPS host (git clone / curl) succeed through interceptHttps egress — under LOCAL wrangler dev on Docker Desktop? Stand-in host = github.com; the Artifacts pull (*.artifacts.cloudflare.net) is the same mechanism. See tasks/nebula-dev-flows.md.",
+  "dependencies": {
+    "@lumenize/mesh": "*"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  }
+}

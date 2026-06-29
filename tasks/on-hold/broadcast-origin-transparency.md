@@ -1,6 +1,6 @@
 # Broadcast Tree-Path Result-Routing Fix (Option A)
 
-**Status**: **ON HOLD** — sequenced after [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) (do that first)
+**Status**: **ON HOLD** — sequenced after [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) (do that first)
 **Origin**: Design review of `packages/mesh/src/broadcast.ts` + `lumenize-worker.ts` tier (session 2026-06-08). Filename retained from the superseded "Option B (origin transparency)" framing — see *Superseded approach* below.
 
 ## Objective
@@ -57,4 +57,4 @@ Option B made Star the chain origin (`newChain: true`) and stamped a scope-only 
 (The B/C/D/G scope-and-security tests from the prior draft are dropped — Option A changes no scope/auth behavior.)
 
 ## Related
-- [nebula-do-scope-isolation.md](../nebula-do-scope-isolation.md) — **do FIRST.** Same trust/scope model, surfaced in the same review. Not hard-coupled to this fix, but higher priority; this task is on hold behind it.
+- [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) — **do FIRST.** Same trust/scope model, surfaced in the same review. Not hard-coupled to this fix, but higher priority; this task is on hold behind it.

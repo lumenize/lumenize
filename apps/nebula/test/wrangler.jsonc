@@ -1,7 +1,7 @@
 {
   "name": "nebula-unit-test",
   "compatibility_date": "2026-04-01",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",

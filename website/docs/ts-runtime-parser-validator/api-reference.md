@@ -10,7 +10,10 @@ Generates a JS module source string from a string of TypeScript interface defini
 
 
 ```typescript @check-example('packages/ts-runtime-parser-validator/src/generate-parse-module.ts')
-export function generateParseModule(typeDefinitions: string): string {
+export function generateParseModule(
+  typeDefinitions: string,
+  relationshipHints?: TypeMetadata['relationships'],
+): string {
   // ...
 }
 ```

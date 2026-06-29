@@ -1,6 +1,6 @@
 /**
  * textMerge property tests — ported from the factory-textmerge isolation detour
- * (tasks/factory-textmerge.md § Property tests; the vue-factory spike they came
+ * (tasks/archive/factory-textmerge.md § Property tests; the vue-factory spike they came
  * from was removed in 5.3.7/P11). Each `describe` maps to one pinned property.
  * No mock-client needed — pure helper.
  */

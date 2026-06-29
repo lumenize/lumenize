@@ -170,6 +170,7 @@ const sidebars: SidebarsConfig = {
             'mesh/lumenize-do',
             'mesh/lumenize-worker',
             'mesh/lumenize-client',
+            'mesh/lumenize-container',
           ],
         },
         {
@@ -276,13 +277,6 @@ const sidebars: SidebarsConfig = {
                 docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
               }
             },
-            {
-              type: 'doc',
-              id: 'rpc/capn-web-comparison-performance',
-              customProps: {
-                docTest: 'doc-test/rpc/capn-web-comparison-performance/test/performance.test.ts'
-              }
-            },
             ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
               ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
               : []),
@@ -331,11 +325,9 @@ const sidebars: SidebarsConfig = {
     },
 
     // TypeScript Runtime Parser-Validator (typia-based; supersedes
-    // @lumenize/ts-runtime-validator, which is deprecated as of v0.25.
-    // The old package's docs at /docs/ts-runtime-validator/* are kept on
-    // disk so direct URLs still resolve, but are no longer reachable via
-    // the sidebar. Once the deprecation lands cleanly, those files can
-    // be removed.)
+    // @lumenize/ts-runtime-validator, deprecated as of v0.25 and since
+    // removed. In-site links to the old package were repointed here; external
+    // /docs/ts-runtime-validator/* URLs 301 here via website/static/_redirects.)
     {
       type: 'category',
       label: 'TS Runtime Parser-Validator',
@@ -355,10 +347,11 @@ const sidebars: SidebarsConfig = {
       label: 'Nebula',
       items: [
         'nebula/nebula-client',
-        'nebula/coding-your-ui',
         'nebula/using-vue',
         'nebula/ontology',
         'nebula/resources',
+        'nebula/access-control',
+        'nebula/coding-your-ui',
         'nebula/api-reference',
         'nebula/auth-flows',
       ],

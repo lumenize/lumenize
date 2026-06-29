@@ -87,7 +87,9 @@ type Todo = z.infer<typeof TodoSchema>;
 
 That's 105 characters, then 236, then 530 — all to say "title is a string, done is a boolean, assignedTo is an array of Person." Zod is 2x the characters and still needs `z.infer` to get the TypeScript types back out. JSON Schema is 5x, with `$ref`, `definitions`, and `items` just to express an array of another type.
 
-With [`@lumenize/ts-runtime-validator`](/docs/ts-runtime-validator/), the TypeScript interface *is* the validation schema. No Zod. No JSON Schema. Just the interface you already wrote.
+With [`@lumenize/ts-runtime-validator`](/docs/ts-runtime-parser-validator/), the TypeScript interface *is* the validation schema. No Zod. No JSON Schema. Just the interface you already wrote.
+
+> _**[UPDATED]** `@lumenize/ts-runtime-validator` has since been superseded by [`@lumenize/ts-runtime-parser-validator`](/docs/ts-runtime-parser-validator/) (a typia-based reimplementation). This post predates that change; its `ts-runtime-validator` doc links now point to the successor._
 
 ## The ORM Tax
 
@@ -161,7 +163,7 @@ Every additional representation — every separate DSL that describes the same d
 
 The vision behind Nebula is simple: **write your TypeScript interfaces once, and derive everything else from them.**
 
-- **Validation** — [`@lumenize/ts-runtime-validator`](/docs/ts-runtime-validator/) runs the real tsc compiler against your interfaces. [No DSL, real diagnostics](/blog/typescript-is-the-schema).
+- **Validation** — [`@lumenize/ts-runtime-validator`](/docs/ts-runtime-parser-validator/) runs the real tsc compiler against your interfaces. [No DSL, real diagnostics](/blog/typescript-is-the-schema).
 - **Storage** — Nebula reads your type definitions to create tables, manage columns, and enforce constraints on Cloudflare Durable Objects.
 - **Relationships** — `extractTypeMetadata()` finds references between your interfaces and models them as foreign keys automatically.
 - **Write shapes** — When an interface references another type, write operations accept IDs instead of nested objects. The "write shape" is derived from your types, not maintained separately.

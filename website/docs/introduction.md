@@ -55,7 +55,7 @@ The right way is the easy way — and we show you how to test it.
 | [@lumenize/fetch](/docs/fetch) | Fetch wrapper for Worker-to-DO communication | — | 🔴 Experimental | MIT |
 | [@lumenize/routing](/docs/routing/route-do-request) | Request routing for Durable Objects (was @lumenize/utils) | ✓ | 🟢 GA | MIT |
 | [@lumenize/ts-runtime-parser-validator](/docs/ts-runtime-parser-validator) | Parse-don't-validate TypeScript runtime checks (typia) packaged for DO facets | ✓ | 🔴 Experimental | MIT |
-| [@lumenize/ts-runtime-validator](/docs/ts-runtime-validator) | Deprecated — use [@lumenize/ts-runtime-parser-validator](/docs/ts-runtime-parser-validator) | ✓ | ⚫ Deprecated | MIT |
+| @lumenize/ts-runtime-validator | Deprecated — use [@lumenize/ts-runtime-parser-validator](/docs/ts-runtime-parser-validator) | ✓ | ⚫ Deprecated | MIT |
 | @lumenize/rpc | Deprecated — use @lumenize/mesh (remains as foundation for @lumenize/testing) | — | ⚫ Deprecated | MIT |
 | [Lumenize Nebula](/blog/introducing-lumenize-nebula) | Agentic platform for enterprise apps from declarative business ontologies | — | 🔵 Coming Soon | Unlicensed |
 | [@lumenize/nebula-auth](/blog/introducing-lumenize-nebula) | Auth integration for Nebula applications | — | 🔴 Experimental | Unlicensed |

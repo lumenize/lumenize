@@ -8,6 +8,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
+import { debug } from '@lumenize/debug';
 import {
   extractTypeMetadata,
   generateParseModule,
@@ -49,6 +50,48 @@ export interface OntologyVersionRow {
 export interface OntologyState {
   row: OntologyVersionRow;
   history: string[];
+}
+
+/** One model tool call (the future tool-calling loop populates these). */
+export interface ToolCall {
+  name: string;
+  args: unknown;
+  result?: unknown;
+  error?: string;
+}
+
+/**
+ * One captured codegen turn — the unit the eval suite replays, so the record
+ * schema IS the eval-fixture schema. Stored as JSON `payload` on the Galaxy and
+ * shaped for the tool-calling loop (not just today's one-shot regex path).
+ */
+export interface TurnRecord {
+  /** Stable id, supplied by DevStudio (never a server rowid — coding-style.md). */
+  id: string;
+  /** Turn time (ms); the ordering key. */
+  createdAt: number;
+  /** The `{u}.{g}.dev` DevStudio sandbox that produced the turn. */
+  instance: string;
+  /** Codegen model id (the eval needs it — judge must differ from generator). */
+  model: string;
+  systemPrompt: string;
+  userMessage: string;
+  /** The current source fed as context (e.g. App.vue); '' on the first turn. */
+  currentSource: string;
+  /** Raw model output. */
+  output: string;
+  /** Chain-of-thought (`reasoning_content`); '' when the model returns none. */
+  reasoning: string;
+  /** Tool-calling turns populate this; `[]` for the current one-shot regex path. */
+  toolCalls: ToolCall[];
+  /** Whether a file was extracted + applied. */
+  applied: boolean;
+  /** The applied path (e.g. 'src/App.vue'), if any. */
+  appliedPath?: string;
+  /** Apply/render/compile error tail (the Rung-1 slot); absent on success. */
+  error?: string;
+  /** Rung-1 validate result slot (compile gate) — absent until that gate lands. */
+  validate?: unknown;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -149,5 +192,60 @@ export class Galaxy extends NebulaDO {
   @mesh()
   listOntologyVersions(): string[] {
     return this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
+  }
+
+  // ─── Turn recorder (Studio codegen corpus) ──────────────────────────
+  // DevStudio fires recordTurn (fire-and-forget) for every codegen turn; the
+  // corpus seeds prompt iteration + the eval suite. The full record is the
+  // replayable eval fixture (stored as JSON `payload`); the columns are a query
+  // index over it. See tasks/nebula-agentic-development-engine.md Part 2.
+
+  #turnsReady = false;
+  #ensureTurns(): void {
+    if (this.#turnsReady) return;
+    // TEXT primary key ⇒ WITHOUT ROWID (durable-objects.md SQLite write-cost rule).
+    this.ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS Turns (
+      id TEXT PRIMARY KEY, createdAt INTEGER NOT NULL, instance TEXT NOT NULL,
+      model TEXT NOT NULL, applied INTEGER NOT NULL, hasError INTEGER NOT NULL,
+      payload TEXT NOT NULL
+    ) WITHOUT ROWID`);
+    this.ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS idx_Turns_time ON Turns(createdAt)`);
+    this.#turnsReady = true;
+  }
+
+  /**
+   * Record one codegen turn (called by DevStudio, fire-and-forget). The full
+   * record is stored as JSON `payload` (the eval fixture); id/createdAt/instance/
+   * model/applied/hasError are extracted as a query index. `INSERT OR REPLACE`
+   * keeps it idempotent on the DevStudio-supplied `id` (1 write, not 2).
+   */
+  @mesh(requireAdmin)
+  recordTurn(record: TurnRecord): void {
+    this.#ensureTurns();
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO Turns (id, createdAt, instance, model, applied, hasError, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      record.id, record.createdAt, record.instance, record.model,
+      record.applied ? 1 : 0, record.error ? 1 : 0, JSON.stringify(record),
+    );
+    debug('nebula.Galaxy.recordTurn').debug('recorded', {
+      id: record.id, instance: record.instance, applied: record.applied,
+    });
+  }
+
+  /**
+   * Read recorded turns (oldest → newest) for prompt iteration / the eval suite.
+   * `since` filters by `createdAt` (ms); `limit` caps the return (default 100,
+   * hard max 1000) so a large corpus doesn't ship in one envelope.
+   */
+  @mesh(requireAdmin)
+  getTurns(opts: { since?: number; limit?: number } = {}): TurnRecord[] {
+    this.#ensureTurns();
+    const limit = Math.min(opts.limit ?? 100, 1000);
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT payload FROM Turns WHERE createdAt >= ? ORDER BY createdAt LIMIT ?`,
+      opts.since ?? 0, limit,
+    ).toArray();
+    return rows.map((r) => JSON.parse(r.payload as string) as TurnRecord);
   }
 }

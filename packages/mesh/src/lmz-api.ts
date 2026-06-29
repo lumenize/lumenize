@@ -53,6 +53,26 @@ export function captureCallContext(): CallContext | undefined {
   };
 }
 
+/**
+ * Resolve the ambient (AsyncLocalStorage-bound) CallContext for `this.lmz.callContext`,
+ * throwing outside a mesh call. Shared by the DO and Worker factories — and therefore by
+ * `LumenizeContainer`, which composes `createLmzApiForDO`. The browser `LumenizeClient`
+ * deliberately does NOT use this: there is no AsyncLocalStorage in the browser, so it reads
+ * a synchronously-captured `#currentCallContext` field instead (its one documented divergence).
+ *
+ * @internal
+ */
+function requireCurrentCallContext(): CallContext {
+  const context = getCurrentCallContext();
+  if (!context) {
+    throw new Error(
+      'Cannot access callContext outside of a mesh call. ' +
+      'callContext is only available during @mesh handler execution.'
+    );
+  }
+  return context;
+}
+
 // ============================================
 // Shared Call Helpers
 // ============================================
@@ -344,6 +364,81 @@ function assertCallTarget(
 }
 
 /**
+ * Shared `lmz.callRaw` body for the DO + Worker factories (and `LumenizeContainer`, which
+ * composes `createLmzApiForDO`). The browser `LumenizeClient` has its own `#callRaw` that
+ * threads the synchronously-captured context, so it does not use this.
+ *
+ * @internal
+ */
+function callRawShared(
+  self: LmzApi,
+  env: any,
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  chainOrContinuation: OperationChain | AnyContinuation,
+  options?: CallOptions,
+): Promise<any> {
+  assertCallTarget(env, calleeBindingName, calleeInstanceName);
+  return callRawImpl(self, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+}
+
+/**
+ * Shared `lmz.call` body for the DO + Worker factories (and `LumenizeContainer`). The only
+ * per-node-type divergence is keyed off `self.type`: a `LumenizeWorker` is ephemeral, so it
+ * keeps its runtime alive via `ctx.waitUntil` until the fire-and-forget settles; a DO/Container
+ * has its own lifecycle and doesn't. (The browser `LumenizeClient` does NOT use this — separate
+ * hand-rolled path, no ALS.)
+ *
+ * @internal
+ */
+function callShared(
+  self: LmzApi,
+  env: any,
+  nodeInstance: any,
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  remoteContinuation: Continuation<any>,
+  handlerContinuation?: AnyContinuation,
+  options?: CallOptions,
+): void {
+  // 1. Extract and validate chains (shared helper)
+  const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
+
+  // 2. Validate caller knows its own binding (fail fast!)
+  if (!self.bindingName) {
+    throw new Error(
+      self.type === 'LumenizeWorker'
+        ? `Cannot use call() from a Worker that doesn't know its own binding name. ` +
+          `Ensure incoming calls include metadata or call this.lmz.__init() first.`
+        : `Cannot use call() from a DO that doesn't know its own binding name. ` +
+          `Ensure routeDORequest routes to this DO or incoming calls include metadata.`
+    );
+  }
+
+  // 3. Set up handler execution (shared helpers)
+  const capturedContext = captureCallContext();
+  const localExecutor = nodeInstance.__localChainExecutor;
+  const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
+
+  // 4. Make remote call with context
+  const callPromise = capturedContext
+    ? runWithCallContext(capturedContext, () =>
+        self.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
+    : self.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
+
+  // 5. Fire-and-forget with handler callbacks (shared helper)
+  const handledPromise = setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
+    onErrorOnly: options?.onErrorOnly,
+  });
+
+  // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive until the
+  // fire-and-forget promise settles. DOs/Containers have their own lifecycle.
+  if (self.type === 'LumenizeWorker') {
+    nodeInstance.ctx.waitUntil(handledPromise);
+  }
+}
+
+/**
  * Versioned envelope for RPC calls with automatic metadata propagation
  *
  * Enables auto-initialization of identity across distributed DO/Worker graphs.
@@ -561,6 +656,55 @@ export interface LmzApi {
 }
 
 /**
+ * Stamp a node's identity from the routing headers `routeDORequest` sets
+ * (`x-lumenize-do-binding-name` / `x-lumenize-do-instance-name-or-id`), so
+ * `this.lmz.bindingName`/`instanceName` are available on the **`fetch()` path** —
+ * not only the mesh receive path (`executeEnvelope` ← envelope `metadata.callee`).
+ *
+ * Shared by `LumenizeDO.__initFromHeaders` (the DO HTTP path) and
+ * `LumenizeContainer.fetch()` (the container's public surface), so the container
+ * node **composes** this rather than reimplementing it — ADR-007's
+ * "identity stamped on every first-contact entry path" requirement.
+ *
+ * @returns a 400 `Response` if the instance header is a 64-hex DO id (a name is
+ *   required), a 500 `Response` if `__init` rejects a binding/name mismatch, or
+ *   `undefined` on success (including when no routing headers are present).
+ * @internal
+ */
+export function initIdentityFromHeaders(
+  headers: Headers,
+  lmz: Pick<LmzApi, '__init'>,
+  nodeTypeName = 'mesh node',
+): Response | undefined {
+  const bindingName = headers.get('x-lumenize-do-binding-name');
+  const instanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
+
+  // Soundness rests on name == routing key: a DO id string is not a name, so
+  // reject it rather than stamp an unusable identity (mirrors the mesh path).
+  if (instanceNameOrId && isDurableObjectId(instanceNameOrId)) {
+    const message = `${nodeTypeName} requires instanceName, not a DO id string.`;
+    debug('lmz.mesh.initIdentityFromHeaders').error(message, { receivedValue: instanceNameOrId });
+    return new Response(message, { status: 400 });
+  }
+
+  if (bindingName || instanceNameOrId) {
+    try {
+      lmz.__init({ bindingName: bindingName || undefined, instanceName: instanceNameOrId || undefined });
+    } catch (error) {
+      // __init's first-write-wins guard throws on a binding/name divergence.
+      const message = error instanceof Error ? error.message : String(error);
+      debug('lmz.mesh.initIdentityFromHeaders').error('Initialization from headers failed', {
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return new Response(message, { status: 500 });
+    }
+  }
+
+  return undefined; // success (or no headers present)
+}
+
+/**
  * Create LmzApi implementation for LumenizeDO
  *
  * Identity stored in Durable Object storage:
@@ -614,14 +758,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     },
 
     get callContext(): CallContext {
-      const context = getCurrentCallContext();
-      if (!context) {
-        throw new Error(
-          'Cannot access callContext outside of a mesh call. ' +
-          'callContext is only available during @mesh handler execution.'
-        );
-      }
-      return context;
+      return requireCurrentCallContext();
     },
 
     // --- Internal init method (called by __initFromHeaders and envelope processing) ---
@@ -645,8 +782,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      assertCallTarget(env, calleeBindingName, calleeInstanceName);
-      return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+      return callRawShared(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
     call<T = any>(
@@ -656,32 +792,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       handlerContinuation?: AnyContinuation,
       options?: CallOptions
     ): void {
-      // 1. Extract and validate chains (shared helper)
-      const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
-
-      // 2. Validate caller knows its own binding (fail fast!)
-      if (!this.bindingName) {
-        throw new Error(
-          `Cannot use call() from a DO that doesn't know its own binding name. ` +
-          `Ensure routeDORequest routes to this DO or incoming calls include metadata.`
-        );
-      }
-
-      // 3. Set up handler execution (shared helpers)
-      const capturedContext = captureCallContext();
-      const localExecutor = doInstance.__localChainExecutor;
-      const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
-
-      // 4. Make remote call with context
-      const callPromise = capturedContext
-        ? runWithCallContext(capturedContext, () =>
-            this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
-        : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
-
-      // 5. Fire-and-forget with handler callbacks (shared helper)
-      setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
-        onErrorOnly: options?.onErrorOnly,
-      });
+      callShared(this, env, doInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
     },
   };
 }
@@ -716,14 +827,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
     },
 
     get callContext(): CallContext {
-      const context = getCurrentCallContext();
-      if (!context) {
-        throw new Error(
-          'Cannot access callContext outside of a mesh call. ' +
-          'callContext is only available during @mesh handler execution.'
-        );
-      }
-      return context;
+      return requireCurrentCallContext();
     },
 
     // --- Internal init method (called by envelope processing) ---
@@ -750,8 +854,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      assertCallTarget(env, calleeBindingName, calleeInstanceName);
-      return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+      return callRawShared(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
     call<T = any>(
@@ -761,38 +864,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       handlerContinuation?: AnyContinuation,
       options?: CallOptions
     ): void {
-      // 1. Extract and validate chains (shared helper)
-      const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
-
-      // 2. Validate caller knows its own binding (fail fast!)
-      if (!this.bindingName) {
-        throw new Error(
-          `Cannot use call() from a Worker that doesn't know its own binding name. ` +
-          `Ensure incoming calls include metadata or call this.lmz.__init() first.`
-        );
-      }
-
-      // 3. Set up handler execution (shared helpers)
-      const capturedContext = captureCallContext();
-      const localExecutor = workerInstance.__localChainExecutor;
-      const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
-
-      // 4. Make remote call with context
-      const callPromise = capturedContext
-        ? runWithCallContext(capturedContext, () =>
-            this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
-        : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
-
-      // 5. Fire-and-forget with handler callbacks (shared helper)
-      // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive
-      // until the fire-and-forget promise settles
-      const handledPromise = setupFireAndForgetHandler(
-        callPromise,
-        handlerChain,
-        executeHandler,
-        { onErrorOnly: options?.onErrorOnly },
-      );
-      workerInstance.ctx.waitUntil(handledPromise);
+      callShared(this, env, workerInstance, calleeBindingName, calleeInstanceName, remoteContinuation, handlerContinuation, options);
     },
   };
 }
@@ -850,46 +922,53 @@ export async function executeEnvelope(
   const nodeTypeName = options?.nodeTypeName ?? 'MeshNode';
   const includeInstanceName = options?.includeInstanceName ?? true;
 
-  // 1. Validate envelope version
-  if (!envelope.version || envelope.version !== 1) {
-    const error = new Error(
-      `Unsupported RPC envelope version: ${envelope.version}. ` +
-      `This version of ${nodeTypeName} only supports v1 envelopes. ` +
-      `Old-style calls without envelopes are no longer supported.`
-    );
-    options?.onValidationError?.(error, {
-      receivedVersion: envelope.version,
-      supportedVersion: 1,
-    });
-    throw error;
-  }
-
-  // 2. Validate callContext is present
-  if (!envelope.callContext) {
-    const error = new Error(
-      'Missing callContext in envelope. All mesh calls must include callContext.'
-    );
-    options?.onValidationError?.(error, { envelope });
-    throw error;
-  }
-
-  // 3. Auto-initialize from callee metadata if present
-  if (envelope.metadata?.callee) {
-    node.lmz.__init({
-      bindingName: envelope.metadata.callee.bindingName,
-      instanceName: includeInstanceName
-        ? envelope.metadata.callee.instanceName
-        : undefined,
-    });
-  }
-
-  // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
-  const operationChain = postprocess(envelope.chain);
-
-  // 5. Execute chain within callContext (makes this.lmz.callContext available)
-  // Return wrapped result/error - Workers RPC loses error properties when thrown,
-  // so we return errors as { $error: preprocessedError } and unwrap in callRaw.
+  // The ENTIRE envelope lifecycle runs inside one try → every failure (preamble
+  // validation, identity __init, chain postprocess, onBeforeCall, execution) is
+  // returned as { $error: preprocessedError } and unwrapped+rethrown in callRaw.
+  // Keeping the preamble OUTSIDE this try (the old shape) made preamble throws —
+  // version/callContext/__init-setInstanceName-mismatch — escape as raw RPC
+  // rejections, which workerd logs as "uncaught (in promise)" noise. Uniform
+  // wrapping removes that whole class of noise and round-trips preamble errors
+  // through structured-clone (preserving custom properties) like every other error.
   try {
+    // 1. Validate envelope version
+    if (!envelope.version || envelope.version !== 1) {
+      const error = new Error(
+        `Unsupported RPC envelope version: ${envelope.version}. ` +
+        `This version of ${nodeTypeName} only supports v1 envelopes. ` +
+        `Old-style calls without envelopes are no longer supported.`
+      );
+      options?.onValidationError?.(error, {
+        receivedVersion: envelope.version,
+        supportedVersion: 1,
+      });
+      throw error;
+    }
+
+    // 2. Validate callContext is present
+    if (!envelope.callContext) {
+      const error = new Error(
+        'Missing callContext in envelope. All mesh calls must include callContext.'
+      );
+      options?.onValidationError?.(error, { envelope });
+      throw error;
+    }
+
+    // 3. Auto-initialize from callee metadata if present (first-write-wins guard
+    //    in setInstanceName may throw on a name/address divergence)
+    if (envelope.metadata?.callee) {
+      node.lmz.__init({
+        bindingName: envelope.metadata.callee.bindingName,
+        instanceName: includeInstanceName
+          ? envelope.metadata.callee.instanceName
+          : undefined,
+      });
+    }
+
+    // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
+    const operationChain = postprocess(envelope.chain);
+
+    // 5. Execute chain within callContext (makes this.lmz.callContext available)
     const result = await runWithCallContext(envelope.callContext, async () => {
       // Call onBeforeCall hook for authentication/authorization
       node.onBeforeCall();

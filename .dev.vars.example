@@ -80,3 +80,11 @@ JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY--
 # CloudflareEmailSender (the default) uses the EMAIL binding and needs no secret.
 # Resend account: larry@lumenize.com
 RESEND_API_KEY="re_..."
+
+# Only needed where there's no `wrangler login` OAuth session (CI / cloud agents).
+# The remote-binding proxy (e2e-email / hono `send_email remote:true`) uses your
+# OAuth session locally, so these are NOT needed for local runs; in CI they come
+# from GitHub Secrets as job env. The secret-less Claude-hosted lane sets
+# LUMENIZE_NO_CF_REMOTE=1 instead (omits the CF-remote projects) and never gets the token.
+CLOUDFLARE_API_TOKEN=cfut_...
+CLOUDFLARE_ACCOUNT_ID=your-account-id

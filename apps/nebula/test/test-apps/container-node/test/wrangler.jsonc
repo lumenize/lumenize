@@ -1,0 +1,21 @@
+{
+  // NebulaContainer scope-guard harness (Phase 3). No `containers` block — the
+  // harness extends LumenizeDO and borrows NebulaContainer's prototype methods;
+  // NebulaContainer is never instantiated. nodejs_compat matches the other
+  // nebula wranglers. Not in `npm test`; run with `npx vitest run --project container`.
+  "name": "nebula-container-node-test",
+  "main": "../index.ts",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CONTAINER_GUARD_HARNESS", "class_name": "NebulaContainerGuardHarness" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["NebulaContainerGuardHarness"]
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 ---
-title: Auth Flows
-description: Login, token management, and scope switching sequences for Nebula
+title: Auth flows
+description: Login, token management, and scope switching sequences for Nebula.
 ---
 
-# Auth Flows
+# Auth flows
 
 Nebula uses [nebula-auth](/docs/auth) for passwordless authentication with a two-scope model: **auth scope** (determines the refresh cookie path) and **active scope** (baked into the JWT `aud` claim). This page shows the end-to-end sequences from the UI perspective.
 
@@ -23,7 +23,7 @@ By default Nebula serves the UI and the API from the same origin (e.g. `https://
 
 The Nebula entrypoint parses this once and threads it as a single `cors` config through both the `/auth/*` router (`routeNebulaAuthRequest`) and the `/gateway/*` router (`routeDORequest`), so a browser frontend at an approved origin can hit both magic-link / refresh-token endpoints and the WebSocket mesh with the same allowlist. Empty or unset → no CORS headers (safe default).
 
-## First-Time Login
+## First-time login
 
 A new user arrives at the login page with no existing refresh cookie. The full flow is: discovery, scope selection, magic link email, and finally a connected `NebulaClient`.
 
@@ -86,7 +86,7 @@ sequenceDiagram
     end
 ```
 
-## Returning User
+## Returning user
 
 A user with a valid refresh cookie (not expired, not revoked) returns to the app. The cookie is `HttpOnly`, so the client can't check for it — it makes the refresh call and lets the browser send the cookie if the path matches.
 
@@ -127,7 +127,7 @@ sequenceDiagram
 If the user arrives via a bookmarked URL that encodes the scope (e.g. `https://app.example.com/acme/app/tenant-a/dashboard`), the client already knows the active scope. It can skip discovery and try refresh directly, falling back to the full login flow only if refresh fails.
 :::
 
-## Scope Switching
+## Scope switching
 
 An admin (or any user with access to multiple scopes) wants to switch from one star to another. Scope switching is a **full re-login, not an in-place reconnect** — the old `NebulaClient` is destroyed and a new one is created. This section's diagram covers **separately-held** scopes (each with its own path-scoped cookie); admins with a wildcard grant use the lighter flow in [Admin active-scope switching](#admin-active-scope-switching-within-a-wildcard-grant) below.
 
@@ -229,7 +229,7 @@ sequenceDiagram
 Activating a Star gives the admin a token whose **`aud`** is that Star, but the **`sub` stays the admin's own** — actions are attributed to the admin, with their admin rights cascading. "Act as another user" (carry a different `sub`) is a **separate** mechanism — the `delegated-token` endpoint with an `actFor` subject and an actor allowlist — not active-scope switching.
 :::
 
-## Security Layers During Connection
+## Security layers during connection
 
 Every `NebulaClient` connection passes through four security layers before any `lmz.call()` reaches a Nebula DO. This diagram shows what happens at each layer for a single connection attempt.
 
@@ -286,7 +286,7 @@ sequenceDiagram
     end
 ```
 
-## Multi-Tab (Coach Carol Scenario)
+## Multi-tab (Coach Carol scenario)
 
 Coach Carol manages multiple client organizations. She opens each in a separate browser tab. Path-scoped refresh cookies let tabs coexist without interfering.
 

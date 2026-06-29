@@ -115,6 +115,24 @@ const testModeBindings = {
   LUMENIZE_MESH_TEST_MODE: 'true',
 };
 
+// --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---
+// The `browser` project's globalSetup spawns `wrangler dev` against
+// test/browser/worker, whose email binding is `remote: true` — that proxy
+// authenticates to Cloudflare at spawn time, and the project also needs a
+// Playwright chromium the secret-less Claude-hosted lane doesn't provide. A
+// remote/browser project can't be kept partly alive (the proxy + globalSetup run
+// for the whole project), so omit it wholesale in that lane. Signal = the OPT-OUT
+// flag LUMENIZE_NO_CF_REMOTE, set ONLY by the secret-less lane; local
+// (`wrangler login` OAuth) and CI (CLOUDFLARE_API_TOKEN job env) leave it unset,
+// so the browser canary runs there.
+const includeCfRemote = !process.env.LUMENIZE_NO_CF_REMOTE;
+// Loud omission (iteration lane only): if the flag drops the browser project, SAY
+// SO — so a green run in the hosted / no-creds lane is never mistaken for full
+// coverage (incl. by an agent reporting "tests pass"). CI never sets the flag.
+if (!includeCfRemote) {
+  console.warn('⚠️  LUMENIZE_NO_CF_REMOTE set — OMITTING the `browser` project (real-browser + wrangler-dev remote-email path NOT exercised this run). Full coverage runs in CI / locally without the flag.');
+}
+
 export default defineConfig({
   plugins: [
     dynamicEnvProxyPlugin({ prefix: '/worker', envVar: 'WRANGLER_PROXY_TARGET' }),
@@ -168,10 +186,11 @@ export default defineConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts',
             'test/**/*-browser.test.ts', // Browser-only — run in the `browser` project
+            'test/container/**/*.test.ts', // Container node — run in the `container` project (needs its own containers-block wrangler)
           ],
         },
       },
-      {
+      ...(includeCfRemote ? [{
         // Real-browser tests: bundles @lumenize/mesh/client through Vite +
         // Playwright (chromium). Catches client-side imports that work in
         // vitest-pool-workers but fail in a real browser bundle — e.g., the
@@ -195,7 +214,7 @@ export default defineConfig({
             instances: [{ browser: 'chromium' }],
           },
         },
-      },
+      }] : []),
       {
         // Getting started e2e tests - uses its own test harness
         extends: true,
@@ -242,6 +261,20 @@ export default defineConfig({
         test: {
           name: 'security',
           include: ['test/for-docs/security/**/*.test.ts'],
+        },
+      },
+      {
+        // LumenizeContainer (4th node type) — isolated so a `containers`-block
+        // config quirk can't perturb the main suite's record. See
+        // tasks/nebula-devcontainer-node-type.md Phase 2.
+        extends: true,
+        plugins: [swcPlugin, cloudflareTest({
+          wrangler: { configPath: './test/container/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
+        })],
+        test: {
+          name: 'container',
+          include: ['test/container/**/*.test.ts'],
         },
       },
     ],

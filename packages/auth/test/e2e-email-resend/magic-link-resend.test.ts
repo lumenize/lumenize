@@ -3,8 +3,8 @@ import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
 
-// Resend e2e smoke test — keeps the ResendEmailSender path exercised alongside
-// the default CloudflareEmailSender path (see test/e2e-email/).
+// Resend e2e smoke test — keeps the Resend transport path exercised alongside
+// the default Cloudflare transport path (see test/e2e-email/).
 //
 // Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars, test.lumenize.com
 // verified as a Resend sending domain, deployed email-test Worker, Cloudflare

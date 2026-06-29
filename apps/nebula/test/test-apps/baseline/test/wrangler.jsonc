@@ -2,7 +2,7 @@
   "name": "nebula-baseline-test",
   "main": "./test-harness.ts",
   "compatibility_date": "2026-04-01",
-  "compatibility_flags": ["nodejs_compat_v2"],
+  "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
     "bindings": [
@@ -10,7 +10,7 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" },
+      { "name": "DEV_CONTAINER", "class_name": "DevContainerServeStub" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
     ]
@@ -23,7 +23,7 @@
         "Universe",
         "Galaxy",
         "StarTest",
-        "ResourceHistory",
+        "DevContainerServeStub",
         "NebulaAuth",
         "NebulaAuthRegistry"
       ]

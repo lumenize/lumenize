@@ -48,7 +48,7 @@ async function awaitCall(c: NebulaClientTest): Promise<unknown> {
 async function setupGrantedMember(star: string) {
   const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  admin.client.callGalaxyAppendOntologyVersion(galaxyName, { version: ONTOLOGY_VERSION, types: TYPES });
+  admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
   await awaitCall(admin.client);
 
   await createSubject(new Browser(), star, admin.accessToken, 'member@example.com');

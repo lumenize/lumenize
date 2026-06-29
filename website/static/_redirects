@@ -1,0 +1,7 @@
+# @lumenize/ts-runtime-validator was deleted (deprecated, superseded by the
+# typia-based @lumenize/ts-runtime-parser-validator) and its docs removed.
+# In-site links were repointed; these 301 any external/bookmarked old-package
+# doc URLs to the successor. Served by Cloudflare Workers Assets from ./build
+# (Docusaurus copies website/static/* to the build root verbatim).
+/docs/ts-runtime-validator/* /docs/ts-runtime-parser-validator/:splat 301
+/docs/ts-runtime-validator /docs/ts-runtime-parser-validator 301

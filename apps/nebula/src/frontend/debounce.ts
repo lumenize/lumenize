@@ -1,6 +1,6 @@
 /**
  * Debounce + serial-per-resource submission queue. Validated in isolation
- * (`tasks/debounce-serial-queue.md` D0/D1) and ported here verbatim (D2).
+ * (`tasks/archive/debounce-serial-queue.md` D0/D1) and ported here verbatim (D2).
  *
  * Responsibilities (and only these): WHEN a transaction submits, WHAT eTag /
  * newETag / base it carries, and serial-per-`(rt, rid)` occupancy. The

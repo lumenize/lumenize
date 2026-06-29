@@ -29,6 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Browser } from '@lumenize/testing';
+import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient } from './harness-client';
@@ -162,14 +163,15 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
     }
 
     // M=2 multi-client harness. Both clients share one JWT; each lands on its
-    // own Gateway DO via distinct `tabId`. Same activeScope (galaxy) so they
-    // hit the same Star tenant.
+    // own Gateway DO via distinct `tabId`. activeScope = the star (the structural
+    // guard requires aud == star — scope-isolation T6), so both hit the same tenant.
     const starName = `${galaxyScope}.tenant-fanout`;
     const harness = await setupMultiClient({
       browser,
       baseUrl,
       testToken,
       galaxyScope,
+      activeScope: starName,
       email: ADMIN_EMAIL,
       M: 2,
     });
@@ -312,7 +314,7 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
         ``,
       ];
       const summaryPath = path.join(__dirname, `RESULTS-fanout-${label}.md`);
-      fs.writeFileSync(summaryPath, lines.join('\n'));
+      fs.writeFileSync(summaryPath, withCommitStamp(lines.join('\n')));
       console.log(`[fanout-bench Phase 1] summary → ${summaryPath}`);
 
       // Sanity assertions — bench shouldn't pass if structurally broken.
@@ -639,7 +641,7 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
         ``,
       ];
       const summaryPath = path.join(__dirname, `RESULTS-fanout-ramp-${label}.md`);
-      fs.writeFileSync(summaryPath, lines.join('\n'));
+      fs.writeFileSync(summaryPath, withCommitStamp(lines.join('\n')));
       console.log(`[fanout-bench Phase 3] summary → ${summaryPath}`);
 
       // Sanity assertions

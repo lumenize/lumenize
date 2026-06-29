@@ -1,6 +1,7 @@
 import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth/client';
+import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from './ws-heartbeat.js';
 import {
   newContinuation,
   executeOperationChain,
@@ -215,6 +216,13 @@ export interface LumenizeClientConfig {
    */
   onConnectionError?: (error: Error) => void;
 
+  /**
+   * WebSocket keepalive ping cadence in ms (default {@link WS_HEARTBEAT_INTERVAL_MS} = 30s). Keeps a
+   * long, quiet turn from idle-dropping the gateway WS (the gateway auto-pongs without waking). Mainly
+   * a testing override — set small to exercise the heartbeat without a 30s wait. `<= 0` disables it.
+   */
+  heartbeatIntervalMs?: number;
+
   // --- Testing overrides (see @lumenize/testing docs) ---
 
   /**
@@ -382,10 +390,13 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
+  #refreshInFlight: Promise<void> | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
+  #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
+  #heartbeatTimer?: ReturnType<typeof setInterval>; // WS keepalive while connected (started on open)
   #currentCallContext: CallContext | null = null;
   #WebSocketClass: typeof WebSocket;
   #lmzApi: LmzApiClient | null = null;
@@ -590,6 +601,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   disconnect(): void {
     // Clear reconnect timer
     this.#clearReconnectTimeout();
+    this.#stopHeartbeat();
 
     // Close WebSocket
     if (this.#ws) {
@@ -719,9 +731,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
             : crypto.randomUUID().slice(0, 8);
           this.#instanceName = `${this.#claims?.sub}.${tabId}`;
         }
-      } else if (!this.#accessToken) {
-        // instanceName already set, just need the token
-        await this.#refreshToken();
+      } else if (this.#needsTokenRefresh()) {
+        // instanceName already set. Refresh when the token is MISSING or its `exp` says it's expiring:
+        // a reconnect after a long idle has a set-but-EXPIRED token, and reusing it makes the gateway
+        // reject the WS upgrade ("bad response from the server"), which `#scheduleReconnect` then
+        // retries forever with the same dead token (the chat-down-after-hours bug). The OLD guard was
+        // `!this.#accessToken` — it only refreshed a MISSING token, never an expired one. The check is
+        // SYNCHRONOUS so a fresh/opaque token adds NO await here, keeping the synchronous-WS-creation
+        // path synchronous.
+        await this.#ensureFreshToken();
       }
 
       // Build WebSocket URL
@@ -805,6 +823,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #handleOpen(): void {
     // Reset reconnect attempts on successful connection
     this.#reconnectAttempts = 0;
+    this.#reauthAttemptedThisCycle = false; // fresh cycle — re-arm the once-per-cycle re-auth
+    this.#startHeartbeat(); // keepalive so a long, quiet turn doesn't idle-drop this socket
 
     // State will be set to 'connected' when we receive connection_status message
     // This ensures we don't miss the subscriptionRequired info
@@ -812,6 +832,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
   #handleClose(code: number, reason: string): void {
     this.#ws = null;
+    this.#stopHeartbeat(); // socket gone — the next successful open re-arms it
 
     // Check if this is an auth-related close
     // 4400 (no token) and 4403 (invalid signature) are unlikely since the auth
@@ -863,6 +884,22 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   #scheduleReconnect(): void {
+    // Reactive re-auth: the browser hides a failed WS *upgrade*'s HTTP status, so an auth-rejected
+    // reconnect (token expired/rotated/revoked/clock-skewed) is indistinguishable from a generic 1006 —
+    // we can't read the 401 off the socket. So once the reconnect ITSELF has also failed (`>= 1` prior
+    // attempt — a single drop is more likely a transient blip the SAME token recovers from), force a
+    // token re-auth ONCE: null it so the next `#connectInternal` refreshes (`#needsTokenRefresh` → true).
+    // The refresh ENDPOINT's response IS readable — 200 → fresh token (the reconnect then succeeds);
+    // 401/403 → `#refreshToken` throws `LoginRequiredError` → `onLoginRequired`. Bounded by
+    // `#reauthAttemptedThisCycle` (reset on a successful open), so a network outage costs at most one
+    // extra refresh, never a refresh loop, and a freshly-refreshed token isn't re-nulled. Complements
+    // the proactive `#needsTokenRefresh` exp-check (which only catches a readably-past `exp`); this also
+    // covers BLUE/GREEN key rotation, revocation, and client/server clock skew.
+    if (!this.#reauthAttemptedThisCycle && this.#accessToken && this.#reconnectAttempts >= 1) {
+      this.#reauthAttemptedThisCycle = true;
+      this.#accessToken = null;
+    }
+
     // Calculate delay with exponential backoff
     const delay = Math.min(
       INITIAL_RECONNECT_DELAY_MS * Math.pow(2, this.#reconnectAttempts),
@@ -921,6 +958,29 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     if (this.#reconnectTimeoutId) {
       clearTimeout(this.#reconnectTimeoutId);
       this.#reconnectTimeoutId = undefined;
+    }
+  }
+
+  /** Start the WS keepalive: send a small ping every `heartbeatIntervalMs` so the edge won't idle-close
+   *  the socket during a long, quiet turn (the gateway auto-pongs without waking — see ws-heartbeat.ts).
+   *  Idempotent (stops any prior timer first); `<= 0` disables it. Started on open, stopped on close. */
+  #startHeartbeat(): void {
+    this.#stopHeartbeat();
+    const interval = this.#config.heartbeatIntervalMs ?? WS_HEARTBEAT_INTERVAL_MS;
+    if (interval <= 0) return;
+    this.#heartbeatTimer = setInterval(() => {
+      try {
+        this.#ws?.send(WS_HEARTBEAT_PING);
+      } catch {
+        /* socket mid-close — the next reconnect re-arms */
+      }
+    }, interval);
+  }
+
+  #stopHeartbeat(): void {
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = undefined;
     }
   }
 
@@ -984,6 +1044,57 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     this.#claims = Object.freeze(parsed.payload) as unknown as Readonly<TClaims>;
   }
 
+  /** Ensure a usable access token is in memory — refresh via the configured `refresh` source when it's
+   *  MISSING or a readable `exp` says it's within 30s of expiry. De-dupes concurrent refreshes so a
+   *  WS-connect refresh and an authedFetch refresh share one in-flight call (never two consumers of the
+   *  rotating cookie). A present token with NO readable `exp` (an opaque / caller-supplied token, or a
+   *  fake test token) is left ALONE — we can't judge its expiry, so trust it rather than force a refresh
+   *  the caller may not have configured. The expiry refresh only kicks in once `#claims.exp` is known
+   *  (i.e. after a prior refresh parsed it) — exactly the reconnect-after-idle case this fixes. */
+  async #ensureFreshToken(): Promise<void> {
+    if (!this.#needsTokenRefresh()) return;
+    this.#refreshInFlight ??= this.#refreshToken().finally(() => { this.#refreshInFlight = null; });
+    await this.#refreshInFlight;
+  }
+
+  /** Synchronous "would `#ensureFreshToken` refresh?" — true when the token is MISSING or a readable
+   *  `exp` is within 30s of expiry. A present token with NO readable `exp` (opaque / caller-supplied /
+   *  fake test token) returns false: we can't judge its expiry, so trust it. Used to GATE the await in
+   *  `#connectInternal` so a fresh/opaque token keeps WS creation synchronous (many tests + the cold
+   *  synchronous-connect path depend on the socket existing in the same tick). */
+  #needsTokenRefresh(): boolean {
+    if (!this.#accessToken) return true;
+    const exp = (this.#claims as { exp?: number } | null)?.exp;
+    if (typeof exp !== 'number') return false;
+    return exp - 30 <= Math.floor(Date.now() / 1000);
+  }
+
+  /**
+   * Make an authenticated HTTP request, injecting the in-memory access token as a `Bearer` header.
+   *
+   * The token NEVER leaves the client: subclasses (e.g. NebulaClient) use this to call authed HTTP
+   * endpoints that are NOT on the mesh (a registry route), so app/page code never handles the
+   * credential AND there is a SINGLE token authority — no second consumer racing the rotating
+   * refresh cookie (the 2026-06-26 back-to-back-refresh hang). Refreshes if the token is missing /
+   * near-expiry, and retries ONCE on a 401 (token rejected mid-flight). `protected`, not public,
+   * precisely so the bearer is reachable by subclasses but never by callers of the client.
+   */
+  protected async authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const fetchFn = this.#config.fetch ?? fetch;
+    const withAuth = (token: string): RequestInit => ({
+      ...init,
+      headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` },
+    });
+    await this.#ensureFreshToken();
+    let res = await fetchFn(url, withAuth(this.#accessToken!));
+    if (res.status === 401) {
+      this.#accessToken = null; // force a fresh mint, then retry once
+      await this.#ensureFreshToken();
+      res = await fetchFn(url, withAuth(this.#accessToken!));
+    }
+    return res;
+  }
+
   /**
    * Get TabIdDeps from config or globals. Returns null if unavailable
    * (non-browser environment without injected deps).
@@ -1004,6 +1115,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // ============================================
 
   #handleMessage(data: string): void {
+    // Heartbeat auto-pong from the gateway — keepalive only, not a mesh message (and not JSON, so it
+    // must be skipped BEFORE the parse below or it logs a spurious parse error every cadence).
+    if (data === WS_HEARTBEAT_PONG) return;
+
     let message: GatewayMessage;
     try {
       // Use JSON.parse - postprocessing is done per-field as needed

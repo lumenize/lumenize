@@ -1,35 +1,37 @@
 /**
  * Documentation validation test for Email Sender examples.
  *
- * The documented code appears below - the @check-example plugin validates it exists here.
+ * The documented code appears below — the @check-example plugin validates it exists here.
  * Each example is in its own block so the class name AuthEmailSender can be reused
  * (matching the docs), and the check-example substring match finds each variant.
+ *
+ * Provider is chosen by the environment, not by which class you extend: the `EMAIL`
+ * binding selects Cloudflare; `EMAIL_PROVIDER=resend` (+ `RESEND_API_KEY`) selects Resend.
  */
 import { describe, it, expect } from 'vitest';
 import {
-  CloudflareEmailSender,
-  ResendEmailSender,
+  AuthEmailSenderBase,
   defaultMagicLinkHtml,
 } from '@lumenize/auth';
 
-// --- Cloudflare Quick Start (getting-started.mdx "Email Provider") ---
+// --- Quick Start (getting-started.md "Email Provider") ---
 
 {
-  class AuthEmailSender extends CloudflareEmailSender {
-    from = 'auth@myapp.com';  // must be on a domain you've onboarded to Cloudflare Email Sending
+  class AuthEmailSender extends AuthEmailSenderBase {
+    from = 'auth@myapp.com';  // a domain onboarded to Cloudflare Email Sending (or verified with Resend)
   }
 
-  describe('Email Sender — Cloudflare Quick Start', () => {
-    it('basic CloudflareEmailSender subclass', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
+  describe('Email Sender — Quick Start', () => {
+    it('basic AuthEmailSenderBase subclass', () => {
+      expect(AuthEmailSender.prototype).toBeInstanceOf(AuthEmailSenderBase);
     });
   });
 }
 
-// --- Cloudflare Customizing Templates (getting-started.mdx) ---
+// --- Customizing Templates (customizing-email.mdx) ---
 
 {
-  class AuthEmailSender extends CloudflareEmailSender {
+  class AuthEmailSender extends AuthEmailSenderBase {
     from = 'auth@myapp.com';
     replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
     appName = 'My App';              // default: 'Lumenize'
@@ -40,17 +42,17 @@ import {
     // other 4 template methods use defaults
   }
 
-  describe('Email Sender — Cloudflare Custom Templates', () => {
+  describe('Email Sender — Custom Templates', () => {
     it('custom template sender has overridden properties', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
+      expect(AuthEmailSender.prototype).toBeInstanceOf(AuthEmailSenderBase);
     });
   });
 }
 
-// --- Cloudflare Composing with default template (getting-started.mdx) ---
+// --- Composing with the default template (customizing-email.mdx) ---
 
 {
-  class AuthEmailSender extends CloudflareEmailSender {
+  class AuthEmailSender extends AuthEmailSenderBase {
     from = 'auth@myapp.com';
 
     magicLinkHtml(message: any) {
@@ -58,23 +60,25 @@ import {
     }
   }
 
-  describe('Email Sender — Cloudflare Composed Template', () => {
+  describe('Email Sender — Composed Template', () => {
     it('composed template sender works', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
+      expect(AuthEmailSender.prototype).toBeInstanceOf(AuthEmailSenderBase);
     });
   });
 }
 
-// --- Resend alternative (using-resend-instead.mdx) ---
+// --- Using Resend (using-resend-instead.mdx) ---
+// Same base class — Resend is selected by env (EMAIL_PROVIDER=resend, or no EMAIL
+// binding, + RESEND_API_KEY), not by extending a different class.
 
 {
-  class AuthEmailSender extends ResendEmailSender {
+  class AuthEmailSender extends AuthEmailSenderBase {
     from = 'auth@myapp.com';  // must match your verified Resend domain
   }
 
-  describe('Email Sender — Resend alternative', () => {
-    it('basic ResendEmailSender subclass', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(ResendEmailSender);
+  describe('Email Sender — Resend via EMAIL_PROVIDER', () => {
+    it('same base class; provider chosen by env', () => {
+      expect(AuthEmailSender.prototype).toBeInstanceOf(AuthEmailSenderBase);
     });
   });
 }

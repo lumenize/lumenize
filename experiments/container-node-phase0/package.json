@@ -1,0 +1,13 @@
+{
+  "name": "container-node-phase0",
+  "private": true,
+  "type": "module",
+  "description": "Phase-0 kill-fast deploy gate for the 4th node type: does a real LumenizeContainer-based node construct + coexist with Container's lifecycle on deployed infra, via the CI container-deploy pipeline? See tasks/nebula-container-dev-loop.md Phase 0.",
+  "dependencies": {
+    "@lumenize/mesh": "*",
+    "@lumenize/structured-clone": "*"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
+  }
+}

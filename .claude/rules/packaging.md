@@ -26,7 +26,7 @@ Intra-monorepo deps use `"*"` as the version.
 **Cloudflare Worker packages** additionally:
 - `tsconfig.json` extends root, includes `"types": ["vitest/globals"]`
 - `vitest.config.js` (Workers project config — see [testing.md](testing.md))
-- `wrangler.jsonc` (DO bindings + class-registration `migrations`; `compatibility_date: "2026-03-12"` or later)
+- `wrangler.jsonc` (DO bindings + class-registration `migrations`; `compatibility_date: "2026-03-12"` or later). For Node builtins use `compatibility_flags: ["nodejs_compat"]` — **NOT `"nodejs_compat_v2"`**: with a current compat date `nodejs_compat` already gives v2 semantics AND resolves `node:` module imports in real `wrangler dev`, whereas the `_v2`-suffixed flag does not (a `node:os`/etc. import crashes worker startup with `No such module`). vitest-pool-workers polyfills `node:` builtins independently, so a green pool-workers run masks this — real `wrangler dev` (deployed-Worker harnesses) + prod break.
 - `worker-configuration.d.ts` — **auto-generated only** via `npm run types`
 
 ## Use the global `Env` type

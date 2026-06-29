@@ -17,6 +17,7 @@ import {
   type ConnectionState,
   mesh,
 } from '../src/index.js';
+import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from '../src/ws-heartbeat.js';
 
 // ============================================
 // Minimal WebSocket Stub for Unit Testing
@@ -905,6 +906,87 @@ describe('Token refresh', () => {
     client.disconnect();
   });
 
+  it('refreshes a token that EXPIRED while idle on reconnect (not only a missing one)', async () => {
+    let refreshCount = 0;
+    const past = Math.floor(Date.now() / 1000) - 60;
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCount++;
+        // 1st mint is already-expired (simulates the access token aging out over a long idle);
+        // the reconnect's refresh returns a fresh one so the retry can succeed.
+        return { access_token: createFakeJwt({ sub: 'user', exp: refreshCount === 1 ? past : future }) };
+      },
+    });
+
+    // First connect refreshes the missing token → `#claims.exp` is now in the PAST.
+    await new Promise(r => setTimeout(r, 20));
+    expect(refreshCount).toBe(1);
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    // Network drop → reconnect with a PRESENT-but-EXPIRED token. The client MUST refresh before the
+    // WS upgrade — else the gateway rejects it ("bad response from the server") and #scheduleReconnect
+    // loops forever with the same dead token (the chat-down-after-hours bug).
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+    client.connect(); // trigger the reconnect now (timers mocked — mirrors the 4409 stale-close test)
+    await new Promise(r => setTimeout(r, 20));
+
+    // Capable-of-failing: the old `if (!#accessToken)` guard skipped the refresh because a token was
+    // present, so refreshCount would stay 1 and the new socket would carry the expired token.
+    expect(refreshCount).toBe(2);
+    expect(createdWebSockets[1]).toBeDefined();
+    client.disconnect();
+  });
+
+  it('force-refreshes ONCE on a reconnect failure even when the token looks fresh by exp (auth reject unreadable off the WS)', async () => {
+    let refreshCount = 0;
+    const future = Math.floor(Date.now() / 1000) + 3600;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCount++;
+        return { access_token: createFakeJwt({ sub: 'user', exp: future }) };
+      },
+    });
+
+    // First connect refreshes the missing token → `#claims.exp` is FUTURE, so the token looks fresh.
+    await new Promise(r => setTimeout(r, 20));
+    expect(refreshCount).toBe(1);
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    // 1st drop (generic 1006 — the unreadable upgrade-reject the browser gives us): a single drop is
+    // likely a transient blip, so the fresh-looking token is REUSED with no refresh.
+    ws1.simulateClose(1006, 'bad response from the server');
+    client.connect(); // trigger the scheduled reconnect now (mirrors the 4409 stale-close test)
+    const ws2 = createdWebSockets[1];
+    expect(ws2).toBeDefined();
+    expect(refreshCount).toBe(1); // one drop isn't enough — token reused
+
+    // 2nd consecutive failure: now the reconnect itself failed, so the token is the suspect (a
+    // key-rotation / clock-skew / revocation reject that looks fresh by `exp`). Force-reauth once →
+    // refresh before retrying.
+    ws2.simulateClose(1006, 'bad response from the server');
+    client.connect();
+    await new Promise(r => setTimeout(r, 20));
+
+    // Capable-of-failing: without the threshold-gated force-reauth, the fresh-looking token is reused
+    // with no refresh, so refreshCount stays 1 (and the gateway keeps rejecting it — the loop).
+    expect(refreshCount).toBe(2);
+    client.disconnect();
+  });
+
   it('calls onLoginRequired when refresh fails', async () => {
     let loginRequiredCalled = false;
     let refreshCallCount = 0;
@@ -1523,5 +1605,35 @@ describe('Disconnect cleanup', () => {
     // Disconnect should clear the reconnect timer
     client.disconnect();
     expect(client.connectionState).toBe('disconnected');
+  });
+});
+
+describe('WebSocket heartbeat (keepalive)', () => {
+  beforeEach(() => { createdWebSockets = []; });
+
+  it('sends a keepalive ping on the interval while connected; pong does not disrupt', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+      heartbeatIntervalMs: 20, // tiny so it fires within the test (prod default is 30s)
+    });
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+
+    await new Promise(r => setTimeout(r, 75)); // a few intervals
+    const pings = ws.getSentMessages().filter((m: string) => m === WS_HEARTBEAT_PING);
+    // Capable-of-failing: without the heartbeat there are ZERO pings → a long quiet turn idle-drops
+    // the WS and the completed turn's reply can't be delivered.
+    expect(pings.length).toBeGreaterThanOrEqual(2);
+
+    // The gateway's auto-pong is keepalive, not a mesh message — it must not disrupt the connection.
+    ws.simulateMessage(WS_HEARTBEAT_PONG);
+    expect(client.connectionState).toBe('connected');
+
+    client.disconnect(); // stops the interval (no leaked timer)
   });
 });

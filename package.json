@@ -15,13 +15,18 @@
     "packages/ts-runtime-parser-validator/forks/typia/transform",
     "packages/ts-runtime-parser-validator/forks/typia/interface",
     "packages/ts-runtime-parser-validator/forks/typia/utils",
-    "apps/nebula/spike/sfc-devstar-loop",
     "experiments/structured-clone-object-format",
-    "experiments/onstart-repro"
+    "experiments/onstart-repro",
+    "experiments/container-vite-spike",
+    "experiments/container-agent-channel",
+    "experiments/container-node-phase0",
+    "experiments/container-egress-catrust",
+    "experiments/interim-dev-loop"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
     "postinstall": "./scripts/setup-symlinks.sh",
+    "dev:studio": "./scripts/dev-studio.sh",
     "types": "./scripts/generate-types.sh",
     "audit:test-mode": "./scripts/audit-test-mode.sh",
     "test:code": "./scripts/test-code.sh",
@@ -34,6 +39,7 @@
     "clean:all": "npm run clean && npm run clean:deps && npm install",
     "release:dry-run": "./scripts/release-dry-run.sh",
     "release": "./scripts/release.sh",
+    "deploy:nebula": "bash apps/nebula/scripts/deploy.sh",
     "restore-dev-mode": "./scripts/restore-dev-mode.sh"
   },
   "devDependencies": {

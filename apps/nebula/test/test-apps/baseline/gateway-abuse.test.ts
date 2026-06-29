@@ -18,25 +18,29 @@ describe('gateway abuse cases', () => {
   // ============================================
 
   describe('direct HTTP rejection', () => {
-    it('returns 501 for direct HTTP to Star binding', async () => {
+    // The direct-DO route is opened ONLY for the dev preview serve (Phase 4 retired
+    // the in-DO Star.onRequest serve): GET/HEAD to DEV_CONTAINER reaches
+    // `DevContainer.fetch()`; every other method is 405, every other binding
+    // (incl. STAR/UNIVERSE) is 404.
+    it('returns 404 for direct HTTP GET to a non-serving binding (Star — in-DO serve retired)', async () => {
       const resp = await SELF.fetch('http://localhost/STAR/acme.app.tenant-a', {
         method: 'GET',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);   // STAR is no longer a serving target → gate 404s
     });
 
-    it('returns 501 for direct HTTP to ResourceHistory binding', async () => {
-      const resp = await SELF.fetch(`http://localhost/RESOURCE_HISTORY/${generateUuid()}`, {
-        method: 'GET',
+    it('returns 405 for a non-GET to the serving binding (DEV_CONTAINER)', async () => {
+      const resp = await SELF.fetch('http://localhost/DEV_CONTAINER/acme.app.dev', {
+        method: 'POST',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(405);   // gate bounds the opened route to GET/HEAD
     });
 
-    it('returns 501 for direct HTTP to Universe binding', async () => {
+    it('returns 404 for direct HTTP to a non-serving binding (Universe)', async () => {
       const resp = await SELF.fetch('http://localhost/UNIVERSE/acme', {
         method: 'GET',
       });
-      expect(resp.status).toBe(501);
+      expect(resp.status).toBe(404);   // not a serving target → gate 404s
     });
 
     it('returns 501 for HTTP to gateway route', async () => {

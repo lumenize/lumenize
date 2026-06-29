@@ -1,5 +1,7 @@
 # Release Process Improvements
 
+**Status**: On Hold — Phase 1 partially landed (issues 2, 3, 7, 9 resolved as of 2026-06-15, see Phase 1); Phases 2–5 (de-flake, version/publish split, CI release, drift audit) not started.
+
 ## Objective
 
 Make `npm publish` releases of the `@lumenize/*` packages reliably finish on the first try, without the operator (Larry) having to play whack-a-mole with drift in test infrastructure, lerna's broad workspace sweep, and one-off recovery commits to clean up half-bumped state.
@@ -48,9 +50,11 @@ A successful release should:
 
 **Goal**: knock out the 13 issues above with the minimum-cost fix per issue. Most are one-line or one-file changes.
 
+> **Resolved since (2026-06-15 audit)**: issue 9 (caret→`*`) ✅ done — all private workspaces now use `"*"` (no `^0.x` `@lumenize/*` pins remain). Issue 2 ✅ (`packages/rpc/test/map-set-debug.test.ts` deleted). Issue 3 ✅ (the `ts-runtime-validator` package was replaced by `ts-runtime-parser-validator`; the orphaned test is gone). Issue 7 ✅ (`experiments/alarm-accuracy` removed from root `workspaces`). Issue 4's `packages/rpc/test/test-worker-and-dos.ts` still exists; the standing audit/check items below are not yet built.
+
 **Items**:
-- [ ] Bulk-rewrite all private-workspace `@lumenize/*` deps from `"^0.X.Y"` to `"*"`. Files: `apps/nebula/package.json`, every `doc-test/*/*/package.json`, any `experiments/*` we keep, any `examples/*`. (Eliminates issue 9 entirely. Mechanical sed.)
-- [ ] Sweep `experiments/` per CLAUDE.md guidance: drop completed experiments from `workspaces`. v0.25 dropped `alarm-accuracy`; do the same audit for the rest. Add a checklist item to the release runbook.
+- [x] Bulk-rewrite all private-workspace `@lumenize/*` deps from `"^0.X.Y"` to `"*"`. Files: `apps/nebula/package.json`, every `doc-test/*/*/package.json`, any `experiments/*` we keep, any `examples/*`. (Eliminates issue 9 entirely. Mechanical sed.) — **done**
+- [ ] Sweep `experiments/` per CLAUDE.md guidance: drop completed experiments from `workspaces`. v0.25 dropped `alarm-accuracy` (done); do the same audit for the rest. Add a checklist item to the release runbook.
 - [ ] Audit existing test files for orphaned imports — find every `test/*.ts` that re-exports from another `test/*.ts`, and cross-check the targets exist. Same for `wrangler.jsonc` `class_name` references that point at non-existent classes. Could be a one-off `grep`-based audit or a permanent CI check.
 - [ ] Add a "find debug/exploratory test files" check — any `*.test.ts` whose docstring contains "debug" or "exploratory" or that's the only file with `console.log` spam in `src` doesn't belong in a release.
 
@@ -127,7 +131,7 @@ A successful release should:
 ## Open questions
 
 - **CI secret-management strategy** — the token rotation discipline is a real cost. Is it worth the lift, or is the OTP race tolerable? My read: with 9 packages today and growing to 12+, the race gets worse not better. CI is right.
-- **What about Nebula's release flow?** That's [tasks/nebula-release-process.md](tasks/nebula-release-process.md) — distinct task, but the CI work in Phase 4 here would benefit Nebula's deploy flow too. Coordinate when Phase 4 is sized.
+- **What about Nebula's release flow?** That's [tasks/on-hold/nebula-release-process.md](nebula-release-process.md) — distinct task, but the CI work in Phase 4 here would benefit Nebula's deploy flow too. Coordinate when Phase 4 is sized.
 - **Do we want to drop lerna entirely?** Lerna's `version` step (with its `npm install --package-lock-only` side effect) was the primary trip-hazard in v0.25. We use lerna for two things: synchronized version bumping and `publish from-package`. Both are doable in plain shell + `npm version` + `npm publish` loops. Consider as Phase 4 prerequisite.
 
 ## Notes

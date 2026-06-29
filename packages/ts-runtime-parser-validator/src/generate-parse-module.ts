@@ -8,6 +8,7 @@ import {
   INLINED_ACCESS_EXPRESSION_AS_STRING,
 } from './typia-runtime-helpers';
 import { extractTypeMetadata, type TypeMetadata } from './extract-type-metadata';
+import { createVirtualHost } from './virtual-ts-host';
 
 /**
  * Minimal typia `.d.ts` shim. Enough surface area for
@@ -130,53 +131,6 @@ declare type NonNullable<T> = T extends null | undefined ? never : T;
 
 type VirtualFiles = Map<string, string>;
 
-function createVirtualHost(
-  files: VirtualFiles,
-  target: number,
-  defaultLib: string,
-): unknown {
-  // Normalise candidate path → one of the forms our files map uses. Needed
-  // because TypeScript asks for lib files via several path shapes (with or
-  // without leading slash, with or without `/lib/` prefix depending on how
-  // `getDefaultLibLocation` is plumbed).
-  const resolve = (fileName: string): string | undefined => {
-    if (files.has(fileName)) return fileName;
-    if (files.has('/' + fileName)) return '/' + fileName;
-    const base = fileName.split('/').pop()!;
-    if (files.has('/' + base)) return '/' + base;
-    return undefined;
-  };
-  return {
-    getSourceFile(fileName: string, languageVersion: number) {
-      const key = resolve(fileName);
-      if (!key) return undefined;
-      const content = files.get(key);
-      if (content === undefined) return undefined;
-      return (ts as { createSourceFile: Function }).createSourceFile(
-        fileName,
-        content,
-        languageVersion,
-        true,
-      );
-    },
-    getDefaultLibFileName: () => defaultLib,
-    getDefaultLibLocation: () => '/',
-    writeFile: () => {},
-    getCurrentDirectory: () => '/',
-    useCaseSensitiveFileNames: () => true,
-    getCanonicalFileName: (f: string) => f,
-    getNewLine: () => '\n',
-    fileExists: (f: string) => resolve(f) !== undefined,
-    readFile: (f: string) => {
-      const key = resolve(f);
-      return key ? files.get(key) : undefined;
-    },
-    directoryExists: () => true,
-    getDirectories: () => [],
-  };
-  void target;
-}
-
 /**
  * Generate a JS module source string (for a DO facet to load) from a string of
  * TypeScript interface definitions.
@@ -270,7 +224,7 @@ ${validatorEntries}
 
   const defaultLib = libFiles['lib.es2022.d.ts'] ? 'lib.es2022.d.ts' : 'lib.d.ts';
 
-  const host = createVirtualHost(files, tsApi.ScriptTarget.ESNext, defaultLib);
+  const host = createVirtualHost(files, defaultLib);
   const program = tsApi.createProgram(['/input.ts'], {
     strict: true,
     target: tsApi.ScriptTarget.ESNext,

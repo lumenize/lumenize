@@ -3,7 +3,7 @@
 **Status**: On Hold — design captured, not started
 **App**: `apps/nebula/`
 **Supersedes**: `tasks/icebox/nebula-5.4-capability-tickets.md` (per-resource `ResourceHistory` DO + capability tickets — iceboxed)
-**Master task file**: `tasks/nebula.md`
+**Master task file**: `tasks/archive/nebula.md` (archived)
 **Relevant engine**: `apps/nebula/src/resources.ts` (`Snapshots` table, Snodgrass-style temporal storage in Star)
 
 ## Goal
@@ -118,7 +118,7 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
 - **`apps/nebula/src/resource-history.ts`** survives **only** as the canonical tenant-scoped-
   helper **test fixture** for `tasks/nebula-do-scope-isolation.md` — it is no longer a stub for
   real history storage. Its docstring points here.
-- **`tasks/nebula.md`** Phase 5.4 row + the "ResourceHistory gains real temporal storage"
+- **`tasks/archive/nebula.md`** (archived) Phase 5.4 row + the "ResourceHistory gains real temporal storage"
   framing updated to point here.
 
 ## Open decisions (resolve before "go")
@@ -172,6 +172,9 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
   committing — validate it's not the hundreds-of-ms figure previously assumed. Reuse the
   browser-test/bench harness (see `reference_mesh_browser_test_template`,
   `reference_fanout_bench_setup`).
+  → **Spike drafted + CF research captured, then punted 2026-06-22** (the Studio recorder uses the
+  Galaxy DO's SQLite; the R2-vs-DO benchmark is on-hold → [`spike-r2-olap-latency.md`](spike-r2-olap-latency.md), its API-token blocker now lifting (R2 SQL Worker binding incoming)).
+  D4 remains open / unbenchmarked — revisit when resource-history-on-R2 is actually built.
 - **D5 — Hot-read frequency.** How often do temporal queries / window-of-now tree traversals
   actually hit history vs. current? Drives whether the D2 short-lived cache is worth building and
   what its TTL should be.
@@ -209,10 +212,10 @@ async R2 fetch (it is sync-from-SQLite today); the Star needs an R2 binding.
 ## Out of scope
 
 - **Working-set ceiling.** If a Star's *live* (current-version) data alone exceeds ~10 GB, that's a
-  sharding/branching concern (already on the roadmap via `tasks/nebula-branches.md`), not this task.
+  sharding/branching concern (deferred post-demo — `tasks/icebox/nebula-branches.md`), not this task.
   This task removes the **history** growth axis only.
 - **Granularity compression** of history (merging old snapshots) — already rejected as a premature
-  optimization in `tasks/nebula-5-resources.md`; debounce covers 90% of the benefit. R2's cheap
+  optimization in `docs/archive-and-outdated/nebula-resources-design.md`; debounce covers 90% of the benefit. R2's cheap
   storage weakens the case for compression even further.
 
 ## Success criteria (when this leaves On Hold)

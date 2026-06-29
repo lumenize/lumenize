@@ -202,6 +202,21 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(body.error).toBe('parent_not_found');
     });
 
+    it('POST /auth/claim-star for a `.dev` authoring star requires a JWT (m2 parent-admin gate)', async () => {
+      // A `.dev` claim is parent-Galaxy-admin gated, so the router demands a Bearer token before
+      // forwarding (the registry then enforces admin-over-parent). No token → 401. The non-`.dev`
+      // claim test above needs no token — claim ≠ use, the gate is `.dev`-only.
+      const resp = await SELF.fetch(new Request(registryUrl('claim-star'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          universeGalaxyStarId: 'some-univ.some-galaxy.dev',
+          email: 'dev@example.com',
+        }),
+      }));
+      expect(resp.status).toBe(401);
+    });
+
     it('POST /auth/create-galaxy requires JWT', async () => {
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
         method: 'POST',
@@ -283,7 +298,8 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       // Click it
       const resp = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp.status).toBe(302);
-      expect(resp.headers.get('Location')).toBe('/app');
+      // Lands on /app/{scope} so the SPA can auto-connect with no local state.
+      expect(resp.headers.get('Location')).toMatch(/^\/app\/[^/?#]+$/);
       expect(resp.headers.get('Set-Cookie')).toContain('refresh-token=');
     });
 
@@ -1148,7 +1164,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(resp.headers.get('Location')).toContain('error=invalid_token');
     });
 
-    it('reusing a magic link token redirects with error', async () => {
+    it('reusing a magic link token within its TTL still logs in (email-prefetch tolerance)', async () => {
       const instance = `ml-reuse-${generateUuid().slice(0, 8)}`;
 
       // Get magic link
@@ -1159,15 +1175,17 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       const { magic_link } = await mlResp.json() as any;
 
-      // First click — consumes the token
+      // First click — logs in (redirect lands on /app/{scope} for the SPA).
       const resp1 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp1.status).toBe(302);
-      expect(resp1.headers.get('Location')).toBe('/app');
+      expect(resp1.headers.get('Location')).toMatch(/^\/app\/[^/?#]+$/);
 
-      // Second click — token already used/deleted
+      // Second click within the TTL — STILL logs in. An email scanner's prefetch consumes the link
+      // before the user's real click; a strict one-time token would lock them out (the 2026-06-26
+      // `invalid_token` stopper). Reusable-until-expiry keeps the user's click working.
       const resp2 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
       expect(resp2.status).toBe(302);
-      expect(resp2.headers.get('Location')).toContain('error=');
+      expect(resp2.headers.get('Location')).toMatch(/^\/app\/[^/?#]+$/);
     });
 
     it('accept-invite with missing invite_token returns 400', async () => {
@@ -1363,6 +1381,26 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const starBody = await starResp.json() as any;
       expect(starBody.magicLinkUrl).toBeDefined();
 
+      // 5b. Claim the `.dev` AUTHORING star — the m2 gate requires the parent-Galaxy admin JWT, so
+      //     this closes the POSITIVE router→registry loop: the router verifies the Bearer token and
+      //     injects verifiedAccess, the registry's #hasAdminOverGalaxy passes (the universe-admin
+      //     token `${universe}.*` covers `${galaxyId}`), and the claim succeeds. (The negative path —
+      //     a `.dev` claim with no JWT → 401 — is covered above.)
+      const devStarResp = await SELF.fetch(new Request(registryUrl('claim-star'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${access_token}`,
+        },
+        body: JSON.stringify({
+          universeGalaxyStarId: `${galaxyId}.dev`,
+          email: 'dev-author@example.com',
+        }),
+      }));
+      expect(devStarResp.status, 'a parent-Galaxy admin should claim the .dev star through the Worker').toBe(200);
+      const devStarBody = await devStarResp.json() as any;
+      expect(devStarBody.magicLinkUrl).toContain(`${galaxyId}.dev/magic-link`);
+
       // 6. Verify discovery shows both admin entries
       const discoverResp = await SELF.fetch(new Request(registryUrl('discover'), {
         method: 'POST',
@@ -1443,6 +1481,86 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
         body: JSON.stringify({ email }),
       }));
       expect(resp.status).toBe(200);
+    });
+  });
+
+  // ============================================
+  // Outbound-URL host-awareness — Phase 0 guard
+  // (tasks/on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)
+  //
+  // Invariant: every user-facing URL we mint (magic-link URL, post-login redirect) follows the
+  // INBOUND request host, never a pinned platform host. The JWT issuer is the ONE deliberately
+  // fixed canonical host (it's an identity claim, not a routed URL) — guarded in the inverse below.
+  //
+  // Why this guard exists: when hosted apps move to lumenize.dev + customer custom domains, a single
+  // hardcoded host in any minting site silently breaks login — the refresh cookie lands on the wrong
+  // origin, the user just logs in twice and never reports it. These tests go red the moment a minting
+  // site pins a host. Mutation-checked: changing `const baseUrl = url.origin` (nebula-auth.ts
+  // #handleEmailMagicLink) to `NEBULA_AUTH_ISSUER` turns the cross-host assertions red.
+  // ============================================
+  describe('Outbound URL host-awareness (Phase 0 guard)', () => {
+    const scope = 'guard-universe';
+    const ISSUER_HOST = new URL(NEBULA_AUTH_ISSUER).host; // nebula.lumenize.com
+
+    async function magicLinkFrom(host: string): Promise<string> {
+      const resp = await SELF.fetch(new Request(`https://${host}${PREFIX}/${scope}/email-magic-link?_test=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'guard@example.com' }),
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json() as any;
+      expect(body.magic_link).toBeDefined();
+      return body.magic_link as string;
+    }
+
+    it('mints the magic-link URL on the inbound host, not a fixed platform host', async () => {
+      // The default hosted-app host shape.
+      const onDev = await magicLinkFrom('app.acme.lumenize.dev');
+      expect(new URL(onDev).origin).toBe('https://app.acme.lumenize.dev');
+
+      // A DIFFERENT inbound host (a customer custom domain) must yield a DIFFERENT magic-link host —
+      // proves the host is DERIVED from the request, not a constant.
+      const onCustom = await magicLinkFrom('acme.com');
+      expect(new URL(onCustom).origin).toBe('https://acme.com');
+
+      // The canonical issuer host must never leak into a link minted on another host.
+      // Discriminator: the wrong impl (baseUrl = issuer) WOULD contain it (not a vacuous negative).
+      expect(onDev).not.toContain(ISSUER_HOST);
+      expect(onCustom).not.toContain(ISSUER_HOST);
+    });
+
+    it('post-login redirect Location follows the inbound host (stays relative)', async () => {
+      const magicLink = await magicLinkFrom('acme.com');
+      const click = await SELF.fetch(new Request(magicLink, { redirect: 'manual' }));
+      expect(click.status).toBe(302);
+      const location = click.headers.get('Location')!;
+      // Invariant: relative (host-following) OR absolute-on-the-inbound-host — never a pinned foreign
+      // host. Today it's relative (`/app/{scope}`); this locks that in.
+      const followsHost = location.startsWith('/') || new URL(location, magicLink).host === 'acme.com';
+      expect(followsHost).toBe(true);
+      expect(location).not.toContain(ISSUER_HOST);
+    });
+
+    it('keeps the JWT issuer fixed (canonical) even when login happens on a custom host', async () => {
+      // The inverse invariant: issuer is identity, not routing — it must NOT follow the inbound host.
+      const host = 'acme.com';
+      const magicLink = await magicLinkFrom(host);
+      const click = await SELF.fetch(new Request(magicLink, { redirect: 'manual' }));
+      expect(click.status).toBe(302);
+      const refreshToken = click.headers.get('Set-Cookie')!.split(';')[0]!.split('=')[1]!;
+
+      const refresh = await SELF.fetch(new Request(`https://${host}${PREFIX}/${scope}/refresh-token`, {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: scope }),
+      }));
+      expect(refresh.status).toBe(200);
+      const { access_token } = await refresh.json() as any;
+      const payloadB64 = access_token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/');
+      const claims = JSON.parse(atob(payloadB64));
+      expect(claims.iss).toBe(NEBULA_AUTH_ISSUER);
+      expect(claims.iss).not.toContain(host);
     });
   });
 });

@@ -30,7 +30,7 @@ function uniqueStar(): string {
 async function setupAdminClient(star: string) {
   const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
-  a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: ONTOLOGY_VERSION, types: RICH_TYPES });
+  a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: RICH_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
   return a;
 }

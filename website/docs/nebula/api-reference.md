@@ -21,6 +21,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | --- | --- | --- |
 | `createNebulaClient(config)` | new-in-v3 | [createNebulaClient](#createnebulaclient) |
 | `client.resources.subscribe(rt, rid)` | implemented-in-spike | [resources.subscribe](#resourcessubscribe) |
+| `client.resources.createAndSubscribe(rt, rid, nodeId, value)` | new-in-v3 | [resources.createAndSubscribe](#resourcescreateandsubscribe) |
 | `client.resources.unsubscribe(rt, rid)` | implemented-in-spike | [resources.unsubscribe](#resourcesunsubscribe) |
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
@@ -139,6 +140,12 @@ interface ResourceSubscription extends Disposable {
 
 Subscribes synchronously (registers the subscriber row immediately); the **initial snapshot** arrives asynchronously via `handleResourceUpdate` and is exposed on `.snapshot`.
 
+:::note[The resource must already exist]
+
+`subscribe` requires the resource to exist — there is no subscribe-before-create path on the server (a subscription's read authorization is derived from the resource's current snapshot, which a not-yet-created resource doesn't have). Subscribing to an absent resource **rejects** `.snapshot`. To create a resource and start observing it in one step, use [`createAndSubscribe`](#resourcescreateandsubscribe).
+
+:::
+
 If a pending subscribe for the same `(rt, rid)` already exists, the new handle's `.snapshot` piggybacks on that pending settlement instead of issuing a duplicate request. `[Symbol.dispose]()` decrements per-handle; the underlying server-side subscription releases when the last handle disposes (mirrors auto-subscribe's refcount-with-grace).
 
 ### Idiomatic usage with `using`
@@ -164,6 +171,28 @@ client.resources.unsubscribe('todo', 'task-42');                // standalone AP
 **Typical usage**: rarely called directly. Most subscriptions happen via auto-subscribe (reading from the store inside a Vue component triggers `subscribe` on the underlying client). Call explicitly only when subscribing to a resource the UI doesn't yet bind to — warming a cache before navigation, scripting, headless tests. The `using` form is the idiomatic explicit pattern; the standalone `unsubscribe` is for cases where the subscribe and release sites legitimately differ.
 
 **TypeScript requirement**: `Disposable` and the `using` keyword are ES2023 / TypeScript 5.2+. Studio-generated tsconfig includes the needed `lib: ["ESNext"]` or equivalent.
+
+## `client.resources.createAndSubscribe` {#resourcescreateandsubscribe}
+
+**Tag**: `new-in-v3`.
+
+```typescript @skip-check
+createAndSubscribe(
+  resourceType: string,
+  resourceId: string,
+  nodeId: number,
+  value: unknown,
+): ResourceSubscription;
+```
+
+The ergonomic form of the **create-then-subscribe** pattern: since [`subscribe`](#resourcessubscribe) requires the resource to already exist, this method sequences a `create` [transaction](#resourcestransaction) followed by a `subscribe`, client-side, so you get one call and a `using`-compatible handle. Returns the [`ResourceSubscription`](#resourcessubscribe) **synchronously** (refcount + `[Symbol.dispose]()` behave exactly as `subscribe`); the underlying server subscribe is deferred until the create commits, so `.snapshot` resolves with the **freshly-created snapshot**.
+
+If the create does **not** commit (the resource already exists, or a permission / validation failure), `.snapshot` **rejects** — use plain `subscribe` for a resource that already exists. Disposing the handle before the create lands cancels the pending subscription (the already-submitted create is not unwound). It routes to the active scope's Star binding like every other resource call (so it works against a dev Star too).
+
+```typescript @check-example('apps/nebula/test/test-apps/baseline/nebula-client-create-and-subscribe.test.ts')
+using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'made', done: false });
+const snap = await sub.snapshot;
+```
 
 ## `client.resources.unsubscribe` {#resourcesunsubscribe}
 
@@ -373,7 +402,7 @@ transactionDebounce(
 
 **Resource-level merge rule** when multiple fields have pending writes with different timings: **shortest active timer wins** for both `quietMs` and `maxWaitMs`. Clicking a `@debounce(0)` checkbox flushes the entire pending resource transaction immediately, including any pending text-field edits — which matches the intuition that the click was a deliberate commit.
 
-Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on input blur (a `focusout` on the bound input) and on `client.dispose()` (component unmount does not itself flush — the quiet/max-wait timers, which are per-`(rt, rid)` not per-component, still submit a buffered write on schedule). At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/debounce-serial-queue.md).
+Other middleware-level behaviors (always-on, not configurable per-call): pending writes flush on input blur (a `focusout` on the bound input) and on `client.dispose()` (component unmount does not itself flush — the quiet/max-wait timers, which are per-`(rt, rid)` not per-component, still submit a buffered write on schedule). At most one transaction in flight per `(rt, rid)`; subsequent writes buffer and submit using the in-flight transaction's resulting eTag. State machine + property tests at [tasks/archive/debounce-serial-queue.md](https://github.com/lumenize/lumenize/blob/main/tasks/archive/debounce-serial-queue.md).
 
 ## `client.dispose` {#clientdispose}
 
@@ -409,7 +438,7 @@ Distinct from [`client.dispose()`](#clientdispose), which tears down the client/
 
 **Tag**: `new-in-v3`. The client-facing namespace is built in v3; the server-side methods it proxies already exist at [`apps/nebula/src/dag-tree.ts`](https://github.com/lumenize/lumenize/blob/main/apps/nebula/src/dag-tree.ts).
 
-Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./resources.md#access-control); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
+Mutations to the app's **org/permission tree** (the DAG that resources attach to for tenancy and access control). The conceptual model — cascading permissions, the two sharing approaches — is in [Resources § Access control](./access-control.md); the usage patterns and worked examples are in [Coding your UI § Mutating the org/permission tree](./coding-your-ui.md#mutating-the-orgpermission-tree).
 
 **Reads do not go through this namespace.** The full tree is delivered on a dedicated channel to `store.lmz.orgTree.value` (an [`OrgTreeState`](#orgtreestate)) — under the framework-reserved `store.lmz.*` prefix, not `store.resources.*` (the tree isn't a resource). Bind to it reactively rather than polling a query method. `client.orgTree.*` is mutations only.
 
@@ -476,7 +505,7 @@ revokePermission(nodeId: number, sub: string): Promise<void>;
 
 ### `OrgTreeState` {#orgtreestate}
 
-**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel (server `DagTree.#onChanged` → broadcast to a `clientId`-keyed registry, synthesized from `dagTree.getState()`) to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's universally visible by design (every connected client gets the full tree; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
+**Tag**: `new-in-v3` — both the type export and the tree delivery. The tree is **not a resource**: it's delivered on a dedicated channel (server `DagTree.#onChanged` → broadcast to a `clientId`-keyed registry, synthesized from `dagTree.getState()`) to `store.lmz.orgTree`, and mutated via [`client.orgTree.*`](#clientorgtree) — never `transaction()`. It's universally visible by design (every connected client gets the full tree; see M7). Authoritative spec: the "Org/permission tree delivery (design B)" item in [tasks/archive/nebula-frontend.md § Phase 5.3.7-v3](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md); the superseded design-space record is § DAG-tree-as-special-resource.
 
 The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/nebula/frontend`.
 
@@ -593,7 +622,7 @@ Three-way merge helper (LCS-based) for long-form text fields, used inside a `'us
 
 **Auto-registration**: a field annotated [`@longform`](./ontology.md#annotations) gets a text-merge resolver registered for it automatically — most apps never call `textMerge` directly. Call it by hand only for a custom merge inside a hand-written [`onTransactionResourceResolution`](#resourcesontransactionresourceresolution) handler. See [Resources § Text fields specifically — don't leave the default](./resources.md#text-fields-specifically--dont-leave-the-default).
 
-**Limitations**: `textMerge` preserves *non-overlapping* concurrent edits but can garble or drop characters when two edits overlap the same span. Full protection for keystrokes typed *before* a concurrent fanout arrives is provided by the synced-state middleware holding fanouts while a resource has pending optimistic writes (shipped alongside this helper in v3). Conflict-free collaborative editing under arbitrary interleaving needs a CRDT — out of scope for 5.3.7 (see [tasks/nebula-frontend.md § Out of scope](https://github.com/lumenize/lumenize/blob/main/tasks/nebula-frontend.md)). The sibling `setUnion` / `counterMerge` helpers remain deferred-post-5.3.7.
+**Limitations**: `textMerge` preserves *non-overlapping* concurrent edits but can garble or drop characters when two edits overlap the same span. Full protection for keystrokes typed *before* a concurrent fanout arrives is provided by the synced-state middleware holding fanouts while a resource has pending optimistic writes (shipped alongside this helper in v3). Conflict-free collaborative editing under arbitrary interleaving needs a CRDT — out of scope for 5.3.7 (see [tasks/archive/nebula-frontend.md § Out of scope](https://github.com/lumenize/lumenize/blob/main/tasks/archive/nebula-frontend.md)). The sibling `setUnion` / `counterMerge` helpers remain deferred-post-5.3.7.
 
 ## Handler bindings {#handler-bindings}
 
@@ -742,7 +771,7 @@ type Middleware = (args: {
 type WriteContext = { source: 'local' | 'remote' | 'rollback' | 'computed' };
 ```
 
-Fires on every write through the Proxy `set` trap — and on intercepted collection-mutator calls (`Map.set/delete/clear`, `Set.add/delete/clear`) on values under `store.resources.*.value`, which run the identical middleware chain as property assignments (see [tasks/factory-collection-sync.md](https://github.com/lumenize/lumenize/blob/main/tasks/factory-collection-sync.md)). For a mutator-driven invocation: `path` is the owning collection's path (e.g. `resources.todo.t1.value.tags`), `oldValue` is a pre-mutation snapshot of the collection, and `newValue` is the post-mutation value; returning a substitute collection applies it in place of the mutation. No-op mutations (`add` of an existing element, `set` to a deep-equal value, `delete` of an absent key, `clear` on empty) skip the chain entirely — parity with the `set` trap's deep-equal dedup. Return a value to substitute for `newValue`; return `undefined` to leave `newValue` unchanged; throw to abort the write entirely.
+Fires on every write through the Proxy `set` trap — and on intercepted collection-mutator calls (`Map.set/delete/clear`, `Set.add/delete/clear`) on values under `store.resources.*.value`, which run the identical middleware chain as property assignments (see [tasks/archive/factory-collection-sync.md](https://github.com/lumenize/lumenize/blob/main/tasks/archive/factory-collection-sync.md)). For a mutator-driven invocation: `path` is the owning collection's path (e.g. `resources.todo.t1.value.tags`), `oldValue` is a pre-mutation snapshot of the collection, and `newValue` is the post-mutation value; returning a substitute collection applies it in place of the mutation. No-op mutations (`add` of an existing element, `set` to a deep-equal value, `delete` of an absent key, `clear` on empty) skip the chain entirely — parity with the `set` trap's deep-equal dedup. Return a value to substitute for `newValue`; return `undefined` to leave `newValue` unchanged; throw to abort the write entirely.
 
 `context.source` discriminates origin:
 

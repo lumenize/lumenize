@@ -3,8 +3,8 @@
 **Status**: On hold — thinking captured (2026-06-14), not started. Speculative until we're running enough volume that "nightly check for high counts of common errors" is a real need (not there yet).
 **Packages**: none changed by the core decision — `@lumenize/debug` stays as-is. New work lands in a Tail Worker (likely `apps/nebula/` or a small dedicated package) + Cloudflare Pipelines/R2 config.
 **Related**:
-- [tasks/on-hold/debug-production-transport.md](./debug-production-transport.md) — the *in-process* transport API (`addDebugTransport`). **This task is the out-of-band alternative and partly tensions with it — see "Relationship to the transport task" below.**
-- [tasks/nebula-tenant-ai-billing.md](../nebula-tenant-ai-billing.md) — already plans a **Tail Worker** for cpuTime/wallTime keyed by `durableObjectId`. Same Tail Worker should be the single egress point for *all* telemetry, including these logs.
+- [tasks/icebox/debug-production-transport.md](../icebox/debug-production-transport.md) — the *in-process* transport API (`addDebugTransport`). **This task is the out-of-band alternative and partly tensions with it — see "Relationship to the transport task" below.**
+- [tasks/nebula-tenant-ai-billing.md](nebula-tenant-ai-billing.md) — already plans a **Tail Worker** for cpuTime/wallTime keyed by `durableObjectId`. Same Tail Worker should be the single egress point for *all* telemetry, including these logs.
 - [tasks/on-hold/nebula-resource-history-r2.md](./nebula-resource-history-r2.md) — separate R2 use (resource history); don't conflate the buckets/datasets.
 **Relevant code**:
 - [packages/debug/src/logger.ts](../../packages/debug/src/logger.ts) — `defaultOutput` = `console.debug(JSON.stringify(log, ...))` (`:46`). This is the harvest point; **nothing here changes**.
@@ -92,7 +92,7 @@ HAVING n > 100 ORDER BY n DESC
 - **One dataset vs per-namespace**: partitioning strategy for R2 SQL scan cost.
 
 ## Relationship to the transport task (reconcile when either is picked up)
-[debug-production-transport.md](./debug-production-transport.md) proposes an **in-process** `addDebugTransport(fn)` push API. This task proposes **out-of-band** harvest via Tail Worker. They are complementary, not redundant:
+[debug-production-transport.md](../icebox/debug-production-transport.md) proposes an **in-process** `addDebugTransport(fn)` push API. This task proposes **out-of-band** harvest via Tail Worker. They are complementary, not redundant:
 - **In-process transport** fits low-latency, fire-once forwarders where you want the entry *as it happens* (e.g. Sentry error capture) and are willing to pay the in-isolate cost.
 - **Tail Worker harvest** fits high-volume, queryable, batched analytics (R2/AE) where hot-path latency and per-call-site bindings are unacceptable.
 - **Decision to make later:** for AE/R2 specifically, prefer the Tail Worker (this task) over an in-process transport — so if both ship, document that AE/R2 destinations go through the Tail Worker, and `addDebugTransport` is for synchronous error forwarders, not bulk analytics.

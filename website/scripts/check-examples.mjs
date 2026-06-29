@@ -29,7 +29,7 @@ const targetFile = args.find((arg) => !arg.startsWith('--'));
 
 // Build options
 const options = {
-  exclude: ['_archived'], // Match docusaurus.config.ts
+  exclude: ['_archived'], // Keep in sync with the checkExamplesPlugin exclude in docusaurus.config.ts
   reportMode,
 };
 

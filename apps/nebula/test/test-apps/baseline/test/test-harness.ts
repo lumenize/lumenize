@@ -9,7 +9,7 @@ export const {
   Universe,
   Galaxy,
   StarTest,
-  ResourceHistory,
+  DevContainerServeStub,
   NebulaAuth,
   NebulaAuthRegistry,
   NebulaClientTest,

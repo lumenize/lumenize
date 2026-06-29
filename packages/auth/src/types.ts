@@ -116,31 +116,10 @@ export type EmailMessage =
   | { type: 'invite-existing'; to: string; redirectUrl: string }
   | { type: 'invite-new'; to: string; inviteUrl: string };
 
-/**
- * Fully resolved email ready for delivery by a provider.
- * Passed to `AuthEmailSenderBase.sendEmail()` after template/subject resolution.
- */
-export interface ResolvedEmail {
-  to: string;
-  subject: string;
-  html: string;
-  from: string;
-  replyTo: string;
-  appName: string;
-  /**
-   * Custom email headers, populated from per-type overridable hooks like
-   * `AuthEmailSenderBase.magicLinkHeaders(message)`. Provider implementations
-   * pass these through to their `send` API (Cloudflare's `binding.send({...})`
-   * accepts a `headers` field directly).
-   *
-   * Useful for: routing/correlation IDs that downstream Email Routing
-   * consumers can read without parsing the body, multi-tenant scope markers
-   * (e.g., `X-Lumenize-Auth-Instance`), A/B variant labels, etc.
-   *
-   * Empty `{}` by default (base hooks return no headers).
-   */
-  headers: Record<string, string>;
-}
+// `ResolvedEmail` now lives in `@lumenize/email` (the transport foundation).
+// Re-exported here so internal `./types` imports and the public `@lumenize/auth`
+// surface stay unchanged.
+export type { ResolvedEmail } from '@lumenize/email';
 
 /**
  * Options for createAuthRoutes — Worker-level routing only.

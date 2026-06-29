@@ -12,7 +12,7 @@ mechanism would transfer), but do not implement as written.
 **App**: `apps/nebula/`
 **Depends on**: Phase 5.1 (Storage Engine), Phase 3 (DAG Tree Access Control)
 
-**Master task file**: `tasks/nebula.md`
+**Master task file**: `tasks/archive/nebula.md` (archived)
 
 ## Goal
 

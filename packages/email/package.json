@@ -1,0 +1,42 @@
+{
+  "name": "@lumenize/email",
+  "version": "0.26.0",
+  "description": "Provider-agnostic email transports (Cloudflare Email Sending, Resend) for Cloudflare Workers, Node.js, and Bun",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest --run",
+    "coverage": "vitest --run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@lumenize/debug": "*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "4.1.4",
+    "vitest": "4.1.4"
+  },
+  "keywords": [
+    "email",
+    "resend",
+    "cloudflare-email",
+    "cloudflare-workers"
+  ],
+  "author": "Larry Maccherone",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

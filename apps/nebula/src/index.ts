@@ -3,14 +3,20 @@
  */
 
 // DO classes
-export { NebulaDO, requireAdmin } from './nebula-do';
+export { NebulaDO, requireAdmin, enforceScopeReach } from './nebula-do';
+export { NebulaContainer } from './nebula-container';
+export { DevContainer } from './dev-container';
+export type { SourceFile } from './dev-container';
+export { DevStudio } from './dev-studio';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';
-export { ResourceHistory } from './resource-history';
 
 // Ontology
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';
+// Pure compile fn (`.d.ts` → validator row). Used by DevStudio (dev apply) + test
+// helpers that apply an ontology via `Star.setOntology` without a Galaxy round-trip.
+export { compileOntologyVersion } from './galaxy';
 
 // Resources
 export { Resources, END_OF_TIME } from './resources';

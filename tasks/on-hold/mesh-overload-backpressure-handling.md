@@ -1,8 +1,8 @@
 # Mesh Overload & Retry Handling (CF `.overloaded` / `.retryable`)
 
-**Status**: On Hold — thinking settled (2026-06-09), not started
+**Status**: On Hold — thinking settled (2026-06-09); Phase 3 (eTag replay-idempotency) verified present in `resources.ts` 2026-06-15, rest not started
 **Packages**: `packages/mesh/` (call boundary + WS upgrade), `apps/nebula/` (client UX + idempotency), `packages/structured-clone/` (only for the minted typed error)
-**Related**: `tasks/on-hold/mesh-resilience-testing.md` (how we'd test this), `tasks/shim-hardening.md` + `tasks/nebula-tenant-ai-billing.md` (multi-tenant load is when this matters)
+**Related**: `tasks/on-hold/mesh-resilience-testing.md` (how we'd test this), `tasks/nebula-tenant-ai-billing.md` (multi-tenant load is when this matters)
 **Relevant engine**: `packages/mesh/src/lmz-api.ts` (`callRaw` boundary, `lmz-api.ts:305`), `packages/mesh/src/lumenize-client.ts` (reconnect backoff `:824`, wake-up sensing `:840`), `packages/mesh/src/lumenize-worker.ts` (WS upgrade), `apps/nebula/src/nebula-client.ts` (serial txn queue `:751`, eTag idempotency / conflict retry `:1020`)
 
 ## Goal
@@ -48,8 +48,8 @@ properties (`.overloaded`, `.retryable`) at the call boundary and WS-upgrade pat
    by wake-up sensing at `:840`); bounded disconnect queue (max 100); serial Nebula txn queue
    (self-throttles naturally); eTag-conflict retry capped at 5 (`nebula-client.ts:1020`). None
    keyed on `.overloaded`/`.retryable`. The `.overloaded` handling in `agents`/`partyserver`
-   lives on the **in-app-AI / Think-shim path** (`agents` is a direct dep of `apps/nebula`),
-   **not on the Mesh wire**.
+   lives in the `agents` library (a direct dep of `apps/nebula`), **not on the Mesh wire** —
+   and the Think-shim path it was relevant to is now iceboxed (`tasks/icebox/think-nebula-integration.md`).
 
 5. **DECISION (2026-06-09, revised same day): Mesh exposes a `call()` option `{ readOnly: true }`;
    the *caller declares* read-only-ness and `callRaw` owns the backoff/jitter retry, gated on it.**

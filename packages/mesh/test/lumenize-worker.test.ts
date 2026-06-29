@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import type { TestWorker } from './test-worker-and-dos';
 import { getOperationChain } from '../src/ocan/index.js';
 
@@ -58,9 +58,10 @@ describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
       metadata: {}
     };
 
-    await expect(
-      env.TEST_WORKER.__executeOperation(invalidEnvelope)
-    ).rejects.toThrow(/Unsupported RPC envelope version.*only supports v1/);
+    // Envelope errors are returned wrapped as { $error } (callRaw unwraps +
+    // rethrows); they no longer reject __executeOperation.
+    const { $error } = await env.TEST_WORKER.__executeOperation(invalidEnvelope);
+    expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version.*only supports v1/);
   });
 
   test('validates envelope version (rejects unsupported version)', async () => {
@@ -71,9 +72,8 @@ describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
       metadata: {}
     };
 
-    await expect(
-      env.TEST_WORKER.__executeOperation(invalidEnvelope)
-    ).rejects.toThrow(/Unsupported RPC envelope version: 2/);
+    const { $error } = await env.TEST_WORKER.__executeOperation(invalidEnvelope);
+    expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version: 2/);
   });
 
   // Valid envelope and auto-init are tested via callRaw() tests below

@@ -24,16 +24,21 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "vitest --run --project unit --project frontend --project baseline --project browser",
-    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project browser",
-    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project browser",
+    "dev": "mkdir -p ../nebula-studio-ui/dist && wrangler dev",
+    "test": "vitest --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
+    "test:coverage": "vitest --coverage --run --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
+    "coverage": "COVERAGE=true vitest --run --coverage --project unit --project frontend --project baseline --project container --project dev-studio --project browser",
     "bench": "vitest --run --project browser-bench transactions",
     "bench:throughput": "vitest --run --project browser-bench throughput.benchmark",
     "bench:multi": "vitest --run --project browser-bench throughput-multi",
     "bench:fanout": "vitest --run --project browser-bench fanout.benchmark",
     "bench:fanout:agents": "vitest --run --project browser-bench fanout-agents.benchmark",
     "bench:all": "vitest --run --project browser-bench",
-    "types": "wrangler types"
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:test-worker": "bash -c 'source scripts/git-stamp.sh && wrangler deploy --config test/browser/worker/wrangler.jsonc \"${WRANGLER_DEFINE_ARGS[@]}\"'",
+    "types": "wrangler types",
+    "audit:migrations": "node scripts/audit-migrations.mjs",
+    "audit:migrations:selftest": "node scripts/audit-migrations.selftest.mjs"
   },
   "keywords": [
     "cloudflare",
@@ -52,15 +57,17 @@
     "@vitest/browser-playwright": "4.1.4",
     "@vitest/coverage-istanbul": "4.1.4",
     "agents": "^0.14.2",
+    "daisyui": "5.5.23",
     "http-proxy": "^1.18.1",
     "jsdom": "^25.0.1",
+    "lucide-vue-next": "1.0.0",
     "playwright": "^1.48.2",
-    "typescript": "^5.9.2",
     "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",
     "wrangler": "^4.86.0"
   },
   "dependencies": {
+    "@cloudflare/shell": "^0.4.0",
     "@lumenize/auth": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
@@ -68,8 +75,11 @@
     "@lumenize/routing": "*",
     "@lumenize/structured-clone": "*",
     "@lumenize/ts-runtime-parser-validator": "*",
+    "@vue/compiler-sfc": "^3.5.13",
+    "isomorphic-git": "^1.38.4",
     "@vue/reactivity": "^3.5.13",
     "@vue/runtime-core": "^3.5.13",
+    "typescript": "^5.9.2",
     "vue": "^3.5.13"
   },
   "peerDependencies": {

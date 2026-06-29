@@ -26,8 +26,9 @@ Every participant in the mesh extends one of these base classes:
 | **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
 | **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
 | **LumenizeClient** | Browser/Node.js/Bun | Local | Client access to mesh |
+| **[LumenizeContainer](./lumenize-container)** | Cloudflare Container | SQL/KV | A node that *runs a container* (niche) |
 
-All three mesh node types, have access to the same APIs/utilities, are coded in the same way, and act as full peers, able to both make and receive calls. Yes, even LumenizeClients can receive calls from any other mesh node.
+All mesh node types have access to the same APIs/utilities, are coded in the same way, and act as full peers, able to both make and receive calls. Yes, even LumenizeClients can receive calls from any other mesh node.
 
 Supporting infrastructure:
 
@@ -159,6 +160,7 @@ Ready to build? See the **[Getting Started Guide](./getting-started)** for a han
 - **[LumenizeDO](./lumenize-do)** — Stateful server-side nodes with SQL/KV storage
 - **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes
 - **[LumenizeClient](./lumenize-client)** — Browser/Node.js client nodes
+- **[LumenizeContainer](./lumenize-container)** — A node that runs a Cloudflare Container (niche)
 - **[Gateway Internals](./gateway)** — How client-mesh bridging works
 - **[Security](./security)** — Authentication and access control
 - **[Creating Plugins](./creating-plugins)** — Build your own NADIS services

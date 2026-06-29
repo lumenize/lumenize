@@ -46,6 +46,7 @@ Three annotation levels for code blocks in `.md` / `.mdx` files:
 - Never add `@skip-check-approved` — only humans may approve skips
 - During Phase 1 narrative drafting, `@skip-check` is temporary and must be replaced in Phase 2
 - Run `node tooling/check-examples/src/index.js --report` to audit remaining `@skip-check` annotations
+- **`@check-example` guards only fenced code blocks, never prose.** When you remove or rename an exported symbol, also `grep` the docs for prose mentions (tables, inline text, ASCII diagrams) — a green `check-examples` run proves nothing about them, and a stale class/function name in prose will silently survive.
 
 ## Check-Example Matching Behavior
 

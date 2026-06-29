@@ -474,15 +474,15 @@ In the Cloudflare dashboard: **Email Services → Email Sending → Onboard Doma
 Create a tiny `auth-email-sender.ts` alongside your other source files:
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/auth-email-sender.ts')
-import { CloudflareEmailSender } from '@lumenize/auth';
+import { AuthEmailSenderBase } from '@lumenize/auth';
 
-export class AuthEmailSender extends CloudflareEmailSender {
+export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@example.com';
   // Override templates, subjects, replyTo, or appName here — see @lumenize/auth docs
 }
 ```
 
-Change `auth@example.com` to an address on the domain you onboarded in 8a. That's it — `CloudflareEmailSender` handles delivery, default HTML templates, and subject lines. No API key to manage.
+Change `auth@example.com` to an address on the domain you onboarded in 8a. That's it — with the `EMAIL` binding present, your sender delivers via Cloudflare Email Sending; `AuthEmailSenderBase` provides the default HTML templates and subject lines. No API key to manage.
 
 This class is already exported from your Worker entry point (Step 6) and bound via `AUTH_EMAIL_SENDER` and `send_email` in wrangler.jsonc (Step 7). No additional wiring needed.
 

@@ -24,8 +24,9 @@ export default defineConfig({
       }
     },
 
-    // 2 second global timeout
-    testTimeout: 2000,
+    // 15s: the agent demos do several real WebSocket round-trips, which exceed a
+    // 2s budget under CI contention on shared runners (fine locally).
+    testTimeout: 15000,
 
     coverage: {
       provider: "istanbul",

@@ -52,6 +52,10 @@ dist-ssr
 experiments/**/*-raw-*.json
 experiments/tsgo-benchmarks/schemas/
 
+# ui-smoke: sandbox egress-proxy CA staged into the DevContainer build context by
+# test/ui-smoke/global-setup.ts (prod-inert Dockerfile hook). Never commit it.
+apps/nebula/container/ccr-ca.crt
+
 # vitest
 .vitest-cache
 .vitest-attachments

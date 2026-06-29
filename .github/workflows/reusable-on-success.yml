@@ -19,9 +19,24 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+      - name: Restore package coverage (lcov) from the test job
+        # The test job uploads packages/*/coverage/lcov.info; the artifact root is
+        # the `packages` LCA, so extracting into `packages/` restores the exact
+        # paths SonarCloud reads (sonar.javascript.lcov.reportPaths). This is how
+        # the scan gets real coverage without re-running tests here.
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-lcov
+          path: packages
+
+      - name: SonarQube Cloud Scan
+        # sonarcloud-github-action is deprecated; sonarqube-scan-action is the
+        # current action for SonarCloud (now "SonarQube Cloud"). Its bundled
+        # scanner CLI 7.x requires SONAR_HOST_URL set explicitly, otherwise JRE
+        # provisioning fails with "Failed to query JRE metadata ... SONAR_TOKEN".
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
 

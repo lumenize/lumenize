@@ -45,7 +45,6 @@ function uniqueStar(): string {
  */
 async function setupStaleScenario() {
   const star = uniqueStar();
-  const galaxyName = star.split('.').slice(0, 2).join('.');
   const refreshHookSpy = vi.fn<(info: OntologyStaleInfo) => void>();
 
   // Construct the client with v1 + the hook
@@ -55,8 +54,8 @@ async function setupStaleScenario() {
     { onShouldRefreshUI: refreshHookSpy },
   );
 
-  // Register v1, then v2 on Galaxy
-  a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: TEST_TYPES });
+  // Apply v1 to the Star (DevStudio's setOntology path replaced the Galaxy lazy-pull).
+  a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Create a resource at v1 so we have something to operate on
@@ -66,14 +65,12 @@ async function setupStaleScenario() {
   });
   const eTag = committedETag(created, resourceId);
 
-  // Register v2 on Galaxy
-  a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
+  // Advance the Star's cache to v2 (apply replaces the cached row). The v1-pinned
+  // client's next op will now mismatch.
+  a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
-
-  // Force Star to install v2 by issuing any v2 op (per-call override)
-  await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
-  // Star's cache is now at v2; refreshHookSpy hasn't been called yet because
-  // this op didn't trigger mismatch — we explicitly used v2.
+  // refreshHookSpy hasn't fired — applyOntology is a server-side install, not a
+  // client op that could detect a mismatch.
   expect(refreshHookSpy).not.toHaveBeenCalled();
 
   return { star, resourceId, eTag, client: a.client, refreshHookSpy };
@@ -156,7 +153,6 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
   it('no onShouldRefreshUI registered: stale signal still resolves the Promise variant', async () => {
     // Same setup but no hook
     const star = uniqueStar();
-    const galaxyName = star.split('.').slice(0, 2).join('.');
 
     const a = await createAuthenticatedClient(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com',
@@ -164,7 +160,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
       // no onShouldRefreshUI
     );
 
-    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v1', types: TEST_TYPES });
+    a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
     const resourceId = generateUuid();
@@ -173,10 +169,8 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     });
     const eTag = committedETag(created, resourceId);
 
-    a.client.callGalaxyAppendOntologyVersion(galaxyName, { version: 'v2', types: TEST_TYPES });
+    a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
-
-    await a.client.resources.read('TestResource', resourceId, { appVersion: 'v2' });
 
     // No hook registered — should still get the structured outcome without
     // any error from the framework

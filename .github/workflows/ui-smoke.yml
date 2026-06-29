@@ -1,0 +1,80 @@
+name: UI smoke (container + AI + login)
+
+# The `apps/nebula` ui-smoke lane: a REAL Cloudflare Container (DevContainer image)
+# under `wrangler dev` on ubuntu-latest + vite + Playwright, driving the full Studio
+# loop (magic-link login → connected → AI codegen turn → preview rendered in the
+# container). `extends Container` can't construct under pool-workers
+# (packages/mesh/test/container/precheck.test.ts), so this is the only lane that
+# exercises a real container in CI. Proven viable on a headless GHA runner 2026-06-28
+# (tasks/nebula-in-ci.md Phase 1).
+#
+# Kept as its OWN job/runner (not folded into ci.yml) so the heavy ~2.5-min Docker build
+# runs ISOLATED — never concurrently with the CPU-bound pool-workers lanes in the packages
+# job. The runner is 4 vCPUs; running ui-smoke's WS/Playwright-timing-sensitive flow
+# alongside those starves it (the hosted lane serializes `fileParallelism` for the same
+# reason), so isolation is the point. Runs on every push/PR (NOT path-filtered) so it's
+# part of the regular CI flow, plus `workflow_dispatch` for manual / post-deploy runs. Not
+# a required check unless added to branch protection.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  # Non-main branches don't run on push (policy 2026-06-29); CI runs on PRs to main.
+  push:
+    branches: [main]
+
+# Cancel a superseded run when a newer commit is pushed (per-workflow, per-ref).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-smoke:
+    runs-on: ubuntu-latest
+    env:
+      # wrangler dev authenticates the remote bindings (env.AI → Workers AI, and the
+      # send_email remote:true binding the PROD apps/nebula config still carries) via
+      # these. GHA has CF creds — this is the "ui-smoke in GHA" target, where the AI
+      # half is still the binding (Phase 2's REST swap is for the hosted lane only).
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: ''
+
+      - name: Confirm Docker is available (HAS_DOCKER probe = `docker info`)
+        run: docker info
+
+      - name: Install + setup (shared scripts/ci-install.sh)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
+        # Same spine the hosted lane (scripts/claude-web-setup.sh) + ci.yml run, so the install
+        # steps can't drift. --lightningcss adds the vite binding this lane needs (it spawns
+        # vite against nebula-studio-ui); --chromium installs the real browser the Playwright
+        # driver uses; --bundle builds the ts-runtime-parser-validator dist. --dev-vars writes
+        # .dev.vars from secrets — and passes the job-env CLOUDFLARE_ACCOUNT_ID through
+        # (ci-write-dev-vars.mjs), which flips the lane's HAS_CF_CREDS/HAS_AI_PATH gate true,
+        # so no separate "append CLOUDFLARE_ACCOUNT_ID" step is needed.
+        run: ./scripts/ci-install.sh --cache-clean --dev-vars --lightningcss --chromium --bundle
+
+      - name: Run the ui-smoke lane (container + AI + login)
+        # global-setup spawns `wrangler dev` (containers + env.AI) + vite, then
+        # Playwright drives the magic-link → container → AI → preview flow. The
+        # container image (./apps/nebula/container/Dockerfile) builds + boots here;
+        # cold-boot budget is 120s. The lane self-gates (describe.runIf) on Docker +
+        # AI-path + email creds — if any is absent it skips cleanly; check the log for
+        # "skipped" vs a real failure.
+        # `--retry 2`: the AI codegen turn calls real Workers AI (Kimi) — its latency is
+        # variable (usually ~5-7s, but can spike past the 120s testTimeout). A retry
+        # re-runs just the failed test against the already-booted stack (global-setup runs
+        # once), so it's cheap and absorbs the external-AI flake — same self-heal the
+        # packages CI uses for its over-the-web e2e suites. A real failure still fails all 3.
+        working-directory: apps/nebula
+        run: npx vitest run --project ui-smoke --retry 2

@@ -29,7 +29,6 @@ export { BenchFanoutTier } from './bench-fanout-tier';
 export {
   Universe,
   Galaxy,
-  ResourceHistory,
 } from '@lumenize/nebula';
 
 // Bench Worker binds NEBULA_CLIENT_GATEWAY → InstrumentedNebulaClientGateway,
@@ -45,25 +44,23 @@ import { NebulaEmailSender } from '@lumenize/nebula-auth';
 
 /**
  * Test-harness email sender — overrides production NebulaEmailSender's
- * `from` from `auth@nebula.lumenize.com` to `test@lumenize.io`.
+ * `from` (`auth@nebula.lumenize.com`) to `auth@test.lumenize.com`.
  *
- * Why: the browser harness uses `send_email` with `remote: true`, which
- * proxies to real Cloudflare Email Sending. That requires the sender
- * domain to be verified on the account. `lumenize.io` is verified
- * (used by packages/auth/test/e2e-email/); `nebula.lumenize.com` is not
- * — sending from it returns "destination address is not a verified
- * address" and silently drops the email.
- *
- * Using `test@lumenize.io` as the from-address piggybacks on the
- * already-verified domain. The deployed email-test Worker (which catches
- * routed emails on lumenize.io) sees the email and pushes it back to
- * the test via WebSocket.
+ * Why: this harness selects **Resend** (`EMAIL_PROVIDER: resend` in
+ * wrangler.jsonc, no `send_email` binding), so the from-domain must be
+ * verified on **Resend** — `test.lumenize.com` is (same setup as
+ * packages/auth/test/e2e-email-resend, which sends from `auth@test.lumenize.com`).
+ * The magic-link recipient stays `test@lumenize.io`, which Cloudflare Email
+ * Routing catches and forwards to the deployed email-test Worker → WebSocket
+ * push back to the test. Selecting Resend lets this lane run with no CF creds
+ * (incl. the secret-less Claude-hosted lane); the CF Email Sending path is
+ * covered by packages/auth/test/e2e-email.
  *
  * This subclass is harness-only — production NebulaEmailSender ships
  * unchanged with its real branded from-address.
  */
 export class TestNebulaEmailSender extends NebulaEmailSender {
-  override from = 'test@lumenize.io';
+  override from = 'auth@test.lumenize.com';
 }
 
 export default {
@@ -99,6 +96,13 @@ export default {
       return Response.json({ id: id.toString(), jurisdiction, colo });
     }
 
+    // FORWARD GUARD (Phase 1, nebula-release-process.md): the shared prod entrypoint's
+    // `/_version` build-compare route is reached HERE via this trailing fallthrough — NOT as a
+    // "first statement", so the entrypoint's can't-be-reordered defense doesn't hold on the bench
+    // worker. Never add a catch-all route ABOVE this fallthrough that would shadow `/_version`
+    // (or any prod path). The bench deploy's own `--define __GIT_SHA__` substitutes the global the
+    // imported prod `entrypoint` reads (this file bundles separately). Harmless either way —
+    // `/_version` discloses nothing.
     return entrypoint.fetch(request);
   },
 };

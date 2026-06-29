@@ -41,6 +41,14 @@ this.ctn<RemoteDO>().validate().save().getRevision()
 this.ctn<RemoteDO>().multiply(this.ctn<RemoteDO>().add(1, 2), 10)
 ```
 
+:::info[A continuation handler must be `public` — and usually *not* `@mesh`]
+
+A method you reference through `this.ctn().handler(...)` must be **`public`**: TypeScript only surfaces `public` members on the `Continuation<T>` proxy, so a `private`/`protected` handler won't type-check — and making it non-public buys nothing, since visibility modifiers are erased at runtime.
+
+Leave a *local-only* handler **un-decorated** (no `@mesh`). The absence of `@mesh` is exactly what keeps it off the remote call surface — that is the security boundary, **not** its visibility. Add `@mesh()` only when the same handler must *also* be dispatched remotely (e.g. a `svc.broadcast` result handler forwarded from a tier Worker). For reaching a base class's `protected` `ctx`/`env` *through* a continuation proxy, use the `Unprotected<T>` helper instead of widening the member.
+
+:::
+
 ## How It Works
 
 ### 1. Proxy-Based Chain Building

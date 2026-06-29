@@ -4,6 +4,23 @@ on:
   pull_request:
     branches:
       - main
+  # Run CI on pushes to main too — post-merge verification (catches anything the PR
+  # gate didn't). `main` is branch-protected to require the audit/test/doc checks
+  # before merge (Sonar stays advisory). NON-main branches do NOT run CI on push
+  # (policy 2026-06-29): CI runs on PRs to main. For continuous feedback on a
+  # long-lived phase branch, keep a draft PR → main open (pull_request:synchronize
+  # fires on every push) rather than re-adding a per-branch push trigger.
+  push:
+    branches:
+      - main
+
+# Cancel superseded in-progress runs of THIS workflow on the SAME ref (per-workflow,
+# per-branch) when a newer commit is pushed — kills the run pile-up, frees runners,
+# faster feedback on the tip. Scoped to the ref so pushes to other branches don't
+# cancel each other; a PR's required check gates on the latest commit's run anyway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit-test-mode:
@@ -17,6 +34,12 @@ jobs:
 
   run-packages-tests-with-coverage:
     runs-on: ubuntu-latest
+    env:
+      # pool-workers' remote proxy (for the EMAIL / Cloudflare Email Sending
+      # binding the auth e2e + hono suites use) authenticates to Cloudflare via
+      # these. Node-side process env, not worker bindings.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,26 +52,40 @@ jobs:
           node-version: '22'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Clean npm cache
-        run: npm cache clean --force
+      - name: Install + setup (shared scripts/ci-install.sh)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
+        # Same spine the hosted lane (scripts/claude-web-setup.sh) + ui-smoke.yml run, so the
+        # install steps can't drift. --dev-vars writes .dev.vars (secrets + ephemeral JWT
+        # keys) BEFORE npm ci so postinstall symlinks it into each test dir; --chromium
+        # installs the browser for mesh's real-browser project; --bundle builds the
+        # gitignored ts-runtime-parser-validator dist. No --lightningcss (this job runs no
+        # vite). The Rollup/SWC native-binding re-install lives inside the script.
+        run: ./scripts/ci-install.sh --cache-clean --dev-vars --chromium --bundle
 
-      - name: Install dependencies (skip optional to avoid Rollup bug)
-        run: npm ci --no-optional
+      - name: Run tests with coverage for all packages + apps
+        # Shared discovery with local dev (scripts/test-code.sh) so a package can
+        # never be tested locally but silently skipped in CI (that drifted once:
+        # email/debug use vitest.config.ts, which the old `vitest.config.js`-glob
+        # loop missed). --scope "packages apps" runs every workspace's `test`
+        # script. apps/nebula's always-on lanes (unit/frontend/baseline/container/
+        # dev-studio/browser) are account-light — the browser lane sends via Resend,
+        # not CF `send_email remote:true` (tasks/nebula-in-ci.md). ui-smoke (real
+        # Docker container + AI) is NOT in `npm test` — it runs in the separate
+        # ui-smoke.yml workflow (every push/PR, its own runner, isolated from these
+        # CPU-bound pool-workers lanes). tooling/ stays out (updated + run manually).
+        # --run-all: a flake in one package can't mask later ones; --retry 2
+        # self-heals cold-start flakes on the over-the-web e2e suites (retry-safe via
+        # unique per-run instance names). Real failures still fail all 3 attempts.
+        run: ./scripts/test-code.sh --scope "packages apps" --coverage --retry 2 --run-all
 
-      - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu
-
-      - name: Run tests with coverage for all packages
-        run: |
-          # Run vitest with coverage for all packages in packages/ directory
-          for dir in packages/*/; do
-            if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
-              echo "Running tests with coverage for $(basename $dir)..."
-              cd "$dir"
-              npm run test -- --coverage || exit 1
-              cd - > /dev/null
-            fi
-          done
+      - name: Upload coverage (lcov) for the SonarCloud job
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: packages/*/coverage/lcov.info
+          if-no-files-found: warn
 
   run-doc-tests:
     runs-on: ubuntu-latest
@@ -62,26 +99,24 @@ jobs:
           node-version: '22'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Clean npm cache
-        run: npm cache clean --force
-
-      - name: Install dependencies (skip optional to avoid Rollup bug)
-        run: npm ci --no-optional
-
-      - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu
+      - name: Install + setup (shared scripts/ci-install.sh)
+        # Core install only — the doc-test job needs deps + the Rollup/SWC native
+        # bindings, but no .dev.vars, bundle, chromium, or lightningcss.
+        run: ./scripts/ci-install.sh --cache-clean
 
       - name: Run doc-test examples (no coverage)
         run: |
-          # Run tests for all doc-test subdirectories without coverage
+          # Run-all-then-fail so one failing doc-test doesn't mask the rest.
+          failed=""
           for dir in doc-test/*/*/; do
             if [ -f "$dir/package.json" ]; then
-              echo "Running tests for $(basename $(dirname $dir))/$(basename $dir)..."
+              echo "Running tests for $(basename $(dirname "$dir"))/$(basename "$dir")..."
               cd "$dir"
-              npm run test || exit 1
+              npm run test || failed="$failed $(basename "$dir")"
               cd - > /dev/null
             fi
           done
+          if [ -n "$failed" ]; then echo "❌ Failed doc-tests:$failed"; exit 1; fi
 
   sonarcloud-analysis:
     needs: [run-packages-tests-with-coverage, run-doc-tests]

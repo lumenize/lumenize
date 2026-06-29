@@ -35,6 +35,9 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    "LUMENIZE_AUTH_REDIRECT": "/app"
+    "LUMENIZE_AUTH_REDIRECT": "/app",
+    // No EMAIL binding here — select Resend explicitly (tasks/lumenize-email.md
+    // Phase 3) rather than relying on createEmailTransport's warn-fallback.
+    "EMAIL_PROVIDER": "resend"
   }
 }

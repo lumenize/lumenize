@@ -41,10 +41,13 @@ describe('multi-client harness', () => {
     const testToken = inject('emailTestToken');
     const browser = new Browser();
     const galaxyScope = uniqueGalaxy();
+    // Clients operate AT the star (their aud must equal it — structural guard, T6),
+    // not the galaxy; all M call this same star.
+    const star = `${galaxyScope}.tenant-multi`;
     const M = 8;
 
     const harness = await setupMultiClient({
-      browser, baseUrl, testToken, galaxyScope, email: ADMIN_EMAIL, M,
+      browser, baseUrl, testToken, galaxyScope, activeScope: star, email: ADMIN_EMAIL, M,
     });
 
     try {
@@ -61,7 +64,6 @@ describe('multi-client harness', () => {
       // Each client can dispatch a call. Star.delay(5) is a 5ms sleep on the
       // Star side that returns the delay value via CALL_RESPONSE — exercises
       // the full path (WS → Gateway → Star → Gateway → WS) for every client.
-      const star = `${galaxyScope}.tenant-multi`;
       const results = await Promise.all(
         harness.clients.map((c) => c.callStarDelay(star, 5)),
       );
@@ -82,11 +84,12 @@ describe('multi-client harness', () => {
       const testToken = inject('emailTestToken');
       const browser = new Browser();
       const galaxyScope = uniqueGalaxy();
+      const star = `${galaxyScope}.tenant-multi`;
       const M = 64;
 
       const t0 = performance.now();
       const harness = await setupMultiClient({
-        browser, baseUrl, testToken, galaxyScope, email: ADMIN_EMAIL, M,
+        browser, baseUrl, testToken, galaxyScope, activeScope: star, email: ADMIN_EMAIL, M,
       });
       const setupMs = performance.now() - t0;
 
@@ -94,7 +97,6 @@ describe('multi-client harness', () => {
         const instanceNames = harness.clients.map((c) => c.lmz.instanceName);
         expect(new Set(instanceNames).size).toBe(M);
 
-        const star = `${galaxyScope}.tenant-multi`;
         const tCallStart = performance.now();
         const results = await Promise.all(
           harness.clients.map((c) => c.callStarDelay(star, 5)),

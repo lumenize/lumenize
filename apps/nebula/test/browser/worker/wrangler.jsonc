@@ -2,6 +2,12 @@
   "name": "nebula-browser-test",
   "main": "./index.ts",
   "compatibility_date": "2026-04-01",
+  // nodejs_compat (NOT the legacy `nodejs_compat_v2` flag-name): this worker imports
+  // the @lumenize/nebula barrel, which transitively pulls DevStudio → isomorphic-git +
+  // @cloudflare/shell (import `node:` builtins). Real `wrangler dev` (this harness)
+  // only resolves `node:` builtins under plain `nodejs_compat`; `nodejs_compat_v2`
+  // crashes startup with `No such module "node:os"`. Unified with prod + the other
+  // test wranglers.
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [{ "binding": "LOADER" }],
   "durable_objects": {
@@ -10,7 +16,6 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" },
       { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
@@ -40,6 +45,18 @@
     {
       "tag": "v4",
       "deleted_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
+    },
+    {
+      "tag": "v5",
+      "deleted_classes": ["ResourceHistory"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["DevStar"]
+    },
+    {
+      "tag": "v7",
+      "deleted_classes": ["DevStar"]
     }
   ],
   "services": [
@@ -54,16 +71,14 @@
       "entrypoint": "BenchFanoutTier"
     }
   ],
-  // Cloudflare Email Sending binding used by CloudflareEmailSender (which
-  // NebulaEmailSender extends, after the migration on main). `remote: true`
-  // proxies to the real Cloudflare Email Sending service so the test
-  // exercises the full email round-trip via the deployed email-test Worker.
-  "send_email": [
-    {
-      "name": "EMAIL",
-      "remote": true
-    }
-  ],
+  // NO Cloudflare Email Sending binding — the magic-link login is incidental
+  // here (it mints a session JWT; the lane tests Gateway/bench/multi-client),
+  // so the email transport is free to change. Selecting Resend (below) instead
+  // of CF `send_email remote:true` lets this lane run in EVERY environment —
+  // including the secret-less Claude-hosted lane (no CF creds) — since a
+  // `remote:true` binding would establish its proxy at pool-load and fail
+  // there. The CF Email Sending path itself is covered by
+  // packages/auth/test/e2e-email. (tasks/nebula-in-ci.md "Email everywhere = Resend".)
   "ratelimits": [
     {
       "name": "NEBULA_AUTH_RATE_LIMITER",
@@ -77,6 +92,10 @@
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "NEBULA_AUTH_REDIRECT": "/app",
+    // Select Resend explicitly (no EMAIL binding above). Needs RESEND_API_KEY in
+    // .dev.vars + `test.lumenize.com` verified as a Resend sending domain — same
+    // setup as packages/auth/test/e2e-email-resend.
+    "EMAIL_PROVIDER": "resend",
     // Allow Playwright + Vite dev/preview origins so the browser test page can
     // call this deployed-via-miniflare worker cross-origin. Empty in production
     // (single-origin deploy); per-test config provides whatever origins the

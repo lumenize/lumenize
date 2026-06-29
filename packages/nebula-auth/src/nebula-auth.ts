@@ -105,6 +105,17 @@ export class NebulaAuth extends DurableObject {
   }
 
   /**
+   * Deprovision THIS NebulaAuth instance — wipe ALL of its storage (subjects, magic links, refresh
+   * tokens, invites). Called by the registry's scope-deletion cascade (registry → NebulaAuth, both
+   * nebula-auth; reached only via the internal `NEBULA_AUTH` binding, never an external route, so it
+   * inherits the registry's already-performed admin check — like `registerEmail`/`removeEmail`).
+   * The scope is being removed, so no re-init: a future touch re-creates schema via `#ensureSchema`.
+   */
+  async teardownInstance(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+  }
+
+  /**
    * Extract the instanceName from the URL path.
    * URL format: {prefix}/{instanceName}/endpoint
    * The instanceName is the segment after the prefix and before the endpoint.
@@ -290,17 +301,21 @@ export class NebulaAuth extends DurableObject {
 
     const magicLink = rows[0];
 
-    // No `used` check needed — tokens are deleted on use (line below),
-    // so a reused token will hit the rows.length === 0 branch above.
-
     if (Date.now() > magicLink.expiresAt) {
       const auditLog = debug('nebula-auth.NebulaAuth.login.failed');
       auditLog.warn('Expired magic link token', { reason: 'token_expired', email: magicLink.email });
       return this.#redirectWithError('token_expired');
     }
 
-    // Delete the token (single-use)
-    this.#sql`DELETE FROM MagicLinks WHERE token = ${token}`;
+    // Reusable until EXPIRY — NOT strictly single-use. Deliberate: email security scanners / mail
+    // clients PREFETCH links to scan them, consuming a one-time token before the user's real click
+    // (the user then lands on `invalid_token` — observed 2026-06-26). A scanner prefetches at email
+    // ARRIVAL while the user may click much later, so a short post-use grace doesn't help; the token
+    // must stay valid for its whole TTL. The expiry gate above bounds the replay window
+    // (MAGIC_LINK_TTL = 30 min) and `#ensureSchema` sweeps expired rows. Record first-use in `used`
+    // for audit (doesn't gate). Tradeoff: replayable within its TTL — acceptable for pre-alpha;
+    // strict single-use needs an interstitial confirm page a scanner can't click → backlog § Nebula Auth.
+    this.#sql`UPDATE MagicLinks SET used = ${Date.now()} WHERE token = ${token} AND used = 0`;
 
     // Check if subject already has emailVerified (skip registry if so)
     const preVerifyRows = this.#sql`
@@ -337,10 +352,21 @@ export class NebulaAuth extends DurableObject {
 
     const refreshToken = await this.#generateRefreshToken(subject.sub);
 
+    // Carry the scope on the redirect as a PATH segment (`/app/{scope}`) so the landing SPA can
+    // auto-connect WITHOUT any local state. The magic link opens a fresh tab (and may be a different
+    // origin), so localStorage from the login tab can't be relied on — the scope must travel in the
+    // URL. (Observed 2026-06-26: users landed at a bare /app still showing the login form because the
+    // SPA didn't know the scope.) Path form over `?scope=`: the scope here is the dot-free Universe
+    // slug, so it never collides with an asset extension, and the SPA single-page-app fallback serves
+    // index.html for it.
+    const location = this.#instanceName
+      ? `${this.#redirect.replace(/\/$/, '')}/${encodeURIComponent(this.#instanceName)}`
+      : this.#redirect;
+
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': this.#redirect,
+        'Location': location,
         'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
       }
     });
@@ -375,9 +401,6 @@ export class NebulaAuth extends DurableObject {
     if (Date.now() > storedToken.expiresAt) {
       return this.#errorResponse(401, 'token_expired', 'Refresh token expired');
     }
-
-    // Revoke old refresh token (rotation)
-    this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE tokenHash = ${tokenHash}`;
 
     const subjectRows = this.#sql`
       SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
@@ -414,7 +437,13 @@ export class NebulaAuth extends DurableObject {
     }
 
     const newAccessToken = await this.#generateAccessToken(subject, { activeScope: body.activeScope });
-    const newRefreshToken = await this.#generateRefreshToken(storedToken.subjectId);
+
+    // No rotation (decision 2026-06-29 — see security.md § refresh tokens): re-issue the SAME
+    // refresh token with a slid expiry, so overlapping refreshes (reconnect + proactive
+    // #ensureFreshToken + authedFetch) can't race a single-use token into a spurious logout.
+    // The strong cookie attributes (HttpOnly, Secure, SameSite=Strict, Path-scoped, host-only)
+    // carry theft resistance; logout still revokes; WebAuthN/MFA before beta restores depth.
+    this.#sql`UPDATE RefreshTokens SET expiresAt = ${Date.now() + (REFRESH_TOKEN_TTL * 1000)} WHERE tokenHash = ${tokenHash}`;
 
     return new Response(JSON.stringify({
       access_token: newAccessToken,
@@ -425,7 +454,7 @@ export class NebulaAuth extends DurableObject {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken)
+        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
       }
     });
   }
