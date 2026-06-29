@@ -19,8 +19,9 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main]
+  # Non-main branches don't run on push (policy 2026-06-29); CI runs on PRs to main.
   push:
-    branches: [main, feat/nebula-studio]
+    branches: [main]
 
 # Cancel a superseded run when a newer commit is pushed (per-workflow, per-ref).
 concurrency:

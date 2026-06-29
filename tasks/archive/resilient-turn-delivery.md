@@ -1,7 +1,6 @@
 # Resilient chat-turn delivery — live direct-delivery only (history deferred)
 
-**Status:** design, pinned for review (2026-06-28). **Reframed three times** — see "How this evolved."
-Goal-spec for an autonomous build once Larry confirms.
+**Status: DONE + shipped + deployed (2026-06-29) — ARCHIVED, frozen.** Built this session (`4d6e152`/`6defdab`), verified in-suite (mutation-checked) + ui-smoke, live on prod. Deferred follow-ons (history-restore, completed-while-fully-gone, Galaxy→DevStudio storage) → the reactive-AI-chat task on `nebula-query-subscriptions.md` (master Wave 2). Everything below is the original design/goal-spec.
 
 **Scope (deliberately small):** stop a completed chat turn from being stranded when the client's WS dropped
 and reconnected mid-turn — the "Studio is thinking…" eternal hang. **Live delivery only.** History restore,

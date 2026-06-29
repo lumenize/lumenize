@@ -1,7 +1,9 @@
 # Preview auto-refresh — event-driven "preview ready" signal (no polling)
 
-**Status:** building (2026-06-28). Revert point `8eb4e3f`. Autonomous run, approach (b) + no-poll
-(Larry: "I hate polling and mesh is designed so we never need it").
+**Status: DONE + shipped + deployed (2026-06-29) — ARCHIVED, frozen.** Built this session (`d191d0e`),
+verified in-suite (mutation-checked) + ui-smoke 4/4, live on prod. Open follow-ons (container recovery
+after a deploy; silence the preview vite reconnect-storm) tracked in `backlog.md` § Nebula + the
+[[cf-container-stuck-flag-cloud]] memory. Everything below is the original design (approach (b) + no-poll).
 
 ## Problem
 On a **full refresh into a dev star**, `connect()` ([App.vue:171](../apps/nebula-studio-ui/src/App.vue))

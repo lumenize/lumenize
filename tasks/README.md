@@ -6,6 +6,10 @@
 
 A file moved to `tasks/archive/` is a point-in-time record — it starts going stale immediately, and that's by design. **Never update archived files**: no link fixups when referenced files move, no terminology syncs, no corrections when code drifts. Sole exception: a dated one-line status/superseded banner at the top when a later decision overturns one — added at the moment of supersession, touching nothing else. If a decision in an archived file must stay *live* (still constrains new work), its home is an ADR (`docs/adr/README.md` has the bar) or a rule, not edits to the archive.
 
+## Backlog: delete completed rows, don't mark them
+
+`backlog.md` tracks only OPEN work. When a row is done, **delete it** — never leave it as `[x]` / "DONE" (a completed row checked-in-place re-reads as live every session = clutter). If finishing a row leaves *residual* open work, lift that into its own fresh `[ ]` row and delete the original. Capture the completed work's durable nuggets where they actually live — an archived task file, an ADR/rule, a memory, or a status note in the relevant master plan — never as a checked backlog row.
+
 ## Templates
 
 ### Docs-First Task File

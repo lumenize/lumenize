@@ -4,15 +4,15 @@ on:
   pull_request:
     branches:
       - main
-  # Run CI on pushes too: main = post-merge verification (catches anything the PR
-  # gate didn't); feat/nebula-studio = continuous feedback on the active feature
-  # branch (surfaces in GitHub Desktop's commit history). Drop feat/nebula-studio
-  # from this list once it merges to main. `main` is branch-protected to require
-  # the audit/test/doc checks before merge (Sonar stays advisory).
+  # Run CI on pushes to main too — post-merge verification (catches anything the PR
+  # gate didn't). `main` is branch-protected to require the audit/test/doc checks
+  # before merge (Sonar stays advisory). NON-main branches do NOT run CI on push
+  # (policy 2026-06-29): CI runs on PRs to main. For continuous feedback on a
+  # long-lived phase branch, keep a draft PR → main open (pull_request:synchronize
+  # fires on every push) rather than re-adding a per-branch push trigger.
   push:
     branches:
       - main
-      - feat/nebula-studio
 
 # Cancel superseded in-progress runs of THIS workflow on the SAME ref (per-workflow,
 # per-branch) when a newer commit is pushed — kills the run pile-up, frees runners,

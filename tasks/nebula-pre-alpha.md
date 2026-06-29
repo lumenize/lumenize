@@ -216,7 +216,8 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   **history-restore on refresh**, **completed-while-disconnected recovery**, and **multi-participant chat**
   (a coach / UX designer now; teammates later). It also fixes a **known storage mistake**: chat is recorded
   on **Galaxy** (`dev-studio.ts:455`) but belongs on the per-app **DevStudio** — relocate it here.
-  **Prereq:** live turn-delivery (`tasks/resilient-turn-delivery.md`), which deliberately defers all of this.
+  **Prereq DONE:** live turn-delivery shipped 2026-06-29 (`tasks/archive/resilient-turn-delivery.md`) — it
+  deliberately deferred all of the above to here.
 
 **Wave 3 — invite + scale the feedback loop**
 - **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
@@ -271,4 +272,13 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 - Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
 - First prod deploy + release process (Wave 1, merged): `tasks/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
 - Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
-- Resilient chat delivery (smaller, prereq): `tasks/resilient-turn-delivery.md` · query subscriptions (Wave 2 substrate): `tasks/nebula-query-subscriptions.md` · reactive AI chat (future child — depends on query-subscriptions, turn = child Resource)
+- Resilient chat delivery (DONE 2026-06-29): `tasks/archive/resilient-turn-delivery.md` · preview auto-refresh (DONE 2026-06-29): `tasks/archive/preview-ready-autorefresh.md` · query subscriptions (Wave 2 substrate): `tasks/nebula-query-subscriptions.md` · reactive AI chat (future child — depends on query-subscriptions, turn = child Resource)
+
+## Branch / close-out (deferred until in a rhythm — Larry 2026-06-29)
+This phase's work lives on `feat/nebula-studio` (the `feat/` prefix is a misnomer — it's a milestone
+integration branch, not a single feature). **Close-out sequence when ready:** PR `feat/nebula-studio` →
+`main` → release all npm packages (`/release-workflow`) from merged main → branch the next phase off main.
+**Long-lived phase branches use the bare milestone name** (`pre-alpha`, then `alpha`/`beta`) — NOT a
+`feat/` prefix. Continuous CI on the phase branch comes from keeping a **draft PR → main** open (CI now
+runs on `pull_request → main` + `push → main` only; the non-main push trigger was dropped 2026-06-29).
+Deferred deliberately — early-phase detours (spikes, CI fixes) happen before the PR ceremony.
