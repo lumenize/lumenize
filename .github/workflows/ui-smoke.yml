@@ -70,5 +70,10 @@ jobs:
         # cold-boot budget is 120s. The lane self-gates (describe.runIf) on Docker +
         # AI-path + email creds — if any is absent it skips cleanly; check the log for
         # "skipped" vs a real failure.
+        # `--retry 2`: the AI codegen turn calls real Workers AI (Kimi) — its latency is
+        # variable (usually ~5-7s, but can spike past the 120s testTimeout). A retry
+        # re-runs just the failed test against the already-booted stack (global-setup runs
+        # once), so it's cheap and absorbs the external-AI flake — same self-heal the
+        # packages CI uses for its over-the-web e2e suites. A real failure still fails all 3.
         working-directory: apps/nebula
-        run: npx vitest run --project ui-smoke
+        run: npx vitest run --project ui-smoke --retry 2
