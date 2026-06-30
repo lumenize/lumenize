@@ -5,11 +5,19 @@
 import { routeNebulaAuthRequest } from '../src/router';
 import { NebulaEmailSender as ProdNebulaEmailSender } from '../src/nebula-email-sender';
 import { debug } from '@lumenize/debug';
+import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/auth';
 
 // Re-export DO classes for wrangler bindings
 export { NebulaAuth } from '../src/nebula-auth';
 export { NebulaAuthRegistry } from '../src/nebula-auth-registry';
+
+/**
+ * A behavior-less SQLite-backed DO used ONLY to obtain a virgin `ctx.storage` in migration tests.
+ * The real `NebulaAuthRegistry` migrates eagerly in its constructor, so a registry stub's storage is
+ * never pre-migration — the prod-path (seed-old-schema) test needs a DO that runs no migrations itself.
+ */
+export class BareStorageDO extends DurableObject {}
 
 /**
  * Email sender service binding entrypoint (bound as AUTH_EMAIL_SENDER) — a TEST

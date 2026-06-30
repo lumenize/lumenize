@@ -19,7 +19,7 @@
     "test": "vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "cd test && wrangler types"
   },
   "keywords": [
     "cloudflare",
@@ -44,7 +44,8 @@
   "dependencies": {
     "@lumenize/auth": "*",
     "@lumenize/debug": "*",
-    "@lumenize/routing": "*"
+    "@lumenize/routing": "*",
+    "@lumenize/sql-migrations": "*"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",

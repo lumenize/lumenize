@@ -13,7 +13,8 @@
  */
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
-import { REGISTRY_SCHEMAS } from './schemas';
+import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
+import { REGISTRY_MIGRATIONS } from './schemas';
 import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
 import { parseId, isValidSlug, isDevAuthoringStar, matchAccess, getParentId } from './parse-id';
 import type { AccessEntry, DiscoveryEntry } from './types';
@@ -42,14 +43,22 @@ export interface ScopeDeletionPlan {
 }
 
 export class NebulaAuthRegistry extends DurableObject {
-  #schemaInitialized = false;
-
-  #ensureSchema(): void {
-    if (this.#schemaInitialized) return;
-    for (const schema of REGISTRY_SCHEMAS) {
-      this.ctx.storage.sql.exec(schema);
-    }
-    this.#schemaInitialized = true;
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Run the registry's schema migrations once, eagerly, before any request is dispatched (the
+    // constructor completes before dispatch). id-gated + atomic via @lumenize/sql-migrations;
+    // replaces the old lazy per-method #ensureSchema guard.
+    const migrationResult = new SQLSchemaMigrations({
+      doStorage: ctx.storage, migrations: REGISTRY_MIGRATIONS,
+    }).runAll();
+    // Positive signal for the (first) prod migration: the deploy-construct prints the backfill row
+    // count; routine post-migration constructs print {0,0}. Visible in `wrangler tail`. If the
+    // migration had thrown, the constructor would have thrown and the DO would fail to construct —
+    // so this line printing at all is itself confirmation the migration succeeded.
+    debug('nebula-auth.Registry.migrate').info('registry schema migrations checked', {
+      rowsRead: migrationResult.rowsRead,
+      rowsWritten: migrationResult.rowsWritten,
+    });
   }
 
   #sql(strings: TemplateStringsArray, ...values: any[]): any[] {
@@ -70,7 +79,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * Also ensures the instance is recorded in the Instances table.
    */
   registerEmail(email: string, instanceName: string, isAdmin: boolean): void {
-    this.#ensureSchema();
     const now = Date.now();
 
     // Ensure instance exists
@@ -95,7 +103,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * Remove an email→scope mapping. Called by NA on subject delete.
    */
   removeEmail(email: string, instanceName: string): void {
-    this.#ensureSchema();
     this.ctx.storage.sql.exec(
       'DELETE FROM Emails WHERE email = ? AND instanceName = ?',
       email.toLowerCase(), instanceName,
@@ -109,7 +116,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * Called by NA on subject role change (PATCH).
    */
   updateEmailRole(email: string, instanceName: string, isAdmin: boolean): void {
-    this.#ensureSchema();
     this.ctx.storage.sql.exec(
       'UPDATE Emails SET isAdmin = ? WHERE email = ? AND instanceName = ?',
       isAdmin ? 1 : 0, email.toLowerCase(), instanceName,
@@ -127,7 +133,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * Returns all scopes an email is associated with.
    */
   discover(email: string): DiscoveryEntry[] {
-    this.#ensureSchema();
     const rows = this.#sql`
       SELECT instanceName, isAdmin FROM Emails WHERE email = ${email.toLowerCase()}
     `;
@@ -141,11 +146,27 @@ export class NebulaAuthRegistry extends DurableObject {
    * Check if a slug/instanceName is available.
    */
   checkSlugAvailable(instanceName: string): boolean {
-    this.#ensureSchema();
     const rows = this.#sql`
       SELECT 1 FROM Instances WHERE instanceName = ${instanceName}
     `;
     return rows.length === 0;
+  }
+
+  /**
+   * The consented-corpus pool: `instanceName`s of Universes whose user-developer consented to data
+   * use (`improveProductConsent = 1`), excluding the reserved platform pseudo-Universe. Sub-instances
+   * (galaxy/star) carry `NULL` (= inherit) and naturally fall out of the `= 1` filter.
+   *
+   * Built now as the corpus accessor; **no live consumer yet** (the digest / turn-log inspection are
+   * deferred). Per tasks/nebula-consent-flag.md, no consumer may read this corpus until the slug-pick
+   * consent notice ships (before Wave-3 invites). Not wired to any HTTP route — internal RPC only.
+   */
+  listConsentedInstances(): string[] {
+    const rows = this.#sql`
+      SELECT instanceName FROM Instances
+      WHERE improveProductConsent = 1 AND instanceName != ${PLATFORM_INSTANCE_NAME}
+    `;
+    return rows.map(r => r.instanceName as string);
   }
 
   // ============================================
@@ -161,7 +182,6 @@ export class NebulaAuthRegistry extends DurableObject {
     email: string,
     origin: string,
   ): Promise<{ message: string; magicLinkUrl?: string }> {
-    this.#ensureSchema();
     const log = debug('nebula-auth.Registry.claimUniverse');
 
     // Validate email format
@@ -184,12 +204,26 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
 
-    // Record instance
+    // Record instance + capture data-use consent (assume-true for now — see tasks/nebula-consent-flag.md).
+    // No ON CONFLICT needed: checkSlugAvailable above guarantees no row exists, and there is no `await`
+    // between that check and this INSERT, so no row can appear in between. `1` is the constant consent
+    // value (assume-true); `slug` is bound. Consent is Universe-level; sub-instance INSERT sites are
+    // unchanged and leave the column NULL (= inherit).
     const now = Date.now();
-    this.ctx.storage.sql.exec(
-      'INSERT INTO Instances (instanceName, createdAt) VALUES (?, ?)',
-      slug, now,
-    );
+    try {
+      this.ctx.storage.sql.exec(
+        'INSERT INTO Instances (instanceName, createdAt, improveProductConsent) VALUES (?, ?, 1)',
+        slug, now,
+      );
+    } catch (err) {
+      // The INSERT is treated as conflict-free because checkSlugAvailable() above proved the row
+      // doesn't exist and there's no await between. If that invariant is ever violated (a UNIQUE
+      // conflict here), surface it LOUDLY rather than as a generic 500 — slug is not secret.
+      log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
+        slug, error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
 
     log.info('Universe claimed', { slug, email });
 
@@ -220,7 +254,6 @@ export class NebulaAuthRegistry extends DurableObject {
     origin: string,
     callerAccess?: AccessEntry,
   ): Promise<{ message: string; magicLinkUrl?: string }> {
-    this.#ensureSchema();
     const log = debug('nebula-auth.Registry.claimStar');
 
     // Validate email format
@@ -294,7 +327,6 @@ export class NebulaAuthRegistry extends DurableObject {
     universeGalaxyId: string,
     callerAccess: AccessEntry,
   ): { instanceName: string } {
-    this.#ensureSchema();
     const log = debug('nebula-auth.Registry.createGalaxy');
 
     // Validate format — must be exactly 2 segments (galaxy tier)
@@ -348,7 +380,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * the JWT and passes the verified access claim.
    */
   createStar(universeGalaxyStarId: string, callerAccess: AccessEntry): { instanceName: string } {
-    this.#ensureSchema();
 
     let parsed;
     try {
@@ -389,7 +420,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * keyed) wouldn't surface a galaxy you just created; this does. Flat list; the client nests by id.
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
-    this.#ensureSchema();
     if (!callerAccess?.admin) return [];
     const pattern = callerAccess.authScopePattern;
     let rows: any[];
@@ -415,7 +445,6 @@ export class NebulaAuthRegistry extends DurableObject {
    * 403 if the caller isn't admin over the target. Mutates nothing.
    */
   planScopeDeletion(target: string, callerEmail: string, callerAccess: AccessEntry): ScopeDeletionPlan {
-    this.#ensureSchema();
     return this.#computeDeletionPlan(target, callerEmail.toLowerCase(), callerAccess);
   }
 
@@ -429,7 +458,6 @@ export class NebulaAuthRegistry extends DurableObject {
   async executeScopeDeletion(
     target: string, callerEmail: string, callerAccess: AccessEntry,
   ): Promise<{ affected: AffectedScope[] }> {
-    this.#ensureSchema();
     const lc = callerEmail.toLowerCase();
     const plan = this.#computeDeletionPlan(target, lc, callerAccess);
     if (plan.blockedBy.length > 0) {

@@ -192,8 +192,13 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   *(Absorbs the dissolved offline-harness extraction. Fanout, not a central sink, is the accepted design
   for the rare cross-Universe question.)* **Fanout target moves `Galaxy.getTurns` → `DevStudio` turn Resources
   once Child 3 relocates turns.**
-- **Data-use consent flag** — **designed child, 2-stage `/review-task` complete 2026-06-29**:
-  [`nebula-consent-flag.md`](nebula-consent-flag.md). Adds a **nullable** `improveProductConsent` column to
+- **Data-use consent flag** — **Phases 2–3 BUILT + verified 2026-06-29** (`/build-task`; full nebula-auth suite
+  green) → archived at [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md). ⏳ **TWO remainders:** (1) **prod deploy** — the
+  migration is the **first prod DO schema migration**; it self-applies on the next `apps/nebula` deploy (the
+  registry constructor runs it on construct), so **verify it ran post-deploy** (D6: deploy is the real proof);
+  (2) **Phase 4 — the slug-pick consent notice** (`nebula-studio-ui`) is **deferred to Wave-3** and **MUST render
+  before the first non-Larry user is invited** (Larry owns; pre-invite he's the only subject, so no real user is
+  recorded without a notice). Adds a **nullable** `improveProductConsent` column to
   `NebulaAuthRegistry`'s `Instances` table. **Consent is per-scope, Universe-level now** (`claimUniverse`
   sets the Universe row `=1`, conflict-safe; sub-instance rows stay `NULL` = "inherit from nearest ancestor"
   — the column is already per-level-ready, so galaxy/star consent later is UI-only, no migration). Corpus =
@@ -274,6 +279,13 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   fixes it by construction (turn state is a subscribed Resource, not a single awaited promise) — confirm it.
 
 **Wave 3 — invite + scale the feedback loop**
+- ⚠️ **GATE before any invite: the data-use consent notice must render** at the slug-pick / claim-universe
+  prompt in **`nebula-studio-ui`** (locate via `grep` for the claim-universe / slug input). A short,
+  **informational** notice (no functional gating), **generic "improve the product" framing** — never
+  `nebula`/`studio`-specific. This is **Phase 4** of the consent flag (built work archived at
+  [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md)), deferred from its build. The consent
+  value is written from day one; pre-invite Larry is the only subject, so the notice must ship **before the
+  first non-Larry user is invited** (Larry owns + accepts responsibility).
 - **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
   Sydney → secret-santa + wishlist). *Involvement achieved; capture already live.*
 - **Inbound `claude@lumenize.io` → email Worker → durable store** (R2 or a DO; readable via Cloudflare

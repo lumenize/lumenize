@@ -11,6 +11,10 @@
       {
         "name": "NEBULA_AUTH_REGISTRY",
         "class_name": "NebulaAuthRegistry"
+      },
+      {
+        "name": "BARE_STORAGE_DO",
+        "class_name": "BareStorageDO"
       }
     ]
   },
@@ -20,6 +24,12 @@
       "new_sqlite_classes": [
         "NebulaAuth",
         "NebulaAuthRegistry"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "BareStorageDO"
       ]
     }
   ],

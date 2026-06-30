@@ -47,6 +47,7 @@ Use `setDebugSink((entry) => entries.push(entry))` in `beforeEach` + `clearDebug
 ## Mesh testing pyramid
 - **Integration** (`LumenizeClient` + `createTestRefreshFunction`) — full production path Client → Worker fetch → auth hooks → Gateway → DO. The `refresh` callback mints JWTs locally; auth hooks verify them normally. No test-mode infrastructure.
 - **Isolated DO** (`createTestingClient`) — direct DO RPC, bypasses Worker/Gateway/auth. Good for storage, alarms, business logic, and manipulating DO state (e.g. force-close a WebSocket via `ctx.getWebSockets()[0].close(code)` to test reconnection).
+- **`runInDurableObject(stub, cb)`** (`cloudflare:test`) — runs `cb` *inside* the DO with the real `ctx`/`ctx.storage` (e.g. seed storage, then drive in-DO code directly). Its generic over the DO type can trip **TS2589** ("type instantiation is excessively deep") on a complex DO — **cast the call to `any`**: `(runInDurableObject as any)(stub, cb)`. The `any` is acceptable **in test code only**, never production.
 
 See [website/docs/mesh/testing.mdx](../../website/docs/mesh/testing.mdx).
 

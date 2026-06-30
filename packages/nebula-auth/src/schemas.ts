@@ -9,6 +9,8 @@
  *
  * @see tasks/nebula-auth.md § Data Model
  */
+import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
+import { PLATFORM_INSTANCE_NAME } from './types';
 
 export const SUBJECTS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS Subjects (
@@ -124,4 +126,32 @@ export const REGISTRY_SCHEMAS = [
   REGISTRY_INSTANCES_SCHEMA,
   REGISTRY_EMAILS_SCHEMA,
   REGISTRY_EMAILS_INSTANCE_INDEX,
+];
+
+/**
+ * The registry's schema as an ordered, append-only migration list, run by `@lumenize/sql-migrations`
+ * in the `NebulaAuthRegistry` constructor (id-gated, atomic). One single statement per id:
+ *   id-1..3 — the column-less baseline (today's {@link REGISTRY_SCHEMAS}, one statement per id), now
+ *             FROZEN as baseline migrations;
+ *   id-4    — add the nullable `improveProductConsent` column;
+ *   id-5    — backfill consent=1 for existing **user** Universes (assume-true), excluding sub-instances
+ *             (dotted names) and the reserved platform pseudo-Universe ({@link PLATFORM_INSTANCE_NAME}).
+ *
+ * **APPEND-ONLY:** never edit, reorder, or reuse an applied id — add a new id for any further change.
+ * id-5's UPDATE references the column id-4 adds; this is safe ONLY because the runner applies the whole
+ * pending set in one `transactionSync` (the ALTER is visible to the UPDATE) — never split them.
+ * Backfill invariant: the only non-consentable single-segment row is `PLATFORM_INSTANCE_NAME`; if a
+ * second reserved single-segment name is ever added, widen BOTH this `!= ?` and the corpus filter.
+ */
+export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
+  { idMonotonicInc: 1, description: 'baseline: Instances table', sql: REGISTRY_INSTANCES_SCHEMA },
+  { idMonotonicInc: 2, description: 'baseline: Emails table', sql: REGISTRY_EMAILS_SCHEMA },
+  { idMonotonicInc: 3, description: 'baseline: Emails(instanceName) index', sql: REGISTRY_EMAILS_INSTANCE_INDEX },
+  { idMonotonicInc: 4, description: 'add improveProductConsent column (nullable)', sql: 'ALTER TABLE Instances ADD COLUMN improveProductConsent INTEGER' },
+  {
+    idMonotonicInc: 5,
+    description: 'backfill consent=1 for existing user Universes (assume-true)',
+    sql: `UPDATE Instances SET improveProductConsent = 1 WHERE instanceName NOT LIKE '%.%' AND instanceName != ?`,
+    params: [PLATFORM_INSTANCE_NAME],
+  },
 ];
