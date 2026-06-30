@@ -15,6 +15,7 @@ Documentation quality is ensured by custom Docusaurus tooling that guarantees al
 - **Package `README.md`**: minimal — name, de✨light✨ful tagline, link to website docs, key features, install.
 
 ## Style
+- **Mermaid diagrams** — follow the traps + the mandatory post-edit render-safety grep in [workflow.md](workflow.md) § Design-first (no `;` in `Note` text; confirm every block renders before done). Same rule whether the diagram is in a task file or a doc page.
 - **Prefer inline links** over "See Also" / "Next Steps" sections at the end of files — sidebar ordering handles navigation, and end-of-file link sections go stale unnoticed.
 - **Never create temporary docs** in package directories (`IMPLEMENTATION.md`, `FEATURE_GUIDE.md`, progress reports, compatibility matrices). Focus on user-facing content: overview, basic usage, API, advanced use cases, migration, types, security considerations.
 
