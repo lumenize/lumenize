@@ -201,10 +201,11 @@ export class DagTree {
 
     // Idempotent: if edge already exists, no-op (skip permission check).
     // NOTE: short-circuiting BEFORE requirePermission is non-disclosing ONLY
-    // because the org tree is universally visible (M7) — edge/grant existence is
-    // already public. If tree visibility ever becomes per-branch, every such
-    // short-circuit (here + removeEdge, deleteNode, undeleteNode, revokePermission)
-    // must move AFTER requirePermission, or it leaks existence to unauthorized callers.
+    // because the org tree is universally visible (M7; ADR-008) — edge/grant
+    // existence is already public. If tree visibility ever becomes per-branch,
+    // every such short-circuit (here + removeEdge, deleteNode, undeleteNode,
+    // revokePermission) must move AFTER requirePermission, or it leaks existence
+    // to unauthorized callers.
     if (this.#cached.edges.has(makeEdgeKey(parentNodeId, childNodeId))) return
 
     this.requirePermission(parentNodeId, 'write')
