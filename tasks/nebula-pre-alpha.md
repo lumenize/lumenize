@@ -124,9 +124,7 @@ archive each before writing the next):
   (Star=Galaxy-cached, DevStudio=fixed `Session`/`Turn` constant); `NebulaClient` resource-host binding now injectable
   (`resourceHostBinding`, default `STAR`). **For Child 2:** build QuerySubs/DagTree-batch-eval/per-push-recheck as
   constructor-injected units in the capability (NOT Star privates) + widen the seam to `{version,facet,relationships}`.
-- **Child 2 — parent:child query subscriptions** — finish the already-drafted (settled flows, 4 sub-Qs resolved)
-  [`tasks/nebula-query-subscriptions.md`](nebula-query-subscriptions.md), building it **once into the composable
-  capability** → lands on Star + DevStudio together (extract-first, so no build-in-Star-then-lift rework).
+- **Child 2 — parent:child query subscriptions** — **BUILD-READY (2026-06-30): `/review-task` complete** (Stage 1 framing + Stage 2 conformance; all findings resolved, D1–D17 pinned, Phases 0–6 with capable-of-failing criteria). Build it **once into the composable capability** → lands on Star + DevStudio together (extract-first, no build-in-Star-then-lift rework). **Next: `/build-task tasks/nebula-query-subscriptions.md` in a FRESH session** (the task file is self-contained; no design history needed). [`tasks/nebula-query-subscriptions.md`](nebula-query-subscriptions.md).
 - **Child 3 — `reactive-ai-chat`** — wire the chat loop onto Session/Turn Resources + the query sub; relocate
   turns off Galaxy; close the known chat hang; multi-participant via DAG grants. (Write after Child 2 lands.)
 
