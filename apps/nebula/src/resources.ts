@@ -254,6 +254,50 @@ export class Resources {
     return snapshot;
   }
 
+  /**
+   * Enumerate the CURRENT resources of `typeName` whose to-one relationship
+   * `field` equals `fieldValue` — the v1 `parentChild` query primitive (Child 2,
+   * M1). Returns `{ resourceId, nodeId, validFrom }` ordered by
+   * `(validFrom, resourceId)` (D15 — `validFrom` is server-stamped/chronological,
+   * `resourceId` the deterministic tiebreaker for co-created rows).
+   *
+   * **No permission check here** — membership authorization happens at delivery
+   * (the per-target `evaluatePermissions` in the membership-delivery routine);
+   * each resource's CONTENT still requires a per-resource read on subscribe (D9).
+   *
+   * The FK is extracted in **JS from the structured-clone value at scan time**,
+   * never `json_extract` over the blob — the query layer keys off the ontology
+   * semantic model, not the storage serialization (D8). This is a full scan of the
+   * type's current snapshots (the deferred D8 index swaps the WHERE/source here,
+   * same signature); deleted + superseded rows are excluded.
+   */
+  enumerateCurrentByField(
+    typeName: string,
+    field: string,
+    fieldValue: string,
+  ): Array<{ resourceId: string; nodeId: number; validFrom: string }> {
+    const rows = this.#ctx.storage.sql.exec(
+      `SELECT resourceId, nodeId, validFrom, value
+       FROM Snapshots
+       WHERE typeName = ? AND validTo = ? AND deleted = 0
+       ORDER BY validFrom, resourceId`,
+      typeName, END_OF_TIME,
+    ).toArray();
+
+    const matches: Array<{ resourceId: string; nodeId: number; validFrom: string }> = [];
+    for (const row of rows) {
+      const value = parse(row.value as string);
+      if (value != null && value[field] === fieldValue) {
+        matches.push({
+          resourceId: row.resourceId as string,
+          nodeId: row.nodeId as number,
+          validFrom: row.validFrom as string,
+        });
+      }
+    }
+    return matches;
+  }
+
   async transaction(
     ops: Record<string, OperationDescriptor>,
     ontologyVersion: string,

@@ -20,8 +20,8 @@
  */
 
 import { compileOntologyVersion } from './galaxy';
-import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator';
-import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
+import { getParserValidatorFacet, extractTypeMetadata } from '@lumenize/ts-runtime-parser-validator';
+import type { ParserValidator, TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
 
 /** The fixed, code-defined ontology version for the Session/Turn data plane.
  *  Changes only on deploy (which reboots the DO → `onStart` re-derives it). */
@@ -58,7 +58,13 @@ export const SESSION_TURN_TYPES = [
 export function createResourceOntologyProvider(
   ctx: DurableObjectState,
   loader: WorkerLoader,
-): () => { version: string; facet: ParserValidator } {
+): () => { version: string; facet: ParserValidator; relationships: TypeMetadata['relationships'] } {
+  // The relationship metadata is pure-parse-cheap and the types are a fixed
+  // constant, so extract it ONCE here (factory body) and close over it — the
+  // returned closure runs per resource op, but this never re-parses. Surfaced on
+  // the seam for `subscribeQuery` field validation (D11); `Turn.session` is the
+  // to-one relationship Child 2 subscribes on.
+  const relationships = extractTypeMetadata(SESSION_TURN_TYPES).relationships;
   return () => {
     const facet = getParserValidatorFacet(
       ctx,
@@ -69,6 +75,6 @@ export function createResourceOntologyProvider(
         types: SESSION_TURN_TYPES,
       }).validatorBundle,
     );
-    return { version: SESSION_TURN_ONTOLOGY_VERSION, facet };
+    return { version: SESSION_TURN_ONTOLOGY_VERSION, facet, relationships };
   };
 }

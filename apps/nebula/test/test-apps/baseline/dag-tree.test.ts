@@ -1203,4 +1203,68 @@ describe('dag-tree', () => {
       uniAdmin[Symbol.dispose]();
     });
   });
+
+  // ─── evaluatePermissions batch eval (Child 2 Phase 1, D16) ───────────
+  describe('evaluatePermissions (Child 2 Phase 1)', () => {
+    it('complete denied set; grant flips one; accessAdmin bypasses; Star DAG admin resolves allow-all', async () => {
+      const star = uniqueStar();
+      const { client: admin, payload: adminPayload } = await adminClient(star);
+      const founderSub = adminPayload.sub; // admin on ROOT (founder seed)
+
+      // Two sibling nodes under root.
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-a', 'A');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const nA = admin.lastResult as number;
+      admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-b', 'B');
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      const nB = admin.lastResult as number;
+
+      // A real non-admin subject, no grants yet.
+      const { client: user, payload: userPayload } = await userClient(star, '', 'coach@example.com');
+      const userSub = userPayload.sub;
+
+      type Eval = { allowed: Set<number>; denied: Set<number> };
+
+      // Non-admin, no grants → BOTH denied. The denied set must be COMPLETE
+      // (>=2 in one call). Mutation: short-circuit on first denial → only nA
+      // appears, size 1 → red (n2).
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, false);
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      let res = admin.lastResult as Eval;
+      expect(res.allowed.size).toBe(0);
+      expect(res.denied.has(nA)).toBe(true);
+      expect(res.denied.has(nB)).toBe(true);
+      expect(res.denied.size).toBe(2);
+
+      // Grant read on nA → matches resolvePermission per node: allowed={nA}, denied={nB}.
+      admin.callStarSetPermission(star, nA, userSub, 'read');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, false);
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      res = admin.lastResult as Eval;
+      expect(res.allowed.has(nA)).toBe(true);
+      expect(res.allowed.has(nB)).toBe(false);
+      expect(res.denied.has(nB)).toBe(true);
+
+      // accessAdmin:true → ALL allowed even with no grant on nB (Galaxy/Universe
+      // scope-admin bypass replicated, D16). Mutation: ignore accessAdmin → nB denied → red.
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, true);
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      res = admin.lastResult as Eval;
+      expect(res.allowed.has(nB)).toBe(true);
+      expect(res.denied.size).toBe(0);
+
+      // A Star DAG `admin` grant (the founder, admin on root) resolves allow-all
+      // through resolvePermission with accessAdmin:false (no JWT bypass needed).
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', founderSub, false);
+      await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+      res = admin.lastResult as Eval;
+      expect(res.allowed.has(nA)).toBe(true);
+      expect(res.allowed.has(nB)).toBe(true);
+      expect(res.denied.size).toBe(0);
+
+      admin[Symbol.dispose]();
+      user[Symbol.dispose]();
+    });
+  });
 });

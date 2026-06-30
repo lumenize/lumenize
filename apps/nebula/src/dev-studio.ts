@@ -44,6 +44,7 @@ import type { NebulaClient } from './nebula-client';
 import type { DevContainer, SourceFile } from './dev-container';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
+import type { QueryDescriptor } from './query-hash';
 import { createResourceOntologyProvider } from './devstudio-resource-ontology';
 import type { DagTree } from './dag-tree';
 import type { OperationDescriptor, Snapshot } from './resources';
@@ -164,6 +165,12 @@ export class DevStudio extends NebulaDO {
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
         broadcastResourceUpdate: (resourceId, snapshot, targets) =>
           this.#broadcastResourceUpdate(resourceId, snapshot, targets),
+        broadcastQueryUpdate: (queryHash, resourceIds, targets) =>
+          this.#broadcastQueryUpdate(queryHash, resourceIds, targets),
+        deliverQueryUpdate: (clientId, queryHash, result) =>
+          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+            this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
+            this.ctn<DevStudio>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => { /* no org-tree subscribe channel on DevStudio */ },
     );
@@ -531,6 +538,32 @@ export class DevStudio extends NebulaDO {
     this.#dataPlane.removeSubscriber(resourceId, clientId);
   }
 
+  /** Handler 1: register a query subscription + push the initial membership (void,
+   *  D7). Non-admin + DAG-gated (authorization is per-push at delivery). `clientId`/
+   *  `subscriberBinding` from `callChain` (m2/m3). See `Star.subscribeQuery`. */
+  @mesh()
+  subscribeQuery(query: QueryDescriptor): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeQuery requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeQuery requires a gateway in callChain.at(-1)');
+    }
+    this.#dataPlane.doSubscribeQuery(query, clientId, subscriberBinding);
+  }
+
+  /** Drop the caller's query-sub row for `queryHash` (clientId from callChain, m3). */
+  @mesh()
+  unsubscribeQuery(queryHash: string): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('unsubscribeQuery requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
+  }
+
   /** Single `@mesh()` entry for the DagTree API (per-op auth inside DagTree). */
   @mesh()
   dagTree(): DagTree {
@@ -553,6 +586,24 @@ export class DevStudio extends NebulaDO {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
       const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
       if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
+    }
+  }
+
+  /** Host-side fanout for a query membership push to the no-denial group (D17). One
+   *  shared payload via `svc.broadcast`; dead-client cleanup rides
+   *  {@link onQueryBroadcastResult} keyed by `queryHash` (m6). */
+  #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
+    const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQueryBroadcastResult(queryHash) });
+  }
+
+  /** Per-target query-push result handler (no-denial broadcast + has-denial
+   *  deliveries — m6); drops the dead client's query-sub row on disconnect. */
+  @mesh()
+  onQueryBroadcastResult(queryHash: string, result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
     }
   }
 

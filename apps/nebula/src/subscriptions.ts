@@ -11,13 +11,55 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
+import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 import type { DagTree } from './dag-tree';
 import type { Resources, Snapshot } from './resources';
+
+/** Distinct migration marker so this runner's progress never collides with another
+ *  `SQLSchemaMigrations` composed into the SAME Star/DevStudio DO (the `markerKey`
+ *  knob exists for exactly this per-component composition). */
+const SUBSCRIBERS_MARKER_KEY = '__sql_migrations_Subscribers';
+
+/**
+ * Append-only migration list for the `Subscribers` table, run id-gated + atomically
+ * by `@lumenize/sql-migrations` in the constructor (replaces the old
+ * `CREATE IF NOT EXISTS` + hand-rolled try/catch ALTER). **APPEND-ONLY** — never
+ * edit/reorder/reuse an applied id.
+ *   id-1 — the FROZEN baseline (matches what already exists in prod, created by the
+ *          pre-migration `CREATE IF NOT EXISTS`; so it no-ops on existing Stars and
+ *          creates the table on a fresh one);
+ *   id-2 — add `accessAdmin` (D16 — the `access.admin` claim for the per-push recheck).
+ */
+const SUBSCRIBERS_MIGRATIONS: SQLSchemaMigration[] = [
+  {
+    idMonotonicInc: 1,
+    description: 'baseline: Subscribers table',
+    sql: `CREATE TABLE IF NOT EXISTS Subscribers (
+      resourceId TEXT NOT NULL,
+      clientId TEXT NOT NULL,
+      sub TEXT NOT NULL,
+      subscriberBinding TEXT NOT NULL,
+      subscribedAt TEXT NOT NULL,
+      PRIMARY KEY (resourceId, clientId)
+    ) WITHOUT ROWID`,
+  },
+  {
+    idMonotonicInc: 2,
+    description: 'add accessAdmin column (D16)',
+    sql: `ALTER TABLE Subscribers ADD COLUMN accessAdmin INTEGER NOT NULL DEFAULT 0`,
+  },
+];
 
 export interface SubscriberRow {
   resourceId: string;
   clientId: string;
   sub: string;
+  /** The `claims.access.admin` flag at subscribe time (0/1) — the Galaxy/Universe
+   *  scope-admin bypass replicated for the per-push recheck (D16). NOT a Star DAG
+   *  `admin` grant (that resolves through `resolvePermission` normally). */
+  accessAdmin: number;
   subscriberBinding: string;
   subscribedAt: string;
 }
@@ -38,20 +80,14 @@ export class Subscriptions {
     this.#getCallContext = getCallContext;
     this.#dagTree = dagTree;
     this.#resources = resources;
-    this.#createSchema();
-  }
-
-  #createSchema() {
-    this.#ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS Subscribers (
-        resourceId TEXT NOT NULL,
-        clientId TEXT NOT NULL,
-        sub TEXT NOT NULL,
-        subscriberBinding TEXT NOT NULL,
-        subscribedAt TEXT NOT NULL,
-        PRIMARY KEY (resourceId, clientId)
-      ) WITHOUT ROWID;
-    `);
+    // Run the Subscribers schema migrations once, eagerly (the constructor runs in
+    // onStart, before any request). id-gated + atomic; brings an existing prod Star's
+    // pre-accessAdmin table up to date without a hand-rolled ALTER guard.
+    new SQLSchemaMigrations({
+      doStorage: this.#ctx.storage,
+      markerKey: SUBSCRIBERS_MARKER_KEY,
+      migrations: SUBSCRIBERS_MIGRATIONS,
+    }).runAll();
   }
 
   /**
@@ -60,12 +96,15 @@ export class Subscriptions {
    * registered by a stale-version client (the row carries no version itself,
    * but the deploy-driven cleanup model says: deploys are the cleanup event).
    *
-   * `DROP TABLE + CREATE TABLE` is billed as a single write per CLAUDE.md's
-   * storage cost model. `DELETE FROM Subscribers` would be billed per row,
-   * which dominates at any non-trivial scale.
+   * `DROP TABLE + recreate` is billed as a single write per CLAUDE.md's storage
+   * cost model. `DELETE FROM Subscribers` would be billed per row, which dominates
+   * at any non-trivial scale.
    *
-   * The constructor's `CREATE TABLE IF NOT EXISTS` only runs at `onStart()`
-   * — mid-operation drop+recreate has to happen inline here.
+   * The migration runner only fires at `onStart()` (and the marker records the table
+   * as already-migrated, so it won't re-create after a restart) — so the mid-operation
+   * rebuild happens inline here by **replaying the migration DDL** (recreating the
+   * empty table at its current schema). All `Subscribers` migrations are DDL; a future
+   * data-backfill migration would be a harmless no-op on the freshly-emptied table.
    *
    * Returns the distinct `(subscriberBinding, clientId)` pairs that were
    * dropped. The caller (Star.#installState) uses this to push-on-clear:
@@ -80,7 +119,9 @@ export class Subscriptions {
       `SELECT DISTINCT subscriberBinding, clientId FROM Subscribers`,
     ).toArray() as Array<{ subscriberBinding: string; clientId: string }>;
     this.#ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
-    this.#createSchema();
+    for (const m of SUBSCRIBERS_MIGRATIONS) {
+      this.#ctx.storage.sql.exec(m.sql, ...(m.params ?? []));
+    }
     return dropped;
   }
 
@@ -117,11 +158,16 @@ export class Subscriptions {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
+    // Store the access.admin claim so the per-push recheck (D3) can replicate the
+    // requirePermission bypass for a Galaxy/Universe scope-admin who holds no DAG
+    // grant — we don't have the subscriber's live JWT at push time (D16).
+    const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
+    const accessAdmin = claims?.access?.admin ? 1 : 0;
 
     this.#ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscribers (resourceId, clientId, sub, subscriberBinding, subscribedAt)
-       VALUES (?, ?, ?, ?, ?)`,
-      resourceId, clientId, sub, subscriberBinding, new Date().toISOString(),
+      `INSERT OR REPLACE INTO Subscribers (resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      resourceId, clientId, sub, accessAdmin, subscriberBinding, new Date().toISOString(),
     );
 
     return snapshot;
@@ -150,7 +196,7 @@ export class Subscriptions {
    */
   forResource(resourceId: string): SubscriberRow[] {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt
+      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
        FROM Subscribers WHERE resourceId = ?`,
       resourceId,
     ).toArray();
@@ -163,7 +209,7 @@ export class Subscriptions {
    */
   list(): SubscriberRow[] {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt FROM Subscribers`,
+      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt FROM Subscribers`,
     ).toArray();
     return rows as unknown as SubscriberRow[];
   }

@@ -32,6 +32,7 @@ import { ReloadSubscriptions } from './reload-subscriptions';
 import { OntologyStaleError } from './errors';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
+import type { QueryDescriptor } from './query-hash';
 import type { OperationDescriptor, Snapshot } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
@@ -51,10 +52,13 @@ export class Star extends NebulaDO {
     this.#dataPlane = new ResourceDataPlane(
       this.ctx,
       () => this.lmz.callContext,
-      // Ontology-provider seam: Star's source is the Galaxy-cached row.
+      // Ontology-provider seam: Star's source is the Galaxy-cached row. The row
+      // already carries `relationships` (compiled by `compileOntologyVersion`),
+      // so widening the seam to surface it for `subscribeQuery` field validation
+      // (D11) costs nothing here.
       () => {
         const { row, facet } = this.#ensureFacet();
-        return { version: row.version, facet };
+        return { version: row.version, facet, relationships: row.relationships };
       },
       // Host-side mesh I/O — continuations built with Star's own this.ctn/this.lmz/this.svc.
       {
@@ -69,6 +73,12 @@ export class Star extends NebulaDO {
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
         broadcastResourceUpdate: (resourceId, snapshot, targets) =>
           this.#broadcastResourceUpdate(resourceId, snapshot, targets),
+        broadcastQueryUpdate: (queryHash, resourceIds, targets) =>
+          this.#broadcastQueryUpdate(queryHash, resourceIds, targets),
+        deliverQueryUpdate: (clientId, queryHash, result) =>
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
+            this.ctn<Star>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => this.#onDagChanged(),
     )
@@ -216,7 +226,19 @@ export class Star extends NebulaDO {
       // same version (defensive: shouldn't happen given #isCachedVersion
       // guards upstream) shouldn't churn existing subscriptions.
       if (isNewVersion && prevLatest) {
-        droppedSubscribers = this.#dataPlane.clearSubscribers();
+        // Drain BOTH registries and UNION by (subscriberBinding, clientId) so a
+        // client subscribed to both a resource AND a query is signaled exactly once
+        // (m1). A query sub spans types, so an install almost always invalidates it.
+        const droppedResource = this.#dataPlane.clearSubscribers();
+        const droppedQuery = this.#dataPlane.clearQuerySubscribers();
+        const seen = new Set<string>();
+        droppedSubscribers = [];
+        for (const d of [...droppedResource, ...droppedQuery]) {
+          const k = `${d.subscriberBinding} ${d.clientId}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          droppedSubscribers.push(d);
+        }
       }
     });
     this.#row = row;
@@ -461,6 +483,45 @@ export class Star extends NebulaDO {
     this.#dataPlane.removeSubscriber(resourceId, clientId);
   }
 
+  // ─── Query subscriptions (Child 2, Handler 1 → capability) ──────────
+
+  /**
+   * Handler 1: register a query subscription + push the initial membership. **Void**
+   * (ADR-003 / D7) — the client computed the canonical `queryHash` locally and keys
+   * its handle before firing; the initial state arrives as a `handleQueryUpdate`
+   * push. `@mesh()` not `@mesh(requireAdmin)`: query subs are non-admin but
+   * DAG-gated (authorization is per-push at delivery, D4). No ontology-version gate —
+   * the query validates against the capability's current `relationships` and the
+   * membership enumerates current snapshots (version-independent). `clientId` /
+   * `subscriberBinding` come from `callChain` (m2/m3), never params.
+   */
+  @mesh()
+  subscribeQuery(query: QueryDescriptor): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeQuery requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeQuery requires a gateway in callChain.at(-1)');
+    }
+    this.#dataPlane.doSubscribeQuery(query, clientId, subscriberBinding);
+  }
+
+  /**
+   * Drop the caller's query-sub row for `queryHash`. `clientId` from `callChain[0]`
+   * (never a param), so a client can only drop its OWN row (m3). Best-effort — a
+   * missing row no-ops.
+   */
+  @mesh()
+  unsubscribeQuery(queryHash: string): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('unsubscribeQuery requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
+  }
+
   // ─── OrgTree (dedicated channel) ───────────────────────────────────
 
   /**
@@ -633,6 +694,31 @@ export class Star extends NebulaDO {
       if (clientId) this.#dataPlane.removeSubscriber(resourceId, clientId);
     }
     // Success path or non-disconnect error: nothing to do here.
+  }
+
+  /**
+   * Host-side fanout for a query membership push to the NO-DENIAL group (D17) — the
+   * {@link ResourceHostBridge} `broadcastQueryUpdate` impl. One shared payload (the
+   * full `resourceIds`) via `svc.broadcast`; drop-on-failed-fanout cleanup rides
+   * `onQueryBroadcastResult` keyed by `queryHash` (m6).
+   */
+  #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]) {
+    const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
+  }
+
+  /**
+   * Per-target result handler for query pushes (both the no-denial broadcast and
+   * the per-subscriber has-denial deliveries — m6). Keyed by `queryHash`; drops the
+   * dead client's query-sub row on a `ClientDisconnectedError`. `@mesh()` for the
+   * tier-worker broadcast path.
+   */
+  @mesh()
+  onQueryBroadcastResult(queryHash: string, result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
+    }
   }
 
   /**

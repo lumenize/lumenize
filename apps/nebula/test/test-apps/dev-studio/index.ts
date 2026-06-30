@@ -90,6 +90,14 @@ export class DevStudioLoopProbe extends DevStudio {
     return createResourceOntologyProvider(this.ctx, this.env.LOADER)().version;
   }
 
+  /** Child 2 Phase 0: the relationship metadata the widened `getOntology()` seam
+   *  (D11) carries — exercises the REAL provider closure (this.ctx/this.env.LOADER),
+   *  so dropping `relationships` from the provider returns `undefined` here (red). */
+  @mesh(requireAdmin)
+  resourceRelationshipsForTest(): unknown {
+    return createResourceOntologyProvider(this.ctx, this.env.LOADER)().relationships;
+  }
+
   /** Re-run onStart to simulate a DO restart / re-init (M3 wipe-recovery). */
   @mesh(requireAdmin)
   async reInitForTest(): Promise<void> {

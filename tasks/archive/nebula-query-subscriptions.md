@@ -1,6 +1,6 @@
 # Nebula — query subscriptions (v1: parent-child)
 
-**Status**: **Build-ready** — `/review-task` complete (Stage 1 framing + Stage 2 conformance, 2026-06-30; all findings resolved, some as deliberate accept-for-v1 with documented bounds). Pending a final human read. **Child 2** of the multi-user chat thread ([`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Current focus); **builds on Child 1** ([`tasks/archive/nebula-devstudio-data-plane.md`](archive/nebula-devstudio-data-plane.md)), consumed by Child 3 (`reactive-ai-chat`). Archives to `tasks/archive/` on landing; the user-facing subset of the diagrams may graduate to `website/docs/nebula/`.
+**Status**: **LANDED + ARCHIVED (2026-06-30)** — all 7 phases (0–6) green + `/build-task` verifier panel PASS (all phases conform); committed on `pre-alpha`. `/review-task` was complete 2026-06-30 (Stage 1 framing + Stage 2 conformance; all findings resolved, D1–D17 pinned — incl. `onPartial` EXCLUDED from `queryHash`, M3, confirmed kept). **Child 2** of the multi-user chat thread ([`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Current focus); **built on Child 1** ([`tasks/archive/nebula-devstudio-data-plane.md`](nebula-devstudio-data-plane.md)), consumed by Child 3 (`reactive-ai-chat`). Frozen on archive (per `tasks/README.md`). Deferred/optional: the user-facing subset of the diagrams may later graduate to `website/docs/nebula/`. See the **Build record + retro** section at the end.
 
 > **Where this is built (read first).** Everything here lands **inside the `ResourceDataPlane` capability** (`apps/nebula/src/resource-data-plane.ts`), which is composed by **both** Star and DevStudio: `QuerySubs` as a new constructor-injected unit (like `Subscriptions`), plus the per-push permission recheck, the `DagTree` batch-eval, and the query rerun (on commit + on permission change) — all **capability** logic, never a host `#broadcast` private. The host DO adds only thin `@mesh` Handler-1 wrappers (`subscribeQuery`, …), `onBeforeCall` (aud-lock), and the bridge that builds the server→client continuations (the capability has no `this.lmz`/`this.ctn`). Building here lands query subscriptions on Star **and** DevStudio (the chat) at once. The diagrams collapse host DO + capability into one **`DataPlane`** lane except where the host boundary matters.
 
@@ -270,3 +270,23 @@ Each phase is independently valuable + testable on **both** hosts (the e2e exerc
 
 ## Open questions (genuinely still open)
 - **Permission-change rerun cost:** a grant change reruns + full-set-re-pushes **every** live query (D6). Confirm that's cheap at v1 scale, or scope to affected nodes later (a grant on node N only affects queries with a resource under N).
+
+---
+
+## Build record + retro (2026-06-30)
+
+**What shipped** (all in the `ResourceDataPlane` capability → Star + DevStudio at once; hosts add only thin Handler-1 wrappers + the two bridge methods):
+- P0 seam widened to `{version,facet,relationships}`; P1 `DagTree.evaluatePermissions`; P2 per-push recheck in `#broadcast` + `accessAdmin` on `Subscribers`; P3 `Resources.enumerateCurrentByField` + `QuerySubs` registry + canonical `queryHash` (`query-hash.ts`) + `subscribeQuery`/`unsubscribeQuery` + bridge methods + Flow-1 initial push; P4 commit rerun (`#rerunQueriesForCommit`); P5 permission-change rerun off `DagTree.onChanged`; P6 client `subscribeQuery` handle (membership replace + windowed lazy content subs with grace + refcount + reconnect re-subscribe) + two-client e2e.
+- New tests (baseline): `child2-recheck`, `child2-query-subs`, `child2-query-rerun`, `child2-query-permission`, `child2-query-e2e`, `child2-query-window`; + `dag-tree` (evaluatePermissions) and `dev-studio` surface freeze.
+- **Verification:** 346 green (baseline+dev-studio+unit) + the query suites; `tsc` clean; every headline capable-of-failing assertion mutation-verified red. `/build-task` verifier panel: **all 7 phases conform**.
+
+**Two adopted mid-build (not in the original plan):**
+- **SQL migration via `@lumenize/sql-migrations`** (NOT a hand-rolled try/catch ALTER — we're in prod). The `accessAdmin` column add is `Subscribers` migration id-2 (id-1 = frozen baseline). Required restoring the package's `markerKey` knob (dropped during vendoring) so per-component runners in one DO don't collide — see [[sql-migrations-marker-key]]. `Subscriptions` is the 2nd consumer.
+- **`queryHash` = FNV-1a-64** (standard algorithm from spec), not the ad-hoc hash first written. No sync hash exists in the JS stdlib/Workers runtime (`crypto.subtle` is async and would break the compute-locally-before-firing design); 64-bit so a collision can't merge two queries' subscriber sets.
+
+**Retro (per `/build-task`):**
+1. *Learned* — (a) per-component DO migrations need distinct marker keys (composition pattern); (b) a self-healing/idempotent end-state hides transient-path behavior from end-state assertions (the no-flicker grace) — assert on the transient surface instead (now a `testing.md` bullet); (c) `onPartial` is per-subscriber (excluded from `queryHash`, D2/M3), so the delivery routine reads it per-target, not from the query arg.
+2. *Struggled with* — the Phase-6 no-flicker e2e wasn't capable-of-failing (a membership rerun re-reconciles the window and re-subscribes, masking the churn); moved it to a Star `inspectSubscribers` test that observes the churn directly.
+3. *Unexpected test failures* — both were test-authoring bugs, not code: a `createSubject` 401 (passed `''` for the access token) and a loses-read e2e that granted ROOT read (which **inherits** to child nodes, so revoking a child grant didn't deny — fixed with sibling nodes).
+4. *Follow-on* — Child 3 (`reactive-ai-chat`) builds directly on this (turn = child Resource FK'd to Session; the per-id recheck already enforces participant DAG grants). `QuerySubscribers` stays on `CREATE IF NOT EXISTS` until its first ALTER, then adopts a runner with its own `markerKey`. Deferred D8 index + deltas unchanged.
+5. *Process* — concrete edits made: `testing.md` (self-healing-end-state failure mode), `workflow.md` (extend the invisible-char grep to NUL — the verifier panel caught a stray `U+0000` an `Edit` injected into a template key that compiled+passed tests), and the `sql-migrations` package README/ATTRIBUTIONS for the `markerKey` knob.

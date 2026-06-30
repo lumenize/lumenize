@@ -34,7 +34,7 @@ import {
   ROOT_NODE_ID,
   compileOntologyVersion,
 } from '@lumenize/nebula';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow } from '@lumenize/nebula';
+import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -145,10 +145,21 @@ export class StarTest extends Star {
   @mesh(requireAdmin)
   inspectSubscribers(): SubscriberRow[] {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, subscriberBinding, subscribedAt
+      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
        FROM Subscribers ORDER BY resourceId, clientId`,
     ).toArray();
     return rows as unknown as SubscriberRow[];
+  }
+
+  /** Test-only (Child 2): dump the QuerySubscribers table — idempotency / M3
+   *  single-row checks + content. PK-ordered. Admin-gated. */
+  @mesh(requireAdmin)
+  inspectQuerySubscribers(): QuerySubscriberRow[] {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT queryHash, query, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+       FROM QuerySubscribers ORDER BY queryHash, clientId`,
+    ).toArray();
+    return rows as unknown as QuerySubscriberRow[];
   }
 
   /** Test-only: dump the TreeSubscribers table (the dedicated org-tree channel). */
@@ -186,6 +197,7 @@ export class StarTest extends Star {
         resourceId TEXT NOT NULL,
         clientId TEXT NOT NULL,
         sub TEXT NOT NULL,
+        accessAdmin INTEGER NOT NULL DEFAULT 0,
         subscriberBinding TEXT NOT NULL,
         subscribedAt TEXT NOT NULL,
         PRIMARY KEY (resourceId, clientId)
@@ -356,6 +368,12 @@ export class NebulaClientTest extends NebulaClient {
   //     zeroed by resetResults (it's a channel counter; baseline it before the
   //     action under test, per testing.md). ---
   reloadCount = 0;
+
+  // --- handleQueryUpdate capture (Child 2 query channel). Reset explicitly by the
+  //     query initiators (not resetResults). ---
+  lastQueryUpdate: { queryHash: string; result: QueryUpdatePayload } | undefined = undefined;
+  lastQueryError: Error | undefined = undefined;
+  queryUpdateCount = 0;
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -584,6 +602,17 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
+  /** Child 2 Phase 1: drive the non-throwing batch eval (explicit sub + stored
+   *  accessAdmin). Returns `{ allowed: Set, denied: Set }` — structured-clone
+   *  preserves the Sets across the mesh. */
+  callStarEvaluatePermissions(
+    starName: string, nodeIds: number[], tier: PermissionTier, sub: string, accessAdmin: boolean,
+  ): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().evaluatePermissions(nodeIds, tier, sub, accessAdmin);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
   callStarGetEffectivePermission(starName: string, nodeId: number, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
@@ -639,6 +668,26 @@ export class NebulaClientTest extends NebulaClient {
   callStarInspectSubscribers(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectSubscribers();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  // --- Query subscription initiators (Child 2; fire-and-forget — host delivers
+  //     via handleQueryUpdate) ---
+
+  callStarSubscribeQuery(starName: string, query: QueryDescriptor): void {
+    this.lastQueryUpdate = undefined;
+    this.lastQueryError = undefined;
+    this.queryUpdateCount = 0;
+    this.lmz.call('STAR', starName, this.ctn<Star>().subscribeQuery(query));
+  }
+
+  callStarUnsubscribeQuery(starName: string, queryHash: string): void {
+    this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
+  }
+
+  callStarInspectQuerySubscribers(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<StarTest>().inspectQuerySubscribers();
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
@@ -743,6 +792,19 @@ export class NebulaClientTest extends NebulaClient {
     super.handleOrgTreeUpdate(envelope as { value: never });
     this.orgTreeUpdateCount++;
     this.lastOrgTree = envelope.value;
+  }
+
+  /** Capture query-membership pushes (Child 2). The base is a Phase-3 no-op; this
+   *  override records the latest payload (or error) + counts pushes for assertions. */
+  @mesh()
+  override handleQueryUpdate(queryHash: string, result: QueryUpdatePayload | Error): void {
+    super.handleQueryUpdate(queryHash, result);
+    this.queryUpdateCount++;
+    if (result instanceof Error) {
+      this.lastQueryError = result;
+    } else {
+      this.lastQueryUpdate = { queryHash, result };
+    }
   }
 
   // --- Galaxy test initiators ---

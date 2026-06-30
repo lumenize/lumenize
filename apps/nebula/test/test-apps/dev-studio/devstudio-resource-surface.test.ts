@@ -54,7 +54,8 @@ describe('DevStudio @mesh surface freeze (m5)', () => {
   // non-admin ENTERS it (→ red). Both gate sets are thus pinned.
   it('non-admin @mesh surface == the resource surface, exactly', () => {
     expect(meshMethods(false)).toEqual(
-      ['dagTree', 'onBroadcastResult', 'read', 'subscribe', 'transaction', 'unsubscribe'],
+      ['dagTree', 'onBroadcastResult', 'onQueryBroadcastResult', 'read', 'subscribe',
+       'subscribeQuery', 'transaction', 'unsubscribe', 'unsubscribeQuery'],
     );
   });
 
@@ -88,6 +89,16 @@ describe('DevStudio Session/Turn facet (composed provider)', () => {
     expect(err).toBeDefined();
     // The loud warning explains the by-id relationship contract (names field + target).
     expect(err.description).toMatch(/reference by id/i);
+  });
+
+  it('Child 2 Phase 0: the getOntology() seam carries relationships (Turn.session is to-one)', async () => {
+    const dev = uniqueDevScope();
+    const rels = await callStudio(dev, 'resourceRelationshipsForTest') as
+      Record<string, Record<string, { target: string; cardinality: string }>>;
+    // Capable-of-failing: drop `relationships` from the provider closure → this is
+    // `undefined` and the `.Turn.session` access throws (red). subscribeQuery field
+    // validation (Phase 3) has nothing to check without this.
+    expect(rels.Turn.session).toMatchObject({ target: 'Session', cardinality: 'one' });
   });
 
   it('M3: ontology version is the fixed constant and survives an onStart re-init', async () => {

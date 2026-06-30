@@ -31,6 +31,8 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
+import type { QueryUpdatePayload, QueryDescriptor } from './query-hash';
+import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import type { Star } from './star';
 import type { DevStudio } from './dev-studio';
@@ -62,6 +64,57 @@ export type OperationDescriptor = EngineOp;
  */
 export interface ResourceSubscription extends Disposable {
   readonly snapshot: Promise<Snapshot | null>;
+}
+
+/** Options for {@link NebulaClient.resources.subscribeQuery}. */
+export interface SubscribeQueryOptions {
+  /** Grace before a per-resource content sub is released after its id leaves the
+   *  rendered window (default 2000 ms — matches the factory's binding grace). An id
+   *  that leaves and returns within this window keeps its live content sub
+   *  (flicker-free on membership churn / scroll bounce). */
+  renderGraceMs?: number;
+}
+
+/**
+ * A `using`-compatible query-subscription handle returned by
+ * {@link NebulaClient.resources.subscribeQuery} (Child 2). The membership
+ * (`resourceIds`, ordered) is REPLACED on every push (idempotent, self-healing —
+ * no delta merge). `subscribeQuery` is fire-and-forget (the client computes the
+ * canonical `queryHash` LOCALLY and correlates pushes by it — ADR-003), so the
+ * initial state arrives asynchronously; `ready` resolves on the first push.
+ *
+ * Content is NOT carried on this channel — call {@link setRenderWindow} with the
+ * ids you're rendering to lazily per-resource-subscribe them (refcounted, shares
+ * rows with direct `subscribe`). `[Symbol.dispose]()` is per-handle; the server
+ * `unsubscribeQuery` fires when the LAST handle releases.
+ */
+export interface QuerySubscription extends Disposable {
+  /** Resolves on the first membership push; rejects if the query is rejected. */
+  readonly ready: Promise<void>;
+  /** Current ordered membership — the resource ids the subscriber may read. */
+  readonly resourceIds: string[];
+  /** Denied node ids (for the request-access UI). */
+  readonly deniedNodes: number[];
+  /** Set the rendered window — content subs open for exactly these ids (∩ current
+   *  membership); ids that leave are released after the grace period. */
+  setRenderWindow(resourceIds: string[]): void;
+  /** Register a callback fired on every membership/denied change. */
+  onChange(cb: () => void): void;
+}
+
+/** Internal per-query state shared across handles of the same canonical query. */
+interface QueryEntry {
+  query: QueryDescriptor;
+  resourceIds: string[];
+  deniedNodes: number[];
+  refcount: number;
+  ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
+  /** Ids the consumer asked to render; effective window = this ∩ resourceIds. */
+  desiredWindow: Set<string>;
+  /** Live per-resource content subs (incl. those in their grace window pending dispose). */
+  windowSubs: Map<string, { sub: ResourceSubscription; graceTimer?: ReturnType<typeof setTimeout> }>;
+  renderGraceMs: number;
+  listeners: Set<() => void>;
 }
 
 export interface OntologyStaleInfo {
@@ -325,6 +378,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * pure side-effect (state write-through only).
    */
   #pendingSubscribes = new Map<SubscribeKey, PendingSubscribe>();
+
+  /**
+   * Active query subscriptions (Child 2), keyed by the locally-computed canonical
+   * `queryHash`. Shared across handles of the same query (refcounted). Each entry
+   * holds the membership set, the windowed per-resource content subs, and the
+   * grace timers — see {@link QueryEntry}.
+   */
+  #queryEntries = new Map<string, QueryEntry>();
 
   /**
    * In-flight `read(rt, rid)` Promises, correlated by `requestId`. Each
@@ -704,6 +765,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
     }
+    // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
+    // a reconnect after token expiry re-subscribes with the fresh token, so a
+    // demoted admin's new (non-admin) `access.admin` is re-derived server-side and
+    // the stored `accessAdmin` is cleared. The window subs ride the single-resource
+    // re-subscribe loop above.
+    for (const entry of this.#queryEntries.values()) {
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribeQuery(entry.query));
+    }
   }
 
   /**
@@ -896,6 +966,56 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     unsubscribe: (resourceType: string, resourceId: string): void => {
       this.#disposeSubscription(resourceType, resourceId);
     },
+
+    /**
+     * Subscribe to a QUERY across resources (Child 2) — v1: equality on one to-one
+     * relationship field. Returns a `using`-compatible {@link QuerySubscription}
+     * synchronously; the client computes the canonical `queryHash` LOCALLY and keys
+     * the handle before firing the (void) `subscribeQuery` (ADR-003). Membership
+     * arrives on `ready` + every subsequent push (full-set replace). Use
+     * `setRenderWindow` to lazily hydrate content for the rendered ids only.
+     * Refcounted: `[Symbol.dispose]()` releases `unsubscribeQuery` on the last handle.
+     */
+    subscribeQuery: (query: QueryDescriptor, options?: SubscribeQueryOptions): QuerySubscription => {
+      const queryHash = canonicalQueryHash(query);
+      let entry = this.#queryEntries.get(queryHash);
+      if (!entry) {
+        let resolve!: () => void;
+        let reject!: (e: unknown) => void;
+        const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+        entry = {
+          query,
+          resourceIds: [],
+          deniedNodes: [],
+          refcount: 0,
+          ready: { promise, resolve, reject, settled: false },
+          desiredWindow: new Set<string>(),
+          windowSubs: new Map(),
+          renderGraceMs: options?.renderGraceMs ?? 2000,
+          listeners: new Set(),
+        };
+        this.#queryEntries.set(queryHash, entry);
+        this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().subscribeQuery(query));
+      }
+      entry.refcount++;
+      const e = entry;
+      let disposed = false;
+      return {
+        ready: e.ready.promise,
+        get resourceIds() { return e.resourceIds; },
+        get deniedNodes() { return e.deniedNodes; },
+        setRenderWindow: (resourceIds: string[]): void => {
+          e.desiredWindow = new Set(resourceIds);
+          this.#reconcileQueryWindow(e);
+        },
+        onChange: (cb: () => void): void => { e.listeners.add(cb); },
+        [Symbol.dispose]: (): void => {
+          if (disposed) return; // per-handle idempotent
+          disposed = true;
+          this.#disposeQuerySubscription(queryHash);
+        },
+      };
+    },
   };
 
   /**
@@ -949,6 +1069,57 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#subscribeRefcount.delete(key);
     this.#subscriptionRegistry.delete(key);
     this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().unsubscribe(resourceType, resourceId));
+  }
+
+  /**
+   * Reconcile a query's windowed per-resource content subs with its effective
+   * window (`desiredWindow ∩ resourceIds`). Opens a content sub for each newly-
+   * effective id (or cancels its pending grace dispose if it returned in time —
+   * the flicker-free path), and schedules a grace-delayed dispose for each id that
+   * left the effective window. A now-denied resource (absent from `resourceIds`)
+   * falls out of the effective set automatically and is released after grace.
+   */
+  #reconcileQueryWindow(entry: QueryEntry): void {
+    const members = new Set(entry.resourceIds);
+    const effective = new Set<string>();
+    for (const id of entry.desiredWindow) if (members.has(id)) effective.add(id);
+
+    // Open (or rescue from grace) the effective ids.
+    for (const id of effective) {
+      const ws = entry.windowSubs.get(id);
+      if (ws) {
+        if (ws.graceTimer !== undefined) { clearTimeout(ws.graceTimer); ws.graceTimer = undefined; }
+      } else {
+        const sub = this.resources.subscribe(entry.query.typeName, id);
+        entry.windowSubs.set(id, { sub });
+      }
+    }
+    // Schedule grace-delayed dispose for ids no longer effective.
+    for (const [id, ws] of entry.windowSubs) {
+      if (effective.has(id) || ws.graceTimer !== undefined) continue;
+      ws.graceTimer = setTimeout(() => {
+        ws.sub[Symbol.dispose]();
+        entry.windowSubs.delete(id);
+      }, entry.renderGraceMs);
+    }
+  }
+
+  /**
+   * Decrement a query subscription's refcount; on the last release tear down all
+   * window subs (cancelling grace timers) and issue `unsubscribeQuery`. Shared by
+   * the handle's `[Symbol.dispose]()`.
+   */
+  #disposeQuerySubscription(queryHash: string): void {
+    const entry = this.#queryEntries.get(queryHash);
+    if (!entry) return;
+    if (entry.refcount > 1) { entry.refcount--; return; }
+    this.#queryEntries.delete(queryHash);
+    for (const ws of entry.windowSubs.values()) {
+      if (ws.graceTimer !== undefined) clearTimeout(ws.graceTimer);
+      ws.sub[Symbol.dispose]();
+    }
+    entry.windowSubs.clear();
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().unsubscribeQuery(queryHash));
   }
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
@@ -1137,6 +1308,36 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   @mesh()
   handleOrgTreeUpdate(envelope: { value: DagTreeState }): void {
     this.#orgTreeListener?.(envelope.value);
+  }
+
+  /**
+   * Receive a query-membership push from the host (Child 2) — the initial
+   * `subscribeQuery` state or a Flow-3 rerun. Correlated by the **locally-computed**
+   * `queryHash` (subscribeQuery is void). `result` is `{ resourceIds?, deniedNodes? }`
+   * (the client REPLACES its set per push — idempotent, self-healing) or an Error
+   * (a rejected query — bad `queryType`/`field`).
+   *
+   * Replaces the entry's membership set + denied set (full-set replace —
+   * idempotent), reconciles the rendered window (opening/releasing per-resource
+   * content subs), fires the entry's change listeners, and settles `ready`. A push
+   * for an unknown `queryHash` (no live handle — e.g. a raw test initiator) is
+   * ignored. An Error rejects `ready` (a rejected query).
+   */
+  @mesh()
+  handleQueryUpdate(queryHash: string, result: QueryUpdatePayload | Error): void {
+    const entry = this.#queryEntries.get(queryHash);
+    if (!entry) return;
+    if (result instanceof Error) {
+      if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
+      return;
+    }
+    entry.resourceIds = result.resourceIds ?? [];
+    entry.deniedNodes = result.deniedNodes ?? [];
+    this.#reconcileQueryWindow(entry);
+    for (const cb of entry.listeners) {
+      try { cb(); } catch { /* a listener throw must not break the push channel */ }
+    }
+    if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.resolve(); }
   }
 
   /**

@@ -399,6 +399,44 @@ export class DagTree {
     return resolvePermission(this.#view, sub, nodeId, requiredTier)
   }
 
+  /**
+   * Batch permission evaluation for an EXPLICIT subscriber `sub` (NOT the live
+   * caller) — the per-push read recheck (D3) + the query-membership filter (D4)
+   * use this. Distinct from {@link requirePermission} on three axes:
+   *   1. **Non-throwing** — returns `{ allowed, denied }` Sets, never throws (a
+   *      lost-read subscriber is skipped, never dropped — D5).
+   *   2. **No short-circuit** — every `nodeId` is evaluated so the `denied` set is
+   *      COMPLETE (it drives request-access; a query caller already named these
+   *      nodes — ADR-008 / D14). Do NOT early-return on the first denial.
+   *   3. **Explicit `sub` + stored `accessAdmin`** — at push time we don't hold the
+   *      subscriber's live JWT, so `requirePermission`'s `claims.access.admin`
+   *      bypass (a Galaxy/Universe scope-admin who holds no DAG grant — dag-tree.ts
+   *      `requirePermission`) is replicated here from the `accessAdmin` flag stored
+   *      on the subscriber row at subscribe time (D16). `accessAdmin:true` ⇒ ALL
+   *      allowed. Otherwise `resolvePermission` per node, which already honors a
+   *      **Star** DAG `admin` grant (so a Star admin needs no `accessAdmin`).
+   *
+   * Unknown / missing nodeIds resolve to `denied` (no grant climbs to them) — no
+   * throw, matching the non-throwing contract.
+   */
+  evaluatePermissions(
+    nodeIds: number[],
+    tier: PermissionTier,
+    sub: string,
+    accessAdmin: boolean,
+  ): { allowed: Set<number>; denied: Set<number> } {
+    const allowed = new Set<number>()
+    const denied = new Set<number>()
+    for (const nodeId of nodeIds) {
+      if (accessAdmin || resolvePermission(this.#view, sub, nodeId, tier)) {
+        allowed.add(nodeId)
+      } else {
+        denied.add(nodeId)
+      }
+    }
+    return { allowed, denied }
+  }
+
   getEffectivePermission(nodeId: number, targetSub?: string): PermissionTier | null {
     this.#requireNodeExists(nodeId)
     const sub = targetSub ?? this.#requireAuth()
