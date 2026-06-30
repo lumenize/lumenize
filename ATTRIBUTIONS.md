@@ -36,7 +36,7 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Purpose**: An id-gated SQL schema-migration runner for SQLite-backed Durable Objects (`@lumenize/sql-migrations`).
 - **Date Added**: 2026-06-29
 - **Author**: Lambros Petrou
-- **Note**: Vendored from durable-utils' `SQLSchemaMigrations` with modifications: (1) storage access ported from the legacy async API (`doStorage.get/put/transaction`) to Cloudflare's synchronous API (`ctx.storage.kv.get/put` + `ctx.storage.transactionSync`), so `runAll()` is synchronous and callable from a DO constructor body; (2) deliberately narrowed public surface — dropped `keyNameTrackingLastMigrationID`, the `sqlGen` callback, and `hasMigrationsToRun()` (the marker key name is fixed); (3) added per-migration `params` for bound (`?`) values. The MIT copyright is retained in the file header.
+- **Note**: Vendored from durable-utils' `SQLSchemaMigrations` with modifications: (1) storage access ported from the legacy async API (`doStorage.get/put/transaction`) to Cloudflare's synchronous API (`ctx.storage.kv.get/put` + `ctx.storage.transactionSync`), so `runAll()` is synchronous and callable from a DO constructor body; (2) narrowed public surface — dropped the `sqlGen` callback and `hasMigrationsToRun()`; the last-applied marker key defaults to a fixed name but is overridable via `markerKey` (durable-utils' `keyNameTrackingLastMigrationID`, restored + renamed) so one DO that composes multiple independently-migrated components can give each its own marker; (3) added per-migration `params` for bound (`?`) values. The MIT copyright is retained in the file header.
 
 ## typia (Copied — partial)
 - **Source**: https://github.com/samchon/typia (tag `v12.0.2`)

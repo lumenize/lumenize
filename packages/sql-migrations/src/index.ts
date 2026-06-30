@@ -9,16 +9,21 @@
  *   1. Storage access ported from the legacy async API (`doStorage.get/put/transaction`)
  *      to Cloudflare's synchronous API (`ctx.storage.kv.get/put` + `ctx.storage.transactionSync`);
  *      `runAll()` is therefore **synchronous** (safe to call from a DO constructor body).
- *   2. Deliberately narrowed public surface — dropped `keyNameTrackingLastMigrationID`,
- *      the `sqlGen` callback, and `hasMigrationsToRun()`; the marker key name is fixed.
+ *   2. Narrowed public surface — dropped the `sqlGen` callback and `hasMigrationsToRun()`.
+ *      The last-applied marker key defaults to a fixed name but is overridable via
+ *      `markerKey` (restored from durable-utils' `keyNameTrackingLastMigrationID`,
+ *      renamed) — REQUIRED when a single DO composes multiple independently-migrated
+ *      components, each owning its own tables, so their migration sets never collide
+ *      on one shared counter.
  *   3. Added per-migration `params` for bound (`?`) values (never interpolate).
  *
  * MIT License. Portions © Lambros Petrou (durable-utils); modifications © Larry Maccherone.
  */
 import type { DurableObjectStorage, SqlStorageValue } from '@cloudflare/workers-types';
 
-/** The kv key under which the last-applied migration id is tracked. */
-const MARKER_KEY = '__sql_migrations_lastID';
+/** The default kv key under which the last-applied migration id is tracked. Override
+ *  per-runner via {@link SQLSchemaMigrationsConfig.markerKey} for composed DOs. */
+const DEFAULT_MARKER_KEY = '__sql_migrations_lastID';
 
 export interface SQLSchemaMigration {
   /**
@@ -39,16 +44,33 @@ export interface SQLSchemaMigrationsConfig {
   doStorage: DurableObjectStorage;
   /** Every migration ever (not just new ones). Sorted and duplicate-checked at construction. */
   migrations: SQLSchemaMigration[];
+  /**
+   * The kv key under which THIS runner tracks its last-applied id. Defaults to
+   * `__sql_migrations_lastID`.
+   *
+   * **Override it when one DO composes multiple independently-migrated components**
+   * — the composition pattern where each class owns its own tables (e.g. a Star DO
+   * hosting separate `Subscriptions` / `Resources` / `DagTree` units). Each unit
+   * runs its OWN `SQLSchemaMigrations` over its OWN migration list and MUST pass a
+   * distinct `markerKey` (e.g. `'__sql_migrations_Subscribers'`); otherwise they
+   * share one counter and clobber each other's progress. Must be non-empty.
+   */
+  markerKey?: string;
 }
 
 export class SQLSchemaMigrations {
   #doStorage: DurableObjectStorage;
   #migrations: SQLSchemaMigration[];
+  #markerKey: string;
   /** In-memory cache of the last-applied id; -1 on a cold construct (re-read from storage in `runAll`). */
   #lastApplied = -1;
 
   constructor(config: SQLSchemaMigrationsConfig) {
     this.#doStorage = config.doStorage;
+    this.#markerKey = config.markerKey ?? DEFAULT_MARKER_KEY;
+    if (!this.#markerKey) {
+      throw new Error('markerKey must be a non-empty string');
+    }
     const migrations = [...config.migrations].sort((a, b) => a.idMonotonicInc - b.idMonotonicInc);
     const seen = new Set<number>();
     for (const m of migrations) {
@@ -77,7 +99,7 @@ export class SQLSchemaMigrations {
     // A cold construct resets #lastApplied to -1, so it still reads the marker exactly once below.
     if (this.#lastApplied === highest) return result;
 
-    this.#lastApplied = this.#doStorage.kv.get<number>(MARKER_KEY) ?? -1;
+    this.#lastApplied = this.#doStorage.kv.get<number>(this.#markerKey) ?? -1;
 
     let idx = 0;
     const sz = this.#migrations.length;
@@ -98,7 +120,7 @@ export class SQLSchemaMigrations {
         last = m.idMonotonicInc;
       }
       this.#lastApplied = last;
-      this.#doStorage.kv.put(MARKER_KEY, this.#lastApplied);
+      this.#doStorage.kv.put(this.#markerKey, this.#lastApplied);
     });
 
     return result;

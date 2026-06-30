@@ -96,6 +96,62 @@ describe('SQLSchemaMigrations', () => {
     expect(r.marker).toBe(1);
   });
 
+  // composition pattern (the markerKey knob): two independently-migrated components
+  // in ONE DO each track their own progress under a distinct marker — no collision.
+  it('distinct markerKeys let two runners in one DO advance independently', async () => {
+    const r = await inStorage((s) => {
+      // Component A owns table `a`; component B owns table `b`. Each has its OWN list
+      // + marker. A is at id 2, B only at id 1 — distinct counters prove no sharing.
+      new SQLSchemaMigrations({
+        doStorage: s, markerKey: '__mig_A',
+        migrations: [create(1, 'a'), { idMonotonicInc: 2, description: 'a row', sql: 'INSERT INTO a (x) VALUES (1)' }],
+      }).runAll();
+      new SQLSchemaMigrations({
+        doStorage: s, markerKey: '__mig_B',
+        migrations: [create(1, 'b')],
+      }).runAll();
+      return {
+        markerA: s.kv.get('__mig_A'),
+        markerB: s.kv.get('__mig_B'),
+        sharedMarker: s.kv.get(MARKER_KEY),
+        aRows: s.sql.exec('SELECT x FROM a').toArray(),
+        bExists: s.sql.exec(`SELECT name FROM sqlite_master WHERE type='table' AND name='b'`).toArray().length,
+      };
+    });
+    // Independent counters; the default key was never touched (both used their own).
+    expect(r.markerA).toBe(2);
+    expect(r.markerB).toBe(1);
+    expect(r.sharedMarker).toBeUndefined();
+    expect(r.aRows).toEqual([{ x: 1 }]);
+    expect(r.bExists).toBe(1);
+  });
+
+  // Without the knob, a SHARED default marker collides: B sees A's marker (2) and
+  // skips its own id-1 → table `b2` is never created (the bug the knob prevents).
+  it('a shared default marker collides across components (why distinct keys are required)', async () => {
+    const r = await inStorage((s) => {
+      new SQLSchemaMigrations({
+        doStorage: s, // default marker
+        migrations: [create(1, 'a2'), { idMonotonicInc: 2, description: 'a row', sql: 'INSERT INTO a2 (x) VALUES (1)' }],
+      }).runAll();
+      // Component B (default marker) starts at id 1, but the shared marker is already 2.
+      new SQLSchemaMigrations({
+        doStorage: s,
+        migrations: [create(1, 'b2')],
+      }).runAll();
+      return s.sql.exec(`SELECT name FROM sqlite_master WHERE type='table' AND name='b2'`).toArray().length;
+    });
+    expect(r).toBe(0); // b2 NOT created — the collision distinct markerKeys avoid
+  });
+
+  it('throws at construction on an empty markerKey', async () => {
+    await inStorage((s) => {
+      expect(() => new SQLSchemaMigrations({
+        doStorage: s, markerKey: '', migrations: [create(1)],
+      })).toThrow(/markerKey/i);
+    });
+  });
+
   // construction validation — negative, independent assertions (M2/m5)
   it('throws at construction on a negative migration id', async () => {
     await inStorage((s) => {
