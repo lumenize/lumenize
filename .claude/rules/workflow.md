@@ -77,6 +77,9 @@ All packages publish together with synchronized versions (Lerna); publish script
 ## Semantic code search
 For conceptual searches ("where do we validate JWTs", "what handles rate limiting"), use Probe: `npx -y @probelabs/probe search "<query>" [path]` — AST-aware, fully local, returns whole functions/classes. `Grep` stays the default for literal strings and symbols.
 
+## Symbol renames — grep the BARE identifier to verify
+Probe/Grep *find*; they don't *rename*. A rename done with a text replace (`sed`/`perl`) can't tell the symbol from a same-spelled string, comment, or unrelated identifier — so **after any `Old`→`New` rename, grep the bare identifier (`grep -rn '\bOld\b'`), not just the form you replaced.** A `'Old'`→`'New'` quoted-literal replace silently misses **member/type-position access** (`x.Old`, `rels.Old.field`, `interface X extends Old`) and doc comments; those survive, compile, and only surface as a runtime/test failure (empirically bit the `Turn`→`Message` rename *twice* — `rels.Turn.session`, `.Turn?.session`). The bare-identifier grep should return only the refs you *intend* to keep (deliberately-different concepts — e.g. `TurnRecord`, `trackTurn`), which you then eyeball. For a **pure symbol** rename, an LSP/`ts-morph` rename is scope+type-correct and strictly better than `sed` — but it still can't touch **string literals coupled to a name by convention** (`typeName: 'Old'`) or comments, so the grep-verify is irreducible regardless of the replace tool.
+
 ## Reference
 - `.claude/settings.json` — permissions (committed). `.claude/settings.local.json` — personal overrides (gitignored, takes precedence).
 - `.dev.vars.example` — env var template. `tasks/README.md` — task templates.
