@@ -20,4 +20,25 @@ describe('docs: basic usage', () => {
       expect(rows).toEqual([{ id: 'u1', email: 'a@b.com' }]);
     });
   });
+
+  // Source-of-truth for the `## Composition` doc section (matched via @check-example):
+  // two components in ONE DO, each with its own migration list + distinct markerKey.
+  it('composes independently-migrated components via distinct markerKeys', async () => {
+    const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+    await runInDurableObject(stub, (_instance: any, ctx: any) => {
+      const USERS_MIGRATIONS = [
+        { idMonotonicInc: 1, description: 'create users', sql: 'CREATE TABLE IF NOT EXISTS Users (id TEXT PRIMARY KEY)' },
+      ];
+      const AUDIT_MIGRATIONS = [
+        { idMonotonicInc: 1, description: 'create audit', sql: 'CREATE TABLE IF NOT EXISTS Audit (at TEXT)' },
+        { idMonotonicInc: 2, description: 'add actor', sql: 'ALTER TABLE Audit ADD COLUMN actor TEXT' },
+      ];
+      new SQLSchemaMigrations({ doStorage: ctx.storage, markerKey: '__mig_Users', migrations: USERS_MIGRATIONS }).runAll();
+      new SQLSchemaMigrations({ doStorage: ctx.storage, markerKey: '__mig_Audit', migrations: AUDIT_MIGRATIONS }).runAll();
+
+      // Each runner advances its OWN marker independently — no collision.
+      expect(ctx.storage.kv.get('__mig_Users')).toBe(1);
+      expect(ctx.storage.kv.get('__mig_Audit')).toBe(2);
+    });
+  });
 });

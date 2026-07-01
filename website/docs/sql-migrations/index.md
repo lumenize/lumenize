@@ -55,9 +55,20 @@ Migration SQL values are **bound** with `params`, never interpolated:
 
 Keep each migration to a **single statement** so the positional `?` binds are unambiguous; split an `ALTER` plus a value-bearing backfill into two consecutive migrations (they still run in the same atomic batch).
 
+## Composition — multiple components in one DO
+
+Each runner tracks its last-applied id under a kv **marker key** — by default a single shared key (`__sql_migrations_lastID`). When one Durable Object composes several components that **each own their own tables** (e.g. separate `Users` and `Audit` units in one DO), give each its own migration list **and a distinct `markerKey`** so their lists advance independently:
+
+```typescript @check-example('packages/sql-migrations/test/for-docs/basic-usage.test.ts')
+new SQLSchemaMigrations({ doStorage: ctx.storage, markerKey: '__mig_Users', migrations: USERS_MIGRATIONS }).runAll();
+new SQLSchemaMigrations({ doStorage: ctx.storage, markerKey: '__mig_Audit', migrations: AUDIT_MIGRATIONS }).runAll();
+```
+
+Without distinct keys the two runners share one counter: the second reads the first's marker, believes its own migrations are already applied, and silently skips them (its table is never created). `markerKey` must be non-empty — an empty string throws at construction.
+
 ## API
 
-- `new SQLSchemaMigrations({ doStorage, migrations })` — `doStorage` is the DO's `ctx.storage` handle; `migrations` is the full list (every migration ever, not just new ones).
+- `new SQLSchemaMigrations({ doStorage, migrations, markerKey? })` — `doStorage` is the DO's `ctx.storage` handle; `migrations` is the full list (every migration ever, not just new ones); `markerKey` (optional, default `__sql_migrations_lastID`) is the kv key this runner records its last-applied id under — override it with a distinct value per runner to [compose multiple independent runners in one DO](#composition--multiple-components-in-one-do). Must be non-empty.
 - `SQLSchemaMigration` — `{ idMonotonicInc: number; description: string; sql: string; params?: SqlStorageValue[] }`.
 - `runAll(): { rowsRead: number; rowsWritten: number }` — synchronous; applies all pending migrations and returns SQL rows read/written across the batch. Idempotent once current.
 
