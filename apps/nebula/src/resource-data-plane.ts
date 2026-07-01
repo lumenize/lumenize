@@ -126,6 +126,29 @@ export class ResourceDataPlane {
     return this.#dagTree;
   }
 
+  /**
+   * Permission-filtered fanout targets for a live query's current subscribers —
+   * the subscriber connections that hold `read` on `nodeId` right now. Exposed so
+   * a host can push a **transient** signal to a query's audience WITHOUT a Resource
+   * write (Child 3 option (b): DevStudio's assistant progress/thought stream fans to
+   * the session query's subscribers, then commits ONE durable Message). The capability
+   * owns targeting + the `access.admin`-aware read recheck (never re-implemented
+   * host-side, D3/D16); the host owns delivery via its own `this.svc.broadcast`.
+   *
+   * Per-CONNECTION (one entry per subscribed tab, no dedup by `sub`) — every open tab
+   * is a delivery target. `nodeId` is the node the transient content will live under
+   * (e.g. the node the assistant Message will be created at), so delivery honors the
+   * same read gate the eventual committed Resource will. Returns `[]` when no
+   * subscriber may read `nodeId` (the caller should skip the broadcast).
+   */
+  targetsForQuery(query: QueryDescriptor, nodeId: number): BroadcastTarget[] {
+    return this.#querySubs
+      .forQueryHash(canonicalQueryHash(query))
+      .filter((r) =>
+        this.#dagTree.evaluatePermissions([nodeId], 'read', r.sub, Boolean(r.accessAdmin)).allowed.size > 0)
+      .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
+  }
+
   /** Drop all subscriber rows (deploy/ontology-install cleanup). Star's
    *  host-retained `#installState` calls this on a new-version install. */
   clearSubscribers(): Array<{ subscriberBinding: string; clientId: string }> {

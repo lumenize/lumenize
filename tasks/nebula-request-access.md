@@ -1,6 +1,6 @@
 # Nebula request-access workflow
 
-**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the "dead/dangling admin at climb termination" design note, split out of [nebula-star-root-admin.md](on-hold/nebula-star-root-admin.md) Part 2 (last-admin protection).
+**Status**: not started; referenced across the docs as the access-acquisition flow but unspecced. Stub created 2026-06-15 to home the "dead/dangling admin at climb termination" design note, split out of [nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 2 (last-admin protection).
 
 ## What it is (from the docs)
 
@@ -10,7 +10,7 @@ The **notify/request transport** — how the ask actually reaches the admin (in-
 
 ## Design note — dead/dangling admin at climb termination
 
-This is the right home for the last-admin **liveness** check (the in-DO grant-count invariant in nebula-star-root-admin Part 2 deliberately does *not* check liveness — see "Why not in the mutator" below).
+This is the right home for the last-admin **liveness** check (the in-DO grant-count invariant in nebula-dataplane-root-admin Part 2 deliberately does *not* check liveness — see "Why not in the mutator" below).
 
 **The problem.** Star DAG permission grants (`Permissions` rows: `sub → tier`) and the subjects those `sub`s name live in **different DOs with no foreign key** — grants are in each Star's DagTree; subjects are in `nebula-auth`, a lower-level package that must not depend on Nebula's permission model. So a grant can outlive its subject: if an admin's subject is deleted in nebula-auth, the grant row **dangles** — it still counts toward the last-root-admin invariant but points at a `sub` that can never authenticate, so the org can be effectively adminless while the invariant reads "held." Two ways it bites:
 

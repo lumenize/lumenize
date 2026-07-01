@@ -26,7 +26,7 @@ Make DAG `nodeId` **client-supplied** instead of server-generated (`last_insert_
 ## Design decisions to pin (at kickoff)
 
 - **id type**: UUID string (consistent with `sub` / `resourceId`) — lean. (Alt: client-gen integer — rejected, UUID is the house style.)
-- **`ROOT_NODE_ID`**: a reserved constant (string sentinel) instead of `1`; seeded at Star creation (coordinate with `tasks/nebula-star-root-admin.md` Part 1).
+- **`ROOT_NODE_ID`**: a reserved constant (string sentinel) instead of `1`; seeded at Star creation (coordinate with `tasks/nebula-dataplane-root-admin.md` Part 1).
 - **idempotency**: `createNode` with an already-present id → return the existing node (success), not an error. Slug-uniqueness still applies to genuinely-different ids sharing a slug under a parent.
 - **write-cost**: text PK + `WITHOUT ROWID` per `.claude/rules/durable-objects.md` § SQLite write-cost (compound PKs already `WITHOUT ROWID`; keep it).
 

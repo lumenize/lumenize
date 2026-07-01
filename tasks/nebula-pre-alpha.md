@@ -49,7 +49,7 @@ conversations** as they build — to generate valuable feedback and build stakeh
   recursive chain, `actorsAuthorized`, audited). NEW piece = **synthetic-subject provisioning**.
 - **Enumerate-all-users — EXISTS.** `NebulaAuthRegistry` (singleton DO; global email→scope index;
   `discover` / `claimUniverse` / `createGalaxy`) — "the nebula-auth DO that holds all of them."
-- **Root-admin Part 1 — done** (founder admin-on-`ROOT_NODE_ID`; `tasks/on-hold/nebula-star-root-admin.md`).
+- **Root-admin Part 1 — done** (founder admin-on-`ROOT_NODE_ID`; `tasks/on-hold/nebula-dataplane-root-admin.md`).
 
 ## The one auth gap — ✅ DONE 2026-06-23 (Wave 1, first child)
 
@@ -66,7 +66,7 @@ child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](ar
 - **Nugget for the descendant children (inspection instrument + provisioning):** a `*` / `{u}.*` admin
   *first-touching a fresh descendant Star* now also triggers `Star.onBeforeCall`'s root-admin seeding
   (`star.ts:94` — it seeds the first scope-admin caller as `ROOT_NODE_ID` admin), which it couldn't before
-  (it couldn't reach the Star at all). Aligned with the reach intent + `nebula-star-root-admin` Part 1, but
+  (it couldn't reach the Star at all). Aligned with the reach intent + `nebula-dataplane-root-admin` Part 1, but
   those children should account for the seeding side effect when a support/inspection identity touches a
   Star it hasn't before.
 - The original structural scope-isolation design is archived/frozen at
@@ -255,7 +255,7 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 - Replay bench (parked, un-parks in Wave 2): `tasks/on-hold/nebula-offline-prompt-harness.md`
 - Skills (Wave 2): `tasks/nebula-skills.md`
 - Eval suite (parked; regression, later): `tasks/on-hold/nebula-studio-eval-suite.md`
-- Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
+- Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-dataplane-root-admin.md`
 - First prod deploy + release process (Wave 1, DONE 2026-06-26, archived): `tasks/archive/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
 - Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
 - Resilient chat delivery (DONE 2026-06-29): `tasks/archive/resilient-turn-delivery.md` · preview auto-refresh (DONE 2026-06-29): `tasks/archive/preview-ready-autorefresh.md` · query subscriptions (DONE, archived): `tasks/archive/nebula-query-subscriptions.md` · reactive AI chat (Child 3, DRAFT — turn = child Resource FK'd to Session): `tasks/nebula-reactive-ai-chat.md`
