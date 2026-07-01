@@ -3,7 +3,7 @@
  *
  * Lifted out of `Star` (Child 1 of the multi-user chat thread) so it can be
  * composed by ANY Nebula node that needs to host Resources — `Star` today,
- * `DevStudio` next (chat `Session`/`Turn` Resources). ADR-007: composition,
+ * `DevStudio` next (chat `Session`/`Message` Resources). ADR-007: composition,
  * never reimplemented.
  *
  * It owns the data-plane trio — `DagTree` + `Resources` + `Subscriptions` — and
@@ -38,7 +38,7 @@ import type { OperationDescriptor, TransactionResult, Snapshot } from './resourc
  * Supplies the active ontology `{ version, facet, relationships }` for resource
  * ops — the only way the capability learns about the ontology (it never fetches
  * it itself). Star's impl reads the Galaxy-cached row; DevStudio's compiles the
- * in-source `Session`/`Turn` types. `version` is stamped into snapshot metadata
+ * in-source `Session`/`Message` types. `version` is stamped into snapshot metadata
  * and is therefore server-sourced, never client-supplied.
  *
  * `relationships` is the compiled ontology's relationship metadata

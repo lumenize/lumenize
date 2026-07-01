@@ -2,24 +2,24 @@
  * DevStudio resource data-plane — real-NebulaClient e2e (Child 1, nebula-devstudio-data-plane.md Phase 5).
  *
  * A `NebulaClient` configured `resourceHostBinding: 'DEV_STUDIO'` (D9) hosts the
- * chat `Session`/`Turn` Resources on the **DevStudio** DO instead of a Star —
+ * chat `Session`/`Message` Resources on the **DevStudio** DO instead of a Star —
  * exercised through the **public** API (`client.resources.*` / `client.orgTree.*`)
  * over the full integration path (real JWTs minted locally + verified normally —
  * NOT a test-mode bypass), proving the Phase-3-deferred criteria that need a
  * Gateway + client:
- *   - CRUD + the ADR-006 `Turn.session` FK in one atomic transaction (client UUIDs);
+ *   - CRUD + the ADR-006 `Message.session` FK in one atomic transaction (client UUIDs);
  *   - single-resource subscribe + fanout PUSH to a *second* subscriber client;
  *   - DAG permission: a non-granted subject is denied, a granted one allowed (SC2);
  *   - the snapshot's `ontologyVersion` is server-sourced regardless of the client's
  *     `appVersion`, and a "wrong" appVersion does NOT error (D8 no-version-gate + m4).
  *
- * DevStudio needs no ontology-apply: its Session/Turn ontology is the fixed
+ * DevStudio needs no ontology-apply: its Session/Message ontology is the fixed
  * platform constant compiled on-DO. No Galaxy round-trip.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { ROOT_NODE_ID, SESSION_TURN_ONTOLOGY_VERSION } from '@lumenize/nebula';
+import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -37,7 +37,7 @@ function devAdmin(scope: string, appVersion = 'v1') {
 }
 
 describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_STUDIO)', () => {
-  it('creates a Session + Turn (FK, client UUIDs) in one transaction; reads them back; version is server-stamped', async () => {
+  it('creates a Session + Message (FK, client UUIDs) in one transaction; reads them back; version is server-stamped', async () => {
     const scope = uniqueDevScope();
     // Deliberately "wrong" appVersion: DevStudio must ignore it (no stale error, D8)
     // and stamp the server constant (m4).
@@ -47,15 +47,15 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
 
     const out = await client.resources.transaction({
       [sessionId]: { op: 'create', typeName: 'Session', nodeId: ROOT_NODE_ID, value: { title: 'chat 1' } },
-      [turnId]: { op: 'create', typeName: 'Turn', nodeId: ROOT_NODE_ID, value: { session: sessionId, role: 'user', content: 'hello' } },
+      [turnId]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: sessionId, role: 'user', content: 'hello' } },
     });
     expect(out.kind).toBe('committed');
 
-    const turn = await client.resources.read('Turn', turnId) as Snapshot;
+    const turn = await client.resources.read('Message', turnId) as Snapshot;
     expect((turn.value as { session: string }).session).toBe(sessionId); // ADR-006 by-id FK
     expect((turn.value as { content: string }).content).toBe('hello');
     // m4: stamped with the SERVER constant, NOT the client's bogus appVersion.
-    expect(turn.meta.ontologyVersion).toBe(SESSION_TURN_ONTOLOGY_VERSION);
+    expect(turn.meta.ontologyVersion).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
     expect(turn.meta.ontologyVersion).not.toBe('client-claims-WRONG');
 
     const session = await client.resources.read('Session', sessionId) as Snapshot;
@@ -64,7 +64,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     client[Symbol.dispose]();
   });
 
-  it('fans a Turn mutation out to a SECOND subscriber client (push to other subscribers)', async () => {
+  it('fans a Message mutation out to a SECOND subscriber client (push to other subscribers)', async () => {
     const scope = uniqueDevScope();
     const { client: a } = await devAdmin(scope);
     // Distinct Browser ⇒ distinct Gateway ⇒ distinct clientId (the fanout is keyed
@@ -72,14 +72,14 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     const { client: b } = await devAdmin(scope);
     const turnId = generateUuid();
 
-    using sub = a.resources.createAndSubscribe('Turn', turnId, ROOT_NODE_ID, { session: 'sess-x', role: 'user', content: 'v1' });
+    using sub = a.resources.createAndSubscribe('Message', turnId, ROOT_NODE_ID, { session: 'sess-x', role: 'user', content: 'v1' });
     const created = await sub.snapshot;
     expect(created).not.toBeNull();
     const eTag = created!.meta.eTag;
 
     const baseline = a.resourceUpdateCount;
     const out = await b.resources.transaction({
-      [turnId]: { op: 'put', typeName: 'Turn', eTag, value: { session: 'sess-x', role: 'assistant', content: 'v2-from-b' } },
+      [turnId]: { op: 'put', typeName: 'Message', eTag, value: { session: 'sess-x', role: 'assistant', content: 'v2-from-b' } },
     });
     expect(out.kind).toBe('committed');
 
@@ -97,11 +97,11 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     const scope = uniqueDevScope();
     const { client: admin, accessToken } = await devAdmin(scope);
 
-    // Admin (scope-admin bypass) makes a private node + a Turn on it.
+    // Admin (scope-admin bypass) makes a private node + a Message on it.
     const nodeId = await admin.orgTree.createNode(ROOT_NODE_ID, 'private', 'Private');
     const existingTurn = generateUuid();
     const seed = await admin.resources.transaction({
-      [existingTurn]: { op: 'create', typeName: 'Turn', nodeId, value: { session: 'sess-x', role: 'user', content: 'secret' } },
+      [existingTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'secret' } },
     });
     expect(seed.kind).toBe('committed');
 
@@ -114,11 +114,11 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
       { resourceHostBinding: 'DEV_STUDIO' },
     );
 
-    // DENIED: read the existing Turn (exists but no grant) → rejects with permission.
-    await expect(user.resources.read('Turn', existingTurn)).rejects.toThrow(/permission/i);
-    // DENIED: write a new Turn on the node → per-resource permission-denied.
+    // DENIED: read the existing Message (exists but no grant) → rejects with permission.
+    await expect(user.resources.read('Message', existingTurn)).rejects.toThrow(/permission/i);
+    // DENIED: write a new Message on the node → per-resource permission-denied.
     const denied = await user.resources.transaction({
-      [generateUuid()]: { op: 'create', typeName: 'Turn', nodeId, value: { session: 'sess-x', role: 'user', content: 'nope' } },
+      [generateUuid()]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'nope' } },
     });
     expect(denied.kind).toBe('rejected');
     expect(denied.kind === 'rejected' && denied.resources[Object.keys(denied.resources)[0]]?.kind).toBe('permission-denied');
@@ -127,10 +127,10 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     await admin.orgTree.setPermission(nodeId, payload.sub, 'write');
     const myTurn = generateUuid();
     const allowed = await user.resources.transaction({
-      [myTurn]: { op: 'create', typeName: 'Turn', nodeId, value: { session: 'sess-x', role: 'user', content: 'mine' } },
+      [myTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'mine' } },
     });
     expect(allowed.kind).toBe('committed');
-    const back = await user.resources.read('Turn', myTurn) as Snapshot;
+    const back = await user.resources.read('Message', myTurn) as Snapshot;
     expect((back.value as { content: string }).content).toBe('mine');
 
     admin[Symbol.dispose]();

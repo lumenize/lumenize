@@ -197,7 +197,7 @@ export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh'
    * Which mesh binding hosts this client's Resources (the data-plane: transaction /
    * read / subscribe / unsubscribe / dagTree, + the org-tree & reload channels).
    * Default `'STAR'` (the Nebula UI — unchanged). The **chat** client sets
-   * `'DEV_STUDIO'` so its `Session`/`Turn` Resources live on DevStudio (Child 1).
+   * `'DEV_STUDIO'` so its `Session`/`Message` Resources live on DevStudio (Child 1).
    * The codegen path (`chat`/`warmPreview`) always targets `DEV_STUDIO` regardless.
    *
    * NOTE: a `'DEV_STUDIO'`-bound client must NOT enable `onReload`/an org-tree

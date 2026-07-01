@@ -44,9 +44,9 @@ export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './re
 
 // DevStudio's platform-fixed Session/Turn ontology + its getOntology() provider.
 export {
-  SESSION_TURN_TYPES,
-  SESSION_TURN_ONTOLOGY_VERSION,
-  SESSION_TURN_BUNDLE_ID,
+  SESSION_MESSAGE_TYPES,
+  SESSION_MESSAGE_ONTOLOGY_VERSION,
+  SESSION_MESSAGE_BUNDLE_ID,
   createResourceOntologyProvider,
 } from './devstudio-resource-ontology';
 

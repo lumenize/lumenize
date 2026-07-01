@@ -16,7 +16,7 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
 import { requireAdmin } from '../../../src/nebula-do';
-import { SESSION_TURN_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
+import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
 
 // ─── envelope driver (no Gateway/JWT — same pattern as dev-studio.test.ts) ───
 const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
@@ -76,14 +76,14 @@ describe('DevStudio Session/Turn facet (composed provider)', () => {
 
   it('SC3 + M2: accepts a Turn whose session is an id string (both facets mounted → no cross-wiring)', async () => {
     const dev = uniqueDevScope();
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Turn', validTurn]);
+    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
   });
 
   it('SC3: rejects an embedded session object with the ADR-006 by-id (embed) guard', async () => {
     const dev = uniqueDevScope();
     const embedded = { session: { title: 'embedded not an id' }, role: 'user', content: 'x' };
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Turn', embedded]);
+    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', embedded]);
     expect(r.valid).toBe(false);
     const err = r.errors.find((e: { path: string }) => e.path === '$input.session');
     expect(err).toBeDefined();
@@ -103,11 +103,11 @@ describe('DevStudio Session/Turn facet (composed provider)', () => {
 
   it('M3: ontology version is the fixed constant and survives an onStart re-init', async () => {
     const dev = uniqueDevScope();
-    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_TURN_ONTOLOGY_VERSION);
+    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
     await callStudio(dev, 'reInitForTest');
     // Re-derivable from the platform constant — a write still validates, version unchanged.
-    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Turn', validTurn]);
+    const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
-    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_TURN_ONTOLOGY_VERSION);
+    expect(await callStudio(dev, 'resourceOntologyVersionForTest')).toBe(SESSION_MESSAGE_ONTOLOGY_VERSION);
   });
 });
