@@ -107,32 +107,12 @@ child archived at [`tasks/archive/nebula-onbeforecall-higher-admin-reach.md`](ar
 - **Lean: deploy early (Wave 1)** to retire the one-way-door risk + enable prod dogfooding; iterate
   offline/local regardless of where the stack runs.
 
-## Current focus (2026-06-29) — the multi-user chat thread, pulled ahead
+## Current focus (updated 2026-06-30) — the multi-user chat thread
 
-**Next active work = make Studio chat multi-user + reconnect-safe.** It's Wave-2's last bullet by list-order, but
-it's the priority — deliberately pulled ahead. A **3-child thread**, built ONE AT A TIME (extract nuggets up +
-archive each before writing the next):
-- **Child 1 — DevStudio data-plane** ([`tasks/archive/nebula-devstudio-data-plane.md`](archive/nebula-devstudio-data-plane.md),
-  **2-stage `/review-task` done**) — extract `DagTree` + `Resources` + `Subscriptions` out of Star into a
-  composable capability (capability owns Handler 2; each DO keeps its Handler-1 `@mesh` wrapper; the
-  ontology-version gate is a no-op on DevStudio's single code-defined ontology); compose it into **DevStudio**
-  with a platform-fixed `Session`/`Turn` ontology; **make the
-  `NebulaClient` resource-host binding injectable** (default `STAR`, `DEV_STUDIO` for chat — was hardwired);
-  prove with a real `NebulaClient` (CRUD + single-resource subscribe); Star regression green. ← **BUILT 2026-06-29
-  (all 5 phases green, 537/537; verifier panel PASS); in the working tree, uncommitted, awaiting review.** Capability
-  = `ResourceDataPlane` (`apps/nebula/src/resource-data-plane.ts`); seam = injected `getOntology() → {version,facet}`
-  (Star=Galaxy-cached, DevStudio=fixed `Session`/`Turn` constant); `NebulaClient` resource-host binding now injectable
-  (`resourceHostBinding`, default `STAR`). **For Child 2:** build QuerySubs/DagTree-batch-eval/per-push-recheck as
-  constructor-injected units in the capability (NOT Star privates) + widen the seam to `{version,facet,relationships}`.
-- **Child 2 — parent:child query subscriptions** — **LANDED 2026-06-30 (all 7 phases 0–6 green; `/build-task` verifier panel PASS — all conform); committed on `pre-alpha`, task archived.** Landed **once into the `ResourceDataPlane` capability** → Star + DevStudio together: `QuerySubs` registry + canonical `queryHash` (FNV-1a-64, `query-hash.ts`; `onPartial` excluded — M3, confirmed), `DagTree.evaluatePermissions`, per-push read recheck (closed Child 1's gap on BOTH planes) + `accessAdmin` on `Subscribers`, `enumerateCurrentByField`, `subscribeQuery`/`unsubscribeQuery` + bridge methods, commit + permission-change reruns, and the client `subscribeQuery` handle (membership-replace + windowed lazy content subs w/ grace). **Two mid-build adoptions:** the `Subscribers.accessAdmin` add went through **`@lumenize/sql-migrations`** (we're in prod) — which required restoring the package's per-component `markerKey` knob ([[sql-migrations-marker-key]]); and `queryHash` uses standard FNV-1a-64 (no sync hash in stdlib). Build record + retro in the archived task file. **Next: Child 3.** [`tasks/archive/nebula-query-subscriptions.md`](archive/nebula-query-subscriptions.md).
-- **Child 3 — `reactive-ai-chat`** — wire the chat loop onto Session/Turn Resources + the query sub; relocate
-  turns off Galaxy; close the known chat hang; multi-participant via DAG grants. (Write after Child 2 lands.)
-
-**Why ahead of the unfinished items:** the three Wave-1 leftovers (Capture/THE GATE, inspection, consent) + the
-four other Wave-2 items are either **invite-gated** (needed before Wave-3 invites, not before this substrate) or
-**orthogonal** (the app-gen-quality exploratory thread). And THE GATE's capture-extension *should* ride the
-turn-as-Resource model Child 3 introduces — so the chat thread is **foundational to it, not a detour**. Per-item
-rationale is annotated inline below.
+Substrate built; **Child 3 (`reactive-ai-chat`) is the one remaining child.** A 3-child thread, built ONE AT A TIME (extract nuggets up + archive each before the next):
+- ✅ **Child 1 — DevStudio data-plane** — DONE + archived ([`tasks/archive/nebula-devstudio-data-plane.md`](archive/nebula-devstudio-data-plane.md)). Extracted `DagTree`+`Resources`+`Subscriptions` out of Star into the composable **`ResourceDataPlane`** capability (capability owns Handler 2; each DO keeps its Handler-1 `@mesh` wrapper; the ontology-version gate is a no-op on DevStudio's single fixed ontology); composed it into **DevStudio** with the platform-fixed `Session`/`Turn` ontology; made `NebulaClient`'s resource-host binding injectable (`resourceHostBinding`, default `STAR`, `DEV_STUDIO` for chat). Seam = injected `getOntology()` (Star=Galaxy-cached, DevStudio=fixed constant).
+- ✅ **Child 2 — parent-child query subscriptions** — DONE + archived ([`tasks/archive/nebula-query-subscriptions.md`](archive/nebula-query-subscriptions.md)). Landed once into the capability → Star + DevStudio together: `QuerySubs` + canonical `queryHash` (FNV-1a-64; `onPartial` excluded, M3), `DagTree.evaluatePermissions`, per-push read recheck + `accessAdmin` on `Subscribers`, `enumerateCurrentByField`, `subscribeQuery`/`unsubscribeQuery`, commit + permission reruns, and the client handle (membership-replace + windowed lazy content subs w/ grace). The `accessAdmin` add went through `@lumenize/sql-migrations` — restoring its per-component `markerKey` knob ([[sql-migrations-marker-key]]).
+- ⏳ **Child 3 — `reactive-ai-chat`** — **FIRST DRAFT written, pending `/review-task`** ([`tasks/nebula-reactive-ai-chat.md`](nebula-reactive-ai-chat.md)). Each chat turn = a `Turn` Resource FK'd to a `Session`; the Child-2 query sub becomes the delivery + history channel → history-restore on refresh, completed-while-disconnected recovery, multi-participant, and relocating turns off Galaxy onto DevStudio. Closes the known chat hang by construction (turn state is a subscribed Resource, not one awaited promise). THE GATE's capture-extension follows Child 3 (capture = reading those Resources).
 
 ## Plan (waves — child task files written ONE AT A TIME, NOT pre-created)
 
@@ -143,12 +123,12 @@ the deployed Worker** — today it isn't (the `apps/nebula` Worker 404s the root
 SPA, `apps/nebula-studio-ui`, served by a second vite terminal in dev). So two prerequisite tasks land **before**
 the (already-reviewed) deploy task. Written **one at a time** — Task ① has a file; Task ② is a bullet only until ① lands.
 
-- ✅ **① Studio UI single-origin local serving (vite proxy + endpoint prefixes)** — **DONE 2026-06-24**, archived
-  child [`tasks/archive/nebula-studio-vite-proxy.md`](archive/nebula-studio-vite-proxy.md) (the frozen prefix
-  contract the deploy task ③ transcribes). The proxy already exists; this makes the
-  API-vs-SPA path split clean, exhaustive, and **prod-Assets-ready** (the same prefix rule the deploy task hands
-  to Workers Assets). Keep the two-terminal vite+`wrangler dev` setup; **avoid the CF Vite plugin** (workerd-in-vite
-  can't construct a `Container` → breaks the DevContainer preview). **`/review-task` ✅ DONE 2026-06-24 (both stages); `/build-task` ✅ deterministic slice DONE 2026-06-24** — spike settled **model A** (proxy carries vite-HMR + `/gateway` mesh + `/dev-container` preview WS together — proven live); landed the `npm run dev:studio` `ttab` launcher (confirmed working live) + a mutation-validated `entrypoint-routing-contract.test.ts` (5 green); model B not needed. **Build complete + verified; child archived → `tasks/archive/`.** Not yet committed.
+- ✅ **① Studio UI single-origin local serving (vite proxy + endpoint prefixes)** — **DONE 2026-06-24, archived**
+  ([`tasks/archive/nebula-studio-vite-proxy.md`](archive/nebula-studio-vite-proxy.md) — the frozen prefix contract
+  the deploy task ③ transcribes). Clean API-vs-SPA path split, **prod-Assets-ready** (same prefix rule Workers
+  Assets uses). **Durable gotcha:** keep the two-terminal vite+`wrangler dev` setup and **avoid the CF Vite
+  plugin** (workerd-in-vite can't construct a `Container` → breaks the DevContainer preview). Build detail lives
+  in the archived child.
 - ✅ **② Local UI smoke + `it.skip` cleanup** → archived child [`tasks/archive/nebula-local-smoke.md`](archive/nebula-local-smoke.md) —
   **`/review-task` ✅ + `/build-task` ✅ Phases 1–2 DONE + GREEN on real infra 2026-06-24; Phase 3
   RESOLVED — the codegen/Container `it.skip`s DELETED in favor of top-down coverage → **zero `it.skip` in all of
@@ -190,27 +170,11 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   *(Absorbs the dissolved offline-harness extraction. Fanout, not a central sink, is the accepted design
   for the rare cross-Universe question.)* **Fanout target moves `Galaxy.getTurns` → `DevStudio` turn Resources
   once Child 3 relocates turns.**
-- **Data-use consent flag** — **Phases 2–3 BUILT + verified 2026-06-29** (`/build-task`; full nebula-auth suite
-  green) → archived at [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md). ⏳ **TWO remainders:** (1) **prod deploy** — the
-  migration is the **first prod DO schema migration**; it self-applies on the next `apps/nebula` deploy (the
-  registry constructor runs it on construct), so **verify it ran post-deploy** (D6: deploy is the real proof);
-  (2) **Phase 4 — the slug-pick consent notice** (`nebula-studio-ui`) is **deferred to Wave-3** and **MUST render
-  before the first non-Larry user is invited** (Larry owns; pre-invite he's the only subject, so no real user is
-  recorded without a notice). Adds a **nullable** `improveProductConsent` column to
-  `NebulaAuthRegistry`'s `Instances` table. **Consent is per-scope, Universe-level now** (`claimUniverse`
-  sets the Universe row `=1`, conflict-safe; sub-instance rows stay `NULL` = "inherit from nearest ancestor"
-  — the column is already per-level-ready, so galaxy/star consent later is UI-only, no migration). Corpus =
-  `WHERE improveProductConsent = 1 AND instanceName != PLATFORM_INSTANCE_NAME` (the reserved `nebula-platform`
-  row is excluded). Generically named (never `nebula`/`studio`-specific). **Assume `true` for now** (hard yes
-  for F&F). Home: the auth registry (consent lives where `claimUniverse` happens). **Why a task file:** it's the
-  **first prod DO schema migration** — which spun out a **prerequisite MIT package**.
-  - **Prereq: [`@lumenize/sql-migrations`](archive/sql-migrations.md)** — a minimal id-gated DO SQL schema-migration
-    runner (vendored+modified from durable-utils, MIT → sync storage API; `ctx.storage.kv` marker +
-    `transactionSync`; deliberately narrowed surface + a `params` bind). **NOT a pre-alpha child — a standalone
-    substrate package**; 2-stage `/review-task` complete 2026-06-29; **build FIRST** (the consent flag consumes
-    it, and `apps/nebula`'s imminent index-column migrations are the second consumer). **✅ BUILT + verified + archived 2026-06-29** (`packages/sql-migrations/`, [`archive/sql-migrations.md`](archive/sql-migrations.md)); consent flag builds on it next.
+- ✅ **Data-use consent flag** — **BUILT + verified + archived 2026-06-30** ([`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md)). Nullable `improveProductConsent` column on `NebulaAuthRegistry.Instances` (the **first prod DO schema migration**, via `@lumenize/sql-migrations`); recorded at `claimUniverse` (Universe-level, per-level-ready — galaxy/star later is UI-only); corpus = `WHERE improveProductConsent = 1 AND instanceName != PLATFORM_INSTANCE_NAME`; assume-`true` for F&F. **Not yet in prod** (confirmed 2026-06-30 — no prod push since it landed; last deploy was 06-26): it self-applies on the next `apps/nebula` deploy, so **verify it ran post-deploy** (D6, the only prod-path proof). The **consent UI** (the human consent moment) is a separate, not-yet-built item → **Wave 3 GATE** below.
+  - ✅ **Prereq `@lumenize/sql-migrations`** — standalone MIT substrate package (id-gated DO SQL migration runner, vendored+modified from durable-utils), BUILT + archived ([`archive/sql-migrations.md`](archive/sql-migrations.md)); later gained a per-component `markerKey` knob during Child 2 ([[sql-migrations-marker-key]]).
 
-**Wave 2 — the long pole (data-bound, exploratory)** — *the chat thread (last bullet) is being built FIRST; see Current focus. The items below are orthogonal/soft-adjacent, not prereqs of it.*
+**Wave 2 — the long pole (data-bound, exploratory).** The chat thread **led** (Child 1 + Child 2 DONE; Child 3 drafted — see **Current focus**); the items below are the not-yet-started remainder, orthogonal / soft-adjacent to it.
+- **Chat thread → reactive AI chat** — substrate DONE (Child 1 composable data-plane + Child 2 query subscriptions); **Child 3 = `reactive-ai-chat`** (turn = `Turn` Resource FK'd to a `Session`; one query sub `Turn where session=={id}` gives history-restore / disconnect-recovery / multi-participant; relocates turns off Galaxy) — **drafted, pending `/review-task`** ([`tasks/nebula-reactive-ai-chat.md`](nebula-reactive-ai-chat.md)). Live turn-delivery prereq shipped 2026-06-29 ([`archive/resilient-turn-delivery.md`](archive/resilient-turn-delivery.md)). **Rejected alt (2026-06-29) — merge Galaxy+DevStudio:** DevStudio's heavy startup (`@cloudflare/shell` + `isomorphic-git` + `@vue/compiler-sfc` + codegen) + long in-DO model-inference `await`s would contend on Galaxy's single-threaded tenant-facing ontology-read path, plus a DO-class + data migration on deployed prod — stay separate, relocate turns instead.
 - **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned
   slug+name + magic-link claim) **+** synthetic (impersonate-only, no claim) subjects **+** act-as
   wiring. Generic on scope — but the typical case is **synthetic test users Star-scoped to the `.dev`
@@ -233,57 +197,15 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
   (`tasks/on-hold/nebula-offline-prompt-harness.md`) + the **skills** (`tasks/nebula-skills.md`).
   Dogfood secret-santa-grade apps with synthetic users + impersonation. Includes the UX-exploratory UI
   questions above.
-- **Query subscriptions → reactive AI chat** — `tasks/nebula-query-subscriptions.md` (subscribe to a query
-  across Resources; parent-child via FK; id-delta fanout + per-id permission recheck) is the **substrate**.
-  On it, a **`reactive-ai-chat` child task — write it once query-subscriptions lands, do NOT pre-create** —
-  models each **chat turn as a child Resource FK'd to a `Session`** (parent) — so a single query subscription
-  (`Turn where session == {id}`, the v1 `field == value` form) delivers **history-restore on refresh**,
-  **completed-while-disconnected recovery**, and **multi-participant chat** (a coach / UX designer now;
-  teammates later). It also fixes a **known storage mistake**: chat is recorded on **Galaxy**
-  (`dev-studio.ts:455`) but belongs on the per-app **DevStudio** — relocate it here.
-  **Pinned with Larry 2026-06-29:**
-  - **`Session` entity now, not later** — turns FK to it. Avoids a post-deploy turn-FK data migration (the
-    one-way door). Pre-alpha ships **one session, no management UI**; the model accommodates many.
-  - **Participants = DAG grants** (source of truth; the query-sub per-id recheck already enforces them) — no
-    second permission model. The `Session` may denormalize a display list only.
-  - **Chat rides Resources**, hosted on **DevStudio** (platform-owned, correct lifecycle). `Session`/`Turn`
-    use a **platform-fixed** ontology that must **survive app-data wipes** — so they can NOT live in the
-    `.dev` Star, whose Resources carry the user-developer's wiped/regenerated ontology. (DevStudio = the
-    `{u}.{g}.dev` instance on `DEV_STUDIO`, co-named with the `.dev` Star on `STAR`; both `extends NebulaDO`.)
-  - **Resources is Star-only today** (`Star.onStart` constructor-injects DagTree+Resources+Subscriptions).
-    Hosting chat on DevStudio requires **extracting the Star data-plane into a composable capability**
-    (ADR-007 style — composition, NOT baked into the `NebulaDO` base; Galaxy/Universe don't need it) that
-    DevStudio composes with the fixed ontology + its own DagTree.
-  - **Sequencing — extract-first (decided 2026-06-29; one session owns both, so drop the build-in-Star-then-lift
-    hedge):** **Child 1** lifts the data-plane into the composable capability + composes it into DevStudio;
-    **Child 2** then builds query-subscriptions **once into that capability** → Star + DevStudio together;
-    **Child 3** = `reactive-ai-chat`. The capability depends on an **ontology-provider seam** — Galaxy-versioned
-    for Star, a platform typia constant for DevStudio (the `#ensureToolArgsFacet` pattern, `dev-studio.ts:447`).
-    `Resources` already takes the facet **per-call** (`star.ts:389`) so it's provenance-agnostic — the seam
-    replaces Star's `#ensureFacet`. Build QuerySubs / DagTree-batch-eval / per-push recheck as
-    **constructor-injected units**, never buried in `Star.#broadcast` privates.
-  - **Merge Galaxy+DevStudio — considered & REJECTED (2026-06-29):** DevStudio's heavy startup (`@cloudflare/shell`
-    + `isomorphic-git` + `@vue/compiler-sfc` + codegen) and long in-DO model-inference `await`s would contend on
-    Galaxy's tenant-facing **ontology-read path** (a single-threaded singleton DO) — plus it'd be a DO-class +
-    data migration on already-deployed prod. **NOT** an auth/login-load concern (login is trivially light). Stay
-    separate; fix the turn-placement mistake by relocating turns Galaxy→DevStudio in Child 3.
-  **Prereq DONE:** live turn-delivery shipped 2026-06-29 (`tasks/archive/resilient-turn-delivery.md`) — it
-  deliberately deferred all of the above to here.
-  **This refactor must also close a known chat hang** (deferred 2026-06-29 since chat is being replaced):
-  the interim fire-and-forget `client.chat()` resolves ONLY on `onChatResult` and has **no error/timeout
-  path** — if `DevStudio.chat` throws server-side (before `deliverTurnResult`), no `onChatResult` is sent →
-  `client.chat()` hangs → the composer's `busy` sticks → UI frozen (ui-smoke in PR #15 exposed this; the
-  old awaited-`callRaw` chat rejected on a server error, so `busy` cleared). The reactive-Resource model
-  fixes it by construction (turn state is a subscribed Resource, not a single awaited promise) — confirm it.
 
 **Wave 3 — invite + scale the feedback loop**
-- ⚠️ **GATE before any invite: the data-use consent notice must render** at the slug-pick / claim-universe
-  prompt in **`nebula-studio-ui`** (locate via `grep` for the claim-universe / slug input). A short,
-  **informational** notice (no functional gating), **generic "improve the product" framing** — never
-  `nebula`/`studio`-specific. This is **Phase 4** of the consent flag (built work archived at
-  [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md)), deferred from its build. The consent
-  value is written from day one; pre-invite Larry is the only subject, so the notice must ship **before the
-  first non-Larry user is invited** (Larry owns + accepts responsibility).
+- ⚠️ **GATE — data-use consent UI (NOT built).** The consent notice must render at the slug-pick /
+  claim-universe prompt in **`nebula-studio-ui`** (locate via `grep` for the claim-universe / slug input):
+  a short, **informational** notice (no functional gating), **generic "improve the product" framing** —
+  never `nebula`/`studio`-specific. The consent *value* is already written from day one (the flag above);
+  this is the human consent *moment*, so it must ship **before the first non-Larry user is invited** (Larry
+  owns + accepts responsibility; pre-invite he's the only subject). *(It's "Phase 4" in the frozen archived
+  consent file [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md) — named descriptively here.)*
 - **Provision real users + send ~4–5 personalized invites** (each a tailored first app idea, e.g.
   Sydney → secret-santa + wishlist). *Involvement achieved; capture already live.*
 - **Inbound `claude@lumenize.io` → email Worker → durable store** (R2 or a DO; readable via Cloudflare
@@ -316,8 +238,8 @@ the (already-reviewed) deploy task. Written **one at a time** — Task ① has a
    non-coder shouldn't hit a naming/collision wall on first login.)*
 2. **Digest phasing** — v0 manual inspection now + v1 automated digest later *(lean)*, or build the
    7:30am pipeline up front? Hard constraint either way: **capture live before invite.**
-3. **Deploy timing** — deploy early (Wave 1) *(lean)*, confirmed reframe: deploy hosts users + retires
-   the one-way-door risk; it is NOT the iteration mechanism.
+3. ✅ **Deploy timing — RESOLVED + EXECUTED** (deployed Wave 1, 2026-06-26): deploy early hosts users +
+   retires the one-way-door risk; it is NOT the iteration mechanism. (Kept here as a settled decision, not open.)
 
 ## Process note
 
@@ -336,13 +258,18 @@ then archive** — no completed files lingering in `tasks/`, no pre-created stub
 - Provisioning pull-half: `tasks/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-star-root-admin.md`
 - First prod deploy + release process (Wave 1, DONE 2026-06-26, archived): `tasks/archive/nebula-release-process.md` · deferred hardening: `tasks/on-hold/nebula-release-hardening.md`
 - Outside-world capabilities (reactive on user demand — `fetch` → email → search → secrets-last): design `tasks/nebula-outside-world.md` · build plan `tasks/nebula-outside-world-build.md` (incl. Wave 3 inbound email)
-- Resilient chat delivery (DONE 2026-06-29): `tasks/archive/resilient-turn-delivery.md` · preview auto-refresh (DONE 2026-06-29): `tasks/archive/preview-ready-autorefresh.md` · query subscriptions (Wave 2 substrate): `tasks/nebula-query-subscriptions.md` · reactive AI chat (future child — depends on query-subscriptions, turn = child Resource)
+- Resilient chat delivery (DONE 2026-06-29): `tasks/archive/resilient-turn-delivery.md` · preview auto-refresh (DONE 2026-06-29): `tasks/archive/preview-ready-autorefresh.md` · query subscriptions (DONE, archived): `tasks/archive/nebula-query-subscriptions.md` · reactive AI chat (Child 3, DRAFT — turn = child Resource FK'd to Session): `tasks/nebula-reactive-ai-chat.md`
 
-## Branch / close-out (deferred until in a rhythm — Larry 2026-06-29)
-This phase's work lives on `feat/nebula-studio` (the `feat/` prefix is a misnomer — it's a milestone
-integration branch, not a single feature). **Close-out sequence when ready:** PR `feat/nebula-studio` →
-`main` → release all npm packages (`/release-workflow`) from merged main → branch the next phase off main.
-**Long-lived phase branches use the bare milestone name** (`pre-alpha`, then `alpha`/`beta`) — NOT a
-`feat/` prefix. Continuous CI on the phase branch comes from keeping a **draft PR → main** open (CI now
-runs on `pull_request → main` + `push → main` only; the non-main push trigger was dropped 2026-06-29).
-Deferred deliberately — early-phase detours (spikes, CI fixes) happen before the PR ceremony.
+## Branch / close-out
+
+- ✅ **Branch flip DONE.** `feat/nebula-studio` was PR'd (**#15**) + merged to `main`; the phase then
+  flipped to the **bare-milestone** branch **`pre-alpha`** (the old `feat/` prefix was a misnomer — a
+  milestone integration branch, not one feature) and was pushed to `origin`. Long-lived phase branches use
+  the bare name (`pre-alpha`, then `alpha`/`beta`), never a `feat/` prefix; delete stale `claude/*` branches
+  once reconciled.
+- ⏳ **npm publish — NOT done, deferred to `pre-alpha`'s close-out** (Larry 2026-06-30 — not in a rush).
+  No packages have been published (`/release-workflow`); `main` carries merged-but-unreleased package
+  changes. Release then from merged `main`, not per-commit.
+- ⏳ **`pre-alpha`'s own close-out (future, when in a rhythm):** PR `pre-alpha` → `main` → release npm from
+  merged main → branch `alpha` off main. Continuous CI comes from an open **draft PR `pre-alpha` → main**
+  (CI runs on `pull_request → main` + `push → main`; the non-main push trigger was dropped 2026-06-29).
