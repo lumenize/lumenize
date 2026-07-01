@@ -5,7 +5,7 @@
  * + the non-admin-DAG-granted read/write + version-stamp are Phase 5):
  *  1. **Frozen @mesh surface (m5):** the new resource methods are non-admin
  *     (`@mesh()`, DAG-gated — D4); codegen/source methods stay `requireAdmin`.
- *  2. **Facet behavior on DevStudio:** the composed Session/Turn provider mounts +
+ *  2. **Facet behavior on DevStudio:** the composed Session/Message provider mounts +
  *     enforces the ADR-006 embed-guard (SC3), coexists with the tool-args facet in
  *     one DO without bundleId cross-wiring (M2), and survives an `onStart` re-init
  *     with an unchanged version (M3).
@@ -71,10 +71,10 @@ describe('DevStudio @mesh surface freeze (m5)', () => {
   });
 });
 
-describe('DevStudio Session/Turn facet (composed provider)', () => {
+describe('DevStudio Session/Message facet (composed provider)', () => {
   const validTurn = { session: 'sess-1', role: 'user', content: 'hello' };
 
-  it('SC3 + M2: accepts a Turn whose session is an id string (both facets mounted → no cross-wiring)', async () => {
+  it('SC3 + M2: accepts a Message whose session is an id string (both facets mounted → no cross-wiring)', async () => {
     const dev = uniqueDevScope();
     const r = await callStudio(dev, 'parseSessionTurnForTest', ['Message', validTurn]);
     expect(r.valid).toBe(true);
@@ -91,14 +91,14 @@ describe('DevStudio Session/Turn facet (composed provider)', () => {
     expect(err.description).toMatch(/reference by id/i);
   });
 
-  it('Child 2 Phase 0: the getOntology() seam carries relationships (Turn.session is to-one)', async () => {
+  it('Child 2 Phase 0: the getOntology() seam carries relationships (Message.session is to-one)', async () => {
     const dev = uniqueDevScope();
     const rels = await callStudio(dev, 'resourceRelationshipsForTest') as
       Record<string, Record<string, { target: string; cardinality: string }>>;
     // Capable-of-failing: drop `relationships` from the provider closure → this is
-    // `undefined` and the `.Turn.session` access throws (red). subscribeQuery field
+    // `undefined` and the `.Message.session` access throws (red). subscribeQuery field
     // validation (Phase 3) has nothing to check without this.
-    expect(rels.Turn.session).toMatchObject({ target: 'Session', cardinality: 'one' });
+    expect(rels.Message.session).toMatchObject({ target: 'Session', cardinality: 'one' });
   });
 
   it('M3: ontology version is the fixed constant and survives an onStart re-init', async () => {

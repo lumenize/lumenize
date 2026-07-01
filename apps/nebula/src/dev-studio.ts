@@ -45,7 +45,7 @@ import type { DevContainer, SourceFile } from './dev-container';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
 import type { QueryDescriptor } from './query-hash';
-import { createResourceOntologyProvider } from './devstudio-resource-ontology';
+import { createResourceOntologyProvider, DEFAULT_SESSION_ID, SESSION_NODE_ID } from './devstudio-resource-ontology';
 import type { DagTree } from './dag-tree';
 import type { OperationDescriptor, Snapshot } from './resources';
 import {
@@ -128,8 +128,8 @@ export class DevStudio extends NebulaDO {
   // Re-derivable cache (loss acceptable) — the tool-args typia validator facet
   // (durable-objects.md "ephemeral caches", same pattern as Star.#facet).
   #toolArgsFacet?: ParserValidator;
-  // The composable resource data-plane (Child 1) — hosts the chat Session/Turn
-  // Resources. Constructed in onStart with the platform-fixed Session/Turn
+  // The composable resource data-plane (Child 1) — hosts the chat Session/Message
+  // Resources. Constructed in onStart with the platform-fixed Session/Message
   // ontology provider; reconstructed on every (re)init like Star's.
   #dataPlane!: ResourceDataPlane;
 
@@ -144,8 +144,8 @@ export class DevStudio extends NebulaDO {
       await this.#git.init({ defaultBranch: 'main' });
       this.ctx.storage.kv.put(INITED_KEY, true);
     }
-    // Compose the resource data-plane (Child 1) — the chat Session/Turn host. The
-    // ontology provider compiles the platform-fixed Session/Turn types ON this DO
+    // Compose the resource data-plane (Child 1) — the chat Session/Message host. The
+    // ontology provider compiles the platform-fixed Session/Message types ON this DO
     // (re-derived from source on every (re)init, so it survives eviction/restart —
     // there is no Galaxy registry for it). No org-tree subscribe channel here
     // (Out-of-scope), so onDagChanged is a no-op.
@@ -368,7 +368,14 @@ export class DevStudio extends NebulaDO {
   @mesh(requireAdmin)
   async chat(turnId: string, clientId: string, message: string): Promise<{ reply: string; thought: string }> {
     await this.ensureUp(); // Flow 1c: container up + source pushed
-    const result = await this.runCodegenTurn(message);
+    await this.ensureSession(); // D-session: the default Session exists before turns FK to it
+    // Phase 3 option (b): mint the assistant Message id up front; stream the loop's
+    // progress transiently to session subscribers; commit ONE durable Message at the end.
+    const assistantMessageId = crypto.randomUUID();
+    const result = await this.runCodegenTurn(
+      message, DEFAULT_LOOP_CONFIG,
+      (step) => this.streamProgress(DEFAULT_SESSION_ID, assistantMessageId, step, SESSION_NODE_ID),
+    );
     // On a clean finish, push the written source so the live preview updates (source-of-
     // truth is already committed in the Workspace regardless). A non-clean finish leaves
     // the preview on the last good push rather than landing unconverged code.
@@ -410,6 +417,11 @@ export class DevStudio extends NebulaDO {
     for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
     parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${compile}`);
     const payload = { reply, thought: parts.join('\n\n— — —\n\n') };
+    // Phase 3 option (b): the DURABLE assistant Message — the source of truth, fanned to
+    // every session subscriber via the query rerun (history-restore + multi-participant +
+    // disconnect-recovery). The client reconciles its ephemeral stream against it by id.
+    await this.commitAssistantMessage(DEFAULT_SESSION_ID, assistantMessageId, reply, SESSION_NODE_ID, payload.thought);
+    // The ephemeral onChatResult push stays for now (retired/demoted in Phase 6).
     this.deliverTurnResult(turnId, clientId, payload);
     return payload;
   }
@@ -479,7 +491,7 @@ export class DevStudio extends NebulaDO {
     }
   }
 
-  // ─── Resource data-plane surface (chat Session/Turn Resources, Child 1) ─────────
+  // ─── Resource data-plane surface (chat Session/Message Resources, Child 1) ─────────
   //
   // `@mesh()` — **NOT** `@mesh(requireAdmin)` (unlike every codegen/source method
   // above): chat participants are non-admin but DAG-granted (D4). `onBeforeCall`
@@ -489,6 +501,59 @@ export class DevStudio extends NebulaDO {
   // gate is a no-op here (one fixed code-defined version, D8): the wrapper accepts
   // the client's `appVersion` but ignores it — Handler 2 stamps the version solely
   // from `getOntology()`.
+
+  /**
+   * Idempotently seed the pre-alpha default `Session` at the fixed {@link DEFAULT_SESSION_ID}
+   * under {@link SESSION_NODE_ID} (D-session / Child 3 Phase 1). Called at the start of
+   * {@link chat} (an authed admin context, so the create's `write` check passes via the
+   * `access.admin` bypass) and exposed as an admin-gated entry so a client can guarantee
+   * the session exists before subscribing `Message where session == DEFAULT_SESSION_ID`.
+   * A second call is a no-op (the capability's create-if-absent). `@mesh(requireAdmin)`
+   * — a platform seed on the session node, distinct from the non-admin data-plane surface
+   * below. Internal `this.ensureSession()` calls bypass the decorator (direct method call).
+   */
+  @mesh(requireAdmin)
+  async ensureSession(): Promise<void> {
+    await this.#dataPlane.ensureResource(DEFAULT_SESSION_ID, 'Session', SESSION_NODE_ID, { title: 'Studio chat' });
+  }
+
+  /**
+   * Permission-filtered fanout targets for a query at `nodeId` — the transient-stream
+   * audience (Child 3, D-fanout-accessor). `protected`: the Phase-3 progress push uses
+   * it internally; a test subclass exposes it for the M4 per-operand accessor test.
+   */
+  protected queryTargets(query: QueryDescriptor, nodeId: number): BroadcastTarget[] {
+    return this.#dataPlane.targetsForQuery(query, nodeId);
+  }
+
+  /**
+   * Push ONE transient assistant-progress chunk to the session query's subscribers
+   * that may read `nodeId` (Child 3 option (b), Flow A). Fire-and-forget `svc.broadcast`
+   * of `handleStreamChunk` — no Resource write, no fanout/rerun. Permission-filtered via
+   * {@link queryTargets} (the transient path's point-of-action recheck, symmetric with the
+   * durable path — a subscriber denied on `nodeId` gets NO chunk, M1). No `onResult`: a
+   * missed chunk just drops the animation (the durable Message still lands via the query sub).
+   */
+  protected streamProgress(sessionId: string, messageId: string, progress: string, nodeId: number): void {
+    const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId };
+    const targets = this.queryTargets(query, nodeId);
+    if (targets.length === 0) return;
+    this.svc.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress));
+  }
+
+  /**
+   * Commit the DURABLE assistant `Message` at completion (Child 3 option (b), Flow A) —
+   * ONE create at `messageId`, which the query rerun fans to every session subscriber
+   * (and the client reconciles against its ephemeral stream by id). Create-if-absent via
+   * the capability (a fresh assistant id → a create); server-internal, no client delivery.
+   */
+  protected async commitAssistantMessage(
+    sessionId: string, messageId: string, content: string, nodeId: number, thought?: string,
+  ): Promise<void> {
+    const value: Record<string, unknown> = { session: sessionId, role: 'assistant', content, status: 'complete' };
+    if (thought !== undefined) value.thought = thought;
+    await this.#dataPlane.ensureResource(messageId, 'Message', nodeId, value);
+  }
 
   /** Handler 1: dispatch a transaction into the capability (no version-gate, D8). */
   @mesh()
@@ -711,6 +776,7 @@ export class DevStudio extends NebulaDO {
   protected async runCodegenTurn(
     userRequest: string,
     config: CodegenLoopConfig = DEFAULT_LOOP_CONFIG,
+    onProgress?: (step: string) => void,
   ): Promise<LoopResult> {
     let currentSource = '';
     try { currentSource = await this.#fs.readFile('/src/App.vue'); } catch { /* none yet */ }
@@ -727,6 +793,7 @@ export class DevStudio extends NebulaDO {
       callModel: (m, p) => this.callModel(m, p),
       writeFile: (path, content) => this.writeSource(path, content),
       validateToolArgs: (n, a) => this.#validateToolArgs(n, a),
+      onProgress,
     };
     const result = await runCodegenLoop(initial, deps, config);
 

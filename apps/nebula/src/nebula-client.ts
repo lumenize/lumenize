@@ -405,6 +405,18 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #pendingTurns = new Map<string, { resolve: (r: ChatTurnResult) => void; reject: (e: Error) => void }>();
 
+  /**
+   * Ephemeral assistant-progress streams, keyed by `assistantMessageId` (Child 3
+   * option (b)). Accumulates the transient `handleStreamChunk` pushes for the
+   * in-flight reply — a **deliberate ephemeral cache** (client-side, not a DO, so
+   * mutable instance state is fine): loss on reload/disconnect just drops the live
+   * animation; the durable `Message` arrives via the query sub regardless. Reconciled
+   * (dropped) when the durable Message lands in `handleResourceUpdate` — so the UI
+   * renders the durable content, never a duplicate. No pending-Promise dependency.
+   */
+  #streamingMessages = new Map<string, string>();
+  #onStreamChunk?: (messageId: string, progress: string) => void;
+
   constructor(config: NebulaClientConfig) {
     const {
       authScope,
@@ -1289,6 +1301,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // writes nothing — the slot stays undefined until a real snapshot arrives.
     if (result !== null) {
       this.#engine.notifyFanout(resourceType, resourceId, result as unknown as EngineSnapshot);
+      // Reconcile-by-id (Child 3 option (b)): the durable Message superseded any
+      // ephemeral progress stream for the same id — drop it so the UI shows the
+      // durable content, not a duplicate. Idempotent (no-op when nothing streamed).
+      this.#streamingMessages.delete(resourceId);
     }
 
     // Settle pending subscribe Promise (first-call-wins)
@@ -1352,6 +1368,34 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   @mesh()
   handleReload(): void {
     this.#onReload?.();
+  }
+
+  /**
+   * Receive a transient assistant-progress chunk for `messageId` (Child 3 option (b)).
+   * Server→client direct delivery (`svc.broadcast` from DevStudio, addressed to this
+   * client's stable `instanceName`) as the codegen loop makes progress. Accumulates
+   * into the ephemeral {@link #streamingMessages} cache + fires the optional live hook.
+   * NOT durable: reconciled away when the durable `Message` lands ({@link handleResourceUpdate}),
+   * or lost on reload (the durable Message restores via the query sub). `@mesh()` — a
+   * remotely dispatched Gateway push, like `handleQueryUpdate`/`handleResourceUpdate`.
+   */
+  @mesh()
+  handleStreamChunk(messageId: string, progress: string): void {
+    const accumulated = (this.#streamingMessages.get(messageId) ?? '') + progress;
+    this.#streamingMessages.set(messageId, accumulated);
+    this.#onStreamChunk?.(messageId, accumulated);
+  }
+
+  /** The accumulated ephemeral progress for an in-flight assistant `messageId`, or
+   *  `undefined` once the durable Message superseded it (or nothing streamed). */
+  streamingProgress(messageId: string): string | undefined {
+    return this.#streamingMessages.get(messageId);
+  }
+
+  /** Register the live-progress hook (the UI renders each accumulated chunk). Phase-5
+   *  UI seam; headless clients (tests) read {@link streamingProgress} instead. */
+  setOnStreamChunk(hook: (messageId: string, progress: string) => void): void {
+    this.#onStreamChunk = hook;
   }
 
   /**

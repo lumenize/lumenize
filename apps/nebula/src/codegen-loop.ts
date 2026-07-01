@@ -144,6 +144,16 @@ export interface CodegenLoopDeps {
   writeFile(path: string, content: string): Promise<{ oid: string; path: string }>;
   /** typia shape validation of tool args (D5). Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Progress/thought emit seam (Child 3 Phase 3). Called per round with the model's
+   * reasoning and per file with `wrote <path>` — the coarse, step-level content the
+   * assistant progress stream fans to session subscribers (NOT model tokens; `callModel`
+   * is non-streaming). Optional + synchronous fire-and-forget: a slow/throwing sink must
+   * not perturb the loop, so callers keep it cheap (DevStudio buffers + broadcasts). Only
+   * exercised under `wrangler dev` (real `chat`); pool-workers tests drive the downstream
+   * push directly via the test harness.
+   */
+  onProgress?: (step: string) => void;
 }
 
 export interface CodegenLoopConfig {
@@ -299,6 +309,9 @@ export async function runCodegenLoop(
     const turn = parseModelTurn(raw);
     lastText = turn.text;
     if (turn.reasoning.trim().length > 0) reasoningParts.push(turn.reasoning);
+    // Phase 3: emit this round's thinking as a progress step (coarse, not tokens).
+    const step = turn.reasoning.trim() || turn.text.trim();
+    if (step.length > 0) deps.onProgress?.(step);
 
     // Loop-detection #1 — repeated model text (rolling hash). Checked BEFORE
     // dispatch so it's independent of the identical-call detector.
@@ -374,6 +387,7 @@ export async function runCodegenLoop(
       // Persist, then run the path-dispatched Rung-1 compile gate.
       try {
         await deps.writeFile(path, content);
+        deps.onProgress?.(`wrote ${path}`); // Phase 3: per-file progress step
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         recorded.push({ name: tc.name, args: tc.args, error });

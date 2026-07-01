@@ -174,6 +174,27 @@ export class ResourceDataPlane {
     this.#querySubs.removeQuerySubscriber(queryHash, clientId);
   }
 
+  /**
+   * Server-internal **create-if-absent** (D-session): idempotently seed a fixed
+   * platform Resource (DevStudio's default `Session`) with NO client-facing result
+   * delivery. A live snapshot already present → no-op. A first create still fans out
+   * to any subscribers (mirrors {@link doTransaction}'s post-commit hook; originator
+   * `''` — a server seed has no client origin). The caller must be in an authed
+   * context with `write` on `nodeId` — the `access.admin` bypass covers the
+   * platform-seed path (DevStudio's `ensureSession` runs under the admin's call).
+   */
+  async ensureResource(
+    resourceId: string, typeName: string, nodeId: number, value: Record<string, unknown>,
+  ): Promise<void> {
+    if (this.#resources.read(resourceId)) return; // idempotent: a live snapshot exists
+    const { version, facet } = this.#getOntology();
+    await this.#resources.transaction(
+      { [resourceId]: { op: 'create', typeName, nodeId, value } },
+      version, crypto.randomUUID(), facet,
+      (mutations) => { this.#broadcast(mutations, ''); this.#rerunQueriesForCommit(mutations); },
+    );
+  }
+
   // ─── Handler 2 (the actual op + delivery) ──────────────────────────
 
   /** Execute a transaction at the host's current ontology version + deliver the

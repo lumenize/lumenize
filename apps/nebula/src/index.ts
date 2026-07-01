@@ -42,11 +42,13 @@ export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy
 export { ResourceDataPlane } from './resource-data-plane';
 export type { OntologyProvider, ResourceHostBridge, BroadcastTarget } from './resource-data-plane';
 
-// DevStudio's platform-fixed Session/Turn ontology + its getOntology() provider.
+// DevStudio's platform-fixed Session/Message ontology + its getOntology() provider.
 export {
   SESSION_MESSAGE_TYPES,
   SESSION_MESSAGE_ONTOLOGY_VERSION,
   SESSION_MESSAGE_BUNDLE_ID,
+  DEFAULT_SESSION_ID,
+  SESSION_NODE_ID,
   createResourceOntologyProvider,
 } from './devstudio-resource-ontology';
 

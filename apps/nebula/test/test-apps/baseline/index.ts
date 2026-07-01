@@ -29,6 +29,7 @@ import {
   Star,
   Universe,
   Galaxy,
+  DevStudio,
   NebulaClient,
   requireAdmin,
   ROOT_NODE_ID,
@@ -311,6 +312,36 @@ export class StarTest extends Star {
 // StarTest at a {u}.{g}.dev instance; its lifecycle inspection hooks moved onto StarTest.)
 
 // ============================================
+// Test subclass: DevStudioTest — exposes the protected data-plane seams (Child 3)
+// for tests that can't run the wrangler-dev-only `chat` codegen loop in pool-workers.
+// ============================================
+
+export class DevStudioTest extends DevStudio {
+  /** Child 3 Phase 2 (M4): the permission-filtered query targets for the per-operand
+   *  accessor test. Returns the clientIds among the query's subscribers that may read
+   *  `nodeId` (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
+  @mesh(requireAdmin)
+  inspectQueryTargets(query: QueryDescriptor, nodeId: number): string[] {
+    return this.queryTargets(query, nodeId).map((t) => t.instanceName);
+  }
+
+  /** Child 3 Phase 3: push ONE transient progress chunk (the loop's `onProgress` seam
+   *  is wrangler-dev-only, so tests drive `streamProgress` directly with synthetic
+   *  progress). Kept separate from the commit so a test can observe a chunk arriving
+   *  BEFORE the durable Message (M3 transient-surface assertion). */
+  @mesh(requireAdmin)
+  streamChunkForTest(sessionId: string, messageId: string, chunk: string, nodeId: number): void {
+    this.streamProgress(sessionId, messageId, chunk, nodeId);
+  }
+
+  /** Child 3 Phase 3: commit the durable assistant Message (the completion step). */
+  @mesh(requireAdmin)
+  async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: number): Promise<void> {
+    await this.commitAssistantMessage(sessionId, messageId, content, nodeId, 'synthetic thought');
+  }
+}
+
+// ============================================
 // Inert DEV_CONTAINER serving stub (Phase 3.5a — entrypoint M2/M3 gate test).
 //
 // The REAL DevContainer `extends Container` and can't construct under
@@ -374,6 +405,11 @@ export class NebulaClientTest extends NebulaClient {
   lastQueryUpdate: { queryHash: string; result: QueryUpdatePayload } | undefined = undefined;
   lastQueryError: Error | undefined = undefined;
   queryUpdateCount = 0;
+
+  // --- handleStreamChunk capture (Child 3 transient progress stream). CUMULATIVE —
+  //     count of chunks received; read `streamingProgress(id)` for the accumulated text. ---
+  lastStreamChunk: { messageId: string; progress: string } | undefined = undefined;
+  streamChunkCount = 0;
 
   // Handler for call results (no @mesh needed — local chain executor)
   handleResult(value: any): void {
@@ -685,6 +721,37 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, this.ctn<Star>().unsubscribeQuery(queryHash));
   }
 
+  /** Child 3 Phase 1: `DevStudio.ensureSession` (idempotent default-Session seed).
+   *  Result-handler form so a test can assert it completes WITHOUT error — the second
+   *  call must NOT throw (proves the create-if-absent guard; a raw create-on-existing
+   *  throws "already exists", resources.ts). */
+  callDevStudioEnsureSession(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<DevStudio>().ensureSession();
+    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Child 3 Phase 2 (M4): fetch DevStudio's permission-filtered query targets
+   *  (subscriber clientIds allowed to read `nodeId`) into `lastResult`. */
+  callDevStudioInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<DevStudioTest>().inspectQueryTargets(query, nodeId);
+    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Child 3 Phase 3: fire one transient progress chunk (fire-and-forget, like the
+   *  server→client stream). */
+  callDevStudioStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: number): void {
+    this.lmz.call('DEV_STUDIO', scope, this.ctn<DevStudioTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
+  }
+
+  /** Child 3 Phase 3: commit the durable assistant Message (result-handler form to await). */
+  callDevStudioCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<DevStudioTest>().commitAssistantForTest(sessionId, messageId, content, nodeId);
+    this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
+  }
+
   callStarInspectQuerySubscribers(starName: string): void {
     this.resetResults();
     const remote = this.ctn<StarTest>().inspectQuerySubscribers();
@@ -805,6 +872,16 @@ export class NebulaClientTest extends NebulaClient {
     } else {
       this.lastQueryUpdate = { queryHash, result };
     }
+  }
+
+  /** Capture transient progress chunks (Child 3). Delegates to base so the ephemeral
+   *  `#streamingMessages` accumulation + reconcile still run (assert via the public
+   *  `streamingProgress(id)` getter); the counter proves a chunk reached this client. */
+  @mesh()
+  override handleStreamChunk(messageId: string, progress: string): void {
+    super.handleStreamChunk(messageId, progress);
+    this.streamChunkCount++;
+    this.lastStreamChunk = { messageId, progress };
   }
 
   // --- Galaxy test initiators ---
