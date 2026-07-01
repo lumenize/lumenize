@@ -47,10 +47,10 @@ export {
   SESSION_MESSAGE_TYPES,
   SESSION_MESSAGE_ONTOLOGY_VERSION,
   SESSION_MESSAGE_BUNDLE_ID,
-  DEFAULT_SESSION_ID,
-  SESSION_NODE_ID,
   createResourceOntologyProvider,
 } from './devstudio-resource-ontology';
+// Session-identity constants live in a client-safe leaf (no server imports).
+export { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 
 // Errors
 export {

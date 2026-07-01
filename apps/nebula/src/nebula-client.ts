@@ -34,6 +34,7 @@ import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, Transa
 import type { QueryUpdatePayload, QueryDescriptor } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
+import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { Star } from './star';
 import type { DevStudio } from './dev-studio';
 
@@ -1410,12 +1411,35 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * its own `instanceName` explicitly (not `callChain[0]`). See ADR-003 +
    * [[client-calls-use-direct-delivery]].
    */
-  chat(message: string): Promise<ChatTurnResult> {
+  async chat(message: string): Promise<ChatTurnResult> {
+    // Phase 4: create the user Message FIRST (atomic, on Enter — D3/D-human-no-stream:
+    // no streaming for a user message, one create). No optimistic echo — the sender
+    // sees its own Message via the query fanout, like everyone else (D-echo default).
+    await this.postUserMessage(message);
     const turnId = crypto.randomUUID();
     const clientId = this.lmz.instanceName;
     const pending = this.trackTurn(turnId);
     this.lmz.call('DEV_STUDIO', this.#activeScope, this.ctn<DevStudio>().chat(turnId, clientId, message));
     return pending;
+  }
+
+  /**
+   * Post a `role:'user'` Message to the pre-alpha session (Child 3 Phase 4) — a single
+   * atomic create on the DevStudio data plane, stamped with the sender's `author` (email,
+   * display-only — D-attribution). Returns the client-generated message id. Rides the
+   * `Message where session==DEFAULT_SESSION_ID` query, so the sender AND every other
+   * subscriber see it via the fanout (no optimistic echo, D-echo). `chat` calls this
+   * before kicking codegen; a non-codegen participant can call it directly to just chat.
+   */
+  async postUserMessage(content: string): Promise<string> {
+    const messageId = crypto.randomUUID();
+    await this.resources.transaction({
+      [messageId]: {
+        op: 'create', typeName: 'Message', nodeId: SESSION_NODE_ID,
+        value: { session: DEFAULT_SESSION_ID, role: 'user', content, author: this.claims.email },
+      },
+    });
+    return messageId;
   }
 
   /**

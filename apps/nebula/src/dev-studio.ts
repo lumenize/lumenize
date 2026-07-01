@@ -45,7 +45,8 @@ import type { DevContainer, SourceFile } from './dev-container';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
 import type { QueryDescriptor } from './query-hash';
-import { createResourceOntologyProvider, DEFAULT_SESSION_ID, SESSION_NODE_ID } from './devstudio-resource-ontology';
+import { createResourceOntologyProvider } from './devstudio-resource-ontology';
+import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { DagTree } from './dag-tree';
 import type { OperationDescriptor, Snapshot } from './resources';
 import {
