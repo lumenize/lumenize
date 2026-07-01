@@ -538,6 +538,8 @@ export class DevStudio extends NebulaDO {
   protected streamProgress(sessionId: string, messageId: string, progress: string, nodeId: number): void {
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId };
     const targets = this.queryTargets(query, nodeId);
+    // Log identifiers/counts only — never the progress body (Stage-2 security nit).
+    debug('nebula.DevStudio.stream').debug('chunk', { messageId, targets: targets.length, len: progress.length });
     if (targets.length === 0) return;
     this.svc.broadcast(targets, this.ctn<NebulaClient>().handleStreamChunk(messageId, progress));
   }
@@ -553,6 +555,7 @@ export class DevStudio extends NebulaDO {
   ): Promise<void> {
     const value: Record<string, unknown> = { session: sessionId, role: 'assistant', content, status: 'complete' };
     if (thought !== undefined) value.thought = thought;
+    debug('nebula.DevStudio.stream').debug('commit', { messageId, len: content.length });
     await this.#dataPlane.ensureResource(messageId, 'Message', nodeId, value);
   }
 
