@@ -1,6 +1,8 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status**: **Active program** (started 2026-06-23) — the top goal now that the demo target is met.
+**Status**: **⏸️ ON HOLD (2026-07-01)** — paused until the mesh continuation-only refactor ships ([mesh-continuation-only-calls.md](mesh-continuation-only-calls.md) — no held Promises across hops; the sole active work on the `pre-alpha` branch). Resume this master plan after it lands. **Queued directly behind it — SOFT commitment (2026-07-02), go/no-go on the benefits analysis in its own file:** [mesh-identity-stamp-removal.md](mesh-identity-stamp-removal.md) — retire the persistent DO identity stamp (identity rides the envelope in-memory; alarm rows gain persisted `{selfIdentity, callContext}`). Queued there, not concurrent, because it rewrites the same surfaces (`executeEnvelope`, callContext plumbing, alarms); its interim 2-line stamp write-guard already landed in `packages/mesh` (2026-07-02). Everything below is unchanged from the active program.
+
+**Status (program)**: **Active program** (started 2026-06-23) — the top goal now that the demo target is met.
 This is the **living master plan**: it holds the plan at design-detail **plus accumulated
 learnings/research as we go**. Lower-level (child) task files are written **ONE AT A TIME**, and on
 completion their important nuggets are extracted **up into this file** (or the next child) and the
@@ -247,6 +249,10 @@ This master = the living plan + accumulated learnings. **One lower-level task fi
 `/review-task` → `/build-task`). On completion: **extract nuggets up here (or into the next child),
 then archive** — no completed files lingering in `tasks/`, no pre-created stubs. See
 [[feedback_task_file_one_at_a_time]].
+
+## Stand-alone research (parallel, read-only — runs during the hold)
+
+- **DevContainer wakeup-after-hibernation — DIAGNOSIS DONE + FIX designed & spiked (2026-07-01).** Diagnosis archived at `tasks/archive/nebula-container-wakeup-recovery.md`: the failure is **(b)** the CF stale-`running` flag — a lifecycle problem, NOT the wake *call* failing → **orthogonal to the mesh work; `callDurable` does not help.** Fix = `ctx.abort()` on stuck-detect on the preview-GET path, entirely **below the mesh layer** (touches only `dev-container.ts` + its test — never the shared `callRaw`/DevStudio surface). Two `/review-task` Stage-2 passes done; **Phase 0 spike confirmed the abort lever** on real CF, but the stuck flag **self-heals in every off-prod scenario** → it's a **rare-race safety net**, not the common path. Build plan `tasks/nebula-container-wakeup-fix.md` (Phases 1–2 + opportunistic deploy-verify); lands **sequentially** on pre-alpha-resume, never concurrent with the mesh migration.
 
 ## Links
 
