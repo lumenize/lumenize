@@ -39,6 +39,19 @@ The dominant enterprise-SaaS pattern of the last 15 years — Slack, Dropbox, Fi
 
 ---
 
+## The incumbent objection — "we already have Power Apps"
+
+The "sanctioned citizen development" budget line has owners: **Microsoft Power Platform** (already on the E5 agreement, already with SSO/DLP/audit), with Retool, Airtable, Mendix, and OutSystems adjacent. The buyer we describe *will* ask "why not Power Apps?" — answer it before they do:
+
+- **They were built pre-agentic and are struggling to retrofit.** Their paradigm is forms-over-tables plus per-connector plumbing; the AI story is a bolted-on copilot over that old model — and bolted-on AI is exactly the leak surface (`strategy.md`, EchoLeak). Nebula is agentic-native: the chat *is* the builder, and the same access substrate governs it by construction.
+- **Domain experts don't choose them.** Steep learning curves aimed at IT-adjacent builders, expensive per-seat enterprise licensing, top-down procurement. The revealed preference is the whole point of the shadow-IT thesis: when your best people route around the ban, they route to Replit and Lovable — *not* to the Power Apps license the org already owns. Governing the tool nobody voluntarily uses governs nothing.
+- **The ceiling is internal tools.** They produce forms and dashboards for employees, not real multi-tenant, revenue-capable SaaS with external end users — the intrapreneur building a product (or the solopreneur building a business) can't get there on them.
+- **The motion is inverted.** They're bought top-down and pushed down; Nebula lands bottom-up — the Slack/Jira arc — with a champion already inside.
+
+**Discipline:** never fight Power Platform on governance-checkbox count early — theirs is mature and ours is deliberately gated (*Timing gates* below). The pitch is not "better governance than Microsoft"; it is **"your people already chose agentic tools; govern the thing they actually use."**
+
+---
+
 ## What "the secure way" requires — the governance tier
 
 The enterprise tier is **governance and assurance layered on top of the one secure-by-default core** — never a forked, separate security model. Concretely:
@@ -70,6 +83,7 @@ Until these hold, enterprise effort is premature investment and pulls focus from
 - **The arrow, not two arrows.** "A PLG wedge that lands enterprise expansion" is the capital-efficient, large-ACV story investors reward — far stronger than "a solopreneur strategy *and* an enterprise strategy."
 - **Founder-market-fit.** The author of the DevSecOps manifesto, riding the same shadow-IT-gets-sanctioned wave a second time.
 - **TAM shape.** Self-serve proves the model and funds the climb; enterprise is where the market eventually dwarfs the wedge.
+- **Strategic acquirers exist and are aligned.** Cloudflare is the natural one: Nebula is the up-stack proof of what Workers-for-Platforms-class infrastructure is *for* — an opinionated app platform for domain experts that Cloudflare doesn't build itself (different customer, different DNA; see `strategy.md`, walled-garden section). We build for independence; the acquisition path is a floor under the outcome, not the plan.
 
 ---
 
@@ -88,5 +102,5 @@ Flag a task that:
 
 - **Entry point & buyer title.** CISO, platform engineering, or line-of-business? The trigger event likely decides.
 - **Pricing the governance tier.** Per-seat, consumption, or an org platform fee on top of self-serve?
-- **Homogeneity vs. residency — a real tension with the moat.** Enterprises routinely demand data residency / VPC / private-region / on-prem, which collides head-on with `strategy.md`'s "you deploy to Nebula, full stop" homogeneity moat. How far does homogeneity bend before the moat dissolves? This is the sharpest unresolved conflict between the two docs.
+- **Homogeneity vs. residency — direction pinned 2026-07-02, mechanics open.** The moat is uniformity of the *substrate*, not of the *region*: regional cells running the identical substrate (Cloudflare's data-localization / jurisdiction controls are the mechanism) answer data-residency demands without forking the security model. VPC / on-prem remains a real **no** — that's the garden boundary, and some procurement will walk over it. Open mechanics: which certifications and regions gate which deals, and whether a cell is per-jurisdiction or per-customer.
 - **The exit story.** Platform-risk and lock-in objections are far sharper in enterprise procurement than for a solopreneur. What is the credible migration/portability answer?

@@ -7,7 +7,7 @@
 | **Status** | Living doc — current strategy as of 2026-06-21. Update in place; note material pivots with a dated line. |
 | **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the checks below should get flagged. |
 | **Scope** | Nebula the SaaS platform. The MIT packages (Mesh and friends) are the substrate, not the subject. |
-| **Convention** | This doc + `enterprise.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. |
+| **Convention** | This doc + `enterprise.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. `deck-workplan.md` is a third kind: the internal pitch-process gap list for the CEO — not a leave-behind, not a lens. |
 
 The macro thesis is that AI is the earthquake creating fissures that the traditional software development factory and roles are collapsing into, and at the same time creating new higher ground for the rise of the solopreneur/intrapreneur. 
 
@@ -25,6 +25,8 @@ Three load-bearing words, none optional:
 
 The persona is always the **user-developer**: a solopreneur or intrapreneur who is a *domain expert*, who may not be an experienced coder. Never "vibe-coder."
 
+**Which word does which job — committed 2026-07-02 (formerly an open question):** **get paid** (plus agentic speed) is the *acquisition hook* — it's why a builder shows up, because solopreneurs choose tools on outcome, not on liability fear. **Secure** is the *trust moat* — why they stay, why their end users pay, and the entire enterprise expansion. The **coach loop** (see *The coach in the loop* below) is the *conversion layer* in between — how a domain expert who showed up for the outcome actually gets to a shipped, paying app. Don't pitch security as the reason to sign up; pitch it as the reason you can charge money on day one and never look back.
+
 ---
 
 ## Why now
@@ -41,12 +43,12 @@ If Microsoft can't bolt this on safely, a domain expert on Replit can't either. 
 
 **And the cost of that insecurity just went up.** Two shifts turn an insecure app from an embarrassment into an existential risk for the builder:
 
-1. **Strict liability is law.** The EU Product Liability Directive (2024/2853, effective Dec 2026) and the Cyber Resilience Act treat software as a product under strict liability — "reasonable and customary practice" is no longer a shield; NIS2 adds personal executive liability. The domain expert who ships is now *liable* in a way they weren't three years ago.
-2. **Attacks run at machine speed.** Autonomous exploitation (Project Shannon-class, ~96% success in published results) targets the application/API/auth layer — exactly the surface these generated apps leave open.
+1. **The liability regime is turning against the shipper.** The EU Product Liability Directive (2024/2853, member-state transposition due Dec 2026) extends strict product liability to software, the Cyber Resilience Act adds security-by-design obligations, and NIS2 adds personal executive liability. The exact reach into pure SaaS is still being transposed and tested — but the direction is one-way: "reasonable and customary practice" is eroding as a shield, and the domain expert who ships is exposed in a way they weren't three years ago.
+2. **Attacks run at machine speed.** Autonomous exploitation agents now work the application/API/auth layer — exactly the surface these generated apps leave open — at a speed and cost that makes every exposed app worth probing. *(Deck discipline: any specific success-rate number used externally must carry a citation — the widely-repeated ones don't survive sourcing.)*
 
 A domain expert building their own SaaS app cannot personally secure it, and the law no longer forgives them for failing to. **Nebula's answer: they don't have to.** The platform's substrate — the ReBAC/DAG access-control model, secure-by-default node core (ADR-007), structured-clone-everywhere correctness (ADR-002), temporal/non-destructive resources (ADR-004), optimistic-concurrency idempotency (ADR-005) — makes the *default* app a secure app. That is a claim our competitors structurally cannot make, because they let you deploy anywhere and write arbitrary server code.
 
-**Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that *can't* leak is the default, not a hardening project.
+**Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that **can never read what the asking user can't read** is the default, not a hardening project. (State the claim exactly that way — it is the bounded, defensible one. Prompt injection can still misuse data *within* the user's legitimate scope; what the substrate guarantees is that the blast radius of any such attack is capped at what that user could already see. "An AI that can't leak," unqualified, is an absolute a CISO-grade reviewer will break.)
 
 **Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)), turning the security boundary from a wall into a governed, auditable membrane. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
 
@@ -67,6 +69,23 @@ This is the dominant enterprise-SaaS pattern of the last 15 years — Slack, Dro
 
 ---
 
+## The coach in the loop — how a domain expert actually ships
+
+Every citizen-development thesis has the same credibility hole: most non-coders stall, and the incumbent answer (templates, docs, community forums) doesn't unstall them. Nebula's answer is structural: **the agentic chat where the user-developer builds is multi-participant by construction.** A human coach can join that chat at any moment, see exactly what the builder is struggling with — full context, no "can you describe the problem" — and unblock them in place.
+
+The coaching is nominally success-enablement, and it is that. But its primary value is that it is the **highest-bandwidth product-feedback loop available**: every intervention yields one of two concrete artifacts —
+
+- a **workaround**, which is by definition a Nebula change proposal (the coach just proved the gap *and* the fix in a live session), or
+- a **discoverability/learning gap** — the capability existed and the builder couldn't find it — a different, equally concrete class of product improvement.
+
+Every product Larry has shipped has had this loop; it has been hard to sell in advance and decisive in practice every time. What's new is that the market just got a reference point: **Anthropic's Claude Tag** ([announced June 2026](https://www.anthropic.com/news/introducing-claude-tag)) is the same interaction model — one shared agentic chat, multiple humans, anyone can see the work and pick it up where the last person left off — and Anthropic reports tagging Claude is now one of the main ways it gets its own work done (~65% of its product team's code, per the announcement). Claude Tag targets small teams, so it lands slightly off our solopreneur center — but it maps one-for-one onto the coach-joins-your-chat mechanic, and it carries over *directly* to the **intrapreneur working inside an enterprise team**, which is precisely the expansion persona ([`enterprise.md`](enterprise.md)).
+
+**This does not soften "not collaboration-first."** The persona remains ~90% solo; a coach joining your chat is a support-and-feedback surface, not multi-user collaborative editing. The multi-participant substrate exists for the coach loop first — team collaboration inherits it later, for free, when the intrapreneur needs it.
+
+Economically, coaching is a scale question (human touch doesn't scale like software), and that's fine at wedge stage: the coach loop is how the wedge *converts and compounds* while the platform is young, not a permanent COGS line — over time the same feedback loop trains the platform's own agents, docs, and defaults. (Coach economics is a research item in `deck-workplan.md`.)
+
+---
+
 ## The walled garden is the moat (and its own ceiling)
 
 Nebula is intentionally constrained:
@@ -82,6 +101,8 @@ Nebula is intentionally constrained:
 
 **Honest about the ceiling:** the garden caps what can be built (the most valuable apps often need exactly the server-side flexibility we sandbox), and "you deploy to Nebula, full stop" *is* the platform-risk story competitors will tell. We accept this trade deliberately. Our bet is that the secure-default + get-paid value, for this persona, outweighs the lock-in objection — and that the homogeneity it buys is worth more than the flexibility it costs.
 
+**"Why won't the platform beneath you just do this?"** Because the moat is not the deploy target — it's the substrate: relationship-based access control (ReBAC/DAG) woven through the data model, temporal non-destructive resources, and a secure-by-default node core (the ADRs), years of opinionated engineering that exists *because* we refuse arbitrary server code. Cloudflare sells neutral primitives to developers; Nebula sells an opinionated app platform to domain experts — different customer, different product DNA. Workers-for-Platforms-class infrastructure is our substrate, not our competitor: they win when we win. And the agentic-builder incumbents (Replit, Lovable, …) can't follow without first abandoning deploy-anywhere and arbitrary server code — i.e., breaking their core promise to their existing base — and then rebuilding this substrate from scratch.
+
 ---
 
 ## Three flywheels — know which one is the business
@@ -95,6 +116,11 @@ A recurring strategic error is conflating these. They are different network effe
 | **User → user** | the apps themselves are social | Only matters for apps that happen to be social. Not a platform-level effect. |
 
 The crown jewel is **builder → user**: a domain expert builds a SaaS app and *reaches paying customers* on a secure substrate. Remix and discovery (builder → builder) are an acquisition mechanic feeding that marketplace — not a substitute for it.
+
+Two mechanics attach to the crown jewel:
+
+- **Commerce enforces security — "get paid" and "secure" are one motion.** The moment an app charges real customers, its security stops being optional: paying end users demand it, and the payment rails police it (processors like Stripe suspend merchants who get breached). A solopreneur cannot pass that bar alone; the substrate passes it for them. Secure-by-default is what makes "get paid" *sustainable* — the wedge and the crown jewel are the same product, not two features.
+- **Every deployed app is distribution (the powered-by loop).** A builder's app reaches end users who are themselves potential builders — they can see it runs on Nebula and remix it into their own app (safely, per the walled-garden section). This is the Shopify/Calendly-style loop that feeds builder acquisition off the back of builder→user success, without making the product a social network.
 
 ### Sequencing: single-player value first
 
@@ -131,10 +157,10 @@ Flag a task that:
 
 ## Open questions
 
-- **Monetization mechanics.** "Get paid" imports App-Store/Shopify-grade infrastructure: payments, payouts, trust, refunds, fraud, taxes, and *getting end users to discover and pay for a stranger's agentic app*. This is the hardest unsolved piece and probably deserves its own vision doc.
+- **Monetization mechanics — designed, release-gated, not yet written down.** The architecture is largely worked out and external launch is gated on it (we do not release without the get-paid path). What remains genuinely open: discovery — *getting end users to find and pay for a stranger's agentic app* — and the operational tail (refunds, fraud, taxes). This is the next sibling vision doc to write (`monetization.md`), and the deck needs its hypothesis-grade business-model slide now (see `deck-workplan.md`).
 - **Anti-slop / durable reputation.** What makes a ranking or reputation signal meaningful when output is machine-generated and near-free to produce?
 - **The garden ceiling.** Where exactly is the line between "secure sandbox" and "too constrained to build anything valuable"? The Dynamic Worker sandbox story (governed external connectivity) is the current answer — its limits define the addressable app space.
-- **Wedge sequencing.** Secure-by-default is the differentiator, but is it the *acquisition hook* (why a builder shows up) or the *retention/trust moat* (why they stay)? If the former, what gets them in the door before they care about liability?
+- ~~**Wedge sequencing.**~~ **Resolved 2026-07-02** — committed in *The positioning* above: get-paid (+ agentic speed) is the acquisition hook, secure is the trust moat, the coach loop is the conversion layer between them.
 
 ---
 
