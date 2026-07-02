@@ -51,11 +51,11 @@ The architecture is designed and external launch is gated on it (per `strategy.m
 ## 4. Team & plan
 
 - Founder-market fit is already the strongest card (DevSecOps manifesto author, running the shadow-IT-gets-sanctioned arc a second time) — but a solo technical founder + CEO needs a **key-person answer and a hiring plan** (first 3–5 hires, sequenced against the milestones below).
-- Current roles (strategy review panel = all three):
+- Current roles (strategy review panel = these three):
   - **Larry** — founder, product/tech.
   - **Morgan** — CEO; owns the pitch process, deal structuring, and the legal/diligence pass (item 6).
   - **Jennifer** — chief sanity checker on strategy; test-automation background (second most technical on the team); currently acting-CPO-ish — she wrote her own spec for her alpha-testing app ([Luminize Almanac](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit)), which also makes her the **first user-developer** (see item 2: that spec-in-hand alpha builder is a traction artifact, not just a team fact).
-  - **Austen** — UX design; authored the Almanac [UX / screen-design spec](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) (Figma-ready: design tokens, motion rules, state-morphing navigation).
+- **Austen** (UX degree) authored the Almanac [UX / screen-design spec](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) at Jennifer's invitation — **not** a strategy reviewer, and her ongoing involvement is tentative (she has a full plate; don't count her on the team slide or in plans).
 
 ## 5. The ask
 
