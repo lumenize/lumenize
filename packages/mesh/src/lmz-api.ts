@@ -715,6 +715,8 @@ export function initIdentityFromHeaders(
  */
 export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance: any): LmzApi {
   // Private method to set bindingName (used internally by __init)
+  // __init runs on EVERY incoming envelope/routed request, so the already-stamped
+  // re-init is the hot path — skip the redundant put (SQLite writes bill 1000× reads).
   function setBindingName(value: string): void {
     const stored = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
 
@@ -725,7 +727,9 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       );
     }
 
-    ctx.storage.kv.put('__lmz_do_binding_name', value);
+    if (stored === undefined) {
+      ctx.storage.kv.put('__lmz_do_binding_name', value);
+    }
   }
 
   // Private method to set instanceName (used internally by __init)
@@ -739,7 +743,9 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       );
     }
 
-    ctx.storage.kv.put('__lmz_do_instance_name', value);
+    if (stored === undefined) {
+      ctx.storage.kv.put('__lmz_do_instance_name', value);
+    }
   }
 
   return {
