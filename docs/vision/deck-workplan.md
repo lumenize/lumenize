@@ -36,7 +36,7 @@ Three defensible approaches; a deck usually shows two that triangulate:
 Pre-revenue, the demo **is** the traction: the loop is live end-to-end on deployed prod (`nebula.lumenize.com` — magic-link login → claim a Universe → agentic chat → a working generated app renders). To do:
 
 - A tight (≤90s) recorded demo of that loop; investors forward videos, not repos.
-- Roadmap position honestly stated: pre-alpha, friends-and-family invites next.
+- Roadmap position honestly stated: pre-alpha, friends-and-family invites next — and the first alpha user-developer already exists with a self-written spec (Jennifer; see item 4).
 - **Start capturing metrics now** so the next conversation has a curve, not a point: builders invited/activated, apps created, time-to-first-shipped-app, coach interventions per shipped app.
 
 ## 3. Business-model slide (hypothesis-grade is enough)
@@ -51,7 +51,10 @@ The architecture is designed and external launch is gated on it (per `strategy.m
 ## 4. Team & plan
 
 - Founder-market fit is already the strongest card (DevSecOps manifesto author, running the shadow-IT-gets-sanctioned arc a second time) — but a solo technical founder + CEO needs a **key-person answer and a hiring plan** (first 3–5 hires, sequenced against the milestones below).
-- State the Larry (product/tech) + Morgan (CEO/deal) split explicitly.
+- Current roles (strategy review panel = all three):
+  - **Larry** — founder, product/tech.
+  - **Morgan** — CEO; owns the pitch process, deal structuring, and the legal/diligence pass (item 6).
+  - **Jennifer** — chief sanity checker on strategy; test-automation background (second most technical on the team); currently acting-CPO-ish — she wrote her own spec for her alpha-testing app, which also makes her the **first user-developer** (see item 2: that spec-in-hand alpha builder is a traction artifact, not just a team fact).
 
 ## 5. The ask
 
