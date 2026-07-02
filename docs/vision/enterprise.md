@@ -61,7 +61,7 @@ The enterprise tier is **governance and assurance layered on top of the one secu
 - **Identity** — SSO, SCIM, directory integration.
 - **Audit & compliance** — audit logs, data-residency controls, SOC 2 / ISO posture, and the evidence trail strict liability now demands.
 
-**Structural advantage:** much of this rides on substrate Nebula *already has*. Temporal, non-destructive resources (ADR-004) make the audit trail a property of the data model, not a bolt-on. The ReBAC/DAG access model is the same machinery org-governance needs. The audit substrate is the product, not a feature we have to graft on later.
+**Structural advantage:** much of this rides on substrate Nebula *already has*. Nothing on Nebula is ever silently destroyed — every change is a new version — so the audit trail is a property of the data model, not a bolt-on *(internally: ADR-004)*. The ReBAC/DAG access model is the same machinery org-governance needs. The audit substrate is the product, not a feature we have to graft on later.
 
 ---
 
