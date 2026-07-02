@@ -36,7 +36,7 @@ Three defensible approaches; a deck usually shows two that triangulate:
 Pre-revenue, the demo **is** the traction: the loop is live end-to-end on deployed prod (`nebula.lumenize.com` — magic-link login → claim a Universe → agentic chat → a working generated app renders). To do:
 
 - A tight (≤90s) recorded demo of that loop; investors forward videos, not repos.
-- Roadmap position honestly stated: pre-alpha, friends-and-family invites next — and the first alpha user-developer already exists with a self-written spec (Jennifer; see item 4): [Luminize Almanac — product vision + functional requirements + data model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and its companion [UX / screen-design spec](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) (Austen).
+- Roadmap position honestly stated: pre-alpha, friends-and-family invites next — and the first alpha user-developer already exists with a self-written spec (Jennifer; see item 4): [Luminize Almanac — product vision + functional requirements + data model](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit) and its companion [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) (also Jennifer's, written for the intended designer).
 - **Start capturing metrics now** so the next conversation has a curve, not a point: builders invited/activated, apps created, time-to-first-shipped-app, coach interventions per shipped app.
 
 ## 3. Business-model slide (hypothesis-grade is enough)
@@ -55,7 +55,7 @@ The architecture is designed and external launch is gated on it (per `strategy.m
   - **Larry** — founder, product/tech.
   - **Morgan** — CEO; owns the pitch process, deal structuring, and the legal/diligence pass (item 6).
   - **Jennifer** — chief sanity checker on strategy; test-automation background (second most technical on the team); currently acting-CPO-ish — she wrote her own spec for her alpha-testing app ([Luminize Almanac](https://docs.google.com/document/d/1P_YF2qVwQSAFYvg43qCvj3Nc170zBkpBboG8kcjdBGc/edit)), which also makes her the **first user-developer** (see item 2: that spec-in-hand alpha builder is a traction artifact, not just a team fact).
-- **Austen** (UX degree) authored the Almanac [UX / screen-design spec](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) at Jennifer's invitation — **not** a strategy reviewer, and her ongoing involvement is tentative (she has a full plate; don't count her on the team slide or in plans).
+- **Austen** (UX degree) is Jennifer's intended UX designer for the Almanac — the [UX brief](https://docs.google.com/document/d/10UZ5KaZJXG2MdaHTwA2UPGrFKM_daGDdJaSbg6wGeFo/edit) is Jennifer's doc written *for* her, and Austen hasn't engaged yet. **Not** a strategy reviewer; involvement tentative (full plate) — don't count her on the team slide or in plans.
 
 ## 5. The ask
 
