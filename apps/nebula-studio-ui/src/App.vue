@@ -224,7 +224,12 @@ onMounted(() => {
   connecting.value = true;
   connect()
     .catch(() => {
-      /* not authenticated — show the login form */
+      // Auto-connect to the stored scope failed (not authenticated, or the scope was deleted/wiped —
+      // e.g. a prod data wipe). When the scope came from localStorage (a remembered session) rather
+      // than an explicit `/app/{scope}` URL, it's a stale hint: reset to a clean logged-out state so we
+      // don't re-try a dead scope on every reload (which also left `hasSession` stuck true). A URL scope
+      // is an explicit navigation — keep it and just show the login form targeting that scope.
+      if (!urlScope) resetToLoggedOut();
     })
     .finally(() => {
       connecting.value = false;
