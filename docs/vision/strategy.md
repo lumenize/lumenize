@@ -111,7 +111,7 @@ Nebula is intentionally constrained:
 
 **Honest about the ceiling:** the garden caps what can be built (the most valuable apps often need exactly the server-side flexibility we sandbox), and "you deploy to Nebula, full stop" *is* the platform-risk story competitors will tell. We accept this trade deliberately. Our bet is that the secure-default + get-paid value, for this persona, outweighs the lock-in objection — and that the homogeneity it buys is worth more than the flexibility it costs.
 
-**"Why won't the platform beneath you just do this?"** Because the moat is not the deploy target — it's the substrate (*The substrate, in plain English*, above) — years of opinionated engineering that exists *because* we refuse arbitrary server code. Cloudflare sells neutral primitives to developers; Nebula sells an opinionated app platform to domain experts — different customer, different product DNA. Workers-for-Platforms-class infrastructure is our substrate, not our competitor: they win when we win. And the agentic-builder incumbents (Replit, Lovable, …) can't follow without first abandoning deploy-anywhere and arbitrary server code — i.e., breaking their core promise to their existing base — and then rebuilding this substrate from scratch.
+**"Why won't the platform beneath you just do this?"** Because the moat is not the deploy target — it's the substrate (*The substrate, in plain English*, above) — years of opinionated engineering that exists *because* we refuse arbitrary server code. Cloudflare sells neutral primitives to developers; Nebula sells an opinionated app platform to domain experts — different customer, different product DNA. Cloudflare Workers infrastructure is our substrate, not our competitor: they win when we win. And the agentic-builder incumbents (Replit, Lovable, …) can't follow without first abandoning deploy-anywhere and arbitrary server code — i.e., breaking their core promise to their existing base — and then rebuilding this substrate from scratch.
 
 ---
 
@@ -145,8 +145,8 @@ Community and discovery are an *outcome* of density, never a shortcut to it — 
 ## What we are NOT
 
 - **Not a deployment-flexibility play.** "Deploy anywhere" is the opposite of our moat.
-- **Not a social-network play.** Remix and discovery are an acquisition funnel, not the product; forks and "trending" are not success metrics — retained, paying user-developers are.
-- **Not collaboration-first.** The persona is ~90% solo user-developers. Multi-user collaborative editing is, at most, a late and minor feature.
+- **Not a social-network play.** Remix and discovery are an acquisition funnel, not the product; forks and "trending" are not success metrics — retained, user-developers producing money-making apps are.
+- **Not collaboration-first.** The persona is ~90% solo user-developers. Multi-user collaborative development is more of a side benefit than a pillar we rely upon.
 - **Not a toy gallery.** The unit of value is a deployable, revenue-capable SaaS app.
 
 ---
