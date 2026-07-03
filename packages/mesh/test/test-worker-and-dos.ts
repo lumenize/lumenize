@@ -186,31 +186,6 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.__init(options ?? {});
   }
 
-  // Test helpers for this.lmz.callRaw()
-  async testCallRawWithContinuation(
-    calleeBindingName: string,
-    calleeInstanceName: string | undefined,
-    value: string
-  ) {
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().remoteEcho(value)
-    );
-  }
-
-  async testCallRawWithOperationChain(
-    calleeBindingName: string,
-    calleeInstanceName: string | undefined,
-    chain: any
-  ) {
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      chain
-    );
-  }
-
   // Remote method that can be called via RPC
   @mesh()
   remoteEcho(value: string): string {
@@ -738,13 +713,6 @@ export class TestDO extends LumenizeDO<Env> {
     return this.lmz.callContext;
   }
 
-  // Remote method that returns the computed caller (callChain.at(-1))
-  @mesh()
-  getCaller() {
-    const { callChain } = this.lmz.callContext;
-    return callChain.at(-1);
-  }
-
   // Remote method that returns callee identity from this.lmz
   @mesh()
   getCalleeIdentity() {
@@ -752,70 +720,6 @@ export class TestDO extends LumenizeDO<Env> {
       bindingName: this.lmz.bindingName,
       instanceName: this.lmz.instanceName
     };
-  }
-
-  // Remote method that modifies state and returns the context
-  @mesh()
-  modifyStateAndGetContext(key: string, value: unknown) {
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state[key] = value;
-    }
-    return this.lmz.callContext;
-  }
-
-  // Remote method that calls another DO and returns combined info
-  @mesh()
-  async callAndReturnContext(
-    calleeBindingName: string,
-    calleeInstanceName: string
-  ) {
-    const myContext = this.lmz.callContext;
-    const remoteContext = await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-    return {
-      myContext,
-      remoteContext
-    };
-  }
-
-  // Test state propagation through call chain
-  @mesh()
-  async testStatePropagation(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateKey: string,
-    stateValue: unknown
-  ) {
-    // Modify state before calling
-    if (this.lmz.callContext) {
-      this.lmz.callContext.state[stateKey] = stateValue;
-    }
-
-    // Call remote and get its context (which should have our state modification)
-    const remoteContext = await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-
-    return {
-      stateBeforeCall: this.lmz.callContext?.state,
-      remoteState: remoteContext?.state
-    };
-  }
-
-  // Handler that stores received callContext for inspection
-  @mesh()
-  storeCallContext(): void {
-    this.ctx.storage.kv.put('last_call_context', this.lmz.callContext);
-  }
-
-  // Get stored callContext
-  async getStoredCallContext() {
-    return this.ctx.storage.kv.get('last_call_context');
   }
 
   // Method without @mesh decorator for testing security
@@ -858,105 +762,6 @@ export class TestDO extends LumenizeDO<Env> {
   })
   guardedMethod(): string {
     return 'guard-passed';
-  }
-
-  // Method that sets state before calling a guarded method
-  @mesh()
-  async callGuardedWithState(
-    calleeBindingName: string,
-    calleeInstanceName: string,
-    stateToSet: Record<string, unknown>
-  ): Promise<any> {
-    // Set state values before calling
-    if (this.lmz.callContext) {
-      Object.assign(this.lmz.callContext.state, stateToSet);
-    }
-
-    // Call the guarded method
-    return await this.lmz.callRaw(
-      calleeBindingName,
-      calleeInstanceName,
-      this.ctn<TestDO>().guardedAdminMethod()
-    );
-  }
-
-  // Test deep interleaving of async operations within a single call
-  // This verifies ALS isolation when a single request makes multiple nested async calls
-  @mesh()
-  async testDeepInterleavingContext(
-    targetBindingName: string,
-    instancePrefix: string
-  ) {
-    const results: { position: string; origin: string; expectedOrigin: string }[] = [];
-    // Origin is now callChain[0]
-    const myOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-
-    // Record context at start
-    results.push({
-      position: 'start',
-      origin: myOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // Make multiple concurrent calls - each should preserve our callContext
-    const promises = [
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-1`,
-        this.ctn<TestDO>().getCallContext()
-      ),
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-2`,
-        this.ctn<TestDO>().getCallContext()
-      ),
-      this.lmz.callRaw(
-        targetBindingName,
-        `${instancePrefix}-target-3`,
-        this.ctn<TestDO>().getCallContext()
-      )
-    ];
-
-    // Check context mid-execution (after promises started but before awaited)
-    const midOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'mid-execution',
-      origin: midOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // Await all and check context after each await point
-    const remoteContexts = await Promise.all(promises);
-
-    // Check context after await
-    const postAwaitOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'post-await',
-      origin: postAwaitOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    // All remote contexts should show us as their origin (callChain[0])
-    for (let i = 0; i < remoteContexts.length; i++) {
-      results.push({
-        position: `remote-${i + 1}-saw-origin`,
-        origin: remoteContexts[i]?.callChain[0]?.instanceName || 'unknown',
-        expectedOrigin: myOrigin
-      });
-    }
-
-    // Final context check
-    const finalOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
-    results.push({
-      position: 'final',
-      origin: finalOrigin,
-      expectedOrigin: myOrigin
-    });
-
-    return {
-      allContextsMatch: results.every(r => r.origin === r.expectedOrigin),
-      results
-    };
   }
 
   // ============================================
@@ -1241,41 +1046,6 @@ export class TestWorker extends LumenizeWorker<Env> {
     };
   }
 
-  // Test helpers for Worker RPC calls (callRaw)
-  async testCallRawToDO(
-    doBindingName: string,
-    doInstanceName: string,
-    value: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().remoteEcho(value)
-    );
-  }
-
-  async testCallRawToWorker(
-    workerBindingName: string,
-    value: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      workerBindingName,
-      undefined,
-      this.ctn<TestWorker>().workerEcho(value)
-    );
-  }
-
-  async testCallRawToDOThrowError(
-    doBindingName: string,
-    doInstanceName: string
-  ): Promise<any> {
-    return await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().throwError()
-    );
-  }
-
   // ============================================
   // Test helpers for Worker call() fire-and-forget
   // ============================================
@@ -1382,12 +1152,6 @@ export class TestWorker extends LumenizeWorker<Env> {
   @mesh()
   getCallContext() {
     return this.lmz.callContext;
-  }
-
-  @mesh()
-  getCaller() {
-    const { callChain } = this.lmz.callContext;
-    return callChain.at(-1);
   }
 
   // Worker hop for the DO→Worker→DO chain: fire a one-way call so the downstream DO captures
