@@ -2,7 +2,7 @@
  * @mesh decorator for marking methods as mesh-callable
  *
  * Methods decorated with `@mesh()` can be called from remote mesh nodes.
- * Without this decorator, methods cannot be invoked via `this.lmz.call()` or `callRaw()`.
+ * Without this decorator, methods cannot be invoked via `this.lmz.call()`.
  *
  * This provides an explicit security boundary - only methods you explicitly
  * mark as mesh-callable can be invoked remotely.
@@ -84,7 +84,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  * `@mesh()` decorator for marking methods as mesh-callable
  *
  * Use this decorator on methods that should be callable from remote mesh nodes.
- * Methods without this decorator cannot be invoked via `this.lmz.call()` or `callRaw()`.
+ * Methods without this decorator cannot be invoked via `this.lmz.call()`.
  *
  * Uses TC39 Stage 3 decorator format (TypeScript 5.0+, ES2022).
  *

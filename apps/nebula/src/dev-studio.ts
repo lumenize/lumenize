@@ -9,8 +9,8 @@
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (the
  * `{u}.{g}.dev` scope guard); every method carries `@mesh(requireAdmin)` on top
  * (onBeforeCall proves *scope*, never `access.admin`, and `<id>.*` widening admits
- * descendant non-admins). Node↔node calls are mesh only (`lmz.callRaw`, ADR-003 —
- * never raw Workers RPC).
+ * descendant non-admins). Node↔node calls are mesh only (one-way `lmz.call()`
+ * continuations, ADR-003 — never raw Workers RPC, never an awaited result).
  *
  * The codegen *loop / system prompt* that drives `writeSource` is the engine file's
  * concern (`nebula-agentic-development-engine.md`); this node provides only the
@@ -278,10 +278,10 @@ export class DevStudio extends NebulaDO {
     const { types, version } = await this.#readOntology();
     const row = compileOntologyVersion({ version, types });
     const instance = this.lmz.instanceName!;
-    if (wipe) {
-      await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().resetDevData());
-    }
-    await this.lmz.callRaw(STAR_BINDING, instance, this.ctn<Star>().setOntology(row));
+    // Atomic wipe+install on the .dev Star (ADR-006), fired one-way (continuation-only —
+    // no awaited callRaw). `version` is derived locally; the install's effect reaches the
+    // live preview reactively via Star's broadcastReload.
+    this.lmz.call(STAR_BINDING, instance, this.ctn<Star>().installOntology(row, { wipe }));
     debug('nebula.DevStudio.compileAndInstallOntology').debug('applied', { instanceName: instance, version, wiped: wipe });
     return { version };
   }
@@ -303,7 +303,11 @@ export class DevStudio extends NebulaDO {
   async applyOntologyChange({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
     const instance = this.lmz.instanceName!;
-    await this.lmz.callRaw(DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().setAppVersion(version));
+    // Push the injected app-version + ontology source to the container (fire-and-forget),
+    // then install on the .dev Star. Under continuation-only these no longer await, so the
+    // container-before-Star ordering is relaxed — a reversal causes only a transient extra
+    // preview reload that self-heals (Decision 12 / Flow 1d). ⚠️ Verify under `wrangler dev`.
+    this.lmz.call(DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().setAppVersion(version));
     await this.syncToDevContainer([ONTOLOGY_PATH]);
     return this.compileAndInstallOntology({ wipe });
   }
@@ -315,14 +319,13 @@ export class DevStudio extends NebulaDO {
    * deployed Worker (the assembled e2e `it.skip`).
    */
   @mesh(requireAdmin)
-  async ensureUp(): Promise<{ written: number }> {
+  async ensureUp(): Promise<void> {
     const instance = this.lmz.instanceName!;
-    await this.lmz.callRaw(DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().ensureUp());
-    const tree = await this.getSourceTree();
-    const res = await this.lmz.callRaw(
-      DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().applyChanges(tree.files),
-    );
-    return { written: res.written };
+    const tree = await this.getSourceTree(); // local (shell Workspace)
+    // Boot + push source atomically container-side (ADR-006), fired one-way (continuation-
+    // only — no awaited callRaw). The written count is no longer surfaced (callers discarded
+    // it); the boot-race retry lives inside the container method. ⚠️ Verify under `wrangler dev`.
+    this.lmz.call(DEV_CONTAINER_BINDING, instance, this.ctn<DevContainer>().bootAndApply(tree.files));
   }
 
   /**
@@ -331,14 +334,13 @@ export class DevStudio extends NebulaDO {
    * (same reason as `ensureUp`).
    */
   @mesh(requireAdmin)
-  async syncToDevContainer(paths?: string[]): Promise<{ written: number }> {
+  async syncToDevContainer(paths?: string[]): Promise<void> {
     const want = paths ? new Set(paths.map((p) => p.replace(/^\/+/, ''))) : this.#trackedPaths();
     const files: SourceFile[] = [];
     for (const p of want) files.push({ path: p, content: await this.#fs.readFile('/' + p) });
-    const res = await this.lmz.callRaw(
-      DEV_CONTAINER_BINDING, this.lmz.instanceName!, this.ctn<DevContainer>().applyChanges(files),
-    );
-    return { written: res.written };
+    // Fire-and-forget the source push (continuation-only — no awaited callRaw). The written
+    // count is no longer surfaced (callers discarded it). ⚠️ Verify under `wrangler dev`.
+    this.lmz.call(DEV_CONTAINER_BINDING, this.lmz.instanceName!, this.ctn<DevContainer>().applyChanges(files));
   }
 
   /**
@@ -353,8 +355,9 @@ export class DevStudio extends NebulaDO {
    * fired after the loop — the loop's `write_file` tool only compiles, never installs or
    * wipes (D2 secure-by-default).
    *
-   * **Fired one-way, NOT awaited** (`client.chat` uses `lmz.call`, not `callRaw`): a
-   * turn can run for minutes, during which the client WS may drop and reconnect. The
+   * **Fired one-way** (`client.chat` uses a `lmz.call()` continuation — the only mesh
+   * call surface): a turn can run for minutes, during which the client WS may drop and
+   * reconnect. The
    * result is delivered back via {@link deliverTurnResult} as a SEPARATE direct-delivery
    * call addressed to the client's stable `instanceName` (`clientId`, passed explicitly
    * by the client — see [[client-calls-use-direct-delivery]]), so it lands on whatever
@@ -455,8 +458,9 @@ export class DevStudio extends NebulaDO {
   /**
    * Bring the dev preview up and tell the client when vite is actually serving, so the
    * Studio auto-refreshes the iframe (no manual Reload). Fired **one-way** by the client
-   * (not awaited `callRaw`): the container boot can take tens of seconds, during which
-   * the client WS may drop+reconnect — readiness is delivered back via
+   * (a `lmz.call()` continuation, never an awaited result): the container boot can take
+   * tens of seconds, during which the client WS may drop+reconnect — readiness is
+   * delivered back via
    * {@link deliverPreviewReady} (direct delivery by the client's stable `instanceName`),
    * so it lands on whatever socket is current. `ensureUp` brings the container up +
    * (re)pushes source (Flow 1c); `awaitPreviewReady` then blocks on vite's stdout ready
@@ -467,13 +471,29 @@ export class DevStudio extends NebulaDO {
    */
   @mesh(requireAdmin)
   async warmPreview(clientId: string): Promise<void> {
-    await this.ensureUp();
-    try {
-      await this.lmz.callRaw(
-        DEV_CONTAINER_BINDING, this.lmz.instanceName!, this.ctn<DevContainer>().awaitPreviewReady(),
-      );
-    } catch (e) {
-      debug('nebula.DevStudio.warmPreview').warn('preview-readiness unconfirmed (signalling anyway)', { error: e });
+    const instance = this.lmz.instanceName!;
+    const tree = await this.getSourceTree(); // local (shell Workspace)
+    // Boot + push source + await vite-ready atomically container-side (ADR-006), fired 4-arg
+    // (continuation-only — no awaited callRaw). The handler signals the client on the result
+    // (ready OR unconfirmed/Error — we signal either way, as before). Long-running is fine now
+    // (early-ack, no held Promise). ⚠️ Verify under `wrangler dev` + Docker.
+    const remote = this.ctn<DevContainer>().warmAndAwaitReady(tree.files);
+    this.lmz.call(
+      DEV_CONTAINER_BINDING, instance, remote,
+      (this.ctn() as any).handleWarmPreviewResult(clientId, remote),
+    );
+  }
+
+  /**
+   * 4-arg result handler for {@link warmPreview}'s `warmAndAwaitReady` fire-back. Signals the
+   * client the preview is ready regardless of the result — a `ready:false`/Error still signals
+   * (the iframe load + manual Reload fallback cover an unconfirmed boot, matching the pre-
+   * continuation behavior). Public (surfaced on `this.ctn()`) but NOT `@mesh`: it runs only as
+   * this DO's own traveling continuation on the fire-back, never dispatched remotely.
+   */
+  handleWarmPreviewResult(clientId: string, result: unknown): void {
+    if (result instanceof Error) {
+      debug('nebula.DevStudio.warmPreview').warn('preview-readiness unconfirmed (signalling anyway)', { error: result });
     }
     this.deliverPreviewReady(this.lmz.instanceName!, clientId);
   }

@@ -135,23 +135,6 @@ export function buildOutgoingCallContext(
 }
 
 /**
- * The awaited-result `callRaw` primitive has been REMOVED from the mesh model
- * (`mesh-continuation-only-calls`): `__executeOperation` now acks early and never returns a
- * chain result, so no awaited-request/response transport exists. The `callRaw` methods below
- * (retained @deprecated on the surface for one release so unmigrated call *sites* still
- * type-check) throw this at runtime, directing callers to `call()` + a continuation handler.
- *
- * @internal
- */
-function throwCallRawRemoved(): never {
-  throw new Error(
-    'lmz.callRaw() has been removed: cross-node calls no longer await a result (the callee ' +
-    'acks early and fires its result back). Use lmz.call(binding, instance, remote, ' +
-    'this.ctn().handler(remote)) — the framework delivers the result to your handler.'
-  );
-}
-
-/**
  * Synchronously validate a mesh call target before dispatch, so a misrouted call
  * fails loudly at the `lmz.call(...)` site instead of being silently dropped as an
  * unhandled rejection on the fire-and-forget path. Routes by binding shape, not by
@@ -339,8 +322,9 @@ function callShared(
 }
 
 /**
- * Fire-back routing carried on a `call()` envelope (absent on a legacy/`callRaw`
- * envelope, and absent on the fire-back envelope itself — a handler never re-fires).
+ * Fire-back routing carried on a `call()` envelope (absent on a non-`call()`
+ * envelope — alarms, fetch executor-delivery — and on the fire-back envelope
+ * itself, since a handler never re-fires).
  *
  * Present ⇒ the callee, **after its early ack** (D15), runs the chain under
  * `ctx.waitUntil` and then delivers the outcome per `kind`:
@@ -452,9 +436,9 @@ export interface CallEnvelope {
   };
 
   /**
-   * Fire-back routing for an early-ack `call()` dispatch. Absent for the
-   * deprecated awaited `callRaw` path and for the fire-back envelope itself.
-   * See {@link EnvelopeResponse}.
+   * Fire-back routing for an early-ack `call()` dispatch. Absent on the fire-back
+   * envelope itself (a handler never re-fires) and on non-`call()` envelopes (alarms,
+   * fetch executor-delivery). See {@link EnvelopeResponse}.
    */
   response?: EnvelopeResponse;
 }
@@ -463,7 +447,7 @@ export interface CallEnvelope {
  * Lumenize API - Identity and RPC infrastructure for LumenizeDO and LumenizeWorker
  *
  * Provides clean abstraction over identity management (binding name, instance name)
- * and RPC infrastructure (callRaw, call) for both Durable Objects and Worker Entrypoints.
+ * and RPC infrastructure (`call`) for both Durable Objects and Worker Entrypoints.
  *
  * Properties are accessed via simple getters/setters (not a Proxy - properties are known and fixed).
  * Implementation details (storage vs private fields) are hidden from users.
@@ -528,20 +512,6 @@ export interface LmzApi {
    * @internal
    */
   __init(options: { bindingName?: string; instanceName?: string }): void;
-
-  /**
-   * @deprecated REMOVED — throws at runtime. The awaited-result `callRaw` no longer exists:
-   * `__executeOperation` acks early and never returns a chain result. Use
-   * `call(binding, instance, remote, this.ctn().handler(remote))` — the framework fills your
-   * handler with the result (or Error) and fires it back. Retained on the surface for one
-   * release so unmigrated call *sites* still type-check; it is removed entirely in the next phase.
-   */
-  callRaw(
-    calleeBindingName: string,
-    calleeInstanceName: string | undefined,
-    chainOrContinuation: OperationChain | AnyContinuation,
-    options?: CallOptions
-  ): Promise<any>;
 
   /**
    * Fire-and-forget RPC call with continuation pattern
@@ -711,16 +681,6 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       }
     },
     
-    callRaw(
-      calleeBindingName: string,
-      calleeInstanceName: string | undefined,
-      chainOrContinuation: OperationChain | AnyContinuation,
-      options?: CallOptions
-    ): Promise<any> {
-      void env; void calleeBindingName; void calleeInstanceName; void chainOrContinuation; void options;
-      return throwCallRawRemoved();
-    },
-
     call<T = any>(
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
@@ -782,16 +742,6 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         storedBindingName = options.bindingName;
       }
       // Silently ignore instanceName for Workers (they don't have instance names)
-    },
-
-    callRaw(
-      calleeBindingName: string,
-      calleeInstanceName: string | undefined,
-      chainOrContinuation: OperationChain | AnyContinuation,
-      options?: CallOptions
-    ): Promise<any> {
-      void env; void calleeBindingName; void calleeInstanceName; void chainOrContinuation; void options;
-      return throwCallRawRemoved();
     },
 
     call<T = any>(

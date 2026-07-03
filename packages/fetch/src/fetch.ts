@@ -19,7 +19,7 @@ import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
  */
 export interface FetchMessage {
   reqId: string;
-  request: string | RequestSync; // URL string or RequestSync (callRaw handles serialization)
+  request: string | RequestSync; // URL string or RequestSync (the mesh call handles serialization)
   originBinding: string;
   originId: string;
   options?: ProxyFetchWorkerOptions;
@@ -161,7 +161,7 @@ export class Fetch extends NadisPlugin {
       reqId: finalReqId
     });
 
-    // Prepare message for Worker (callRaw handles serialization)
+    // Prepare message for Worker (the mesh call handles serialization)
     const message: FetchMessage = {
       reqId: finalReqId,
       request,

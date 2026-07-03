@@ -39,7 +39,7 @@ import {
 // an await, so it doesn't surface in practice. Framework code below does NOT
 // depend on the field being correct across awaits — it captures the parent
 // context synchronously at every `lmz.call(...)` entry and threads it as an
-// explicit parameter through to `#callRaw` and the handler executor.
+// explicit parameter through to `#call` and the handler executor.
 //
 // See tasks/playwright-test-template.md § Known blockers #2 for the full
 // rationale and the alternatives considered (polyfill, refactor-everywhere).
@@ -98,8 +98,6 @@ const MAX_RECONNECT_DELAY_MS = 30000;
 /** Initial reconnect delay (1 second) */
 const INITIAL_RECONNECT_DELAY_MS = 1000;
 
-/** Timeout for callRaw() when queued during disconnection (30 seconds) */
-const CALL_RAW_QUEUE_TIMEOUT_MS = 30000;
 
 /** Default gateway binding name */
 const DEFAULT_GATEWAY_BINDING = 'LUMENIZE_CLIENT_GATEWAY';
@@ -308,19 +306,6 @@ export interface LmzApiClient {
   readonly callContext: CallContext;
 
   /**
-   * Raw async RPC call through the Gateway
-   *
-   * Returns a Promise that resolves with the result.
-   * If disconnected, queues the call with a timeout.
-   */
-  callRaw(
-    calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
-    chainOrContinuation: OperationChain | Continuation<any>,
-    options?: CallOptions
-  ): Promise<any>;
-
-  /**
    * Fire-and-forget RPC call with optional handler
    *
    * Returns immediately. If disconnected, queues the call.
@@ -356,9 +341,6 @@ interface InHeapHandler {
 interface QueuedMessage {
   message: string;
   callId: string;
-  resolve?: (result: any) => void;
-  reject?: (error: Error) => void;
-  timeoutId?: ReturnType<typeof setTimeout>;
 }
 
 // ============================================
@@ -547,21 +529,6 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         return self.#currentCallContext;
       },
 
-      // callRaw REMOVED (mesh-continuation-only-calls): the client never awaits a result — it
-      // keeps its handler in-heap (D16) and delivery re-resolves to the current socket. Retained
-      // @deprecated on the surface for one release so unmigrated call sites type-check.
-      callRaw: (
-        _calleeBindingName: string,
-        _calleeInstanceNameOrId: string | undefined,
-        _chainOrContinuation: OperationChain | Continuation<any>,
-        _options?: CallOptions,
-      ): Promise<any> => {
-        throw new Error(
-          'client.lmz.callRaw() has been removed: a client call never awaits a result (the client ' +
-          'keeps its handler in-heap and delivery re-resolves to the current socket). Use ' +
-          'client.lmz.call(binding, instance, remote, this.ctn().handler(remote)).'
-        );
-      },
       call: self.#call.bind(self),
     };
 
@@ -630,13 +597,9 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // reload the client re-issues + reconciles (D8). disconnect() is a deliberate discard.
     this.#inHeapHandlers.clear();
 
-    // Reject all queued messages
-    for (const queued of this.#messageQueue) {
-      if (queued.timeoutId) clearTimeout(queued.timeoutId);
-      if (queued.reject) {
-        queued.reject(new Error('Client disconnected'));
-      }
-    }
+    // Drop any messages queued while disconnected — the client holds no awaited per-call
+    // Promise (4-arg handlers are in #inHeapHandlers, cleared above; 3-arg is fire-and-forget),
+    // so there is nothing to reject.
     this.#messageQueue = [];
 
     // Update state
@@ -1275,46 +1238,27 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
   }
 
-  #sendOrQueue(message: string, callId: string, resolve?: (result: any) => void, reject?: (error: Error) => void): void {
+  #sendOrQueue(message: string, callId: string): void {
     if (this.#ws?.readyState === WebSocket.OPEN) {
       this.#ws.send(message);
     } else {
-      // Queue the message
+      // Queue until reconnect (bounded). Dropped silently on overflow — the client holds
+      // no awaited per-call Promise (4-arg handlers live in #inHeapHandlers → D8 reconcile
+      // on reload; 3-arg is fire-and-forget), so there is nothing to reject.
       if (this.#messageQueue.length >= MAX_QUEUE_SIZE) {
-        const error = new Error('Message queue full');
-        if (reject) {
-          reject(error);
-        }
+        this.#debugFactory('lmz.mesh.LumenizeClient.#sendOrQueue').warn(
+          'message queue full — dropping queued call', { callId },
+        );
         return;
       }
-
-      const queued: QueuedMessage = { message, callId, resolve, reject };
-
-      // For callRaw, add timeout
-      if (resolve && reject) {
-        queued.timeoutId = setTimeout(() => {
-          const index = this.#messageQueue.indexOf(queued);
-          if (index >= 0) {
-            this.#messageQueue.splice(index, 1);
-            reject(new Error('Call timed out while waiting for connection'));
-          }
-        }, CALL_RAW_QUEUE_TIMEOUT_MS);
-      }
-
-      this.#messageQueue.push(queued);
+      this.#messageQueue.push({ message, callId });
     }
   }
 
   #flushMessageQueue(): void {
     const queue = this.#messageQueue;
     this.#messageQueue = [];
-
-    for (const queued of queue) {
-      if (queued.timeoutId) {
-        clearTimeout(queued.timeoutId);
-      }
-      this.#send(queued.message);
-    }
+    for (const queued of queue) this.#send(queued.message);
   }
 
   // ============================================

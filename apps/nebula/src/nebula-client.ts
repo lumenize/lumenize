@@ -221,6 +221,11 @@ interface PendingRead {
   reject: (error: Error) => void;
 }
 
+interface PendingMutation {
+  resolve: (result: any) => void;
+  reject: (error: Error) => void;
+}
+
 /**
  * The store-effect seam the conflict-outcome engine drives. The factory
  * (`@lumenize/nebula/frontend`) injects a Vue-reactive implementation via
@@ -394,6 +399,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * `handleReadResponse(requestId, result)` which settles the matching entry.
    */
   #pendingReads = new Map<string, PendingRead>();
+
+  /**
+   * In-flight `orgTree.*` mutation Promises, correlated by `requestId`. Each mutation
+   * fires a resilient 4-arg `call()` whose in-heap handler (`handleOrgTreeResult`)
+   * settles the matching entry with the mutation's return value or its Error. The
+   * in-heap handler survives WS reconnect + tab freeze (D16), so a sent-but-unanswered
+   * mutation is only lost on a full reload/discard (→ orgTree-resync on reconnect).
+   */
+  #pendingMutations = new Map<string, PendingMutation>();
 
   /**
    * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
@@ -1034,39 +1048,39 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   /**
    * Org/permission-tree MUTATIONS (api-reference § client.orgTree). Reads are
    * NOT here — the tree is delivered on its own channel to `store.lmz.orgTree`
-   * (auto-subscribed on connect). Each mutator is a generic awaited `callRaw`
-   * to Star's `dagTree` entry — reject-on-failure, NO optimistic local
-   * write-through (the broadcast echo, originator included, is the only store
-   * update path). Intentionally NOT connection-gated like the resource write
-   * path: the tree carries no optimistic state to roll back, so a call issued
-   * while disconnected queues and sends on reconnect (or rejects on timeout).
-   * All mutators are idempotent/retry-safe. `createNode` takes a **client-supplied**
-   * nodeId (a v4 UUID), so it is server-idempotent too: a dropped response is safely
-   * replayed with the same id (same node returned). The in-session awaited-call strand
-   * (a WS drop leaving the pending Promise hanging) is handled separately by mesh D8;
-   * interim recovery is reload → orgTree-resync.
+   * (auto-subscribed on connect). Each mutator fires a resilient 4-arg `call()`
+   * ({@link #orgTreeMutate}) to Star's `dagTree` entry and returns a Promise
+   * settled by the in-heap handler `handleOrgTreeResult` — reject-on-failure, NO
+   * optimistic local write-through (the broadcast echo, originator included, is
+   * the only store update path). Under the continuation-only model the result is
+   * NOT an awaited RPC return: the handler stays in-heap keyed by callId and its
+   * delivery re-resolves to the current socket, so a WS reconnect or tab freeze
+   * no longer strands the Promise (D16) — only a full reload/discard loses it
+   * (→ reload → orgTree-resync). All mutators are idempotent/retry-safe.
+   * `createNode` takes a **client-supplied** nodeId (a v4 UUID), so it is
+   * server-idempotent too: a dropped/replayed call returns the same node.
    */
   readonly orgTree = {
     createNode: (nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().createNode(nodeId, parentNodeId, slug, label)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().createNode(nodeId, parentNodeId, slug, label)),
     addEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
     removeEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
     reparentNode: (childNodeId: string, oldParentId: string, newParentId: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
     deleteNode: (nodeId: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().deleteNode(nodeId)),
     undeleteNode: (nodeId: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().undeleteNode(nodeId)),
     renameNode: (nodeId: string, newSlug: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
     relabelNode: (nodeId: string, newLabel: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
     setPermission: (nodeId: string, targetSub: string, level: PermissionTier): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
     revokePermission: (nodeId: string, targetSub: string): Promise<void> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
+      this.#orgTreeMutate(this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
   };
 
   /**
@@ -1260,6 +1274,44 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     } else {
       pending.resolve(result);
     }
+  }
+
+  /**
+   * Fire an `orgTree.*` mutation as a resilient 4-arg `call()` and return a Promise
+   * settled by {@link handleOrgTreeResult}. The mutation's return value (or Error)
+   * fills the handler's marker (the trailing `remote` continuation arg — the proven
+   * 4-arg idiom); the handler is kept in-heap keyed by callId, so the Promise
+   * survives a WS reconnect / tab freeze (D16). Correlated by a per-call
+   * `requestId` — the same shape as {@link #readResource}, but the result rides
+   * the framework fire-back rather than an explicit Star push.
+   */
+  #orgTreeMutate(remote: any): Promise<any> {
+    const requestId = crypto.randomUUID();
+    return new Promise<any>((resolve, reject) => {
+      this.#pendingMutations.set(requestId, { resolve, reject });
+      this.lmz.call(
+        this.#resourceHostBinding,
+        this.#activeScope,
+        remote,
+        (this.ctn() as any).handleOrgTreeResult(requestId, remote),
+      );
+    });
+  }
+
+  /**
+   * In-heap handler (D16) for an `orgTree.*` mutation RESULT. Settles the Promise
+   * correlated by `requestId`: resolves with the mutation's value (`createNode` →
+   * nodeId; other mutators → undefined) or rejects with its Error (e.g. permission
+   * denied). Intentionally NOT `@mesh` — it is only ever run in-heap by the client
+   * itself (never dispatched remotely). A late/duplicate RESULT finds no entry and
+   * is dropped.
+   */
+  handleOrgTreeResult(requestId: string, result: unknown): void {
+    const pending = this.#pendingMutations.get(requestId);
+    if (!pending) return;
+    this.#pendingMutations.delete(requestId);
+    if (result instanceof Error) pending.reject(result);
+    else pending.resolve(result);
   }
 
   /**

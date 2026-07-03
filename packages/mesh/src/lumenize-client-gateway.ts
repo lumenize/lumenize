@@ -737,7 +737,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const callId = crypto.randomUUID();
 
     // Build incoming call message for client
-    // Chain is already preprocessed (caller's callRaw preprocesses for consistency)
+    // Chain is already preprocessed (the caller's call() preprocesses for consistency)
     // State is native from Workers RPC - preprocess for WebSocket
     const message: IncomingCallMessage = {
       type: GatewayMessageType.INCOMING_CALL,

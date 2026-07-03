@@ -55,7 +55,7 @@ export function stripContainerTargetPort(request: Request): Request {
  * `LumenizeWorker` use — never reimplemented:
  *  - lazy `lmz` getter → `createLmzApiForDO(this.ctx, this.env, this)` — gives
  *    identity (`__init`/`bindingName`/`instanceName`), `callContext` (the
- *    ALS-bound getter), and `call`/`callRaw` for free.
+ *    ALS-bound getter), and `call` for free.
  *  - `onBeforeCall()` — no-op here; subclasses override for auth/scope guards. Runs at
  *    admission on BOTH receive entries (the D5 gate on the response leg too).
  *  - `__executeOperation(envelope)` → `executeEnvelope(…, { includeInstanceName: true })` —
@@ -114,7 +114,7 @@ export class LumenizeContainer<Env = any> extends Container<Env> {
 
   /**
    * Lumenize identity + RPC infrastructure (`bindingName`, `instanceName`,
-   * `callContext`, `call`, `callRaw`, `__init`). Composed — not reimplemented —
+   * `callContext`, `call`, `__init`). Composed — not reimplemented —
    * via the shared DO factory; identity persists in `ctx.storage.kv`.
    */
   get lmz(): LmzApi {

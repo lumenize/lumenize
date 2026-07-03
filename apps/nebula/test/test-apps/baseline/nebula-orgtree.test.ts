@@ -156,7 +156,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     b.client[Symbol.dispose]();
   });
 
-  // ── P8b: client.orgTree.* mutators (awaited callRaw, reject-on-failure) ──
+  // ── P8b: client.orgTree.* mutators (resilient 4-arg call, reject-on-failure) ──
 
   it('client.orgTree mutators resolve on success and reject on failure', async () => {
     const star = uniqueStar();
@@ -182,7 +182,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
 
     a.client.callStarSubscribeTree(star); // resets captures → initial snapshot lands
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
-    const before = a.client.orgTreeUpdateCount; // orgTree.* is callRaw (NOT a resetting initiator)
+    const before = a.client.orgTreeUpdateCount; // orgTree.* is a public 4-arg call (NOT a resetting initiator)
 
     const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team2', 'Team2');
     await vi.waitFor(() => {

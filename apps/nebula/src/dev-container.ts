@@ -17,10 +17,12 @@
  *    `@mesh(requireAdmin)` (NebulaContainer.onBeforeCall proves tenant *scope* but
  *    never `access.admin`, and `<id>.*` widening admits descendant non-admins).
  *
- * DevStudio invokes the command methods as awaited `lmz.callRaw` (single-hop
- * result-bearing transport, ADR-003 — never raw Workers RPC). vite fully owns SFC
- * compile; the Star never compiles. Deps are baked into the image → zero
- * `npm install` on cold boot.
+ * DevStudio invokes the command methods via one-way `lmz.call()` continuations (the
+ * continuation-only mesh model, ADR-003 — never raw Workers RPC, never an awaited
+ * result). Ordering-critical sequences are collapsed into single atomic methods here
+ * (`bootAndApply`/`warmAndAwaitReady`, ADR-006) so one fire-and-forget call preserves
+ * the ordering container-side. vite fully owns SFC compile; the Star never compiles.
+ * Deps are baked into the image → zero `npm install` on cold boot.
  *
  * ⚠️ `extends Container` does NOT construct under vitest-pool-workers
  * ([[container-no-construct-pool-workers]]); the composed seam is tested via
@@ -262,6 +264,34 @@ export class DevContainer extends NebulaContainer {
       count: files.length,
     });
     return this.#postJson('/apply', { files });
+  }
+
+  /**
+   * Boot the container (self-healing `ensureUp`) THEN push source — the DevStudio
+   * `ensureUp`/`chat` flow collapsed into ONE atomic container method (ADR-006). Under
+   * the continuation-only model DevStudio fires this as a single fire-and-forget mesh
+   * `call()` (no awaited callRaw), and the boot-before-write ordering is enforced HERE by
+   * sequential local `containerFetch` round-trips instead of across two racing hops.
+   * ⚠️ Run with `wrangler dev` + Docker (can't construct under pool-workers).
+   */
+  @mesh(requireAdmin)
+  async bootAndApply(files: SourceFile[]): Promise<{ ok: boolean; written: number }> {
+    await this.ensureUp();
+    return this.applyChanges(files);
+  }
+
+  /**
+   * Boot + push source + await vite-ready — the DevStudio `warmPreview` flow collapsed
+   * into ONE atomic container method (ADR-006). DevStudio fires this 4-arg and its handler
+   * pushes readiness to the client; the boot→apply→ready ordering is enforced here by
+   * sequential local `containerFetch` round-trips. Long-running is fine (early-ack, no
+   * held Promise). ⚠️ Run with `wrangler dev` + Docker (can't construct under pool-workers).
+   */
+  @mesh(requireAdmin)
+  async warmAndAwaitReady(files: SourceFile[]): Promise<{ ok: boolean; ready: boolean }> {
+    await this.ensureUp();
+    await this.applyChanges(files);
+    return this.awaitPreviewReady();
   }
 
   /** Run a buffered command in the container (host-DO-only by construction — the

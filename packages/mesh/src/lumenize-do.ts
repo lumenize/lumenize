@@ -319,7 +319,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * - `chain` - Preprocessed operation chain to execute
    * - `metadata.callee` - Identity of this DO (used for auto-initialization)
    * 
-   * @internal This is called by this.lmz.callRaw(), not meant for direct use
+   * @internal This is the RPC entry reached by a remote `this.lmz.call()` dispatch, not meant for direct use
    * @param envelope - The call envelope with version, chain, and metadata
    * @returns The result of executing the operation chain
    * @throws Error if envelope version is not 1
@@ -371,7 +371,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    *
    * Provides clean abstraction over identity management and RPC infrastructure:
    * - **Identity**: `bindingName`, `instanceName`, `id`, `type`
-   * - **RPC**: `callRaw()`, `call()`
+   * - **RPC**: `call()` (the only cross-node call surface)
    *
    * Properties are read-only getters that read from DO storage.
    * Identity is set automatically via headers from `routeDORequest` or

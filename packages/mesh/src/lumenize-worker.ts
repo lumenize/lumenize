@@ -25,7 +25,7 @@ export type { Continuation, AnyContinuation };
  * 
  * Provides:
  * - Identity management via `this.lmz.*` (bindingName only, no persistence)
- * - RPC infrastructure via `this.lmz.callRaw()` and `this.lmz.call()`
+ * - RPC infrastructure via `this.lmz.call()` (the only cross-node call surface)
  * - Continuation support via `this.ctn()`
  * - Automatic envelope handling via `__executeOperation()`
  * 
@@ -40,10 +40,11 @@ export type { Continuation, AnyContinuation };
  * @example
  * ```typescript
  * export class MyWorker extends LumenizeWorker<Env> {
- *   async someMethod() {
- *     // Make RPC call to DO
- *     // Identity is auto-initialized from envelope metadata
- *     await this.lmz.callRaw('USER_DO', 'user-123', this.ctn<UserDO>().getData());
+ *   someMethod() {
+ *     // Make a cross-node call to a DO. Identity is auto-initialized from envelope
+ *     // metadata. 4-arg: the result fires back into the handler (never awaited).
+ *     const remote = this.ctn<UserDO>().getData();
+ *     this.lmz.call('USER_DO', 'user-123', remote, this.ctn().handleData(remote));
  *   }
  * }
  * ```
@@ -56,7 +57,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *
    * Provides clean abstraction over identity management and RPC infrastructure:
    * - **Identity**: `bindingName`, `type` (instanceName/id always undefined for Workers)
-   * - **RPC**: `callRaw()`, `call()`
+   * - **RPC**: `call()` (the only cross-node call surface)
    *
    * Properties use closure storage (no persistence across requests).
    * Identity is set automatically from envelope metadata when receiving mesh calls.
@@ -163,7 +164,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * - `chain` - Preprocessed operation chain to execute
    * - `metadata.callee` - Identity of this Worker (used for auto-initialization)
    * 
-   * @internal This is called by this.lmz.callRaw(), not meant for direct use
+   * @internal This is the RPC entry reached by a remote `this.lmz.call()` dispatch, not meant for direct use
    * @param envelope - The call envelope with version, chain, and metadata
    * @returns The result of executing the operation chain
    * @throws Error if envelope version is not 1

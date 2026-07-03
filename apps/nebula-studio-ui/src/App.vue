@@ -291,7 +291,10 @@ async function wipe() {
   busy.value = true;
   try {
     const client = nebula.value.client;
-    await client.lmz.callRaw("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
+    // Fire-and-forget under the continuation-only model (no awaited callRaw). The wipe's
+    // effect is reflected when the preview reloads; a dispatch failure is logged by the
+    // framework (D6), so the confirmation log here is optimistic.
+    client.lmz.call("STAR", activeScope.value!, client.ctn<Star>().resetDevData());
     log("studio", "Wiped the development test data.");
     reloadPreview();
   } catch (e) {
@@ -468,13 +471,16 @@ async function confirmDelete() {
     // Fan out the platform-DO teardown via mesh (the registry cleared its own rows already).
     const client = nebula.value?.client;
     if (client) {
+      // Fire-and-forget teardown (continuation-only model): these were already
+      // error-discarding (`.catch(() => {})`); a 3-arg call() drops the result and the
+      // framework logs any dispatch failure (D6). The registry rows are already cleared.
       const ctnT = () => client.ctn<{ teardown(): Promise<void> }>().teardown();
       for (const a of affected) {
         const binding = a.tier === "universe" ? "UNIVERSE" : a.tier === "galaxy" ? "GALAXY" : "STAR";
-        await client.lmz.callRaw(binding, a.instanceName, ctnT()).catch(() => {});
+        client.lmz.call(binding, a.instanceName, ctnT());
         if (a.isDev) {
-          await client.lmz.callRaw("DEV_STUDIO", a.instanceName, ctnT()).catch(() => {});
-          await client.lmz.callRaw("DEV_CONTAINER", a.instanceName, ctnT()).catch(() => {});
+          client.lmz.call("DEV_STUDIO", a.instanceName, ctnT());
+          client.lmz.call("DEV_CONTAINER", a.instanceName, ctnT());
         }
       }
     }

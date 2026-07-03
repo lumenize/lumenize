@@ -45,7 +45,7 @@ export interface CallContext {
   state: Record<string, unknown>;
 }
 
-/** Options for `this.lmz.call()` and `this.lmz.callRaw()` */
+/** Options for `this.lmz.call()` */
 export interface CallOptions {
   newChain?: boolean; // Start fresh call chain (this node becomes origin)
   state?: Record<string, unknown>; // Initial or merged state for the call

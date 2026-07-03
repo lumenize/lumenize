@@ -362,10 +362,12 @@ describe('resetDevData capability surface (Star.prototype)', () => {
   });
 
   it('Star.prototype @mesh-surface-freeze: the admin-gated set equals the frozen allow-list', () => {
-    // The post-collapse PRODUCTION surface. resetDevData + setOntology + setStarConfig are
-    // the admin-gated @mesh methods; a new one must be added deliberately + re-reviewed.
-    // Mutation-validated: removing requireAdmin from resetDevData (or setOntology) drops it
-    // from this set → != frozen list → RED.
-    expect(adminMeshMethods(Star)).toEqual(['resetDevData', 'setOntology', 'setStarConfig']);
+    // The post-collapse PRODUCTION surface. installOntology + resetDevData + setOntology +
+    // setStarConfig are the admin-gated @mesh methods; a new one must be added deliberately +
+    // re-reviewed. `installOntology` is the atomic wipe+install (ADR-006) DevStudio fires as
+    // ONE continuation-only call() — it composes the already-frozen resetDevData + setOntology,
+    // so it adds no capability beyond them. Mutation-validated: removing requireAdmin from any
+    // of them drops it from this set → != frozen list → RED.
+    expect(adminMeshMethods(Star)).toEqual(['installOntology', 'resetDevData', 'setOntology', 'setStarConfig']);
   });
 });

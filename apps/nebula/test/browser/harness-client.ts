@@ -212,33 +212,17 @@ export class HarnessNebulaClient extends NebulaClient {
   }
 
   /**
-   * Spike helper: invokes `Star.delay(delayMs)`, which awaits server-side
-   * before returning. Uses `callRaw` (the async/Promise variant) since
-   * `delay()` returns its argument directly via CALL_RESPONSE — no mesh
-   * callback needed.
+   * Spike helper: invokes `Star.delay(delayMs)`, which awaits server-side before
+   * returning its argument. Uses the 4-arg `call()` fire-back (continuation-only
+   * model — no awaited callRaw, which is removed): `delay`'s result is delivered to
+   * `handleResult`, combined with the per-callId marker arrival into a
+   * `DecomposedCallResult`.
    */
-  async callStarDelay(starName: string, delayMs: number): Promise<DecomposedCallResult<number>> {
-    let callId: string | undefined;
-    let sendTs = NaN;
-    const result = await this.lmz.callRaw(
-      'STAR',
-      starName,
-      (this.ctn() as any).delay(delayMs),
-      {
-        onSent: (id: string) => {
-          callId = id;
-          sendTs = performance.now();
-        },
-      },
-    );
-    const responseArrival = performance.now();
-    if (!callId) throw new Error('callStarDelay: onSent never fired');
-    const markerArrival = this.#markersByCallId.get(callId);
-    if (markerArrival === undefined) {
-      throw new Error(`callStarDelay: no bench_marker received for callId ${callId}`);
-    }
-    this.#markersByCallId.delete(callId);
-    return { result, sendTs, markerArrival, responseArrival };
+  callStarDelay(starName: string, delayMs: number): Promise<DecomposedCallResult<number>> {
+    return this.#callWithMarker<number>((onSent) => {
+      const remote = (this.ctn() as any).delay(delayMs);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote), { onSent });
+    });
   }
 
   callGalaxyAppendOntologyVersion(

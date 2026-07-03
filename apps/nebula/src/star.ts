@@ -313,6 +313,20 @@ export class Star extends NebulaDO {
   }
 
   /**
+   * Atomic wipe-then-install (ADR-006): the `.dev`-loop's `resetDevData` + `setOntology`
+   * pair collapsed into ONE mesh method so DevStudio fires a single fire-and-forget
+   * `call()` (continuation-only model — no awaited callRaw) and the wipe-before-install
+   * ordering is guaranteed here rather than across two racing hops. `wipe` runs the same
+   * `.dev`-guarded reset (`resetDevData` throws off the `.dev` Star), so the guard is
+   * preserved. The install's effect reaches the live preview via `broadcastReload`.
+   */
+  @mesh(requireAdmin)
+  async installOntology(row: OntologyVersionRow, opts?: { wipe?: boolean }): Promise<void> {
+    if (opts?.wipe) await this.resetDevData();
+    this.setOntology(row);
+  }
+
+  /**
    * Reset the dev sandbox to empty — the breaking-edit bargain (a breaking ontology
    * edit invalidates stored snapshots, which we do NOT migrate; the user-developer
    * rebuilds test data, Decision 11). The wipe is **data-only**: the source-of-truth
