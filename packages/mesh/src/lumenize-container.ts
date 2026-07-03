@@ -1,8 +1,6 @@
 import { Container } from '@cloudflare/containers';
 import {
   newContinuation,
-  executeOperationChain,
-  type OperationChain,
   type Continuation,
 } from './ocan/index.js';
 import { createLmzApiForDO, executeEnvelope, initIdentityFromHeaders, type LmzApi, type CallEnvelope } from './lmz-api.js';
@@ -58,14 +56,16 @@ export function stripContainerTargetPort(request: Request): Request {
  *  - lazy `lmz` getter → `createLmzApiForDO(this.ctx, this.env, this)` — gives
  *    identity (`__init`/`bindingName`/`instanceName`), `callContext` (the
  *    ALS-bound getter), and `call`/`callRaw` for free.
- *  - `onBeforeCall()` — no-op here; subclasses override for auth/scope guards.
- *  - `__executeChain` → `executeOperationChain(chain, this)` — the SECURE path
- *    (`requireMeshDecorator` defaults true; only `@mesh` methods are callable).
- *  - `__localChainExecutor` — the bypass executor, for the result-handler path
- *    ONLY (never wired onto inbound dispatch).
- *  - `__executeOperation(envelope)` → `executeEnvelope(…, { includeInstanceName:
- *    true })` — the DO-flavored receive seam `lmz.call` dispatches to.
+ *  - `onBeforeCall()` — no-op here; subclasses override for auth/scope guards. Runs at
+ *    admission on BOTH receive entries (the D5 gate on the response leg too).
+ *  - `__executeOperation(envelope)` → `executeEnvelope(…, { includeInstanceName: true })` —
+ *    the DO-flavored request seam `lmz.call` dispatches to (early-ack, D15). The @mesh
+ *    allowlist is enforced inside the shared `executeEnvelope` (secure by default).
+ *  - `__handleResponse(envelope)` → `executeEnvelope(…, { requireMeshDecorator: false })` —
+ *    the fire-back seam (D5/D17); @mesh off, `onBeforeCall` on.
  *  - `ctn()` — continuation factory.
+ *  (No `__localChainExecutor` — this node has no alarms/fetch consumer for it, and the
+ *  send path no longer runs the 4-arg handler locally, so it would be dead code.)
  *
  * Identity persists in `ctx.storage.kv` (`__lmz_do_*`), so the class MUST be
  * registered with `new_sqlite_classes` (Container storage is SQLite-backed).
@@ -140,33 +140,32 @@ export class LumenizeContainer<Env = any> extends Container<Env> {
   }
 
   /**
-   * Execute an incoming OCAN chain on this node. Always enforces the `@mesh`
-   * decorator (secure by default) — the bypass executor below is for local
-   * result-handler dispatch only and must never be wired onto inbound calls.
-   * @internal Called by `executeEnvelope`/`lmz.call`, not for direct use.
-   */
-  async __executeChain(chain: OperationChain): Promise<any> {
-    return await executeOperationChain(chain, this);
-  }
-
-  /**
-   * Local chain executor for trusted internal code (`lmz.call` result handlers).
-   * Can bypass the `@mesh` check, but doesn't serialize over RPC, so it's
-   * unreachable remotely. @internal
-   */
-  get __localChainExecutor(): (chain: OperationChain, options?: { requireMeshDecorator?: boolean }) => Promise<any> {
-    return (chain, options) => executeOperationChain(chain, this, options);
-  }
-
-  /**
-   * Receive + execute an RPC call envelope, auto-initializing identity from
-   * `metadata.callee`. The DO-flavored seam (`includeInstanceName: true`) —
-   * identical to `LumenizeDO`'s. @internal Called by `lmz.callRaw`.
+   * Receive + execute an incoming request envelope, auto-initializing identity from
+   * `metadata.callee`. The DO-flavored seam (`includeInstanceName: true`) — identical to
+   * `LumenizeDO`'s. Acks early, then runs the chain + fire-back under `ctx.waitUntil` via
+   * the shared `executeEnvelope` (D15). @internal Called by `lmz.call`.
    */
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
     return await executeEnvelope(envelope, this, {
       nodeTypeName: 'LumenizeContainer',
       includeInstanceName: true,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
+    });
+  }
+
+  /**
+   * Receive a fire-back response — the second mesh RPC entry (D5/D17). Same shared
+   * `executeEnvelope` path, `requireMeshDecorator: false`: `onBeforeCall` still runs (D5),
+   * only the per-method @mesh allowlist is skipped. @internal Fired at by the framework.
+   */
+  async __handleResponse(envelope: CallEnvelope): Promise<any> {
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeContainer',
+      includeInstanceName: true,
+      requireMeshDecorator: false,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
     });
   }
 

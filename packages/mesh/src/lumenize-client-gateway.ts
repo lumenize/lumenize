@@ -3,7 +3,7 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG } from './ws-heartbeat.js';
-import type { CallEnvelope } from './lmz-api.js';
+import type { CallEnvelope, ClientResultEnvelope } from './lmz-api.js';
 import type { NodeType, NodeIdentity, CallContext, OriginAuth } from './types.js';
 import {
   GatewayMessageType,
@@ -125,6 +125,20 @@ export class LumenizeClientGateway extends DurableObject<any> {
     return (this.env as any).LUMENIZE_MESH_TEST_MODE === 'true'
       ? TEST_GRACE_PERIOD_MS
       : PRODUCTION_GRACE_PERIOD_MS;
+  }
+
+  /**
+   * Timeout for a mesh→client push (`#forwardToClient`). Overridable in test mode (Q5) via the
+   * `LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS` miniflare binding — NOT prod-reachable — so grace→drop
+   * paths are asserted deterministically without a real ~30 s wait. Production default otherwise.
+   */
+  get #clientCallTimeoutMs(): number {
+    const override = (this.env as any).LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS;
+    if (override !== undefined) {
+      const parsed = Number(override);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return CLIENT_CALL_TIMEOUT_MS;
   }
 
   // ============================================
@@ -525,7 +539,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     attachment: GatewayConnectionInfo | null
   ): Promise<void> {
     const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleClientCall');
-    const { callId, binding, instance, chain, callContext: clientContext } = message;
+    const { callId, binding, instance, chain, expectsResult, callContext: clientContext } = message;
 
     // Guard: attachment must be present (set during WebSocket accept)
     if (!attachment) {
@@ -565,7 +579,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
-      // Build envelope - chain is already preprocessed by client
+      // Build envelope - chain is already preprocessed by client. The client keeps its handler
+      // IN-HEAP (D16), so nothing travels except a `response` descriptor telling the callee to
+      // fire the RESULT back to THIS Gateway (addressed to the client + callId), which we then
+      // re-resolve to the client's current socket. `attachment.bindingName` is this Gateway's
+      // own binding (from the routing header at WS accept), so the callee can reach us.
       const envelope: CallEnvelope = {
         version: 1,
         chain, // Already preprocessed by client - pass through
@@ -582,6 +600,21 @@ export class LumenizeClientGateway extends DurableObject<any> {
             instanceName: instance,
           },
         },
+        // 4-arg client call (expectsResult) → attach the fire-back descriptor; a 3-arg client
+        // call is truly fire-and-forget (no descriptor → the callee fires nothing back).
+        ...(expectsResult
+          ? {
+              response: {
+                kind: 'client' as const,
+                returnAddr: {
+                  type: 'LumenizeClient' as const,
+                  bindingName: attachment.bindingName,
+                  instanceName: attachment.instanceName,
+                },
+                callId,
+              },
+            }
+          : {}),
       };
 
       // Get stub and call
@@ -592,39 +625,25 @@ export class LumenizeClientGateway extends DurableObject<any> {
         stub = this.env[binding];
       }
 
-      // Send envelope - chain is already preprocessed
-      // executeEnvelope returns { $result: ... } or { $error: ... } wrapper
-      const wrapped = await stub.__executeOperation(envelope);
-
-      // Unwrap result/error wrapper from executeEnvelope
-      if (wrapped && '$error' in wrapped) {
-        // Error case - send error response
-        // The error is already preprocessed by executeEnvelope
+      // Early ack (D15): the callee acks on admission, BEFORE the chain runs. On success the
+      // result returns LATER via our __handleResponse door — nothing is relayed to the client yet
+      // (it is fire-and-forget, holding its in-heap handler). On an admission reject we synthesize
+      // an ERROR RESULT for this callId so the client's handler is never stranded (Q4).
+      const ack = await stub.__executeOperation(envelope);
+      if (ack && '$error' in ack) {
         const response: CallResponseMessage = {
           type: GatewayMessageType.CALL_RESPONSE,
           callId,
           success: false,
-          error: wrapped.$error, // Already preprocessed
+          error: ack.$error, // Already preprocessed by executeEnvelope
         };
         ws.send(JSON.stringify(response));
-        return;
       }
 
-      // Success case - send success response
-      // Preprocess only the result (may contain Maps, Sets, etc.)
-      const response: CallResponseMessage = {
-        type: GatewayMessageType.CALL_RESPONSE,
-        callId,
-        success: true,
-        result: preprocess(wrapped?.$result),
-      };
-      ws.send(JSON.stringify(response));
-
     } catch (error) {
-      log.error('Call failed', { callId, binding, instance, error });
+      log.error('Call dispatch failed', { callId, binding, instance, error });
 
-      // Send error response (transport-level error, not business logic error)
-      // Preprocess only the error (may contain Error objects)
+      // Transport-level failure reaching the callee → error RESULT to the client (Q4).
       const response: CallResponseMessage = {
         type: GatewayMessageType.CALL_RESPONSE,
         callId,
@@ -633,6 +652,55 @@ export class LumenizeClientGateway extends DurableObject<any> {
       };
       ws.send(JSON.stringify(response));
     }
+  }
+
+  /**
+   * The Gateway response door (D17): a mesh node fires a client-originated call's RESULT back
+   * here (via `lmz.call`'s `response.kind:'client'` fire-back), addressed to this client + callId.
+   * We re-resolve delivery to the client's CURRENT socket (survives reconnect — D8/D16), so a
+   * result is never bound to the socket the call left on. Zero socket → bounded grace → drop
+   * (the client re-issues + reconciles on reload — D8). Returns an early `{$ack:true}` like a mesh
+   * node; the fire-back is one-way, so the Star never awaits the client delivery here.
+   *
+   * NOTE (flagged for review): `onBeforeCallToClient` is NOT applied on this RESULT leg — the
+   * result is SOLICITED (it returns to the client that issued `callId`, already authorized by
+   * `onBeforeCallToMesh` on the request), and the client drops any RESULT whose `callId` it did
+   * not issue (in-heap lookup + dedup). `onBeforeCallToClient` guards UNSOLICITED mesh→client
+   * pushes, which this is not.
+   *
+   * @internal Fired at by the framework, not for direct use.
+   */
+  async __handleResponse(result: ClientResultEnvelope): Promise<{ $ack: true }> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.__handleResponse');
+    const { callId, clientInstanceName } = result;
+
+    const message: CallResponseMessage =
+      result.$error !== undefined
+        ? { type: GatewayMessageType.CALL_RESPONSE, callId, success: false, error: result.$error }
+        : { type: GatewayMessageType.CALL_RESPONSE, callId, success: true, result: result.$result };
+
+    let ws = this.#getActiveWebSocket();
+    if (!ws) {
+      // Zero-socket grace window: wait for a reconnect if we're inside the grace period.
+      const alarm = await this.ctx.storage.getAlarm();
+      if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
+        try {
+          await this.#waitForReconnect();
+          ws = this.#getActiveWebSocket();
+        } catch {
+          log.warn('client did not reconnect within grace — dropping RESULT (client re-issues on reload, D8)', { callId, clientInstanceName });
+          return { $ack: true };
+        }
+      }
+      if (!ws) {
+        log.warn('no socket for client RESULT — dropping (client re-issues on reload, D8)', { callId, clientInstanceName });
+        return { $ack: true };
+      }
+    }
+
+    // Deliver on the CURRENT socket (re-resolved — NOT the socket the call left on).
+    ws.send(JSON.stringify(message));
+    return { $ack: true };
   }
 
   /**
@@ -690,7 +758,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
           'Client call timed out',
           this.#getInstanceName()
         ));
-      }, CLIENT_CALL_TIMEOUT_MS);
+      }, this.#clientCallTimeoutMs);
 
       // Track pending call
       this.#pendingCalls.set(callId, { resolve, reject, timeout });

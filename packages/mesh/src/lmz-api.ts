@@ -34,26 +34,6 @@ export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
 export { getCurrentCallContext, runWithCallContext };
 
 /**
- * Clone the current call context for capture
- *
- * When capturing context for later execution (e.g., in lmz.call() handlers),
- * we must deep clone to prevent mutations from affecting the captured snapshot.
- *
- * @returns A deep clone of the current CallContext, or undefined if not in a call context
- * @internal
- */
-export function captureCallContext(): CallContext | undefined {
-  const current = getCurrentCallContext();
-  if (!current) return undefined;
-
-  return {
-    ...current,
-    callChain: [...current.callChain],
-    state: { ...current.state }
-  };
-}
-
-/**
  * Resolve the ambient (AsyncLocalStorage-bound) CallContext for `this.lmz.callContext`,
  * throwing outside a mesh call. Shared by the DO and Worker factories — and therefore by
  * `LumenizeContainer`, which composes `createLmzApiForDO`. The browser `LumenizeClient`
@@ -76,19 +56,6 @@ function requireCurrentCallContext(): CallContext {
 // ============================================
 // Shared Call Helpers
 // ============================================
-
-/**
- * Type for a local chain executor function
- *
- * Both LumenizeDO and LumenizeWorker expose this via `__localChainExecutor`.
- * LumenizeClient uses `executeOperationChain` directly.
- *
- * @internal
- */
-export type LocalChainExecutor = (
-  chain: OperationChain,
-  options?: { requireMeshDecorator?: boolean }
-) => Promise<any>;
 
 /**
  * Extract and validate operation chains from continuations
@@ -119,112 +86,6 @@ export function extractCallChains(
   }
 
   return { remoteChain, handlerChain };
-}
-
-/**
- * Create a handler executor function with captured context
- *
- * Shared logic for executing handler callbacks with proper context restoration.
- * Used by DO, Worker, and Client call() methods.
- *
- * @param localExecutor - Function to execute the chain locally
- * @param capturedContext - The call context captured at call time (may be undefined)
- * @returns A function that executes a chain with the captured context
- * @internal
- */
-export function createHandlerExecutor(
-  localExecutor: LocalChainExecutor,
-  capturedContext: CallContext | undefined
-): (chain: OperationChain) => Promise<any> {
-  return async (chain: OperationChain) => {
-    if (capturedContext) {
-      return runWithCallContext(capturedContext, async () => {
-        return await localExecutor(chain, { requireMeshDecorator: false });
-      });
-    } else {
-      return await localExecutor(chain, { requireMeshDecorator: false });
-    }
-  };
-}
-
-/**
- * Execute handler continuation with result or error
- *
- * Shared logic for the then/catch handler execution pattern.
- * Substitutes result/error into the handler chain and executes it.
- *
- * @param handlerChain - The handler continuation chain (may be undefined for fire-and-forget)
- * @param resultOrError - The result or error to inject into the handler
- * @param executeHandler - The executor function (from createHandlerExecutor)
- * @internal
- */
-export async function executeHandlerWithResult(
-  handlerChain: OperationChain | undefined,
-  resultOrError: any,
-  executeHandler: (chain: OperationChain) => Promise<any>
-): Promise<void> {
-  if (!handlerChain) return;
-
-  const finalChain = replaceNestedOperationMarkers(handlerChain, resultOrError);
-  await executeHandler(finalChain);
-}
-
-/**
- * Set up fire-and-forget call with handler callbacks
- *
- * Shared logic for DO and Client call() methods that return immediately.
- * Worker uses a slightly different async pattern but shares the helpers.
- *
- * When `opts.onErrorOnly` is true, the success-path `.then` handler-dispatch
- * is skipped entirely — only the error path can invoke `handlerChain`. This
- * shaves the per-call success tail off fire-and-forget paths that only care
- * about failures (e.g. `svc.broadcast` drop-on-failed-fanout cleanup); on
- * Cloudflare workerd, success-path handler chains attached to outbound
- * subrequests appear to keep the originating invocation alive until they
- * settle, so this is also a structural latency lift, not just a CPU one.
- *
- * @param callPromise - Promise that resolves with the remote call result
- * @param handlerChain - Optional handler continuation for callbacks
- * @param executeHandler - The executor function (from createHandlerExecutor)
- * @param opts - Optional flags: `onErrorOnly` skips the success-path dispatch
- * @internal
- */
-export function setupFireAndForgetHandler(
-  callPromise: Promise<any>,
-  handlerChain: OperationChain | undefined,
-  executeHandler: (chain: OperationChain) => Promise<any>,
-  opts?: { onErrorOnly?: boolean }
-): Promise<void> {
-  const log = debug('lmz.mesh.lmzApi.setupFireAndForgetHandler');
-  const onErrorOnly = opts?.onErrorOnly === true;
-  return callPromise
-    .then(async (result) => {
-      if (onErrorOnly) return;
-      await executeHandlerWithResult(handlerChain, result, executeHandler);
-    })
-    .catch(async (error) => {
-      const errorObj = error instanceof Error ? error : new Error(String(error));
-      if (!handlerChain) {
-        // Fire-and-forget call with no handler chain: the error has nowhere to
-        // be delivered. Without this log it would vanish silently (the returned
-        // promise is not awaited at the call sites). error() always outputs.
-        log.error('fire-and-forget call failed with no handler to receive the error', {
-          error: errorObj.message,
-        });
-        return;
-      }
-      await executeHandlerWithResult(handlerChain, errorObj, executeHandler);
-    })
-    .catch((deliveryError) => {
-      // Delivering the result/error to the handler itself threw. The returned
-      // promise is fire-and-forget at the call sites, so this rejection would
-      // otherwise become a lost unhandled rejection.
-      const errorObj =
-        deliveryError instanceof Error ? deliveryError : new Error(String(deliveryError));
-      log.error('failed to deliver fire-and-forget result/error to handler', {
-        error: errorObj.message,
-      });
-    });
 }
 
 // ============================================
@@ -274,60 +135,20 @@ export function buildOutgoingCallContext(
 }
 
 /**
- * Shared implementation for callRaw() used by both DO and Worker LmzApi
- *
- * Builds envelope, gets stub, sends via Workers RPC, and unwraps response.
- * Callers provide their LmzApi `self` (for identity) and `env` (for bindings).
+ * The awaited-result `callRaw` primitive has been REMOVED from the mesh model
+ * (`mesh-continuation-only-calls`): `__executeOperation` now acks early and never returns a
+ * chain result, so no awaited-request/response transport exists. The `callRaw` methods below
+ * (retained @deprecated on the surface for one release so unmigrated call *sites* still
+ * type-check) throw this at runtime, directing callers to `call()` + a continuation handler.
  *
  * @internal
  */
-async function callRawImpl(
-  self: LmzApi,
-  env: any,
-  calleeBindingName: string,
-  calleeInstanceName: string | undefined,
-  chainOrContinuation: OperationChain | AnyContinuation,
-  options?: CallOptions
-): Promise<any> {
-  const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-
-  const callerIdentity: NodeIdentity = {
-    type: self.type,
-    bindingName: self.bindingName!,
-    instanceName: self.instanceName
-  };
-
-  const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
-  const callContext = buildOutgoingCallContext(callerIdentity, options);
-
-  const envelope: CallEnvelope = {
-    version: 1,
-    chain: preprocess(chain),
-    callContext,
-    metadata: {
-      caller: {
-        type: self.type,
-        bindingName: self.bindingName,
-        instanceName: self.instanceName
-      },
-      callee: {
-        type: calleeType,
-        bindingName: calleeBindingName,
-        instanceName: calleeInstanceName
-      }
-    }
-  };
-
-  const stub = calleeType === 'LumenizeDO'
-    ? getDOStub(env[calleeBindingName], calleeInstanceName!)
-    : env[calleeBindingName];
-
-  const response = await stub.__executeOperation(envelope);
-
-  if (response && '$error' in response) {
-    throw postprocess(response.$error);
-  }
-  return response?.$result;
+function throwCallRawRemoved(): never {
+  throw new Error(
+    'lmz.callRaw() has been removed: cross-node calls no longer await a result (the callee ' +
+    'acks early and fires its result back). Use lmz.call(binding, instance, remote, ' +
+    'this.ctn().handler(remote)) — the framework delivers the result to your handler.'
+  );
 }
 
 /**
@@ -364,30 +185,95 @@ function assertCallTarget(
 }
 
 /**
- * Shared `lmz.callRaw` body for the DO + Worker factories (and `LumenizeContainer`, which
- * composes `createLmzApiForDO`). The browser `LumenizeClient` has its own `#callRaw` that
- * threads the synchronously-captured context, so it does not use this.
+ * Resolve the Workers-RPC stub for a mesh target. A DO binding needs a `getDOStub`
+ * lookup by instance name; a Worker/service binding is used directly.
  *
  * @internal
  */
-function callRawShared(
-  self: LmzApi,
-  env: any,
-  calleeBindingName: string,
-  calleeInstanceName: string | undefined,
-  chainOrContinuation: OperationChain | AnyContinuation,
-  options?: CallOptions,
-): Promise<any> {
-  assertCallTarget(env, calleeBindingName, calleeInstanceName);
-  return callRawImpl(self, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+function resolveStub(env: any, calleeBindingName: string, calleeInstanceName: string | undefined): any {
+  return calleeInstanceName !== undefined
+    ? getDOStub(env[calleeBindingName], calleeInstanceName)
+    : env[calleeBindingName];
 }
 
 /**
- * Shared `lmz.call` body for the DO + Worker factories (and `LumenizeContainer`). The only
- * per-node-type divergence is keyed off `self.type`: a `LumenizeWorker` is ephemeral, so it
- * keeps its runtime alive via `ctx.waitUntil` until the fire-and-forget settles; a DO/Container
- * has its own lifecycle and doesn't. (The browser `LumenizeClient` does NOT use this — separate
- * hand-rolled path, no ALS.)
+ * The ONE awaited transport hop (D2/D15) — collapses the old `callRaw*` trio for the
+ * `call()` path. Sends the envelope to the callee's `__executeOperation`, which **acks
+ * EARLY** (as soon as it is admitted, before the remote chain runs). The caller holds
+ * ZERO state and is freed at the ack; the result (if any) returns later via the callee's
+ * fire-back, never on this hop.
+ *
+ * On an admission/guard/overload reject the ack carries `{ $error }` (D6 tier 2): for a
+ * 4-arg call the framework runs the handler **locally** with the Error (the caller is
+ * still hot — it just awaited the short ack); a 3-arg reject is logged. A real
+ * Workers-RPC transport reject (e.g. a non-`@mesh` `WorkerEntrypoint` with no
+ * `__executeOperation`, B8) is folded into the same admission-reject path. Never rejects.
+ *
+ * @internal
+ */
+async function dispatchEnvelope(
+  env: any,
+  nodeInstance: any,
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  envelope: CallEnvelope,
+  handlerChain: OperationChain | undefined,
+): Promise<void> {
+  const log = debug('lmz.mesh.lmzApi.dispatchEnvelope');
+  const stub = resolveStub(env, calleeBindingName, calleeInstanceName);
+
+  let ack: any;
+  try {
+    ack = await stub.__executeOperation(envelope);
+  } catch (transportError) {
+    ack = {
+      $error: preprocess(transportError instanceof Error ? transportError : new Error(String(transportError))),
+    };
+  }
+
+  // Admitted (early ack) → nothing to do here; any result returns via the callee's fire-back.
+  if (!ack || !('$error' in ack)) return;
+
+  let error: unknown;
+  try {
+    error = postprocess(ack.$error);
+  } catch {
+    error = new Error('Mesh call rejected at admission');
+  }
+  const errorObj = error instanceof Error ? error : new Error(String(error));
+
+  if (!handlerChain) {
+    // 3-arg dispatch/admission failure has no handler to receive it → log (D6), never throw async.
+    log.error('dispatch/admission failure on a 3-arg call (no handler to receive the error)', {
+      error: errorObj.message,
+    });
+    return;
+  }
+
+  // 4-arg: run the caller's handler LOCALLY with the Error (no hop — caller still hot).
+  try {
+    const filled = replaceNestedOperationMarkers(handlerChain, errorObj);
+    await runWithCallContext(envelope.callContext, () =>
+      executeOperationChain(filled, nodeInstance, { requireMeshDecorator: false }));
+  } catch (handlerError) {
+    log.error('failed to deliver a dispatch-rejected result to the local handler', {
+      error: handlerError instanceof Error ? handlerError.message : String(handlerError),
+    });
+  }
+}
+
+/**
+ * Shared `lmz.call` body for the DO + Worker factories (and `LumenizeContainer`).
+ *
+ * Builds the envelope (validation sync-throws BEFORE the hop, D6 tier 1), attaches the
+ * fire-back {@link EnvelopeResponse} descriptor (D3/D10/D11), and dispatches the one
+ * early-acking transport hop. The **caller holds ZERO state** — the 4-arg handler travels
+ * with the call and the callee fires it back; nothing is parked here.
+ *
+ * The only per-node-type divergence: a `LumenizeWorker` is ephemeral, so `ctx.waitUntil`
+ * keeps its runtime alive across the short ack hop; a DO/Container stays alive during an
+ * active outbound RPC on its own. (The browser `LumenizeClient` does NOT use this — it keeps
+ * its handler in-heap, D16, via its own `#call`.)
  *
  * @internal
  */
@@ -401,7 +287,7 @@ function callShared(
   handlerContinuation?: AnyContinuation,
   options?: CallOptions,
 ): void {
-  // 1. Extract and validate chains (shared helper)
+  // 1. Extract + validate chains — sync-throw, LOUD, before the async hop (D6 tier 1).
   const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
   // 2. Validate caller knows its own binding (fail fast!)
@@ -415,27 +301,77 @@ function callShared(
     );
   }
 
-  // 3. Set up handler execution (shared helpers)
-  const capturedContext = captureCallContext();
-  const localExecutor = nodeInstance.__localChainExecutor;
-  const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
+  // 3. Validate the target binding shape — sync-throw at the call site (D6 tier 1).
+  assertCallTarget(env, calleeBindingName, calleeInstanceName);
 
-  // 4. Make remote call with context
-  const callPromise = capturedContext
-    ? runWithCallContext(capturedContext, () =>
-        self.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
-    : self.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
+  // 4. Build the fire-back descriptor. 4-arg → the handler TRAVELS (mesh sink);
+  //    3-arg → discard. onErrorOnly is evaluated callee-side (N6).
+  const selfIdentity: NodeIdentity = {
+    type: self.type,
+    bindingName: self.bindingName,
+    instanceName: self.instanceName,
+  };
+  const response: EnvelopeResponse = handlerChain
+    ? { kind: 'mesh', returnAddr: selfIdentity, handler: preprocess(handlerChain), onErrorOnly: options?.onErrorOnly }
+    : { kind: 'discard', onErrorOnly: options?.onErrorOnly };
 
-  // 5. Fire-and-forget with handler callbacks (shared helper)
-  const handledPromise = setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
-    onErrorOnly: options?.onErrorOnly,
-  });
+  // 5. Build the envelope with propagated callContext.
+  const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
+  const envelope: CallEnvelope = {
+    version: 1,
+    chain: preprocess(remoteChain),
+    callContext: buildOutgoingCallContext(selfIdentity, options),
+    metadata: {
+      caller: { type: selfIdentity.type, bindingName: selfIdentity.bindingName, instanceName: selfIdentity.instanceName },
+      callee: { type: calleeType, bindingName: calleeBindingName, instanceName: calleeInstanceName },
+    },
+    response,
+  };
 
-  // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive until the
-  // fire-and-forget promise settles. DOs/Containers have their own lifecycle.
-  if (self.type === 'LumenizeWorker') {
-    nodeInstance.ctx.waitUntil(handledPromise);
-  }
+  // 6. Dispatch the one early-acking transport hop.
+  const dispatchPromise = dispatchEnvelope(env, nodeInstance, calleeBindingName, calleeInstanceName, envelope, handlerChain);
+
+  // Keep the node alive across the short ack hop so the outbound RPC completes even if the
+  // invocation that fired the call is about to return (a Worker is ephemeral; a DO/Container
+  // firing from a returning invocation would otherwise have its in-flight subrequest cancelled).
+  // Uniform across node types — DurableObjectState.waitUntil and ExecutionContext.waitUntil both exist.
+  nodeInstance.ctx.waitUntil(dispatchPromise);
+}
+
+/**
+ * Fire-back routing carried on a `call()` envelope (absent on a legacy/`callRaw`
+ * envelope, and absent on the fire-back envelope itself — a handler never re-fires).
+ *
+ * Present ⇒ the callee, **after its early ack** (D15), runs the chain under
+ * `ctx.waitUntil` and then delivers the outcome per `kind`:
+ * - `discard` — 3-arg fire-and-forget: run, drop the result; a post-ack throw is logged.
+ * - `mesh` — 4-arg DO/Worker caller: fill `handler` with the outcome and fire it one-way
+ *   to `returnAddr.__handleResponse` (run there at `requireMeshDecorator:false`, D5/D10).
+ * - `client` — 4-arg client-via-Gateway caller (D16): fire the bare outcome to the Gateway's
+ *   `__handleResponse` door keyed by `callId`; the client runs its own in-heap handler.
+ *
+ * `onErrorOnly` (N6) is evaluated **callee-side**: the success fire-back is skipped.
+ *
+ * @internal
+ */
+export type EnvelopeResponse =
+  | { kind: 'discard'; onErrorOnly?: boolean }
+  | { kind: 'mesh'; returnAddr: NodeIdentity; handler: any; onErrorOnly?: boolean }
+  | { kind: 'client'; returnAddr: NodeIdentity; callId: string; onErrorOnly?: boolean };
+
+/**
+ * The bare-result payload a mesh node fires to the Gateway's `__handleResponse` door for a
+ * client-originated 4-arg call (D16/D17). Unlike a mesh fire-back it carries NO handler chain —
+ * the client runs its own in-heap handler; the Gateway only re-resolves delivery by `callId` +
+ * `clientInstanceName`. `$result`/`$error` are preprocessed for structured-clone transport.
+ *
+ * @internal
+ */
+export interface ClientResultEnvelope {
+  callId: string;
+  clientInstanceName: string;
+  $result?: any;
+  $error?: any;
 }
 
 /**
@@ -514,6 +450,13 @@ export interface CallEnvelope {
       instanceName?: string;
     };
   };
+
+  /**
+   * Fire-back routing for an early-ack `call()` dispatch. Absent for the
+   * deprecated awaited `callRaw` path and for the fire-back envelope itself.
+   * See {@link EnvelopeResponse}.
+   */
+  response?: EnvelopeResponse;
 }
 
 /**
@@ -587,25 +530,11 @@ export interface LmzApi {
   __init(options: { bindingName?: string; instanceName?: string }): void;
 
   /**
-   * Raw async RPC call with automatic metadata propagation
-   *
-   * Infrastructure-level method for DO-to-DO and DO-to-Worker RPC calls.
-   * Automatically gathers caller/callee metadata and builds versioned envelope.
-   *
-   * **Use cases**:
-   * - NADIS plugins (proxy-fetch, alarms) that need RPC infrastructure
-   * - Tests that want simple async/await pattern
-   * - User code that doesn't need continuation pattern
-   *
-   * **Parameters**:
-   * - `calleeBindingName` - Binding name of target DO or Worker (e.g., 'REMOTE_DO')
-   * - `calleeInstanceName` - Instance name for DOs, undefined for Workers
-   * - `chainOrContinuation` - Operation chain or Continuation from `this.ctn()`
-   * - `options` - Optional configuration
-   *
-   * **Returns**: Postprocessed result from remote DO/Worker
-   *
-   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
+   * @deprecated REMOVED — throws at runtime. The awaited-result `callRaw` no longer exists:
+   * `__executeOperation` acks early and never returns a chain result. Use
+   * `call(binding, instance, remote, this.ctn().handler(remote))` — the framework fills your
+   * handler with the result (or Error) and fires it back. Retained on the surface for one
+   * release so unmigrated call *sites* still type-check; it is removed entirely in the next phase.
    */
   callRaw(
     calleeBindingName: string,
@@ -788,7 +717,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      return callRawShared(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+      void env; void calleeBindingName; void calleeInstanceName; void chainOrContinuation; void options;
+      return throwCallRawRemoved();
     },
 
     call<T = any>(
@@ -860,7 +790,8 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      return callRawShared(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
+      void env; void calleeBindingName; void calleeInstanceName; void chainOrContinuation; void options;
+      return throwCallRawRemoved();
     },
 
     call<T = any>(
@@ -880,39 +811,143 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 // ============================================
 
 /**
- * Node interface for executeEnvelope helper
+ * Node interface for the shared `executeEnvelope` receive path.
  *
- * Represents the minimal interface needed to execute an incoming call envelope.
- * Both LumenizeDO and LumenizeWorker implement this interface.
+ * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer` all satisfy this structurally.
+ * The node's `ctx.waitUntil` (D15) and `env` (fire-back stub) are NOT on this interface —
+ * they're `protected` on the base classes, so each node threads them into `executeEnvelope`'s
+ * options from inside its own method (where protected access is allowed). `__executeChain`
+ * is intentionally absent: `executeEnvelope` calls
+ * `executeOperationChain(chain, node, { requireMeshDecorator })` directly (M3).
  *
  * @internal
  */
 export interface EnvelopeExecutorNode {
-  /** Initialize node identity from envelope metadata */
   lmz: {
+    /** Initialize node identity from envelope metadata */
     __init(opts: { bindingName?: string; instanceName?: string }): void;
+    readonly type: NodeType;
+    readonly bindingName?: string;
+    readonly instanceName?: string;
   };
-  /** Authorization hook called before chain execution */
+  /** Authorization hook run at admission (before the ack) */
   onBeforeCall(): void;
-  /** Execute the operation chain on this node */
-  __executeChain(chain: any): Promise<any>;
 }
 
 /**
- * Execute an incoming call envelope on a mesh node
+ * Fill + fire a `call()`'s response back to its origin (the post-ack half of the
+ * traveling-handler model). Runs inside the callee's `runWithCallContext` scope, under
+ * `ctx.waitUntil`. Never rejects — every failure is logged, so a bad handler or a
+ * rejected response leg can never crash the callee node or become an unhandled rejection.
  *
- * Shared logic for processing incoming RPC calls on LumenizeDO and LumenizeWorker.
- * Handles envelope validation, auto-initialization, and chain execution within
- * the proper call context.
+ * - `discard` (3-arg): drop a success; **log** a post-ack throw (D6) — it has nowhere to go.
+ * - `mesh` (4-arg DO/Worker): fill the traveling handler and fire it one-way to
+ *   `returnAddr.__handleResponse`. The sink's ack carries `{ $error }` only if the
+ *   response leg was **rejected at admission** (e.g. `enforceScopeReach`, D5) — logged
+ *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
+ * - `client` (D16): delivered via the Gateway door — built in the client-leg phase.
  *
- * @param envelope - The incoming call envelope
- * @param node - The node (DO or Worker) to execute on
- * @param options - Optional configuration
- * @param options.nodeTypeName - Name for error messages (e.g., 'LumenizeDO')
- * @param options.includeInstanceName - Whether to pass instanceName to __init (false for Workers)
- * @param options.onValidationError - Optional callback for validation errors (e.g., logging)
- * @returns The result of executing the operation chain
- * @throws Error if envelope version is not 1 or callContext is missing
+ * `onErrorOnly` (N6) is honored here, callee-side: a success fire-back is skipped.
+ *
+ * @internal
+ */
+async function fireResponse(
+  node: EnvelopeExecutorNode,
+  env: any,
+  inboundContext: CallContext,
+  response: EnvelopeResponse | undefined,
+  outcome: unknown,
+  isError: boolean,
+  nodeTypeName: string,
+): Promise<void> {
+  const log = debug('lmz.mesh.lmzApi.fireResponse');
+  const errText = () => (outcome instanceof Error ? outcome.message : String(outcome));
+
+  // No fire-back wanted, or onErrorOnly skipping a success. An undelivered post-ack
+  // throw must still surface (a 3-arg fire-and-forget, or a handler throw at the sink — N8).
+  if (!response || response.kind === 'discard' || (response.onErrorOnly && !isError)) {
+    if (isError) {
+      log.error(`${nodeTypeName}: post-ack chain threw with no handler to receive the error`, { error: errText() });
+    }
+    return;
+  }
+
+  if (response.kind === 'mesh') {
+    const calleeIdentity: NodeIdentity = {
+      type: node.lmz.type,
+      bindingName: node.lmz.bindingName!,
+      instanceName: node.lmz.instanceName,
+    };
+    const handlerChain = postprocess(response.handler) as OperationChain;
+    const filled = replaceNestedOperationMarkers(handlerChain, outcome);
+    // The fire-back rides the same transport as any mesh hop, so callContext propagates
+    // identically — the callee appends itself; originAuth is unchanged (D14/N4). No
+    // `response` descriptor: the handler does not itself fire back.
+    const fireEnvelope: CallEnvelope = {
+      version: 1,
+      chain: preprocess(filled),
+      callContext: {
+        callChain: [...inboundContext.callChain, calleeIdentity],
+        originAuth: inboundContext.originAuth,
+        state: inboundContext.state,
+      },
+      metadata: {
+        caller: { type: calleeIdentity.type, bindingName: calleeIdentity.bindingName, instanceName: calleeIdentity.instanceName },
+        callee: {
+          type: response.returnAddr.type,
+          bindingName: response.returnAddr.bindingName,
+          instanceName: response.returnAddr.instanceName,
+        },
+      },
+    };
+    let ack: any;
+    try {
+      const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
+      ack = await stub.__handleResponse(fireEnvelope);
+    } catch (transportError) {
+      log.error(`${nodeTypeName}: fire-back transport to __handleResponse failed`, {
+        error: transportError instanceof Error ? transportError.message : String(transportError),
+      });
+      return;
+    }
+    if (ack && '$error' in ack) {
+      let sinkErr = 'unknown';
+      try { const e = postprocess(ack.$error); sinkErr = e instanceof Error ? e.message : String(e); } catch { /* keep default */ }
+      log.error(`${nodeTypeName}: response leg rejected at the sink (D5 gate or admission)`, { error: sinkErr });
+    }
+    return;
+  }
+
+  // response.kind === 'client' (D16/D17): the client keeps its handler in-heap, so we fire the
+  // BARE result (not a chain) to the Gateway's __handleResponse door, addressed to the client's
+  // instanceName + callId. The Gateway re-resolves delivery to the client's current socket.
+  const clientResult: ClientResultEnvelope = {
+    callId: response.callId,
+    clientInstanceName: response.returnAddr.instanceName!,
+    ...(isError ? { $error: preprocess(outcome) } : { $result: preprocess(outcome) }),
+  };
+  try {
+    const stub = resolveStub(env, response.returnAddr.bindingName, response.returnAddr.instanceName);
+    await stub.__handleResponse(clientResult);
+  } catch (transportError) {
+    log.error(`${nodeTypeName}: client fire-back to the Gateway door failed`, {
+      error: transportError instanceof Error ? transportError.message : String(transportError),
+    });
+  }
+}
+
+/**
+ * Execute an incoming call envelope on a mesh node — the shared receive path for
+ * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer`, for BOTH RPC entries:
+ * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
+ * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
+ * response leg is scope-gated by construction (D5), only the @mesh allowlist toggles.
+ *
+ * **Early ack (D15):** admission (version/callContext/identity/`onBeforeCall`) runs first
+ * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
+ * chain + fire-back then run as a **detached task under `ctx.waitUntil`**, re-bound to the
+ * envelope's `callContext` via `runWithCallContext` (a fresh scope, not a captured closure).
+ * An admission/guard failure returns `{ $error }` on the ack instead (D6 tier 2).
  *
  * @internal
  */
@@ -922,71 +957,84 @@ export async function executeEnvelope(
   options?: {
     nodeTypeName?: string;
     includeInstanceName?: boolean;
+    requireMeshDecorator?: boolean;
+    /** The node's `ctx.waitUntil` — keeps it alive for the detached post-ack tail (D15). */
+    waitUntil?: (promise: Promise<any>) => void;
+    /** The node's bindings — used to resolve the fire-back return-address stub. */
+    env?: any;
     onValidationError?: (error: Error, details: Record<string, any>) => void;
   }
-): Promise<any> {
+): Promise<{ $ack: true } | { $error: any }> {
   const nodeTypeName = options?.nodeTypeName ?? 'MeshNode';
   const includeInstanceName = options?.includeInstanceName ?? true;
+  const requireMeshDecorator = options?.requireMeshDecorator ?? true;
 
-  // The ENTIRE envelope lifecycle runs inside one try → every failure (preamble
-  // validation, identity __init, chain postprocess, onBeforeCall, execution) is
-  // returned as { $error: preprocessedError } and unwrapped+rethrown in callRaw.
-  // Keeping the preamble OUTSIDE this try (the old shape) made preamble throws —
-  // version/callContext/__init-setInstanceName-mismatch — escape as raw RPC
-  // rejections, which workerd logs as "uncaught (in promise)" noise. Uniform
-  // wrapping removes that whole class of noise and round-trips preamble errors
-  // through structured-clone (preserving custom properties) like every other error.
+  let callContext: CallContext;
+  let operationChain: OperationChain;
+
+  // --- ADMISSION (pre-ack). Every failure here rejects the EARLY ACK with { $error },
+  //     which the dispatcher turns into a locally-run handler (4-arg) or a log (3-arg). ---
   try {
-    // 1. Validate envelope version
     if (!envelope.version || envelope.version !== 1) {
       const error = new Error(
         `Unsupported RPC envelope version: ${envelope.version}. ` +
         `This version of ${nodeTypeName} only supports v1 envelopes. ` +
         `Old-style calls without envelopes are no longer supported.`
       );
-      options?.onValidationError?.(error, {
-        receivedVersion: envelope.version,
-        supportedVersion: 1,
-      });
+      options?.onValidationError?.(error, { receivedVersion: envelope.version, supportedVersion: 1 });
       throw error;
     }
 
-    // 2. Validate callContext is present
     if (!envelope.callContext) {
-      const error = new Error(
-        'Missing callContext in envelope. All mesh calls must include callContext.'
-      );
+      const error = new Error('Missing callContext in envelope. All mesh calls must include callContext.');
       options?.onValidationError?.(error, { envelope });
       throw error;
     }
 
-    // 3. Auto-initialize from callee metadata if present (first-write-wins guard
-    //    in setInstanceName may throw on a name/address divergence)
+    // Auto-initialize identity from callee metadata (first-write-wins guard may throw).
     if (envelope.metadata?.callee) {
       node.lmz.__init({
         bindingName: envelope.metadata.callee.bindingName,
-        instanceName: includeInstanceName
-          ? envelope.metadata.callee.instanceName
-          : undefined,
+        instanceName: includeInstanceName ? envelope.metadata.callee.instanceName : undefined,
       });
     }
 
-    // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
-    const operationChain = postprocess(envelope.chain);
+    // Postprocess the chain (aliases/cycles, custom Error types).
+    operationChain = postprocess(envelope.chain);
+    callContext = envelope.callContext;
 
-    // 5. Execute chain within callContext (makes this.lmz.callContext available)
-    const result = await runWithCallContext(envelope.callContext, async () => {
-      // Call onBeforeCall hook for authentication/authorization
-      node.onBeforeCall();
-
-      // Execute the operation chain
-      return await node.__executeChain(operationChain);
-    });
-    return { $result: result };
+    // onBeforeCall is the guard — it runs under the call context and may read/mutate
+    // state; a throw here rejects admission (scope/auth). This is the D5 gate on the
+    // response leg too (both entries call this path).
+    runWithCallContext(callContext, () => { node.onBeforeCall(); });
   } catch (error) {
-    // Return error wrapped for structured clone transport
-    // Preprocessing preserves custom Error properties that Workers RPC would lose
     return { $error: preprocess(error) };
   }
+
+  // --- ADMITTED. Run the chain + fire-back as a DETACHED task under the node's own
+  //     waitUntil handle (uniform across node types — DurableObjectState/ExecutionContext
+  //     both expose waitUntil), re-bound to the envelope callContext. ---
+  const postAck = runWithCallContext(callContext, async () => {
+    let outcome: unknown;
+    let isError = false;
+    try {
+      outcome = await executeOperationChain(operationChain, node, { requireMeshDecorator });
+    } catch (err) {
+      outcome = err instanceof Error ? err : new Error(String(err));
+      isError = true;
+    }
+    await fireResponse(node, options?.env, callContext, envelope.response, outcome, isError, nodeTypeName);
+  }).catch((detachedError: unknown) => {
+    // Defensive: fireResponse never rejects, but a bug there must not become an
+    // unhandled rejection on the waitUntil promise.
+    debug('lmz.mesh.lmzApi.executeEnvelope').error(`${nodeTypeName}: detached post-ack task failed`, {
+      error: detachedError instanceof Error ? detachedError.message : String(detachedError),
+    });
+  });
+  // Keep the node alive for the detached tail. `waitUntil` is always supplied by real nodes;
+  // the postAck already started executing regardless (the async fn runs eagerly).
+  options?.waitUntil?.(postAck);
+
+  return { $ack: true };
 }
 

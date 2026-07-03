@@ -323,6 +323,172 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // ============================================
+  // Continuation-only feasibility (Phase 1a): long callee, early-ack + fire-back,
+  // interleaved-call isolation. Proves DurableObjectState.waitUntil keeps a DO alive
+  // for a long post-ack fire-back (D15/criterion 10) and ALS isolation across early-ack.
+  // ============================================
+
+  // Long-running callee: early-acks, THEN does REAL multi-second post-ack work under
+  // ctx.waitUntil before returning. Writes an observable completion marker AFTER the delay,
+  // so a test can prove the ack returned BEFORE the chain finished (early-ack), and that the
+  // DO stayed alive for the whole post-ack tail. If the DO isn't kept alive, neither lands.
+  @mesh()
+  async slowEcho(value: string, delayMs: number): Promise<string> {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    this.ctx.storage.kv.put('slow_done', value);
+    return `echo: ${value}`;
+  }
+
+  async getSlowDone() {
+    return this.ctx.storage.kv.get('slow_done');
+  }
+
+  // Initiator: 4-arg call to a (possibly slow) callee; the handler stores the result in KV
+  // AND records the depth of the callContext it ran under (ALS survived the fire-back).
+  testCallSlow(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined,
+    value: string,
+    delayMs: number,
+  ): void {
+    const remote = this.ctn<TestDO>().slowEcho(value, delayMs);
+    this.lmz.call(calleeBindingName, calleeInstanceName, remote, this.ctn().handleResultWithContext(remote));
+  }
+
+  // Handler (non-@mesh — runs at __handleResponse with requireMeshDecorator:false) that
+  // captures the result plus the callContext it observed (proves ALS across the detached fire-back).
+  handleResultWithContext(result: any): void {
+    this.ctx.storage.kv.put('last_call_result', result);
+    const cc = this.lmz.callContext;
+    this.ctx.storage.kv.put('last_handler_callchain_len', cc?.callChain?.length ?? 0);
+    this.ctx.storage.kv.put('last_handler_origin', cc?.callChain?.[0]?.instanceName ?? null);
+  }
+
+  async getLastHandlerCallChainLen() {
+    return this.ctx.storage.kv.get('last_handler_callchain_len');
+  }
+
+  // Initiator: fire N concurrent 4-arg calls; each handler records its OWN result, so we can
+  // prove interleaved early-ack calls don't cross-contaminate (ALS/result isolation).
+  testCallMany(
+    calleeBindingName: string,
+    calleeInstanceName: string | undefined,
+    values: string[],
+    delayMs: number,
+  ): void {
+    for (const value of values) {
+      const remote = this.ctn<TestDO>().slowEcho(value, delayMs);
+      this.lmz.call(calleeBindingName, calleeInstanceName, remote, this.ctn().recordManyResult(value, remote));
+    }
+  }
+
+  // Handler for testCallMany: append {expected, actual, matches} to a KV array. The
+  // read-modify-write is synchronous (atomic within one __handleResponse invocation).
+  recordManyResult(expected: string, actual: any): void {
+    const existing = (this.ctx.storage.kv.get('many_results') as any[]) ?? [];
+    existing.push({ expected, actual, matches: actual === `echo: ${expected}` });
+    this.ctx.storage.kv.put('many_results', existing);
+  }
+
+  async getManyResults(): Promise<any[]> {
+    return (this.ctx.storage.kv.get('many_results') as any[]) ?? [];
+  }
+
+  // ============================================
+  // Continuation-only migration helpers: callee-side capture (3-arg) + outcome capture (4-arg).
+  // Replaces the awaited-callRaw pattern for asserting callContext propagation, callChain,
+  // state, @mesh/guard gating, and multi-hop — all through the real call()+fire-back path.
+  // ============================================
+
+  // Callee-side capture: store the callContext + own identity THIS callee observed, so a test
+  // can read it after a fire-and-forget 3-arg call (no awaited result needed).
+  @mesh()
+  captureContext(): void {
+    this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
+    this.ctx.storage.kv.put('observed_identity', {
+      bindingName: this.lmz.bindingName,
+      instanceName: this.lmz.instanceName,
+    });
+  }
+
+  async getObservedContext(): Promise<any> {
+    return this.ctx.storage.kv.get('observed_context');
+  }
+
+  async getObservedIdentity(): Promise<any> {
+    return this.ctx.storage.kv.get('observed_identity');
+  }
+
+  // Multi-hop: capture MY context, then fire an onward 3-arg call so the next hop captures too.
+  @mesh()
+  captureAndForward(nextBinding: string, nextInstance: string | undefined): void {
+    this.ctx.storage.kv.put('observed_context', this.lmz.callContext);
+    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext());
+  }
+
+  // State propagation: mutate callContext.state, then forward so downstream captures it.
+  @mesh()
+  setStateAndForward(nextBinding: string, nextInstance: string | undefined, key: string, value: unknown): void {
+    this.lmz.callContext.state[key] = value;
+    this.lmz.call(nextBinding, nextInstance, this.ctn<TestDO>().captureContext());
+  }
+
+  // Fire a 3-arg call to build `this.ctn()[method](...args)` on the target (fire-and-forget).
+  fireCall(binding: string, instance: string | undefined, method: string, args: any[] = []): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(binding, instance, remote);
+  }
+
+  // 4-arg call to an arbitrary @mesh method, capturing the delivered outcome (value OR Error).
+  // `state` seeds the outgoing callContext.state (used to satisfy @mesh guards).
+  callForOutcome(
+    binding: string,
+    instance: string | undefined,
+    method: string,
+    args: any[] = [],
+    state?: Record<string, unknown>,
+  ): void {
+    const remote = (this.ctn() as any)[method](...args);
+    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote), state ? { state } : undefined);
+  }
+
+  // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
+  // D6: the handler always receives handler($result) where $result is the value OR the Error.
+  handleOutcome(resultOrError: any): void {
+    if (resultOrError instanceof Error) {
+      this.ctx.storage.kv.put('last_call_error', resultOrError.message);
+    } else {
+      this.ctx.storage.kv.put('last_call_result', resultOrError);
+    }
+  }
+
+  // N8: a 4-arg handler that THROWS when it runs at the sink. Must be caught + logged, never crash
+  // the caller node. Writes a marker first so a test can confirm the handler actually ran.
+  throwAtSink(_result: any): void {
+    this.ctx.storage.kv.put('sink_handler_ran', true);
+    throw new Error('handler threw at the sink');
+  }
+  testCallThrowingHandler(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().remoteEcho('x');
+    this.lmz.call(binding, instance, remote, this.ctn().throwAtSink(remote));
+  }
+  async getSinkHandlerRan() {
+    return this.ctx.storage.kv.get('sink_handler_ran');
+  }
+
+  // A plain @mesh method for admission-reject tests (the callee's onBeforeCall does the rejecting).
+  @mesh()
+  ping(): string {
+    return 'pong';
+  }
+  // Initiator: 4-arg call to a callee that rejects at admission — the caller's handler must run
+  // LOCALLY with the Error (D6 tier 2, the early-ack reject path).
+  testCallToRejecter(binding: string, instance: string | undefined): void {
+    const remote = this.ctn<TestDO>().ping();
+    this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
+  }
+
+  // ============================================
   // Forwarded result storage (for Worker→DO→store pattern)
   // ============================================
 
@@ -740,15 +906,13 @@ export class TestDO extends LumenizeDO<Env> {
    * 2. Target receives, then calls back to Origin's receiveCallback method
    * 3. Origin stores the callback's callContext for verification
    */
-  @mesh()
-  async initiateTwoOneWayCall(
+  initiateTwoOneWayCall(
     targetBindingName: string,
     targetInstanceName: string,
     marker: string
-  ): Promise<void> {
-    // Call target, asking it to call us back
-    // We pass our identity so Target knows where to call back
-    await this.lmz.callRaw(
+  ): void {
+    // Fire a one-way call to target, asking it to call us back (we pass our identity).
+    this.lmz.call(
       targetBindingName,
       targetInstanceName,
       this.ctn<TestDO>().handleAndCallback(
@@ -760,14 +924,14 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   /**
-   * Target receives this call, then independently calls back to Origin
+   * Target receives this call, then independently fires a one-way callback to Origin.
    */
   @mesh()
-  async handleAndCallback(
+  handleAndCallback(
     callerBindingName: string,
     callerInstanceName: string,
     marker: string
-  ): Promise<string> {
+  ): void {
     // Store my callContext when I received this call
     const { callChain } = this.lmz.callContext;
     const myIncomingContext = {
@@ -775,16 +939,13 @@ export class TestDO extends LumenizeDO<Env> {
       caller: callChain.at(-1),
     };
 
-    // Now call back to the original caller
-    // This is an INDEPENDENT call, not a return value
-    // The callback's callContext should preserve the original origin
-    await this.lmz.callRaw(
+    // Fire an INDEPENDENT one-way callback to the original caller (not a return value).
+    // The callback's callContext preserves the original origin (callChain[0]).
+    this.lmz.call(
       callerBindingName,
       callerInstanceName,
       this.ctn<TestDO>().receiveCallback(marker, myIncomingContext)
     );
-
-    return 'callback-sent';
   }
 
   /**
@@ -1085,6 +1246,13 @@ export class TestWorker extends LumenizeWorker<Env> {
     );
   }
 
+  // Worker calls another Worker; the result handler (on a fresh instance) forwards to a store DO.
+  testCallToWorker(value: string, resultStoreDOInstance: string): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    const remote = this.ctn<TestWorker>().workerEcho(value);
+    this.lmz.call('TEST_WORKER', undefined, remote, this.ctn().forwardResultToDO(resultStoreDOInstance, remote));
+  }
+
   // Worker calls DO remoteEcho without handler (fire-and-forget)
   testCallFireAndForget(
     doBindingName: string,
@@ -1102,23 +1270,18 @@ export class TestWorker extends LumenizeWorker<Env> {
     this.lmz.call('TEST_DO', 'some-instance', remote);
   }
 
-  // Result handler: forwards result to a DO for persistence (no @mesh needed)
-  async forwardResultToDO(resultStoreDOInstance: string, result: any): Promise<void> {
-    await this.lmz.callRaw(
-      'TEST_DO',
-      resultStoreDOInstance,
-      this.ctn<TestDO>().storeForwardedResult(result)
-    );
+  // Result handler (runs on a fresh tier Worker instance via __handleResponse — the handler
+  // travels, svc.broadcast pin a): fire a one-way call to persist the result on a DO.
+  forwardResultToDO(resultStoreDOInstance: string, result: any): void {
+    this.lmz.call('TEST_DO', resultStoreDOInstance, this.ctn<TestDO>().storeForwardedResult(result));
   }
 
-  // Result handler: forwards error to a DO for persistence (no @mesh needed)
-  async forwardErrorToDO(resultStoreDOInstance: string, error: any): Promise<void> {
-    await this.lmz.callRaw(
+  // Error-path handler: fire a one-way call to persist the error message on a DO.
+  forwardErrorToDO(resultStoreDOInstance: string, error: any): void {
+    this.lmz.call(
       'TEST_DO',
       resultStoreDOInstance,
-      this.ctn<TestDO>().storeForwardedError(
-        error instanceof Error ? error.message : String(error)
-      )
+      this.ctn<TestDO>().storeForwardedError(error instanceof Error ? error.message : String(error)),
     );
   }
 
@@ -1159,22 +1322,16 @@ export class TestWorker extends LumenizeWorker<Env> {
     return callChain.at(-1);
   }
 
-  // Worker that forwards call to a DO and returns both contexts
+  // Worker hop for the DO→Worker→DO chain: fire a one-way call so the downstream DO captures
+  // the propagated callContext (which will show the Worker as callChain's last hop). The Worker
+  // is stateless, so it can't store its own view — the downstream DO's captured callChain proves
+  // the Worker propagated correctly.
   @mesh()
-  async forwardToDO(
+  forwardCapture(
     doBindingName: string,
     doInstanceName: string
-  ) {
-    const myContext = this.lmz.callContext;
-    const doContext = await this.lmz.callRaw(
-      doBindingName,
-      doInstanceName,
-      this.ctn<TestDO>().getCallContext()
-    );
-    return {
-      workerContext: myContext,
-      doContext
-    };
+  ): void {
+    this.lmz.call(doBindingName, doInstanceName, this.ctn<TestDO>().captureContext());
   }
 
   // ============================================
@@ -1283,6 +1440,19 @@ export class AlarmTestDO extends LumenizeDO<Env> {
   // Test helper: Manually trigger alarms for testing (uses 2ms wait)
   async triggerAlarms(count?: number) {
     return await this.svc.alarms.triggerAlarms(count);
+  }
+}
+
+// A DO that rejects EVERY incoming call at admission (its onBeforeCall throws). Used to exercise
+// the D6 tier-2 early-ack reject path: the caller's handler runs LOCALLY with the Error.
+export class RejectingDO extends LumenizeDO<Env> {
+  override onBeforeCall(): void {
+    throw new Error('admission rejected by onBeforeCall');
+  }
+
+  @mesh()
+  ping(): string {
+    return 'should-never-run';
   }
 }
 

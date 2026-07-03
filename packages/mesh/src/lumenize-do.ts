@@ -273,36 +273,6 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Execute an OCAN (Operation Chaining And Nesting) operation chain on this DO.
-   *
-   * This method enables remote DOs to call methods on this DO via this.lmz.call().
-   * Any DO extending LumenizeDO can receive remote calls without additional setup.
-   *
-   * **Security**: This method always enforces @mesh decorator requirement for
-   * incoming calls. The options parameter is intentionally not exposed - use the
-   * private `#executeChainLocal()` method for internal calls that need to bypass
-   * the @mesh check.
-   *
-   * @internal This is called by this.lmz.call(), not meant for direct use
-   * @param chain - The operation chain to execute
-   * @returns The result of executing the operation chain
-   *
-   * @example
-   * ```typescript
-   * // Remote DO sends this chain:
-   * const remote = this.ctn<MyDO>().getUserData(userId);
-   *
-   * // This DO receives and executes it:
-   * const result = await this.__executeChain(remote);
-   * // Equivalent to: this.getUserData(userId)
-   * ```
-   */
-  async __executeChain(chain: OperationChain): Promise<any> {
-    // Always require @mesh decorator for RPC-exposed method (secure by default)
-    return await executeOperationChain(chain, this);
-  }
-
-  /**
    * Execute an operation chain locally with configurable options
    *
    * This is a TRUE PRIVATE method (using #) so it cannot be called via RPC.
@@ -362,6 +332,34 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     return await executeEnvelope(envelope, this, {
       nodeTypeName: 'LumenizeDO',
       includeInstanceName: true,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
+      onValidationError: (error, details) => {
+        log.error(error.message.split('.')[0], details);
+      },
+    });
+  }
+
+  /**
+   * Receive a fire-back response (the callee-authored 4-arg handler filled with a result
+   * or Error) — the SECOND mesh RPC entry (D5/D17). Routes through the SAME shared
+   * `executeEnvelope` path as `__executeOperation`, but with `requireMeshDecorator: false`:
+   * `onBeforeCall`/`enforceScopeReach` STILL runs (the response leg is scope-gated by
+   * construction, D5), only the per-method @mesh allowlist is skipped — the handler is the
+   * caller's own continuation, not an app-exposed method (D10). Address-selected, never
+   * envelope-content-selected: knocking on this door is what turns the @mesh gate off.
+   *
+   * @internal Fired at by the framework, not for direct use.
+   */
+  async __handleResponse(envelope: CallEnvelope): Promise<any> {
+    const log = debug('lmz.mesh.LumenizeDO.__handleResponse');
+
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeDO',
+      includeInstanceName: true,
+      requireMeshDecorator: false,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
       onValidationError: (error, details) => {
         log.error(error.message.split('.')[0], details);
       },

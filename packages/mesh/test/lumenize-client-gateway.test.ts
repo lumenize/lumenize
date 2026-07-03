@@ -170,6 +170,7 @@ describe('LumenizeClientGateway', () => {
       // Send a call to EchoDO
       const callMessage: CallMessage = {
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'test-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-instance-1',
@@ -260,6 +261,7 @@ describe('LumenizeClientGateway', () => {
       // Call EchoDO to inspect context
       const callMessage: CallMessage = {
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'auth-test-call',
         binding: 'ECHO_DO',
         instance: 'echo-auth-test',
@@ -387,6 +389,7 @@ describe('LumenizeClientGateway', () => {
 
       const callMessage: CallMessage = {
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'supersession-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-supersession-1',
@@ -583,6 +586,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'post-unknown-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-unknown',
@@ -617,6 +621,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'post-badjson-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-badjson',
@@ -649,6 +654,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'worker-call-1',
         binding: 'TEST_WORKER',
         chain,
@@ -680,6 +686,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'error-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-error-test',
@@ -722,6 +729,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'post-icr-call',
         binding: 'ECHO_DO',
         instance: 'echo-post-icr',
@@ -754,6 +762,7 @@ describe('LumenizeClientGateway', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'state-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-state-test',
@@ -817,6 +826,7 @@ describe('LumenizeClientGateway', () => {
       // Send a message — should trigger token expiry check and close
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'expired-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-expired',
@@ -1228,6 +1238,7 @@ describe('CustomGateway (hook overrides)', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'cg-bind-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-bind',
@@ -1274,6 +1285,7 @@ describe('CustomGateway (hook overrides)', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'cg-claims-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-claims',
@@ -1329,6 +1341,7 @@ describe('CustomGateway (hook overrides)', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'cg-enrich-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-enrich',
@@ -1374,6 +1387,7 @@ describe('CustomGateway (hook overrides)', () => {
       // Client sends state with a custom key
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'cg-merge-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-merge',
@@ -1528,6 +1542,7 @@ describe('CustomGateway (hook overrides)', () => {
 
       ws.send(JSON.stringify({
         type: GatewayMessageType.CALL,
+        expectsResult: true,
         callId: 'cg-e2e-call-1',
         binding: 'ECHO_DO',
         instance: 'echo-cg-e2e',

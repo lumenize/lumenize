@@ -150,6 +150,21 @@ class TestClient extends LumenizeClient {
     return `Received: ${text}`;
   }
 
+  // Continuation-only: capture a 4-arg call's delivered outcome (value OR Error) for assertions.
+  // Runs as the in-heap handler when a RESULT arrives (requireMeshDecorator:false — no @mesh needed).
+  #lastCallOutcome: any = undefined;
+  #callOutcomeCount = 0;
+  captureOutcome(resultOrError: any): void {
+    this.#lastCallOutcome = resultOrError;
+    this.#callOutcomeCount += 1;
+  }
+  getLastCallOutcome(): any {
+    return this.#lastCallOutcome;
+  }
+  getCallOutcomeCount(): number {
+    return this.#callOutcomeCount;
+  }
+
   // Non-mesh method for testing access control
   privateMethod(): string {
     return 'This should not be callable from mesh';
@@ -678,11 +693,8 @@ describe('Message Queue', () => {
     // WebSocket is connecting, not open yet
     expect(createdWebSockets[0].readyState).toBe(MockWebSocket.CONNECTING);
 
-    // Make a call - it should be queued, not sent
-    const callPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
-      { type: 'get', key: 'someMethod' },
-      { type: 'apply', args: [] }
-    ]);
+    // Make a fire-and-forget call — it should be queued, not sent (not connected yet).
+    client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
 
     // Check no messages were sent yet
     expect(createdWebSockets[0].getSentMessages().length).toBe(0);
@@ -699,10 +711,7 @@ describe('Message Queue', () => {
     });
 
     // Make a call while connecting
-    client.lmz.callRaw('SOME_DO', 'instance1', [
-      { type: 'get', key: 'someMethod' },
-      { type: 'apply', args: [] }
-    ]);
+    client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
 
     // Simulate connection
     const ws = createdWebSockets[0];
@@ -1207,7 +1216,7 @@ describe('Message queue overflow', () => {
     createdWebSockets = [];
   });
 
-  it('rejects when message queue is full', async () => {
+  it('bounds the message queue at MAX_QUEUE_SIZE (overflow is dropped)', () => {
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1215,19 +1224,19 @@ describe('Message queue overflow', () => {
       WebSocket: createMockWebSocketClass(),
     });
 
-    // Queue up many calls while not connected
-    const promises: Promise<any>[] = [];
-    for (let i = 0; i < 101; i++) {
-      promises.push(
-        client.lmz.callRaw('SOME_DO', 'instance1', [
-          { type: 'get', key: 'someMethod' },
-          { type: 'apply', args: [i] }
-        ])
-      );
+    // Fire many fire-and-forget calls while not connected — they queue. Overflow past the cap is
+    // dropped (a client re-issues on reconnect; there is no awaited Promise to reject).
+    for (let i = 0; i < 150; i++) {
+      client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod(i));
     }
 
-    // The 101st call should be rejected with 'Message queue full'
-    await expect(promises[100]).rejects.toThrow('Message queue full');
+    // On connect the queue flushes; at most MAX_QUEUE_SIZE (100) messages survived.
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    expect(ws.getSentMessages().length).toBeLessThanOrEqual(100);
+    expect(ws.getSentMessages().length).toBeGreaterThan(0);
 
     client.disconnect();
   });
@@ -1384,7 +1393,7 @@ describe('Message handling edge cases', () => {
     client.disconnect();
   });
 
-  it('resolves pending call on successful call_response', async () => {
+  it('runs the in-heap handler on a successful RESULT', async () => {
     const { preprocess: pp } = await import('@lumenize/structured-clone');
     const client = new TestClient({
       instanceName: 'user.tab1',
@@ -1395,36 +1404,30 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
-    ws.simulateMessage(JSON.stringify({
-      type: 'connection_status',
-      subscriptionRequired: false,
-    }));
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
 
-    // Make a call
-    const resultPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
-      { type: 'get', key: 'someMethod' },
-      { type: 'apply', args: [] },
-    ]);
+    // 4-arg call — the handler stays in-heap keyed by callId; nothing is awaited.
+    const remote = (client.ctn() as any).someMethod();
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
 
-    // Extract the callId from the sent message
     const sentMsg = JSON.parse(ws.getSentMessages()[0]);
+    expect(sentMsg.expectsResult).toBe(true); // 4-arg → the Gateway attaches a fire-back descriptor
     const callId = sentMsg.callId;
 
-    // Simulate a successful response
-    ws.simulateMessage(JSON.stringify({
-      type: 'call_response',
-      callId,
-      success: true,
-      result: pp('hello-result'),
-    }));
+    // The RESULT re-resolves to the current socket; the in-heap handler runs with the value.
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('hello-result') }));
 
-    const result = await resultPromise;
-    expect(result).toBe('hello-result');
+    await vi.waitFor(() => { expect(client.getLastCallOutcome()).toBe('hello-result'); });
+
+    // Dedup (M4): a duplicate RESULT for the same callId is dropped (handler already removed).
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('again') }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(client.getCallOutcomeCount()).toBe(1);
 
     client.disconnect();
   });
 
-  it('rejects pending call on error call_response', async () => {
+  it('runs the in-heap handler with the Error on an error RESULT (never stranded — Q4)', async () => {
     const { preprocess: pp } = await import('@lumenize/structured-clone');
     const client = new TestClient({
       instanceName: 'user.tab1',
@@ -1435,29 +1438,22 @@ describe('Message handling edge cases', () => {
 
     const ws = createdWebSockets[0];
     ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    const remote = (client.ctn() as any).someMethod();
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
+
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
     ws.simulateMessage(JSON.stringify({
-      type: 'connection_status',
-      subscriptionRequired: false,
+      type: 'call_response', callId, success: false, error: pp(new Error('Something went wrong')),
     }));
 
-    // Make a call
-    const resultPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
-      { type: 'get', key: 'someMethod' },
-      { type: 'apply', args: [] },
-    ]);
-
-    const sentMsg = JSON.parse(ws.getSentMessages()[0]);
-    const callId = sentMsg.callId;
-
-    // Simulate an error response
-    ws.simulateMessage(JSON.stringify({
-      type: 'call_response',
-      callId,
-      success: false,
-      error: pp(new Error('Something went wrong')),
-    }));
-
-    await expect(resultPromise).rejects.toThrow('Something went wrong');
+    await vi.waitFor(() => {
+      const outcome = client.getLastCallOutcome();
+      expect(outcome).toBeInstanceOf(Error);
+      expect(outcome.message).toBe('Something went wrong');
+    });
 
     client.disconnect();
   });
@@ -1563,7 +1559,8 @@ describe('Disconnect cleanup', () => {
     createdWebSockets = [];
   });
 
-  it('rejects pending calls on disconnect', async () => {
+  it('drops in-heap call handlers on explicit disconnect (no result will arrive)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
     const client = new TestClient({
       instanceName: 'user.tab1',
       baseUrl: 'wss://example.com',
@@ -1571,16 +1568,21 @@ describe('Disconnect cleanup', () => {
       WebSocket: createMockWebSocketClass(),
     });
 
-    // Make a call while connecting (not connected yet so message is queued)
-    const callPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
-      { type: 'get', key: 'someMethod' },
-      { type: 'apply', args: [] },
-    ]);
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
 
-    // Disconnect before response
+    // 4-arg call — handler goes in-heap keyed by callId.
+    const remote = (client.ctn() as any).someMethod();
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    // Explicit disconnect is a deliberate discard — the in-heap handler is dropped. A late RESULT
+    // arriving after disconnect finds no handler and is ignored (the client re-issues on reload, D8).
     client.disconnect();
-
-    await expect(callPromise).rejects.toThrow('Client disconnected');
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('late') }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(client.getLastCallOutcome()).toBeUndefined();
   });
 
   it('clears reconnect timer on disconnect', () => {

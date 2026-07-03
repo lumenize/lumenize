@@ -6,6 +6,7 @@ import {
   newContinuation,
   executeOperationChain,
   getOperationChain,
+  replaceNestedOperationMarkers,
   type OperationChain,
   type Continuation,
   type AnyContinuation,
@@ -15,7 +16,6 @@ import {
 export type { Continuation, AnyContinuation };
 import {
   extractCallChains,
-  setupFireAndForgetHandler,
   type CallEnvelope,
 } from './lmz-api.js';
 
@@ -338,11 +338,18 @@ export interface LmzApiClient {
 // Internal Types
 // ============================================
 
-/** Pending call waiting for response */
-interface PendingCall {
-  resolve: (result: any) => void;
-  reject: (error: Error) => void;
-  timeoutId?: ReturnType<typeof setTimeout>;
+/**
+ * A 4-arg `call()`'s response handler, kept IN-HEAP keyed by callId (D16). The JS heap survives
+ * a tab freeze AND a WebSocket reconnect, so the handler outlives every failure short of
+ * discard/reload — the client bug this fixes is delivery-bound-to-a-transient-socket, not holding
+ * the handler. `capturedContext` is the callContext active at the call site, restored when the
+ * RESULT arrives so the handler (and any nested `call`) sees the right context.
+ */
+interface InHeapHandler {
+  handlerChain: OperationChain;
+  capturedContext: CallContext | undefined;
+  /** When true, run the handler only on an error RESULT (skip the success path — N6). */
+  onErrorOnly: boolean;
 }
 
 /** Queued message waiting for connection */
@@ -391,7 +398,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #accessToken: string | null = null;
   #claims: Readonly<TClaims> | null = null;
   #refreshInFlight: Promise<void> | null = null;
-  #pendingCalls = new Map<string, PendingCall>();
+  // D16: 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
+  #inHeapHandlers = new Map<string, InHeapHandler>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
   #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
@@ -539,21 +547,21 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
         return self.#currentCallContext;
       },
 
-      // Public callRaw doesn't take parentContext — the public API shape stays
-      // backward compatible. Internally, we capture #currentCallContext at the
-      // sync call site and pass it through to the renamed-internal #callRaw.
+      // callRaw REMOVED (mesh-continuation-only-calls): the client never awaits a result — it
+      // keeps its handler in-heap (D16) and delivery re-resolves to the current socket. Retained
+      // @deprecated on the surface for one release so unmigrated call sites type-check.
       callRaw: (
-        calleeBindingName: string,
-        calleeInstanceNameOrId: string | undefined,
-        chainOrContinuation: OperationChain | Continuation<any>,
-        options?: CallOptions,
-      ) => self.#callRaw(
-        calleeBindingName,
-        calleeInstanceNameOrId,
-        chainOrContinuation,
-        self.#currentCallContext ?? undefined,
-        options,
-      ),
+        _calleeBindingName: string,
+        _calleeInstanceNameOrId: string | undefined,
+        _chainOrContinuation: OperationChain | Continuation<any>,
+        _options?: CallOptions,
+      ): Promise<any> => {
+        throw new Error(
+          'client.lmz.callRaw() has been removed: a client call never awaits a result (the client ' +
+          'keeps its handler in-heap and delivery re-resolves to the current socket). Use ' +
+          'client.lmz.call(binding, instance, remote, this.ctn().handler(remote)).'
+        );
+      },
       call: self.#call.bind(self),
     };
 
@@ -617,12 +625,10 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       this.#ws = null;
     }
 
-    // Reject all pending calls
-    for (const [callId, pending] of this.#pendingCalls) {
-      if (pending.timeoutId) clearTimeout(pending.timeoutId);
-      pending.reject(new Error('Client disconnected'));
-    }
-    this.#pendingCalls.clear();
+    // Explicit teardown: drop in-heap 4-arg handlers (no result will arrive). A transient WS
+    // drop/reconnect does NOT reach here — those handlers survive in the heap (D16); on a full
+    // reload the client re-issues + reconciles (D8). disconnect() is a deliberate discard.
+    this.#inHeapHandlers.clear();
 
     // Reject all queued messages
     for (const queued of this.#messageQueue) {
@@ -1162,26 +1168,49 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
   }
 
+  /**
+   * Handle a RESULT for a client-originated 4-arg call (D16). Looks up the IN-HEAP handler by
+   * callId, runs it with the delivered value OR Error (D6 — `handler($result)`), and removes it.
+   * The delete-on-delivery IS the dedup: a duplicate RESULT for the same callId finds no handler
+   * and is dropped (M4). An unknown callId (a 3-arg call, or an already-handled one) is dropped.
+   */
   #handleCallResponse(message: CallResponseMessage): void {
-    const pending = this.#pendingCalls.get(message.callId);
-    if (!pending) {
-      const log = this.#debugFactory('lmz.mesh.LumenizeClient.#handleCallResponse');
-      log.warn('Received response for unknown call', { callId: message.callId });
+    const handler = this.#inHeapHandlers.get(message.callId);
+    if (!handler) {
+      // No in-heap handler: a 3-arg fire-and-forget call, a duplicate RESULT (dedup), or an
+      // unknown callId. All are safely dropped — never a stranded Promise.
       return;
     }
+    this.#inHeapHandlers.delete(message.callId);
 
-    // Clear timeout and remove from pending
-    if (pending.timeoutId) clearTimeout(pending.timeoutId);
-    this.#pendingCalls.delete(message.callId);
+    // onErrorOnly (N6): skip the handler on a success RESULT (still removed above → dedup holds).
+    if (handler.onErrorOnly && message.success) return;
 
-    // Resolve or reject
-    // Note: result/error are preprocessed by Gateway, postprocess them here
-    if (message.success) {
-      pending.resolve(postprocess(message.result));
-    } else {
-      const error = postprocess(message.error);
-      pending.reject(error instanceof Error ? error : new Error(String(error)));
-    }
+    // result/error are preprocessed by the Gateway — postprocess here.
+    const resultOrError = message.success
+      ? postprocess(message.result)
+      : (() => {
+          const e = postprocess(message.error);
+          return e instanceof Error ? e : new Error(String(e));
+        })();
+
+    // Run the handler under the captured call-site context (so it, and any nested call, see the
+    // right context). Fire-and-forget with a defensive catch — a throwing handler must not crash.
+    const finalChain = replaceNestedOperationMarkers(handler.handlerChain, resultOrError);
+    const runHandler = async () => {
+      const prev = this.#currentCallContext;
+      this.#currentCallContext = handler.capturedContext ?? null;
+      try {
+        await executeOperationChain(finalChain, this, { requireMeshDecorator: false });
+      } finally {
+        this.#currentCallContext = prev;
+      }
+    };
+    runHandler().catch((err) => {
+      this.#debugFactory('lmz.mesh.LumenizeClient.#handleCallResponse').error(
+        'in-heap call handler threw', { callId: message.callId, error: err instanceof Error ? err.message : String(err) },
+      );
+    });
   }
 
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
@@ -1292,56 +1321,45 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   // Private - RPC Methods
   // ============================================
 
-  async #callRaw(
+  /**
+   * Send a CALL message (no awaited Promise — the client never blocks on a result). `expectsResult`
+   * tells the Gateway whether to attach a fire-back descriptor (4-arg → the callee fires a RESULT
+   * back for this callId) or treat it as truly fire-and-forget (3-arg).
+   */
+  #sendCall(
+    callId: string,
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     chainOrContinuation: OperationChain | Continuation<any>,
     parentContext: CallContext | undefined,
+    expectsResult: boolean,
     options?: CallOptions
-  ): Promise<any> {
-    // Extract chain from continuation if needed
+  ): void {
     const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
 
-    // Generate call ID
-    const callId = crypto.randomUUID();
-
-    // Build call context for outgoing call
     const callerIdentity: NodeIdentity = {
       type: 'LumenizeClient',
       bindingName: this.#config.gatewayBindingName,
       instanceName: this.#instanceName!,
     };
-
     const callContext = buildClientOutgoingContext(callerIdentity, parentContext, options);
 
-    // Preprocess fields that may contain extended types (Maps, Sets, etc.)
-    // See CallMessage interface for serialization rules
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
       binding: calleeBindingName,
       instance: calleeInstanceNameOrId,
       chain: preprocess(chain),
+      expectsResult,
       callContext: {
-        callChain: callContext.callChain,  // Plain strings - no preprocessing
+        callChain: callContext.callChain,      // Plain strings - no preprocessing
         state: preprocess(callContext.state),  // User-defined - may contain extended types
       },
     };
 
-    const messageStr = JSON.stringify(message);
-
-    // Notify caller of the assigned callId before send/queue, so instrumentation
-    // can correlate this call with later inbound frames.
+    // Notify caller of the assigned callId before send/queue, so instrumentation can correlate.
     options?.onSent?.(callId);
-
-    // Create promise for response
-    return new Promise<any>((resolve, reject) => {
-      // Track pending call
-      this.#pendingCalls.set(callId, { resolve, reject });
-
-      // Send or queue
-      this.#sendOrQueue(messageStr, callId, resolve, reject);
-    });
+    this.#sendOrQueue(JSON.stringify(message), callId);
   }
 
   #call<T = any>(
@@ -1351,43 +1369,21 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void {
-    // 1. Extract and validate chains
+    // 1. Extract + validate chains (sync-throw on an invalid continuation — D6 tier 1).
     const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
-    // 2. Capture the parent context SYNCHRONOUSLY at this call site. This is
-    // the context active when user code invokes `this.lmz.call(...)`. We snapshot
-    // it now (in closure) so the outgoing call and any handler restoration use
-    // the correct value regardless of what happens to `#currentCallContext`
-    // later. (Inheritance was previously done via ALS lookup in
-    // `buildOutgoingCallContext`; we now thread it explicitly.)
+    // 2. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
     const capturedContext = this.#currentCallContext ?? undefined;
 
-    // 3. Handler executor: when the response arrives, temporarily restore
-    // `#currentCallContext` to the captured value so handler code (and any
-    // nested `lmz.call` it triggers) sees the same context that was active at
-    // the outgoing call site.
-    const executeHandler = async (chain: OperationChain): Promise<any> => {
-      const prev = this.#currentCallContext;
-      this.#currentCallContext = capturedContext ?? null;
-      try {
-        return await executeOperationChain(chain, this, { requireMeshDecorator: false });
-      } finally {
-        this.#currentCallContext = prev;
-      }
-    };
+    // 3. A 4-arg call keeps its handler IN-HEAP keyed by callId (D16) — it survives tab freeze +
+    //    reconnect, and the RESULT re-resolves to the current socket. A 3-arg call is truly
+    //    fire-and-forget (no in-heap entry; expectsResult:false).
+    const callId = crypto.randomUUID();
+    if (handlerChain) {
+      this.#inHeapHandlers.set(callId, { handlerChain, capturedContext, onErrorOnly: options?.onErrorOnly === true });
+    }
 
-    // 4. Make the remote call with the explicit parent context.
-    const callPromise = this.#callRaw(
-      calleeBindingName,
-      calleeInstanceNameOrId,
-      remoteChain,
-      capturedContext,
-      options,
-    );
-
-    // 5. Fire-and-forget with handler callbacks (shared helper, no ALS needed).
-    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler, {
-      onErrorOnly: options?.onErrorOnly,
-    });
+    // 4. Send the CALL (no handler travels).
+    this.#sendCall(callId, calleeBindingName, calleeInstanceNameOrId, remoteChain, capturedContext, !!handlerChain, options);
   }
 }

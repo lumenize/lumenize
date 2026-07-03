@@ -58,6 +58,10 @@
       {
         "name": "CUSTOM_GATEWAY",
         "class_name": "CustomGateway"
+      },
+      {
+        "name": "REJECTING_DO",
+        "class_name": "RejectingDO"
       }
     ]
   },
@@ -89,6 +93,10 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["OnRequestTestDO"]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["RejectingDO"]
     }
   ],
   "ratelimits": [

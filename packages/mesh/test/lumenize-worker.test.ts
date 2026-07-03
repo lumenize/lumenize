@@ -95,32 +95,17 @@ describe('LumenizeWorker - Direct Method Execution', () => {
   });
 });
 
-describe('LumenizeWorker - callRaw() RPC Calls', () => {
-  test('Worker→DO callRaw returns result', async () => {
-    const result = await env.TEST_WORKER.testCallRawToDO(
-      'TEST_DO',
-      'worker-callraw-do-1',
-      'hello-from-worker'
-    );
-    expect(result).toBe('echo: hello-from-worker');
-  });
-
-  test('Worker→Worker callRaw returns result', async () => {
-    const result = await env.TEST_WORKER.testCallRawToWorker(
-      'TEST_WORKER',
-      'hello-worker-to-worker'
-    );
-    expect(result).toBe('worker-echo: hello-worker-to-worker');
-  });
-
-  test('Worker→DO callRaw propagates errors', async () => {
-    await expect(
-      env.TEST_WORKER.testCallRawToDOThrowError('TEST_DO', 'worker-callraw-error-1')
-    ).rejects.toThrow('Remote error for testing');
-  });
-});
-
 describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
+  test('Worker→Worker call: result handler forwards to a store DO', async () => {
+    const storeDO = env.TEST_DO.getByName('worker-to-worker-store-1');
+
+    await env.TEST_WORKER.testCallToWorker('hello-worker-to-worker', 'worker-to-worker-store-1');
+
+    await vi.waitFor(async () => {
+      expect(await storeDO.getForwardedResult()).toBe('worker-echo: hello-worker-to-worker');
+    });
+  });
+
   test('result handler receives success result', async () => {
     const storeDO = env.TEST_DO.getByName('worker-call-result-store-1');
 
@@ -181,7 +166,8 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
   test('DO→Worker error: DO result handler receives error from Worker throwError', async () => {
     const callerDO = env.TEST_DO.getByName('do-worker-error-caller-1');
 
-    await callerDO.testLmzApiInit({ bindingName: 'TEST_DO' });
+    // Real identity so the Worker can fire the error back to this DO.
+    await callerDO.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do-worker-error-caller-1' });
 
     // DO calls Worker throwError, DO result handler stores error
     callerDO.testCallWithErrorToWorker('TEST_WORKER');

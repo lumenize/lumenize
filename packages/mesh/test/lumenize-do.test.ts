@@ -438,32 +438,44 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
     });
   });
 
-  describe('this.lmz.callRaw() - RPC Infrastructure', () => {
-    describe('DO→DO Calls with Continuation', () => {
-      it('successfully calls remote DO and returns result', async () => {
+  describe('this.lmz.call() - DO→DO request envelope + result', () => {
+    describe('Result delivery (4-arg → fire-back)', () => {
+      it('delivers the remote result to the handler', async () => {
         const caller = env.TEST_DO.getByName('callraw-caller-1');
-        const callee = env.TEST_DO.getByName('callraw-callee-1');
-        
-        // Initialize caller identity
-        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-1' });
-        
-        // Make RPC call
-        const result = await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-1', 'hello');
-        
-        expect(result).toBe('echo: hello');
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'callraw-caller-1' });
+
+        caller.callForOutcome('TEST_DO', 'callraw-callee-1', 'remoteEcho', ['hello']);
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallResult()).toBe('echo: hello');
+        });
       });
 
-      it('propagates caller metadata to callee', async () => {
+      it('extracts the OperationChain from the continuation internally', async () => {
+        const caller = env.TEST_DO.getByName('input-caller-2');
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'input-caller-2' });
+
+        caller.callForOutcome('TEST_DO', 'input-callee-2', 'remoteEcho', ['verified']);
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallResult()).toBe('echo: verified');
+        });
+      });
+    });
+
+    describe('Request envelope structure (via 3-arg call, read on the callee)', () => {
+      it('propagates caller metadata to the callee', async () => {
         const caller = env.TEST_DO.getByName('callraw-caller-2');
         const callee = env.TEST_DO.getByName('callraw-callee-2');
-        
-        // Initialize caller identity
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-2' });
-        
-        // Make call and get envelope from callee
-        await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-2', 'test');
-        const envelope = await callee.getLastEnvelope();
-        
+
+        caller.fireCall('TEST_DO', 'callraw-callee-2', 'remoteEcho', ['test']);
+
+        const envelope = await vi.waitFor(async () => {
+          const e = await callee.getLastEnvelope();
+          expect(e).toBeTruthy();
+          return e;
+        });
         expect(envelope.version).toBe(1);
         expect(envelope.metadata.caller.type).toBe('LumenizeDO');
         expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
@@ -473,13 +485,15 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('propagates callee metadata for auto-initialization', async () => {
         const caller = env.TEST_DO.getByName('callraw-caller-3');
         const callee = env.TEST_DO.getByName('callraw-callee-3');
-        
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        // Make call
-        await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-3', 'test');
-        const envelope = await callee.getLastEnvelope();
-        
+
+        caller.fireCall('TEST_DO', 'callraw-callee-3', 'remoteEcho', ['test']);
+
+        const envelope = await vi.waitFor(async () => {
+          const e = await callee.getLastEnvelope();
+          expect(e).toBeTruthy();
+          return e;
+        });
         expect(envelope.metadata.callee.type).toBe('LumenizeDO');
         expect(envelope.metadata.callee.bindingName).toBe('TEST_DO');
         expect(envelope.metadata.callee.instanceName).toBe('callraw-callee-3');
@@ -488,124 +502,39 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('auto-initializes callee identity from envelope metadata', async () => {
         const caller = env.TEST_DO.getByName('callraw-caller-4');
         const callee = env.TEST_DO.getByName('callraw-callee-4');
-        
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        // Verify callee has no identity before the call
-        const identityBefore = await callee.getCallerIdentity();
+
+        const identityBefore = await callee.getCalleeIdentity();
         expect(identityBefore.bindingName).toBeUndefined();
-        expect(identityBefore.instanceName).toBeUndefined(); // instanceName is undefined until set
-        
-        // Make call - should auto-initialize callee from envelope metadata
-        await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-4', 'test');
-        
-        // Verify callee now knows its full identity
-        const identityAfter = await callee.getCallerIdentity();
-        expect(identityAfter.bindingName).toBe('TEST_DO');
-        expect(identityAfter.instanceName).toBe('callraw-callee-4');
-      });
-    });
+        expect(identityBefore.instanceName).toBeUndefined();
 
-    describe('Envelope Structure', () => {
-      it('creates valid v1 envelope', async () => {
-        const caller = env.TEST_DO.getByName('envelope-caller-1');
-        const callee = env.TEST_DO.getByName('envelope-callee-1');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-1' });
-        await caller.testCallRawWithContinuation('TEST_DO', 'envelope-callee-1', 'test');
-        
-        const envelope = await callee.getLastEnvelope();
-        
-        expect(envelope).toHaveProperty('version', 1);
-        expect(envelope).toHaveProperty('chain');
-        expect(envelope).toHaveProperty('metadata');
-      });
+        caller.fireCall('TEST_DO', 'callraw-callee-4', 'remoteEcho', ['test']);
 
-      it('includes preprocessed operation chain', async () => {
-        const caller = env.TEST_DO.getByName('envelope-caller-2');
-        const callee = env.TEST_DO.getByName('envelope-callee-2');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        await caller.testCallRawWithContinuation('TEST_DO', 'envelope-callee-2', 'test');
-        
-        const envelope = await callee.getLastEnvelope();
-        
-        // Chain should be preprocessed (not the original operation chain)
-        expect(envelope.chain).toBeDefined();
-        expect(typeof envelope.chain).toBe('object');
-      });
-
-      it('includes complete metadata structure', async () => {
-        const caller = env.TEST_DO.getByName('envelope-caller-3');
-        const callee = env.TEST_DO.getByName('envelope-callee-3');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
-        await caller.testCallRawWithContinuation('TEST_DO', 'envelope-callee-3', 'test');
-        
-        const envelope = await callee.getLastEnvelope();
-        
-        expect(envelope.metadata).toMatchObject({
-          caller: {
-            type: 'LumenizeDO',
-            bindingName: 'CALLER_DO',
-            instanceName: 'caller-3'
-          },
-          callee: {
-            type: 'LumenizeDO',
-            bindingName: 'TEST_DO',
-            instanceName: 'envelope-callee-3'
-          }
+        await vi.waitFor(async () => {
+          const identityAfter = await callee.getCalleeIdentity();
+          expect(identityAfter.bindingName).toBe('TEST_DO');
+          expect(identityAfter.instanceName).toBe('callraw-callee-4');
         });
       });
-    });
 
-    describe('Accepts Continuation Input', () => {
-      it('works with Continuation from this.ctn()', async () => {
-        const caller = env.TEST_DO.getByName('input-caller-1');
-        const callee = env.TEST_DO.getByName('input-callee-1');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        const result = await caller.testCallRawWithContinuation('TEST_DO', 'input-callee-1', 'test-continuation');
-        expect(result).toBe('echo: test-continuation');
-      });
+      it('creates a valid v1 envelope with a preprocessed chain + complete metadata', async () => {
+        const caller = env.TEST_DO.getByName('envelope-caller-3');
+        const callee = env.TEST_DO.getByName('envelope-callee-3');
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
 
-      it('extracts OperationChain from Continuation internally', async () => {
-        const caller = env.TEST_DO.getByName('input-caller-2');
-        const callee = env.TEST_DO.getByName('input-callee-2');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        // callRaw uses getOperationChain() to extract chain from continuation
-        const result = await caller.testCallRawWithContinuation('TEST_DO', 'input-callee-2', 'verified');
-        expect(result).toBe('echo: verified');
-      });
-    });
+        caller.fireCall('TEST_DO', 'envelope-callee-3', 'remoteEcho', ['test']);
 
-    describe('Caller Metadata Edge Cases', () => {
-      it('handles caller with no bindingName set', async () => {
-        const caller = env.TEST_DO.getByName('edge-caller-1');
-        const callee = env.TEST_DO.getByName('edge-callee-1');
-        
-        // Don't initialize caller - bindingName will be undefined
-        await caller.testCallRawWithContinuation('TEST_DO', 'edge-callee-1', 'test');
-        
-        const envelope = await callee.getLastEnvelope();
-        expect(envelope.metadata.caller.bindingName).toBeUndefined();
-        expect(envelope.metadata.caller.type).toBe('LumenizeDO');
-      });
-
-      it('handles caller with only bindingName (no instanceName)', async () => {
-        const caller = env.TEST_DO.getByName('edge-caller-2');
-        const callee = env.TEST_DO.getByName('edge-callee-2');
-
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        await caller.testCallRawWithContinuation('TEST_DO', 'edge-callee-2', 'test');
-
-        const envelope = await callee.getLastEnvelope();
-        expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
-        // instanceName is undefined when only bindingName is set (no fallback to ctx.id)
-        expect(envelope.metadata.caller.instanceName).toBeUndefined();
+        const envelope = await vi.waitFor(async () => {
+          const e = await callee.getLastEnvelope();
+          expect(e).toBeTruthy();
+          return e;
+        });
+        expect(envelope).toHaveProperty('version', 1);
+        expect(typeof envelope.chain).toBe('object');
+        expect(envelope.metadata).toMatchObject({
+          caller: { type: 'LumenizeDO', bindingName: 'CALLER_DO', instanceName: 'caller-3' },
+          callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'envelope-callee-3' },
+        });
       });
     });
 
@@ -653,15 +582,19 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         expect(postprocess($error).message).toMatch(/Unsupported RPC envelope version: 0/);
       });
 
-      it('accepts valid v1 envelopes', async () => {
-        const caller = env.TEST_DO.getByName('validation-caller-4');
+      it('admits a valid v1 envelope with an early {$ack}', async () => {
         const callee = env.TEST_DO.getByName('validation-callee-4');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        // Should not throw
-        const result = await caller.testCallRawWithContinuation('TEST_DO', 'validation-callee-4', 'validated');
-        expect(result).toBe('echo: validated');
+
+        const validEnvelope = {
+          version: 1,
+          chain: preprocess([{ type: 'get', key: 'remoteEcho' }, { type: 'apply', args: ['validated'] }]),
+          callContext: { callChain: [{ type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'validation-origin' }], state: {} },
+          metadata: { callee: { type: 'LumenizeDO', bindingName: 'TEST_DO', instanceName: 'validation-callee-4' } },
+        };
+
+        // Admitted → early ack (never {$result}); the chain runs post-ack.
+        const ack = await callee.__executeOperation(validEnvelope as any);
+        expect(ack).toEqual({ $ack: true });
       });
     });
   });
@@ -670,50 +603,37 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
     describe('Basic DO→DO Calls', () => {
       it('executes remote call and handles result in continuation', async () => {
         const caller = env.TEST_DO.getByName('call-caller-1');
-        const callee = env.TEST_DO.getByName('call-callee-1');
-        
-        // Initialize caller identity
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-1' });
-        
-        // Make call - returns immediately
+        // Real identity so the callee can fire the handler back to this caller.
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-caller-1' });
+
         caller.testCallWithContinuations('TEST_DO', 'call-callee-1', 'hello-call');
-        
-        // Wait a bit for async handler to complete
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify handler executed and stored result
-        const result = await caller.getLastCallResult();
-        expect(result).toBe('echo: hello-call');
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallResult()).toBe('echo: hello-call');
+        });
       });
 
       it('returns immediately (synchronous call signature)', async () => {
         const caller = env.TEST_DO.getByName('call-caller-2');
-        
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
-        const startTime = Date.now();
-        
-        // This should return immediately, not block
-        caller.testCallWithContinuations('TEST_DO', 'call-callee-2', 'test');
-        
-        const endTime = Date.now();
-        
-        // Should take < 10ms to return (not wait for remote call)
-        expect(endTime - startTime).toBeLessThan(10);
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-caller-2' });
+
+        // call() returns void (never awaits the remote work) — over RPC that resolves to undefined.
+        expect(await caller.testCallWithContinuations('TEST_DO', 'call-callee-2', 'test')).toBeUndefined();
       });
 
-      it('propagates metadata to remote DO', async () => {
+      it('propagates caller metadata to the remote DO', async () => {
         const caller = env.TEST_DO.getByName('call-caller-3');
         const callee = env.TEST_DO.getByName('call-callee-3');
-        
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
-        
-        caller.testCallWithContinuations('TEST_DO', 'call-callee-3', 'metadata-test');
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify callee received envelope with metadata
-        const envelope = await callee.getLastEnvelope();
+
+        // 3-arg — the callee's captured request envelope carries the caller metadata.
+        caller.fireCall('TEST_DO', 'call-callee-3', 'remoteEcho', ['metadata-test']);
+
+        const envelope = await vi.waitFor(async () => {
+          const e = await callee.getLastEnvelope();
+          expect(e).toBeTruthy();
+          return e;
+        });
         expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
         expect(envelope.metadata.caller.instanceName).toBe('caller-3');
       });
@@ -722,62 +642,50 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
     describe('Error Handling', () => {
       it('handles remote errors in continuation', async () => {
         const caller = env.TEST_DO.getByName('call-error-caller-1');
-        const callee = env.TEST_DO.getByName('call-error-callee-1');
-        
-        await caller.testLmzApiInit({ bindingName: 'ERROR_CALLER_DO' });
-        
-        // Make call that will throw error
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-error-caller-1' });
+
         caller.testCallWithError('TEST_DO', 'call-error-callee-1');
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Verify error was handled
-        const error = await caller.getLastCallError();
-        expect(error).toBe('Remote error for testing');
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallError()).toBe('Remote error for testing');
+        });
       });
 
       it('converts non-Error to Error in handler', async () => {
         const caller = env.TEST_DO.getByName('call-error-caller-2');
-
-        await caller.testLmzApiInit({ bindingName: 'ERROR_CALLER_DO' });
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-error-caller-2' });
 
         caller.testCallWithError('TEST_DO', 'call-error-callee-2');
 
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const error = await caller.getLastCallError();
-        expect(error).toBeTruthy();
-        expect(typeof error).toBe('string');
+        await vi.waitFor(async () => {
+          const error = await caller.getLastCallError();
+          expect(error).toBeTruthy();
+          expect(typeof error).toBe('string');
+        });
       });
     });
 
     describe('onErrorOnly', () => {
       it('skips the success-path handler when result is not an Error', async () => {
         const caller = env.TEST_DO.getByName('call-onerroronly-success-caller');
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-onerroronly-success-caller' });
 
-        await caller.testLmzApiInit({ bindingName: 'TEST_DO' });
-
-        // Make a successful call with onErrorOnly:true. The handler
-        // (handleCallResult) writes to KV; we assert it stays unwritten.
+        // Successful call with onErrorOnly:true — the callee skips the success fire-back (N6),
+        // so the handler never writes to KV. Assert it stays unwritten after the callee has run.
         caller.testCallOnErrorOnlySuccess('TEST_DO', 'call-onerroronly-success-callee', 'hi');
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const result = await caller.getLastCallResult();
-        expect(result).toBeUndefined();
+        await new Promise(resolve => setTimeout(resolve, 300));
+        expect(await caller.getLastCallResult()).toBeUndefined();
       });
 
       it('still fires the error-path handler on remote rejection', async () => {
         const caller = env.TEST_DO.getByName('call-onerroronly-error-caller');
-
-        await caller.testLmzApiInit({ bindingName: 'TEST_DO' });
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-onerroronly-error-caller' });
 
         caller.testCallOnErrorOnlyError('TEST_DO', 'call-onerroronly-error-callee');
 
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const error = await caller.getLastCallError();
-        expect(error).toBe('Remote error for testing');
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallError()).toBe('Remote error for testing');
+        });
       });
     });
 
@@ -834,30 +742,24 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
     describe('Continuation Markers', () => {
       it('substitutes result into handler continuation', async () => {
         const caller = env.TEST_DO.getByName('call-marker-1');
-        
-        await caller.testLmzApiInit({ bindingName: 'MARKER_DO' });
-        
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-marker-1' });
+
         caller.testCallWithContinuations('TEST_DO', 'call-marker-callee-1', 'marker-test');
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Result should be substituted into handler
-        const result = await caller.getLastCallResult();
-        expect(result).toBe('echo: marker-test');
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallResult()).toBe('echo: marker-test');
+        });
       });
 
       it('substitutes error into handler continuation', async () => {
         const caller = env.TEST_DO.getByName('call-marker-2');
-        
-        await caller.testLmzApiInit({ bindingName: 'MARKER_DO' });
-        
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'call-marker-2' });
+
         caller.testCallWithError('TEST_DO', 'call-marker-callee-2');
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Error should be substituted into handler
-        const error = await caller.getLastCallError();
-        expect(error).toContain('Remote error for testing');
+
+        await vi.waitFor(async () => {
+          expect(await caller.getLastCallError()).toContain('Remote error for testing');
+        });
       });
     });
   });

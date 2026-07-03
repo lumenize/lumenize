@@ -137,30 +137,6 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
   }
 
   /**
-   * Execute an OCAN (Operation Chaining And Nesting) operation chain on this Worker.
-   *
-   * This method enables remote DOs/Workers to call methods on this Worker via RPC.
-   * Any Worker extending LumenizeWorker can receive remote calls without additional setup.
-   *
-   * @internal This is called by this.lmz.callRaw(), not meant for direct use
-   * @param chain - The operation chain to execute
-   * @returns The result of executing the operation chain
-   *
-   * @example
-   * ```typescript
-   * // Remote DO/Worker sends this chain:
-   * const remote = this.ctn<MyWorker>().processData(data);
-   *
-   * // This Worker receives and executes it:
-   * const result = await this.__executeChain(remote);
-   * // Equivalent to: this.processData(data)
-   * ```
-   */
-  async __executeChain(chain: OperationChain): Promise<any> {
-    return await executeOperationChain(chain, this);
-  }
-
-  /**
    * Get the local chain executor for internal use
    *
    * This method provides access to __executeChain with configurable options
@@ -198,6 +174,27 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
     return await executeEnvelope(envelope, this, {
       nodeTypeName: 'LumenizeWorker',
       includeInstanceName: false,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
+    });
+  }
+
+  /**
+   * Receive a fire-back response — the second mesh RPC entry (D5/D17). Same shared
+   * `executeEnvelope` path as `__executeOperation`, `requireMeshDecorator: false`:
+   * `onBeforeCall` still runs (D5), only the per-method @mesh allowlist is skipped.
+   * A tier Worker's fire-back (`__forwardBroadcastResult`) lands here on a fresh
+   * stateless instance — correct because the handler travels (svc.broadcast pin a).
+   *
+   * @internal Fired at by the framework, not for direct use.
+   */
+  async __handleResponse(envelope: CallEnvelope): Promise<any> {
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeWorker',
+      includeInstanceName: false,
+      requireMeshDecorator: false,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
     });
   }
 
