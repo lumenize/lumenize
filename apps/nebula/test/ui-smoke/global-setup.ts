@@ -71,6 +71,13 @@ export default async function setup(project: TestProject) {
 
   const testToken = readTestToken();
 
+  // Start from a CLEAN DO store. `wrangler dev --local` persists `.wrangler/state` across
+  // runs, so a prior run's schema survives — and `CREATE TABLE IF NOT EXISTS` does NOT
+  // migrate an existing table (e.g. a nodeId INTEGER->TEXT change), so onStart's #ensureRoot
+  // throws `SQLITE_MISMATCH` against the stale schema. The lane exercises a FRESH install each
+  // run (the same "wipe, don't migrate" model prod uses), so wipe the persisted state first.
+  rmSync(resolvePath(process.cwd(), '.wrangler/state'), { recursive: true, force: true });
+
   // apps/nebula/wrangler.jsonc now declares an `assets` block (the Studio SPA prod-serving
   // config); wrangler HARD-ERRORS if `assets.directory` is absent. `dist` is gitignored
   // (built only at deploy), and this lane serves the Studio via vite (not Assets), so an
