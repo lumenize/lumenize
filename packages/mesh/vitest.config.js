@@ -113,6 +113,11 @@ const swcPlugin = swc.vite({
 // miniflare workers). Never set in .dev.vars or a deployed wrangler.jsonc.
 const testModeBindings = {
   LUMENIZE_MESH_TEST_MODE: 'true',
+  // Q5: the Gateway's mesh→client push timeout, overridden small so the
+  // no-response → ClientDisconnectedError path is deterministic without a real
+  // ~30s wait (test-mode only, never prod-reachable — security.md). Responding
+  // push tests answer in-isolate (sub-ms), well under this.
+  LUMENIZE_MESH_CLIENT_CALL_TIMEOUT_MS: '500',
 };
 
 // --- Opt-out gating for the secret-less lane (mirrors packages/auth/vitest.config.js) ---

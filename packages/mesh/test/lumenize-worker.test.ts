@@ -41,13 +41,6 @@ describe('LumenizeWorker - Continuation Support (this.ctn())', () => {
     const result = await env.TEST_WORKER.testContinuationCreation();
     expect(result).toBe('continuation_works');
   });
-
-  test('continuation can be used with this.lmz.callRaw()', async () => {
-    // This test validates that continuations work with callRaw
-    // Full RPC testing will be in integration tests
-    const result = await env.TEST_WORKER.testContinuationCreation();
-    expect(result).toBe('continuation_works');
-  });
 });
 
 describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
@@ -105,6 +98,23 @@ describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
       expect(await storeDO.getForwardedResult()).toBe('worker-echo: hello-worker-to-worker');
     });
   });
+
+  // crit 7a / pin a: the svc.broadcast TREE path drives the REAL __forwardBroadcastResult on a
+  // FRESH stateless tier-Worker instance — the erroring target's fire-back lands there and the
+  // handler (which travels) forwards the Error to callChain[0] (the origin DO). directThreshold:0
+  // forces the tree path with one target. Capable-of-failing: if the Worker-caller fire-back didn't
+  // land on the fresh tier instance (or the handler didn't travel), no error reaches the origin.
+  test('svc.broadcast tree path: __forwardBroadcastResult forwards a target Error to the origin', async () => {
+    const origin = env.TEST_DO.getByName('tier-origin');
+    await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'tier-origin' });
+
+    origin.testTierBroadcast('tier-target');
+
+    await vi.waitFor(async () => {
+      expect(await origin.getBroadcastErrorName()).toBeTruthy();
+    }, { timeout: 8000 });
+    expect(await origin.getBroadcastErrorMsg()).toContain('Remote error for testing');
+  }, 10000);
 
   test('result handler receives success result', async () => {
     const storeDO = env.TEST_DO.getByName('worker-call-result-store-1');

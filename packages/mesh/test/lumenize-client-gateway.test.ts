@@ -477,6 +477,65 @@ describe('LumenizeClientGateway', () => {
       ws2.close();
     });
 
+    // Q4: a client 4-arg whose REQUEST is rejected at admission (the callee's onBeforeCall throws)
+    // must deliver an ERROR RESULT to the client — the client keeps its handler in-heap and must
+    // never hang. The Gateway synthesizes it from the callee's early-ack {$error}.
+    it('Q4: an admission-rejected client call delivers an ERROR RESULT to the client (never stranded)', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('q4-reject.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+      const { ws } = await connectAndWait(gateway, 'q4-reject', 'q4-reject.tab1');
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function h(event: MessageEvent) {
+          const m = JSON.parse(event.data as string);
+          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws.removeEventListener('message', h); resolve(m); }
+        });
+      });
+
+      // REJECTING_DO.onBeforeCall throws → the Star early-acks {$error} → the Gateway sends an
+      // error CALL_RESPONSE for this callId (capable-of-failing: if #handleClientCall swallowed the
+      // ack {$error} the client would hang and this promise never resolves).
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        expectsResult: true,
+        callId: 'q4-reject-1',
+        binding: 'REJECTING_DO',
+        instance: 'q4-reject-target',
+        chain: preprocess([{ type: 'get', key: 'ping' }, { type: 'apply', args: [] }]),
+      }));
+
+      const r = await responsePromise;
+      expect(r.callId).toBe('q4-reject-1');
+      expect(r.success).toBe(false);
+      expect(postprocess(r.error).message).toMatch(/admission rejected by onBeforeCall/);
+      ws.close();
+    });
+
+    // Q5: with CLIENT_CALL_TIMEOUT_MS injected small (miniflare binding), a mesh→client push to a
+    // connected-but-non-responding client fails fast with ClientDisconnectedError — deterministic,
+    // no real ~30s wait. Exercises the #clientCallTimeoutMs override branch.
+    it('Q5: a mesh→client push to a non-responding client times out (injected CLIENT_CALL_TIMEOUT_MS)', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('q5-timeout.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+      const { ws } = await connectAndWait(gateway, 'q5-timeout', 'q5-timeout.tab1');
+      // Deliberately DO NOT respond to the INCOMING_CALL.
+
+      const result = await gateway.__executeOperation({
+        version: 1,
+        chain: preprocess([{ type: 'get', key: 'noSuchClientMethod' }, { type: 'apply', args: [] }]),
+        callContext: { callChain: [], state: {} },
+        metadata: {
+          caller: { type: 'LumenizeDO', bindingName: 'SOME_DO', instanceName: 'x' },
+          callee: { type: 'LumenizeDO', bindingName: 'LUMENIZE_CLIENT_GATEWAY', instanceName: 'q5-timeout.tab1' },
+        },
+      });
+
+      const err = postprocess(result.$error);
+      expect(err.name).toBe('ClientDisconnectedError');
+      expect(err.message).toMatch(/timed out/i);
+      ws.close();
+    }, 4000);
+
     it('drops a RESULT when the client has no socket (client re-issues on reload, D8) — via the debug sink', async () => {
       const entries: any[] = [];
       setDebugSink((e) => entries.push(e));

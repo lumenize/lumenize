@@ -314,6 +314,25 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
   });
 
+  describe('ALS stability within a post-ack invocation', () => {
+    it('callContext survives sequential + concurrent awaits inside the detached post-ack chain', async () => {
+      const caller = env.TEST_DO.getByName('als-stability-caller');
+      const callee = env.TEST_DO.getByName('als-stability-callee');
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-stability-caller' });
+
+      caller.fireCall('TEST_DO', 'als-stability-callee', 'testAlsStability');
+
+      const seen = await vi.waitFor(async () => {
+        const s = await callee.getAlsStability();
+        expect(s?.length).toBe(3);
+        return s!;
+      });
+      // The callee saw the same origin (callChain[0]) at start, after one await, and after
+      // concurrent awaits — ALS held across the detached post-ack task's await boundaries.
+      expect(seen).toEqual(['als-stability-caller', 'als-stability-caller', 'als-stability-caller']);
+    });
+  });
+
   describe('ALS isolation for concurrent calls', () => {
     it('concurrent calls have isolated callContext (no cross-contamination)', async () => {
       const callerA = env.TEST_DO.getByName('als-isolation-caller-a');

@@ -439,6 +439,24 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.call(binding, instance, remote);
   }
 
+  // ALS stability across awaits WITHIN one post-ack @mesh invocation (the crux of the ALS spike):
+  // the chain runs in a DETACHED task re-bound via runWithCallContext, so callContext must survive
+  // multiple awaits (sequential AND concurrent) inside it. Records callChain[0] at three points.
+  @mesh()
+  async testAlsStability(): Promise<void> {
+    const origin = () => this.lmz.callContext?.callChain?.[0]?.instanceName ?? 'unknown';
+    const seen: string[] = [origin()];
+    await new Promise((r) => setTimeout(r, 5));
+    seen.push(origin());
+    await Promise.all([new Promise((r) => setTimeout(r, 5)), new Promise((r) => setTimeout(r, 5))]);
+    seen.push(origin());
+    this.ctx.storage.kv.put('als_stability', seen);
+  }
+
+  async getAlsStability(): Promise<string[] | undefined> {
+    return this.ctx.storage.kv.get('als_stability') as string[] | undefined;
+  }
+
   // 4-arg call to an arbitrary @mesh method, capturing the delivered outcome (value OR Error).
   // `state` seeds the outgoing callContext.state (used to satisfy @mesh guards).
   callForOutcome(
@@ -454,12 +472,25 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Combined result/error handler (runs at __handleResponse, requireMeshDecorator:false).
   // D6: the handler always receives handler($result) where $result is the value OR the Error.
+  // Captures the Error's name + clientInstanceName too, so tests can assert the structured
+  // ClientDisconnectedError round-trips (the two fields drop-on-failed-broadcast keys on).
   handleOutcome(resultOrError: any): void {
     if (resultOrError instanceof Error) {
       this.ctx.storage.kv.put('last_call_error', resultOrError.message);
+      this.ctx.storage.kv.put('last_call_error_name', resultOrError.name);
+      const cin = (resultOrError as { clientInstanceName?: string }).clientInstanceName;
+      if (cin !== undefined) this.ctx.storage.kv.put('last_call_error_client', cin);
     } else {
       this.ctx.storage.kv.put('last_call_result', resultOrError);
     }
+  }
+
+  async getLastCallErrorName() {
+    return this.ctx.storage.kv.get('last_call_error_name');
+  }
+
+  async getLastCallErrorClient() {
+    return this.ctx.storage.kv.get('last_call_error_client');
   }
 
   // N8: a 4-arg handler that THROWS when it runs at the sink. Must be caught + logged, never crash
@@ -494,6 +525,35 @@ export class TestDO extends LumenizeDO<Env> {
   testCallToDisconnectedClient(gatewayBinding: string, clientInstance: string): void {
     const remote = (this.ctn() as any).clientMethod();
     this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
+  }
+
+  // crit 7a: fire a broadcast FORCED through the tree path (directThreshold:0) to an erroring
+  // target. The per-target fire-back lands on a FRESH tier-Worker instance whose
+  // __forwardBroadcastResult forwards the Error back to callChain[0] (this origin) — the real
+  // svc.broadcast Worker-caller fire-back path (pin a), not a stand-in handler.
+  testTierBroadcast(targetInstance: string): void {
+    this.svc.broadcast(
+      [{ bindingName: 'TEST_DO', instanceName: targetInstance }],
+      this.ctn<TestDO>().throwError(),
+      { onResult: this.ctn<TestDO>().captureBroadcastResult(), directThreshold: 0 },
+    );
+  }
+
+  // onResult handler — the tier Worker's __forwardBroadcastResult forwards here (callChain[0]) with
+  // the per-target Error appended. @mesh because it arrives as a normal mesh call from the tier.
+  @mesh()
+  captureBroadcastResult(result?: unknown): void {
+    if (result instanceof Error) {
+      this.ctx.storage.kv.put('broadcast_error_name', result.name);
+      this.ctx.storage.kv.put('broadcast_error_msg', result.message);
+    }
+  }
+
+  async getBroadcastErrorName() {
+    return this.ctx.storage.kv.get('broadcast_error_name');
+  }
+  async getBroadcastErrorMsg() {
+    return this.ctx.storage.kv.get('broadcast_error_msg');
   }
 
   // ============================================

@@ -7,6 +7,11 @@
       "binding": "TEST_WORKER",
       "service": "lumenize-base",
       "entrypoint": "TestWorker"
+    },
+    {
+      "binding": "LUMENIZE_BROADCAST_TIER",
+      "service": "lumenize-base",
+      "entrypoint": "TestWorker"
     }
   ],
   "durable_objects": {

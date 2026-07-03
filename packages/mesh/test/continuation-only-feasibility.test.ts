@@ -177,9 +177,11 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
     caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'never-connected.tab1');
 
     await vi.waitFor(async () => {
-      const err = await caller.getLastCallError();
-      expect(err).toBeTruthy();
-      expect(err).toMatch(/not connected|disconnected/i);
+      expect(await caller.getLastCallError()).toBeTruthy();
     });
+    // The structured error round-trips with the two fields drop-on-failed-broadcast keys on
+    // (Star.onBroadcastResult checks err.name === 'ClientDisconnectedError' + reads clientInstanceName).
+    expect(await caller.getLastCallErrorName()).toBe('ClientDisconnectedError');
+    expect(await caller.getLastCallErrorClient()).toBe('never-connected.tab1');
   });
 });

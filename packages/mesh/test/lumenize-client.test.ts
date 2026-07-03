@@ -1457,6 +1457,57 @@ describe('Message handling edge cases', () => {
 
     client.disconnect();
   });
+
+  it('onErrorOnly (N6): skips the in-heap handler on a SUCCESS RESULT (still deduped)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    // 4-arg call with onErrorOnly:true — the handler must run ONLY on an error RESULT.
+    const remote = (client.ctn() as any).someMethod();
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote), { onErrorOnly: true });
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    // A SUCCESS RESULT → the handler is skipped (capable-of-failing: delete the onErrorOnly skip in
+    // #handleCallResponse and this goes red — the handler would run, count → 1).
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('ok') }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(client.getCallOutcomeCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('3-arg client call is truly fire-and-forget (expectsResult:false), 4-arg sets it true', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    // 3-arg → no fire-back descriptor should be attached by the Gateway.
+    client.lmz.call('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+    expect(JSON.parse(ws.getSentMessages()[0]).expectsResult).toBeFalsy();
+
+    // 4-arg → the Gateway attaches a client fire-back descriptor.
+    const remote = (client.ctn() as any).someMethod();
+    client.lmz.call('SOME_DO', 'instance1', remote, client.ctn().captureOutcome(remote));
+    expect(JSON.parse(ws.getSentMessages()[1]).expectsResult).toBe(true);
+
+    client.disconnect();
+  });
 });
 
 describe('Token refresh edge cases', () => {
