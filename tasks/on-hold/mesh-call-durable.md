@@ -23,6 +23,7 @@
 | Decision | Choice |
 |---|---|
 | **Backstop location** | **[FORK]** *callee-guaranteed* (caller still holds ZERO state; the callee persists the traveling handler + alarms to always fire back) vs *caller-guaranteed* (caller persists a backstop record + alarm — stronger, survives the callee vanishing entirely — but a durable write). Both on-thesis: persisted **data + alarm**, never a held Promise. |
+| **API shape** | **4-arg only** (pinned 2026-07-02 with the parent's method split) — a "must-happen fire-and-forget" is modeled as a 4-arg with an ack handler. Attaches at the parent's named seams: SEAM A wraps `#dispatchEnvelope` (caller-side persist+alarm, cancel on `__handleResponse`); SEAM B wraps the fire-back inside `executeEnvelope` (callee-side). |
 | **Retry** | A `callDurable` knob, **off by default, never on `.overloaded`** (retry worsens overload). Needs durable state → only exists in this tier. Leans on ADR-005 replay-idempotency; classification per the backpressure task (do not re-litigate its settled thinking). |
 | **Client-side durability** | The client **cannot** be the guarantor — `setTimeout` dies on tab discard/reload; no reliable browser alarm (SW idle-kill; Periodic Background Sync PWA-only/~12h; Background Sync connectivity-only). So a client `callDurable` = **persist intent + reconcile on reconnect** against a server-side durable record (the DO owns the alarm); Web Push for server→client wake if ever needed. In practice: callee-guaranteed / reconcile only. (IndexedDB-backed local pending only as a last resort for a hypothetical flow with **no** durable server record to reconcile against — none in Nebula so far.) The best-effort client story is the parent's D8. |
 | **MIT placement** | **`@lumenize/mesh`** — generic plumbing, built fresh (not by patching `@lumenize/fetch`'s hand-rolled alarm). |
@@ -35,7 +36,7 @@
 **Success Criteria** (capable-of-failing tests + a captured findings note):
 - [ ] **Separate timers by concern from the start.** The `@lumenize/fetch` **double-duty alarm** (`.claude/rules/mesh.md` §Two-one-way) is the cautionary reference: one timer served *both* the operation-timeout and the executor-liveness backstop — which is why it broke past ~90s and for concurrent in-flight requests. The fresh design must not repeat it.
 - [ ] **Concurrent durable delivery proven**: N in-flight durable calls on one caller DO all deliver; survive an induced hibernation between dispatch and response; past-budget + long-running deliveries land.
-- [ ] **Durable-path forgery**: a response for an unknown/duplicate callId is rejected; responder identity checkable (inherits parent D5's 3b envelope routing).
+- [ ] **Durable-path forgery**: a response for an unknown/duplicate durable-call id is rejected (the durable tier DOES keep a persisted backstop record to check against — unlike best-effort); responder identity checkable (inherits parent D5's gate: responses dispatch via `executeEnvelope`, so `onBeforeCall`/`enforceScopeReach` identifies the responder; @mesh allowlist off).
 - [ ] Findings note: mechanism that worked + alternatives that failed → reference memory or rule.
 
 ## Phase 1 — `callDurable` (storage tier) + retry
