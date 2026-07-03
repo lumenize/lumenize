@@ -28,7 +28,7 @@ const count = computed(() => Object.keys(store.Todo ?? {}).length);
 function add() {
   const id = crypto.randomUUID();
   client.resources.transaction({
-    [id]: { op: 'create', typeName: 'Todo', nodeId: 1, value: { title: title.value, done: false } },
+    [id]: { op: 'create', typeName: 'Todo', nodeId: crypto.randomUUID(), value: { title: title.value, done: false } },
   });
 }
 </script>
@@ -53,7 +53,7 @@ const appWithOp = (op: string) => `<script setup lang="ts">
 import { client } from './nebula';
 function go() {
   client.resources.transaction({
-    a: { op: '${op}', typeName: 'Todo', nodeId: 1, value: {} },
+    a: { op: '${op}', typeName: 'Todo', nodeId: crypto.randomUUID(), value: {} },
   });
 }
 </script>

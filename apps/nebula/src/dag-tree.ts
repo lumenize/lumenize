@@ -10,6 +10,7 @@ import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import {
   ROOT_NODE_ID,
+  validateNodeId,
   validateSlug,
   checkSlugUniqueness,
   detectCycle,
@@ -21,7 +22,7 @@ import {
   makeEdgeKey,
 } from './dag-ops';
 import type { PermissionTier, DagTreeState, DagTreeView, EdgeKey, DagTreeNodeData } from './dag-ops';
-import { PermissionDeniedError, NodeNotFoundError } from './errors';
+import { PermissionDeniedError, NodeNotFoundError, NodeIdCollisionError } from './errors';
 
 export class DagTree {
   #ctx: DurableObjectState
@@ -43,15 +44,15 @@ export class DagTree {
   #createSchema() {
     this.#ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS Nodes (
-        nodeId INTEGER PRIMARY KEY,
+        nodeId TEXT PRIMARY KEY,
         slug TEXT NOT NULL,
         label TEXT NOT NULL DEFAULT '',
         deleted BOOLEAN NOT NULL DEFAULT 0
-      );
+      ) WITHOUT ROWID;
 
       CREATE TABLE IF NOT EXISTS Edges (
-        parentNodeId INTEGER NOT NULL,
-        childNodeId INTEGER NOT NULL,
+        parentNodeId TEXT NOT NULL,
+        childNodeId TEXT NOT NULL,
         PRIMARY KEY (parentNodeId, childNodeId),
         FOREIGN KEY (parentNodeId) REFERENCES Nodes(nodeId),
         FOREIGN KEY (childNodeId) REFERENCES Nodes(nodeId)
@@ -60,7 +61,7 @@ export class DagTree {
       CREATE INDEX IF NOT EXISTS idx_Edges_child ON Edges(childNodeId);
 
       CREATE TABLE IF NOT EXISTS Permissions (
-        nodeId INTEGER NOT NULL,
+        nodeId TEXT NOT NULL,
         sub TEXT NOT NULL,
         permission TEXT NOT NULL CHECK(permission IN ('admin', 'write', 'read')),
         PRIMARY KEY (nodeId, sub),
@@ -103,14 +104,14 @@ export class DagTree {
   }
 
   #buildState(): DagTreeState {
-    const nodes = new Map<number, DagTreeNodeData>()
+    const nodes = new Map<string, DagTreeNodeData>()
     const edges = new Set<EdgeKey>()
-    const permissions = new Map<number, Map<string, PermissionTier>>()
+    const permissions = new Map<string, Map<string, PermissionTier>>()
 
     // Load all nodes
     const nodeRows = this.#ctx.storage.sql.exec('SELECT nodeId, slug, label, deleted FROM Nodes').toArray()
     for (const row of nodeRows) {
-      nodes.set(row.nodeId as number, {
+      nodes.set(row.nodeId as string, {
         slug: row.slug as string,
         label: row.label as string,
         deleted: Boolean(row.deleted),
@@ -120,13 +121,13 @@ export class DagTree {
     // Load all edges
     const edgeRows = this.#ctx.storage.sql.exec('SELECT parentNodeId, childNodeId FROM Edges').toArray()
     for (const row of edgeRows) {
-      edges.add(makeEdgeKey(row.parentNodeId as number, row.childNodeId as number))
+      edges.add(makeEdgeKey(row.parentNodeId as string, row.childNodeId as string))
     }
 
     // Load all permissions
     const permRows = this.#ctx.storage.sql.exec('SELECT nodeId, sub, permission FROM Permissions').toArray()
     for (const row of permRows) {
-      const nodeId = row.nodeId as number
+      const nodeId = row.nodeId as string
       const sub = row.sub as string
       const tier = row.permission as PermissionTier
       let nodePerms = permissions.get(nodeId)
@@ -149,7 +150,7 @@ export class DagTree {
     return sub
   }
 
-  requirePermission(nodeId: number, tier: PermissionTier): string {
+  requirePermission(nodeId: string, tier: PermissionTier): string {
     this.#requireNodeExists(nodeId)
     const cc = this.#getCallContext()
     const sub = cc.originAuth?.sub
@@ -162,7 +163,7 @@ export class DagTree {
     return sub
   }
 
-  #requireNodeExists(nodeId: number): void {
+  #requireNodeExists(nodeId: string): void {
     if (!this.#cached.nodes.has(nodeId)) {
       throw new NodeNotFoundError(nodeId)
     }
@@ -170,32 +171,51 @@ export class DagTree {
 
   // ─── Tree Structure Mutations ─────────────────────────────────────
 
-  createNode(parentNodeId: number, slug: string, label: string): number {
+  createNode(nodeId: string, parentNodeId: string, slug: string, label: string): string {
+    // Permission runs FIRST — before the id-presence check — because the replay
+    // path returns node CONTENT (slug + label), so it must be gated exactly like
+    // a fresh create. A retry by a caller who has since lost write legitimately
+    // fails (ADR-005: the non-monotonic permission check stays authoritative
+    // per-attempt). This deliberately differs from the void idempotent no-ops
+    // (addEdge/deleteNode below), which short-circuit BEFORE requirePermission
+    // precisely because they return nothing and disclose nothing.
     this.#requireNodeExists(parentNodeId)
     this.requirePermission(parentNodeId, 'write')
+    validateNodeId(nodeId)
+
+    // Replay vs conflict — read the committed cache, after the permission gate.
+    // The id-existence check discloses only Star-wide-visible structure (ADR-008).
+    if (this.#cached.nodes.has(nodeId)) {
+      const existing = this.#cached.nodes.get(nodeId)!
+      const edgeMatches = this.#cached.edges.has(makeEdgeKey(parentNodeId, nodeId))
+      if (existing.slug === slug && edgeMatches) {
+        return nodeId // idempotent replay: same node — return it, skip slug-uniqueness
+      }
+      // Reused id under a different parent/slug — a client bug, never a silent no-op.
+      throw new NodeIdCollisionError(nodeId)
+    }
+
     validateSlug(slug)
     checkSlugUniqueness(this.#view, parentNodeId, slug)
 
-    let newNodeId!: number
     this.#ctx.storage.transactionSync(() => {
+      // Both inserts OR IGNORE so a partial replay (node landed but not the edge,
+      // or vice versa) converges on retry.
       this.#ctx.storage.sql.exec(
-        'INSERT INTO Nodes (slug, label, deleted) VALUES (?, ?, 0)',
-        slug, label,
+        'INSERT OR IGNORE INTO Nodes (nodeId, slug, label, deleted) VALUES (?, ?, ?, 0)',
+        nodeId, slug, label,
       )
-      // SQLite last_insert_rowid() gives us the auto-assigned nodeId
-      const result = this.#ctx.storage.sql.exec('SELECT last_insert_rowid() as id').toArray()
-      newNodeId = result[0].id as number
       this.#ctx.storage.sql.exec(
-        'INSERT INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
-        parentNodeId, newNodeId,
+        'INSERT OR IGNORE INTO Edges (parentNodeId, childNodeId) VALUES (?, ?)',
+        parentNodeId, nodeId,
       )
       this.#invalidate()
     })
     this.#onChanged()
-    return newNodeId
+    return nodeId
   }
 
-  addEdge(parentNodeId: number, childNodeId: number): void {
+  addEdge(parentNodeId: string, childNodeId: string): void {
     this.#requireNodeExists(parentNodeId)
     this.#requireNodeExists(childNodeId)
 
@@ -229,7 +249,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  removeEdge(parentNodeId: number, childNodeId: number): void {
+  removeEdge(parentNodeId: string, childNodeId: string): void {
     this.#requireNodeExists(parentNodeId)
     this.#requireNodeExists(childNodeId)
 
@@ -248,7 +268,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  reparentNode(childNodeId: number, oldParentId: number, newParentId: number): void {
+  reparentNode(childNodeId: string, oldParentId: string, newParentId: string): void {
     this.#requireNodeExists(childNodeId)
     this.#requireNodeExists(oldParentId)
     this.#requireNodeExists(newParentId)
@@ -290,7 +310,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  deleteNode(nodeId: number): void {
+  deleteNode(nodeId: string): void {
     this.#requireNodeExists(nodeId)
     if (nodeId === ROOT_NODE_ID) throw new Error('Cannot delete root node')
 
@@ -307,7 +327,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  undeleteNode(nodeId: number): void {
+  undeleteNode(nodeId: string): void {
     this.#requireNodeExists(nodeId)
     if (nodeId === ROOT_NODE_ID) throw new Error('Cannot undelete root node')
 
@@ -324,14 +344,14 @@ export class DagTree {
     this.#onChanged()
   }
 
-  renameNode(nodeId: number, newSlug: string): void {
+  renameNode(nodeId: string, newSlug: string): void {
     this.#requireNodeExists(nodeId)
     if (nodeId === ROOT_NODE_ID) throw new Error('Cannot rename root node')
     this.requirePermission(nodeId, 'write')
     validateSlug(newSlug)
 
     // Check uniqueness under every parent of this node
-    const parents = this.#view.parentsByChild.get(nodeId) ?? new Set<number>()
+    const parents = this.#view.parentsByChild.get(nodeId) ?? new Set<string>()
     for (const parentId of parents) {
       checkSlugUniqueness(this.#view, parentId, newSlug, nodeId)
     }
@@ -343,7 +363,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  relabelNode(nodeId: number, newLabel: string): void {
+  relabelNode(nodeId: string, newLabel: string): void {
     this.#requireNodeExists(nodeId)
     this.requirePermission(nodeId, 'write')
     if (!newLabel) throw new Error('Label must not be empty')
@@ -358,7 +378,7 @@ export class DagTree {
 
   // ─── Permission Management ────────────────────────────────────────
 
-  setPermission(nodeId: number, targetSub: string, level: PermissionTier): void {
+  setPermission(nodeId: string, targetSub: string, level: PermissionTier): void {
     this.#requireNodeExists(nodeId)
     this.requirePermission(nodeId, 'admin')
 
@@ -372,7 +392,7 @@ export class DagTree {
     this.#onChanged()
   }
 
-  revokePermission(nodeId: number, targetSub: string): void {
+  revokePermission(nodeId: string, targetSub: string): void {
     this.#requireNodeExists(nodeId)
 
     // Idempotent: if no grant exists, no-op (skip permission check)
@@ -393,7 +413,7 @@ export class DagTree {
 
   // ─── Permission Queries ───────────────────────────────────────────
 
-  checkPermission(nodeId: number, requiredTier: PermissionTier, targetSub?: string): boolean {
+  checkPermission(nodeId: string, requiredTier: PermissionTier, targetSub?: string): boolean {
     this.#requireNodeExists(nodeId)
     const sub = targetSub ?? this.#requireAuth()
     return resolvePermission(this.#view, sub, nodeId, requiredTier)
@@ -420,13 +440,13 @@ export class DagTree {
    * throw, matching the non-throwing contract.
    */
   evaluatePermissions(
-    nodeIds: number[],
+    nodeIds: string[],
     tier: PermissionTier,
     sub: string,
     accessAdmin: boolean,
-  ): { allowed: Set<number>; denied: Set<number> } {
-    const allowed = new Set<number>()
-    const denied = new Set<number>()
+  ): { allowed: Set<string>; denied: Set<string> } {
+    const allowed = new Set<string>()
+    const denied = new Set<string>()
     for (const nodeId of nodeIds) {
       if (accessAdmin || resolvePermission(this.#view, sub, nodeId, tier)) {
         allowed.add(nodeId)
@@ -437,7 +457,7 @@ export class DagTree {
     return { allowed, denied }
   }
 
-  getEffectivePermission(nodeId: number, targetSub?: string): PermissionTier | null {
+  getEffectivePermission(nodeId: string, targetSub?: string): PermissionTier | null {
     this.#requireNodeExists(nodeId)
     const sub = targetSub ?? this.#requireAuth()
     return getEffectivePermissionPure(this.#view, sub, nodeId)
@@ -450,13 +470,13 @@ export class DagTree {
     return this.#cached
   }
 
-  getNodeAncestors(nodeId: number): Set<number> {
+  getNodeAncestors(nodeId: string): Set<string> {
     this.#requireAuth()
     this.#requireNodeExists(nodeId)
     return getNodeAncestorsPure(this.#view, nodeId)
   }
 
-  getNodeDescendants(nodeId: number): Set<number> {
+  getNodeDescendants(nodeId: string): Set<string> {
     this.#requireAuth()
     this.#requireNodeExists(nodeId)
     return getNodeDescendantsPure(this.#view, nodeId)

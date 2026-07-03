@@ -52,9 +52,9 @@ const MAX_ERROR_TAIL = 4000;
 const NEBULA_API_DTS = `
 /** A single operation in an explicit transaction batch (mirrors EngineOp). */
 export type OperationDescriptor =
-  | { op: 'create'; typeName: string; nodeId: number; value: unknown }
+  | { op: 'create'; typeName: string; nodeId: string; value: unknown }
   | { op: 'put'; typeName: string; value: unknown; eTag?: string }
-  | { op: 'move'; typeName: string; nodeId: number; eTag?: string }
+  | { op: 'move'; typeName: string; nodeId: string; eTag?: string }
   | { op: 'delete'; typeName: string; eTag?: string };
 
 export type TransactionOutcome = {
@@ -74,7 +74,7 @@ export interface Client {
     subscribe(resourceType: string, resourceId: string): ResourceSubscription;
     read(resourceType: string, resourceId: string): Promise<{ value: unknown; eTag: string } | null>;
     write(resourceType: string, resourceId: string, opts?: { quietMs?: number }): void;
-    createAndSubscribe(resourceType: string, resourceId: string, nodeId: number, value: unknown): ResourceSubscription;
+    createAndSubscribe(resourceType: string, resourceId: string, nodeId: string, value: unknown): ResourceSubscription;
   };
 }
 

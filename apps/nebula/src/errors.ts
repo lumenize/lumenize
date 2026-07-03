@@ -52,7 +52,7 @@ export class PermissionDeniedError extends Error {
   override name = 'PermissionDeniedError';
   constructor(
     public readonly tier: PermissionTier,
-    public readonly nodeId: number,
+    public readonly nodeId: string,
   ) {
     super(`${tier} permission required on node ${nodeId}`);
   }
@@ -62,7 +62,7 @@ export function isPermissionDeniedError(err: unknown): err is PermissionDeniedEr
   return (
     err instanceof Error &&
     err.name === 'PermissionDeniedError' &&
-    typeof (err as { nodeId?: unknown }).nodeId === 'number' &&
+    typeof (err as { nodeId?: unknown }).nodeId === 'string' &&
     typeof (err as { tier?: unknown }).tier === 'string'
   );
 }
@@ -75,7 +75,7 @@ export function isPermissionDeniedError(err: unknown): err is PermissionDeniedEr
  */
 export class NodeNotFoundError extends Error {
   override name = 'NodeNotFoundError';
-  constructor(public readonly nodeId: number) {
+  constructor(public readonly nodeId: string) {
     super(`Node ${nodeId} not found`);
   }
 }
@@ -84,6 +84,27 @@ export function isNodeNotFoundError(err: unknown): err is NodeNotFoundError {
   return (
     err instanceof Error &&
     err.name === 'NodeNotFoundError' &&
-    typeof (err as { nodeId?: unknown }).nodeId === 'number'
+    typeof (err as { nodeId?: unknown }).nodeId === 'string'
+  );
+}
+
+/**
+ * Thrown by `DagTree.createNode` when the caller-supplied `nodeId` already
+ * exists but under a different parent/slug than the request — a reused UUID
+ * or client bug, NOT an idempotent replay (which returns the existing node).
+ * Loud by design: never a silent `INSERT OR IGNORE` of a mismatched create.
+ */
+export class NodeIdCollisionError extends Error {
+  override name = 'NodeIdCollisionError';
+  constructor(public readonly nodeId: string) {
+    super(`Node id '${nodeId}' already exists with a different parent or slug (reused UUID?)`);
+  }
+}
+
+export function isNodeIdCollisionError(err: unknown): err is NodeIdCollisionError {
+  return (
+    err instanceof Error &&
+    err.name === 'NodeIdCollisionError' &&
+    typeof (err as { nodeId?: unknown }).nodeId === 'string'
   );
 }

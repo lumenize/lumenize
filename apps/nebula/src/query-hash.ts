@@ -51,7 +51,7 @@ export interface QueryDescriptor {
  *  `onPartial:'error'` with denials. `deniedNodes` = denied node ids (request-access). */
 export interface QueryUpdatePayload {
   resourceIds?: string[];
-  deniedNodes?: number[];
+  deniedNodes?: string[];
 }
 
 /**

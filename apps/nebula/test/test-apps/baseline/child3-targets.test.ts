@@ -43,7 +43,7 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     // A node the admin has NO explicit grant on (DevStudio seeds no root admin — the
     // admin acts purely via the access.admin bypass), so the admin subscriber exercises
     // the accessAdmin operand in isolation.
-    const node = await admin.orgTree.createNode(ROOT_NODE_ID, 'sess', 'Session node');
+    const node = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'sess', 'Session node');
 
     // Non-admin "granted": explicit read on `node`.
     const adminBrowser = new Browser();

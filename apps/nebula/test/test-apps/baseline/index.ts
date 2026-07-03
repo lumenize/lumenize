@@ -321,7 +321,7 @@ export class DevStudioTest extends DevStudio {
    *  accessor test. Returns the clientIds among the query's subscribers that may read
    *  `nodeId` (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
   @mesh(requireAdmin)
-  inspectQueryTargets(query: QueryDescriptor, nodeId: number): string[] {
+  inspectQueryTargets(query: QueryDescriptor, nodeId: string): string[] {
     return this.queryTargets(query, nodeId).map((t) => t.instanceName);
   }
 
@@ -330,13 +330,13 @@ export class DevStudioTest extends DevStudio {
    *  progress). Kept separate from the commit so a test can observe a chunk arriving
    *  BEFORE the durable Message (M3 transient-surface assertion). */
   @mesh(requireAdmin)
-  streamChunkForTest(sessionId: string, messageId: string, chunk: string, nodeId: number): void {
+  streamChunkForTest(sessionId: string, messageId: string, chunk: string, nodeId: string): void {
     this.streamProgress(sessionId, messageId, chunk, nodeId);
   }
 
   /** Child 3 Phase 3: commit the durable assistant Message (the completion step). */
   @mesh(requireAdmin)
-  async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: number): Promise<void> {
+  async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: string): Promise<void> {
     await this.commitAssistantMessage(sessionId, messageId, content, nodeId, 'synthetic thought');
   }
 }
@@ -570,67 +570,75 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarCreateNode(starName: string, parentId: number, slug: string, label: string): void {
+  callStarCreateNode(starName: string, parentId: string, slug: string, label: string): void {
+    // The client mints the id (client-supplied nodeId, a v4 UUID) and passes it in
+    // the continuation — the faithful client-supplied-id flow; the server echoes it
+    // back into `lastResult`. Use `callStarCreateNodeWithId` when a test must control
+    // the id (idempotency/replay/collision).
+    this.callStarCreateNodeWithId(starName, crypto.randomUUID(), parentId, slug, label);
+  }
+
+  callStarCreateNodeWithId(starName: string, nodeId: string, parentId: string, slug: string, label: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().createNode(parentId, slug, label);
+    const remote = this.ctn<Star>().dagTree().createNode(nodeId, parentId, slug, label);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarAddEdge(starName: string, parentId: number, childId: number): void {
+  callStarAddEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().addEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRemoveEdge(starName: string, parentId: number, childId: number): void {
+  callStarRemoveEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().removeEdge(parentId, childId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarReparentNode(starName: string, childId: number, oldParentId: number, newParentId: number): void {
+  callStarReparentNode(starName: string, childId: string, oldParentId: string, newParentId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().reparentNode(childId, oldParentId, newParentId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarDeleteNode(starName: string, nodeId: number): void {
+  callStarDeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().deleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarUndeleteNode(starName: string, nodeId: number): void {
+  callStarUndeleteNode(starName: string, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().undeleteNode(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRenameNode(starName: string, nodeId: number, newSlug: string): void {
+  callStarRenameNode(starName: string, nodeId: string, newSlug: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().renameNode(nodeId, newSlug);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRelabelNode(starName: string, nodeId: number, newLabel: string): void {
+  callStarRelabelNode(starName: string, nodeId: string, newLabel: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarSetPermission(starName: string, nodeId: number, targetSub: string, level: PermissionTier): void {
+  callStarSetPermission(starName: string, nodeId: string, targetSub: string, level: PermissionTier): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarRevokePermission(starName: string, nodeId: number, targetSub: string): void {
+  callStarRevokePermission(starName: string, nodeId: string, targetSub: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarCheckPermission(starName: string, nodeId: number, tier: PermissionTier, targetSub?: string): void {
+  callStarCheckPermission(starName: string, nodeId: string, tier: PermissionTier, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
       ? this.ctn<Star>().dagTree().checkPermission(nodeId, tier, targetSub)
@@ -642,14 +650,14 @@ export class NebulaClientTest extends NebulaClient {
    *  accessAdmin). Returns `{ allowed: Set, denied: Set }` — structured-clone
    *  preserves the Sets across the mesh. */
   callStarEvaluatePermissions(
-    starName: string, nodeIds: number[], tier: PermissionTier, sub: string, accessAdmin: boolean,
+    starName: string, nodeIds: string[], tier: PermissionTier, sub: string, accessAdmin: boolean,
   ): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().evaluatePermissions(nodeIds, tier, sub, accessAdmin);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetEffectivePermission(starName: string, nodeId: number, targetSub?: string): void {
+  callStarGetEffectivePermission(starName: string, nodeId: string, targetSub?: string): void {
     this.resetResults();
     const remote = targetSub
       ? this.ctn<Star>().dagTree().getEffectivePermission(nodeId, targetSub)
@@ -657,13 +665,13 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetNodeAncestors(starName: string, nodeId: number): void {
+  callStarGetNodeAncestors(starName: string, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().getNodeAncestors(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarGetNodeDescendants(starName: string, nodeId: number): void {
+  callStarGetNodeDescendants(starName: string, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
@@ -733,7 +741,7 @@ export class NebulaClientTest extends NebulaClient {
 
   /** Child 3 Phase 2 (M4): fetch DevStudio's permission-filtered query targets
    *  (subscriber clientIds allowed to read `nodeId`) into `lastResult`. */
-  callDevStudioInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: number): void {
+  callDevStudioInspectQueryTargets(scope: string, query: QueryDescriptor, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<DevStudioTest>().inspectQueryTargets(query, nodeId);
     this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));
@@ -741,12 +749,12 @@ export class NebulaClientTest extends NebulaClient {
 
   /** Child 3 Phase 3: fire one transient progress chunk (fire-and-forget, like the
    *  server→client stream). */
-  callDevStudioStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: number): void {
+  callDevStudioStreamChunk(scope: string, sessionId: string, messageId: string, chunk: string, nodeId: string): void {
     this.lmz.call('DEV_STUDIO', scope, this.ctn<DevStudioTest>().streamChunkForTest(sessionId, messageId, chunk, nodeId));
   }
 
   /** Child 3 Phase 3: commit the durable assistant Message (result-handler form to await). */
-  callDevStudioCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: number): void {
+  callDevStudioCommitAssistant(scope: string, sessionId: string, messageId: string, content: string, nodeId: string): void {
     this.resetResults();
     const remote = this.ctn<DevStudioTest>().commitAssistantForTest(sessionId, messageId, content, nodeId);
     this.lmz.call('DEV_STUDIO', scope, remote, this.ctn().handleResult(remote));

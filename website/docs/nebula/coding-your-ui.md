@@ -500,11 +500,11 @@ await client.orgTree.setPermission(nodeId, bobsSub, 'read');
 // Revoke. Idempotent — no-op if `sub` has no grant on this node.
 await client.orgTree.revokePermission(nodeId, bobsSub);
 
-// Create a child node (slug rules and return shape: see API reference).
-// Caller must hold `write` on `parentNodeId`.
-const listShoppingId = await client.orgTree.createNode(
-  userAliceNodeId, 'list-shopping', 'Shopping',
-);
+// Create a child node — YOU supply the id (a UUID), so you have it immediately
+// (no round-trip) and a retry with the same id is idempotent. Caller must hold
+// `write` on `parentNodeId`.
+const listShoppingId = crypto.randomUUID();
+await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
 // Co-ownership sharing — the two-party share-accept flow from Resources §
 // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -531,11 +531,11 @@ The full surface (`reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`, `r
 
 **Every Nebula app receives the same built-in org/permission tree** — the structure that resources are attached to for permissions and tenancy. Every connected client gets the full tree at `store.lmz.orgTree.value` — structure *and* the full permissions table (opaque-ID-keyed; see [Resources § Access control](./access-control.md) for what that exposes and why). Visibility is intentionally not restricted — the sub-second-RTT permission UX wants every client to know the full shape locally, to grey out inaccessible nodes and resolve who to ask for access. Most apps will surface it somewhere in their UI; rendering it as a tree view is the most common form (others: a flat list of accessible nodes, a breadcrumb selector for the current scope, a permission-grant dialog).
 
-The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<number, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
+The example pulls together: reading the built-in org tree (delivered on its own channel to `store.lmz.orgTree`), walking the embedded `Map<string, ...>` in a `computed`, recursive Vue components, per-instance state, and `provide` / `inject` to broadcast a derived signal down the tree. It includes multi-parent rendering (the tree allows a node to have more than one parent — see [Resources § Access control](./access-control.md) for why and the tradeoffs), virtual "Deleted" / "Orphaned" branches, and search with match highlighting + auto-expand of ancestors of matches.
 
 ### The tree shape
 
-`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<number, { slug, label, deleted }>`), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
+`store.lmz.orgTree.value` is an [`OrgTreeState`](./api-reference.md#orgtreestate) — `nodes` (a `Map<string, { slug, label, deleted }>`, keyed by the node's UUID), `edges` (a `Set` of `"parentId:childId"` keys — adjacency lives here, not on the nodes), and `permissions`. For O(1) parent/child lookups while walking, build an `OrgTreeView` with `buildOrgTreeView(orgTree)` (exported from `@lumenize/nebula/frontend`); the `tree.ts` helpers below use it.
 
 The tree is subscribed once on connect and kept current at `store.lmz.orgTree`; every server-side mutation broadcasts a fresh snapshot to all connected clients (the actor included — `client.orgTree.*` has no optimistic local write, so the broadcast echo is what updates your own store). The delivery is tagged `new-in-v3` — see [API reference § OrgTreeState](./api-reference.md#orgtreestate).
 
@@ -543,7 +543,7 @@ The framework reserves the `lmz` resourceType for its own resources (mirrors the
 
 **Multi-parent rendering**: a node with parents `[A, B]` renders once under each. The derivation walks every parent edge; each rendered position is its own `OrgTreeNode` instance with independent per-instance state automatically.
 
-**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have integer `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is all digits for every real node; the underscore-prefixed virtual IDs can't collide with anything real.
+**Virtual branches**: `__deleted__` and `__orphaned__` are IDs in the derived `TreeNodeData` tree. Real tree nodes have a UUID `nodeId`, so the derived `TreeNodeData.id` — `String(nodeId)` — is a hyphenated hex UUID for every real node; the underscore-prefixed virtual IDs can't collide with a UUID.
 
 ### Derivation helpers (`tree.ts`)
 

@@ -248,7 +248,7 @@ describe('star-resources', () => {
       // Create a child node for move target
       client.callStarCreateNode(star, ROOT_NODE_ID, 'child', 'Child');
       await waitForResult(client);
-      const childNodeId = client.lastResult as number;
+      const childNodeId = client.lastResult as string;
 
       // Create two resources
       const r1 = generateUuid();
@@ -417,7 +417,7 @@ describe('star-resources', () => {
       // Create a child node and grant user write permission
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
       await waitForResult(admin);
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       // Create resource as admin
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -510,7 +510,7 @@ describe('star-resources', () => {
       // Create node
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'team', 'Team');
       await waitForResult(admin);
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       // Create user and grant write
       const { client: user } = await userClient(star, accessToken);
@@ -540,7 +540,7 @@ describe('star-resources', () => {
       // Create node and resource as admin
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'readonly', 'Read Only');
       await waitForResult(admin);
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       const resourceId = generateUuid();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -588,7 +588,7 @@ describe('star-resources', () => {
       // Create node and resource as admin
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
       await waitForResult(admin);
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       const resourceId = generateUuid();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -632,7 +632,7 @@ describe('star-resources', () => {
       // Set up a resource on a private node with NO grant for the user.
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
       await waitForResult(admin);
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
       const resourceId = generateUuid();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
@@ -647,17 +647,17 @@ describe('star-resources', () => {
       expect(permErr.name).toBe('PermissionDeniedError');
       // property check (the detection contract is name + property, not instanceof)
       expect(typeof (permErr as unknown as { tier?: unknown }).tier).toBe('string');
-      expect(typeof (permErr as unknown as { nodeId?: unknown }).nodeId).toBe('number');
+      expect(typeof (permErr as unknown as { nodeId?: unknown }).nodeId).toBe('string');
 
       // (2) not-found node via create on a nonexistent nodeId → NodeNotFoundError
       //     via doTransaction's catch.
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: 99999, value: makeTestValue() },
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
       });
       await waitForError(admin);
       const notFoundErr = admin.lastErrorObject!;
       expect(notFoundErr.name).toBe('NodeNotFoundError');
-      expect((notFoundErr as unknown as { nodeId?: unknown }).nodeId).toBe(99999);
+      expect((notFoundErr as unknown as { nodeId?: unknown }).nodeId).toBe('99999999-9999-4999-8999-999999999999');
 
       // Distinct — the catch did not conflate a malformed request with a permission failure.
       expect(notFoundErr.name).not.toBe(permErr.name);
@@ -678,11 +678,11 @@ describe('star-resources', () => {
       // Create two nodes
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-a', 'Node A');
       await waitForResult(client);
-      const nodeA = client.lastResult as number;
+      const nodeA = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-b', 'Node B');
       await waitForResult(client);
-      const nodeB = client.lastResult as number;
+      const nodeB = client.lastResult as string;
 
       // Create resource on node A
       const resourceId = generateUuid();
@@ -742,11 +742,11 @@ describe('star-resources', () => {
       // Create two nodes
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'src', 'Source');
       await waitForResult(admin);
-      const srcNode = admin.lastResult as number;
+      const srcNode = admin.lastResult as string;
 
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'dst', 'Destination');
       await waitForResult(admin);
-      const dstNode = admin.lastResult as number;
+      const dstNode = admin.lastResult as string;
 
       // Create resource on source
       const resourceId = generateUuid();
@@ -874,7 +874,7 @@ describe('star-resources', () => {
       // Create target node
       client.callStarCreateNode(star, ROOT_NODE_ID, 'target', 'Target');
       await waitForResult(client);
-      const targetNode = client.lastResult as number;
+      const targetNode = client.lastResult as string;
 
       const resourceId = generateUuid();
 
@@ -1092,10 +1092,10 @@ describe('star-resources', () => {
       // requirePermission checks node existence before admin bypass,
       // so even admins get a clear "Node not found" error
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: 99999, value: makeTestValue() },
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
       });
       const error = await waitForError(client);
-      expect(error).toContain('Node 99999 not found');
+      expect(error).toContain('Node 99999999-9999-4999-8999-999999999999 not found');
 
       client[Symbol.dispose]();
     });

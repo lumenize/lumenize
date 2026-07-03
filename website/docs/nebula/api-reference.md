@@ -31,7 +31,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.logout()` | new-in-v3 | [client.logout](#clientlogout) |
 | `client.orgTree.*` (org/permission tree mutations) | new-in-v3 | [client.orgTree](#clientorgtree) |
 | org/permission tree at `store.lmz.orgTree` (dedicated channel, not a resource) | new-in-v3 | [OrgTreeState](#orgtreestate) |
-| `ROOT_NODE_ID` (`= 1`) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
+| `ROOT_NODE_ID` (sentinel UUID) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
 | `textMerge(server, local, base)` helper | new-in-v3 | [textMerge](#textmerge) |
@@ -180,7 +180,7 @@ client.resources.unsubscribe('todo', 'task-42');                // standalone AP
 createAndSubscribe(
   resourceType: string,
   resourceId: string,
-  nodeId: number,
+  nodeId: string,
   value: unknown,
 ): ResourceSubscription;
 ```
@@ -251,9 +251,9 @@ Per-resource outcomes (commit, server-wins, conflict-pending, validation-failed,
 
 ```typescript @skip-check
 type OperationDescriptor =
-  | { op: 'create'; typeName: string; nodeId: number; value: any }
+  | { op: 'create'; typeName: string; nodeId: string; value: any }
   | { op: 'put';    typeName: string; value: any;       eTag?: string }
-  | { op: 'move';   typeName: string; nodeId: number;   eTag?: string }
+  | { op: 'move';   typeName: string; nodeId: string;   eTag?: string }
   | { op: 'delete'; typeName: string;                   eTag?: string };
 ```
 
@@ -286,7 +286,7 @@ const outcome = await client.resources.transaction({
 ```typescript @check-example('apps/nebula/test/test-apps/baseline/for-docs.test.ts')
 const newId = crypto.randomUUID();
 const outcome = await client.resources.transaction({
-  [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
+  [newId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
              value: { title, description: '', status: 'open' } },
   // per-user keying — see Coding your UI § Lists with v-for
   [client.claims.sub]: { op: 'put', typeName: 'todoList',
@@ -446,14 +446,16 @@ Mutations to the app's **org/permission tree** (the DAG that resources attach to
 
 **While disconnected:** there is no connection-gating here (unlike the resource write path — tree mutations hold no optimistic store state to roll back, and the await-site handles the reject). A call issued while offline is queued and sent on reconnect (or rejects on timeout); a call already in flight when the socket drops is **not** auto-resubmitted — it times out and rejects.
 
-Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are integers; `sub` is a JWT subject claim — a bare UUID as minted by nebula-auth (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `nodeId === 1` (`ROOT_NODE_ID`) cannot be deleted, undeleted, or renamed. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
+Every method requires the caller to hold a permission on the relevant node, resolved by the same cascading rules as resource access (`admin` on the node grants everything below it). Node ids are **client-supplied UUID strings** (`crypto.randomUUID()`); `sub` is a JWT subject claim — a bare UUID as minted by nebula-auth (the current user's is `client.claims.sub`; grants are matched by exact string equality against the JWT `sub`). `ROOT_NODE_ID` (a reserved sentinel node) cannot be deleted, undeleted, or renamed. `createNode` is deliberately **not** one of the before-permission short-circuits below — its replay returns node content (slug/label), so it checks `write` on the parent *first*, then does the id-presence check. (One nuance: an **idempotent no-op** — adding an edge that exists, removing one that doesn't, revoking an absent grant, deleting an already-deleted node, or undeleting a live one — short-circuits to success *before* the permission check, so it neither mutates nor requires permission. This short-circuit is non-disclosing **only because** the tree is universally visible (M7) — a caller can already see every edge/grant, so "exists" (success) vs "absent" (permission-checked) reveals nothing new. If tree visibility is ever scoped per-branch, these short-circuits must move *after* the permission check, or they become an existence oracle for unauthorized callers.)
 
 ### Structural mutations (require `write`)
 
 ```typescript @skip-check
 // Create a child node. `slug` must match /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
-// and be unique among siblings. Returns the new node's integer id.
-createNode(parentNodeId: number, slug: string, label: string): Promise<number>;
+// and be unique among siblings. The CALLER supplies the node's id (a v4 UUID,
+// `crypto.randomUUID()`); createNode is idempotent — a retry with the same id
+// returns the same node (a reused id with a different slug throws loudly).
+createNode(nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string>;
 
 // Add a second parent edge (the co-ownership pattern — see Resources §
 // Access control for the two-party share-accept flow). Requires `write` on
@@ -461,44 +463,44 @@ createNode(parentNodeId: number, slug: string, label: string): Promise<number>;
 // grant in structural clothing (everyone with grants on/above the new parent
 // gains cascaded access to the child's subtree), so the child side demands
 // setPermission's tier. Idempotent; cycle- and sibling-slug-uniqueness-checked.
-addEdge(parentNodeId: number, childNodeId: number): Promise<void>;
+addEdge(parentNodeId: string, childNodeId: string): Promise<void>;
 
 // Remove a parent edge ("remove from my account"). Idempotent.
-removeEdge(parentNodeId: number, childNodeId: number): Promise<void>;
+removeEdge(parentNodeId: string, childNodeId: string): Promise<void>;
 
 // Move a node from one parent to another in one step. Requires `write` on BOTH
 // the old and the new parent, PLUS `admin` on the child — re-parenting adds a
 // parent edge, so it has addEdge's access-widening property (see addEdge above).
 // Cycle- and slug-uniqueness-checked.
-reparentNode(childNodeId: number, oldParentId: number, newParentId: number): Promise<void>;
+reparentNode(childNodeId: string, oldParentId: string, newParentId: string): Promise<void>;
 
 // Soft-delete (sets the node's `deleted` flag; the row survives). Idempotent.
-deleteNode(nodeId: number): Promise<void>;
+deleteNode(nodeId: string): Promise<void>;
 
 // Reverse a soft-delete. Idempotent.
-undeleteNode(nodeId: number): Promise<void>;
+undeleteNode(nodeId: string): Promise<void>;
 
 // Change the slug (the URL/path segment). Validated and re-checked for
 // uniqueness under every parent of the node.
-renameNode(nodeId: number, newSlug: string): Promise<void>;
+renameNode(nodeId: string, newSlug: string): Promise<void>;
 
 // Change the human-readable display label (non-empty, ≤ 500 chars).
-relabelNode(nodeId: number, newLabel: string): Promise<void>;
+relabelNode(nodeId: string, newLabel: string): Promise<void>;
 ```
 
 The `write` permission is checked on the node being changed — for `createNode`/`removeEdge` that's the parent; for the node-targeting methods it's the node itself. Both edge-*adding* operations also require **`admin` on the child** because they widen who has cascaded access to it: `addEdge` checks `write` on the new parent **plus `admin` on the child**, and `reparentNode` checks `write` on **both** parents **plus `admin` on the child** (see the comments above).
 
-**`createNode` is the one non-idempotent method** — it assigns a fresh server-side id, where the others are idempotent no-ops on replay. A same-slug replay *errors* on sibling-slug-uniqueness rather than creating a duplicate (no silent double-create), but an **ambiguous in-flight disconnect** (the create landed, the response was lost) rejects *without* returning the new id — the node exists and reappears in `store.lmz.orgTree` after the client reconnects. Until `createNode` becomes idempotent (a planned move to client-supplied node ids), treat a `createNode` rejection as "may or may not have landed — reload to re-sync" rather than blindly retrying (a retry with a *different* slug could duplicate).
+**`createNode` is idempotent** — the caller supplies the node's id (a v4 UUID), so a retry with the same id returns the same node rather than creating a duplicate. This closes the old ambiguous-disconnect gap: because the client already holds the id it minted, it can always address the node it may have created, even if the response was lost. A reused id with a *different* parent/slug throws a loud `NodeIdCollisionError` (never a silent no-op). One boundary remains: the client call is still an awaited request whose pending Promise is bound to the WebSocket, so an **in-session** WS drop leaves it hanging until timeout — that delivery strand is handled separately by the mesh continuation layer; interim recovery is reload → `store.lmz.orgTree` re-sync.
 
 ### Permission management (require `admin`)
 
 ```typescript @skip-check
 // Grant or upsert a permission tier for `sub` on `nodeId`. Cascades to all
 // descendants.
-setPermission(nodeId: number, sub: string, level: 'admin' | 'write' | 'read'): Promise<void>;
+setPermission(nodeId: string, sub: string, level: 'admin' | 'write' | 'read'): Promise<void>;
 
 // Revoke `sub`'s direct grant on `nodeId`. Idempotent — no-op if absent.
-revokePermission(nodeId: number, sub: string): Promise<void>;
+revokePermission(nodeId: string, sub: string): Promise<void>;
 ```
 
 `setPermission` only manages grants attached directly to `nodeId`; a user can still hold an effective permission via a grant on an ancestor. To narrow effective access, attach the resource deeper rather than revoking ancestor grants.
@@ -511,15 +513,15 @@ The shape of the tree at `store.lmz.orgTree.value`. Exported from `@lumenize/neb
 
 ```typescript @skip-check
 interface OrgTreeState {
-  nodes: Map<number, { slug: string; label: string; deleted: boolean }>;
-  edges: Set<`${number}:${number}`>;   // "parentId:childId" edge keys
-  permissions: Map<number, Map<string, 'admin' | 'write' | 'read'>>;
+  nodes: Map<string, { slug: string; label: string; deleted: boolean }>;
+  edges: Set<`${string}:${string}`>;   // "parentId:childId" edge keys (UUIDs)
+  permissions: Map<string, Map<string, 'admin' | 'write' | 'read'>>;
 }
 ```
 
 `edges` is the canonical, wire-shippable adjacency form. For O(1) parent/child lookups during a tree walk, build an `OrgTreeView` with `buildOrgTreeView(state)` (also exported from `@lumenize/nebula/frontend`) — it derives `childrenByParent` and `parentsByChild` indexes from `edges`. See [Coding your UI § Worked example: rendering the built-in tree](./coding-your-ui.md#worked-example-rendering-the-built-in-tree).
 
-`ROOT_NODE_ID` (`= 1`, the root node every Star is provisioned with) is also exported from `@lumenize/nebula/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
+`ROOT_NODE_ID` (a reserved sentinel UUID, the root node every Star is provisioned with) is also exported from `@lumenize/nebula/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
 
 ## Reserved state paths
 

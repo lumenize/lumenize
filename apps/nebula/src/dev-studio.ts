@@ -523,7 +523,7 @@ export class DevStudio extends NebulaDO {
    * audience (Child 3, D-fanout-accessor). `protected`: the Phase-3 progress push uses
    * it internally; a test subclass exposes it for the M4 per-operand accessor test.
    */
-  protected queryTargets(query: QueryDescriptor, nodeId: number): BroadcastTarget[] {
+  protected queryTargets(query: QueryDescriptor, nodeId: string): BroadcastTarget[] {
     return this.#dataPlane.targetsForQuery(query, nodeId);
   }
 
@@ -535,7 +535,7 @@ export class DevStudio extends NebulaDO {
    * durable path — a subscriber denied on `nodeId` gets NO chunk, M1). No `onResult`: a
    * missed chunk just drops the animation (the durable Message still lands via the query sub).
    */
-  protected streamProgress(sessionId: string, messageId: string, progress: string, nodeId: number): void {
+  protected streamProgress(sessionId: string, messageId: string, progress: string, nodeId: string): void {
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: sessionId };
     const targets = this.queryTargets(query, nodeId);
     // Log identifiers/counts only — never the progress body (Stage-2 security nit).
@@ -551,7 +551,7 @@ export class DevStudio extends NebulaDO {
    * the capability (a fresh assistant id → a create); server-internal, no client delivery.
    */
   protected async commitAssistantMessage(
-    sessionId: string, messageId: string, content: string, nodeId: number, thought?: string,
+    sessionId: string, messageId: string, content: string, nodeId: string, thought?: string,
   ): Promise<void> {
     const value: Record<string, unknown> = { session: sessionId, role: 'assistant', content, status: 'complete' };
     if (thought !== undefined) value.thought = thought;

@@ -689,12 +689,12 @@ describe('transactionOps — explicit ops (v3-port)', () => {
   it('create: paints optimistically, carries op:create to the wire, commits', async () => {
     const h = makeHarness();
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'buy milk' } },
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001', value: { title: 'buy milk' } },
     });
     expect(outcome.kind).toBe('committed');
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('committed');
     expect(h.valueOf('todo', 't1')).toEqual({ title: 'buy milk' }); // optimistic paint (gut applyOptimistic → undefined)
-    expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: 1 }); // op carriage (gut submitKeys op → undefined)
+    expect(h.submitted[0]!.op).toMatchObject({ op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001' }); // op carriage (gut submitKeys op → undefined)
     expect(h.store.get('todo:t1')!.eTag).toBe('srv-1'); // committed eTag written through
   });
 
@@ -738,7 +738,7 @@ describe('transactionOps — explicit ops (v3-port)', () => {
     const h = makeHarness();
     h.setResponder(async () => ({ resources: [{ result: 'permission-denied' }] }));
     const outcome = await h.engine.transactionOps({
-      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: 1, value: { title: 'nope' } },
+      t1: { rt: 'todo', op: 'create', typeName: 'Todo', nodeId: '00000000-0000-4000-8000-000000000001', value: { title: 'nope' } },
     });
     expect(outcome).toMatchObject({ kind: 'rejected', retryable: false });
     expect((outcome as { resources: Record<string, TransactionResourceResolution> }).resources.t1!.kind).toBe('permission-denied');

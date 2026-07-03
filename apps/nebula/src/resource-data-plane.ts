@@ -141,7 +141,7 @@ export class ResourceDataPlane {
    * same read gate the eventual committed Resource will. Returns `[]` when no
    * subscriber may read `nodeId` (the caller should skip the broadcast).
    */
-  targetsForQuery(query: QueryDescriptor, nodeId: number): BroadcastTarget[] {
+  targetsForQuery(query: QueryDescriptor, nodeId: string): BroadcastTarget[] {
     return this.#querySubs
       .forQueryHash(canonicalQueryHash(query))
       .filter((r) =>
@@ -184,7 +184,7 @@ export class ResourceDataPlane {
    * platform-seed path (DevStudio's `ensureSession` runs under the admin's call).
    */
   async ensureResource(
-    resourceId: string, typeName: string, nodeId: number, value: Record<string, unknown>,
+    resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,
   ): Promise<void> {
     if (this.#resources.read(resourceId)) return; // idempotent: a live snapshot exists
     const { version, facet } = this.#getOntology();
@@ -324,7 +324,7 @@ export class ResourceDataPlane {
    * current ordered result set. v1 `parentChild` → `enumerateCurrentByField` over
    * current snapshots (full scan while D8 defers the index, M1).
    */
-  #evaluateQuery(query: QueryDescriptor): Array<{ resourceId: string; nodeId: number }> {
+  #evaluateQuery(query: QueryDescriptor): Array<{ resourceId: string; nodeId: string }> {
     return this.#resources.enumerateCurrentByField(query.typeName, query.field, query.value);
   }
 

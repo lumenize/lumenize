@@ -149,10 +149,10 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const P = generateUuid();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'pub', 'Pub');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
-    const pub = a.lastResult as number;
+    const pub = a.lastResult as string;
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
-    const priv = a.lastResult as number;
+    const priv = a.lastResult as string;
 
     // user granted read on pub only.
     const adminBrowser = new Browser();

@@ -38,7 +38,7 @@ describe('dag-tree', () => {
   // ─── Schema & Root Node ───────────────────────────────────────────
 
   describe('schema and root node', () => {
-    it('root node exists with nodeId 1, slug root, label Root after onStart', async () => {
+    it('root node exists with the root sentinel id, slug root, label Root after onStart', async () => {
       const star = uniqueStar();
       const { client, payload } = await adminClient(star);
 
@@ -153,8 +153,12 @@ describe('dag-tree', () => {
         expect(client.lastResult).toBeDefined();
         expect(client.lastError).toBeUndefined();
       });
-      const engId = client.lastResult as number;
-      expect(engId).toBeGreaterThan(ROOT_NODE_ID);
+      const engId = client.lastResult as string;
+      // nodeId is now a client-supplied UUID — the old numeric-ordering assert
+      // (`> ROOT_NODE_ID`) is type-invalid and meaningless; identity is verified by
+      // the getState lookup below.
+      expect(engId).not.toBe(ROOT_NODE_ID);
+      expect(engId).toMatch(/^[0-9a-f-]{36}$/);
 
       // Verify via getState
       client.callStarDagTreeGetState(star);
@@ -178,15 +182,15 @@ describe('dag-tree', () => {
       // root → A → C, root → B → C (diamond)
       client.callStarCreateNode(star, ROOT_NODE_ID, 'dept-a', 'Department A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'dept-b', 'Department B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const bId = client.lastResult as number;
+      const bId = client.lastResult as string;
 
       client.callStarCreateNode(star, aId, 'team-c', 'Team C');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const cId = client.lastResult as number;
+      const cId = client.lastResult as string;
 
       // Add second parent edge: B → C (making a diamond)
       client.callStarAddEdge(star, bId, cId);
@@ -209,13 +213,105 @@ describe('dag-tree', () => {
     });
   });
 
+  // ─── createNode idempotency & client-supplied ids ────────────────
+
+  describe('createNode idempotency & id-supply', () => {
+    it('replays a client-supplied id: same id twice → one node, second returns it (idempotent)', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const nodeId = crypto.randomUUID();
+
+      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'eng', 'Engineering');
+      await vi.waitFor(() => expect(client.lastResult).toBe(nodeId));
+
+      // Replay: identical create with the SAME id → success (returns the id), NOT an
+      // error. A non-idempotent impl errors on slug-uniqueness / PK conflict → red.
+      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'eng', 'Engineering');
+      await vi.waitFor(() => {
+        expect(client.lastResult).toBe(nodeId);
+        expect(client.lastError).toBeUndefined();
+      });
+
+      // Exactly ONE node with that slug — the replay created no duplicate.
+      client.callStarDagTreeGetState(star);
+      await vi.waitFor(() => {
+        const state = client.lastResult as DagTreeState;
+        expect(state.nodes.has(nodeId)).toBe(true);
+        expect([...state.nodes.values()].filter((n) => n.slug === 'eng')).toHaveLength(1);
+      });
+
+      client[Symbol.dispose]();
+    });
+
+    it('B1 security gate: a replay by a caller who has LOST write fails — permission runs BEFORE the id-presence check', async () => {
+      const star = uniqueStar();
+      const { client: admin } = await adminClient(star);
+
+      // Admin creates parent P.
+      const parentId = crypto.randomUUID();
+      admin.callStarCreateNodeWithId(star, parentId, ROOT_NODE_ID, 'dept', 'Dept');
+      await vi.waitFor(() => expect(admin.lastResult).toBe(parentId));
+
+      // A non-admin writer, granted 'write' on P.
+      const adminBrowser = new Browser();
+      const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const writerBrowser = new Browser();
+      await createSubject(adminBrowser, star, accessToken, 'writer@example.com');
+      const { client: writer, payload: writerPayload } =
+        await createAuthenticatedClient(NebulaClientTest, writerBrowser, star, star, 'writer@example.com');
+      admin.callStarSetPermission(star, parentId, writerPayload.sub, 'write');
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      // Writer creates a child under P (succeeds — has write).
+      const childId = crypto.randomUUID();
+      writer.callStarCreateNodeWithId(star, childId, parentId, 'child', 'Child');
+      await vi.waitFor(() => expect(writer.lastResult).toBe(childId));
+
+      // Admin revokes the writer's write on P.
+      admin.callStarRevokePermission(star, parentId, writerPayload.sub);
+      await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+      // Writer RETRIES the identical create (same childId). Because createNode runs
+      // requirePermission BEFORE the id-presence replay short-circuit, this must FAIL
+      // with PermissionDenied — NOT return the existing node (which would leak its
+      // slug/label content to a now-unauthorized caller). Mutation: move the
+      // id-presence short-circuit before requirePermission → replay-success → red.
+      writer.callStarCreateNodeWithId(star, childId, parentId, 'child', 'Child');
+      await vi.waitFor(() => expect(writer.lastError).toContain('write permission required'));
+
+      admin[Symbol.dispose]();
+      writer[Symbol.dispose]();
+    });
+
+    it('collision & shape: reused id with a different slug throws loudly; malformed id throws', async () => {
+      const star = uniqueStar();
+      const { client } = await adminClient(star);
+      const nodeId = crypto.randomUUID();
+
+      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'slug-a', 'A');
+      await vi.waitFor(() => expect(client.lastResult).toBe(nodeId));
+
+      // Same id, DIFFERENT slug → NodeIdCollisionError, never a silent OR-IGNORE no-op.
+      // Mutation: return the existing node on mismatch → no error → red.
+      client.callStarCreateNodeWithId(star, nodeId, ROOT_NODE_ID, 'slug-b', 'B');
+      await vi.waitFor(() => expect(client.lastError).toContain('already exists'));
+
+      // Malformed (non-UUID) id → validateNodeId rejects it (the server does not trust
+      // the client to send a well-formed id). Mutation: drop validateNodeId → no error → red.
+      client.callStarCreateNodeWithId(star, 'not-a-uuid', ROOT_NODE_ID, 'slug-c', 'C');
+      await vi.waitFor(() => expect(client.lastError).toContain('Invalid nodeId'));
+
+      client[Symbol.dispose]();
+    });
+  });
+
   // ─── Node-Not-Found ───────────────────────────────────────────────
 
   describe('node-not-found', () => {
     it('operations on non-existent nodeId throw', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const bogusId = 9999;
+      const bogusId = crypto.randomUUID(); // a valid-shaped but non-existent nodeId
 
       client.callStarDeleteNode(star, bogusId);
       await vi.waitFor(() => {
@@ -309,7 +405,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'sales', 'Sales');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const salesId = client.lastResult as number;
+      const salesId = client.lastResult as string;
 
       // Duplicate under same parent → rejected
       client.callStarCreateNode(star, ROOT_NODE_ID, 'sales', 'Sales 2');
@@ -336,11 +432,11 @@ describe('dag-tree', () => {
       // Build: root → A → B
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-a', 'A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, aId, 'node-b', 'B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const bId = client.lastResult as number;
+      const bId = client.lastResult as string;
 
       // B → A would create a cycle → rejected
       client.callStarAddEdge(star, bId, aId);
@@ -366,7 +462,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'child', 'Child');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const childId = client.lastResult as number;
+      const childId = client.lastResult as string;
 
       // Add same edge again → no-op, no error
       client.callStarAddEdge(star, ROOT_NODE_ID, childId);
@@ -384,11 +480,11 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-x', 'X');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const xId = client.lastResult as number;
+      const xId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-y', 'Y');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const yId = client.lastResult as number;
+      const yId = client.lastResult as string;
 
       // No edge between X and Y → no-op
       client.callStarRemoveEdge(star, xId, yId);
@@ -410,15 +506,15 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'old-parent', 'Old');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const oldId = client.lastResult as number;
+      const oldId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'new-parent', 'New');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const newId = client.lastResult as number;
+      const newId = client.lastResult as string;
 
       client.callStarCreateNode(star, oldId, 'child', 'Child');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const childId = client.lastResult as number;
+      const childId = client.lastResult as string;
 
       client.callStarReparentNode(star, childId, oldId, newId);
       await vi.waitFor(() => {
@@ -443,11 +539,11 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-p', 'P');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const pId = client.lastResult as number;
+      const pId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-q', 'Q');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const qId = client.lastResult as number;
+      const qId = client.lastResult as string;
 
       // pId → qId edge doesn't exist
       client.callStarReparentNode(star, qId, pId, ROOT_NODE_ID);
@@ -468,7 +564,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'temp', 'Temp');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const tempId = client.lastResult as number;
+      const tempId = client.lastResult as string;
 
       // Delete
       client.callStarDeleteNode(star, tempId);
@@ -505,7 +601,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'idem', 'Idem');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const id = client.lastResult as number;
+      const id = client.lastResult as string;
 
       client.callStarDeleteNode(star, id);
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
@@ -526,7 +622,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'alive', 'Alive');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const id = client.lastResult as number;
+      const id = client.lastResult as string;
 
       // Undelete a non-deleted node → no-op
       client.callStarUndeleteNode(star, id);
@@ -556,7 +652,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'parent-del', 'Parent');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const parentId = client.lastResult as number;
+      const parentId = client.lastResult as string;
 
       client.callStarDeleteNode(star, parentId);
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
@@ -567,7 +663,7 @@ describe('dag-tree', () => {
         expect(client.lastResult).toBeDefined();
         expect(client.lastError).toBeUndefined();
       });
-      const childId = client.lastResult as number;
+      const childId = client.lastResult as string;
 
       // Rename deleted node → succeeds
       client.callStarRenameNode(star, parentId, 'renamed-del');
@@ -594,11 +690,11 @@ describe('dag-tree', () => {
       // Build: root → A → B
       client.callStarCreateNode(star, ROOT_NODE_ID, 'node-a', 'A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, aId, 'node-b', 'B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const bId = client.lastResult as number;
+      const bId = client.lastResult as string;
 
       // Grant write on A, then delete A
       client.callStarSetPermission(star, aId, adminSub, 'write');
@@ -626,7 +722,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'labeled', 'Label');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       client.callStarRelabelNode(star, nodeId, '');
       await vi.waitFor(() => expect(client.lastError).toContain('empty'));
@@ -651,7 +747,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'secured', 'Secured');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       // Grant read
       client.callStarSetPermission(star, nodeId, testSub, 'read');
@@ -695,7 +791,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'no-perm', 'No Perm');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       // Revoke non-existent grant → no-op
       client.callStarRevokePermission(star, nodeId, 'nobody-sub');
@@ -715,7 +811,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'upsert-test', 'Upsert');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       // Grant admin, then downgrade to read
       client.callStarSetPermission(star, nodeId, testSub, 'admin');
@@ -744,22 +840,22 @@ describe('dag-tree', () => {
       // Build: root → A → C, root → B → C (diamond), C → D
       client.callStarCreateNode(star, ROOT_NODE_ID, 'branch-a', 'A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'branch-b', 'B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const bId = client.lastResult as number;
+      const bId = client.lastResult as string;
 
       client.callStarCreateNode(star, aId, 'team-c', 'C');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const cId = client.lastResult as number;
+      const cId = client.lastResult as string;
 
       client.callStarAddEdge(star, bId, cId); // diamond
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
 
       client.callStarCreateNode(star, cId, 'project-d', 'D');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const dId = client.lastResult as number;
+      const dId = client.lastResult as string;
 
       // Grant write on A, read on B
       client.callStarSetPermission(star, aId, sub, 'write');
@@ -794,7 +890,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'isolated', 'Isolated');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       // No grants at all → null effective, false check
       client.callStarGetEffectivePermission(star, nodeId, testSub);
@@ -816,7 +912,7 @@ describe('dag-tree', () => {
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'perms-node', 'Perms');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const nodeId = client.lastResult as number;
+      const nodeId = client.lastResult as string;
 
       client.callStarSetPermission(star, nodeId, payload.sub, 'write');
       await vi.waitFor(() => expect(client.callCompleted).toBe(true));
@@ -880,7 +976,7 @@ describe('dag-tree', () => {
       // Create a node and grant write on it
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'writable', 'Writable');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       // Create non-admin user
       const adminBrowser = new Browser();
@@ -912,7 +1008,7 @@ describe('dag-tree', () => {
 
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'restricted', 'Restricted');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const nodeId = admin.lastResult as number;
+      const nodeId = admin.lastResult as string;
 
       // Create non-admin user with write access
       const adminBrowser = new Browser();
@@ -943,11 +1039,11 @@ describe('dag-tree', () => {
       // Build: root → mallory-home; root → victim
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'mallory-home', 'Mallory Home');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const homeId = admin.lastResult as number;
+      const homeId = admin.lastResult as string;
 
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'victim', 'Victim');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const victimId = admin.lastResult as number;
+      const victimId = admin.lastResult as string;
 
       // Mallory: non-admin, admin on her own node, write (Approach-1
       // collaborator tier) on victim
@@ -992,15 +1088,15 @@ describe('dag-tree', () => {
       // Build: root → mallory-home; root → src → child
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'mallory-home', 'Mallory Home');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const homeId = admin.lastResult as number;
+      const homeId = admin.lastResult as string;
 
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'src', 'Source');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const srcId = admin.lastResult as number;
+      const srcId = admin.lastResult as string;
 
       admin.callStarCreateNode(star, srcId, 'child', 'Child');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const childId = admin.lastResult as number;
+      const childId = admin.lastResult as string;
 
       const adminBrowser = new Browser();
       const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
@@ -1049,20 +1145,20 @@ describe('dag-tree', () => {
       // Build: root → A → B → C
       client.callStarCreateNode(star, ROOT_NODE_ID, 'anc-a', 'A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, aId, 'anc-b', 'B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const bId = client.lastResult as number;
+      const bId = client.lastResult as string;
 
       client.callStarCreateNode(star, bId, 'anc-c', 'C');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const cId = client.lastResult as number;
+      const cId = client.lastResult as string;
 
       // Ancestors of C = {B, A, root}
       client.callStarGetNodeAncestors(star, cId);
       await vi.waitFor(() => {
-        const ancestors = client.lastResult as Set<number>;
+        const ancestors = client.lastResult as Set<string>;
         expect(ancestors).toBeInstanceOf(Set);
         expect(ancestors.has(bId)).toBe(true);
         expect(ancestors.has(aId)).toBe(true);
@@ -1073,7 +1169,7 @@ describe('dag-tree', () => {
       // Descendants of root = {A, B, C}
       client.callStarGetNodeDescendants(star, ROOT_NODE_ID);
       await vi.waitFor(() => {
-        const descendants = client.lastResult as Set<number>;
+        const descendants = client.lastResult as Set<string>;
         expect(descendants.has(aId)).toBe(true);
         expect(descendants.has(bId)).toBe(true);
         expect(descendants.has(cId)).toBe(true);
@@ -1094,7 +1190,7 @@ describe('dag-tree', () => {
       // root → A, root → B (sibling)
       client.callStarCreateNode(star, ROOT_NODE_ID, 'rename-a', 'A');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
-      const aId = client.lastResult as number;
+      const aId = client.lastResult as string;
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'rename-b', 'B');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
@@ -1126,11 +1222,11 @@ describe('dag-tree', () => {
       // Scope admin creates structure (no DAG grants needed — the claims.access.admin bypass)
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'org', 'Organization');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const orgId = admin.lastResult as number;
+      const orgId = admin.lastResult as string;
 
       admin.callStarCreateNode(star, orgId, 'team', 'Team');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const teamId = admin.lastResult as number;
+      const teamId = admin.lastResult as string;
 
       // Create a user and delegate admin on team subtree
       const adminBrowser = new Browser();
@@ -1151,7 +1247,7 @@ describe('dag-tree', () => {
         expect(lead.lastResult).toBeDefined();
         expect(lead.lastError).toBeUndefined();
       });
-      const projectId = lead.lastResult as number;
+      const projectId = lead.lastResult as string;
 
       // Lead can grant permissions within their subtree
       lead.callStarSetPermission(star, projectId, 'dev-sub', 'write');
@@ -1214,16 +1310,16 @@ describe('dag-tree', () => {
       // Two sibling nodes under root.
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-a', 'A');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const nA = admin.lastResult as number;
+      const nA = admin.lastResult as string;
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-b', 'B');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-      const nB = admin.lastResult as number;
+      const nB = admin.lastResult as string;
 
       // A real non-admin subject, no grants yet.
       const { client: user, payload: userPayload } = await userClient(star, '', 'coach@example.com');
       const userSub = userPayload.sub;
 
-      type Eval = { allowed: Set<number>; denied: Set<number> };
+      type Eval = { allowed: Set<string>; denied: Set<string> };
 
       // Non-admin, no grants → BOTH denied. The denied set must be COMPLETE
       // (>=2 in one call). Mutation: short-circuit on first denial → only nA

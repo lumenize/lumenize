@@ -19,7 +19,7 @@
  * would be the server's `original`, not the user's `my edit`.
  */
 import { describe, it, expect, vi, inject } from 'vitest';
-import { createNebulaClient } from '@lumenize/nebula/frontend';
+import { createNebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 import { bootstrapAdmin } from './auth-bootstrap';
 import { OntologyAdminClient } from './ontology-admin';
 import { proxyBaseUrl, uniqueStar, ADMIN_EMAIL } from './factory-harness';
@@ -53,7 +53,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
 
       // Seed a todo to conflict on.
       const created = await client.resources.transaction({
-        t1: { op: 'create', typeName: 'todo', nodeId: 1, value: { title: 'original', status: 'open' } },
+        t1: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID, value: { title: 'original', status: 'open' } },
       });
       expect(created.kind).toBe('committed');
 

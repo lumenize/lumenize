@@ -69,7 +69,7 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
 
     // reparent-out: edit t1.session away from S → leaves membership.
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: eTags[t1], value: { session: Other, role: 'user', content: 't1' } },
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { session: Other, role: 'user', content: 't1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds).not.toContain(t1));
     expect(sub.resourceIds).toEqual(await ordered(a, [t2, t3]));
@@ -106,14 +106,14 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     });
     // B mutates the windowed t1 → A receives the content update (sub is live).
     await b.resources.transaction({
-      [t1]: { op: 'put', typeName: 'Message', eTag: eTags[t1], value: { session: S, role: 'user', content: 't1-v1' } },
+      [t1]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t1], value: { session: S, role: 'user', content: 't1-v1' } },
     });
     await vi.waitFor(() =>
       expect((a.lastResourceUpdate?.snapshot?.value as { content?: string })?.content).toBe('t1-v1'));
     // B mutates the UNrendered t2 → A gets a query rerun (membership unchanged) but
     // NO content push for t2; the last content A saw stays t1.
     await b.resources.transaction({
-      [t2]: { op: 'put', typeName: 'Message', eTag: eTags[t2], value: { session: S, role: 'user', content: 't2-v1' } },
+      [t2]: { op: 'put', typeName: 'Message', eTag: (eTags as unknown as Record<string, string>)[t2], value: { session: S, role: 'user', content: 't2-v1' } },
     });
     await vi.waitFor(() => expect(sub.resourceIds.length).toBe(2)); // rerun landed
     expect(a.lastResourceUpdate?.resourceId).toBe(t1); // never t2 (unrendered)
@@ -127,8 +127,8 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     const S = generateUuid();
 
     // Two SIBLING nodes under ROOT (no inheritance between them), a Message of S on each.
-    const nodeA = await admin.orgTree.createNode(ROOT_NODE_ID, 'a', 'A');
-    const nodeB = await admin.orgTree.createNode(ROOT_NODE_ID, 'b', 'B');
+    const nodeA = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
+    const nodeB = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
     const tA = generateUuid(), tB = generateUuid();
     await admin.resources.transaction({
       [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { session: S, role: 'user', content: 'a' } },

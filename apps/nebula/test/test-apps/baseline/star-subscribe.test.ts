@@ -146,7 +146,7 @@ describe('star-subscribe', () => {
     // Admin creates a private node + resource there
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await waitForResult(admin);
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
     const resourceId = generateUuid();
     await createResource(admin, star, resourceId, 'Secret', nodeId);

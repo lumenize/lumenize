@@ -50,7 +50,7 @@ async function createResource(client: NebulaClientTest, star: string, resourceId
   return result.eTags[resourceId];
 }
 
-type TreeState = { nodes: Map<number, { slug: string; label: string }>; edges: Set<string>; permissions: Map<number, unknown> };
+type TreeState = { nodes: Map<string, { slug: string; label: string }>; edges: Set<string>; permissions: Map<string, unknown> };
 
 describe('orgTree dedicated channel (P8 server)', () => {
   it('subscribeTree registers a TreeSubscribers row and pushes the initial snapshot', async () => {
@@ -162,16 +162,16 @@ describe('orgTree dedicated channel (P8 server)', () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
 
-    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team', 'Team');
-    expect(typeof nodeId).toBe('number');
-    expect(nodeId).toBeGreaterThan(ROOT_NODE_ID);
+    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team', 'Team');
+    expect(typeof nodeId).toBe('string'); // client-supplied UUID, echoed back
+    expect(nodeId).not.toBe(ROOT_NODE_ID);
 
     await a.client.orgTree.relabelNode(nodeId, 'Renamed Team'); // resolves (void)
     await a.client.orgTree.setPermission(nodeId, generateUuid(), 'write'); // resolves
 
     // Reject-on-failure: deleting a non-existent node → NodeNotFoundError rejects
     // the awaited call (NOT connection-gated, NOT swallowed).
-    await expect(a.client.orgTree.deleteNode(999999)).rejects.toThrow();
+    await expect(a.client.orgTree.deleteNode(crypto.randomUUID())).rejects.toThrow();
 
     a.client[Symbol.dispose]();
   });
@@ -184,7 +184,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
     const before = a.client.orgTreeUpdateCount; // orgTree.* is callRaw (NOT a resetting initiator)
 
-    const nodeId = await a.client.orgTree.createNode(ROOT_NODE_ID, 'team2', 'Team2');
+    const nodeId = await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'team2', 'Team2');
     await vi.waitFor(() => {
       expect(a.client.orgTreeUpdateCount).toBeGreaterThan(before);
       const tree = a.client.lastOrgTree as TreeState;

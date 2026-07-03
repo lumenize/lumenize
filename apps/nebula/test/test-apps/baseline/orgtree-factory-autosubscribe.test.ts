@@ -73,7 +73,7 @@ describe('orgTree auto-subscribe-on-connect via the factory (real Star)', () => 
     // A mutates the tree. No optimistic local write — A's own store updates only
     // via the broadcast echo (originator included).
     const slug = `team-${generateUuid().slice(0, 8)}`;
-    await a.client.orgTree.createNode(ROOT_NODE_ID, slug, 'Engineering');
+    await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, slug, 'Engineering');
 
     // Both the originator (A) AND the observer (B) see the new node via broadcast.
     await vi.waitFor(() => {

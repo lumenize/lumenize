@@ -95,7 +95,7 @@ export interface QuerySubscription extends Disposable {
   /** Current ordered membership — the resource ids the subscriber may read. */
   readonly resourceIds: string[];
   /** Denied node ids (for the request-access UI). */
-  readonly deniedNodes: number[];
+  readonly deniedNodes: string[];
   /** Set the rendered window — content subs open for exactly these ids (∩ current
    *  membership); ids that leave are released after the grace period. */
   setRenderWindow(resourceIds: string[]): void;
@@ -107,7 +107,7 @@ export interface QuerySubscription extends Disposable {
 interface QueryEntry {
   query: QueryDescriptor;
   resourceIds: string[];
-  deniedNodes: number[];
+  deniedNodes: string[];
   refcount: number;
   ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
   /** Ids the consumer asked to render; effective window = this ∩ resourceIds. */
@@ -871,7 +871,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     createAndSubscribe: (
       resourceType: string,
       resourceId: string,
-      nodeId: number,
+      nodeId: string,
       value: unknown,
     ): ResourceSubscription => {
       const key = `${resourceType}:${resourceId}`;
@@ -1040,29 +1040,32 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * update path). Intentionally NOT connection-gated like the resource write
    * path: the tree carries no optimistic state to roll back, so a call issued
    * while disconnected queues and sends on reconnect (or rejects on timeout).
-   * All mutators are idempotent/retry-safe EXCEPT `createNode` (server-assigned
-   * nodeId — a dropped response can't be safely replayed; reload re-syncs).
+   * All mutators are idempotent/retry-safe. `createNode` takes a **client-supplied**
+   * nodeId (a v4 UUID), so it is server-idempotent too: a dropped response is safely
+   * replayed with the same id (same node returned). The in-session awaited-call strand
+   * (a WS drop leaving the pending Promise hanging) is handled separately by mesh D8;
+   * interim recovery is reload → orgTree-resync.
    */
   readonly orgTree = {
-    createNode: (parentNodeId: number, slug: string, label: string): Promise<number> =>
-      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().createNode(parentNodeId, slug, label)),
-    addEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
+    createNode: (nodeId: string, parentNodeId: string, slug: string, label: string): Promise<string> =>
+      this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().createNode(nodeId, parentNodeId, slug, label)),
+    addEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().addEdge(parentNodeId, childNodeId)),
-    removeEdge: (parentNodeId: number, childNodeId: number): Promise<void> =>
+    removeEdge: (parentNodeId: string, childNodeId: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().removeEdge(parentNodeId, childNodeId)),
-    reparentNode: (childNodeId: number, oldParentId: number, newParentId: number): Promise<void> =>
+    reparentNode: (childNodeId: string, oldParentId: string, newParentId: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().reparentNode(childNodeId, oldParentId, newParentId)),
-    deleteNode: (nodeId: number): Promise<void> =>
+    deleteNode: (nodeId: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().deleteNode(nodeId)),
-    undeleteNode: (nodeId: number): Promise<void> =>
+    undeleteNode: (nodeId: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().undeleteNode(nodeId)),
-    renameNode: (nodeId: number, newSlug: string): Promise<void> =>
+    renameNode: (nodeId: string, newSlug: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().renameNode(nodeId, newSlug)),
-    relabelNode: (nodeId: number, newLabel: string): Promise<void> =>
+    relabelNode: (nodeId: string, newLabel: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel)),
-    setPermission: (nodeId: number, targetSub: string, level: PermissionTier): Promise<void> =>
+    setPermission: (nodeId: string, targetSub: string, level: PermissionTier): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level)),
-    revokePermission: (nodeId: number, targetSub: string): Promise<void> =>
+    revokePermission: (nodeId: string, targetSub: string): Promise<void> =>
       this.lmz.callRaw(this.#resourceHostBinding, this.#activeScope, this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub)),
   };
 

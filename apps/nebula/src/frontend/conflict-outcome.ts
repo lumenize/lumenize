@@ -97,9 +97,9 @@ export type ServerBatchResponse =
  * local store (a `create` uses no baseline — it asserts non-existence).
  */
 export type EngineOp =
-  | { op: 'create'; typeName: string; nodeId: number; value: unknown }
+  | { op: 'create'; typeName: string; nodeId: string; value: unknown }
   | { op: 'put'; typeName: string; value: unknown; eTag?: string }
-  | { op: 'move'; typeName: string; nodeId: number; eTag?: string }
+  | { op: 'move'; typeName: string; nodeId: string; eTag?: string }
   | { op: 'delete'; typeName: string; eTag?: string };
 
 const FLASH_COMMIT = 'lumenize-commit-success';

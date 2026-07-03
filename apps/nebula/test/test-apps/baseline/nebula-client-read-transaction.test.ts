@@ -185,7 +185,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
 
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret' } },
@@ -210,7 +210,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
 
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
     await vi.waitFor(() => { expect(admin.callCompleted).toBe(true); }, { timeout: 5000 });
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
 
     const createOutcome = await admin.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'Secret-v1' } },

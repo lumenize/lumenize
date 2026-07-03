@@ -48,7 +48,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     const P = generateUuid();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
-    const priv = a.lastResult as number;
+    const priv = a.lastResult as string;
     const c1 = generateUuid();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
 
@@ -91,7 +91,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     const P = generateUuid();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
-    const priv = a.lastResult as number;
+    const priv = a.lastResult as string;
     const c1 = generateUuid();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };

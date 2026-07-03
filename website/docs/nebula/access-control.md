@@ -5,7 +5,7 @@ description: "Nebula's org/permission tree — how resources attach to nodes, ho
 
 # Access control
 
-Every resource is attached to a node in your app's **org/permission tree**. The attachment happens at create time: `OperationDescriptor.create` carries a `nodeId: number` field naming the node the new resource lives under. After creation, the attachment can be changed with `op: 'move'`.
+Every resource is attached to a node in your app's **org/permission tree**. The attachment happens at create time: `OperationDescriptor.create` carries a `nodeId: string` field naming the node the new resource lives under. After creation, the attachment can be changed with `op: 'move'`.
 
 ## What "org" means here
 

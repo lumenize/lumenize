@@ -85,12 +85,12 @@ describe('for-docs runtime examples (real Star)', () => {
 
     // The factory auto-subscribes the org tree on connect.
     await vi.waitFor(() => {
-      expect((store.lmz.orgTree.value as { nodes?: Map<number, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
+      expect((store.lmz.orgTree.value as { nodes?: Map<string, unknown> } | undefined)?.nodes).toBeInstanceOf(Map);
     });
 
     // ── coding-your-ui § Mutating the org/permission tree ──
-    const userAliceNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-alice', 'Alice');
-    const userBobNodeId = await client.orgTree.createNode(ROOT_NODE_ID, 'user-bob', 'Bob');
+    const userAliceNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-alice', 'Alice');
+    const userBobNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-bob', 'Bob');
     const bobsSub = generateUuid();
     const nodeId = userAliceNodeId;
 
@@ -105,11 +105,11 @@ describe('for-docs runtime examples (real Star)', () => {
     // Revoke. Idempotent — no-op if `sub` has no grant on this node.
     await client.orgTree.revokePermission(nodeId, bobsSub);
 
-    // Create a child node (slug rules and return shape: see API reference).
-    // Caller must hold `write` on `parentNodeId`.
-    const listShoppingId = await client.orgTree.createNode(
-      userAliceNodeId, 'list-shopping', 'Shopping',
-    );
+    // Create a child node — YOU supply the id (a UUID), so you have it immediately
+    // (no round-trip) and a retry with the same id is idempotent. Caller must hold
+    // `write` on `parentNodeId`.
+    const listShoppingId = crypto.randomUUID();
+    await client.orgTree.createNode(listShoppingId, userAliceNodeId, 'list-shopping', 'Shopping');
 
     // Co-ownership sharing — the two-party share-accept flow from Resources §
     // Access control. Step 1, owner offers (runs as Alice): grant Bob admin on
@@ -257,7 +257,7 @@ describe('for-docs runtime examples (real Star)', () => {
       // @doc api-reference.md § Example — multi-resource atomic batch
       const newId = crypto.randomUUID();
       const outcome = await client.resources.transaction({
-        [newId]: { op: 'create', typeName: 'todo', nodeId: 1,
+        [newId]: { op: 'create', typeName: 'todo', nodeId: ROOT_NODE_ID,
                    value: { title, description: '', status: 'open' } },
         // per-user keying — see Coding your UI § Lists with v-for
         [client.claims.sub]: { op: 'put', typeName: 'todoList',

@@ -169,10 +169,10 @@ describe('child2 query subscriptions (Phase 3)', () => {
     // c1 on ROOT (user readable once granted); c2 on a private node (never granted).
     adminC.callStarCreateNode(star, ROOT_NODE_ID, 'pub', 'Pub');
     await vi.waitFor(() => expect(adminC.lastResult).toBeDefined());
-    const pubNode = adminC.lastResult as number;
+    const pubNode = adminC.lastResult as string;
     adminC.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(adminC.lastResult).toBeDefined());
-    const privNode = adminC.lastResult as number;
+    const privNode = adminC.lastResult as string;
 
     const c1 = generateUuid(), c2 = generateUuid();
     await commit(adminC, star, {
@@ -210,7 +210,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     const P = generateUuid();
     adminC.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(adminC.lastResult).toBeDefined());
-    const privNode = adminC.lastResult as number;
+    const privNode = adminC.lastResult as string;
     const c1 = generateUuid();
     await commit(adminC, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: privNode, value: { parent: P, label: 'c1' } },

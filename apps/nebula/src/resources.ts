@@ -27,7 +27,7 @@ export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
 // ─── Types ─────────────────────────────────────────────────────────
 
 export interface SnapshotMeta {
-  nodeId: number;
+  nodeId: string;
   typeName: string;
   ontologyVersion: string;
   eTag: string;
@@ -43,15 +43,15 @@ export interface Snapshot {
 }
 
 export type OperationDescriptor =
-  | { op: 'create'; nodeId: number; typeName: string; value: any }
+  | { op: 'create'; nodeId: string; typeName: string; value: any }
   | { op: 'put';    eTag: string; value: any }
-  | { op: 'move';   eTag: string; nodeId: number }
+  | { op: 'move';   eTag: string; nodeId: string }
   | { op: 'delete'; eTag: string };
 
 export type TransactionError =
   | { type: 'conflict'; currentSnapshot: Snapshot }
   | { type: 'validation'; errors: ValidationError[] }
-  | { type: 'permission'; requiredTier: PermissionTier; nodeId: number };
+  | { type: 'permission'; requiredTier: PermissionTier; nodeId: string };
 
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
@@ -82,7 +82,7 @@ export class Resources {
     this.#ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS Snapshots (
         resourceId TEXT NOT NULL,
-        nodeId INTEGER NOT NULL,
+        nodeId TEXT NOT NULL,
         typeName TEXT NOT NULL,
         ontologyVersion TEXT NOT NULL,
         validFrom TEXT NOT NULL,
@@ -124,7 +124,7 @@ export class Resources {
     return {
       value: parse(row.value as string),
       meta: {
-        nodeId: row.nodeId as number,
+        nodeId: row.nodeId as string,
         typeName: row.typeName as string,
         ontologyVersion: row.ontologyVersion as string,
         eTag: row.eTag as string,
@@ -181,7 +181,7 @@ export class Resources {
     const debounceMs = (config.debounceMs as number) ?? 3_600_000;
 
     // Determine new values based on op type
-    let nodeId: number;
+    let nodeId: string;
     let value: string;
     let deleted: boolean;
 
@@ -275,7 +275,7 @@ export class Resources {
     typeName: string,
     field: string,
     fieldValue: string,
-  ): Array<{ resourceId: string; nodeId: number; validFrom: string }> {
+  ): Array<{ resourceId: string; nodeId: string; validFrom: string }> {
     const rows = this.#ctx.storage.sql.exec(
       `SELECT resourceId, nodeId, validFrom, value
        FROM Snapshots
@@ -284,13 +284,13 @@ export class Resources {
       typeName, END_OF_TIME,
     ).toArray();
 
-    const matches: Array<{ resourceId: string; nodeId: number; validFrom: string }> = [];
+    const matches: Array<{ resourceId: string; nodeId: string; validFrom: string }> = [];
     for (const row of rows) {
       const value = parse(row.value as string);
       if (value != null && value[field] === fieldValue) {
         matches.push({
           resourceId: row.resourceId as string,
-          nodeId: row.nodeId as number,
+          nodeId: row.nodeId as string,
           validFrom: row.validFrom as string,
         });
       }

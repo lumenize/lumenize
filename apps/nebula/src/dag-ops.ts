@@ -5,14 +5,22 @@
  * No storage, no CallContext dependency — operates entirely on the in-memory DagTreeState.
  */
 
-export const ROOT_NODE_ID = 1
+/**
+ * Reserved sentinel id for the root orgTree node. A v4-shaped UUID (matching
+ * `DEFAULT_SESSION_ID`'s convention in `chat-constants.ts`) so it lives in the
+ * same id space as every client-supplied nodeId — distinct from the virtual
+ * `__deleted__`/`__orphaned__` tree sentinels (those are underscore-prefixed,
+ * a UUID can never equal them). Seeded server-side by `DagTree.#ensureRoot`,
+ * never via `createNode`.
+ */
+export const ROOT_NODE_ID = '00000000-0000-4000-8000-000000000000'
 
 export type PermissionTier = 'admin' | 'write' | 'read'
 
-/** Canonical edge key form for `DagTreeState.edges`. */
-export type EdgeKey = `${number}:${number}`
+/** Canonical edge key form for `DagTreeState.edges`. nodeIds are UUIDs (no `:`), so `:` is an unambiguous separator. */
+export type EdgeKey = `${string}:${string}`
 
-export function makeEdgeKey(parentNodeId: number, childNodeId: number): EdgeKey {
+export function makeEdgeKey(parentNodeId: string, childNodeId: string): EdgeKey {
   return `${parentNodeId}:${childNodeId}` as EdgeKey
 }
 
@@ -23,9 +31,9 @@ export interface DagTreeNodeData {
 }
 
 export interface DagTreeState {
-  nodes: Map<number, DagTreeNodeData>;
+  nodes: Map<string, DagTreeNodeData>;
   edges: Set<EdgeKey>;
-  permissions: Map<number, Map<string, PermissionTier>>; // nodeId → { sub → tier }
+  permissions: Map<string, Map<string, PermissionTier>>; // nodeId → { sub → tier }
 }
 
 /**
@@ -41,20 +49,20 @@ export interface DagTreeState {
  */
 export interface DagTreeView {
   readonly state: DagTreeState;
-  readonly parentsByChild: ReadonlyMap<number, ReadonlySet<number>>;
-  readonly childrenByParent: ReadonlyMap<number, ReadonlySet<number>>;
+  readonly parentsByChild: ReadonlyMap<string, ReadonlySet<string>>;
+  readonly childrenByParent: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
-const EMPTY_SET: ReadonlySet<number> = new Set<number>()
+const EMPTY_SET: ReadonlySet<string> = new Set<string>()
 
 /** Build a `DagTreeView` from a `DagTreeState`. O(E) over edges. */
 export function buildDagTreeView(state: DagTreeState): DagTreeView {
-  const parentsByChild = new Map<number, Set<number>>()
-  const childrenByParent = new Map<number, Set<number>>()
+  const parentsByChild = new Map<string, Set<string>>()
+  const childrenByParent = new Map<string, Set<string>>()
   for (const edge of state.edges) {
     const colon = edge.indexOf(':')
-    const parentId = Number(edge.slice(0, colon))
-    const childId = Number(edge.slice(colon + 1))
+    const parentId = edge.slice(0, colon)
+    const childId = edge.slice(colon + 1)
     let kids = childrenByParent.get(parentId)
     if (!kids) { kids = new Set(); childrenByParent.set(parentId, kids) }
     kids.add(childId)
@@ -67,9 +75,19 @@ export function buildDagTreeView(state: DagTreeState): DagTreeView {
 
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/
 
+/** v4 UUID shape (what `crypto.randomUUID()` produces). */
+const NODE_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 const TIER_RANK: Record<PermissionTier, number> = { read: 1, write: 2, admin: 3 }
 
 // ─── Validation ────────────────────────────────────────────────────
+
+/** Reject a client-supplied nodeId that isn't a v4 UUID — the server must not trust the client to send a well-formed id (guards virtual-sentinel collision). */
+export function validateNodeId(nodeId: string): void {
+  if (!NODE_ID_REGEX.test(nodeId)) {
+    throw new Error(`Invalid nodeId '${nodeId}': must be a v4 UUID (crypto.randomUUID())`)
+  }
+}
 
 export function validateSlug(slug: string): void {
   if (!slug) throw new Error('Slug must not be empty')
@@ -79,7 +97,7 @@ export function validateSlug(slug: string): void {
   }
 }
 
-export function checkSlugUniqueness(view: DagTreeView, parentNodeId: number, slug: string, excludeNodeId?: number): void {
+export function checkSlugUniqueness(view: DagTreeView, parentNodeId: string, slug: string, excludeNodeId?: string): void {
   const parent = view.state.nodes.get(parentNodeId)
   if (!parent) throw new Error(`Node ${parentNodeId} not found`)
   const children = view.childrenByParent.get(parentNodeId) ?? EMPTY_SET
@@ -92,10 +110,10 @@ export function checkSlugUniqueness(view: DagTreeView, parentNodeId: number, slu
   }
 }
 
-export function detectCycle(view: DagTreeView, parentNodeId: number, childNodeId: number): void {
+export function detectCycle(view: DagTreeView, parentNodeId: string, childNodeId: string): void {
   // If adding parent→child would create a cycle, parent must be a descendant of child.
   // Walk up from parent via parentsByChild; if we find child, it's a cycle.
-  const visited = new Set<number>()
+  const visited = new Set<string>()
   const queue = [parentNodeId]
   while (queue.length > 0) {
     const current = queue.pop()!
@@ -121,7 +139,7 @@ export function detectCycle(view: DagTreeView, parentNodeId: number, childNodeId
 export function resolvePermission(
   view: DagTreeView,
   sub: string,
-  nodeId: number,
+  nodeId: string,
   requiredTier: PermissionTier,
 ): boolean {
   const effective = getEffectivePermission(view, sub, nodeId)
@@ -136,10 +154,10 @@ export function resolvePermission(
 export function getEffectivePermission(
   view: DagTreeView,
   sub: string,
-  nodeId: number,
+  nodeId: string,
 ): PermissionTier | null {
   let best: PermissionTier | null = null
-  const visited = new Set<number>()
+  const visited = new Set<string>()
   const queue = [nodeId]
 
   while (queue.length > 0) {
@@ -173,9 +191,9 @@ export function getEffectivePermission(
 // ─── Traversal ──────────────────────────────────────────────────────
 
 /** Get all ancestor nodeIds (excludes the starting node). */
-export function getNodeAncestors(view: DagTreeView, nodeId: number): Set<number> {
-  const ancestors = new Set<number>()
-  const queue: number[] = []
+export function getNodeAncestors(view: DagTreeView, nodeId: string): Set<string> {
+  const ancestors = new Set<string>()
+  const queue: string[] = []
   for (const pid of view.parentsByChild.get(nodeId) ?? EMPTY_SET) queue.push(pid)
   while (queue.length > 0) {
     const current = queue.pop()!
@@ -189,9 +207,9 @@ export function getNodeAncestors(view: DagTreeView, nodeId: number): Set<number>
 }
 
 /** Get all descendant nodeIds (excludes the starting node). */
-export function getNodeDescendants(view: DagTreeView, nodeId: number): Set<number> {
-  const descendants = new Set<number>()
-  const queue: number[] = []
+export function getNodeDescendants(view: DagTreeView, nodeId: string): Set<string> {
+  const descendants = new Set<string>()
+  const queue: string[] = []
   for (const cid of view.childrenByParent.get(nodeId) ?? EMPTY_SET) queue.push(cid)
   while (queue.length > 0) {
     const current = queue.pop()!

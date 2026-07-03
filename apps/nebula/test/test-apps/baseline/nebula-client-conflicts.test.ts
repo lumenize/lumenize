@@ -492,9 +492,9 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
 
     // N1: user gets write. N2: user gets nothing.
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
-    const n1 = (await awaitCall(admin.client)) as number;
+    const n1 = (await awaitCall(admin.client)) as string;
     admin.client.callStarCreateNode(star, ROOT_NODE_ID, 'locked', 'Locked');
-    const n2 = (await awaitCall(admin.client)) as number;
+    const n2 = (await awaitCall(admin.client)) as string;
     admin.client.callStarSetPermission(star, n1, userSub, 'write');
     await awaitCall(admin.client);
 

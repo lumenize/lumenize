@@ -52,7 +52,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     // Private node + a resource on it.
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Private');
     await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
-    const nodeId = admin.lastResult as number;
+    const nodeId = admin.lastResult as string;
     const rid = generateUuid();
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'v0' } },

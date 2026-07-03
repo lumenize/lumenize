@@ -184,7 +184,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
 
     // A child node + a resource attached to it.
     client.callStarCreateNode(dev, ROOT_NODE_ID, 'child', 'Child');
-    const childNodeId = await waitForSuccess(client) as number;
+    const childNodeId = await waitForSuccess(client) as string;
     const rid = generateUuid();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: childNodeId, value: { title: 'x', done: false } },

@@ -90,7 +90,7 @@ describe('factory connection lifecycle (real chromium, real WS)', () => {
 
       // ── Step 3: orgTree still delivers after the reconnect ────────────────
       const slug = `team-${crypto.randomUUID().slice(0, 8)}`;
-      await client.orgTree.createNode(ROOT_NODE_ID, slug, 'AfterReconnect');
+      await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, slug, 'AfterReconnect');
       await vi.waitFor(() => {
         expect(nodeLabels(store.lmz.orgTree.value)).toContain('AfterReconnect');
       }, { timeout: 10000 });
