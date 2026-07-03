@@ -92,6 +92,14 @@ import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 /** Maximum number of queued messages during disconnection */
 const MAX_QUEUE_SIZE = 100;
 
+/**
+ * Default `callAsync` timeout (D4). A public awaitable escape hatch with no default would re-arm the
+ * exact "Promise hangs to reload" gap `callAsync` exists to close, so the common path is bounded by
+ * construction. `0`/`Infinity` disables (rare long awaits). 30s matches the mesh→client push budget
+ * (`CLIENT_CALL_TIMEOUT_MS`, `lumenize-client-gateway.ts`).
+ */
+const DEFAULT_CALLASYNC_TIMEOUT_MS = 30_000;
+
 /** Maximum reconnect backoff delay (30 seconds) */
 const MAX_RECONNECT_DELAY_MS = 30000;
 
@@ -317,6 +325,26 @@ export interface LmzApiClient {
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void;
+
+  /**
+   * Resilient, `Promise`-returning cross-node call — **client-only** (D16/D17). Settled by the same
+   * in-heap re-resolvable-delivery mechanism as a 4-arg `call` (survives tab freeze + WS reconnect),
+   * so it does NOT strand on a dead socket the way the removed `callRaw` did. Rejects on an error
+   * RESULT, on `signal` abort, or on the built-in default `timeoutMs` (D4; `0`/`Infinity` disables).
+   *
+   * ⚠️ Prefer a higher-level SDK method (`client.resources.*`) when one exists, and a `subscribe` for
+   * live UI data. `callAsync` is the SDK-layer awaitable escape hatch — the ONLY awaitable on
+   * `client.lmz`; `call` stays fire-and-forget/`void`.
+   *
+   * ⚠️ Abort cancels the WAIT, not the server OPERATION (the call already left one-way), so a
+   * retry-after-abort is safe ONLY for idempotent ops (client-supplied UUID / ADR-005 eTag).
+   */
+  callAsync<T = any>(
+    calleeBindingName: string,
+    calleeInstanceNameOrId: string | undefined,
+    remoteContinuation: Continuation<T>,
+    options?: CallOptions & { timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<Awaited<T>>;
 }
 
 // ============================================
@@ -335,6 +363,31 @@ interface InHeapHandler {
   capturedContext: CallContext | undefined;
   /** When true, run the handler only on an error RESULT (skip the success path — N6). */
   onErrorOnly: boolean;
+}
+
+/**
+ * A `callAsync` in-flight Promise, kept IN-HEAP keyed by callId (D16) and settled by the RESULT
+ * fired back for that callId (`#handleCallResponse`). Parallel to `#inHeapHandlers`: `callAsync`
+ * settles a Promise, it has no handler *chain*. `signal`/`onAbort` are retained so a normal settle
+ * can remove the abort listener (no leak) and an abort can drop the entry.
+ */
+interface PendingAsyncCall {
+  resolve: (value: any) => void;
+  reject: (error: unknown) => void;
+  signal?: AbortSignal;
+  onAbort?: () => void;
+}
+
+/**
+ * Compose the caller's optional `AbortSignal` (external cancel) with the built-in default-timeout
+ * signal (D4) into one. Uses the web-standard `AbortSignal.any`; returns the lone signal unwrapped
+ * when only one is present, `undefined` when neither is.
+ */
+function combineAbortSignals(...signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
+  const present = signals.filter((s): s is AbortSignal => s !== undefined);
+  if (present.length === 0) return undefined;
+  if (present.length === 1) return present[0];
+  return AbortSignal.any(present);
 }
 
 /** Queued message waiting for connection */
@@ -382,6 +435,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #refreshInFlight: Promise<void> | null = null;
   // D16: 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
   #inHeapHandlers = new Map<string, InHeapHandler>();
+  // callAsync (D16): Promise settlers kept in-heap keyed by callId — parallel to #inHeapHandlers.
+  #pendingAsyncCalls = new Map<string, PendingAsyncCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
   #reauthAttemptedThisCycle = false; // forced one token re-auth this disconnect cycle (reset on open)
@@ -530,6 +585,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       },
 
       call: self.#call.bind(self),
+      callAsync: self.#callAsync.bind(self),
     };
 
     return api;
@@ -596,6 +652,15 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // drop/reconnect does NOT reach here — those handlers survive in the heap (D16); on a full
     // reload the client re-issues + reconciles (D8). disconnect() is a deliberate discard.
     this.#inHeapHandlers.clear();
+
+    // callAsync Promises DO have an awaiting caller (unlike the fire-and-forget in-heap handlers
+    // above), so an explicit teardown must REJECT them rather than drop silently — otherwise the
+    // awaiter hangs until the default timeout. Clean up each abort listener too (no leak).
+    for (const pending of this.#pendingAsyncCalls.values()) {
+      if (pending.signal && pending.onAbort) pending.signal.removeEventListener('abort', pending.onAbort);
+      pending.reject(new Error('LumenizeClient disconnected before the callAsync result arrived'));
+    }
+    this.#pendingAsyncCalls.clear();
 
     // Drop any messages queued while disconnected — the client holds no awaited per-call
     // Promise (4-arg handlers are in #inHeapHandlers, cleared above; 3-arg is fire-and-forget),
@@ -1138,6 +1203,23 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * and is dropped (M4). An unknown callId (a 3-arg call, or an already-handled one) is dropped.
    */
   #handleCallResponse(message: CallResponseMessage): void {
+    // A callId settles EITHER a callAsync Promise OR an in-heap 4-arg handler chain (never both).
+    const pending = this.#pendingAsyncCalls.get(message.callId);
+    if (pending) {
+      this.#pendingAsyncCalls.delete(message.callId);  // delete-on-delivery IS the dedup (M4)
+      // Normal settle → remove the abort listener (no leak).
+      if (pending.signal && pending.onAbort) {
+        pending.signal.removeEventListener('abort', pending.onAbort);
+      }
+      if (message.success) {
+        pending.resolve(postprocess(message.result));
+      } else {
+        const e = postprocess(message.error);
+        pending.reject(e instanceof Error ? e : new Error(String(e)));
+      }
+      return;
+    }
+
     const handler = this.#inHeapHandlers.get(message.callId);
     if (!handler) {
       // No in-heap handler: a 3-arg fire-and-forget call, a duplicate RESULT (dedup), or an
@@ -1329,5 +1411,64 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
 
     // 4. Send the CALL (no handler travels).
     this.#sendCall(callId, calleeBindingName, calleeInstanceNameOrId, remoteChain, capturedContext, !!handlerChain, options);
+  }
+
+  #callAsync<T = any>(
+    calleeBindingName: string,
+    calleeInstanceNameOrId: string | undefined,
+    remoteContinuation: Continuation<T>,
+    options?: CallOptions & { timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<Awaited<T>> {
+    // 1. Validate + extract the remote chain synchronously (sync-throw on an invalid
+    //    continuation — D6 tier 1, same as `call()`; a developer error, never a rejection).
+    const { remoteChain } = extractCallChains(remoteContinuation, undefined);
+
+    // 2. Compose the caller's signal (external cancel) with the built-in default timeout (D4), so
+    //    the common path can't hang and `signal` stays free for unmount/user-cancel. 0/Infinity off.
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_CALLASYNC_TIMEOUT_MS;
+    const timeoutSignal = timeoutMs > 0 && Number.isFinite(timeoutMs)
+      ? AbortSignal.timeout(timeoutMs)
+      : undefined;
+    const signal = combineAbortSignals(options?.signal, timeoutSignal);
+
+    // 3. Pre-aborted at the call site → reject immediately, don't dispatch (matches `fetch`).
+    if (signal?.aborted) return Promise.reject(signal.reason);
+
+    // 4. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
+    const capturedContext = this.#currentCallContext ?? undefined;
+    const callId = crypto.randomUUID();
+
+    return new Promise<Awaited<T>>((resolve, reject) => {
+      let onAbort: (() => void) | undefined;
+      if (signal) {
+        onAbort = () => {
+          // Abort BEFORE the RESULT: drop the entry (a late RESULT then finds nothing → dropped)
+          // and reject with the abort reason (a DOMException: AbortError or TimeoutError). The
+          // delete's return-value guards a settle/abort race — never double-settle.
+          if (!this.#pendingAsyncCalls.delete(callId)) return;
+          reject(signal.reason);
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+      this.#pendingAsyncCalls.set(callId, { resolve, reject, signal, onAbort });
+
+      // 5. Send the CALL with expectsResult:true — no handler travels; the client holds the Promise,
+      //    settled by the RESULT fired back for this callId (#handleCallResponse). Reuses the D17 path.
+      this.#sendCall(
+        callId, calleeBindingName, calleeInstanceNameOrId,
+        remoteChain, capturedContext, true, options,
+      );
+    });
+  }
+
+  /**
+   * Test-only: the number of in-flight `callAsync` Promises (`#pendingAsyncCalls` map size). The
+   * D16 map is per-session heap-bounded, so cleanup (delete-on-delivery, delete-on-abort) is a real
+   * correctness property — but a settled Promise no-ops a second settle, making double-settle
+   * behaviorally invisible. This read-only count is the transient surface a test asserts to prove the
+   * entry was actually removed (no leak). NOT part of the public API.
+   */
+  protected pendingAsyncCallCount(): number {
+    return this.#pendingAsyncCalls.size;
   }
 }

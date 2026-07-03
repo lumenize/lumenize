@@ -48,7 +48,7 @@ import type { QueryDescriptor } from './query-hash';
 import { createResourceOntologyProvider } from './devstudio-resource-ontology';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { DagTree } from './dag-tree';
-import type { OperationDescriptor, Snapshot } from './resources';
+import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import {
   runCodegenLoop,
   assembleCodegenPrompt,
@@ -155,12 +155,6 @@ export class DevStudio extends NebulaDO {
       () => this.lmz.callContext,
       createResourceOntologyProvider(this.ctx, this.env.LOADER),
       {
-        deliverTransactionResult: (clientId, result) =>
-          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handleTransactionResult(result)),
-        deliverReadResponse: (clientId, requestId, result) =>
-          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handleReadResponse(requestId, result)),
         deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
           this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
@@ -579,26 +573,24 @@ export class DevStudio extends NebulaDO {
     await this.#dataPlane.ensureResource(messageId, 'Message', nodeId, value);
   }
 
-  /** Handler 1: dispatch a transaction into the capability (no version-gate, D8). */
+  /** Handler 1: RETURN the transaction result — the framework fires it back to the caller's `callAsync`
+   *  (D5 pattern (a), B1 lockstep with Star). No version-gate on DevStudio (one fixed ontology, D8). */
   @mesh()
-  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): void {
+  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> {
     void appVersion; // version-gate is a no-op on DevStudio (one fixed ontology, D8)
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
     }
-    this.#dataPlane.doTransaction(newETag, ops, clientId);
+    return this.#dataPlane.doTransaction(newETag, ops, clientId);
   }
 
-  /** Handler 1: dispatch a read into the capability. */
+  /** Handler 1: RETURN the read value — the framework fires it back to the caller's `callAsync`
+   *  (D5 pattern (a), B1 lockstep with Star). No version-gate on DevStudio (one fixed ontology, D8). */
   @mesh()
-  read(appVersion: string, resourceId: string, requestId: string): void {
+  read(appVersion: string, resourceId: string): Snapshot | null {
     void appVersion;
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('read requires a client origin with instanceName in callChain[0]');
-    }
-    this.#dataPlane.doRead(resourceId, requestId, clientId);
+    return this.#dataPlane.doRead(resourceId);
   }
 
   /** Handler 1: dispatch a single-resource subscribe into the capability. */

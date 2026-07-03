@@ -584,6 +584,17 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
+  /**
+   * Test-only: fire `callAsync` at Star's `delay(delayMs)` with a short `timeoutMs`, so the RESULT
+   * (arriving at ~delayMs) loses the race to `callAsync`'s timeout. Proves the `orgTree.*` mutation
+   * path (which delegates to `callAsync`) rejects on a lost/slow RESULT instead of hanging (D4) — on
+   * the timer-free client path, with NO engine-level timer to confound the rejection (m1). Returns the
+   * `callAsync` Promise directly so a test can await/assert its rejection.
+   */
+  callAsyncStarDelay(starName: string, delayMs: number, timeoutMs: number): Promise<number> {
+    return this.lmz.callAsync('STAR', starName, (this.ctn<Star>() as any).delay(delayMs), { timeoutMs });
+  }
+
   callStarAddEdge(starName: string, parentId: string, childId: string): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().addEdge(parentId, childId);
@@ -679,28 +690,61 @@ export class NebulaClientTest extends NebulaClient {
 
   // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
 
-  callStarTransaction(
+  async callStarTransaction(
     starName: string,
     ontologyVersion: string,
     ops: Record<string, OperationDescriptor>,
     newETag?: string,
-  ): void {
+  ): Promise<void> {
     this.resetResults();
     const txnETag = newETag ?? crypto.randomUUID();
     this.lastTxnETag = txnETag;
-    this.lmz.call('STAR', starName,
-      this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
+    // Transactions now return via `callAsync` (D5 pattern (a)): a `TransactionResult` on success, an
+    // `OntologyStaleError` as a VALUE on stale, or a rejection on infra error. Capture into the legacy
+    // `lastResult` / `lastError` / `callCompleted` fields the `callStarTransaction` tests assert on.
+    try {
+      const result = await this.lmz.callAsync('STAR', starName,
+        this.ctn<Star>().transaction(ontologyVersion, txnETag, ops));
+      if (result instanceof Error) {
+        this.lastErrorObject = result;
+        this.lastError = result.message;
+        this.lastResult = undefined;
+      } else {
+        this.lastResult = result;
+        this.lastError = undefined;
+      }
+    } catch (err) {
+      this.lastErrorObject = err instanceof Error ? err : new Error(String(err));
+      this.lastError = this.lastErrorObject.message;
+      this.lastResult = undefined;
+    }
+    this.callCompleted = true;
   }
 
   /** Last newETag used by `callStarTransaction` — useful for tests that
    *  need to retry with the same eTag (idempotency probe). */
   lastTxnETag: string | undefined = undefined;
 
-  callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
+  /** Test-only: in-flight `callAsync` count (D7/M2 transient surface — proves the retired submit-gate
+   *  lets concurrent independent-resource transactions run; a re-added serial gate would keep this 1). */
+  getPendingAsyncCallCount(): number {
+    return this.pendingAsyncCallCount();
+  }
+
+  async callStarRead(starName: string, ontologyVersion: string, resourceId: string): Promise<void> {
     this.resetResults();
-    const requestId = crypto.randomUUID();
-    this.lmz.call('STAR', starName,
-      this.ctn<Star>().read(ontologyVersion, resourceId, requestId));
+    // Reads now return via `callAsync` (D5 pattern (a)); capture into the legacy `lastResult` /
+    // `lastError` / `callCompleted` fields that the `callStarRead` tests assert on (via `waitForResult`).
+    try {
+      this.lastResult = await this.lmz.callAsync('STAR', starName,
+        this.ctn<Star>().read(ontologyVersion, resourceId));
+      this.lastError = undefined;
+    } catch (err) {
+      this.lastErrorObject = err instanceof Error ? err : new Error(String(err));
+      this.lastError = this.lastErrorObject.message;
+      this.lastResult = undefined;
+    }
+    this.callCompleted = true;
   }
 
   callStarSubscribe(starName: string, ontologyVersion: string, resourceType: string, resourceId: string): void {
@@ -798,48 +842,6 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   // --- Resource result handlers (override base class) ---
-
-  @mesh()
-  override handleTransactionResult(result: TransactionResult | Error): void {
-    // Delegate to base so the in-flight transaction queue settles for any
-    // test using `client.resources.transaction()`. The legacy
-    // `callStarTransaction` test initiator doesn't enqueue a transaction
-    // (it's just an lmz.call), so the base's `#inFlightTxn` is null and the
-    // delegation is a no-op for that path. After delegation, capture for
-    // assertion: legacy tests read `lastResult` / `lastError` /
-    // `callCompleted`.
-    super.handleTransactionResult(result);
-
-    if (result instanceof Error) {
-      this.lastError = result.message;
-      this.lastErrorObject = result;
-      this.lastResult = undefined;
-    } else {
-      this.lastResult = result;
-      this.lastError = undefined;
-    }
-    this.callCompleted = true;
-  }
-
-  @mesh()
-  override handleReadResponse(_requestId: string, result: Snapshot | null | Error): void {
-    // Delegate to base for Promise correlation on the new
-    // client.resources.read() path. The base settles the pending entry in
-    // its requestId map. Then capture for assertion on the legacy
-    // `callStarRead` test initiator (which doesn't go through the Promise
-    // path — it sets `lastResult` / `lastError` and `callCompleted`).
-    super.handleReadResponse(_requestId, result);
-
-    if (result instanceof Error) {
-      this.lastError = result.message;
-      this.lastErrorObject = result;
-      this.lastResult = undefined;
-    } else {
-      this.lastResult = result;
-      this.lastError = undefined;
-    }
-    this.callCompleted = true;
-  }
 
   @mesh()
   override handleResourceUpdate(resourceType: string, resourceId: string, result: Snapshot | null | Error): void {

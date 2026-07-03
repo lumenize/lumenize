@@ -176,6 +176,23 @@ describe('orgTree dedicated channel (P8 server)', () => {
     a.client[Symbol.dispose]();
   });
 
+  it('a slow/lost RESULT rejects on callAsync\'s timeout instead of hanging (D4, orgTree path)', async () => {
+    const star = uniqueStar();
+    const { a } = await twoAdminClients(star);
+
+    // Star.delay(300) responds at ~300ms, but callAsync's 30ms timeout fires first → the Promise
+    // REJECTS with a TimeoutError instead of hanging. orgTree.* delegates to this same callAsync
+    // default-timeout path, so a lost/slow mutation RESULT rejects rather than spinning to reload.
+    // Timer-free client path — no engine-level timer to confound the rejection (m1). Capable-of-failing:
+    // gut callAsync's timeout and the call waits for the 300ms RESULT and RESOLVES with 300 (a number),
+    // failing both assertions.
+    const reason = await a.client.callAsyncStarDelay(star, 300, 30).catch((e) => e);
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('TimeoutError');
+
+    a.client[Symbol.dispose]();
+  });
+
   it('a client.orgTree mutation broadcasts the updated tree back to a subscriber (originator)', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);

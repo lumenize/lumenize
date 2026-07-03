@@ -648,7 +648,7 @@ describe('transaction-wide failures', () => {
 
 describe('connection-gated rollback (invariant 10, Mn8)', () => {
   for (const downState of ['connecting', 'reconnecting', 'disconnected'] as const) {
-    it(`in-flight during '${downState}': no timeout, no rollback; reconnect replays the SAME newETag → committed`, async () => {
+    it(`in-flight during '${downState}': no timeout, no rollback; the ORIGINAL submit re-resolves on reconnect → committed (A)`, async () => {
       const h = makeHarness();
       const d = deferredResponder();
       h.setResponder(d.responder);
@@ -667,9 +667,11 @@ describe('connection-gated rollback (invariant 10, Mn8)', () => {
 
       h.engine.setConnectionState('connected');
       await flushMicrotasks();
-      expect(h.submitted).toHaveLength(2);
-      expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag); // idempotent replay
-      d.pending[1]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
+      // (A): the in-flight `callAsync` re-resolves on its own (D16/D17) — the queue does NOT re-fire a
+      // fresh mesh call. The ORIGINAL submit's Promise settles this attempt when the RESULT re-resolves
+      // on the new socket. Capable-of-failing: revert to re-submit-on-reconnect → this becomes length 2.
+      expect(h.submitted).toHaveLength(1);
+      d.pending[0]!.resolve({ resources: [{ result: 'committed', eTag: 'e2' }] });
       await flushMicrotasks();
       expect(outcome).toMatchObject({ kind: 'committed', resources: { r1: { kind: 'committed', eTag: 'e2' } } });
     });

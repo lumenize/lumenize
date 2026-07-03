@@ -33,7 +33,7 @@ import { OntologyStaleError } from './errors';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
 import type { QueryDescriptor } from './query-hash';
-import type { OperationDescriptor, Snapshot } from './resources';
+import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
@@ -62,12 +62,6 @@ export class Star extends NebulaDO {
       },
       // Host-side mesh I/O — continuations built with Star's own this.ctn/this.lmz/this.svc.
       {
-        deliverTransactionResult: (clientId, result) =>
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleTransactionResult(result)),
-        deliverReadResponse: (clientId, requestId, result) =>
-          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-            this.ctn<NebulaClient>().handleReadResponse(requestId, result)),
         deliverResourceUpdate: (clientId, resourceType, resourceId, result) =>
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleResourceUpdate(resourceType, resourceId, result)),
@@ -407,43 +401,37 @@ export class Star extends NebulaDO {
 
   // ─── Transaction (Handler 1 → capability Handler 2) ─────────────────
 
-  /** Handler 1: validate the requested ontology version, then dispatch to the
-   *  capability's Handler 2. The version-gate is Galaxy-multi-version-specific and
-   *  stays on Star (D8); the capability never sees `appVersion`. */
+  /** Handler 1: validate the requested ontology version, then RETURN the transaction result — the
+   *  framework fires it back to the caller's `callAsync` (D5 pattern (a)). On a stale version RETURN
+   *  the `OntologyStaleError` as a VALUE (resolve, not reject): the client's submit wrapper maps it to
+   *  the engine's `{ontologyStale}` signal (asymmetric with `read`, which THROWS on stale). The
+   *  version-gate is Galaxy-multi-version-specific and stays on Star (D8); the capability never sees
+   *  `appVersion`. */
   @mesh()
-  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>) {
+  transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
     if (!clientId) {
       throw new Error('transaction requires a client origin with instanceName in callChain[0]');
     }
-    // No Galaxy lazy-pull (Phase 4): the ontology is applied via `setOntology` (dev) or
-    // the published app-version (prod — Flow 2b lazy-pull deferred). A version the Star
-    // doesn't hold → tell the client to refresh to the Star's current version.
+    // No Galaxy lazy-pull (Phase 4): a version the Star doesn't hold → tell the client to refresh.
     if (!this.#isCachedVersion(appVersion)) {
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleTransactionResult(
-          new OntologyStaleError(appVersion, this.#currentVersion())));
-      return;
+      return new OntologyStaleError(appVersion, this.#currentVersion());
     }
-    this.#dataPlane.doTransaction(newETag, ops, clientId);
+    return this.#dataPlane.doTransaction(newETag, ops, clientId);
   }
 
   // ─── Read (Handler 1 → capability Handler 2) ────────────────────────
 
-  /** Handler 1: validate the requested ontology version, then dispatch to Handler 2. */
+  /** Handler 1: validate the requested ontology version, then RETURN the read value — the framework
+   *  fires it back to the caller's `callAsync` (D5 pattern (a)). On a stale version THROW
+   *  `OntologyStaleError` (→ error RESULT → the client's `callAsync` rejects → its `.catch` fires
+   *  `onShouldRefreshUI`). */
   @mesh()
-  read(appVersion: string, resourceId: string, requestId: string) {
-    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
-    if (!clientId) {
-      throw new Error('read requires a client origin with instanceName in callChain[0]');
-    }
+  read(appVersion: string, resourceId: string): Snapshot | null {
     if (!this.#isCachedVersion(appVersion)) {
-      this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
-        this.ctn<NebulaClient>().handleReadResponse(requestId,
-          new OntologyStaleError(appVersion, this.#currentVersion())));
-      return;
+      throw new OntologyStaleError(appVersion, this.#currentVersion());
     }
-    this.#dataPlane.doRead(resourceId, requestId, clientId);
+    return this.#dataPlane.doRead(resourceId);
   }
 
   // ─── Subscribe (Handler 1 → capability Handler 2) ───────────────────

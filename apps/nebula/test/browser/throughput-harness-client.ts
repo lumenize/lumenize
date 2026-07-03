@@ -1,21 +1,17 @@
 /**
- * `ThroughputHarnessClient` — Map-keyed Promise dispatch for concurrent
- * in-flight transactions.
+ * `ThroughputHarnessClient` — concurrent in-flight transactions for the throughput benches.
  *
  * Used by both throughput benches:
  * - [`throughput.benchmark.ts`](throughput.benchmark.ts) — single-client saturation curve.
  * - [`throughput-multi.benchmark.ts`](throughput-multi.benchmark.ts) — Shape A vs Shape B comparison
  *   for the gateway-hop benchmark's Phase 5 (`tasks/gateway-hop-benchmark.md`).
  *
- * Result correlation is by `resourceId`: each iteration creates a unique
- * `resourceId` (`crypto.randomUUID()`); the Star's `handleTransactionResult`
- * callback's `result.eTags` is keyed by that same `resourceId`. The client
- * tracks `Map<resourceId, {resolve, reject}>` and dispatches by inspecting
- * eTag keys. No Star-side changes needed.
+ * Each transaction is its OWN awaitable `callAsync` (correlated by callId, bounded by `timeoutMs`), so
+ * concurrent calls fan out as independent Promises — no manual `Map<resourceId, {resolve,reject}>` +
+ * `handleTransactionResult` dispatch (that was the uncorrelated-channel workaround D7 retires).
+ * ⚠️ Bench needs a `wrangler dev` + chromium re-run to re-validate timings (out of the pool-workers gate).
  *
- * Single-slot (#singleSlot) is retained for non-concurrent flows: ping
- * baseline, ontology registration, etc. Same dual-mode pattern as the
- * single-slot `HarnessNebulaClient` in [`harness-client.ts`](harness-client.ts).
+ * Single-slot (#singleSlot) is retained for non-concurrent flows: ping baseline, ontology registration.
  */
 
 import { mesh } from '@lumenize/mesh/client';
@@ -23,57 +19,17 @@ import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { TransactionResult } from '@lumenize/nebula/client';
 
 export class ThroughputHarnessClient extends NebulaClient {
-  #pending = new Map<string, { resolve: (r: TransactionResult) => void; reject: (e: Error) => void }>();
+  /** Concurrent in-flight count. `callAsync` correlates each transaction by its own `callId`, so the
+   *  old `Map<resourceId, {resolve,reject}>` + `handleTransactionResult` dispatch — a workaround for
+   *  the uncorrelated channel — is gone (exactly what D7 retires). ⚠️ Bench needs re-verification under
+   *  `wrangler dev` + chromium (out of the pool-workers gate). */
+  #inFlight = 0;
   #singleSlot?: { resolve: (v: any) => void; reject: (e: Error) => void };
 
   #settleSingle(v: any): void {
     if (v instanceof Error) this.#singleSlot?.reject(v);
     else this.#singleSlot?.resolve(v);
     this.#singleSlot = undefined;
-  }
-
-  // Mesh callback the Star invokes for each transaction. Map-keyed dispatch
-  // by resourceId (which the bench fed in as the only key in `ops`).
-  @mesh()
-  override handleTransactionResult(r: TransactionResult | Error): void {
-    if (r instanceof Error) {
-      // Errors aren't correlatable without a callId. Fail-loud: reject all
-      // in-flight so the bench stops immediately.
-      const err = r;
-      for (const p of this.#pending.values()) p.reject(err);
-      this.#pending.clear();
-      return;
-    }
-    if (!r.ok) {
-      // Validation/conflict failure — should never happen in a saturation
-      // ramp creating fresh UUIDs. Try to correlate by errors keys.
-      const errIds = Object.keys(r.errors);
-      const err = new Error(`Transaction failed: ${JSON.stringify(r.errors).slice(0, 500)}`);
-      if (errIds.length === 1) {
-        const p = this.#pending.get(errIds[0]);
-        if (p) {
-          this.#pending.delete(errIds[0]);
-          p.reject(err);
-        }
-        return;
-      }
-      // Multi-key error — fail all
-      for (const p of this.#pending.values()) p.reject(err);
-      this.#pending.clear();
-      return;
-    }
-    const ids = Object.keys(r.eTags);
-    if (ids.length !== 1) {
-      const err = new Error(`Expected exactly one eTag in result, got ${ids.length}`);
-      for (const p of this.#pending.values()) p.reject(err);
-      this.#pending.clear();
-      return;
-    }
-    const resourceId = ids[0];
-    const p = this.#pending.get(resourceId);
-    if (!p) return;  // late callback for an already-resolved/rejected call
-    this.#pending.delete(resourceId);
-    p.resolve(r);
   }
 
   @mesh()
@@ -102,30 +58,24 @@ export class ThroughputHarnessClient extends NebulaClient {
   }
 
   callStarTransactionForBench(starName: string, ontologyVersion: string, resourceId: string, timeoutMs = 30_000): Promise<TransactionResult> {
-    return new Promise((resolve, reject) => {
-      const timer = globalThis.setTimeout(() => {
-        if (this.#pending.has(resourceId)) {
-          this.#pending.delete(resourceId);
-          reject(new Error(`call-timeout after ${timeoutMs}ms`));
-        }
-      }, timeoutMs);
-      this.#pending.set(resourceId, {
-        resolve: (r) => { globalThis.clearTimeout(timer); resolve(r); },
-        reject: (e) => { globalThis.clearTimeout(timer); reject(e); },
-      });
-      this.lmz.call('STAR', starName,
-        (this.ctn() as any).transaction(ontologyVersion, {
-          [resourceId]: {
-            op: 'create',
-            typeName: 'TestResource',
-            nodeId: ROOT_NODE_ID,
-            value: { title: 'bench' },
-          },
-        }));
-    });
+    // Each transaction is its OWN awaitable `callAsync` (correlated by callId, bounded by `timeoutMs`).
+    // Concurrent calls fan out as independent Promises — no manual resourceId correlation (D7).
+    this.#inFlight++;
+    const newETag = crypto.randomUUID();
+    return (this.lmz.callAsync('STAR', starName,
+      (this.ctn() as any).transaction(ontologyVersion, newETag, {
+        [resourceId]: {
+          op: 'create',
+          typeName: 'TestResource',
+          nodeId: ROOT_NODE_ID,
+          value: { title: 'bench' },
+        },
+      }),
+      { timeoutMs },
+    ) as Promise<TransactionResult>).finally(() => { this.#inFlight--; });
   }
 
   inFlightCount(): number {
-    return this.#pending.size;
+    return this.#inFlight;
   }
 }

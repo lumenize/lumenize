@@ -124,6 +124,36 @@ describe('nebula-client.resources.read (v3)', () => {
 
 describe('nebula-client.resources.transaction (v3)', () => {
 
+  it('retired submit-gate (D7/M2): two transactions to DIFFERENT resources are concurrently in-flight', async () => {
+    const star = uniqueStar();
+    const { client } = await setupAdminClient(star);
+    const ridA = generateUuid();
+    const ridB = generateUuid();
+
+    // Fire two transactions to DISTINCT resources WITHOUT awaiting. With the submit-gate RETIRED (D7),
+    // both submit immediately, so both `callAsync` Promises sit in `#pendingAsyncCalls` at once. This
+    // asserts the TRANSIENT surface (M2), not a self-healing "both committed" end-state. Capable-of-
+    // failing: re-add a serial client gate (or the old #inFlightSubmit) and the 2nd transaction queues →
+    // the count never reaches 2 → this `vi.waitFor` times out.
+    const pA = client.resources.transaction({
+      [ridA]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'A' } },
+    });
+    const pB = client.resources.transaction({
+      [ridB]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'B' } },
+    });
+
+    await vi.waitFor(() => {
+      expect(client.getPendingAsyncCallCount()).toBeGreaterThanOrEqual(2);
+    }, { timeout: 3000 });
+
+    const [oA, oB] = await Promise.all([pA, pB]);
+    expect(oA.kind).toBe('committed');
+    expect(oB.kind).toBe('committed');
+    expect(client.getPendingAsyncCallCount()).toBe(0); // both settled + cleaned up (no leak)
+
+    client[Symbol.dispose]();
+  });
+
   it('committed: happy-path create resolves top-level committed + per-resource eTag', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);

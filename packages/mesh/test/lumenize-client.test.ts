@@ -164,6 +164,10 @@ class TestClient extends LumenizeClient {
   getCallOutcomeCount(): number {
     return this.#callOutcomeCount;
   }
+  // Expose the protected test-only count for callAsync no-leak/cleanup assertions.
+  getPendingAsyncCallCount(): number {
+    return this.pendingAsyncCallCount();
+  }
 
   // Non-mesh method for testing access control
   privateMethod(): string {
@@ -1381,8 +1385,8 @@ describe('Message handling edge cases', () => {
     }));
 
     // Send a call_response for a callId that doesn't exist — the unknown-call
-    // guard must short-circuit (warn + return) so this is handled gracefully.
-    // Without the guard, accessing pending.timeoutId on undefined would throw.
+    // guard must short-circuit (both the #pendingAsyncCalls and #inHeapHandlers
+    // lookups miss → return with no settle), so this is handled gracefully.
     expect(() => ws.simulateMessage(JSON.stringify({
       type: 'call_response',
       callId: 'nonexistent-call-id',
@@ -1507,6 +1511,254 @@ describe('Message handling edge cases', () => {
     expect(JSON.parse(ws.getSentMessages()[1]).expectsResult).toBe(true);
 
     client.disconnect();
+  });
+});
+
+describe('callAsync (client resilient awaitable — D16/D17)', () => {
+  beforeEach(() => { createdWebSockets = []; });
+
+  // Connect a TestClient over a mock socket and return both. Mirrors the connect boilerplate used
+  // across this file (open → connection_status).
+  function connectClient(): [TestClient, MockWebSocket] {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    return [client, ws];
+  }
+
+  it('resolves with the value on a success RESULT (settled by callId), then cleans up the entry', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+    const sent = JSON.parse(ws.getSentMessages()[0]);
+    expect(sent.expectsResult).toBe(true); // no handler travels — the Star fires a RESULT back (D17)
+    expect(client.getPendingAsyncCallCount()).toBe(1); // in-flight
+    const callId = sent.callId;
+
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('hello') }));
+
+    await expect(p).resolves.toBe('hello');
+    // delete-on-delivery (no leak) — capable-of-failing: gut the delete and the count stays 1.
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('rejects with the reconstructed Error on an error RESULT ($error → Error)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    ws.simulateMessage(JSON.stringify({
+      type: 'call_response', callId, success: false, error: pp(new Error('boom')),
+    }));
+
+    await expect(p).rejects.toThrow('boom');
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('drops a duplicate RESULT for the same callId (dedup / no double-settle)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('first') }));
+    await expect(p).resolves.toBe('first');
+    // The entry was deleted on delivery → a duplicate RESULT finds nothing (M4). Capable-of-failing on
+    // the transient surface: without delete-on-delivery the count would still be 1 here.
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    expect(() => ws.simulateMessage(
+      JSON.stringify({ type: 'call_response', callId, success: true, result: pp('second') }),
+    )).not.toThrow();
+    await expect(p).resolves.toBe('first'); // the settled value is immutable — 'second' cannot overwrite
+
+    client.disconnect();
+  });
+
+  it('aborts the WAIT: rejects with signal.reason (AbortError), drops the entry, ignores a late RESULT', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const controller = new AbortController();
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      signal: controller.signal,
+    });
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+    expect(client.getPendingAsyncCallCount()).toBe(1);
+
+    controller.abort();
+
+    await expect(p).rejects.toThrow();
+    const reason = await p.catch((e) => e);
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('AbortError');
+    // delete-on-abort — capable-of-failing on the transient surface: without the delete a late RESULT
+    // would find the stale entry; with it the count is already 0 and the RESULT is dropped.
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+    expect(() => ws.simulateMessage(
+      JSON.stringify({ type: 'call_response', callId, success: true, result: pp('too-late') }),
+    )).not.toThrow();
+
+    client.disconnect();
+  });
+
+  it('a pre-aborted signal rejects immediately WITHOUT dispatching a CALL (matches fetch)', async () => {
+    const [client, ws] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      signal: AbortSignal.abort(),
+    });
+
+    await expect(p).rejects.toThrow();
+    // Capable-of-failing: without the pre-aborted early-return a CALL would be dispatched.
+    expect(ws.getSentMessages().length).toBe(0);
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('rejects with a TimeoutError when the built-in default timeout elapses (D4)', async () => {
+    // Small REAL timeout — the mesh suite has no fake timers, and AbortSignal.timeout is a native
+    // workerd primitive fake timers do not reliably patch (m1). Drive the pure-timeout path directly
+    // through callAsync (no engine timer to confound it); never answer the RESULT.
+    const [client] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      timeoutMs: 40,
+    });
+
+    await expect(p).rejects.toThrow();
+    const reason = await p.catch((e) => e);
+    expect(reason).toBeInstanceOf(DOMException);
+    expect(reason.name).toBe('TimeoutError');
+    expect(client.getPendingAsyncCallCount()).toBe(0);
+
+    client.disconnect();
+  });
+
+  it('timeoutMs:0 disables the default timeout (no TimeoutError; still settles on a RESULT)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      timeoutMs: 0,
+    });
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    // Wait past a would-be short timeout to prove none was armed, then settle normally.
+    await new Promise((r) => setTimeout(r, 60));
+    expect(client.getPendingAsyncCallCount()).toBe(1); // still in-flight — no timeout fired
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('ok') }));
+    await expect(p).resolves.toBe('ok');
+
+    client.disconnect();
+  });
+
+  it('composes the caller signal WITH the default timeout (additive, AbortSignal.any) — either can reject', async () => {
+    // Abort the caller signal while the timeout is far from elapsing: it must still reject, proving the
+    // two are composed (not one replacing the other — D4).
+    const [client] = connectClient();
+    const controller = new AbortController();
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      signal: controller.signal,
+      timeoutMs: 30_000, // far from elapsing
+    });
+    controller.abort();
+    const reason = await p.catch((e) => e);
+    expect(reason.name).toBe('AbortError');
+
+    client.disconnect();
+  });
+
+  it('removes the abort listener on a NORMAL (success) settle — no leak', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const [client, ws] = connectClient();
+
+    const controller = new AbortController();
+    const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+    // timeoutMs:0 so the signal is NOT wrapped by AbortSignal.any — the abort listener sits on
+    // controller.signal directly, making the cleanup call observable here.
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      signal: controller.signal, timeoutMs: 0,
+    });
+    const callId = JSON.parse(ws.getSentMessages()[0]).callId;
+
+    ws.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('ok') }));
+    await expect(p).resolves.toBe('ok');
+
+    // "no leak" has no other observable end-state (a settled Promise no-ops a 2nd settle). Capable-of-
+    // failing: gut the removeEventListener on the normal-settle branch of #handleCallResponse → red.
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+
+    client.disconnect();
+  });
+
+  it('survives a WS reconnect — the RESULT re-resolves to the new socket and settles (M1, client-heap)', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    // Test the CLIENT-heap re-settle: the #pendingAsyncCalls Promise survives the client's OWN socket
+    // dropping + reconnecting (D16). The parent Flow-C harness proves the Gateway re-resolution with no
+    // client in the loop; this proves the client-heap half — the two are complementary (M1).
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod());
+    const callId = JSON.parse(ws1.getSentMessages()[0]).callId;
+
+    // Socket drops → reconnect creates ws2 (the heap, and the pending Promise, survive).
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+    client.connect(); // timers mocked in unit context — trigger the reconnect manually (as elsewhere)
+    const ws2 = createdWebSockets[1];
+    ws2.simulateOpen();
+    ws2.simulateMessage(JSON.stringify({ type: 'connection_status', subscriptionRequired: false }));
+    expect(client.connectionState).toBe('connected');
+    expect(client.getPendingAsyncCallCount()).toBe(1); // survived the reconnect
+
+    // The Gateway re-resolves delivery to ws2 (the current socket). The Promise settles.
+    ws2.simulateMessage(JSON.stringify({ type: 'call_response', callId, success: true, result: pp('after-reconnect') }));
+    await expect(p).resolves.toBe('after-reconnect');
+
+    client.disconnect();
+  });
+
+  it('sync-throws on an invalid remoteContinuation at the call site (D6 tier 1)', () => {
+    const [client] = connectClient();
+    // A developer error (not a real continuation) is a loud synchronous throw, never a rejection —
+    // same as call(). Capable-of-failing: drop the extractCallChains validation and this stops throwing.
+    expect(() => client.lmz.callAsync('SOME_DO', 'instance1', {} as any)).toThrow(/Invalid remoteContinuation/);
+    client.disconnect();
+  });
+
+  it('rejects in-flight callAsync Promises on explicit disconnect (no hang)', async () => {
+    const [client] = connectClient();
+    const p = client.lmz.callAsync('SOME_DO', 'instance1', (client.ctn() as any).someMethod(), {
+      timeoutMs: 0, // disable the timeout so ONLY disconnect can settle it (capable-of-failing)
+    });
+    expect(client.getPendingAsyncCallCount()).toBe(1);
+    client.disconnect();
+    await expect(p).rejects.toThrow(/disconnected/);
+    expect(client.getPendingAsyncCallCount()).toBe(0);
   });
 });
 

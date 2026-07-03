@@ -397,7 +397,7 @@ describe('connection gate (decided 2026-06-11)', () => {
     expect(h.submitted[0]!).toMatchObject({ eTag: 'eTag-v1', value: { n: 2 } });
   });
 
-  it('in-flight at disconnect: never rolled back, timeout suspended; re-submits on reconnect with the SAME newETag', async () => {
+  it('in-flight at disconnect: never rolled back, timeout suspended; the ORIGINAL submit re-resolves on reconnect (NO re-fire — A)', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
@@ -412,37 +412,40 @@ describe('connection gate (decided 2026-06-11)', () => {
 
     h.queue.setConnectionState('connected');
     await flushMicrotasks();
-    expect(h.submitted).toHaveLength(2); // replay
-    expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag); // idempotent token
-    expect(h.submitted[1]!.eTag).toBe(h.submitted[0]!.eTag);
-    expect(h.submitted[1]!.attempt).toBe(2);
+    // (A): the in-flight `callAsync` re-resolves on its own (D17) — the queue does NOT re-fire a fresh
+    // mesh call (which would orphan the original). It just re-arms the timeout on the SAME attempt.
+    // Capable-of-failing: revert to re-submit-on-reconnect and this becomes length 2.
+    expect(h.submitted).toHaveLength(1);
 
-    // Server replay short-circuits to committed; chain advances normally.
-    d.pending[1]!.resolve([{ resolution: 'committed', eTag: 'srv-1' }]);
+    // The original in-flight submit re-resolves (D17 delivers the RESULT on the new socket) → commit.
+    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-1' }]);
     await flushMicrotasks();
     h.type('todo', 't1', { n: 2 });
     await vi.advanceTimersByTimeAsync(600);
     expect(h.submitted.at(-1)!.eTag).toBe('srv-1');
   });
 
-  it('a stale first-attempt response arriving after the replay is ignored (no double-settle)', async () => {
+  it('after reconnect the re-armed in-flight timeout still backstops a genuinely-lost RESULT (A)', async () => {
     const h = makeHarness();
     const d = deferredResponder();
     h.setResponder(d.responder);
     h.seed('todo', 't1', { n: 0 }, 'eTag-v1');
     h.type('todo', 't1', { n: 1 });
     await vi.advanceTimersByTimeAsync(500);
+    expect(h.submitted).toHaveLength(1);
+
     h.queue.setConnectionState('reconnecting');
     h.queue.setConnectionState('connected');
     await flushMicrotasks();
-    expect(h.submitted).toHaveLength(2);
-    d.pending[1]!.resolve([{ resolution: 'committed', eTag: 'srv-replay' }]); // replay answers first
-    await flushMicrotasks();
-    d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-stale' }]); // original limps in late
-    await flushMicrotasks();
-    h.type('todo', 't1', { n: 2 });
-    await vi.advanceTimersByTimeAsync(600);
-    expect(h.submitted.at(-1)!.eTag).toBe('srv-replay'); // stale attempt did not move the chain
+    expect(h.submitted).toHaveLength(1); // (A): no re-fire
+
+    // The RESULT is genuinely lost (never re-resolves). The timeout was suspended on disconnect and
+    // RE-ARMED on reconnect (same attempt), so it still fires → the engine retries (nonCommit timeout).
+    // Capable-of-failing: drop the reconnect `armTimeout` and this never fires (nonCommits stays 0).
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(h.nonCommits).toHaveLength(1);
+    expect((h.nonCommits[0]!.outcome as { queueSignal?: string }).queueSignal).toBe('timeout');
+    void d;
   });
 });
 
@@ -451,7 +454,7 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
   // Drive it via every non-connected literal so an impl that special-cases one
   // (or treats 'disconnected' as a hard-rollback state) is caught.
   for (const downState of ['connecting', 'reconnecting', 'disconnected'] as const) {
-    it(`in-flight during '${downState}': no timeout/rollback; replays same newETag on reconnect`, async () => {
+    it(`in-flight during '${downState}': no timeout/rollback; the ORIGINAL submit re-resolves on reconnect (NO re-fire — A)`, async () => {
       const h = makeHarness();
       const d = deferredResponder();
       h.setResponder(d.responder);
@@ -466,9 +469,11 @@ describe('connection gate — every non-connected literal (Mn8)', () => {
 
       h.queue.setConnectionState('connected');
       await flushMicrotasks();
-      expect(h.submitted).toHaveLength(2); // replay
-      expect(h.submitted[1]!.newETag).toBe(h.submitted[0]!.newETag);
-      expect(h.submitted[1]!.attempt).toBe(2);
+      expect(h.submitted).toHaveLength(1); // (A): NO re-fire; the in-flight callAsync re-resolves (D17)
+
+      d.pending[0]!.resolve([{ resolution: 'committed', eTag: 'srv-1' }]);
+      await flushMicrotasks();
+      expect(h.nonCommits).toHaveLength(0); // the original re-resolution committed cleanly
     });
 
     it(`a write during '${downState}' holds (no submit, no armed timers) until reconnect`, async () => {

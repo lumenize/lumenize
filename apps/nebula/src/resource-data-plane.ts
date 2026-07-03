@@ -68,8 +68,6 @@ export interface BroadcastTarget {
  * targets carry their own per-subscriber binding.
  */
 export interface ResourceHostBridge {
-  deliverTransactionResult(clientId: string, result: TransactionResult | Error): void;
-  deliverReadResponse(clientId: string, requestId: string, result: Snapshot | null | Error): void;
   deliverResourceUpdate(
     clientId: string,
     resourceType: string,
@@ -203,40 +201,42 @@ export class ResourceDataPlane {
     newETag: string,
     ops: Record<string, OperationDescriptor>,
     clientId: string,
-  ): Promise<void> {
+  ): Promise<TransactionResult> {
     try {
       const { version, facet } = this.#getOntology();
-      const result = await this.#resources.transaction(ops, version, newETag, facet,
+      // RETURN the result — the framework fires it back to the originating client's `callAsync`
+      // (D5 pattern (a)). The committed-mutation broadcasts to OTHER subscribers stay a fire-and-forget
+      // side effect (originator excluded via `clientId`). An infra throw propagates → `callAsync` rejects.
+      return await this.#resources.transaction(ops, version, newETag, facet,
         (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
           // single-resource content fanout, then the query rerun for touched types.
           this.#broadcast(mutations, clientId);
           this.#rerunQueriesForCommit(mutations);
         });
-      this.#bridge.deliverTransactionResult(clientId, result);
     } catch (err) {
       debug('nebula.ResourceDataPlane.doTransaction').error('handler threw', {
         clientId,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
-      this.#bridge.deliverTransactionResult(clientId, err instanceof Error ? err : new Error(String(err)));
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  /** Read a resource (DAG read-permission enforced in `Resources.read`) + deliver. */
-  doRead(resourceId: string, requestId: string, clientId: string): void {
+  /** Read a resource (DAG read-permission enforced in `Resources.read`) and RETURN it — the framework
+   *  fires the value back to the originating client's `callAsync` (D5 pattern (a)); a permission/not-found
+   *  throw propagates → `callAsync` rejects. Logged for server-side observability, then re-thrown. */
+  doRead(resourceId: string): Snapshot | null {
     try {
-      const snapshot = this.#resources.read(resourceId);
-      this.#bridge.deliverReadResponse(clientId, requestId, snapshot);
+      return this.#resources.read(resourceId);
     } catch (err) {
       debug('nebula.ResourceDataPlane.doRead').error('handler threw', {
-        clientId,
         resourceId,
         error: err instanceof Error ? err.message : String(err),
         name: err instanceof Error ? err.name : undefined,
       });
-      this.#bridge.deliverReadResponse(clientId, requestId, err instanceof Error ? err : new Error(String(err)));
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 

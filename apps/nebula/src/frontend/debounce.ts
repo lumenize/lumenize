@@ -376,15 +376,22 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
     send(batch, fromDispose);
   }
 
+  /** Arm the in-flight infra timeout for the batch's CURRENT attempt (idempotent — no-op if already
+   *  armed or settled). Suspended while disconnected; re-armed on reconnect with the SAME attempt, so
+   *  the original submit Promise's settle is not treated as stale. */
+  function armTimeout(batch: Batch): void {
+    if (batch.timeoutTimer !== undefined || batch.settled) return;
+    const attempt = batch.attempt;
+    batch.timeoutTimer = setTimeout(() => {
+      batch.timeoutTimer = undefined;
+      settle(batch, attempt, batch.submissions.map(() => ({ queueSignal: 'timeout' as const })));
+    }, timeoutMs);
+  }
+
   function send(batch: Batch, fromDispose: boolean): void {
     const attempt = batch.attempt;
     for (const s of batch.submissions) s.attempt = attempt;
-    if (!fromDispose && connected) {
-      batch.timeoutTimer = setTimeout(() => {
-        batch.timeoutTimer = undefined;
-        settle(batch, attempt, batch.submissions.map(() => ({ queueSignal: 'timeout' as const })));
-      }, timeoutMs);
-    }
+    if (!fromDispose && connected) armTimeout(batch);
     void config
       .submit(batch.submissions)
       .then((outcomes) => settle(batch, attempt, outcomes))
@@ -542,13 +549,15 @@ export function createDebounceQueue(config: DebounceQueueConfig) {
       }
       return;
     }
-    // Reconnected: replay in-flight (same newETag — server replay is
-    // idempotent), then flush held writes.
+    // Reconnected: an in-flight mesh submission recovers via its OWN `callAsync` re-resolution
+    // (D16/D17) — do NOT re-fire a fresh mesh call (which would orphan the original `callAsync`). Keep
+    // the SAME attempt so the original submit Promise's `.then`/`.catch` settle THIS batch when the
+    // RESULT re-resolves on the new socket; just re-arm the in-flight timeout (cleared on disconnect)
+    // as the backstop for a genuinely-lost RESULT (→ timeout → retry). Then flush held writes.
     for (const batch of [...openBatches]) {
       if (batch.suspendedByDisconnect && !batch.settled) {
         batch.suspendedByDisconnect = false;
-        batch.attempt++;
-        send(batch, false);
+        armTimeout(batch);
       }
     }
     for (const ks of keys.values()) {

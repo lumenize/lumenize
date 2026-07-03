@@ -216,16 +216,6 @@ interface PendingSubscribe {
   reject: (error: Error) => void;
 }
 
-interface PendingRead {
-  resolve: (snapshot: Snapshot | null) => void;
-  reject: (error: Error) => void;
-}
-
-interface PendingMutation {
-  resolve: (result: any) => void;
-  reject: (error: Error) => void;
-}
-
 /**
  * The store-effect seam the conflict-outcome engine drives. The factory
  * (`@lumenize/nebula/frontend`) injects a Vue-reactive implementation via
@@ -329,16 +319,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *  constructor body once `#storeAdapter` exists. */
   #engine!: ConflictOutcomeEngine;
 
-  /**
-   * Serial mesh-submit gate. `handleTransactionResult` is an uncorrelated
-   * single callback channel, so at most one mesh transaction is in flight; the
-   * engine's per-resource queue can request concurrent submissions, which queue
-   * FIFO here. On reconnect the gate is cleared — the engine replays in-flight
-   * work with the same `newETag` (server replay is idempotent).
-   */
-  #submitGate: Array<{ subs: QueueSubmission[]; resolve: (r: ServerBatchResponse) => void; reject: (e: unknown) => void }> = [];
-  #inFlightSubmit: { subs: QueueSubmission[]; resolve: (r: ServerBatchResponse) => void; reject: (e: unknown) => void } | null = null;
-
   /** Previous connection state, for detecting the `reconnecting → connected`
    *  transition in the connection-state callback (see constructor). */
   #prevConnectionState: ConnectionState | null = null;
@@ -393,21 +373,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #queryEntries = new Map<string, QueryEntry>();
 
-  /**
-   * In-flight `read(rt, rid)` Promises, correlated by `requestId`. Each
-   * concurrent read gets its own UUID; the server returns the same id via
-   * `handleReadResponse(requestId, result)` which settles the matching entry.
-   */
-  #pendingReads = new Map<string, PendingRead>();
-
-  /**
-   * In-flight `orgTree.*` mutation Promises, correlated by `requestId`. Each mutation
-   * fires a resilient 4-arg `call()` whose in-heap handler (`handleOrgTreeResult`)
-   * settles the matching entry with the mutation's return value or its Error. The
-   * in-heap handler survives WS reconnect + tab freeze (D16), so a sent-but-unanswered
-   * mutation is only lost on a full reload/discard (→ orgTree-resync on reconnect).
-   */
-  #pendingMutations = new Map<string, PendingMutation>();
 
   /**
    * In-flight chat turns, correlated by the client-generated `turnId`. A turn is
@@ -493,12 +458,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // `disconnected → connecting → connected`, which we don't treat as
         // a reconnect (registry is empty anyway).
         if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
-          // The in-flight mesh transaction's result may have been lost in the
-          // drop; the engine's queue replays it (same newETag) on reconnect, so
-          // clear the stale gate — otherwise the replay deadlocks behind a
-          // `handleTransactionResult` that never arrives.
-          this.#inFlightSubmit = null;
-          this.#submitGate.length = 0;
+          // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
+          // drop (D16) and its RESULT re-resolves to the new socket (D17), or the default timeout (D4)
+          // rejects → the engine retries. No submit-gate to clear (retired, D7).
           this.#resubscribeAll();
         }
         // Gate the engine's submission queue: not-'connected' suspends flush +
@@ -694,29 +656,33 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   // ─── Serial mesh-submit gate ──────────────────────────────────────────────
 
   /**
-   * The engine's `submitBatch` hook: submit a batch of queue submissions as one
-   * atomic mesh transaction and resolve with the raw server facts. Serial — at
-   * most one in flight (the `handleTransactionResult` channel is uncorrelated).
-   * Concurrent calls (independent resources) queue FIFO.
+   * The engine's `submitBatch` hook: submit a batch as one atomic mesh transaction via `callAsync`
+   * and resolve with the raw server facts. The submit-gate is RETIRED (D7) — `callAsync` correlates
+   * each transaction by its own `callId`, so concurrent independent-resource batches run in parallel
+   * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `resources.ts`
+   * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
+   * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
+   * infrastructure-error. Resilient across reconnect (D16/D17): a dropped RESULT re-resolves to the
+   * new socket, or `callAsync`'s default timeout (D4) rejects → the engine retries.
    */
   #meshSubmit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
-    return new Promise<ServerBatchResponse>((resolve, reject) => {
-      this.#submitGate.push({ subs, resolve, reject });
-      this.#pumpSubmitGate();
+    // One mesh `newETag` per batch (the server writes it as every resource's eTag — resources.ts
+    // Step 4.5a); stable across reconnect replays, so a re-issued submission is replay-idempotent.
+    const meshNewETag = subs[0]!.newETag;
+    return this.lmz.callAsync(
+      this.#resourceHostBinding, this.#activeScope,
+      this.ctn<Star>().transaction(this.#appVersion, meshNewETag, this.#buildMeshOps(subs)),
+    ).then((result) => {
+      if (result instanceof Error) {
+        // Ontology-stale is delivered as a RETURNED value (resolve, not reject) — the engine treats it
+        // as a version-skew signal, not an infrastructure error (asymmetric with `read`, which rejects).
+        if (isOntologyStaleError(result)) {
+          return { ontologyStale: { clientVersion: result.clientVersion, currentVersion: result.currentVersion } };
+        }
+        throw result; // any other Error-as-value → engine infrastructure-error
+      }
+      return this.#mapTransactionResult(result, subs);
     });
-  }
-
-  #pumpSubmitGate(): void {
-    if (this.#inFlightSubmit) return;
-    const next = this.#submitGate.shift();
-    if (!next) return;
-    this.#inFlightSubmit = next;
-    // One mesh `newETag` per batch (the server writes it as every resource's
-    // eTag — resources.ts Step 4.5a); stable across reconnect replays because
-    // the engine re-sends the same submissions.
-    const meshNewETag = next.subs[0]!.newETag;
-    this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-      this.ctn<Star>().transaction(this.#appVersion, meshNewETag, this.#buildMeshOps(next.subs)));
   }
 
   /** Turn queue submissions into wire ops. A submission carrying an explicit
@@ -1049,14 +1015,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Org/permission-tree MUTATIONS (api-reference § client.orgTree). Reads are
    * NOT here — the tree is delivered on its own channel to `store.lmz.orgTree`
    * (auto-subscribed on connect). Each mutator fires a resilient 4-arg `call()`
-   * ({@link #orgTreeMutate}) to Star's `dagTree` entry and returns a Promise
-   * settled by the in-heap handler `handleOrgTreeResult` — reject-on-failure, NO
-   * optimistic local write-through (the broadcast echo, originator included, is
-   * the only store update path). Under the continuation-only model the result is
-   * NOT an awaited RPC return: the handler stays in-heap keyed by callId and its
-   * delivery re-resolves to the current socket, so a WS reconnect or tab freeze
-   * no longer strands the Promise (D16) — only a full reload/discard loses it
-   * (→ reload → orgTree-resync). All mutators are idempotent/retry-safe.
+   * ({@link #orgTreeMutate} → `callAsync`) to Star's `dagTree` entry and returns a
+   * resilient Promise — reject-on-failure, NO optimistic local write-through (the
+   * broadcast echo, originator included, is the only store update path). `callAsync`
+   * holds the Promise in-heap keyed by callId and its delivery re-resolves to the
+   * current socket, so a WS reconnect or tab freeze no longer strands it (D16 — a
+   * local Promise over one-way fire + re-resolvable fire-back, NOT a socket-bound
+   * awaited RPC); a lost RESULT rejects on `callAsync`'s default timeout (D4) rather
+   * than hanging, and a full reload/discard triggers orgTree-resync. Idempotent/retry-safe.
    * `createNode` takes a **client-supplied** nodeId (a v4 UUID), so it is
    * server-idempotent too: a dropped/replayed call returns the same node.
    */
@@ -1188,42 +1154,19 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // per Star). Kept in the client signature for API symmetry with
     // subscribe/transaction and for future addressing changes.
     void resourceType;
-    const requestId = crypto.randomUUID();
     const version = options?.appVersion ?? this.#appVersion;
-    return new Promise<Snapshot | null>((resolve, reject) => {
-      this.#pendingReads.set(requestId, { resolve, reject });
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().read(version, resourceId, requestId));
+    // `callAsync` returns the snapshot (framework fire-back, D5 pattern (a)) — resilient across
+    // reconnect/freeze, bounded by the default timeout (D4). Concurrent reads are correlated by the
+    // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
+    // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting.
+    return this.lmz.callAsync<Snapshot | null>(this.#resourceHostBinding, this.#activeScope,
+      this.ctn<Star>().read(version, resourceId),
+    ).catch((err) => {
+      if (isOntologyStaleError(err)) this.#dispatchOntologyStale(err.clientVersion, err.currentVersion);
+      throw err;
     });
   }
 
-  /**
-   * Receive a transaction result from Star and settle the in-flight mesh
-   * submission (the engine's `submitBatch`). Maps the server's atomic
-   * `TransactionResult` to the per-resource `ServerBatchResponse` the engine
-   * consumes; an `OntologyStaleError` becomes the engine's `ontologyStale`
-   * signal, any other thrown Error rejects so the engine surfaces
-   * `infrastructure-error`. The engine owns all resolution + the queue timeout —
-   * NebulaClient only relays facts and serializes the uncorrelated wire channel.
-   */
-  @mesh()
-  handleTransactionResult(result: TransactionResult | Error): void {
-    const inFlight = this.#inFlightSubmit;
-    if (!inFlight) return; // late / spurious arrival (gate already advanced)
-    this.#inFlightSubmit = null;
-    if (result instanceof Error) {
-      if (isOntologyStaleError(result)) {
-        inFlight.resolve({
-          ontologyStale: { clientVersion: result.clientVersion, currentVersion: result.currentVersion },
-        });
-      } else {
-        inFlight.reject(result); // → engine queue's infrastructure-error
-      }
-    } else {
-      inFlight.resolve(this.#mapTransactionResult(result, inFlight.subs));
-    }
-    this.#pumpSubmitGate();
-  }
 
   /**
    * Fire the `onShouldRefreshUI` constructor hook (if registered) with the
@@ -1254,64 +1197,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
   }
 
-  /**
-   * Receive a read response from Star. Settles the matching `requestId`'s
-   * pending Promise; concurrent reads are independently correlated.
-   *
-   * Ontology-stale errors also fire the `onShouldRefreshUI` hook before the
-   * Promise rejects — same staleness signal as the transaction path.
-   */
-  @mesh()
-  handleReadResponse(requestId: string, result: Snapshot | null | Error): void {
-    const pending = this.#pendingReads.get(requestId);
-    if (!pending) return;
-    this.#pendingReads.delete(requestId);
-    if (result instanceof Error) {
-      if (isOntologyStaleError(result)) {
-        this.#dispatchOntologyStale(result.clientVersion, result.currentVersion);
-      }
-      pending.reject(result);
-    } else {
-      pending.resolve(result);
-    }
-  }
 
   /**
-   * Fire an `orgTree.*` mutation as a resilient 4-arg `call()` and return a Promise
-   * settled by {@link handleOrgTreeResult}. The mutation's return value (or Error)
-   * fills the handler's marker (the trailing `remote` continuation arg — the proven
-   * 4-arg idiom); the handler is kept in-heap keyed by callId, so the Promise
-   * survives a WS reconnect / tab freeze (D16). Correlated by a per-call
-   * `requestId` — the same shape as {@link #readResource}, but the result rides
-   * the framework fire-back rather than an explicit Star push.
+   * Fire an `orgTree.*` mutation via `callAsync` — the Mesh client primitive that returns a Promise
+   * settled by the re-resolvable RESULT (D16/D17): resolves with the mutation's value (`createNode`
+   * → nodeId; other mutators → undefined) or rejects with its Error (e.g. permission denied). Resilient
+   * by construction (survives WS reconnect + tab freeze) and bounded by `callAsync`'s default timeout
+   * (D4), so a lost RESULT rejects rather than hanging. No per-call `requestId` / settler handler — the
+   * primitive owns correlation + dedup.
    */
   #orgTreeMutate(remote: any): Promise<any> {
-    const requestId = crypto.randomUUID();
-    return new Promise<any>((resolve, reject) => {
-      this.#pendingMutations.set(requestId, { resolve, reject });
-      this.lmz.call(
-        this.#resourceHostBinding,
-        this.#activeScope,
-        remote,
-        (this.ctn() as any).handleOrgTreeResult(requestId, remote),
-      );
-    });
-  }
-
-  /**
-   * In-heap handler (D16) for an `orgTree.*` mutation RESULT. Settles the Promise
-   * correlated by `requestId`: resolves with the mutation's value (`createNode` →
-   * nodeId; other mutators → undefined) or rejects with its Error (e.g. permission
-   * denied). Intentionally NOT `@mesh` — it is only ever run in-heap by the client
-   * itself (never dispatched remotely). A late/duplicate RESULT finds no entry and
-   * is dropped.
-   */
-  handleOrgTreeResult(requestId: string, result: unknown): void {
-    const pending = this.#pendingMutations.get(requestId);
-    if (!pending) return;
-    this.#pendingMutations.delete(requestId);
-    if (result instanceof Error) pending.reject(result);
-    else pending.resolve(result);
+    return this.lmz.callAsync(this.#resourceHostBinding, this.#activeScope, remote);
   }
 
   /**

@@ -119,14 +119,14 @@ describe('star-fanout', () => {
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
     await waitForUpdateCount(b.client, 1);
 
-    // a mutates — handleTransactionResult fires on a; fanout should reach b
+    // a mutates — a's transaction resolves via callAsync; fanout should reach b
     // but NOT a (originator). callStarTransaction's resetResults() zeroes
     // a's resourceUpdateCount, so the assertion is: a.count stays 0
     // through the entire mutation cycle while b's count climbs to 2.
     a.client.callStarTransaction(star, ONTOLOGY_VERSION, {
       [resourceId]: { op: 'put', eTag, value: { title: 'Self-mutation' } },
     });
-    await waitForSuccess(a.client); // handleTransactionResult fires for a
+    await waitForSuccess(a.client); // a's transaction callAsync resolves
     await waitForUpdateCount(b.client, 2); // proves fanout completed
 
     // If originator-exclusion is working, a never got fanout for its own write.

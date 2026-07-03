@@ -65,18 +65,6 @@ export class HarnessNebulaClient extends NebulaClient {
     super.onUnknownMessage(message);
   }
 
-  // Mesh callbacks the Star invokes directly over the existing WS.
-  // Always chain to super so the public-API in-flight queue used by
-  // `client.resources.transaction()` settles too. Tests using the direct
-  // `callStarTransaction` pattern leave `#inFlightTxn` unset, so super is
-  // a no-op in that mode; tests using the public API never set `#pending`,
-  // so the `#settle` call is a no-op in that mode.
-  @mesh()
-  override handleTransactionResult(r: TransactionResult | Error): void {
-    this.#settle(r);
-    super.handleTransactionResult(r);
-  }
-
   @mesh()
   handlePingResult(r: number | Error): void {
     this.#settle(r);
@@ -156,13 +144,14 @@ export class HarnessNebulaClient extends NebulaClient {
     newETag: string = crypto.randomUUID(),
   ): Promise<DecomposedCallResult<TransactionResult>> {
     return this.#callWithMarker((onSent) => {
-      this.lmz.call(
+      // Transactions now return via `callAsync` (D5 pattern (a)); route the resolved value / rejection
+      // into the single-slot `#settle` that `#callWithMarker` awaits.
+      this.lmz.callAsync(
         'STAR',
         starName,
         (this.ctn() as any).transaction(ontologyVersion, newETag, ops),
-        undefined,
         { onSent },
-      );
+      ).then((r: any) => this.#settle(r), (e: any) => this.#settle(e));
     });
   }
 
@@ -179,13 +168,13 @@ export class HarnessNebulaClient extends NebulaClient {
   }
 
   /**
-   * Mesh-callback helper: dispatches a fire-and-forget `lmz.call` whose
-   * result is delivered via `handleTransactionResult` / `handlePingResult`
-   * (not via CALL_RESPONSE), and combines that with the per-callId marker
-   * arrival into a `DecomposedCallResult`.
+   * Marker helper: dispatches a call whose result is routed to the single `#settle` slot — a
+   * `callAsync` `.then`/`.catch` for transactions, or the `handlePingResult`/`handleResult` mesh
+   * callbacks for ping/delay — and combines that with the per-callId `bench_marker` arrival into a
+   * `DecomposedCallResult`.
    *
-   * The dispatch closure receives the `onSent` callback and is responsible
-   * for calling `lmz.call(...)` with `{ onSent }` in CallOptions.
+   * The dispatch closure receives the `onSent` callback and is responsible for calling
+   * `lmz.call(...)` / `lmz.callAsync(...)` with `{ onSent }` in CallOptions.
    */
   #callWithMarker<T>(dispatch: (onSent: (id: string) => void) => void): Promise<DecomposedCallResult<T>> {
     return new Promise<DecomposedCallResult<T>>((resolve, reject) => {
