@@ -39,12 +39,17 @@ echo "▸ Preflight: required deployed secrets are set"
 # signing keys are REQUIRED: without them, login + cookie succeed but minting the session token
 # throws "JWT private key not configured" and the SPA silently bounces to the login form (observed
 # 2026-06-26). BLUE is PRIMARY_JWT_KEY; GREEN is optional (rotation). Values come from your .dev.vars.
+# ⚠️ .dev.vars DOUBLE-QUOTES multi-line values (the PEM keys) so dotenv strips the quotes + expands the
+# \n escapes when wrangler loads them for `wrangler dev` — which is why LOCAL always works. A manual
+# restore MUST do the same: strip the surrounding quotes + expand \n (the sed + `printf %b` below). A
+# raw `printf %s` stores the literal `"...\n..."`, and the key's base64 decode (atob) then throws on the
+# quote chars → 500 on /refresh-token + a silent login-loop (root-caused 2026-07-02 after a wipe+restore).
 SECRET_LIST="$(wrangler secret list 2>/dev/null)"
 for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE; do
   if ! printf '%s' "$SECRET_LIST" | grep -q "\"$s\""; then
     echo "❌ Required secret '$s' is not set on the deployed worker." >&2
     echo "   Set it (value from the gitignored root .dev.vars), e.g.:" >&2
-    echo "     V=\$(grep \"^$s=\" .dev.vars | sed 's/^[^=]*=//'); printf '%s' \"\$V\" | wrangler secret put $s" >&2
+    echo "     V=\$(grep \"^$s=\" .dev.vars | sed 's/^[^=]*=//; s/^\"//; s/\"\$//'); printf '%b' \"\$V\" | wrangler secret put $s" >&2
     exit 1
   fi
 done
