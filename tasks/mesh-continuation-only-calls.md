@@ -324,6 +324,9 @@ Enumerate at execution time (counts are commentary, not the inventory). **Use th
 ## Phases
 
 ### Phase 1 — The primitive: early-ack traveling handler + non-@mesh sink (also the feasibility proof)
+
+> ✅ **COMPLETE (2026-07-03, `/build-task` + verifier fan-out; commits feb2ea1→d43fd68).** All 12 criteria met + all verifier-panel gaps closed. **Verified: mesh pool-workers 406/406, container 14/1, browser e2e 4/4 (real client leg), nebula response-leg security matrix 7/7 (mutation-validated), type-check clean.** Feasibility premise CONFIRMED (DO early-acks → real 2s post-ack gap → fire-back lands under `ctx.waitUntil`). Findings note: [reference/mesh-continuation-findings.md](reference/mesh-continuation-findings.md). **Deferred to Phase 2 (not Phase-1 blockers):** container-callee *long*-4-arg under `wrangler dev` (same shared mechanic); the full nebula `Star.onBroadcastResult` subscriber-drop re-verify (mesh side done; row-drop logic unchanged); `packages/fetch` `callRaw` adapt.
+
 **Goal**: `call()` internally uses an **early-acking** (D15), **traveling** (D3) / **client-in-heap** (D16) response handler + the non-`@mesh` `__handleResponse` sink instead of awaited `callRaw`, built to the **pinned method split** above. Best-effort tier only. **Caller holds zero state (DO/Worker) / only its in-heap handler (client).** This phase **is** the feasibility proof — build it small and verify the workerd mechanics under `wrangler dev` before the broad migration; the genuine unknowns live here, not in a separate spike.
 
 **Success Criteria**:
@@ -342,6 +345,17 @@ Enumerate at execution time (counts are commentary, not the inventory). **Use th
 
 ### Phase 2 — Migrate the surface
 **Goal**: no app/platform/client/UI awaited `callRaw` remains.
+
+**Migration work-list (enumerated 2026-07-03, `grep -rn '\bcallRaw\b'` — 34 sites; preliminary lean, run the full audit above before committing each):**
+
+| Cluster | File · lines | Count | Shape | Preliminary lean |
+|---|---|---|---|---|
+| **DAG mutators** (client→Star) | `apps/nebula/src/nebula-client.ts:1051-1069` | ~14 | client-crossing MUTATIONS (createNode/addEdge/removeEdge/reparentNode/delete/undelete/rename/relabel/setPermission/revokePermission) | **subscribe-shaped**: the DAG tree is live UI data → the client should be **subscribed** to it (the mutation's effect arrives via the sub push). Each mutation itself → **3-arg + reconcile** (idempotent, client-supplied UUID — the `dagTree-client-supplied-nodeid` detour already set this up for createNode) OR **4-arg** where the client must surface a per-mutation error (e.g. permission denied). Per-mutator call: does the caller need the *error*? |
+| **DevStudio→Star / →Container** | `apps/nebula/src/dev-studio.ts:282-472` | ~10 | server-side DO→DO / DO→Container (resetDevData, setOntology, setAppVersion, ensureUp, applyChanges, **awaitPreviewReady**) | **4-arg** where the result is consumed; **3-arg** where discarded; **`awaitPreviewReady` → 4-arg** (long-running, now fine — early-ack, no held Promise). Same-target sequential runs (resetDevData→setOntology) → batch into **one atomic mesh method** (ADR-006). Container sites → verify under `wrangler dev`+Docker (N10). |
+| **Studio-UI** (client→…, B6 runtime break) | `apps/nebula-studio-ui/src/App.vue:294,474-477` | 5 | client-crossing; `:294` resetDevData; `:474-477` cleanup calls with `.catch(()=>{})` | `:294` → **4-arg** (surface the outcome) or **3-arg**; `:474-477` → **3-arg** (already error-discarding fire-and-forget). Invisible to type-check (`SKIP_PACKAGES`) → this is a *runtime* break, must be found by the bare-identifier grep. |
+| **@lumenize/fetch executor** | `packages/fetch/src/fetch-executor-entrypoint.ts:145`, `fetch.ts` | 5 | the one executor `callRaw` (+ doc-comment refs) | **3-arg `call`** (best-effort adapt, keep published; its `__localChainExecutor` result-delivery stays, B3). Deprecation only if the adapt turns out hard. Not a mesh-test-parity target. |
+
+Then remove `callRaw` from the surface (exit criterion below). **Note:** the `#pendingReads` held-Promise in `nebula-client.ts:1174-1251` is NOT a `callRaw` site — it's the blessed 3-arg + direct-delivery read pattern (M1); opportunistically give it D8 re-issue-on-reconnect, don't rework it.
 
 **Success Criteria**:
 - [ ] **Audit each awaited-`callRaw` site (D12):** target produces its result locally → **4-arg** `call()`; target's result depends on a downstream node → **3-arg multi-hop** or a **subscription**. Record the classification per site (live-loop sites pre-classified in Migration surface).
