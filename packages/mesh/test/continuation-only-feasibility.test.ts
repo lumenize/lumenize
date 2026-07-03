@@ -167,4 +167,19 @@ describe('@lumenize/mesh — continuation-only calls (failure modes: D6 / N8 / N
       expect(await caller.getLastCallError()).toContain('admission rejected by onBeforeCall');
     });
   });
+
+  it('broadcast-to-disconnected (mesh side): a 4-arg call to a disconnected client delivers ClientDisconnectedError to the handler', async () => {
+    const caller = env.TEST_DO.getByName('disc-caller');
+    await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'disc-caller' });
+
+    // No client ever connected as 'never-connected.tab1' → the Gateway returns
+    // ClientDisconnectedError on the awaited delivery hop → routed to the handler locally.
+    caller.testCallToDisconnectedClient('LUMENIZE_CLIENT_GATEWAY', 'never-connected.tab1');
+
+    await vi.waitFor(async () => {
+      const err = await caller.getLastCallError();
+      expect(err).toBeTruthy();
+      expect(err).toMatch(/not connected|disconnected/i);
+    });
+  });
 });

@@ -3,8 +3,6 @@ import { DurableObject } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import {
   newContinuation,
-  executeOperationChain,
-  type OperationChain,
   type Continuation,
 } from '../../src/ocan/index.js';
 import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from '../../src/lmz-api.js';
@@ -70,27 +68,37 @@ export class MeshContainerSeamHarness extends DurableObject<Env> {
     });
   }
 
-  async __executeChain(chain: OperationChain): Promise<any> {
-    return await executeOperationChain(chain, this);
-  }
-
-  get __localChainExecutor(): (chain: OperationChain, options?: { requireMeshDecorator?: boolean }) => Promise<any> {
-    return (chain, options) => executeOperationChain(chain, this, options);
-  }
-
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
     return await executeEnvelope(envelope, this, {
       nodeTypeName: 'LumenizeContainer',
       includeInstanceName: true,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
+    });
+  }
+
+  /** The second mesh RPC entry — fire-back door (mirrors LumenizeContainer). */
+  async __handleResponse(envelope: CallEnvelope): Promise<any> {
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeContainer',
+      includeInstanceName: true,
+      requireMeshDecorator: false,
+      waitUntil: (p) => this.ctx.waitUntil(p),
+      env: this.env,
     });
   }
 
   // ---- @mesh surface exercised by the seam/guard tests ----
 
-  /** M4: an inbound mesh call lands here and returns a value. */
+  /** M4: an inbound mesh call lands here, runs (early-ack model), and stores its result. */
   @mesh()
   echo(value: string): string {
+    this.ctx.storage.kv.put('last_echo', `seam:${value}`);
     return `seam:${value}`;
+  }
+
+  getLastEcho(): string | undefined {
+    return this.ctx.storage.kv.get('last_echo') as string | undefined;
   }
 
   /** Not mesh-callable — a mesh call to this must be rejected (@mesh enforcement). */

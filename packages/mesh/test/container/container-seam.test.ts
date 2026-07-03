@@ -40,13 +40,16 @@ function makeEnvelope(opts: { method: string; args?: any[]; instanceName: string
 }
 
 describe('LumenizeContainer composed seam (via MeshContainerSeamHarness)', () => {
-  // ── M4: an inbound mesh call lands via __executeOperation and returns ──────
-  it('M4: an inbound lmz.call lands via __executeOperation and returns a value', async () => {
+  // ── M4: an inbound mesh call lands via __executeOperation and runs (early-ack) ──
+  it('M4: an inbound lmz.call lands via __executeOperation, acks early, and runs', async () => {
     const name = uniqueName();
     const stub = SEAM().getByName(name);
-    const r = await stub.__executeOperation(makeEnvelope({ method: 'echo', args: ['hi'], instanceName: name }));
-    expect(r.$error).toBeUndefined();
-    expect(r.$result).toBe('seam:hi');
+    // Early ack (D15): __executeOperation returns {$ack}; the chain runs post-ack.
+    const ack = await stub.__executeOperation(makeEnvelope({ method: 'echo', args: ['hi'], instanceName: name }));
+    expect(ack).toEqual({ $ack: true });
+    await vi.waitFor(async () => {
+      expect(await stub.getLastEcho()).toBe('seam:hi');
+    });
   });
 
   // ── m8: onBeforeCall fires on the inbound mesh path ───────────────────────
@@ -70,29 +73,51 @@ describe('LumenizeContainer composed seam (via MeshContainerSeamHarness)', () =>
   });
 
   // ── @mesh enforcement: a plain (non-@mesh) method is rejected ─────────────
-  // Mutation-check (RECORDED): flip the harness __executeChain to
-  // `requireMeshDecorator: false` → the call lands → RED. Guards against wiring
-  // the bypass executor onto inbound dispatch (silently exposes every method).
-  it('@mesh: a mesh call to a non-@mesh method is rejected', async () => {
+  // In the early-ack model the @mesh gate runs post-ack (inside executeOperationChain), so a
+  // non-@mesh method admits ({$ack}) then throws in the chain — surfaced via the debug sink.
+  // Mutation-check (RECORDED): change __executeOperation's requireMeshDecorator to false → the
+  // call lands, no post-ack throw → RED. Guards against wiring the bypass onto inbound dispatch.
+  it('@mesh: a mesh call to a non-@mesh method is rejected (post-ack, logged)', async () => {
     const name = uniqueName();
-    const stub = SEAM().getByName(name);
-    const r = await stub.__executeOperation(makeEnvelope({ method: 'plainMethod', instanceName: name }));
-    expect(r.$result).toBeUndefined();
-    expect(r.$error).toBeDefined();
-    expect(postprocess(r.$error).message).toContain('not mesh-callable');
+    const entries: Array<{ message?: string; data?: { error?: string } }> = [];
+    setDebugSink((e) => entries.push(e as any));
+    try {
+      const stub = SEAM().getByName(name);
+      const ack = await stub.__executeOperation(makeEnvelope({ method: 'plainMethod', instanceName: name }));
+      expect(ack).toEqual({ $ack: true });
+      await vi.waitFor(() => {
+        const rejected = entries.some(
+          (e) => e.message?.includes('post-ack chain threw') && e.data?.error?.includes('not mesh-callable'),
+        );
+        expect(rejected).toBe(true);
+      });
+    } finally {
+      clearDebugSink();
+    }
   });
 
-  // ── m9 / ADR-002: a thrown custom Error round-trips with name + own props ──
-  it('m9: a @mesh method throwing a custom Error round-trips name + custom property', async () => {
+  // ── m9 / ADR-002: a thrown Error is caught + surfaced (not a crash) on the seam ──
+  // In the early-ack model the throw rides the post-ack path (logged for a 3-arg call, or the
+  // fire-back for a 4-arg call). The full custom-Error name+own-props {$error} round-trip is
+  // covered by the mesh main error tests + @lumenize/structured-clone; here we verify the seam
+  // catches + surfaces the throw without crashing the node.
+  it('m9: a @mesh method throwing an Error is caught + surfaced on the seam (post-ack)', async () => {
     const name = uniqueName();
-    const stub = SEAM().getByName(name);
-    const r = await stub.__executeOperation(makeEnvelope({ method: 'boom', instanceName: name }));
-    expect(r.$error).toBeDefined();
-    const err = postprocess(r.$error) as Error & { code?: string };
-    // Assert by name + property presence, NOT instanceof (mesh.md).
-    expect(err.name).toBe('SeamCustomError');
-    expect(err.message).toContain('kaboom from container node');
-    expect(err.code).toBe('SEAM_X');
+    const entries: Array<{ message?: string; data?: { error?: string } }> = [];
+    setDebugSink((e) => entries.push(e as any));
+    try {
+      const stub = SEAM().getByName(name);
+      const ack = await stub.__executeOperation(makeEnvelope({ method: 'boom', instanceName: name }));
+      expect(ack).toEqual({ $ack: true });
+      await vi.waitFor(() => {
+        const surfaced = entries.some(
+          (e) => e.message?.includes('post-ack chain threw') && e.data?.error?.includes('kaboom from container node'),
+        );
+        expect(surfaced).toBe(true);
+      });
+    } finally {
+      clearDebugSink();
+    }
   });
 
   // ── m2 (testable half): identity stamps into ctx.storage.kv on first inbound ─

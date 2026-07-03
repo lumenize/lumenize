@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
 import { stringify, parse, preprocess, postprocess } from '@lumenize/structured-clone';
+import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   GatewayMessageType,
   ClientDisconnectedError,
@@ -431,6 +432,69 @@ describe('LumenizeClientGateway', () => {
       expect(statusMessage.subscriptionRequired).toBe(false);
 
       ws2.close();
+    });
+
+    // Flow-C RESULT re-resolution (M5) — the deterministic core of the "thinking forever" fix.
+    // A mesh node fires a client-originated call's RESULT to the Gateway's __handleResponse door;
+    // the Gateway must deliver it to whatever socket the client is on NOW, never the socket the
+    // call left on (delivery is re-resolved by instanceName, not bound to a transient socket, D16).
+    it('re-resolves a RESULT to the CURRENT socket after a swap, not the origin socket', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('flowc.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      // ws1 connects; ws2 then supersedes it (ws1 is closed with 4409).
+      const { ws: ws1 } = await connectAndWait(gateway, 'flowc', 'flowc.tab1');
+      const ws1Received: any[] = [];
+      ws1.addEventListener('message', (event: MessageEvent) => {
+        const m = JSON.parse(event.data as string);
+        if (m.type === GatewayMessageType.CALL_RESPONSE) ws1Received.push(m);
+      });
+
+      const { ws: ws2 } = await connectAndWait(gateway, 'flowc', 'flowc.tab1');
+      const ws2ResultPromise = new Promise<CallResponseMessage>((resolve) => {
+        ws2.addEventListener('message', function h(event: MessageEvent) {
+          const m = JSON.parse(event.data as string);
+          if (m.type === GatewayMessageType.CALL_RESPONSE) { ws2.removeEventListener('message', h); resolve(m); }
+        });
+      });
+
+      // Fire the RESULT back to the door. It must land on ws2 (current) — NOT ws1 (origin/dead).
+      const ack = await gateway.__handleResponse({
+        callId: 'flowc-call-1',
+        clientInstanceName: 'flowc.tab1',
+        $result: preprocess('hello-current-socket'),
+      });
+      expect(ack).toEqual({ $ack: true });
+
+      const delivered = await ws2ResultPromise;
+      expect(delivered.callId).toBe('flowc-call-1');
+      expect(postprocess(delivered.result)).toBe('hello-current-socket');
+
+      // Capable-of-failing: the origin socket received NOTHING (delivery is not socket-bound).
+      await new Promise((r) => setTimeout(r, 50));
+      expect(ws1Received.length).toBe(0);
+
+      ws2.close();
+    });
+
+    it('drops a RESULT when the client has no socket (client re-issues on reload, D8) — via the debug sink', async () => {
+      const entries: any[] = [];
+      setDebugSink((e) => entries.push(e));
+      try {
+        const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('flowc-nosocket.tab1');
+        const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+        // No connection was ever established → no active socket, no grace alarm → immediate drop.
+        const ack = await gateway.__handleResponse({
+          callId: 'flowc-drop-1',
+          clientInstanceName: 'flowc-nosocket.tab1',
+          $result: preprocess('never-delivered'),
+        });
+        expect(ack).toEqual({ $ack: true });
+        expect(entries.some((e) => typeof e.message === 'string' && e.message.includes('no socket for client RESULT'))).toBe(true);
+      } finally {
+        clearDebugSink();
+      }
     });
   });
 

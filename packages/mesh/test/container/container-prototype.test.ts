@@ -31,14 +31,16 @@ describe('m7: narrow core — Container lifecycle untouched, mesh surface added'
   // Positive own-prop control: the core DID add exactly the mesh surface.
   // Capable-of-failing: drop any member → its hasOwn flips false.
   it('adds the mesh receive surface as own properties', () => {
-    for (const member of ['onBeforeCall', '__executeChain', '__executeOperation']) {
+    // Two RPC entries (requests + fire-back responses); __executeChain is folded away (M3),
+    // and __localChainExecutor is removed on this node (m2 — no alarms/fetch consumer for it).
+    for (const member of ['onBeforeCall', '__executeOperation', '__handleResponse']) {
       expect(Object.hasOwn(LumenizeContainer.prototype, member)).toBe(true);
+    }
+    for (const gone of ['__executeChain', '__localChainExecutor']) {
+      expect(Object.hasOwn(LumenizeContainer.prototype, gone)).toBe(false);
     }
     // Getters: present as own accessor descriptors.
     expect(Object.getOwnPropertyDescriptor(LumenizeContainer.prototype, 'lmz')?.get).toBeTypeOf('function');
-    expect(
-      Object.getOwnPropertyDescriptor(LumenizeContainer.prototype, '__localChainExecutor')?.get,
-    ).toBeTypeOf('function');
   });
 
   // M1: fetch IS overridden (own + distinct from the base) so the port pin runs.

@@ -488,6 +488,14 @@ export class TestDO extends LumenizeDO<Env> {
     this.lmz.call(binding, instance, remote, this.ctn().handleOutcome(remote));
   }
 
+  // Initiator: 4-arg call to a DISCONNECTED client via the Gateway — the Gateway (not a mesh node,
+  // svc.broadcast pin b) awaits client delivery and returns ClientDisconnectedError, which the
+  // framework routes to the handler LOCALLY (the mesh side of the broadcast-to-disconnected drop).
+  testCallToDisconnectedClient(gatewayBinding: string, clientInstance: string): void {
+    const remote = (this.ctn() as any).clientMethod();
+    this.lmz.call(gatewayBinding, clientInstance, remote, this.ctn().handleOutcome(remote));
+  }
+
   // ============================================
   // Forwarded result storage (for Worker→DO→store pattern)
   // ============================================
