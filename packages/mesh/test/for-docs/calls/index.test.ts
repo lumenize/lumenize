@@ -222,6 +222,37 @@ it('operation nesting: nested method calls execute in single round trip', async 
   expect(client.results[1]).toBe(25);
 });
 
+it('callAsync: a client awaits a one-shot read that resolves, and a pre-aborted signal rejects', async () => {
+  const browser = new Browser();
+  const userId = crypto.randomUUID();
+  const refresh = createTestRefreshFunction({ sub: userId });
+
+  using client = new EditorClient({
+    instanceName: `${userId}.tab1`,
+    baseUrl: 'https://localhost',
+    refresh,
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+  });
+
+  await vi.waitFor(() => {
+    expect(client.connectionState).toBe('connected');
+  });
+
+  const documentId = crypto.randomUUID();
+  const doc = client.openDocument(documentId, {});
+  doc.saveContent('The quick brown fox');
+
+  // callAsync returns a Promise — awaited directly (the ONE sanctioned awaitable on client.lmz).
+  await vi.waitFor(async () => {
+    const content = await client.fetchContent(documentId);
+    expect(content).toBe('The quick brown fox');
+  });
+
+  // Abort cancels the WAIT (not the server op). A pre-aborted signal rejects without dispatching.
+  await expect(client.fetchContent(documentId, AbortSignal.abort())).rejects.toThrow();
+});
+
 /**
  * Breaking Call Chains Test ({ newChain: true })
  *

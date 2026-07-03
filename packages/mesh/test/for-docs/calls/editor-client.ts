@@ -129,6 +129,24 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
+  /**
+   * Fetch document stats on demand — a one-shot read that RETURNS a Promise via `callAsync`, the
+   * client's resilient awaitable. It keeps its settler in-heap keyed by callId, so the Promise
+   * survives a WebSocket reconnect / tab freeze (delivery re-resolves to the current socket) and is
+   * bounded by a built-in default timeout — it never strands the way the removed awaited `callRaw`
+   * did. The optional `AbortSignal` cancels the WAIT, not the server op — e.g. when the user
+   * navigates away mid-request. `callAsync` is client-only and the one sanctioned awaitable on
+   * `client.lmz`; prefer a subscription for live data and higher-level SDK methods where they exist.
+   */
+  async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
+    return this.lmz.callAsync(
+      'DOCUMENT_DO',
+      documentId,
+      this.ctn<DocumentDO>().readContent(),
+      { signal },
+    );
+  }
+
   // Store results from admin operations
   readonly adminResults: Array<{ reset: true; previousContent: string } | Error> = [];
 

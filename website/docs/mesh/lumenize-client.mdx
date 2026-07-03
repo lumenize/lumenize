@@ -109,6 +109,31 @@ const isAdmin = client.claims?.isAdmin;   // Lumenize-auth admin flag
 
 See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling.
 
+## Awaiting a result — `callAsync` (client-only)
+
+`this.lmz.call()` is fire-and-forget: it returns `void` and delivers any outcome to a handler. The **one** place you can `await` a cross-node call is the client's `callAsync` — a resilient, `Promise`-returning read/mutation:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+async fetchContent(documentId: string, signal?: AbortSignal): Promise<string> {
+  return this.lmz.callAsync(
+    'DOCUMENT_DO',
+    documentId,
+    this.ctn<DocumentDO>().readContent(),
+    { signal },
+  );
+}
+```
+
+Unlike an ordinary awaited RPC, `callAsync` keeps its settler **in-heap keyed by callId**, so the Promise **survives a WebSocket reconnect and a tab freeze** — delivery re-resolves to whatever socket the client is on now, and a built-in default timeout (30 s; `0`/`Infinity` disables) means it never strands. The callee just **returns a value**; the framework fires it back.
+
+:::warning[Abort cancels the wait, not the server operation]
+
+An optional `AbortSignal` (composed with the default timeout) rejects the *wait* — the call already left one-way, so the callee may still run. Retry-after-abort is safe only for **idempotent** operations (a client-supplied UUID or a forward-only eTag). Use it to cancel a UI action (unmount, navigate-away), not to undo a server write.
+
+:::
+
+`callAsync` is **client-only** — a DO/Worker can't hold a heap Promise across hibernation, so it uses `call()` + a handler instead. It is the *only* awaitable on `client.lmz`; `call()` stays `void`. Prefer a **subscription** for live UI data, and higher-level SDK methods where they exist — `callAsync` is the one-shot read/mutation escape hatch.
+
 ## Connection Lifecycle
 
 The WebSocket connection is established automatically upon instantiation. Use the `using` keyword for automatic cleanup:

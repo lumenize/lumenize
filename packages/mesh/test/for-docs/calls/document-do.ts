@@ -116,6 +116,13 @@ export class DocumentDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('content') ?? '';
   }
 
+  /** A one-shot read of the current content — no side effects (unlike `subscribe`, which also
+   *  registers the caller). A natural `callAsync` target: the client awaits the returned value. */
+  @mesh()
+  readContent(): string {
+    return this.ctx.storage.kv.get('content') ?? '';
+  }
+
   // unsubscribe() left as exercise for reader
 
   /**

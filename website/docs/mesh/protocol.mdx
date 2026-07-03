@@ -199,7 +199,7 @@ All `__executeOperation` methods return:
 { $error: LmzIntermediate }  // preprocess(error)
 ```
 
-The caller unwraps in `callRaw`:
+The framework's private single-hop transport unwraps the awaited RPC response:
 
 ```typescript @skip-check
 const response = await stub.__executeOperation(envelope);
