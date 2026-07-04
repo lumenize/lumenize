@@ -46,6 +46,8 @@ The `this.ctn<T>()` method creates a **continuation** — a type-safe, serializa
 
 **Use when:** You don't need the result, the callee will call you back separately, or deliver the result to someplace else.
 
+The target binding is validated **synchronously, at the call site**: a misrouted call — an unknown binding, a Worker/service binding given an instance name, or a DO binding missing one — throws immediately from `this.lmz.call(...)`, even here where there's no handler to receive it (previously such mistakes were silently dropped). A failure *after* dispatch (the callee rejecting at its early ack, or throwing while it works) has no handler on a fire-and-forget call, so it is **logged**, never thrown asynchronously.
+
 ### With Response Handler
 
 Execute a local handler when the remote call completes. `$result` can appear anywhere in the argument list — here it's in the middle:
@@ -72,7 +74,7 @@ handleSubscribeResult(documentId: string, result: string | Error, source: string
 
 **Use when:** The caller needs the result
 
-**`await` under the covers:** Even though there is no await in the example, there is one under the covers. This will open input gates so another request can be initiated before the handler is called. It will also keep a DO in wall-clock billing time. See the [two one-way calls pattern](#two-one-way-calls) below to avoid this.
+**Early ack under the covers:** There's no `await` in your code, and the caller doesn't hold one across the work either. The callee **acks early** — the instant it's admitted (binding resolved, guards passed), *before* it runs the work — so the caller is freed at that brief ack (which does open input gates), not held for the operation. The result arrives later as a one-way **fire-back** into your handler, addressed so it survives a DO hibernation or a client WS reconnect rather than stranding on a held channel. A long-running 4-arg call therefore no longer keeps the caller in wall-clock billing — the hazard the [two one-way calls pattern](#two-one-way-calls) below used to exist to avoid. That pattern is now a cost lever for moving the *work* to a CPU-billed Worker, not a fix for a held await.
 
 ## Multi-Hop Call Patterns
 
@@ -266,6 +268,16 @@ handleAdminResult(result: { reset: true; previousContent: string } | Error) {
   // ...
 }
 ```
+
+### Where errors come from
+
+Every failure resolves to one of three places, divided by the **early-ack boundary** (the point where the callee admits the call, before it runs the work):
+
+- **Validation / developer error** — a bad binding or an invalid continuation throws **synchronously** at the `this.lmz.call(...)` site, before anything is dispatched. Fail-fast; never routed to a handler.
+- **Admission / guard reject** — a scope/permission failure (`onBeforeCall`), a non-`@mesh` target, or overload comes back on the callee's **early ack** (before the work runs) and is delivered to your handler as the `Error` in its `$result`. On a fire-and-forget (3-arg) call there's no handler, so it's logged.
+- **The `@mesh` method threw** — a post-ack error in the callee's own code rides the **fire-back** into your handler's `$result`.
+
+So a response handler receives **every** outcome — value *or* `Error` — which is exactly why you always check `result instanceof Error` before using it. The lone gap is a callee that acks and then vanishes mid-work (crash or eviction *after* the ack): no signal comes back. That's rare, is already true of fire-and-forget today, and is the job of the deferred guaranteed-delivery tier (`callDurable`), not the default `call`.
 
 ### Custom Error Classes
 
