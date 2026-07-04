@@ -31,6 +31,9 @@ There is **no awaited request/response form.** `callRaw` was removed (`mesh-cont
 
 The call path validates the binding against its actual shape **synchronously, before dispatch** (`assertCallTarget` + `isDONamespace` from `@lumenize/routing`), so a mismatch **throws a clear error at the `lmz.call(...)` site — even for fire-and-forget calls** (previously such mistakes were silently dropped). Passing a label string for a Worker call (e.g. for tracing) throws *"binding '…' is a Worker/service binding but an instance name was supplied"*; a DO binding with no instance name throws *"requires an instance name"*. The instance-name slot is for DO routing only — never a data or label channel; to pass data to the callee, see *Passing data to the callee* below.
 
+## Node identity is stamped on every first-contact entry (not just mesh calls)
+The framework populates a node's persistent identity — `this.lmz.bindingName` / `this.lmz.instanceName`, the basis for return addresses, tracing, and anything derived server-side from *which instance this is* — from routing metadata on **every** entry that can be first-contact, not only the mesh receive path. If a node serves its **own** HTTP/WebSocket `fetch()` surface, identity is stamped from the `x-lumenize-do-*` headers `routeDORequest` sets, at `fetch()`/accept time — because hibernation `webSocketMessage`/`webSocketClose` handlers can't re-derive routing metadata. So `instanceName` is populated on the non-mesh path too; relying on the mesh path alone leaves it `undefined` on a cold non-mesh entry (e.g. a container node injecting its server-derived scope into the shell it serves — an empty value mis-routes silently). First-write-wins keeps the paths consistent. (Rationale: ADR-007.)
+
 ## Passing data to the callee
 **Default: pass whatever the callee needs as arguments to the continuation method.** The callee declares them as ordinary parameters and they cross the wire — explicit, typed, and visible at the call site:
 ```typescript
@@ -45,6 +48,28 @@ The canonical use: **cache a value computed once for downstream reuse** — e.g.
 Two adjacent callContext fields are **immutable** and filled automatically — don't reimplement them in `state`:
 - **Raw identity/claims** → `callContext.originAuth` (verified from the origin's JWT). Note the split: `originAuth` is the *input*, `state` holds the authorization decision you *derive* from it (above).
 - **Tracing/provenance** → `callContext.callChain` (the immutable `[origin, …, caller]` path, extended every hop). It *is* the tracing mechanism — don't put trace markers in `state`. Reset with `CallOptions.newChain: true` when a node should become a fresh origin.
+
+## Object-capability access: gate once, then chain
+The `@mesh()` allowlist is checked **only on a chain's entry op** (the first method invoked on the node); later calls in the same chain run on whatever that returned, un-re-checked. Beyond per-method `@mesh(guard)`, this enables an **object-capability** model: a gate method returns a **class instance whose methods *are* the capability** — they need no `@mesh` of their own and are reachable **only by first passing the gate**, in one round trip, so holding the returned instance *is* the authorization.
+
+```typescript
+// Callee — onlyAdmins() is the ONLY @mesh door; it returns a capability instance
+@mesh(requireAdmin)
+onlyAdmins(): AdminOps {
+  return new AdminOps(this);                 // you only get an AdminOps by passing requireAdmin
+}
+// The capability surface — a plain class; NO @mesh on its methods
+class AdminOps {
+  #node: MyDO;
+  constructor(node: MyDO) { this.#node = node; }
+  resetTenant(id: string): void { /* privileged work via this.#node */ }
+}
+
+// Caller — one hop: the gate runs (requireAdmin), then resetTenant on what it returned
+this.lmz.call('MY_DO', instanceName, this.ctn<MyDO>().onlyAdmins().resetTenant(tenantId));
+```
+
+A caller can't shortcut the gate: `ctn<MyDO>().resetTenant(...)` fails the entry `@mesh` check (`resetTenant` isn't `@mesh` — it isn't even on `MyDO`). Reach for this when a **cluster** of privileged ops sits behind one check (gate once instead of `@mesh(requireAdmin)` on each), or when the capability should carry scoped state (the returned instance can close over *what* the caller may touch). It's powerful but **underused** — the per-method `@mesh(guard)` shape is the default reflex (and what LLM training knows); use whichever is clearer, but know this exists. Rationale: ADR-007; entry-only mechanism lives in `packages/mesh/src/ocan/execute.ts`. (`svc.*` chains are the framework's built-in version — they skip the entry check entirely.)
 
 ## Multi-hop / direct delivery
 A continuation names its *final* destination, so a call can hop client → Star → Worker → **directly back to the client** without unwinding through the intermediate hops — each hop fires a one-way call to the next node instead of awaiting and backtracking. This is architecturally motivated (skip the backtrack), independent of any cost argument, and is the pattern to reach for. Canonical: a spell-check kicked off by a doc edit reports straight to the client, not back through the document DO. See [calls.mdx](../../website/docs/mesh/calls.mdx) § Direct Delivery.

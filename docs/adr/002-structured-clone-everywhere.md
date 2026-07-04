@@ -3,7 +3,7 @@
 **Date**: 2026-06-11 (records a commitment made at project start and held since)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence / history**: `tasks/archive/decision-structured-clone-format-*.md` (format research), `tasks/archive/structured-clone-object-based-wire-format.md` (W4 wire format + RFC 7396 diffs), `packages/structured-clone/`
+**Evidence**: `tasks/archive/decision-structured-clone-format-*.md` (format research), `tasks/archive/structured-clone-object-based-wire-format.md` (W4 wire format + RFC 7396 diffs), `packages/structured-clone/`
 
 ## Context
 
@@ -35,7 +35,7 @@ While Mesh users are coders, Nebula's user-developers often have no coding exper
 ### Positive
 - User-developers and Studio's LLM use plain JS values everywhere; there is no serialization vocabulary to learn or teach.
 - Typed errors traverse Mesh hops intact (stack, custom props).
-- The commitment has already survived a full mechanism swap — indexed tuple format → W4 object-based (2026-05-16, [PR #11](https://github.com/lumenize/lumenize/pull/11)) — confirming the value-space promise, not the encoding, is the stable part.
+- The value-space promise is separable from the wire encoding — the encoding can be swapped without relitigating which values must round-trip, so the promise, not the format, is the stable part.
 
 ### Negative
 - Every new surface pays a structured-clone tax: it must go through `@lumenize/structured-clone` (or prove full round-trip) rather than adopting off-the-shelf JSON tooling. RFC 7396 had to be adapted; validation needed cycle-aware program generation.

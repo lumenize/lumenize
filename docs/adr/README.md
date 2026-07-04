@@ -13,15 +13,15 @@ The few repo-shaping commitments — single digits, ever. The bar is not abstrac
 - Enforceable how-to-write-code conventions → `.claude/rules/` (those load into context automatically; ADRs don't).
 - Project-scoped decisions → "Decisions pinned" in the task file, archived with the project. If a pin must outlive its task file, promote it to an ADR when the task archives.
 - Research records / experiment findings → task files in `tasks/archive/`; link them from the ADR as evidence.
-- Implementation notes and mechanism detail → task files. Mechanism in an ADR is the part that rots (see ADR-001's superseded bottom half).
+- Implementation notes and mechanism detail → task files. Mechanism in an ADR is the part that rots — name the current mechanism in a sentence and link out; if it swaps, rewrite that sentence rather than appending a history of past mechanisms.
 
 ## Format
 
 `NNN-short-slug.md`, about one page: **Context, Decision, Alternatives considered, Consequences.** Header carries Date / Status / Deciders. Link out for history; don't inline it.
 
-## Status discipline
+## Forward-facing discipline
 
-When reality drifts, update the Status line and add a dated update note at the top. Don't silently rewrite the body — an ADR is a record, not a living spec.
+An ADR reads as if written fresh for the **current** design — it is not an append-log. When reality drifts, **rewrite the body** so it describes the decision as it now stands; a superseded approach moves into *Alternatives considered* (it is exactly that — an approach considered and rejected, and the growing list is *useful* signal for the next reviewer). Don't accrete dated "Amended …" notes or a mechanism-history section in the body — that's the noise a fresh review panel has to wade through, and **git is the record** that preserves how the decision evolved. Keep the Status line current: `Accepted`, `Superseded by ADR-NNN`, or `Deprecated`.
 
 ## How ADRs reach coding agent context
 

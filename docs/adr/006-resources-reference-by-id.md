@@ -3,7 +3,7 @@
 **Date**: 2026-06-15
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence / history**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/galaxy.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), `.claude/.../feedback_no_server_generated_ids` (client-supplied UUIDs), ADR-004 (per-resource snapshot sequences). Surfaced 2026-06-15 by a cyclic-value diagnostic: a test set `value.self = value` (an embedded, cyclic object) on a relationship field and read the by-id rejection as a bug.
+**Evidence**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/galaxy.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), `.claude/.../feedback_no_server_generated_ids` (client-supplied UUIDs), ADR-004 (per-resource snapshot sequences)
 
 ## Context
 
@@ -21,9 +21,9 @@ Three existing commitments constrain the answer:
 
 **A field typed as a reference to another ontology type is a *relationship*, expressed by id (foreign key). Resources are never embedded inside one another. Related resources are created and updated as separate ops within one atomic transaction; the client supplies every id and wires the foreign keys.**
 
-- The ontology **write shape** rewrites relationship refs to `string` / `string[]` — the id form the wire and storage use (`extractTypeMetadata().writeShapeTypeDefinitions`). Validation enforces it: a reference field accepts an id string (or array of id strings), not an object.
+- The ontology **write shape** rewrites relationship refs to `string` / `string[]` — the id form the wire and storage use. Validation enforces it: a reference field accepts an id string (or array of id strings), not an object.
 - **Nesting is reserved for composition *within* a single resource.** Inline object/array fields (`address: { city: string }`) are part of that one resource's value and its single snapshot. A resource's value round-trips the full structured-clone space — `Map`, `Date`, cycles, aliased sub-objects (ADR-002) — but that richness lives *inside* one value; it does not reach *across* resource references, which are always ids.
-- **A transaction is a map of independent ops that commit atomically** (single `validFrom`/`eTag`, `transactionSync`; idempotent via `newETag` — ADR-005). "Create a parent and its children together" is N ops in one `transaction(...)` call, each with a client-supplied UUID and reference fields pointing at sibling ids.
+- **A transaction is a map of independent ops that commit atomically** (single `validFrom`/`eTag`; idempotent via `newETag` — ADR-005). "Create a parent and its children together" is N ops in one `transaction(...)` call, each with a client-supplied UUID and reference fields pointing at sibling ids.
 - **Embedding an object where an id belongs is a loud, actionable error** — the generated validator names the field and target type and says "reference by id," rather than emitting a bare `expected "(string | undefined)"`.
 
 ## Alternatives considered

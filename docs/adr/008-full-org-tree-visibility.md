@@ -3,13 +3,13 @@
 **Date**: 2026-06-30
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence / history**: `apps/nebula/src/dag-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), `tasks/nebula-query-subscriptions.md` (D9 "child-of-P disclosure accepted", D14 "always disclose the denied-node set", the M7 universal-visibility assumption), `tasks/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent). Surfaced repeatedly during pre-alpha — most recently the query-subscription denied-node enumeration (2026-06-30) — and promoted from project-pins to an ADR to stop the relitigation.
+**Evidence**: `apps/nebula/src/dag-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), `tasks/nebula-query-subscriptions.md` (D9 "child-of-P disclosure accepted", D14 "always disclose the denied-node set", the M7 universal-visibility assumption), `tasks/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent).
 
 ## Context
 
 Within a Star, members constantly need access they don't yet hold to get work done. The question this ADR settles: **how much of the org/permission structure can a given member see?**
 
-A fresh contributor — or a fresh LLM session — reaches for "hide what you can't act on," applying the least-privilege reflex to *visibility* rather than to *capability*. So every feature that surfaces structure re-opens the debate: the latest was query subscriptions, where a denied query result returns the enumerated set of org-tree nodes the caller couldn't read, so the UI can prompt "request read access to these?"
+A fresh contributor — or a fresh LLM session — reaches for "hide what you can't act on," applying the least-privilege reflex to *visibility* rather than to *capability*. So every feature that surfaces structure re-opens the debate — e.g. query subscriptions, where a denied query result returns the enumerated set of org-tree nodes the caller couldn't read, so the UI can prompt "request read access to these?"
 
 The trigger insight that reframes it: **the denied-node set names only structure the client can already see.** Because the org tree is universally visible within the Star (the decision below), a denied query result enumerates nodes the caller could already read off the tree directly — what the caller lacks, and what stays enforced, is the *content* read grant, not knowledge that the nodes exist (D9: the gate is the per-id content subscribe). The request-access disclosure is safe *because of* this policy, not despite it — and it's exactly why the client can resolve "who to ask" locally with no server round-trip (`tasks/nebula-request-access.md`).
 
@@ -28,7 +28,7 @@ This is not a confidentiality concession to be hardened in a later release. **Wi
 
 | Approach | Why rejected |
 |---|---|
-| Per-branch / least-privilege *visibility* (hide what you can't act on) | Produces "permission denied" dead-ends with no path forward; relitigation-by-default each time a feature surfaces structure; and it buys little — within-Star members are already trusted, and enforcement at the point of action is the real control. It would also force every existence short-circuit (`addEdge`/`removeEdge`/`deleteNode`/`undeleteNode`/`revokePermission`) to move *after* the permission check or leak existence anyway. |
+| Per-branch / least-privilege *visibility* (hide what you can't act on) | Produces "permission denied" dead-ends with no path forward; relitigation-by-default each time a feature surfaces structure; and it buys little — within-Star members are already trusted, and enforcement at the point of action is the real control. It would also force every idempotent tree op's existence short-circuit to move *after* the permission check or leak existence anyway. |
 | GitHub secret-teams / Slack private-channels model (broad default visibility + hideable sensitive subsets) | The hideable-subset *is* the per-subtree hiding we reject. In Nebula that need is met by provisioning a **separate Star**, which keeps the model a single rule with no per-branch visibility logic. The precedent's *default* (expose org/team structure broadly) is the part we adopt. |
 | Silent truncation of denied results (show the partial, hide the denial) | Worst UX failure mode and a worse security story than disclosure: users get an incomplete view with no signal and no recourse (D14). Disclosing the denied set turns the same moment into "here's who to ask." |
 
