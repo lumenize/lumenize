@@ -1,44 +1,15 @@
 /**
- * Test harness for NebulaContainer's scope-isolation guard (Phase 3).
+ * Container-node test-app worker (stub).
  *
- * The Phase-2 precheck proved a `Container`-based node can't be constructed
- * under vitest-pool-workers (no container engine). NebulaContainer extends
- * LumenizeContainer extends Container, so it can't be a real DO here either.
- *
- * `NebulaContainerGuardHarness extends LumenizeDO` (a constructable SQLite DO)
- * and **borrows NebulaContainer's REAL prototype methods** via `.call(this)`:
- * its `onBeforeCall` IS `NebulaContainer.prototype.onBeforeCall`, and its
- * `recordValue`/`readValue` delegate to NebulaContainer's. Both only read
- * `this.lmz` / `this.ctx.storage`, which a LumenizeDO supplies identically, so
- * the guard executes against a real `executeEnvelope` → `runWithCallContext` →
- * stamped-identity path — i.e. a faithful test of the actual guard, not a copy.
- * A mutation to NebulaContainer.onBeforeCall flips these tests RED.
- *
- * No `containers` block / no `ctx.container` needed — NebulaContainer is never
- * instantiated; only its prototype functions are invoked.
+ * This project's tests are all PURE / prototype-level — NebulaContainer and DevContainer both
+ * `extend Container`, which can't be constructed under vitest-pool-workers. The scope-isolation
+ * guard is tested by driving `NebulaContainer.onBeforeCall` on a fake `this`
+ * (nebula-container.test.ts); DevContainer's recovery decisions are pure functions + prototype
+ * checks (dev-container.test.ts). So no Durable Object is registered here — just a stub worker so
+ * the project has an entry point. Not in `npm test`; run with `npx vitest run --project container`.
  */
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-import { NebulaContainer } from '../../../src/nebula-container';
-
-export class NebulaContainerGuardHarness extends LumenizeDO<Env> {
-  // The unit under test: NebulaContainer's REAL structural-isolation guard.
-  override onBeforeCall(): void {
-    NebulaContainer.prototype.onBeforeCall.call(this);
-  }
-
-  @mesh()
-  recordValue(value: string): void {
-    (NebulaContainer.prototype.recordValue as (this: unknown, v: string) => void).call(this, value);
-  }
-
-  @mesh()
-  readValue(): string | undefined {
-    return (NebulaContainer.prototype.readValue as (this: unknown) => string | undefined).call(this);
-  }
-}
-
 export default {
   fetch(): Response {
-    return new Response('nebula-container guard harness');
+    return new Response('nebula container-node test app');
   },
 };

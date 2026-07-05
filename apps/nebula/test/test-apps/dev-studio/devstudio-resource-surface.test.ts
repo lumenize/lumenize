@@ -11,28 +11,23 @@
  *     with an unchanged version (M3).
  */
 import { describe, it, expect } from 'vitest';
-import { env } from 'cloudflare:test';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
 import { requireAdmin } from '../../../src/nebula-do';
 import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
 
-// ─── envelope driver (no Gateway/JWT — same pattern as dev-studio.test.ts) ───
+// ─── driver — direct in-DO call ────────────────────────────────────────────
+// These `*ForTest` methods are PURE (they read `this.ctx`/`this.env.LOADER`, no callContext, no
+// cross-DO call), so run them directly in-DO to get the RETURN VALUE. Driving them through the mesh
+// `__executeOperation` path is no longer usable here: it EARLY-ACKS (returns `{$ack}`) and runs the
+// chain in a detached `waitUntil` task, so the result would travel via fire-back, unobservable from
+// a bare envelope. The admin `@mesh(requireAdmin)` guard is not what these facet-behavior tests
+// exercise (the m5/requireAdmin *surface* is frozen statically above), so bypassing it is correct.
 const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
-function envelope(instanceName: string, method: string, args: unknown[] = []) {
-  return {
-    version: 1,
-    chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
-    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims: { aud: instanceName, access: { admin: true } } } } as any,
-    metadata: { callee: { type: 'LumenizeDO', bindingName: 'DEV_STUDIO', instanceName } },
-  };
-}
 async function callStudio(instance: string, method: string, args: unknown[] = []) {
   const stub = (env as any).DEV_STUDIO.getByName(instance);
-  const r = await stub.__executeOperation(envelope(instance, method, args));
-  if (r?.$error) throw postprocess(r.$error);
-  return r?.$result;
+  return (runInDurableObject as any)(stub, (inst: any) => inst[method](...args));
 }
 
 // Walk DevStudio's OWN prototype for mesh-callable methods, partitioned by guard.
