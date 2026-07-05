@@ -7,7 +7,7 @@
 | **Status** | Living doc — current strategy as of 2026-06-21. Update in place; note material pivots with a dated line. |
 | **Audience** | Internal. Also a `/review-task` product-vision lens — tasks that optimize against the checks below should get flagged. |
 | **Scope** | Nebula the SaaS platform. The MIT packages (Mesh and friends) are the substrate, not the subject. |
-| **Convention** | This doc + `enterprise.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. `deck-workplan.md` is a third kind: the internal pitch-process gap list for the CEO — not a leave-behind, not a lens. |
+| **Convention** | This doc, `enterprise.md`, and `self-improving-platform.md` are **dual-purpose** (VC pitch / leave-behind **and** the `/review-task` lens). Files in this folder prefixed `_` (e.g. `_review-lens.md`) are **internal-only** — they feed the review lens but are **not** part of the external narrative. Ignore `_`-files for the deck. `deck-workplan.md` is a third kind: the internal pitch-process gap list for the CEO — not a leave-behind, not a lens. |
 
 The macro thesis is that AI is the earthquake creating fissures that the traditional software development factory and roles are collapsing into, and at the same time creating new higher ground for the rise of the solopreneur/intrapreneur. 
 
@@ -92,7 +92,7 @@ Every product Larry has shipped has had this loop; it has been hard to sell in a
 
 **This does not soften "not collaboration-first."** The persona remains ~90% solo; a coach joining your chat is a support-and-feedback surface, not multi-user collaborative editing. The multi-participant substrate exists for the coach loop first — team collaboration inherits it later, for free, when the intrapreneur needs it.
 
-Economically, coaching is a scale question (human touch doesn't scale like software), and that's fine at wedge stage: the coach loop is how the wedge *converts and compounds* while the platform is young, not a permanent COGS line — over time the same feedback loop trains the platform's own agents, docs, and defaults. (Coach economics is a research item in `deck-workplan.md`.)
+Economically, coaching is a scale question (human touch doesn't scale like software), and that's fine at wedge stage: the coach loop is how the wedge *converts and compounds* while the platform is young, not a permanent COGS line — over time the same feedback loop trains the platform's own agents, docs, and defaults — the compounding *self-improving-platform* moat ([`self-improving-platform.md`](self-improving-platform.md)). (Coach economics is a research item in `deck-workplan.md`.)
 
 ---
 

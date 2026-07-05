@@ -23,7 +23,7 @@ The mental model (and the thing to NOT get wrong): a skill is **not** permanentl
 | **Rules** | conditionally, by what the task/files touch | narrower patterns (e.g. "resources reference by id", "secure by default") | path-scoped rules-equivalent |
 | **Skills** | discovery=index always (~80 tok/skill); body on match; scripts/refs at execution | task-shaped procedures, may carry sub-agents + scripts | `.claude/skills/`-equivalent |
 
-**Consequence we design around:** what grows incrementally is the **skills library**; the always-on cost grows only by the discovery index (~80 tok/skill). "Improve the system prompt" = author/version/measure **individual skills** — A/B-able, regression-gated (see [`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md)), rollback-able — not editing a monolith.
+**Consequence we design around:** what grows incrementally is the **skills library**; the always-on cost grows only by the discovery index (~80 tok/skill). "Improve the system prompt" = author/version/measure **individual skills** — A/B-able, regression-gated (see [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md)), rollback-able — not editing a monolith.
 
 ## Ownership & trust split (load-bearing)
 
@@ -77,7 +77,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 
 10. **Observability** — emit which skills activated per task, their token cost, and sub-agent verdicts (esp. product-alignment pass/fail). Ties into the tail-worker observability path ([[nebula-observability-tail-worker-r2-ae]]) and per-tenant cost ([[nebula-tenant-ai-billing]]).
 
-11. **Eval hook** — every skill/base-prompt change runs through the regression suite ([`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md)) before it ships. Skills are exactly the "system prompt" that suite exists to guard against regressing.
+11. **Eval hook** — every skill/base-prompt change runs through the regression suite ([`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md)) before it ships. Skills are exactly the "system prompt" that suite exists to guard against regressing.
 
 ## Phase sketch (when un-parked — wrapper-vague)
 
@@ -114,5 +114,5 @@ Skills earn their keep once DevStudio is a real, churning agent loop with real u
 - [[project_flue_eval]] — the decision that produced this: borrow the `SKILL.md` standard, reject Flue's runtime.
 - [[project_studio_uibuild_pivot]] — the DevContainer/DevStar/Galaxy cluster DevStudio drives.
 - [[kimi-k27-adoption]] — the engine (Kimi K2.7, no Think/codemode).
-- [`nebula-studio-eval-suite.md`](on-hold/nebula-studio-eval-suite.md) — the regression suite that gates skill/base-prompt changes; ships alongside.
+- [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md) — the regression suite that gates skill/base-prompt changes; ships alongside.
 - [[nebula-observability-tail-worker-r2-ae]], [[nebula-tenant-ai-billing]] — observability + cost seams (integration points 10).
