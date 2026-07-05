@@ -49,6 +49,25 @@ const CMD_PORT = 9000;
  *  the DO across container cold-boots (only the container disk reverts, not the DO). */
 const VERSION_KEY = 'devcontainer:appVersion';
 
+/** KV key for the last `#forceReset()` abort timestamp (epoch ms). Read back on a
+ *  reconstructed instance so the per-instance cooldown survives the abort it gates. */
+const ABORT_TS_KEY = 'devcontainer:lastAbortMs';
+
+/** Per-instance cooldown between forced `ctx.abort()` recoveries — an anti-thrash
+ *  FREQUENCY bound (a reload loop / repeated probes), NOT a cross-tenant blast-radius
+ *  bound (server-side stuck-corroboration is that; D6). Keyed per victim instance. */
+const ABORT_COOLDOWN_MS = 30_000;
+
+/** Bound on the recover-GET corroboration probe: a frozen-stuck container hangs the
+ *  proxy, so an unbounded probe would wedge the recover invocation. A cold boot that
+ *  outruns this reads as "Failed to start" (NOT stuck), so we never abort a
+ *  legitimately-booting fresh container. */
+const PROBE_TIMEOUT_MS = 5_000;
+
+/** Bound on the best-effort `destroy()` inside `#forceReset()` so it can never block the
+ *  load-bearing `ctx.abort()` (`destroy()` can hang on a frozen instance). */
+const DESTROY_TIMEOUT_MS = 2_000;
+
 /** One pushed source file. */
 export interface SourceFile {
   path: string;
@@ -64,14 +83,20 @@ export interface SourceFile {
  */
 export class ContainerUnavailableError extends Error {
   status: number;
+  /** The FULL container/proxy response body (untruncated). The stuck-flag predicate
+   *  (`isStuckFlagError`) reads this, so the discriminating phrase (`Error proxying
+   *  request to container:` — 36 chars) must never be clipped. The `message` truncates
+   *  a copy for readability; this field keeps the whole body. */
+  body: string;
   retryable = true;
-  constructor(status: number, detail?: string) {
+  constructor(status: number, body = '') {
     super(
-      `Container unavailable (HTTP ${status})${detail ? `: ${detail}` : ''} — ` +
+      `Container unavailable (HTTP ${status})${body ? `: ${body.slice(0, 200)}` : ''} — ` +
         `provisioning/cold-starting, evicted, or at capacity. Retry.`,
     );
     this.name = 'ContainerUnavailableError';
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -126,6 +151,56 @@ export function isContainerColdResponse(status: number, body: string): boolean {
   );
 }
 
+/**
+ * The abort-worthy STUCK signature: a `500` whose body carries a base-proxy phrase that a
+ * stale `this.container.running=true` flag produces — the container is "up" per CF but the
+ * instance is dead/frozen and the base proxy won't restart past the flag. A GENUINE STRICT
+ * SUBSET of {@link isContainerColdResponse}: every stuck response is also cold (so it serves
+ * the waking page), but cold ⊋ stuck — `502`/`429`/`503`/provisioning and the crash-loop
+ * `Failed to start container` are cold-but-NOT-stuck (never abort those — D3/M1/M3).
+ *
+ * `500`-only (M1): the base never emits `502` on the container path — a `502` is a CF edge
+ * fault `ctx.abort()` can't fix (it stays cold→page, not stuck→abort). Excludes `Failed to
+ * start container` (M3 — a genuine crash-on-boot / bad-image 500; aborting it loops
+ * abort→recrash→abort) automatically, since that body carries none of the three proxy
+ * phrases. The three phrases are the base-emitted proxy bodies: `container.js` L972
+ * ("Container suddenly disconnected, try again") and L975 ("Error proxying request to
+ * container: …", inside which the prod-observed "…not running…" rides).
+ *
+ * ⚠️ The verbatim prod stuck body was never captured (it self-heals off-prod — Phase 0), so
+ * this is a conservative base-library-emitted superset, NOT a captured signature — narrow only
+ * if a real stuck body is ever captured (tasks/nebula-container-wakeup-fix.md D3). Pure.
+ */
+export function isStuckFlagResponse(status: number, body: string): boolean {
+  if (status !== 500) return false;
+  return /not running|suddenly disconnected|proxying request to container/i.test(body);
+}
+
+/**
+ * The command-path twin of {@link isStuckFlagResponse}: a `#cmdJson` failure carries the raw
+ * `(status, body)` on {@link ContainerUnavailableError}, so the fetch path and the command
+ * path (`ensureUp`) share ONE stuck signature. Defensive against a non-`ContainerUnavailableError`
+ * throw (a plain Error lacks `status`/`body` → not stuck). Pure.
+ */
+export function isStuckFlagError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { status?: unknown; body?: unknown };
+  if (typeof e.status !== 'number' || typeof e.body !== 'string') return false;
+  return isStuckFlagResponse(e.status, e.body);
+}
+
+/**
+ * The per-instance abort cooldown decision (pure — the impure `Date.now()` and the durable
+ * kv read/write live in `#forceReset`). Allows an abort iff none has happened yet, or the
+ * window has fully elapsed since the last one. This is the ONLY bound on abort *frequency*,
+ * and it must survive abort→reconstruct (the timestamp is durable), so its logic is
+ * load-bearing (#4). Mirrors {@link nextRecoverAttempt}'s treatment of the reload counter.
+ */
+export function shouldAbortNow(lastAbortMs: number | undefined, nowMs: number, windowMs: number): boolean {
+  if (lastAbortMs === undefined) return true;
+  return nowMs - lastAbortMs >= windowMs;
+}
+
 /** True for a top-level preview navigation (vs a sub-asset request). Only the navigation gets the
  *  self-healing waking page; assets pass through and are re-fetched by the page's own reload. Pure. */
 export function isDocumentRequest(request: Request): boolean {
@@ -134,17 +209,97 @@ export function isDocumentRequest(request: Request): boolean {
 }
 
 /**
- * Friendly interstitial served when the container proxy fails (idle-slept with a stale `running`
- * flag, or a start that failed / hit capacity). It carries a **manual** Reload button and deliberately
- * does **NOT** auto-reload. Two reasons (the 2026-06-27 regression that proved both): (1) these are
- * *failure* states, not a normal cold boot — the base proxy already *waits* for a healthy cold start,
- * so a retry doesn't speed a genuine failure, it just hammers it; (2) every proxy attempt calls the
- * base's `renewActivityTimeout`, so a tight reload loop keeps the DO from idle-evicting — and that
- * eviction is precisely what clears a stale `running` flag. Auto-reload therefore *prevents* recovery.
- * Pure (no container round-trip). A proper instant force-restart (stop+start, bypassing the stale-flag
- * fast-path) is the follow-up; until then a stuck container self-recovers once traffic stops (≤sleepAfter).
+ * True for the recover sentinel. Premise: the direct-serve route passes NO `prefix` and
+ * `routeDORequest` forwards the FULL original URL (route-do-request.ts builds `new Request(request,
+ * {headers})`), so `fetch()` sees `/dev-container/{u}.{g}.dev/_nebula/recover` — segments are NOT
+ * stripped. Match the TRAILING sentinel; a legit asset that merely CONTAINS the substring
+ * (`.../src/_nebula/recover.vue`) must NOT match (it ends in `.vue`, not the bare sentinel). Pure.
  */
-export function wakingPreviewPage(): Response {
+export function isRecoverRequest(request: Request): boolean {
+  return new URL(request.url).pathname.endsWith('/_nebula/recover');
+}
+
+/**
+ * Cross-SITE CSRF guard for the recover GET (D6 layer 1): `/_nebula/recover` is a plain GET firing a
+ * state-changing `ctx.abort()`, so a cross-site `<img src=…>` could otherwise trigger it. The
+ * browser-set, unforgeable `Sec-Fetch-Site: same-origin` header rejects cross-site AND header-less
+ * callers. ⚠️ Closes cross-*site* only — the server-side stuck-corroboration probe (NOT this header)
+ * is the cross-*tenant* bound (D6 layer 2), since `Sec-Fetch-Site` is origin-scoped. Pure.
+ */
+export function isSameOriginRecover(request: Request): boolean {
+  return request.headers.get('Sec-Fetch-Site') === 'same-origin';
+}
+
+/**
+ * The same-origin recover sentinel URL for a preview request — the instance base
+ * (`/{bindingSeg}/{instance}`) + `/_nebula/recover`, derived from the ROUTED request path.
+ * Request-derived, NOT `this.lmz.instanceName` (unstamped on the fetch path, M5), so the page can
+ * only ever recover the instance it was served for (the wrong-Star guard). Pure.
+ */
+export function previewRecoverUrl(request: Request): string {
+  const segs = new URL(request.url).pathname.split('/'); // ['', '{bindingSeg}', '{instance}', ...]
+  return `/${segs[1]}/${segs[2]}/_nebula/recover`;
+}
+
+/**
+ * The public-preview serve decision, factored pure. `servePage` gates the friendly waking
+ * interstitial — the existing `isDoc && !ok && isContainerColdResponse` gate, untouched.
+ * `autoRecover` (meaningful only when `servePage`) arms the page's bounded self-heal and is true
+ * ONLY for the abort-worthy stuck signature. A genuine app error (`servePage:false`) is passed
+ * through untouched by the caller; a cold-but-not-stuck response serves the page with MANUAL reload
+ * only (`autoRecover:false`, e.g. `502`/`503`/`429`/provisioning and the M3 crash-loop). Pure.
+ */
+export function decidePreviewResponse(
+  status: number,
+  body: string,
+  isDoc: boolean,
+): { servePage: boolean; autoRecover: boolean } {
+  const ok = status >= 200 && status < 300;
+  const servePage = isDoc && !ok && isContainerColdResponse(status, body);
+  return { servePage, autoRecover: isStuckFlagResponse(status, body) };
+}
+
+/**
+ * The bounded reload decision for the auto-recover page: reload iff fewer than 2 prior attempts (so
+ * at most 2 auto-reloads, then the manual button is the final fallback). Pure AND embedded verbatim
+ * into the page's inline JS (via `.toString()` in {@link wakingPreviewPage}) so the unit-tested
+ * contract and the shipped browser logic cannot drift.
+ */
+export function nextRecoverAttempt(prevCount: number): { reload: boolean; nextCount: number } {
+  return { reload: prevCount < 2, nextCount: prevCount + 1 };
+}
+
+/**
+ * Friendly interstitial served when the container proxy fails (idle-slept / provisioning / a stuck
+ * stale-`running` flag).
+ *
+ * `autoRecover` (true ONLY for the abort-worthy stuck signature — {@link isStuckFlagResponse}) drives
+ * a BOUNDED self-heal: the page hits the `/_nebula/recover` sentinel (which server-side corroborates
+ * the stuck state, then `ctx.abort()`s to force a clean reconstruct) and reloads once, at most twice
+ * ({@link nextRecoverAttempt} via a `sessionStorage` counter), then falls back to the manual Reload
+ * button. A cold-but-not-stuck response (`autoRecover:false`) shows the manual button only.
+ *
+ * ⚠️ This DELIBERATELY reverses the 2026-06-27 "no auto-reload" guard. That guard was correct when
+ * recovery depended on idle-eviction (a reload storm renewed the activity timeout and BLOCKED the
+ * evict that cleared the flag). Recovery is now abort-driven, so a BOUNDED reload no longer blocks the
+ * clear — it drives it. The bound (≤2) + manual fallback keep it from becoming the old unbounded
+ * hammer; there is deliberately NO unbounded `http-equiv=refresh`. Pure (no container round-trip).
+ */
+export function wakingPreviewPage(autoRecover = false, recoverUrl = ''): Response {
+  // When autoRecover, embed nextRecoverAttempt VERBATIM (`.toString()`) so the shipped browser bound
+  // can't drift from the unit-tested contract. This script runs ONLY in a real browser (ui-smoke /
+  // prod) — never in the read-only unit tests — and the shipped/wrangler-dev build is un-instrumented,
+  // so `.toString()` emits clean JS.
+  const recoverScript = autoRecover
+    ? `<script>(function(){` +
+      `var nextRecoverAttempt=${nextRecoverAttempt.toString()};` +
+      `var k='nebula-recover-attempts';` +
+      `var d=nextRecoverAttempt(parseInt(sessionStorage.getItem(k)||'0',10)||0);` +
+      `if(d.reload){sessionStorage.setItem(k,String(d.nextCount));` +
+      `fetch(${JSON.stringify(recoverUrl)}).catch(function(){});` +
+      `setTimeout(function(){location.reload();},1500);}` +
+      `})();</script>`
+    : '';
   const html =
     `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">` +
@@ -155,7 +310,7 @@ export function wakingPreviewPage(): Response {
     `border-radius:.5rem;border:1px solid #3b4451;background:#2a323c;color:#a6adbb;cursor:pointer}</style></head>` +
     `<body><div class="box"><div class="s">⏳ Waking your preview…</div>` +
     `<p>It idle-slept to save resources. Give it a moment, then reload.</p>` +
-    `<button onclick="location.reload()">Reload</button></div></body></html>`;
+    `<button onclick="location.reload()">Reload</button></div>${recoverScript}</body></html>`;
   return new Response(html, {
     status: 200,
     headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' },
@@ -191,11 +346,13 @@ export class DevContainer extends NebulaContainer {
     this.#setPreviewBaseEnv(this.lmz.instanceName); // before start: vite base (Flow 1d)
     const res = await this.containerFetch(new Request(`http://cmd.local${path}`, init), CMD_PORT);
     const text = await res.text();
-    if (!res.ok) throw new ContainerUnavailableError(res.status, text.slice(0, 120));
+    // Carry the FULL body (no 120-char clip) so `isStuckFlagError` can see the discriminating
+    // proxy phrase — the command path shares the fetch path's ONE stuck signature.
+    if (!res.ok) throw new ContainerUnavailableError(res.status, text);
     try {
       return JSON.parse(text) as T;
     } catch {
-      throw new ContainerUnavailableError(res.status, text.slice(0, 120));
+      throw new ContainerUnavailableError(res.status, text);
     }
   }
 
@@ -208,17 +365,20 @@ export class DevContainer extends NebulaContainer {
   }
 
   /**
-   * Liveness probe + STUCK-container recovery. DevStudio's `ensureUp` (and so `chat` + the Studio's
-   * open/refresh) awaits this before pushing source, so the recovery rides those existing paths.
+   * Liveness probe + STUCK-container recovery. DevStudio fires this via one-way `lmz.call`
+   * before pushing source (`chat` + the Studio's open/refresh), so the recovery rides those
+   * existing paths. Mesh continuation-only shipped, so an abort here strands NO awaited caller:
+   * the whole collapsed op (`bootAndApply`/`warmAndAwaitReady`) is dropped all-or-nothing and
+   * the client re-pushes (`appVersion` kv survives; disk reverts + re-pushed, Flow 1c).
    *
-   * A healthz probe normally also cold-starts the container (its `containerFetch` waits for the port).
-   * But a slept container can leave a **stale `this.container.running` flag** the base proxy can't
-   * restart past — `start()`/`startAndWaitForPorts()` both fast-path on that flag — so the probe just
-   * gets "not running" forever (the 2026-06-27 stuck state; recovers in the cloud only via idle-evict).
-   * On a failed probe we **force a clean restart**: `destroy()` SIGKILLs unconditionally (unlike
-   * `stop()`, which guards on `if (running)`), resetting the flag to false; the re-probe's
-   * `containerFetch` then sees `running=false` and auto-starts a fresh container. ONE retry only — no
-   * loop; if it still fails, surface it (a state only eviction clears, or genuine capacity).
+   * A slept container can leave a **stale `this.container.running` flag** the base proxy can't
+   * restart past (`start()`/`startAndWaitForPorts()` fast-path on the flag), so the probe gets
+   * "not running" forever (the 2026-06-27 stuck state). On a **stuck-signature** failure we
+   * `#forceReset()` (→ `ctx.abort()`): `destroy()`-only recovery is KNOWN-INSUFFICIENT for the
+   * deploy-staled cloud flag (diagnosis Q2 — the same dead container id persisted across many
+   * `destroy()` attempts; only idle-evict, or a forced abort = immediate idle-evict, clears it).
+   * A NON-stuck failure — or a cooled-down `#forceReset()` no-op — falls back to the original
+   * `destroy()` + ONE re-probe, which clears the milder cold-but-not-deploy-staled case.
    *
    * ⚠️ Verified live (`extends Container` can't construct under pool-workers) — see
    * [[feedback_test_container_changes_with_wrangler_dev]].
@@ -227,15 +387,63 @@ export class DevContainer extends NebulaContainer {
   async ensureUp(): Promise<{ ok: boolean }> {
     try {
       return await this.#cmdJson('/healthz');
-    } catch {
+    } catch (err) {
+      // Stuck stale-`running` flag → force DO reconstruction (destroy() can't clear the
+      // deploy-staled flag). #forceReset() ends in ctx.abort() unless cooled down; if it
+      // aborts, this invocation dies HERE and nothing below runs (the one-way caller strands
+      // nothing). If cooled down (no abort), fall through to the destroy()+re-probe fallback.
+      if (isStuckFlagError(err)) await this.#forceReset();
       this.#setPreviewBaseEnv(this.lmz.instanceName); // envVars are read at (re)start
       try {
-        await this.destroy(); // SIGKILL → resets the stale `running` flag (stop() would no-op on it)
+        await this.destroy(); // SIGKILL → clears a NON-deploy-staled stale flag (stop() no-ops on it)
       } catch {
         /* already gone / destroy raced — the re-probe below still boots from a clean flag */
       }
       return await this.#cmdJson('/healthz'); // running=false now → containerFetch auto-starts clean
     }
+  }
+
+  /**
+   * The shared post-authorization recovery primitive — BOTH the recover-GET (`#handleRecover`)
+   * and the command path (`ensureUp`) call it. It does NO origin check and NO stuck-corroboration:
+   * those are the CALLER's job (fetch() checks `Sec-Fetch-Site` + corroborates; ensureUp checks
+   * `isStuckFlagError`), so it must NEVER be reached on a path that hasn't already gated (D5/D6).
+   *
+   * Cooldown (`shouldAbortNow`) → best-effort non-hanging `destroy()` → persist the abort timestamp
+   * to `ctx.storage.kv` BEFORE `ctx.abort()` (so the cooldown survives the reconstruct the abort
+   * triggers) → `ctx.abort()`. `ctx.abort()` is the load-bearing clear for the deploy-staled flag
+   * (`destroy()` alone can't clear it — diagnosis Q2): it forces the DO to reconstruct and re-read
+   * `this.container.running` from reality (the forced, immediate equivalent of the idle-eviction
+   * that is otherwise the only cloud clear). Phase 0 CONFIRMED this mechanic on real CF.
+   *
+   * ⚠️ Do NOT cite `@cloudflare/containers` container.js L1416 as a persist-before-abort precedent —
+   * there `ctx.abort()` comes FIRST and the following `setStopped()` is unreachable; the base shows
+   * no such discipline. The persist-before-abort requirement stands on its own.
+   */
+  async #forceReset(): Promise<void> {
+    const now = Date.now();
+    const lastAbortMs = this.ctx.storage.kv.get<number>(ABORT_TS_KEY);
+    if (!shouldAbortNow(lastAbortMs, now, ABORT_COOLDOWN_MS)) return; // cooled down → no-op
+    // destroy() clears the cold-but-not-deploy-staled case; it must NEVER block the abort (it can
+    // hang on a frozen instance), so cap it. Input-gate opening here is moot — we abort immediately.
+    // `.catch` on destroy so a late rejection (after the timeout already won the race) can't surface
+    // as an unhandled rejection.
+    await Promise.race([
+      this.destroy().catch(() => {}),
+      new Promise<void>((resolve) => setTimeout(resolve, DESTROY_TIMEOUT_MS)),
+    ]);
+    // Persist BEFORE abort so the cooldown survives the reconstruct (#4). The yield between the put
+    // and the abort is LOAD-BEARING: a sync `kv.put` commits to durable storage only when the DO
+    // yields for I/O, and `ctx.abort()` with NO yield after the put DISCARDS the uncommitted write.
+    // VERIFIED on deployed CF (throwaway `lmz-abort-kv-test`, 2026-07-04): bare `kv.put; abort` AND
+    // `await ctx.storage.put; abort` both LOST the value, and a bare microtask yield was NOT enough;
+    // a single macrotask (`setTimeout`) yield let the output gate flush → the value survived. So yield
+    // once here before aborting. Stays within the sync-storage rule (the async `put` isn't a fix
+    // anyway). NOT locally testable — miniflare's local abort reconstructs with wiped storage
+    // regardless ([[miniflare-local-abort-wipes-storage]]).
+    this.ctx.storage.kv.put(ABORT_TS_KEY, now);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0)); // flush the write before abort
+    this.ctx.abort('DevContainer stuck-flag recovery');
   }
 
   /**
@@ -334,6 +542,59 @@ export class DevContainer extends NebulaContainer {
   }
 
   /**
+   * Handle the `/_nebula/recover` GET — the user-visible self-heal path. Order (D4/D6):
+   *  1. `isSameOriginRecover` (403 otherwise) — closes cross-SITE CSRF-via-GET (D6 layer 1).
+   *  2. server-side stuck **corroboration** (`#probeStuck`) — the recover-GET does NOT trust the
+   *     client's `autoRecover` claim; it aborts ONLY a genuinely-stuck container. This is what
+   *     closes the cross-TENANT healthy-abort vector (D6 layer 2): an untrusted neighbor can trigger
+   *     an abort only against a container the abort *recovers* (net-positive, data-safe), never kick
+   *     a healthy/provisioning/crash-looping neighbor.
+   *  3. `#forceReset()` — the shared post-authorization primitive (cooldown + abort).
+   * The abort ends this invocation, so the recover request is EXPECTED to error out; the client
+   * `.catch()`es it. Uses request-derived routing only — `routeDORequest` already routed to THIS
+   * DevContainer by URL, so the abort tears down only this instance (never `this.lmz.instanceName`,
+   * unstamped on the fetch path, M5).
+   */
+  async #handleRecover(request: Request): Promise<Response> {
+    if (!isSameOriginRecover(request)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    if (!(await this.#probeStuck())) {
+      // Corroboration denied — healthy / provisioning / crash-loop. Never abort a container that
+      // isn't genuinely stuck (the D6 cross-tenant bound). Benign no-op.
+      return new Response('not stuck', { status: 200, headers: { 'cache-control': 'no-store' } });
+    }
+    await this.#forceReset(); // ends in ctx.abort() unless cooled down — this invocation then dies
+    // Reached only if cooled down (no abort this time). The page's bounded reload + manual button
+    // are the fallback.
+    return new Response('cooling down', { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  /**
+   * Bounded fresh probe corroborating the stuck signature (D4). A frozen-stuck container
+   * (`running=true`, port dead) hangs the proxy → the `AbortSignal.timeout` fires → the base
+   * returns/throws the proxy-path signature (`isStuckFlagResponse` true) or the probe itself
+   * rejects (treated as stuck). A healthy `200`, a `503`/`429`/provisioning, or a crash-loop
+   * `Failed to start container` → NOT stuck (never abort those). The two hang variants produce
+   * DIFFERENT base bodies — frozen skips the start block → the "proxying" phrase (stuck); a cold
+   * boot enters it → "Failed to start" (not stuck) — so an in-flight legit boot is never aborted.
+   */
+  async #probeStuck(): Promise<boolean> {
+    try {
+      const probe = await this.containerFetch(
+        new Request('http://cmd.local/healthz', { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }),
+        CMD_PORT,
+      );
+      const body = await probe.text().catch(() => '');
+      return isStuckFlagResponse(probe.status, body);
+    } catch {
+      // The probe threw / aborted before producing a Response — a frozen-stuck container that hung
+      // the proxy past the timeout. Treat as stuck.
+      return true;
+    }
+  }
+
+  /**
    * Public preview surface — a three-way branch (never blanket-buffer):
    *  - WS upgrade (vite HMR) → forward `super.fetch()` verbatim (ungated).
    *  - shell `index.html` → buffer + inject the SERVER-DERIVED scope, fresh Response.
@@ -344,6 +605,12 @@ export class DevContainer extends NebulaContainer {
    * NEVER request-supplied — the wrong-Star footgun guard.
    */
   override async fetch(request: Request): Promise<Response> {
+    // Recover sentinel FIRST — before #setPreviewBaseEnv and the WS branch (#9): on this path the
+    // DO is about to be torn down (ctx.abort), so neither the envVars mutation nor WS handling is
+    // wanted. Uses request-derived data only (this.lmz.instanceName isn't stamped until
+    // super.fetch()); routeDORequest already routed to THIS DevContainer by URL.
+    if (isRecoverRequest(request)) return this.#handleRecover(request);
+
     // Set the preview base BEFORE super.fetch() triggers the container start (envVars are
     // read at start). On a cold direct GET the instance isn't stamped yet, so read it from
     // the routing header; warm DOs have `this.lmz.instanceName` (Decision 12 / Flow 1d).
@@ -357,13 +624,15 @@ export class DevContainer extends NebulaContainer {
 
     // Cold-container recovery (idle-sleep → stale `running` flag → base proxy 5xx it can't restart
     // past; see isContainerColdResponse). On the top-level preview navigation, serve a friendly
-    // waking page with a MANUAL reload — NOT an auto-reload loop: retrying a failure state just
-    // hammers it, and each attempt renews the activity timeout, blocking the idle-eviction that
-    // clears the stale flag (the 2026-06-27 regression). A genuine app error (non-cold body) passes
-    // through untouched — never masked.
+    // waking page; the abort-worthy STUCK signature additionally arms the page's BOUNDED self-heal
+    // (autoRecover → /_nebula/recover → corroborate → abort; ≤2 reloads, then a manual button). A
+    // cold-but-not-stuck response serves the page with manual reload only. A genuine app error
+    // (non-cold body) passes through untouched — never masked. (decidePreviewResponse factors the
+    // decision; the recover URL is derived from the routed request path — the wrong-Star guard, M5.)
     if (isDocumentRequest(request) && !res.ok) {
       const body = await res.text();
-      if (isContainerColdResponse(res.status, body)) return wakingPreviewPage();
+      const { servePage, autoRecover } = decidePreviewResponse(res.status, body, true);
+      if (servePage) return wakingPreviewPage(autoRecover, autoRecover ? previewRecoverUrl(request) : '');
       return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
     }
 
