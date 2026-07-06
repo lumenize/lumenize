@@ -4,6 +4,29 @@ Empirical notes from building the live self-verification harness (`tasks/archive
 Phases 1–2 are exploratory in places; this records what actually worked so the next person doesn't
 re-discover it.
 
+## Prod drive (3b/3d) — autonomous, no boot, past Turnstile
+
+`harness/prod.ts` drives the **deployed** Nebula (`nebula.lumenize.com`) with no local boot:
+
+- **Turnstile bypass** — prod's `email-magic-link` / `discover` are Turnstile-gated (403 without a
+  browser token). The `nebula-auth` `checkTurnstile` bypass (a secret token in the
+  `x-lumenize-turnstile-bypass` header = `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`) skips ONLY Turnstile;
+  Turnstile stays ON for everyone else. Used ONLY for the one-time login (`refresh-token` /
+  `my-scopes` / resource reads are already Turnstile-free).
+- **claude@ routing** — the harness identity's magic-link must reach the email-test Worker. This needs
+  an Email Routing **Routing rule** `claude@lumenize.io → email-test Worker` (a *Destination Worker*
+  target). It does NOT need a verified **Destination Address** (that's only for forward-to-a-real-inbox
+  rules) — the "Pending" destination-address entry is irrelevant and can be deleted.
+- **Stored refresh (3d)** — the login seeds `harness/.prod-session.json` (gitignored) with the
+  refresh-token cookie; subsequent runs refresh **headlessly** (~2.5s, no email) → a `*` token →
+  `my-scopes`. Verified live 2026-07-06: enumerated the real prod scope tree (`larry` universe +
+  `nebula-platform`).
+- **M1 controls (the stored `*`-admin credential):** kept in a gitignored file only; NEVER logged
+  (redacted everywhere); request the narrowest `activeScope` per op (enumerate uses `nebula-platform`
+  for the `*` reach — narrow it for data reads); **kill-switch = delete `.prod-session.json`** (forces
+  a fresh login) and/or logout revokes the refresh token server-side; refresh tokens don't rotate so
+  they slide until the TTL lapses or logout.
+
 ## Boot — NO `--local` (the big one)
 
 `bootDevStack` must boot like `npm run dev` — **plain `wrangler dev`, no `--local`**.

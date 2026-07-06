@@ -1,3 +1,6 @@
 
 # Live self-verification harness capture artifacts (Phase 2)
 harness/.artifacts/
+
+# Prod-drive stored refresh token (a *-admin credential — never commit)
+harness/.prod-session.json
