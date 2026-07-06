@@ -99,27 +99,29 @@ fi
 scan ".dev.vars / .env files" \
   '.dev.vars' '.dev.vars.example' '.env' '.env.example'
 
-# 6. *_BOOTSTRAP_EMAIL in a WRANGLER CONFIG — a privilege-granting bootstrap admin (auto-admin for
-# the first subject registering that email) committed here deploys as a prod var, i.e. a standing
-# admin backdoor (packaging.md § Environment variables). It belongs in vitest miniflare.bindings.
-# The ONLY sanctioned home is a *deployed test harness* (test/browser/worker/), which carries it with
-# a comment — excepted below. Scanned for WRANGLER CONFIGS ONLY, deliberately NOT shell scripts:
-# a deploy script that merely CHECKS the secret is set via `wrangler secret list` (e.g.
+# 6. Privilege-granting SECRETS in a WRANGLER CONFIG — committed here they deploy as world-readable
+# prod vars (packaging.md § Environment variables). They belong in vitest miniflare.bindings (tests)
+# or `wrangler secret put` (prod), NEVER a committed config:
+#   *_BOOTSTRAP_EMAIL           — auto-admin for the first subject registering that email → a standing admin backdoor.
+#   NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN — the shared token that skips Turnstile (router.checkTurnstile) → committed = anyone bypasses Turnstile.
+# The ONLY sanctioned home is a *deployed test harness* (test/browser/worker/), which carries the
+# bootstrap email with a comment — excepted below. Scanned for WRANGLER CONFIGS ONLY, deliberately NOT
+# shell scripts: a deploy script that merely CHECKS a secret is set via `wrangler secret list` (e.g.
 # apps/nebula/scripts/deploy.sh naming the var) sets no committed value and is legitimate.
 # .dev.vars.example is the placeholder template (a value there is expected), so it's not scanned here.
-BOOTSTRAP_PATTERN='(NEBULA_AUTH_BOOTSTRAP_EMAIL|LUMENIZE_AUTH_BOOTSTRAP_EMAIL)'
-BOOTSTRAP_HITS=$(grep -rlE "$BOOTSTRAP_PATTERN" "${EXCLUDE_DIRS[@]}" \
+PRIVILEGED_PATTERN='(NEBULA_AUTH_BOOTSTRAP_EMAIL|LUMENIZE_AUTH_BOOTSTRAP_EMAIL|NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN)'
+PRIVILEGED_HITS=$(grep -rlE "$PRIVILEGED_PATTERN" "${EXCLUDE_DIRS[@]}" \
   --include='wrangler.jsonc' --include='wrangler.toml' --include='wrangler.json' \
   --exclude='audit-test-mode.sh' . 2>/dev/null | grep -vE '/test/browser/worker/' || true)
-if [ -n "$BOOTSTRAP_HITS" ]; then
-  echo "❌ *_BOOTSTRAP_EMAIL in a wrangler config (deploys as a prod var — a standing admin backdoor):"
-  echo "$BOOTSTRAP_HITS" | sed 's/^/   /'
+if [ -n "$PRIVILEGED_HITS" ]; then
+  echo "❌ A privilege-granting secret (*_BOOTSTRAP_EMAIL / *_TURNSTILE_BYPASS_TOKEN) in a wrangler config (deploys as a prod var):"
+  echo "$PRIVILEGED_HITS" | sed 's/^/   /'
   echo ""
   HITS=$((HITS + 1))
 fi
 
 if [ "$HITS" -gt 0 ]; then
-  echo "❌ Audit failed: ${HITS} category(ies) above contain a *_TEST_MODE or *_BOOTSTRAP_EMAIL leak."
+  echo "❌ Audit failed: ${HITS} category(ies) above contain a *_TEST_MODE / *_BOOTSTRAP_EMAIL / *_TURNSTILE_BYPASS_TOKEN leak."
   echo ""
   echo "TEST_MODE env vars and *_BOOTSTRAP_EMAIL (privilege-granting) MUST only be set in"
   echo "vitest.config.* miniflare.bindings (or referenced in *.test.ts files). A bootstrap email in a"
@@ -129,4 +131,4 @@ if [ "$HITS" -gt 0 ]; then
   exit 1
 fi
 
-echo "✅ Audit clean — no *_TEST_MODE or *_BOOTSTRAP_EMAIL leak surfaces in wrangler configs, npm scripts, shell scripts, CI workflows, or env files."
+echo "✅ Audit clean — no *_TEST_MODE / *_BOOTSTRAP_EMAIL / *_TURNSTILE_BYPASS_TOKEN leak surfaces in wrangler configs, npm scripts, shell scripts, CI workflows, or env files."

@@ -379,6 +379,35 @@ async function handleInstancePath(
 // Turnstile validation
 // ============================================
 
+/**
+ * Constant-time string comparison — avoids leaking how many leading chars matched via early-exit
+ * timing. The length short-circuit is acceptable here: the bypass token is a fixed-length
+ * high-entropy secret, so its length is not sensitive. Used only for the Turnstile bypass token.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/** Header carrying the authorized Turnstile-bypass token. */
+export const TURNSTILE_BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
+
+/**
+ * Whether a request carries the authorized Turnstile-bypass token (the {@link TURNSTILE_BYPASS_HEADER}
+ * header constant-time-equals `env.NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). Skips ONLY Turnstile (the
+ * anti-bot gate on unauthenticated endpoints) — never the magic-link / JWT / scope checks, so it is
+ * not an auth bypass. Returns false when the knob is unset (bypass disabled) or the header is absent/
+ * wrong. Exported for testing. The token is a secret — never log it.
+ */
+export function isTurnstileBypassed(request: Request, env: object): boolean {
+  const bypassToken = (env as { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN?: string }).NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN;
+  if (!bypassToken) return false;
+  const presented = request.headers.get(TURNSTILE_BYPASS_HEADER);
+  return presented !== null && constantTimeEqual(presented, bypassToken);
+}
+
 async function checkTurnstile(
   request: Request,
   env: Env,
@@ -389,6 +418,20 @@ async function checkTurnstile(
   const secretKey = (env as any).TURNSTILE_SECRET_KEY;
   if (!secretKey) {
     // No Turnstile configured — skip (development/test)
+    return null;
+  }
+
+  // Authorized bypass — a request carrying the shared bypass token in its header skips Turnstile
+  // (and ONLY Turnstile: the magic-link, JWT verification, and scope checks all still apply, so this
+  // is not an auth bypass — a leaked token allows abuse/enumeration of the anti-bot-gated endpoints,
+  // never account takeover). For the trusted autonomous inspection identity (the `/live` prod-drive).
+  // Constant-time compared; the token is NEVER logged (security.md). Turnstile stays fully ON for
+  // every request without a valid token. The knob is a secret — never a committed var (packaging.md;
+  // audit-test-mode.sh forbids it in committed configs).
+  if (isTurnstileBypassed(request, env)) {
+    debug('nebula-auth.router.turnstileBypass').info('Turnstile bypassed via authorized token', {
+      path: new URL(request.url).pathname, // pathname only — never the token
+    });
     return null;
   }
 

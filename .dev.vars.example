@@ -67,6 +67,13 @@ LUMENIZE_AUTH_REDIRECT=/app
 # Get your secret key at: https://dash.cloudflare.com/turnstile
 TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
 
+# Turnstile BYPASS token — a high-entropy secret that lets the trusted `/live` prod-drive skip
+# Turnstile (nebula-auth router.checkTurnstile) by presenting it as the `x-lumenize-turnstile-bypass`
+# header. Turnstile stays ON for every request without it. Skips ONLY the anti-bot gate, never auth.
+# Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+# Secret — set via `wrangler secret put NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`; NEVER a committed config.
+NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN=generate-a-32-byte-base64url-token
+
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
 
