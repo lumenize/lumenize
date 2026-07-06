@@ -3,7 +3,7 @@
  * magic-link email loop, for driving a running Nebula from a Node harness.
  *
  * This is the **local** identity path of the live self-verification harness
- * (`tasks/claude-live-verification.md` Phase 1). It is the Nebula analogue of mesh's
+ * (`tasks/archive/claude-live-verification.md` Phase 1). It is the Nebula analogue of mesh's
  * `createTestRefreshFunction`, with the critical difference the task turns on: the base
  * util signs a **flat `isAdmin`** payload with **no `access` claim** — the *base* mesh/auth
  * shape — which Nebula's gateway rejects (`router.verifyNebulaAccessToken`, the

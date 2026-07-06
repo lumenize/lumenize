@@ -1,6 +1,6 @@
 # Harness findings (mechanisms that worked + alternatives that failed)
 
-Empirical notes from building the live self-verification harness (`tasks/claude-live-verification.md`).
+Empirical notes from building the live self-verification harness (`tasks/archive/claude-live-verification.md`).
 Phases 1–2 are exploratory in places; this records what actually worked so the next person doesn't
 re-discover it.
 

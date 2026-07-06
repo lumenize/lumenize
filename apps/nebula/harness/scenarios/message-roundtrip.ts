@@ -1,6 +1,6 @@
 /**
  * Phase-1 acceptance scenario — the "verify the chat-history *mechanism* in a running system"
- * round-trip (`tasks/claude-live-verification.md`).
+ * round-trip (`tasks/archive/claude-live-verification.md`).
  *
  * Capable-of-failing (asserts, does not print): post a `Session` + `Message` carrying a known
  * marker into claude@'s fresh sandbox in ONE atomic transaction, then **read AND subscribe it

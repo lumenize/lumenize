@@ -2,7 +2,7 @@
 
 Drive and inspect a **running** Nebula (local `wrangler dev`) as an authenticated identity, so a
 UI/behavior change can be verified against a live system before it's reported done — the gap that
-let the chat-history and preview-cold-boot bugs ship green. Task: `tasks/claude-live-verification.md`.
+let the chat-history and preview-cold-boot bugs ship green. Task: `tasks/archive/claude-live-verification.md`.
 
 This is **exploration, distinct from the vitest suites** (`.claude/rules/testing.md` owns those). It
 boots the real stack and asserts against it; it is not a replacement for unit/integration tests.

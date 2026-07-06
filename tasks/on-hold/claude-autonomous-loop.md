@@ -1,6 +1,6 @@
 # Claude autonomous iterate-loop (Exploratory — mechanism TBD)
 
-**Status: ON HOLD — the north-star, deferred until the [live self-verification harness](../claude-live-verification.md) (its driver + inspection client) exists.** Split out of that file in Stage-1 framing (2026-07-05, finding S2): the harness ships a *driver + inspection client*; this file holds the *speculative autonomy vision* it builds toward, so the active task stays honestly scoped.
+**Status: ON HOLD — the north-star, deferred until the [live self-verification harness](../archive/claude-live-verification.md) (its driver + inspection client) exists.** Split out of that file in Stage-1 framing (2026-07-05, finding S2): the harness ships a *driver + inspection client*; this file holds the *speculative autonomy vision* it builds toward, so the active task stays honestly scoped.
 
 ## The vision (Larry, 2026-07-05)
 

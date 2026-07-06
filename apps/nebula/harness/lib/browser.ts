@@ -9,7 +9,7 @@
  * Runs in plain Node (tsx). Needs the same non-`--local` `wrangler dev` boot as the API driver
  * (`bootDevStack`) PLUS a vite dev server rendering the real Studio SPA.
  *
- * @see tasks/claude-live-verification.md — Phase 2
+ * @see tasks/archive/claude-live-verification.md — Phase 2
  */
 import { existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

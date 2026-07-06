@@ -1,6 +1,6 @@
 /**
  * Phase-3a acceptance B2-(i), realized via the Phase-1 client (the natural home for "drive a real
- * resource op") — `tasks/claude-live-verification.md`.
+ * resource op") — `tasks/archive/claude-live-verification.md`.
  *
  * Capable-of-failing on the ENFORCEMENT path (not just the isAdmin flag): a `*` super-admin token
  * (issued by `nebula-platform` → `access.authScopePattern: '*'`, admin) reaches a scope it has NO

@@ -5,7 +5,7 @@
  * (DurableObjects) which transitively import `cloudflare:workers` and fail to resolve outside
  * Workers. This subpath exposes only the parts a Node harness needs to mint + reason about
  * Nebula tokens — all `cloudflare:workers`-free — so it can be imported from a standalone
- * `tsx` driver (`tasks/claude-live-verification.md`).
+ * `tsx` driver (`tasks/archive/claude-live-verification.md`).
  *
  * Mirrors the `@lumenize/auth/client` split: by intent, not by runtime.
  */

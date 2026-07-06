@@ -1,6 +1,6 @@
 /**
  * Bootstrap-ARRAY (`*` super-admin) — the comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL` list
- * (tasks/claude-live-verification.md Phase 3a).
+ * (tasks/archive/claude-live-verification.md Phase 3a).
  *
  * Targets ONLY what the array widening adds — a SECOND listed email (beyond index 0) is promoted
  * and modify-protected, and a mixed-case/leading-space entry matches ONLY because the getter

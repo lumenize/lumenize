@@ -1,7 +1,7 @@
 /**
  * Live self-verification harness — reusable core.
  *
- * The standalone driver behind `tasks/claude-live-verification.md`: boot a fresh local
+ * The standalone driver behind `tasks/archive/claude-live-verification.md`: boot a fresh local
  * `wrangler dev`, mint a correct-shape Nebula admin token for a sandbox scope (NO email —
  * `createNebulaTestToken` with the `.dev.vars` signing key), connect a real-WS `NebulaClient`,
  * and drive/inspect arbitrary scenarios. Not a fixed vitest test — invoked from Bash via

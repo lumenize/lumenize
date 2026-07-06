@@ -9,7 +9,7 @@
  * `.claude/` skill wraps). One command: boot → identity → run scenario → inspect/assert →
  * wipe → report.
  *
- * @see tasks/claude-live-verification.md
+ * @see tasks/archive/claude-live-verification.md
  */
 import { bootDevStack, HAS_DOCKER } from './lib/harness';
 import * as messageRoundtrip from './scenarios/message-roundtrip';

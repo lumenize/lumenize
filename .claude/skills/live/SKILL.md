@@ -8,7 +8,7 @@ description: Drive + inspect a RUNNING Nebula (local `wrangler dev`) as an authe
 Boot a fresh local `wrangler dev`, mint an authenticated identity, and **drive + inspect the running
 Nebula/Studio** — the API side (`NebulaClient` `resources.*`/subscribe/transact) and the browser side
 (Playwright: navigate, screenshot, a11y tree, console errors, failed network). It's *drive-a-running-
-app-and-look*; what you do with that is up to you. Task: `tasks/claude-live-verification.md`.
+app-and-look*; what you do with that is up to you. Task: `tasks/archive/claude-live-verification.md`.
 
 ## Three uses (explore is first-class, not just "verify")
 

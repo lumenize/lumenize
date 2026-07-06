@@ -8,7 +8,7 @@
  * FINDINGS.md for why cookie/token injection (skip-login) resists: the Studio SPA drives its own
  * cookie-based refresh, so there's no client-side accessToken injection point without editing the SPA.
  *
- * @see tasks/claude-live-verification.md — Phase 2
+ * @see tasks/archive/claude-live-verification.md — Phase 2
  */
 import assert from 'node:assert/strict';
 import type { DevStack } from '../lib/harness';
