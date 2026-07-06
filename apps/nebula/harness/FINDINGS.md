@@ -8,11 +8,16 @@ re-discover it.
 
 `harness/prod.ts` drives the **deployed** Nebula (`nebula.lumenize.com`) with no local boot:
 
-- **Turnstile bypass** — prod's `email-magic-link` / `discover` are Turnstile-gated (403 without a
-  browser token). The `nebula-auth` `checkTurnstile` bypass (a secret token in the
-  `x-lumenize-turnstile-bypass` header = `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`) skips ONLY Turnstile;
-  Turnstile stays ON for everyone else. Used ONLY for the one-time login (`refresh-token` /
-  `my-scopes` / resource reads are already Turnstile-free).
+- **Turnstile bypass (forward-looking — a no-op today)** — the `nebula-auth` `checkTurnstile` bypass
+  (a secret token in the `x-lumenize-turnstile-bypass` header = `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`,
+  constant-time compared) skips ONLY the anti-bot gate; Turnstile stays ON for everyone else. The
+  harness sends it on the one-time login (`refresh-token` / `my-scopes` / resource reads are already
+  Turnstile-free). ⚠️ **Turnstile is currently OFF in prod** (`TURNSTILE_SECRET_KEY` unset — the
+  pre-alpha deferral, confirmed via `wrangler secret list` 2026-07-06), and `checkTurnstile`
+  short-circuits on the no-secret skip *before* the bypass check — so the live prod drive currently
+  clears via that skip and the bypass header is a **no-op today**. The bypass is verified by unit
+  tests (`packages/nebula-auth/test/turnstile-bypass.test.ts`, mutation-checked) and becomes
+  load-bearing the moment `TURNSTILE_SECRET_KEY` is set at alpha (backlog § Nebula Auth).
 - **claude@ routing** — the harness identity's magic-link must reach the email-test Worker. This needs
   an Email Routing **Routing rule** `claude@lumenize.io → email-test Worker` (a *Destination Worker*
   target). It does NOT need a verified **Destination Address** (that's only for forward-to-a-real-inbox
@@ -21,11 +26,47 @@ re-discover it.
   refresh-token cookie; subsequent runs refresh **headlessly** (~2.5s, no email) → a `*` token →
   `my-scopes`. Verified live 2026-07-06: enumerated the real prod scope tree (`larry` universe +
   `nebula-platform`).
-- **M1 controls (the stored `*`-admin credential):** kept in a gitignored file only; NEVER logged
-  (redacted everywhere); request the narrowest `activeScope` per op (enumerate uses `nebula-platform`
-  for the `*` reach — narrow it for data reads); **kill-switch = delete `.prod-session.json`** (forces
-  a fresh login) and/or logout revokes the refresh token server-side; refresh tokens don't rotate so
-  they slide until the TTL lapses or logout.
+- **M1 — the stored `*`-admin credential, honest about the threat model:** the real protections are
+  (1) **behavioral** — prod writes/deploys/secret-changes stay deliberate (a rogue harness could mint
+  any scope or ship a guard-less deploy, so per-scope/per-command ceremony in a harness we control is
+  NOT a boundary — the reliance on asking-permission is the actual control, and it has to be), and
+  (2) **external-leak hygiene** — the token lives in a gitignored file only, is NEVER logged (redacted
+  everywhere), **kill-switch = delete `.prod-session.json`** and/or logout revokes it server-side
+  (no rotation → slides until TTL/logout). Narrowest `activeScope` per op (enumerate uses
+  `nebula-platform`) is blast-radius hygiene on accidental over-reach / a leaked single token, not a
+  control. (A read-only admin *principal* would be a real control but is too big a cross-cutting guard
+  change to be worth it — Larry, 2026-07-06.)
+
+## Turnstile canary — bypass verified end-to-end + blocker catalog (2026-07-06)
+
+`drive.ts turnstile-canary` boots a real local worker with Turnstile genuinely ON (an always-passes
+Turnstile *test* secret injected for one boot via `HARNESS_TURNSTILE_SECRET` → `--var
+TURNSTILE_SECRET_KEY`; no `.dev.vars` mutation, auto-reverts) and probes the gate 5 ways, all
+side-effect-free (`discover` sends no email; the one `email-magic-link` probe 403s at the gate before
+any send). All 5 passed:
+
+1. plain request (no token/bypass — what the SPA sends today) → **403 BLOCKED** (gate on).
+2. authorized `x-lumenize-turnstile-bypass` header → **200 PASSES** — the bypass, previously only
+   unit-tested, now **verified end-to-end on a real worker with Turnstile genuinely on**. So the prod
+   harness (`prod.ts`) will keep working the moment prod Turnstile flips on (today it's a no-op since
+   prod Turnstile is off — this canary is how we prove the path without touching prod).
+3. wrong bypass token → **403 BLOCKED** (constant-time validated, not mere header-presence).
+4. request carrying a `cf-turnstile-response` token → **200 PASSES** — the SPA fix will clear the gate.
+5. `email-magic-link` with no token → **403 BLOCKED** — the login path breaks as-is.
+
+**Blocker catalog for turning prod Turnstile ON (all confirmed here):**
+- **B0 — no widget is provisioned.** No `TURNSTILE_SECRET_KEY` in `.dev.vars`, no site key anywhere.
+  Create a Turnstile widget in the CF dashboard first (→ site key for the SPA + secret key for
+  `wrangler secret put`).
+- **B1 — the SPA has no widget.** `apps/nebula-studio-ui/src/App.vue` sends no token on its 3 gated
+  calls (`discover` L88, `email-magic-link` L123, `claim-universe` L144) → all 403 with Turnstile on.
+  Fix: load the Turnstile script, render/execute a widget, thread `cf-turnstile-response` into the 3
+  POST bodies. Wrinkle: `sendMagicLink()` fires TWO gated calls back-to-back (`discover` then
+  `email-magic-link`) and Turnstile tokens are single-use → execute the widget twice (or restructure).
+- **Latent — `claim-star`** is Turnstile-gated but not wired in the SPA (only `claim-universe` is);
+  it'll need the widget when it gets a UI.
+- **Latent — any test lane pointed at prod** (ui-smoke `BENCH_BASE_URL` → prod) would 403 on login
+  once prod Turnstile is on unless it sends the bypass header.
 
 ## Boot — NO `--local` (the big one)
 

@@ -47,6 +47,27 @@ Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
   screenshot + a11y + console/network to `harness/.artifacts/` (before AND after the transition, so an
   empty end-state isn't ambiguous).
 
+## Prod drive — autonomous, no boot (`nebula.lumenize.com`)
+
+Drive the DEPLOYED Nebula with no local boot, for exploring/inspecting **prod** data:
+
+```sh
+npx tsx apps/nebula/harness/prod.ts enumerate    # list the prod Universes (my-scopes, * token)
+```
+
+⚠️ **Standing authorization — when Larry asks me to explore / inspect / read prod data, DO IT
+autonomously: no reconfirming, no manual credentialing.** He built this capability precisely so we can
+move fast, and explicitly accepted the security tradeoff. This standing OK is **read-mostly**: prod
+*writes* / deploys / secret changes stay deliberate + rare (not covered by it).
+
+How it works: a one-time login uses the **Turnstile-bypass token** (`NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`
+in `.dev.vars`, sent as the `x-lumenize-turnstile-bypass` header) to get past prod's Turnstile, then
+seeds a gitignored **stored refresh token** (`harness/.prod-session.json`); subsequent runs refresh
+headlessly (~2.5s, no email). Needs `claude@lumenize.io` routed to the email-test Worker (an Email
+Routing rule → Destination Worker). **Kill-switch: delete `.prod-session.json`.** M1 controls +
+details: `apps/nebula/harness/FINDINGS.md`. Add prod commands to `prod.ts` as needed (narrowest
+`activeScope` per read).
+
 ## Prerequisites (a clean checkout needs only these)
 
 - **Docker Desktop running** — the DevContainer builds at boot (the harness probes `docker info`).

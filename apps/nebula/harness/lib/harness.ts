@@ -116,6 +116,12 @@ export async function bootDevStack(opts: { readyTimeoutMs?: number } = {}): Prom
       ...(localMode ? ['--local'] : []),
       '--var', 'PRIMARY_JWT_KEY:BLUE',
       ...(process.env.HARNESS_WORKER_DEBUG ? ['--var', `DEBUG:${process.env.HARNESS_WORKER_DEBUG}`] : []),
+      // Turnstile is OFF in local dev by default (no secret → checkTurnstile skips). The
+      // turnstile-canary scenario turns it ON for ONE boot by injecting a Turnstile *test* secret
+      // (`1x0000…AA` = always-passes) via --var — no `.dev.vars` mutation, auto-reverts per boot.
+      ...(process.env.HARNESS_TURNSTILE_SECRET
+        ? ['--var', `TURNSTILE_SECRET_KEY:${process.env.HARNESS_TURNSTILE_SECRET}`]
+        : []),
       '--log-level', 'info',
     ],
     onStdio: (chunk) => {

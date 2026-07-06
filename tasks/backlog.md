@@ -2,8 +2,8 @@
 
 Small tasks and ideas for when I have time (evening coding, etc.)
 
-> 🔴 **SECURITY-CRITICAL — turn Turnstile back ON before public signup (alpha).**
-> Turnstile is **OFF in prod for pre-alpha** (`TURNSTILE_SECRET_KEY` left unset) — a deliberate, time-boxed deferral, acceptable **only** while access is friends-&-family-invite-only on an obscure URL with the cost ceiling watched. **Before signup opens to the public, Turnstile MUST go back ON _and_ a narrow automation bypass must be built first.** The reason it's deferred is the **bypass**, not bot-risk: Turnstile blocks non-human access *by design*, so a naive re-enable also blocks our **own** trusted automation — an AI agent / CI / Claude acting in the system — and you can't "solve" Turnstile from a headless browser (that's its whole purpose). → full item: [§ Nebula Auth](#nebula-auth).
+> 🔴 **SECURITY-CRITICAL — Turnstile is OFF in prod (pre-alpha); turn it ON before public signup (alpha).**
+> A deliberate, dated deferral (`TURNSTILE_SECRET_KEY` unset — confirmed 2026-07-06), acceptable **only** while access is F&F-invite-only / obscure-URL / cost-ceiling-watched. The automation **bypass** — the hard part — is ✅ built + canary-verified, so this is unblocked; **deferred to post-pre-alpha**, with the design + blocker catalog + phases now homed in **[tasks/on-hold/turnstile-on-in-prod.md](on-hold/turnstile-on-in-prod.md)**.
 
 ## Immediate work backlog
 
@@ -396,7 +396,7 @@ Strengthen the case that Nebula's data layer is an *ontology* (not just a typed 
 
 ## Nebula Auth
 
-- [ ] 🔴 **SECURITY-CRITICAL: Turn Turnstile ON in prod + build a narrow automation bypass (before public signup / alpha).** *(Also flagged in the top-of-file banner.)* **Why it's OFF now — the real reason is the bypass, not bot-risk:** Turnstile's whole purpose is to block non-human/automated access, so with it ON our **own** trusted automation (an AI agent / CI / Claude acting in the system from time to time) is blocked too — and you **cannot** "solve" Turnstile from a headless browser (it's designed to stop exactly that; the secret key only *verifies* tokens, it can't mint them). The hard part is a bypass that lets *trusted* automation through **without** weakening bot-defense for everyone else, and we didn't want to design that before pre-alpha. So pre-alpha turns Turnstile **fully OFF** (`TURNSTILE_SECRET_KEY` unset) — acceptable **only** because access is F&F-invite-only / obscure-URL / low-bot-risk. **At alpha:** set the prod `TURNSTILE_SECRET_KEY` **and** add a **server-side bypass in `checkTurnstile` for automation only** — keyed on the **automation email / `test-` scope** (the magic-link request carries email + scope alongside the token, so both are available at check time; no separate header secret needed). **Never** disable Turnstile for real users. Surfaced 2026-06-24 (prod-smoke design).
+- [ ] 🔴 **Turn Turnstile ON in prod** — DEFERRED to post-pre-alpha (re-enable trigger: public signup / alpha). Bypass ✅ built (`isTurnstileBypassed`, `packages/nebula-auth/src/router.ts`) + canary-verified end-to-end (`drive.ts turnstile-canary`); remaining = provision a widget (CF dashboard) + fold login to one gated call so a user faces Turnstile once. Design, bypass-mechanism rationale, blocker catalog (B0/B1 + latents), and phases now homed in **[tasks/on-hold/turnstile-on-in-prod.md](on-hold/turnstile-on-in-prod.md)**. Findings: `apps/nebula/harness/FINDINGS.md` § Turnstile canary. *(Also in the top banner.)*
 
 - [ ] **Nebula email sender domain — `noreply@lumenize.io` stopgap SHIPPED; brand-aligned switch to `nebula.lumenize.com` now unblocked (Resend-verified).**
   - **DONE 2026-06-26:** `NebulaEmailSender` default `from` changed `auth@nebula.lumenize.com` → verified **`noreply@lumenize.io`** (`packages/nebula-auth/src/nebula-email-sender.ts:36`); the prior default was unverified → silently dropped (CF) / rejected (Resend).
