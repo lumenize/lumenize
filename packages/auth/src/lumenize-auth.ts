@@ -82,7 +82,20 @@ export class LumenizeAuth extends DurableObject {
   get #refreshTokenTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_REFRESH_TOKEN_TTL) || 2592000; }
   get #magicLinkTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_MAGIC_LINK_TTL) || 1800; }
   get #prefix(): string { return (this.env as any).LUMENIZE_AUTH_PREFIX || '/auth'; }
-  get #bootstrapEmail(): string | undefined { return (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL?.toLowerCase(); }
+  /**
+   * Bootstrap-admin emails as a normalized `string[]`. `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` is a
+   * COMMA-SEPARATED list (`a@x.io, b@y.io`) — split → trim → lowercase → drop empties → dedup.
+   * Consumers MUST compare via array-membership (`.includes(normalizedEmail)`), NEVER
+   * `String.prototype.includes` on the raw joined value (a substring match would let `a@x.io`
+   * match the entry `a@x.io,b@y.io`; a stray trailing space would silently fail BOTH promotion AND
+   * modify-protection). Empty/unset → `[]`. (Getter contract mirrors nebula-auth `NebulaAuth`; the
+   * two stay in lockstep until the de-fork — see on-hold/auth-token-core-compose-not-fork.md.)
+   */
+  get #bootstrapEmails(): string[] {
+    const raw = (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL as string | undefined;
+    if (!raw) return [];
+    return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  }
   get #inviteTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_INVITE_TTL) || 604800; }
   get #isTestMode(): boolean { return (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true'; }
 
@@ -487,7 +500,7 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -556,7 +569,7 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -1191,7 +1204,7 @@ export class LumenizeAuth extends DurableObject {
   #loginSubject(email: string): Subject {
     const normalizedEmail = email.toLowerCase();
     const now = Date.now();
-    const isBootstrap = this.#bootstrapEmail === normalizedEmail;
+    const isBootstrap = this.#bootstrapEmails.includes(normalizedEmail);
 
     const existingRows = this.#sql`
       SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt

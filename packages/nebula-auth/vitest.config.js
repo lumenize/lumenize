@@ -33,7 +33,12 @@ export default defineConfig({
           miniflare: {
             bindings: {
               NEBULA_AUTH_TEST_MODE: 'true',
-              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              // Comma-separated bootstrap-admin list. The first entry keeps every existing
+              // single-email test green (still a member); the second — with a LEADING SPACE and
+              // MIXED CASE — exercises the getter's per-element trim+lowercase (nebula-auth-bootstrap-array
+              // .test.ts). A raw `String.includes` on this joined value, or a scalar index-0 getter,
+              // reds those array tests. (miniflare.bindings is the sanctioned home — never a prod config.)
+              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com, Second-Bootstrap@Example.com',
               DEBUG: 'nebula-auth',
             },
           },

@@ -1,0 +1,9 @@
+{
+  "//": "Type-checks the live self-verification harness. It runs in plain Node (via tsx), so it needs @types/node — but its imports of @lumenize/nebula/* transitively pull DO source that references Cloudflare Workers globals, so it also needs @cloudflare/workers-types + the generated Env (worker-configuration.d.ts) and the cloudflare:test declaration. Wired into scripts/type-check.sh. Run directly: `npx tsc --noEmit -p apps/nebula/harness/tsconfig.json`.",
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"],
+    "noEmit": true
+  },
+  "include": ["**/*.ts", "../worker-configuration.d.ts", "../cloudflare-test-env.d.ts"]
+}

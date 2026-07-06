@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Audit: TEST_MODE leak surfaces
+# Audit: TEST_MODE + BOOTSTRAP_EMAIL leak surfaces
 #
 # Test-mode env vars (NEBULA_AUTH_TEST_MODE, LUMENIZE_AUTH_TEST_MODE) bypass
 # real auth — magic-link required, Turnstile, etc. They MUST only be set in
@@ -8,10 +8,18 @@
 # these vars ever lands in a wrangler.jsonc, a package.json script, a shell
 # script, or a CI workflow, that's a production-leak risk.
 #
+# Bootstrap-admin emails (NEBULA_AUTH_BOOTSTRAP_EMAIL, LUMENIZE_AUTH_BOOTSTRAP_EMAIL)
+# are privilege-granting (auto-admin for the first subject registering that email —
+# and at nebula-platform, a `*` super-admin). A value committed in a WRANGLER CONFIG
+# deploys as a prod var — a standing admin backdoor — so those are scanned too
+# (wrangler configs only; the deployed test/browser/worker harness is the excepted home).
+#
 # This script fails CI if any *_TEST_MODE pattern appears in those high-risk
-# surfaces. It's intentionally narrow — it does not flag mentions in
+# surfaces, or any *_BOOTSTRAP_EMAIL appears in a non-excepted wrangler config.
+# It's intentionally narrow — it does not flag TEST_MODE mentions in
 # vitest.config.* (the only legitimate setter), in *.test.ts files, in src/
-# (where the var is read with strict === 'true'), or in markdown docs.
+# (where the var is read with strict === 'true'), or in markdown docs; nor a
+# BOOTSTRAP_EMAIL placeholder in .dev.vars.example or a secret-existence check in a deploy script.
 #
 # Wired into:
 #   - scripts/test-code.sh (local pre-test gate)
@@ -91,15 +99,34 @@ fi
 scan ".dev.vars / .env files" \
   '.dev.vars' '.dev.vars.example' '.env' '.env.example'
 
-if [ "$HITS" -gt 0 ]; then
-  echo "❌ Audit failed: ${HITS} category(ies) above contain a *_TEST_MODE reference."
+# 6. *_BOOTSTRAP_EMAIL in a WRANGLER CONFIG — a privilege-granting bootstrap admin (auto-admin for
+# the first subject registering that email) committed here deploys as a prod var, i.e. a standing
+# admin backdoor (packaging.md § Environment variables). It belongs in vitest miniflare.bindings.
+# The ONLY sanctioned home is a *deployed test harness* (test/browser/worker/), which carries it with
+# a comment — excepted below. Scanned for WRANGLER CONFIGS ONLY, deliberately NOT shell scripts:
+# a deploy script that merely CHECKS the secret is set via `wrangler secret list` (e.g.
+# apps/nebula/scripts/deploy.sh naming the var) sets no committed value and is legitimate.
+# .dev.vars.example is the placeholder template (a value there is expected), so it's not scanned here.
+BOOTSTRAP_PATTERN='(NEBULA_AUTH_BOOTSTRAP_EMAIL|LUMENIZE_AUTH_BOOTSTRAP_EMAIL)'
+BOOTSTRAP_HITS=$(grep -rlE "$BOOTSTRAP_PATTERN" "${EXCLUDE_DIRS[@]}" \
+  --include='wrangler.jsonc' --include='wrangler.toml' --include='wrangler.json' \
+  --exclude='audit-test-mode.sh' . 2>/dev/null | grep -vE '/test/browser/worker/' || true)
+if [ -n "$BOOTSTRAP_HITS" ]; then
+  echo "❌ *_BOOTSTRAP_EMAIL in a wrangler config (deploys as a prod var — a standing admin backdoor):"
+  echo "$BOOTSTRAP_HITS" | sed 's/^/   /'
   echo ""
-  echo "TEST_MODE env vars MUST only be set in vitest.config.* files (in-process"
-  echo "miniflare bindings) or referenced in *.test.ts files. Setting them in"
-  echo "any of the surfaces above risks a production leak."
+  HITS=$((HITS + 1))
+fi
+
+if [ "$HITS" -gt 0 ]; then
+  echo "❌ Audit failed: ${HITS} category(ies) above contain a *_TEST_MODE or *_BOOTSTRAP_EMAIL leak."
+  echo ""
+  echo "TEST_MODE env vars and *_BOOTSTRAP_EMAIL (privilege-granting) MUST only be set in"
+  echo "vitest.config.* miniflare.bindings (or referenced in *.test.ts files). A bootstrap email in a"
+  echo "committed wrangler config deploys as a prod var — a standing admin backdoor."
   echo ""
   echo "Fix the offending files, then re-run: npm run audit:test-mode"
   exit 1
 fi
 
-echo "✅ TEST_MODE audit clean — no leak surfaces in wrangler configs, npm scripts, shell scripts, CI workflows, or env files."
+echo "✅ Audit clean — no *_TEST_MODE or *_BOOTSTRAP_EMAIL leak surfaces in wrangler configs, npm scripts, shell scripts, CI workflows, or env files."

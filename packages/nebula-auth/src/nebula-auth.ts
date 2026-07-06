@@ -14,16 +14,16 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken, NebulaJwtPayload, AccessEntry } from './types';
+import type { Subject, MagicLink, RefreshToken } from './types';
 import {
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,
   REFRESH_TOKEN_TTL,
   MAGIC_LINK_TTL,
   INVITE_TTL,
-  NEBULA_AUTH_ISSUER,
 } from './types';
 import { buildAuthScopePattern, isPlatformInstance, matchAccess } from './parse-id';
+import { buildNebulaJwtPayload } from './access-claims';
 import {
   generateRandomString,
   generateUuid,
@@ -94,7 +94,20 @@ export class NebulaAuth extends DurableObject {
 
   get #redirect(): string { return (this.env as any).NEBULA_AUTH_REDIRECT; }
   get #prefix(): string { return NEBULA_AUTH_PREFIX; }
-  get #bootstrapEmail(): string | undefined { return (this.env as any).NEBULA_AUTH_BOOTSTRAP_EMAIL?.toLowerCase(); }
+  /**
+   * Bootstrap-admin emails as a normalized `string[]`. `NEBULA_AUTH_BOOTSTRAP_EMAIL` is a
+   * COMMA-SEPARATED list (`a@x.io, b@y.io`) — split → trim → lowercase → drop empties → dedup.
+   * Consumers MUST compare via array-membership (`.includes(normalizedEmail)`), NEVER
+   * `String.prototype.includes` on the raw joined value: a substring match would let `a@x.io`
+   * match the entry `a@x.io,b@y.io`, and a stray `Claude@…` / trailing space would silently fail
+   * BOTH promotion AND modify-protection — leaving a `*` super-admin another admin could
+   * demote/delete. Empty/unset → `[]`. (Getter contract mirrored on base `LumenizeAuth`.)
+   */
+  get #bootstrapEmails(): string[] {
+    const raw = (this.env as any).NEBULA_AUTH_BOOTSTRAP_EMAIL as string | undefined;
+    if (!raw) return [];
+    return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
+  }
   get #isTestMode(): boolean { return (this.env as any).NEBULA_AUTH_TEST_MODE === 'true'; }
 
   /**
@@ -555,7 +568,7 @@ export class NebulaAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -624,7 +637,7 @@ export class NebulaAuth extends DurableObject {
       return this.#errorResponse(404, 'not_found', 'Subject not found');
     }
 
-    if (targetRows[0].email === this.#bootstrapEmail) {
+    if (this.#bootstrapEmails.includes(targetRows[0].email)) {
       return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
     }
 
@@ -1291,7 +1304,7 @@ export class NebulaAuth extends DurableObject {
     const normalizedEmail = email.toLowerCase();
     const now = Date.now();
     const instanceName = this.#instanceName || '';
-    const isBootstrap = this.#bootstrapEmail === normalizedEmail;
+    const isBootstrap = this.#bootstrapEmails.includes(normalizedEmail);
 
     // Check if this DO has zero subjects (first-user-is-founder)
     const countRows = this.#sql`SELECT COUNT(*) as cnt FROM Subjects` as any[];
@@ -1375,33 +1388,21 @@ export class NebulaAuth extends DurableObject {
     }
 
     const privateKey = await importPrivateKey(privateKeyPem);
-    const instanceName = this.#instanceName || '';
 
-    // Defense-in-depth: callers (#handleRefreshToken, #handleDelegatedToken) already
-    // validate this, but the private method re-checks so future callers can't skip it.
-    const authScopePattern = buildAuthScopePattern(instanceName);
-    if (!matchAccess(authScopePattern, opts.activeScope)) {
-      throw new Error(`Requested scope "${opts.activeScope}" not covered by access pattern "${authScopePattern}"`);
-    }
-
-    const access: AccessEntry = { authScopePattern };
-    if (subject.isAdmin) {
-      access.admin = true;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const payload: NebulaJwtPayload = {
-      iss: NEBULA_AUTH_ISSUER,
-      aud: opts.activeScope,
+    // Claim shape is built by the shared `buildNebulaJwtPayload` (access-claims.ts) so this
+    // server mint and the Node test-util mint (createNebulaTestToken) can never drift — one
+    // source of the `access: { authScopePattern, admin? }` shape. It re-checks the
+    // aud-within-authScopePattern invariant (defense-in-depth: callers #handleRefreshToken /
+    // #handleDelegatedToken already validate it, but future callers can't skip it).
+    const payload = buildNebulaJwtPayload({
       sub: subject.sub,
-      exp: now + ACCESS_TOKEN_TTL,
-      iat: now,
-      jti: generateUuid(),
       email: subject.email,
+      instanceName: this.#instanceName || '',
+      activeScope: opts.activeScope,
+      isAdmin: subject.isAdmin,
       adminApproved: subject.adminApproved,
-      access,
-      ...(opts.actorSub ? { act: { sub: opts.actorSub } } : {}),
-    };
+      actorSub: opts.actorSub,
+    });
 
     return signJwt(payload as any, privateKey, activeKey);
   }

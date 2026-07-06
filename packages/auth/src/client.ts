@@ -20,5 +20,21 @@
  * ```
  */
 
-export { parseJwtUnsafe } from './jwt';
+// JWT inspection + the pure signing/crypto primitives. All live in `./jwt`, whose
+// only import is `./types` — no `cloudflare:workers` — so they are safe to pull from
+// Node test harnesses and CLIs that mint/verify tokens with the `.dev.vars` key
+// (e.g. `createNebulaTestToken`). Signing is Web Crypto (`crypto.subtle`), a global
+// in Node 18+/Workers/browsers alike.
+export {
+  parseJwtUnsafe,
+  signJwt,
+  verifyJwt,
+  verifyJwtWithRotation,
+  importPrivateKey,
+  importPublicKey,
+  createJwtPayload,
+  generateUuid,
+  generateRandomString,
+  hashString,
+} from './jwt';
 export type { JwtPayload, JwtHeader, ActClaim } from './types';

@@ -150,6 +150,9 @@ export async function spawnWranglerDev(
     const timer = globalThis.setTimeout(() => {
       if (!resolved) {
         resolved = true;
+        // Don't orphan wrangler+workerd on a ready-timeout — SIGINT lets wrangler tear down its
+        // workerd child (an orphaned workerd zombie hangs later pool-workers runs at 0% CPU).
+        proc.kill('SIGINT');
         reject(new Error(
           `wrangler dev did not become ready within ${readyTimeoutMs}ms.\n` +
           `stdout/stderr buffer:\n${buf.slice(-2000)}`,

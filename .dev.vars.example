@@ -41,7 +41,18 @@ DEBUG=
 
 # @lumenize/auth configuration
 # See https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env for all options
+#
+# Bootstrap-admin emails: the base @lumenize/auth DO and the nebula-auth DO are SEPARATE DOs
+# with SEPARATE vars — this is NOT a duplicate/typo. Set BOTH; never rename or delete either.
+#   LUMENIZE_AUTH_BOOTSTRAP_EMAIL — base @lumenize/auth LumenizeAuth DO (lumenize-auth.ts).
+#   NEBULA_AUTH_BOOTSTRAP_EMAIL   — nebula-auth NebulaAuth DO (nebula-auth.ts); at the reserved
+#                                   nebula-platform instance this email becomes a `*` super-admin.
+# First subject to log in with a bootstrap email is auto-promoted to admin. Both accept a
+# COMMA-SEPARATED list (`a@x.io, b@y.io`) — every listed email is promoted (whitespace/case are
+# normalized per entry). Privilege-granting, so in TESTS these belong in vitest miniflare.bindings,
+# and in PROD they are `wrangler secret put` secrets — NEVER a committed wrangler-config var.
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
+NEBULA_AUTH_BOOTSTRAP_EMAIL=you@example.com,teammate@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app
 # LUMENIZE_AUTH_ISSUER=https://lumenize.local
@@ -88,3 +99,15 @@ RESEND_API_KEY="re_..."
 # LUMENIZE_NO_CF_REMOTE=1 instead (omits the CF-remote projects) and never gets the token.
 CLOUDFLARE_API_TOKEN=cfut_...
 CLOUDFLARE_ACCOUNT_ID=your-account-id
+
+# Nebula Studio codegen model (DevStudio.callModel — apps/nebula/src/dev-studio.ts)
+# WORKERS_AI_TOKEN: a scoped Workers-AI REST token. When present, DevStudio uses the REST
+# transport (works in every lane, incl. secret-less hosted where the `env.AI` binding can't
+# authenticate); when absent, it falls back to the `env.AI` binding (needs CF account creds).
+WORKERS_AI_TOKEN=your-workers-ai-rest-token
+# ANTHROPIC_API_KEY: declared secret binding (Anthropic model-provider path).
+ANTHROPIC_API_KEY=sk-ant-...
+
+# SonarCloud analysis token — CI-only (the reusable-on-success workflow's Sonar step reads it;
+# provisioning fails without it). Not used by local dev; include so a fork/self-host has the slot.
+SONAR_TOKEN=your-sonarcloud-token

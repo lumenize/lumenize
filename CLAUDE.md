@@ -18,6 +18,7 @@ Detailed conventions live in **`.claude/rules/`** (auto-discovered — no refere
 |---|---|---|
 | `critical.md` | always | non-negotiable guardrails (npm, sync storage, generated `Env`, compat date, secrets, docs `.md`) |
 | `workflow.md` | always | task files, ADR index, sequential implementation (no parallel worktrees), no-build-in-dev, experiments, dependencies, releases, semantic search |
+| `live.md` | always | drive the *running* system to explore (ground before acting) / verify (before done) / debug user-facing Studio/Nebula work — the `/live` harness; exploration, distinct from `testing.md` |
 | `coding-style.md` | editing `*.ts` | TS-types-as-schema, imports, IDs, optional-over-nullable, JSDoc |
 | `workers-projects.md` | `packages/**`, `apps/**` `*.ts` | **layer map** — which of the three DO files below apply, by layer (utility / raw-DO infra / mesh framework / mesh lib / Nebula) |
 | `durable-objects.md` | `packages/**`, `apps/**` `*.ts` | *writing a DO* (every layer, incl. Nebula): storage, initialization (`onStart`), sync methods, no instance state, IDs, billing, DO class registration, Worker Loader, SQL naming + write costs |

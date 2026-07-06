@@ -27,6 +27,8 @@ Phase by phase, sequentially, in the current branch, following `.claude/rules/` 
 ### 3. Verify (the always-worth-it fan-out)
 First run the affected packages' full test suites once, inline — verifiers *read* code, they don't run it, so runtime regressions must be caught here (and a green suite is itself a success criterion for most phases). Don't push test runs into the parallel verifiers: concurrent vitest runs in one working tree thrash.
 
+**For a UI-touching phase, also drive the running app** (`/live`) before the fan-out — a green suite and a code-reading verifier are necessary-not-sufficient for what a user *sees*, and neither catches a code-vs-runtime divergence (a capability present in code but never wired into the UI). Non-UI phases skip this.
+
 Then fan out one adversarial verifier per phase against the **current working tree**. This checks **task-conformance** — does the code satisfy *this task file's* success criteria — which `/code-review` cannot, since it doesn't know the task. For an **exploratory phase** (step 1), the verifier's bar shifts: rather than conformance to a (nonexistent) pinned spec, it confirms the empirical deliverables landed — capable-of-failing tests for the discovered behavior plus a captured findings note (the mechanism that worked + the alternatives that failed). Pass a phase's `exploratory: true` into its verifier so it applies the right bar instead of failing on missing pinned criteria.
 
 ```javascript
