@@ -953,7 +953,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       expect(body.error).toBe('insufficient_scope');
     });
 
-    it('delegated token with explicit activeScope sets correct aud and act', async () => {
+    it('delegated token with explicit activeScope sets correct aud, act, and scope-bounded pattern', async () => {
       const instanceName = 'deleg-scope-aud';
       const stub = env.NEBULA_AUTH.getByName(instanceName);
       const admin = await fullLogin(stub, instanceName, 'admin@example.com');
@@ -975,6 +975,10 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       expect(jwt.aud).toBe(targetScope);
       expect(jwt.sub).toBe(user.parsed.sub);
       expect(jwt.act?.sub).toBe(admin.parsed.sub);
+      // Scope-bounded mint (NOW-1): the minted pattern is buildAuthScopePattern(targetScope) — a
+      // STAR scope → exact id — NOT the issuing instance's universe pattern 'deleg-scope-aud.*'.
+      // Reds against the pre-fix mint (which derived the pattern from instanceName).
+      expect((jwt as any).access.authScopePattern).toBe(targetScope);
     });
 
     it('rejects delegation without Content-Type header', async () => {

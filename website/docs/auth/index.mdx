@@ -20,7 +20,7 @@ De✨light✨ful passwordless authentication with passwordless magic link login,
 | **Refresh rotation** | Automatic token refresh with revocation |
 | **Two-phase access** | Requires both subject confirmation (`emailVerified`) and admin approval (`adminApproved`) |
 | **Admin role bootstrapped** | First `isAdmin` bootstrapped via environment variable |
-| **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, impersonation) |
+| **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, support) |
 | **Rate limiting** | Cloudflare DDoS + Turnstile (magic link) + Worker-level rate limiting binding (authenticated routes) |
 | **WebSocket auth** | Token passing via subprotocol headers |
 | **Hooks** | Drop-in `routeDORequest` hooks for protected routes, or [`honoAuthMiddleware`](/docs/auth/hono) for Hono |

@@ -38,6 +38,13 @@ export interface NebulaAccessClaimInput {
   adminApproved: boolean;
   /** RFC 8693 delegation actor sub (`act.sub`) — omitted when absent. */
   actorSub?: string;
+  /**
+   * Override the minted `access.authScopePattern` (default: {@link buildAuthScopePattern} of `instanceName`).
+   * Set ONLY by the `/delegated-token` mint, to bind the token to the **caller's** covered scope
+   * (scope-bounded delegation) — never the issuing instance's pattern nor the target's. MUST still cover
+   * `activeScope` (the internal-consistency self-check below enforces it).
+   */
+  authScopePattern?: string;
   /** Token TTL in seconds. Default {@link ACCESS_TOKEN_TTL}. */
   ttlSeconds?: number;
   /** "now" in Unix seconds. Default `Math.floor(Date.now() / 1000)`; injectable for tests. */
@@ -47,9 +54,17 @@ export interface NebulaAccessClaimInput {
 /**
  * Build the scoped `access` entry: the tier-aware auth-scope pattern for `instanceName`,
  * plus `admin: true` iff `isAdmin`.
+ *
+ * `authScopePatternOverride` bounds the pattern to something other than the issuing instance's
+ * (the `/delegated-token` scope-bounded mint passes the caller's covered scope); default derives
+ * from `instanceName`, the shape every non-delegated mint keeps.
  */
-export function buildNebulaAccessEntry(instanceName: string, isAdmin: boolean): AccessEntry {
-  const authScopePattern = buildAuthScopePattern(instanceName);
+export function buildNebulaAccessEntry(
+  instanceName: string,
+  isAdmin: boolean,
+  authScopePatternOverride?: string,
+): AccessEntry {
+  const authScopePattern = authScopePatternOverride ?? buildAuthScopePattern(instanceName);
   const access: AccessEntry = { authScopePattern };
   if (isAdmin) access.admin = true;
   return access;
@@ -64,7 +79,7 @@ export function buildNebulaAccessEntry(instanceName: string, isAdmin: boolean): 
  * token impossible to construct here, not merely rejected downstream.
  */
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
-  const access = buildNebulaAccessEntry(input.instanceName, input.isAdmin);
+  const access = buildNebulaAccessEntry(input.instanceName, input.isAdmin, input.authScopePattern);
   if (!matchAccess(access.authScopePattern, input.activeScope)) {
     throw new Error(
       `Requested scope "${input.activeScope}" not covered by access pattern "${access.authScopePattern}"`,

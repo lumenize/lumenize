@@ -14,7 +14,7 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken } from './types';
+import type { Subject, MagicLink, RefreshToken, ActClaim } from './types';
 import {
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,
@@ -988,6 +988,23 @@ export class NebulaAuth extends DurableObject {
   async #handleDelegatedToken(request: Request): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
 
+    // Require a verified Bearer access token: the mint binds the token to the CALLER's reach
+    // (`auth.authScopePattern`), which refresh-cookie auth does not carry. Reject cookie auth
+    // rather than issue a token whose scope can't be bounded to the caller.
+    if (!auth.authScopePattern) {
+      return this.#errorResponse(401, 'invalid_token',
+        '/delegated-token requires a Bearer access token');
+    }
+
+    // Delegate from your ROOT identity only: reject a caller presenting an already-delegated
+    // (act-bearing) token. Chained re-delegation is unsupported by design — the mint records
+    // `auth.sub`, but a delegated token's top-level `sub` is the *principal* it was minted for,
+    // not the real actor, so re-delegating would attribute the action to the wrong party.
+    if (auth.act) {
+      return this.#errorResponse(403, 'forbidden',
+        '/delegated-token requires a root identity (a token carrying no `act` chain)');
+    }
+
     const contentType = request.headers.get('Content-Type');
     if (!contentType?.includes('application/json')) {
       return this.#errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
@@ -1009,11 +1026,18 @@ export class NebulaAuth extends DurableObject {
       return this.#errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
     }
 
-    // Validate activeScope against access pattern
-    const authScopePattern = buildAuthScopePattern(this.#instanceName || '');
-    if (!matchAccess(authScopePattern, body.activeScope)) {
+    // activeScope must be within BOTH the issuing instance's subtree (routing) AND the CALLER's
+    // own verified reach. The caller-reach check is the escalation fix: the mint used to derive
+    // scope + admin from the instance + acted-for target, letting a caller obtain a token beyond
+    // its reach; now the token is bounded to a scope the caller demonstrably covers.
+    const instancePattern = buildAuthScopePattern(this.#instanceName || '');
+    if (!matchAccess(instancePattern, body.activeScope)) {
       return this.#errorResponse(403, 'insufficient_scope',
-        `Requested scope "${body.activeScope}" not covered by access pattern "${authScopePattern}"`);
+        `Requested scope "${body.activeScope}" not covered by instance pattern "${instancePattern}"`);
+    }
+    if (!matchAccess(auth.authScopePattern, body.activeScope)) {
+      return this.#errorResponse(403, 'insufficient_scope',
+        `Requested scope "${body.activeScope}" exceeds the caller's reach "${auth.authScopePattern}"`);
     }
 
     const principalRows = this.#sql`
@@ -1038,7 +1062,15 @@ export class NebulaAuth extends DurableObject {
       }
     }
 
-    const accessToken = await this.#generateAccessToken(principal, { activeScope: body.activeScope, actorSub: auth.sub });
+    // Scope-bounded delegation (escalation fix): bind the minted token to the CALLER's covered
+    // scope and the CALLER's admin bit — never the acted-for target's `isAdmin` nor the issuing
+    // instance's pattern, either of which could exceed the caller's reach.
+    const accessToken = await this.#generateAccessToken(principal, {
+      activeScope: body.activeScope,
+      actorSub: auth.sub,
+      authScopePattern: buildAuthScopePattern(body.activeScope),
+      isAdmin: auth.isAdmin,
+    });
 
     const auditLog = debug('nebula-auth.NebulaAuth.token.delegated');
     auditLog.info('Delegated token issued', { targetSub: actFor, actorSub: auth.sub, principalSub: actFor });
@@ -1152,7 +1184,7 @@ export class NebulaAuth extends DurableObject {
   // ============================================
 
   async #authenticateRequest(request: Request): Promise<
-    { sub: string; isAdmin: boolean; email: string }
+    { sub: string; isAdmin: boolean; email: string; authScopePattern?: string; act?: ActClaim }
   > {
     const authHeader = request.headers.get('Authorization');
     if (authHeader) {
@@ -1180,10 +1212,17 @@ export class NebulaAuth extends DurableObject {
   }
 
   async #verifyBearerToken(token: string): Promise<
-    { sub: string; isAdmin: boolean; email: string } | null
+    { sub: string; isAdmin: boolean; email: string; authScopePattern: string; act?: ActClaim } | null
   > {
     const payload = await verifyNebulaAccessToken(token, this.env);
     if (!payload) return null;
+
+    // The caller's verified reach — carried on every access token (router rejects a missing one)
+    // and surfaced so scope-sensitive endpoints (e.g. /delegated-token) can bound the caller.
+    const authScopePattern = payload.access.authScopePattern;
+    // The caller's own delegation chain, if any — surfaced so /delegated-token can require a ROOT
+    // identity (no `act`) and never re-delegate an already-delegated token.
+    const act = payload.act;
 
     // Local subject lookup — does this subject exist in THIS NebulaAuth instance?
     const rows = this.#sql`
@@ -1195,6 +1234,8 @@ export class NebulaAuth extends DurableObject {
         sub: payload.sub,
         isAdmin: Boolean(rows[0].isAdmin),
         email: rows[0].email,
+        authScopePattern,
+        act,
       };
     }
 
@@ -1202,11 +1243,13 @@ export class NebulaAuth extends DurableObject {
     // verifyNebulaAccessToken already validated matchAccess(authScopePattern, aud).
     // Here we check if the auth scope pattern also covers THIS instance specifically.
     if (payload.email && payload.access.admin) {
-      if (matchAccess(payload.access.authScopePattern, this.#instanceName || '')) {
+      if (matchAccess(authScopePattern, this.#instanceName || '')) {
         return {
           sub: payload.sub,
           isAdmin: payload.access.admin,
           email: payload.email,
+          authScopePattern,
+          act,
         };
       }
     }
@@ -1376,7 +1419,18 @@ export class NebulaAuth extends DurableObject {
    */
   async #generateAccessToken(
     subject: Subject,
-    opts: { activeScope: string; actorSub?: string },
+    opts: {
+      activeScope: string;
+      actorSub?: string;
+      /**
+       * Delegated-mint overrides (scope-bounded delegation). Omitted on the login/refresh path,
+       * where caller == subject so the instance-derived pattern + subject's own `isAdmin` are
+       * correct. `authScopePattern` binds the token to the caller's covered scope; `isAdmin`
+       * carries the CALLER's admin bit (never the acted-for target's).
+       */
+      authScopePattern?: string;
+      isAdmin?: boolean;
+    },
   ): Promise<string> {
     const activeKey = (this.env as any).PRIMARY_JWT_KEY || 'BLUE';
     const privateKeyPem = activeKey === 'GREEN'
@@ -1399,9 +1453,10 @@ export class NebulaAuth extends DurableObject {
       email: subject.email,
       instanceName: this.#instanceName || '',
       activeScope: opts.activeScope,
-      isAdmin: subject.isAdmin,
+      isAdmin: opts.isAdmin ?? subject.isAdmin,
       adminApproved: subject.adminApproved,
       actorSub: opts.actorSub,
+      authScopePattern: opts.authScopePattern,
     });
 
     return signJwt(payload as any, privateKey, activeKey);
