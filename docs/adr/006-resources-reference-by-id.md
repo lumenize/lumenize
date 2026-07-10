@@ -3,7 +3,7 @@
 **Date**: 2026-06-15
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/galaxy.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), `.claude/.../feedback_no_server_generated_ids` (client-supplied UUIDs), ADR-004 (per-resource snapshot sequences)
+**Evidence**: `packages/ts-runtime-parser-validator/src/extract-type-metadata.ts` (`writeShapeTypeDefinitions` — relationship refs rewritten to `string` / `string[]`), `apps/nebula/src/galaxy.ts` (`compileOntologyVersion`), `packages/ts-runtime-parser-validator/src/generate-parse-module.ts` (`__enrichRelationshipErrors` — the loud warning), `apps/nebula/src/resources.ts` (`transaction` = atomic multi-op), ADR-010 (random opaque keys — client-minted UUIDs), ADR-004 (per-resource snapshot sequences)
 
 ## Context
 
@@ -38,7 +38,7 @@ Three existing commitments constrain the answer:
 
 ### Positive
 - **One model across wire, storage, and client.** Each resource is a row / snapshot sequence; relationships are FK columns; the client's mental model matches storage exactly.
-- Respects no-server-generated-ids and ADR-004 independent historization, and composes with ADR-005 atomic+idempotent transactions.
+- Respects ADR-010 (random opaque keys) and ADR-004 independent historization, and composes with ADR-005 atomic+idempotent transactions.
 - **Cross-Star references work** — an id is just a string, eventually-consistent, never an embedded object.
 - The loud warning teaches the contract at the point of violation, so the footgun self-corrects (Nebula "no foot-guns" principle).
 
