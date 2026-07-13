@@ -192,8 +192,18 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
 
   const tokenHash = await hashString(refreshToken);
   const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${tokenHash}`);
-  if (!raw) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
-  const record = JSON.parse(raw) as RefreshTokenKV;
+  let record: RefreshTokenKV | null;
+  if (raw) {
+    record = JSON.parse(raw) as RefreshTokenKV;
+  } else {
+    // KV miss. Almost always a genuinely-invalid/revoked token — but it can also be a login→first-refresh
+    // cross-colo propagation gap (KV is eventually consistent, ~edge cacheTtl). Fall back ONCE to the
+    // registry's strongly-consistent index, which reconstructs + self-heals the KV record; a genuinely-
+    // invalid token isn't there → still 401. Defensive: in practice the user's edge PoP usually serves
+    // both the login write + the refresh read, so this rarely fires.
+    record = await registry(env).getRefreshRecord(tokenHash) as RefreshTokenKV | null;
+    if (!record) return errorResponse(401, 'invalid_token', 'Invalid refresh token');
+  }
   // Belt-and-suspenders: KV TTL already drops expired records, but a clock-skewed edge could serve one.
   if (new Date().toISOString() > record.expiresAt) return errorResponse(401, 'token_expired', 'Refresh token expired');
 

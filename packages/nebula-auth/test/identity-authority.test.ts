@@ -192,6 +192,33 @@ describe('Logout deletes the KV record', () => {
   });
 });
 
+describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-colo propagation)', () => {
+  it('a missing KV record but live index+identity → the registry reconstructs + self-heals KV → refresh succeeds', async () => {
+    const uni = uniqueUniverse();
+    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    // Simulate a KV read-your-write miss: delete ONLY the KV record (RefreshTokenIndex + Identity live).
+    await (env as any).REFRESH_TOKEN_KV.delete(`refresh:${await hashString(admin.refreshToken)}`);
+    expect(await kvRecord(admin.refreshToken)).toBeNull();
+
+    const refreshed = await refreshAndParse(SELF, uni, admin.refreshToken); // fallback path
+    expect(refreshed.parsed.sub).toBe(admin.parsed.sub);
+    expect(refreshed.parsed.access.admin).toBe(true);
+    // Self-healed: the record is back in KV, so the NEXT refresh hits KV directly (no fallback).
+    expect(await kvRecord(admin.refreshToken)).not.toBeNull();
+  });
+
+  it('a bogus refresh token (no index row) → 401, not a fallback mint', async () => {
+    const uni = uniqueUniverse();
+    await foundUniverse(SELF, uni, 'founder@example.com');
+    const resp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
+      method: 'POST',
+      headers: { Cookie: 'refresh-token=totally-bogus', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activeScope: uni }),
+    }));
+    expect(resp.status).toBe(401);
+  });
+});
+
 describe('M1 — refresh activeScope validated against the KV record scope, not client input', () => {
   it('rejects an activeScope outside the KV record scope; accepts one within it', async () => {
     const uni = uniqueUniverse();

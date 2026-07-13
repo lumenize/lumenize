@@ -49,6 +49,28 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     expect(survived).toEqual([{ c: 1 }]); // not dropped/recreated by the re-run
   });
 
+  it('wake sweep: expired MagicLinks/InviteTokens are deleted, fresh ones kept (mirrors the constructor sweep)', async () => {
+    const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-sweep-${crypto.randomUUID()}`);
+    const result = await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
+      const past = '2020-01-01T00:00:00.000Z';
+      const future = '9999-01-01T00:00:00.000Z';
+      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('m-old','a@x','acme',?)", past);
+      ctx.storage.sql.exec("INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('m-new','a@x','acme',?)", future);
+      ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-old','a@x','acme',?)", past);
+      ctx.storage.sql.exec("INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES ('i-new','a@x','acme',?)", future);
+      // The exact sweep the constructor runs on every wake.
+      const nowIso = '2026-07-13T00:00:00.000Z';
+      ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', nowIso);
+      ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', nowIso);
+      return {
+        magic: ctx.storage.sql.exec('SELECT tokenHash FROM MagicLinks ORDER BY tokenHash').toArray().map((r: any) => r.tokenHash),
+        invite: ctx.storage.sql.exec('SELECT tokenHash FROM InviteTokens ORDER BY tokenHash').toArray().map((r: any) => r.tokenHash),
+      };
+    });
+    expect(result.magic).toEqual(['m-new']);   // expired removed, fresh kept (reds if `<` were `>` or wrong table)
+    expect(result.invite).toEqual(['i-new']);
+  });
+
   it('fresh path: a new NebulaAuthRegistry has the migrated schema (constructor wired the runner)', async () => {
     const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-fresh-${crypto.randomUUID()}`);
     const r = await (runInDurableObject as any)(stub, (_instance: any, ctx: any) => {

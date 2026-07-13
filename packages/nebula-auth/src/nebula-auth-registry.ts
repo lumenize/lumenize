@@ -81,6 +81,18 @@ export class NebulaAuthRegistry extends DurableObject {
       rowsRead: migrationResult.rowsRead,
       rowsWritten: migrationResult.rowsWritten,
     });
+
+    // Sweep expired login-channel tokens on every DO wake (the singleton's onStart-equivalent — the
+    // constructor completes before dispatch). MagicLinks/InviteTokens live in the registry (not KV, so
+    // no TTL auto-clean), are short-TTL + low-volume, so a full-scan `expiresAt <` DELETE on wake is the
+    // cheap replacement (§The schema: "a cheap sweep replaces KV TTL"). No index on `expiresAt`: reads
+    // are ~1/1000th the cost of a write, so on these small tables the periodic scan is far cheaper than
+    // an index write on every insert. (RefreshTokenIndex is deliberately NOT swept — stale rows are
+    // harmless no-op deletes; §Blast radius. Expired tokens are also inert on lookup — the consume/
+    // verify paths gate on `expiresAt` regardless — so the sweep is purely storage hygiene.)
+    const nowIso = new Date().toISOString();
+    ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', nowIso);
+    ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', nowIso);
   }
 
   #sql(strings: TemplateStringsArray, ...values: any[]): any[] {
@@ -176,6 +188,32 @@ export class NebulaAuthRegistry extends DurableObject {
     const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE sub = ${sub}`;
     if (rows.length === 0) return null;
     return { universeGalaxyStarId: rows[0].universeGalaxyStarId as string, isAdmin: Boolean(rows[0].isAdmin) };
+  }
+
+  /**
+   * Defensive refresh-path fallback for a Worker KV **miss** (NOT the normal path — the Worker reads KV
+   * directly on refresh). Workers KV is eventually consistent, so on the login→first-refresh hop a
+   * cross-colo read can miss the just-written record; the singleton `RefreshTokenIndex` is
+   * strongly-consistent, so reconstruct the record from it (+ the current `Identities` row, which gives
+   * the CURRENT `isAdmin`/scope — fresher than a stale KV copy) and **self-heal KV** (re-put, so
+   * subsequent refreshes hit KV directly — bounding the fallback to at most once per token per
+   * propagation gap). Returns `null` for a genuinely-invalid / expired / revoked token (not in the
+   * index → the Worker 401s). A bogus-token probe costs 1 indexed read, no write.
+   */
+  async getRefreshRecord(tokenHash: string): Promise<RefreshTokenKV | null> {
+    const rows = this.#sql`SELECT sub, expiresAt FROM RefreshTokenIndex WHERE tokenHash = ${tokenHash}`;
+    if (rows.length === 0) return null;
+    const sub = rows[0].sub as string;
+    const expiresAt = rows[0].expiresAt as string;
+    if (new Date().toISOString() > expiresAt) return null; // expired
+    const scope = this.getIdentityScope(sub);
+    if (!scope) return null; // identity deleted
+    const record: RefreshTokenKV = {
+      sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin: scope.isAdmin, expiresAt,
+    };
+    await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(expiresAt) });
+    debug('nebula-auth.Registry.token.kvSelfHeal').info('refresh KV record reconstructed on miss', { sub });
+    return record;
   }
 
   /** The lowercased `email` for a `sub`, or `null` — an ADR-010 indexed lookup, never a key. */
