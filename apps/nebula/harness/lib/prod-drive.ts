@@ -91,6 +91,29 @@ export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAI
   }
 }
 
+/**
+ * Catch-all health check: request a magic link for a FRESH, unruled `@lumenize.io` address and confirm
+ * the email-test Worker receives it — proving `*@lumenize.io` catch-all → email-test Worker routes.
+ * **Request-only** — does NOT consume the link, so no subject is created (the link expires unused).
+ * Returns the received magic-link URL (proof of routing). First bit of the ADR-009 real-login harness.
+ */
+export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): Promise<string> {
+  const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
+  const testToken = readDevVar('TEST_TOKEN');
+  const waiter = waitForEmail({ testToken, instance: authScope, timeout: 120_000 });
+  try {
+    const res = await fetch(`${PROD_URL}/auth/${authScope}/email-magic-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', [BYPASS_HEADER]: bypassToken },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw new Error(`email-magic-link ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return extractMagicLink(await waiter.emailPromise); // NOT consumed — no subject created
+  } finally {
+    waiter.cleanup();
+  }
+}
+
 /** Refresh headlessly (NOT Turnstile-gated) → an access token whose `aud` is `activeScope`. */
 export async function prodRefresh(session: ProdSession, activeScope: string): Promise<string> {
   const res = await fetch(`${PROD_URL}/auth/${session.authScope}/refresh-token`, {
