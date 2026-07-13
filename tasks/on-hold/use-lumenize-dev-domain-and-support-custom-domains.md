@@ -112,6 +112,7 @@ Once previews are origin-isolated on `lumenize.dev`, the Studio "Wipe"/"Reset da
 - Whether **proxied wildcard DNS** records need a Business-tier plan.
 - Current **ACM** pricing (only relevant if Fork A goes dotted).
 - **CF-for-SaaS Custom Hostname** pricing/quota at scale.
+- **Precursor** — continuous behavioral bot detection ([blog](https://blog.cloudflare.com/introducing-precursor/)); consider enabling on the `lumenize.dev` data-plane zone — it enriches the in-Worker `request.cf.botManagement.score` with zero app-code → a secure-by-default bot signal for every tenant app. Confirm it applies to WfP-dispatched + custom hostnames (docs don't cover that case); Enterprise Bot Management, pricing TBD post-GA.
 
 ## What this unblocks
 
