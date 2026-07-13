@@ -54,10 +54,17 @@
       { "name": "STAR", "class_name": "Star" },
       { "name": "DEV_STUDIO", "class_name": "DevStudio" },
       { "name": "DEV_CONTAINER", "class_name": "DevContainer" },
-      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
     ]
   },
+  // Workers KV — the ONE hot refresh-token record (`refresh:{tokenHash}`), written by the registry and
+  // read at the edge by the Worker on refresh (tasks/nebula-auth-surrogate-sub.md). The per-scope
+  // NebulaAuth DO is dissolved. ⚠️ PHASE-4 (manual): provision the real KV namespace
+  // (`wrangler kv namespace create REFRESH_TOKEN_KV`) and replace the placeholder `id` below before the
+  // greenfield redeploy.
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4" }
+  ],
   // DevContainer runs the dev-loop vite preview (5173 public) + command-server
   // (9000, host-DO-only). standard-1 (½ vCPU) clears the `vite build` starvation
   // bar (Phase-3 sizing). Image is baked (deps + framework skeleton) → 0 npm
@@ -99,10 +106,16 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/auth/*", "/gateway/*", "/dev-container/*", "/_version"]
   },
-  // FIRST migrations block (apps/nebula has never deployed). DO class registry, NOT
-  // SQL migration. Every class is `new_sqlite_classes` — all use sync storage
-  // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make
-  // sync storage throw → hard deploy failure). Append-only across future deploys.
+  // DO class registry (NOT SQL migration). Every class is `new_sqlite_classes` — all use sync storage
+  // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make sync storage
+  // throw → hard deploy failure).
+  // ⚠️ NOT append-only anymore: this v1 block was edited to REMOVE the dissolved `NebulaAuth` class
+  // (tasks/nebula-auth-surrogate-sub.md). That is a one-way, non-append change that is valid ONLY
+  // because Phase 4 performs a full CF-DASHBOARD worker-delete first (clears all DO storage +
+  // migration history, so redeploy is a fresh v1 — [[wrangler-delete-leaves-do-data]]). Prod IS live
+  // (nebula.lumenize.com, 2026-07-04), so a plain `wrangler deploy` WITHOUT that dashboard-delete would
+  // be rejected (removing a migrated class needs deleted_classes, which m9 forbids on a fresh worker) —
+  // follow the task's Phase 4 runbook, do not just `wrangler deploy`.
   "migrations": [
     {
       "tag": "v1",
@@ -113,7 +126,6 @@
         "Star",
         "DevStudio",
         "DevContainer",
-        "NebulaAuth",
         "NebulaAuthRegistry"
       ]
     }

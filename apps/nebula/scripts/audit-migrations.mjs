@@ -31,13 +31,14 @@
 
 /**
  * Freeze-time count of registered DO classes (NebulaClientGateway, Universe, Galaxy,
- * Star, DevStudio, DevContainer, NebulaAuth, NebulaAuthRegistry). The gate is the
- * one-way-door tripwire, so when the append-only registry LEGITIMATELY grows (a new DO
- * class post-pre-alpha), bump this DELIBERATELY in the same change that adds the class
- * to bindings + migrations + worker.ts — that conscious edit is the discipline, and it
- * keeps a silent parse failure (→ empty set, size 0) from vacuous-passing.
+ * Star, DevStudio, DevContainer, NebulaAuthRegistry). The per-scope `NebulaAuth` DO was
+ * dissolved (tasks/nebula-auth-surrogate-sub.md), dropping the count 8 → 7. The gate is the
+ * one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or removed
+ * post-pre-alpha), bump this DELIBERATELY in the same change that edits bindings + migrations +
+ * worker.ts — that conscious edit is the discipline, and it keeps a silent parse failure
+ * (→ empty set, size 0) from vacuous-passing.
  */
-export const EXPECTED_DO_CLASS_COUNT = 8;
+export const EXPECTED_DO_CLASS_COUNT = 7;
 
 /** Non-DO exports that must never appear in `durable_objects.bindings` or `migrations`. */
 const NON_DO_EXPORTS = ['default', 'NebulaEmailSender'];

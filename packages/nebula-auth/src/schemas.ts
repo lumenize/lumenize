@@ -1,157 +1,105 @@
 /**
- * SQL schema definitions for NebulaAuth DO tables
+ * SQL schema definitions for the NebulaAuthRegistry (the ONE singleton DO that now owns all auth
+ * state — the per-scope NebulaAuth DO is dissolved by tasks/nebula-auth-surrogate-sub.md).
  *
- * Forked from @lumenize/auth schemas. Key difference: no authorizedActors
- * TEXT column on Subjects (uses junction table instead, same as auth).
+ * Five registry tables:
+ *   Scopes            — scope-existence registry (renamed from `Instances`) + Universe consent.
+ *   Identities        — person-in-a-scope (merged `Emails` + `Subjects`), keyed by surrogate `sub`.
+ *   RefreshTokenIndex — live-token index (tokenHash → sub) for reliable KV invalidation.
+ *   MagicLinks        — login channel (moved from per-scope NebulaAuth), hashed token.
+ *   InviteTokens      — login channel (moved from per-scope NebulaAuth), hashed token, single-use.
  *
- * All tables use WITHOUT ROWID for TEXT PKs to avoid redundant rowid.
- * Naming: PascalCase tables, camelCase columns.
+ * Conventions (see .claude/rules/durable-objects.md § SQL naming + write-cost):
+ *   PascalCase tables, camelCase columns. WITHOUT ROWID on every TEXT-PK table (avoids the hidden
+ *   rowid + duplicate index). Timestamps are ISO 8601 Zulu TEXT (ADR-011), never epoch number.
+ *   Bearer tokens are stored as a one-way `tokenHash`, never raw (ADR: nebula-auth-surrogate-sub).
  *
- * @see tasks/nebula-auth.md § Data Model
+ * The refresh-token HOT record lives in Workers KV (`refresh:{tokenHash}`), NOT here — this DO keeps
+ * only the `RefreshTokenIndex` so the single-writer can enumerate+invalidate a sub's tokens.
+ *
+ * @see tasks/nebula-auth-surrogate-sub.md § The schema
  */
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
-import { PLATFORM_INSTANCE_NAME } from './types';
 
-export const SUBJECTS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS Subjects (
-  sub TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  emailVerified INTEGER NOT NULL DEFAULT 0,
-  adminApproved INTEGER NOT NULL DEFAULT 0,
-  isAdmin INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL,
-  lastLoginAt INTEGER
+/** Scope-existence registry (was `Instances`). Existence is INDEPENDENT of membership — a
+ *  wildcard-managed child scope has a row here and zero `Identities`. `improveProductConsent` is a
+ *  Universe-level opt-IN flag (nullable; unset on non-Universe scopes). No `createdAt` (YAGNI). */
+export const SCOPES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS Scopes (
+  universeGalaxyStarId TEXT PRIMARY KEY,
+  improveProductConsent INTEGER
 ) WITHOUT ROWID
 `;
 
-export const SUBJECTS_IS_ADMIN_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_Subjects_isAdmin ON Subjects(sub) WHERE isAdmin = 1
+/** Person-in-a-scope (merged `Emails` + `Subjects`), keyed by the registry-minted surrogate `sub`.
+ *  `UNIQUE (email, universeGalaxyStarId)` is one identity per email per scope AND serves the
+ *  `WHERE email = ?` discover lookup by leftmost-prefix — so there is deliberately NO separate email
+ *  index. `email` is stored lowercased (see the registry mint/change paths). */
+export const IDENTITIES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS Identities (
+  sub TEXT PRIMARY KEY,
+  universeGalaxyStarId TEXT NOT NULL,
+  email TEXT NOT NULL,
+  isAdmin INTEGER NOT NULL DEFAULT 0,
+  emailVerified INTEGER NOT NULL DEFAULT 0,
+  createdAt TEXT NOT NULL,
+  UNIQUE (email, universeGalaxyStarId)
+) WITHOUT ROWID
 `;
 
+/** Live refresh-token index → reliable invalidation. The single-writer looks tokens up by `tokenHash`
+ *  (logout) and enumerates by `sub` (isAdmin-convergence / user-removal), so PK `tokenHash` + a
+ *  secondary index on `sub`. `expiresAt` is the token's absolute expiry, re-applied to the KV record
+ *  on a convergence re-put (CF KV drops expirationTtl across a put). */
+export const REFRESH_TOKEN_INDEX_SCHEMA = `
+CREATE TABLE IF NOT EXISTS RefreshTokenIndex (
+  tokenHash TEXT PRIMARY KEY,
+  sub TEXT NOT NULL,
+  expiresAt TEXT NOT NULL
+) WITHOUT ROWID
+`;
+
+export const REFRESH_TOKEN_INDEX_SUB_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_RefreshTokenIndex_sub ON RefreshTokenIndex(sub)
+`;
+
+/** Magic-link login channel (moved from per-scope NebulaAuth). Token stored HASHED. ~30m TTL,
+ *  reusable within the window (scanner-safe), swept on `expiresAt`. */
 export const MAGIC_LINKS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS MagicLinks (
-  token TEXT PRIMARY KEY,
+  tokenHash TEXT PRIMARY KEY,
   email TEXT NOT NULL,
-  expiresAt INTEGER NOT NULL,
-  used INTEGER NOT NULL DEFAULT 0
+  universeGalaxyStarId TEXT NOT NULL,
+  expiresAt TEXT NOT NULL
 ) WITHOUT ROWID
 `;
 
-export const MAGIC_LINKS_EMAIL_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_MagicLinks_email ON MagicLinks(email)
-`;
-
+/** Invite login channel (moved from per-scope NebulaAuth). Token stored HASHED. Single-use
+ *  (deleted on claim). Swept on `expiresAt`. */
 export const INVITE_TOKENS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS InviteTokens (
-  token TEXT PRIMARY KEY,
-  email TEXT NOT NULL,
-  expiresAt INTEGER NOT NULL
-) WITHOUT ROWID
-`;
-
-export const INVITE_TOKENS_EMAIL_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_InviteTokens_email ON InviteTokens(email)
-`;
-
-export const REFRESH_TOKENS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS RefreshTokens (
   tokenHash TEXT PRIMARY KEY,
-  subjectId TEXT NOT NULL,
-  expiresAt INTEGER NOT NULL,
-  createdAt INTEGER NOT NULL,
-  revoked INTEGER NOT NULL DEFAULT 0,
-  FOREIGN KEY (subjectId) REFERENCES Subjects(sub) ON DELETE CASCADE
-) WITHOUT ROWID
-`;
-
-export const REFRESH_TOKENS_SUBJECT_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_RefreshTokens_subjectId ON RefreshTokens(subjectId)
-`;
-
-export const REFRESH_TOKENS_EXPIRES_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_RefreshTokens_expiresAt ON RefreshTokens(expiresAt)
-`;
-
-export const AUTHORIZED_ACTORS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS AuthorizedActors (
-  principalSub TEXT NOT NULL,
-  actorSub TEXT NOT NULL,
-  PRIMARY KEY (principalSub, actorSub),
-  FOREIGN KEY (principalSub) REFERENCES Subjects(sub) ON DELETE CASCADE,
-  FOREIGN KEY (actorSub) REFERENCES Subjects(sub) ON DELETE CASCADE
-) WITHOUT ROWID
-`;
-
-/** All schemas in creation order (NebulaAuth per-instance tables) */
-export const ALL_SCHEMAS = [
-  SUBJECTS_SCHEMA,
-  SUBJECTS_IS_ADMIN_INDEX,
-  MAGIC_LINKS_SCHEMA,
-  MAGIC_LINKS_EMAIL_INDEX,
-  INVITE_TOKENS_SCHEMA,
-  INVITE_TOKENS_EMAIL_INDEX,
-  REFRESH_TOKENS_SCHEMA,
-  REFRESH_TOKENS_SUBJECT_INDEX,
-  REFRESH_TOKENS_EXPIRES_INDEX,
-  AUTHORIZED_ACTORS_SCHEMA,
-];
-
-// ---------------------------------------------------------------------------
-// NebulaAuthRegistry schemas (singleton DO)
-// ---------------------------------------------------------------------------
-
-export const REGISTRY_INSTANCES_SCHEMA = `
-CREATE TABLE IF NOT EXISTS Instances (
-  instanceName TEXT PRIMARY KEY,
-  createdAt INTEGER NOT NULL
-) WITHOUT ROWID
-`;
-
-export const REGISTRY_EMAILS_SCHEMA = `
-CREATE TABLE IF NOT EXISTS Emails (
   email TEXT NOT NULL,
-  instanceName TEXT NOT NULL,
-  isAdmin INTEGER NOT NULL DEFAULT 0,
-  createdAt INTEGER NOT NULL,
-  PRIMARY KEY (email, instanceName)
+  universeGalaxyStarId TEXT NOT NULL,
+  expiresAt TEXT NOT NULL
 ) WITHOUT ROWID
 `;
-
-export const REGISTRY_EMAILS_INSTANCE_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_Emails_instanceName ON Emails(instanceName)
-`;
-
-/** All schemas for NebulaAuthRegistry */
-export const REGISTRY_SCHEMAS = [
-  REGISTRY_INSTANCES_SCHEMA,
-  REGISTRY_EMAILS_SCHEMA,
-  REGISTRY_EMAILS_INSTANCE_INDEX,
-];
 
 /**
  * The registry's schema as an ordered, append-only migration list, run by `@lumenize/sql-migrations`
- * in the `NebulaAuthRegistry` constructor (id-gated, atomic). One single statement per id:
- *   id-1..3 — the column-less baseline (today's {@link REGISTRY_SCHEMAS}, one statement per id), now
- *             FROZEN as baseline migrations;
- *   id-4    — add the nullable `improveProductConsent` column;
- *   id-5    — backfill consent=1 for existing **user** Universes (assume-true), excluding sub-instances
- *             (dotted names) and the reserved platform pseudo-Universe ({@link PLATFORM_INSTANCE_NAME}).
+ * in the `NebulaAuthRegistry` constructor (id-gated, atomic).
  *
- * **APPEND-ONLY:** never edit, reorder, or reuse an applied id — add a new id for any further change.
- * id-5's UPDATE references the column id-4 adds; this is safe ONLY because the runner applies the whole
- * pending set in one `transactionSync` (the ALTER is visible to the UPDATE) — never split them.
- * Backfill invariant: the only non-consentable single-segment row is `PLATFORM_INSTANCE_NAME`; if a
- * second reserved single-segment name is ever added, widen BOTH this `!= ?` and the corpus filter.
+ * **Greenfield RESET (tasks/nebula-auth-surrogate-sub.md):** this replaces the old `Instances`/`Emails`
+ * baseline. It is safe to reset the id sequence ONLY because that task performs a full system WIPE
+ * (CF-dashboard worker-delete clears DO storage → no prior applied ids survive) and local vitest is
+ * always a fresh deploy. **From here on APPEND-ONLY:** never edit, reorder, or reuse an applied id —
+ * add a new id for any further change.
  */
 export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
-  { idMonotonicInc: 1, description: 'baseline: Instances table', sql: REGISTRY_INSTANCES_SCHEMA },
-  { idMonotonicInc: 2, description: 'baseline: Emails table', sql: REGISTRY_EMAILS_SCHEMA },
-  { idMonotonicInc: 3, description: 'baseline: Emails(instanceName) index', sql: REGISTRY_EMAILS_INSTANCE_INDEX },
-  { idMonotonicInc: 4, description: 'add improveProductConsent column (nullable)', sql: 'ALTER TABLE Instances ADD COLUMN improveProductConsent INTEGER' },
-  {
-    idMonotonicInc: 5,
-    description: 'backfill consent=1 for existing user Universes (assume-true)',
-    sql: `UPDATE Instances SET improveProductConsent = 1 WHERE instanceName NOT LIKE '%.%' AND instanceName != ?`,
-    params: [PLATFORM_INSTANCE_NAME],
-  },
+  { idMonotonicInc: 1, description: 'Scopes table (scope-existence registry + Universe consent)', sql: SCOPES_SCHEMA },
+  { idMonotonicInc: 2, description: 'Identities table (person-in-a-scope, surrogate sub PK)', sql: IDENTITIES_SCHEMA },
+  { idMonotonicInc: 3, description: 'RefreshTokenIndex table', sql: REFRESH_TOKEN_INDEX_SCHEMA },
+  { idMonotonicInc: 4, description: 'RefreshTokenIndex(sub) index', sql: REFRESH_TOKEN_INDEX_SUB_INDEX },
+  { idMonotonicInc: 5, description: 'MagicLinks table (login channel, hashed)', sql: MAGIC_LINKS_SCHEMA },
+  { idMonotonicInc: 6, description: 'InviteTokens table (login channel, hashed, single-use)', sql: INVITE_TOKENS_SCHEMA },
 ];

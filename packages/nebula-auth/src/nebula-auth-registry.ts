@@ -1,26 +1,44 @@
 /**
- * NebulaAuthRegistry — Singleton DO for central instance/email registry
+ * NebulaAuthRegistry — the ONE singleton DO that owns all durable auth state.
  *
- * Maintains a global index of all NebulaAuth instances and email→scope
- * mappings. Enables slug availability checks, discovery, self-signup,
- * and galaxy creation.
+ * Since tasks/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this registry is
+ * the **single writer** of everything: the `Scopes` existence registry, `Identities` (surrogate-`sub`
+ * identity, was `Emails` + `Subjects`), the `MagicLinks` / `InviteTokens` login channel, and the
+ * `RefreshTokenIndex` (→ reliable KV invalidation). It also writes the Workers-KV refresh record
+ * (`refresh:{tokenHash}`) — the ONE hot record, read at the edge by the default Worker on refresh,
+ * never touching this DO.
  *
- * Public methods are called via Workers RPC from:
- * - NebulaAuth instances (NA→R): registerEmail, removeEmail, updateEmailRole
- * - Worker router (R endpoints): discover, claimUniverse, claimStar, createGalaxy
+ * Two callers:
+ * - **Worker router (`fetch` endpoints)**: discover / claim-universe / create-galaxy / create-star /
+ *   my-scopes / delete-scope(-plan). The router pre-verifies JWT/Turnstile and injects the verified
+ *   `access` claim + caller `sub`.
+ * - **Worker token layer (raw RPC)**: requestMagicLink / issueInvites / consumeMagicLink /
+ *   consumeInvite / revokeRefreshToken / getIdentityScope / setIdentityAdmin — the login-channel +
+ *   refresh-token lifecycle. The Worker generates the raw refresh token (cookie) and passes only its
+ *   hash; this DO writes the index + KV.
  *
- * @see tasks/nebula-auth.md § NebulaAuthRegistry
+ * Identity authority: `sub` is minted ONLY at authority points — Universe/Star claim + invite
+ * issuance. Login **verify** (`getAndVerifyIdentity`) find-and-flips an EXISTING identity and REJECTS
+ * if none, so a minted token proves authorized membership by construction (the retired `adminApproved`
+ * gate).
+ *
+ * @see tasks/nebula-auth-surrogate-sub.md § The schema / The seam / Founder & pre-create
  */
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
+import { generateRandomString, generateUuid, hashString } from '@lumenize/auth';
 import { REGISTRY_MIGRATIONS } from './schemas';
-import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
-import { parseId, isValidSlug, isDevAuthoringStar, matchAccess, getParentId } from './parse-id';
-import type { AccessEntry, DiscoveryEntry } from './types';
+import {
+  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME,
+  MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
+} from './types';
+import type { AccessEntry, DiscoveryEntry, RefreshTokenKV } from './types';
+import { parseId, isValidSlug, matchAccess, getParentId } from './parse-id';
 
-/** One instance in a scope-deletion plan — enough for the client to teardown the right DOs. */
+/** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
+  /** The scope id (universeGalaxyStarId). Kept named `instanceName` for the client/UI wire contract. */
   instanceName: string;
   /** 'universe' | 'galaxy' | 'star' — picks the tier DO binding to teardown. */
   tier: string;
@@ -42,19 +60,23 @@ export interface ScopeDeletionPlan {
   blockedBy: ScopeDeletionBlocker[];
 }
 
+/** Result of a login-channel consume: the identity + scope the Worker needs to mint the JWT. */
+export interface ConsumeResult {
+  sub: string;
+  universeGalaxyStarId: string;
+}
+
 export class NebulaAuthRegistry extends DurableObject {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run the registry's schema migrations once, eagerly, before any request is dispatched (the
-    // constructor completes before dispatch). id-gated + atomic via @lumenize/sql-migrations;
-    // replaces the old lazy per-method #ensureSchema guard.
+    // constructor completes before dispatch). id-gated + atomic via @lumenize/sql-migrations.
     const migrationResult = new SQLSchemaMigrations({
       doStorage: ctx.storage, migrations: REGISTRY_MIGRATIONS,
     }).runAll();
-    // Positive signal for the (first) prod migration: the deploy-construct prints the backfill row
-    // count; routine post-migration constructs print {0,0}. Visible in `wrangler tail`. If the
-    // migration had thrown, the constructor would have thrown and the DO would fail to construct —
-    // so this line printing at all is itself confirmation the migration succeeded.
+    // Post-migration constructs print {0,0}; a first migration prints the created-object count. If the
+    // migration had thrown, the constructor would throw and the DO would fail to construct — so this
+    // line printing at all confirms the migration succeeded.
     debug('nebula-auth.Registry.migrate').info('registry schema migrations checked', {
       rowsRead: migrationResult.rowsRead,
       rowsWritten: migrationResult.rowsWritten,
@@ -67,371 +89,490 @@ export class NebulaAuthRegistry extends DurableObject {
     return [...this.ctx.storage.sql.exec(query, ...values)];
   }
 
-  // ============================================
-  // NA→R: Called by NebulaAuth instances via RPC
-  // ============================================
+  /** The Workers-KV namespace holding the hot refresh records (`refresh:{tokenHash}`). */
+  get #refreshKv(): KVNamespace { return (this.env as any).REFRESH_TOKEN_KV; }
+
+  get #isTestMode(): boolean { return (this.env as any).NEBULA_AUTH_TEST_MODE === 'true'; }
 
   /**
-   * Register an email→scope mapping. Called by NA on:
-   * - First email verification (magic link completion)
-   * - Admin invite (pre-register email→scope)
-   *
-   * Also ensures the instance is recorded in the Instances table.
+   * Bootstrap-admin emails (comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL`) → normalized `string[]`.
+   * Split → trim → lowercase → drop empties → dedup. A bootstrap email founding the reserved
+   * `nebula-platform` scope is stamped platform admin. Compare via array membership, never a substring
+   * `String.includes` on the raw joined value.
    */
-  registerEmail(email: string, instanceName: string, isAdmin: boolean): void {
-    const now = Date.now();
-
-    // Ensure instance exists
-    this.ctx.storage.sql.exec(
-      'INSERT OR IGNORE INTO Instances (instanceName, createdAt) VALUES (?, ?)',
-      instanceName, now,
-    );
-
-    // Upsert email→scope mapping
-    this.ctx.storage.sql.exec(
-      `INSERT INTO Emails (email, instanceName, isAdmin, createdAt)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT (email, instanceName) DO UPDATE SET isAdmin = excluded.isAdmin`,
-      email.toLowerCase(), instanceName, isAdmin ? 1 : 0, now,
-    );
-
-    const log = debug('nebula-auth.Registry.email.registered');
-    log.info('Email registered', { email, instanceName, isAdmin });
-  }
-
-  /**
-   * Remove an email→scope mapping. Called by NA on subject delete.
-   */
-  removeEmail(email: string, instanceName: string): void {
-    this.ctx.storage.sql.exec(
-      'DELETE FROM Emails WHERE email = ? AND instanceName = ?',
-      email.toLowerCase(), instanceName,
-    );
-    const log = debug('nebula-auth.Registry.email.removed');
-    log.info('Email removed', { email, instanceName });
-  }
-
-  /**
-   * Update the isAdmin flag for an email→scope mapping.
-   * Called by NA on subject role change (PATCH).
-   */
-  updateEmailRole(email: string, instanceName: string, isAdmin: boolean): void {
-    this.ctx.storage.sql.exec(
-      'UPDATE Emails SET isAdmin = ? WHERE email = ? AND instanceName = ?',
-      isAdmin ? 1 : 0, email.toLowerCase(), instanceName,
-    );
-    const log = debug('nebula-auth.Registry.email.roleUpdated');
-    log.info('Email role updated', { email, instanceName, isAdmin });
+  get #bootstrapEmails(): string[] {
+    const raw = (this.env as any).NEBULA_AUTH_BOOTSTRAP_EMAIL as string | undefined;
+    if (!raw) return [];
+    return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
   }
 
   // ============================================
-  // Registry-only endpoints
+  // Identity authority — mint (authority points) + verify (find-and-flip)
   // ============================================
 
   /**
-   * Email-based scope discovery. Unauthenticated.
-   * Returns all scopes an email is associated with.
+   * MINT a fresh identity in a scope — an **authority-point-only** operation (Universe/Star claim +
+   * invite issuance). Returns the new surrogate `sub`. Idempotent on `(email, scope)`: if a row
+   * already exists it is returned unchanged (its `sub` preserved) rather than duplicated — so a
+   * re-issued invite or re-claim converges. `email` is normalized (lowercased + trimmed — m1). NEVER
+   * call from a login path.
+   */
+  #mintIdentity(email: string, universeGalaxyStarId: string, isAdmin: boolean, emailVerified: boolean): string {
+    const lc = normalizeEmail(email);
+    const existing = this.#sql`
+      SELECT sub FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
+    `;
+    if (existing.length > 0) return existing[0].sub as string;
+
+    const sub = generateUuid();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO Identities (sub, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      sub, universeGalaxyStarId, lc, isAdmin ? 1 : 0, emailVerified ? 1 : 0, new Date().toISOString(),
+    );
+    debug('nebula-auth.Registry.identity.minted').info('Identity minted', {
+      sub, universeGalaxyStarId, email: lc, isAdmin, emailVerified,
+    });
+    return sub;
+  }
+
+  /**
+   * Login **verify** — find the identity for `(email, scope)` and flip `emailVerified` true, returning
+   * `{ sub, universeGalaxyStarId, isAdmin }`. Returns `null` if **no identity exists** (the load-bearing
+   * "a row ⇒ authorized member" invariant that lets `adminApproved` retire — a stranger who requested a
+   * login magic link for a scope they were never minted into is rejected here). NEVER mints. Public so
+   * the token layer can drive it, but only reached via the consume RPCs.
+   */
+  getAndVerifyIdentity(email: string, universeGalaxyStarId: string):
+    { sub: string; universeGalaxyStarId: string; isAdmin: boolean } | null {
+    const lc = normalizeEmail(email);
+    const rows = this.#sql`
+      SELECT sub, isAdmin FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
+    `;
+    if (rows.length === 0) return null;
+    const sub = rows[0].sub as string;
+    this.ctx.storage.sql.exec('UPDATE Identities SET emailVerified = 1 WHERE sub = ?', sub);
+    return { sub, universeGalaxyStarId, isAdmin: Boolean(rows[0].isAdmin) };
+  }
+
+  /**
+   * Change an identity's login email — a **single-row update** (Phase 3). Because `email` is a mutable
+   * attribute that NOTHING keys off (the surrogate `sub` is the identity key; no token record keys off
+   * email; `email` is not a JWT claim), this is the whole email-change flow: no cross-DO cascade, no
+   * token re-issue, no re-key. The sub's refresh tokens stay valid (KV records are `sub`-anchored).
+   * Email is lowercased (the `UNIQUE(email, scope)` + discover + delete-scope guards compare binary).
+   * Returns `false` if the sub is unknown.
+   */
+  changeEmail(sub: string, newEmail: string): boolean {
+    const rows = this.#sql`SELECT universeGalaxyStarId FROM Identities WHERE sub = ${sub}`;
+    if (rows.length === 0) return false;
+    this.ctx.storage.sql.exec('UPDATE Identities SET email = ? WHERE sub = ?', normalizeEmail(newEmail), sub);
+    debug('nebula-auth.Registry.identity.emailChanged').info('Email changed', { sub });
+    return true;
+  }
+
+  /** Resolve a `sub` → its scope + admin bit. `null` if unknown. Used by delegated-token (actFor). */
+  getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean } | null {
+    const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE sub = ${sub}`;
+    if (rows.length === 0) return null;
+    return { universeGalaxyStarId: rows[0].universeGalaxyStarId as string, isAdmin: Boolean(rows[0].isAdmin) };
+  }
+
+  /** The lowercased `email` for a `sub`, or `null` — an ADR-010 indexed lookup, never a key. */
+  #emailForSub(sub: string): string | null {
+    const rows = this.#sql`SELECT email FROM Identities WHERE sub = ${sub}`;
+    return rows.length > 0 ? (rows[0].email as string) : null;
+  }
+
+  // ============================================
+  // Discovery / existence
+  // ============================================
+
+  /**
+   * Email-based scope discovery. Unauthenticated. `sub`-FREE by design (§Phase 3): `discover` is
+   * unthrottled, so returning the surrogate identity key would widen the enumeration oracle. Returns
+   * `{ universeGalaxyStarId, isAdmin }` per scope the email belongs to.
+   * (Inherited + deferred oracle-narrowing — see backlog.md § Nebula Auth `discover(email)` oracle.)
    */
   discover(email: string): DiscoveryEntry[] {
     const rows = this.#sql`
-      SELECT instanceName, isAdmin FROM Emails WHERE email = ${email.toLowerCase()}
+      SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE email = ${normalizeEmail(email)}
     `;
     return rows.map(r => ({
-      instanceName: r.instanceName as string,
+      universeGalaxyStarId: r.universeGalaxyStarId as string,
       isAdmin: Boolean(r.isAdmin),
     }));
   }
 
-  /**
-   * Check if a slug/instanceName is available.
-   */
-  checkSlugAvailable(instanceName: string): boolean {
-    const rows = this.#sql`
-      SELECT 1 FROM Instances WHERE instanceName = ${instanceName}
-    `;
+  /** Whether a scope id is available (no `Scopes` row). Existence is a `Scopes` fact, NOT derived
+   *  from `Identities` — a wildcard-managed child scope has a row here and zero members. */
+  checkSlugAvailable(universeGalaxyStarId: string): boolean {
+    const rows = this.#sql`SELECT 1 FROM Scopes WHERE universeGalaxyStarId = ${universeGalaxyStarId}`;
     return rows.length === 0;
   }
 
   /**
-   * The consented-corpus pool: `instanceName`s of Universes whose user-developer consented to data
-   * use (`improveProductConsent = 1`), excluding the reserved platform pseudo-Universe. Sub-instances
-   * (galaxy/star) carry `NULL` (= inherit) and naturally fall out of the `= 1` filter.
-   *
-   * Built now as the corpus accessor; **no live consumer yet** (the digest / turn-log inspection are
-   * deferred). Per tasks/nebula-consent-flag.md, no consumer may read this corpus until the slug-pick
-   * consent notice ships (before Wave-3 invites). Not wired to any HTTP route — internal RPC only.
+   * Consented-corpus pool: `universeGalaxyStarId`s of Universes whose user-developer consented to data
+   * use (`improveProductConsent = 1`), excluding the reserved platform pseudo-Universe. Internal RPC
+   * only; no live consumer yet (per tasks/nebula-consent-flag.md).
    */
   listConsentedInstances(): string[] {
     const rows = this.#sql`
-      SELECT instanceName FROM Instances
-      WHERE improveProductConsent = 1 AND instanceName != ${PLATFORM_INSTANCE_NAME}
+      SELECT universeGalaxyStarId FROM Scopes
+      WHERE improveProductConsent = 1 AND universeGalaxyStarId != ${PLATFORM_INSTANCE_NAME}
     `;
-    return rows.map(r => r.instanceName as string);
+    return rows.map(r => r.universeGalaxyStarId as string);
   }
 
   // ============================================
-  // Self-signup: R→NA
+  // Scope creation — claim (founder-minting self-signup) + create (admin, scope-only)
   // ============================================
 
   /**
-   * Claim a universe slug. Validates availability, records instance,
-   * then RPCs to NebulaAuth to create subject and send magic link.
+   * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row (with
+   * data-use consent opt-IN), MINTS the founder `Identity` (`isAdmin=1`, `emailVerified=0` — the
+   * founder still proves via the magic link, which find-and-flips `emailVerified`), and issues a
+   * magic link. An authority point — this is where a Universe's founder identity is minted.
+   *
+   * ⚠️ Self-signup idempotency (mints the scope itself, so `UNIQUE(email,scope)` can't backstop a
+   * double-submit) is deferred for pre-alpha — §Founder / Phase-1 success criteria (m6).
    */
-  async claimUniverse(
-    slug: string,
-    email: string,
-    origin: string,
-  ): Promise<{ message: string; magicLinkUrl?: string }> {
+  async claimUniverse(slug: string, email: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
     const log = debug('nebula-auth.Registry.claimUniverse');
-
-    // Validate email format
-    if (!isValidEmail(email)) {
-      throw new RegistryError(400, 'invalid_email', 'Invalid email format');
-    }
-
-    // Validate slug format
-    if (!isValidSlug(slug)) {
-      throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
-    }
-
-    // Reserved slug check
+    if (!isValidEmail(email)) throw new RegistryError(400, 'invalid_email', 'Invalid email format');
+    if (!isValidSlug(slug)) throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
     if (slug === PLATFORM_INSTANCE_NAME) {
       throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_INSTANCE_NAME}" is reserved`);
     }
-
-    // Check availability
     if (!this.checkSlugAvailable(slug)) {
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
 
-    // Record instance + capture data-use consent (assume-true for now — see tasks/nebula-consent-flag.md).
-    // No ON CONFLICT needed: checkSlugAvailable above guarantees no row exists, and there is no `await`
-    // between that check and this INSERT, so no row can appear in between. `1` is the constant consent
-    // value (assume-true); `slug` is bound. Consent is Universe-level; sub-instance INSERT sites are
-    // unchanged and leave the column NULL (= inherit).
-    const now = Date.now();
+    // Register the scope (consent opt-IN, Universe-level). No ON CONFLICT: checkSlugAvailable proved
+    // no row exists and there's no await between — surface a UNIQUE conflict loudly if that invariant
+    // is ever violated (slug is not secret).
     try {
       this.ctx.storage.sql.exec(
-        'INSERT INTO Instances (instanceName, createdAt, improveProductConsent) VALUES (?, ?, 1)',
-        slug, now,
+        'INSERT INTO Scopes (universeGalaxyStarId, improveProductConsent) VALUES (?, 1)', slug,
       );
     } catch (err) {
-      // The INSERT is treated as conflict-free because checkSlugAvailable() above proved the row
-      // doesn't exist and there's no await between. If that invariant is ever violated (a UNIQUE
-      // conflict here), surface it LOUDLY rather than as a generic 500 — slug is not secret.
       log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
         slug, error: err instanceof Error ? err.message : String(err),
       });
       throw err;
     }
 
-    log.info('Universe claimed', { slug, email });
+    // MINT the founder identity (authority point). A bootstrap email founding `nebula-platform` is
+    // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
+    this.#mintIdentity(email, slug, /* isAdmin */ true, /* emailVerified */ false);
+    log.info('Universe claimed', { slug, email: normalizeEmail(email) });
 
-    // R→NA: create subject and send magic link
-    const naStub = (this.env as any).NEBULA_AUTH.getByName(slug);
-    const result = await naStub.createSubjectAndSendMagicLink(
-      email, slug, origin,
-    );
-
-    return {
-      message: 'Check your email for the magic link',
-      magicLinkUrl: result.magicLinkUrl,
-    };
+    return this.#createMagicLinkAndSend(email, slug, origin);
   }
 
-  /**
-   * Claim a star slug. Validates parent galaxy exists, checks availability,
-   * records instance, RPCs to NA.
-   *
-   * `callerAccess` (the Worker-verified JWT access claim, when present) gates a `.dev`
-   * AUTHORING-Star claim to parent-Galaxy admins (m2); other star claims stay open. The Worker
-   * router only forwards `callerAccess` for a `.dev` claim, so a missing claim there is a hard
-   * reject — never a silent open.
-   */
-  async claimStar(
-    universeGalaxyStarId: string,
-    email: string,
-    origin: string,
-    callerAccess?: AccessEntry,
-  ): Promise<{ message: string; magicLinkUrl?: string }> {
-    const log = debug('nebula-auth.Registry.claimStar');
-
-    // Validate email format
-    if (!isValidEmail(email)) {
-      throw new RegistryError(400, 'invalid_email', 'Invalid email format');
-    }
-
-    // Validate format — must be exactly 3 segments (star tier)
-    let parsed;
-    try {
-      parsed = parseId(universeGalaxyStarId);
-    } catch {
-      throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyStarId format');
-    }
-
-    if (parsed.tier !== 'star') {
-      throw new RegistryError(400, 'invalid_tier', 'claim-star requires a 3-segment id (universe.galaxy.star)');
-    }
-
-    // Check parent galaxy exists
-    const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
-    const parentRows = this.#sql`
-      SELECT 1 FROM Instances WHERE instanceName = ${parentGalaxy}
-    `;
-    if (parentRows.length === 0) {
-      throw new RegistryError(400, 'parent_not_found', `Parent galaxy "${parentGalaxy}" does not exist`);
-    }
-
-    // m2 (tasks/nebula-release-process.md): claiming a `.dev` AUTHORING Star is gated to
-    // parent-Galaxy admins — a non-admin first-toucher would seed an adminless root (star.ts).
-    // claim ≠ USE: USING an existing `.dev` Star is governed by DAG grants, not this gate, and
-    // non-`.dev` star claims stay open (Turnstile-only). Mirrors createGalaxy's admin-over-parent.
-    if (isDevAuthoringStar(universeGalaxyStarId) && !this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
-      throw new RegistryError(
-        403, 'forbidden',
-        `Claiming the "${universeGalaxyStarId}" authoring Star requires admin over the parent galaxy "${parentGalaxy}"`,
-      );
-    }
-
-    // Check availability
-    if (!this.checkSlugAvailable(universeGalaxyStarId)) {
-      throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
-    }
-
-    // Record instance
-    const now = Date.now();
-    this.ctx.storage.sql.exec(
-      'INSERT INTO Instances (instanceName, createdAt) VALUES (?, ?)',
-      universeGalaxyStarId, now,
-    );
-
-    log.info('Star claimed', { universeGalaxyStarId, email });
-
-    // R→NA: create subject and send magic link
-    const naStub = (this.env as any).NEBULA_AUTH.getByName(universeGalaxyStarId);
-    const result = await naStub.createSubjectAndSendMagicLink(
-      email, universeGalaxyStarId, origin,
-    );
-
-    return {
-      message: 'Check your email for the magic link',
-      magicLinkUrl: result.magicLinkUrl,
-    };
-  }
+  // NOTE: there is deliberately NO open, founder-minting `claimStar`. The current model
+  // (tasks/nebula-auth-surrogate-sub.md §Founder) is "Star = parent Galaxy admin, Scopes row,
+  // wildcard-managed (no local admin stamped)" — which is exactly {@link createStar} (admin, in-session,
+  // no founder). An open Turnstile-only star claim that minted an `isAdmin=true` founder inside another
+  // user-developer's Universe was a stranger-claims-a-child escalation; the founder-minting star
+  // self-signup is a FUTURE flow (§Founder table "Star (future: self-signup)"), not built here.
 
   /**
-   * Create a galaxy. Admin-only — caller (Worker) pre-verifies JWT and
-   * passes the verified access claim. Registry checks authorization.
+   * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO founder identity + NO email. The
+   * parent-Universe admin manages the new galaxy via their `{u}.*` wildcard reach (§Founder — no local
+   * admin stamped). Caller (Worker) pre-verifies the JWT and passes the verified access claim.
    */
-  createGalaxy(
-    universeGalaxyId: string,
-    callerAccess: AccessEntry,
-  ): { instanceName: string } {
+  createGalaxy(universeGalaxyId: string, callerAccess: AccessEntry): { instanceName: string } {
     const log = debug('nebula-auth.Registry.createGalaxy');
-
-    // Validate format — must be exactly 2 segments (galaxy tier)
     let parsed;
-    try {
-      parsed = parseId(universeGalaxyId);
-    } catch {
-      throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyId format');
-    }
-
+    try { parsed = parseId(universeGalaxyId); }
+    catch { throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyId format'); }
     if (parsed.tier !== 'galaxy') {
       throw new RegistryError(400, 'invalid_tier', 'create-galaxy requires a 2-segment id (universe.galaxy)');
     }
-
-    // Authorization: callerAccess must grant admin over the parent universe
     if (!this.#hasAdminOverUniverse(callerAccess, parsed.universe)) {
       throw new RegistryError(403, 'forbidden', 'Caller does not have admin access to the parent universe');
     }
-
-    // Check parent universe exists
-    const parentRows = this.#sql`
-      SELECT 1 FROM Instances WHERE instanceName = ${parsed.universe}
-    `;
-    if (parentRows.length === 0) {
+    if (this.checkSlugAvailable(parsed.universe)) {
       throw new RegistryError(400, 'parent_not_found', `Parent universe "${parsed.universe}" does not exist`);
     }
-
-    // Check availability
     if (!this.checkSlugAvailable(universeGalaxyId)) {
       throw new RegistryError(409, 'slug_taken', `Galaxy "${universeGalaxyId}" is already claimed`);
     }
-
-    // Record instance
-    const now = Date.now();
-    this.ctx.storage.sql.exec(
-      'INSERT INTO Instances (instanceName, createdAt) VALUES (?, ?)',
-      universeGalaxyId, now,
-    );
-
+    this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyId);
     log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.authScopePattern });
-
     return { instanceName: universeGalaxyId };
   }
 
   /**
-   * Create a Star IN-SESSION — registers the instance, NO magic-link email. Distinct from
-   * {@link claimStar} (which emails a link, for the original cross-user claim flow): when an admin
-   * builds their OWN hierarchy, they already hold a session that reaches the new Star (higher-admin
-   * reach) and first access seeds them founder-admin, so a per-Star email would be pure friction.
-   * Admin-gated over the parent galaxy (mirrors claimStar's m2 gate). Caller (router) pre-verifies
-   * the JWT and passes the verified access claim.
+   * Create a Star IN-SESSION — admin-gated over the parent galaxy, `Scopes` row only, NO founder + NO
+   * email (the admin already holds a session that reaches the new Star via wildcard reach). Mirrors
+   * {@link createGalaxy} one tier down.
    */
   createStar(universeGalaxyStarId: string, callerAccess: AccessEntry): { instanceName: string } {
-
     let parsed;
-    try {
-      parsed = parseId(universeGalaxyStarId);
-    } catch {
-      throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyStarId format');
-    }
+    try { parsed = parseId(universeGalaxyStarId); }
+    catch { throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyStarId format'); }
     if (parsed.tier !== 'star') {
       throw new RegistryError(400, 'invalid_tier', 'create-star requires a 3-segment id (universe.galaxy.star)');
     }
-
     const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
     if (!this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
       throw new RegistryError(403, 'forbidden', `Caller is not an admin of the parent galaxy "${parentGalaxy}"`);
     }
-
-    const parentRows = this.#sql`SELECT 1 FROM Instances WHERE instanceName = ${parentGalaxy}`;
-    if (parentRows.length === 0) {
+    if (this.checkSlugAvailable(parentGalaxy)) {
       throw new RegistryError(400, 'parent_not_found', `Parent galaxy "${parentGalaxy}" does not exist`);
     }
-
     if (!this.checkSlugAvailable(universeGalaxyStarId)) {
       throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
     }
-
-    this.ctx.storage.sql.exec(
-      'INSERT INTO Instances (instanceName, createdAt) VALUES (?, ?)',
-      universeGalaxyStarId, Date.now(),
-    );
+    this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyStarId);
     debug('nebula-auth.Registry.createStar').info('Star created in-session', { universeGalaxyStarId });
     return { instanceName: universeGalaxyStarId };
   }
 
   /**
-   * The caller's manageable scope tree — every instance under their admin authority (Universe +
+   * The caller's manageable scope tree — every scope under their admin authority (Universe +
    * descendants), for the Scopes hierarchy view. Keyed on the verified admin SCOPE, NOT email:
-   * `createGalaxy`/`createStar` register an instance without an email mapping, so `discover` (email-
-   * keyed) wouldn't surface a galaxy you just created; this does. Flat list; the client nests by id.
+   * `createGalaxy`/`createStar` register a scope with no member, so `discover` (email-keyed) wouldn't
+   * surface a galaxy you just created; this reads `Scopes` directly. Flat list; the client nests by id.
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
     if (!callerAccess?.admin) return [];
     const pattern = callerAccess.authScopePattern;
     let rows: any[];
     if (pattern === '*') {
-      rows = this.#sql`SELECT instanceName FROM Instances`;
+      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes`;
     } else if (pattern.endsWith('.*')) {
       const prefix = pattern.slice(0, -2);
-      rows = this.#sql`SELECT instanceName FROM Instances WHERE instanceName = ${prefix} OR instanceName LIKE ${prefix + '.%'}`;
+      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId = ${prefix} OR universeGalaxyStarId LIKE ${prefix + '.%'}`;
     } else {
-      rows = this.#sql`SELECT instanceName FROM Instances WHERE instanceName = ${pattern}`;
+      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId = ${pattern}`;
     }
-    return rows.map(r => this.#toAffected(r.instanceName as string));
+    return rows.map(r => this.#toAffected(r.universeGalaxyStarId as string));
+  }
+
+  // ============================================
+  // Login channel — magic link (request + issue) + invites (issue)
+  // ============================================
+
+  /**
+   * Request a login magic link (called by the Worker on `email-magic-link`, Turnstile-gated). Inserts
+   * a `MagicLinks` row (token stored HASHED) for `(email, scope)` and sends the email. **Does NOT mint
+   * an identity** — the load-bearing invariant: the unauthenticated login-request path must never
+   * create membership. A stranger who requests a link for a scope they were never minted into gets a
+   * link that fails at consume (`getAndVerifyIdentity` → no row → reject).
+   */
+  async requestMagicLink(email: string, universeGalaxyStarId: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
+    // The Worker validates the email format before this RPC (Workers RPC drops custom Error props, so
+    // client-error gates stay Worker-side) — here we just normalize + create the row.
+    const lc = normalizeEmail(email);
+    // Bootstrap authority point (the ONLY email-magic-link mint): a configured bootstrap email at the
+    // reserved `nebula-platform` scope is minted platform-admin (idempotent) so it can log in and get a
+    // `*` token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
+    // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
+    // scope-gated (§Blast radius).
+    if (universeGalaxyStarId === PLATFORM_INSTANCE_NAME && this.#bootstrapEmails.includes(lc)) {
+      this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
+      this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true, /* emailVerified */ false);
+    }
+    return this.#createMagicLinkAndSend(lc, universeGalaxyStarId, origin);
+  }
+
+  /** Insert a hashed `MagicLinks` row + send (or, in test mode, return) the magic link. */
+  async #createMagicLinkAndSend(email: string, universeGalaxyStarId: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
+    const lc = normalizeEmail(email); // MUST match the Identities normalization (m1) or verify won't find the row
+    const rawToken = generateRandomString(32);
+    const tokenHash = await hashString(rawToken);
+    const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL * 1000).toISOString();
+    this.ctx.storage.sql.exec(
+      'INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES (?, ?, ?, ?)',
+      tokenHash, lc, universeGalaxyStarId, expiresAt,
+    );
+    const magicLinkUrl =
+      `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/magic-link?one_time_token=${rawToken}`;
+
+    if (this.#isTestMode) {
+      return { message: 'Magic link generated (test mode)', magicLinkUrl };
+    }
+    await this.#sendEmail({ type: 'magic-link', to: lc, magicLinkUrl });
+    return { message: 'Check your email for the magic link' };
+  }
+
+  /**
+   * Issue invites into an EXISTING scope. **Admin-gating is the Worker's job** (it verified the JWT +
+   * scope + `admin` before calling — RPC drops custom Error props, so this method stays throw-free for
+   * expected client errors). For each email: MINT the invitee `Identity` (`isAdmin=0`,
+   * `emailVerified=0` — an authority point, pre-creating the "authorized member" row that
+   * `getAndVerifyIdentity` will later find-and-flip) and insert a single-use `InviteTokens` row
+   * (HASHED), then send the invite email. In test mode the raw links are returned instead of sent.
+   */
+  async issueInvites(
+    universeGalaxyStarId: string, emails: string[], origin: string,
+  ): Promise<{ invited: string[]; errors: Array<{ email: string; error: string }>; links?: Record<string, string> }> {
+    const invited: string[] = [];
+    const errors: Array<{ email: string; error: string }> = [];
+    const links: Record<string, string> = {};
+
+    for (const rawEmail of emails) {
+      const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : '';
+      if (!email || !isValidEmail(email)) {
+        errors.push({ email: rawEmail, error: 'Invalid email format' });
+        continue;
+      }
+      try {
+        // Pre-create the invitee identity (idempotent on (email, scope)) — the authority point.
+        this.#mintIdentity(email, universeGalaxyStarId, /* isAdmin */ false, /* emailVerified */ false);
+
+        const rawToken = generateRandomString(32);
+        const tokenHash = await hashString(rawToken);
+        const expiresAt = new Date(Date.now() + INVITE_TTL * 1000).toISOString();
+        this.ctx.storage.sql.exec(
+          'INSERT INTO InviteTokens (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES (?, ?, ?, ?)',
+          tokenHash, email, universeGalaxyStarId, expiresAt,
+        );
+        const inviteUrl =
+          `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/accept-invite?invite_token=${rawToken}`;
+
+        if (this.#isTestMode) {
+          links[email] = inviteUrl;
+        } else {
+          await this.#sendEmail({ type: 'invite-new', to: email, inviteUrl });
+        }
+        debug('nebula-auth.Registry.invite.sent').info('Invite sent', { email, universeGalaxyStarId });
+        invited.push(email);
+      } catch (error) {
+        errors.push({ email, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+
+    const result: { invited: string[]; errors: typeof errors; links?: Record<string, string> } =
+      { invited, errors };
+    if (this.#isTestMode) result.links = links;
+    return result;
+  }
+
+  // ============================================
+  // Token consume (Worker RPC) — validate login channel, write index + KV
+  // ============================================
+
+  /**
+   * Consume a magic link (Worker-driven, on the click). Validates the `MagicLinks` row by hash,
+   * find-and-flips the identity (rejects if none — the stranger-self-join guard), then records the
+   * refresh token: `RefreshTokenIndex` FIRST (sync SQLite, single-writer), THEN the KV record
+   * (index-first invariant M3 — an eviction at the awaited KV put leaves at worst a revocable
+   * index-entry-without-KV-record, never a live-but-unindexed unrevocable token). The Worker supplies
+   * the already-hashed refresh token (it holds the raw for the cookie). Magic links are reusable
+   * within their TTL (scanner-safe) — not deleted on consume.
+   *
+   * @returns `{ sub, universeGalaxyStarId }` on success, or `null` when the link is invalid/expired or
+   * no identity exists (the Worker maps `null` to a login-error redirect).
+   */
+  async consumeMagicLink(
+    magicLinkTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
+  ): Promise<ConsumeResult | null> {
+    const rows = this.#sql`
+      SELECT email, universeGalaxyStarId, expiresAt FROM MagicLinks WHERE tokenHash = ${magicLinkTokenHash}
+    `;
+    if (rows.length === 0) return null;
+    const link = rows[0];
+    if (new Date().toISOString() > (link.expiresAt as string)) return null;
+
+    const identity = this.getAndVerifyIdentity(link.email as string, link.universeGalaxyStarId as string);
+    if (!identity) {
+      debug('nebula-auth.Registry.login.rejected').warn('Magic link for non-member', {
+        universeGalaxyStarId: link.universeGalaxyStarId, reason: 'no_identity',
+      });
+      return null;
+    }
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, refreshTokenHash, refreshExpiresAt);
+    debug('nebula-auth.Registry.login.succeeded').info('Magic link login', { targetSub: identity.sub });
+    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
+  }
+
+  /**
+   * Consume an invite (Worker-driven, on the click). Validates + single-use-DELETES the `InviteTokens`
+   * row, find-and-flips the pre-created invitee identity (rejects if none), records the refresh token
+   * (index-first, then KV). Same shape as {@link consumeMagicLink} but single-use.
+   */
+  async consumeInvite(
+    inviteTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
+  ): Promise<ConsumeResult | null> {
+    const rows = this.#sql`
+      SELECT email, universeGalaxyStarId, expiresAt FROM InviteTokens WHERE tokenHash = ${inviteTokenHash}
+    `;
+    if (rows.length === 0) return null;
+    const invite = rows[0];
+    // Single-use: delete regardless of expiry (a re-click can't replay it).
+    this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE tokenHash = ?', inviteTokenHash);
+    if (new Date().toISOString() > (invite.expiresAt as string)) return null;
+
+    const identity = this.getAndVerifyIdentity(invite.email as string, invite.universeGalaxyStarId as string);
+    if (!identity) {
+      debug('nebula-auth.Registry.login.rejected').warn('Invite for non-member', {
+        universeGalaxyStarId: invite.universeGalaxyStarId, reason: 'no_identity',
+      });
+      return null;
+    }
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, refreshTokenHash, refreshExpiresAt);
+    debug('nebula-auth.Registry.login.succeeded').info('Invite accepted', { targetSub: identity.sub });
+    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
+  }
+
+  /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3). */
+  async #recordRefreshToken(
+    sub: string, universeGalaxyStarId: string, isAdmin: boolean, tokenHash: string, expiresAt: string,
+  ): Promise<void> {
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?, ?, ?)',
+      tokenHash, sub, expiresAt,
+    );
+    const record: RefreshTokenKV = { sub, universeGalaxyStarId, isAdmin, expiresAt };
+    await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), {
+      expirationTtl: kvTtlSeconds(expiresAt),
+    });
+  }
+
+  /**
+   * Logout / revoke (Worker-driven). Deletes the KV record + its `RefreshTokenIndex` entry. ⚠️ KV is
+   * eventually consistent, so a revoked token keeps working for the KV-propagation window (~edge
+   * cacheTtl) PLUS the full access-TTL — the short access-TTL is the mitigation (security.md).
+   */
+  async revokeRefreshToken(refreshTokenHash: string): Promise<void> {
+    // KV-first, THEN the index row (matching #invalidateRefreshTokensForSub). For a DELETE this is the
+    // correct ordering of the M3 invariant: an interruption after the KV delete leaves at worst an
+    // orphaned index row (harmless — the token is already dead). The reverse (index-first) could strand
+    // a live-but-UNindexed KV record that convergence/invalidation — which enumerate by index — can
+    // never reach, so it would survive to its ~30-day TTL despite logout.
+    await this.#refreshKv.delete(`refresh:${refreshTokenHash}`);
+    this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE tokenHash = ?', refreshTokenHash);
+    debug('nebula-auth.Registry.token.revoked').warn('Logout', { method: 'logout' });
+  }
+
+  /**
+   * Change an identity's admin bit and CONVERGE the denormalized `isAdmin` in every live KV refresh
+   * record for that `sub` (the ADR-010 convergence writer). ⚠️ On the KV re-put, re-apply the record's
+   * ORIGINAL absolute expiry (`RefreshTokenIndex.expiresAt`) — CF KV drops `expirationTtl` across a
+   * put, so a fresh TTL would EXTEND a demoted user's token and omitting it would make it IMMORTAL (M4).
+   */
+  async setIdentityAdmin(sub: string, isAdmin: boolean): Promise<void> {
+    this.ctx.storage.sql.exec('UPDATE Identities SET isAdmin = ? WHERE sub = ?', isAdmin ? 1 : 0, sub);
+    const scope = this.getIdentityScope(sub);
+    if (!scope) return;
+    const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${sub}`;
+    for (const t of tokens) {
+      const record: RefreshTokenKV = {
+        sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin, expiresAt: t.expiresAt as string,
+      };
+      // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
+      await this.#refreshKv.put(`refresh:${t.tokenHash as string}`, JSON.stringify(record), {
+        expirationTtl: kvTtlSeconds(t.expiresAt as string),
+      });
+    }
+    debug('nebula-auth.Registry.identity.roleUpdated').info('isAdmin converged', { sub, isAdmin, tokens: tokens.length });
   }
 
   // ============================================
@@ -439,27 +580,25 @@ export class NebulaAuthRegistry extends DurableObject {
   // ============================================
 
   /**
-   * Read-only deletion PLAN (feeds the confirm screen). Computes the full cascade — the target +
-   * all registered descendants (down), plus any ancestor left with no remaining descendants and no
-   * other users (prune up) — and any blockers (another user attached to an affected scope). Throws
-   * 403 if the caller isn't admin over the target. Mutates nothing.
+   * Read-only deletion PLAN (feeds the confirm screen). `callerSub` is the caller's VERIFIED surrogate
+   * sub (from the JWT — never client-supplied); the registry resolves it → email internally for the
+   * cross-scope `#otherUsers` guard. Throws 403 if the caller isn't admin over the target, or if
+   * `callerSub → email` resolves empty (fail CLOSED — M2). Mutates nothing.
    */
-  planScopeDeletion(target: string, callerEmail: string, callerAccess: AccessEntry): ScopeDeletionPlan {
-    return this.#computeDeletionPlan(target, callerEmail.toLowerCase(), callerAccess);
+  planScopeDeletion(target: string, callerSub: string, callerAccess: AccessEntry): ScopeDeletionPlan {
+    return this.#computeDeletionPlan(target, callerSub, callerAccess);
   }
 
   /**
-   * Execute the cascade: re-verify admin + re-run the guard, then for each affected scope wipe the
-   * NebulaAuth subjects (within nebula-auth) and remove the registry `Instances` + `Emails` rows.
-   * Returns the affected set so the Worker-side caller fans out platform-DO `teardown()` (the
-   * registry cannot reach platform DOs — dependency direction). Throws 403 (not admin) or 409 (a
-   * shared scope blocks the delete).
+   * Execute the cascade: re-verify admin + re-run the guard, then for each affected scope delete the
+   * `Scopes` row, its `Identities`, their `RefreshTokenIndex` entries + KV refresh records, and the
+   * scope's `MagicLinks` / `InviteTokens`. Returns the affected set so the Worker fans out platform-DO
+   * `teardown()` (the registry can't reach platform DOs — dependency direction). Throws 403 / 409.
    */
   async executeScopeDeletion(
-    target: string, callerEmail: string, callerAccess: AccessEntry,
+    target: string, callerSub: string, callerAccess: AccessEntry,
   ): Promise<{ affected: AffectedScope[] }> {
-    const lc = callerEmail.toLowerCase();
-    const plan = this.#computeDeletionPlan(target, lc, callerAccess);
+    const plan = this.#computeDeletionPlan(target, callerSub, callerAccess);
     if (plan.blockedBy.length > 0) {
       throw new RegistryError(
         409, 'scope_in_use',
@@ -469,72 +608,76 @@ export class NebulaAuthRegistry extends DurableObject {
 
     const log = debug('nebula-auth.Registry.executeScopeDeletion');
     for (const scope of plan.affected) {
-      // Wipe the per-scope NebulaAuth subjects/tokens (registry → NebulaAuth, both nebula-auth).
-      const naStub = (this.env as any).NEBULA_AUTH.getByName(scope.instanceName);
-      try {
-        await naStub.teardownInstance();
-      } catch (err) {
-        log.warn('NebulaAuth teardown failed (continuing)', {
-          instanceName: scope.instanceName, error: err instanceof Error ? err.message : String(err),
-        });
-      }
-      // Remove the registry rows → discovery no longer returns it (the clean-slate effect).
-      this.ctx.storage.sql.exec('DELETE FROM Emails WHERE instanceName = ?', scope.instanceName);
-      this.ctx.storage.sql.exec('DELETE FROM Instances WHERE instanceName = ?', scope.instanceName);
+      const name = scope.instanceName;
+      // Invalidate every refresh token for every identity in this scope (KV + index), then drop rows.
+      const subs = this.#sql`SELECT sub FROM Identities WHERE universeGalaxyStarId = ${name}`
+        .map(r => r.sub as string);
+      for (const sub of subs) await this.#invalidateRefreshTokensForSub(sub);
+      this.ctx.storage.sql.exec('DELETE FROM Identities WHERE universeGalaxyStarId = ?', name);
+      this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE universeGalaxyStarId = ?', name);
+      this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE universeGalaxyStarId = ?', name);
+      this.ctx.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', name);
     }
 
-    log.info('Scope deleted', { target, callerEmail: lc, affected: plan.affected.map(a => a.instanceName) });
+    log.info('Scope deleted', { target, callerSub, affected: plan.affected.map(a => a.instanceName) });
     return { affected: plan.affected };
   }
 
-  #computeDeletionPlan(target: string, callerEmailLc: string, callerAccess: AccessEntry): ScopeDeletionPlan {
+  /** Delete every refresh token for a `sub` — KV records first, then the index rows. */
+  async #invalidateRefreshTokensForSub(sub: string): Promise<void> {
+    const tokens = this.#sql`SELECT tokenHash FROM RefreshTokenIndex WHERE sub = ${sub}`;
+    for (const t of tokens) await this.#refreshKv.delete(`refresh:${t.tokenHash as string}`);
+    this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE sub = ?', sub);
+  }
+
+  #computeDeletionPlan(target: string, callerSub: string, callerAccess: AccessEntry): ScopeDeletionPlan {
     if (target === PLATFORM_INSTANCE_NAME) {
       throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_INSTANCE_NAME}" cannot be deleted`);
     }
     let parsed;
-    try {
-      parsed = parseId(target);
-    } catch {
-      throw new RegistryError(400, 'invalid_id', 'Invalid scope id');
-    }
+    try { parsed = parseId(target); }
+    catch { throw new RegistryError(400, 'invalid_id', 'Invalid scope id'); }
 
-    // Authorization: the caller must be admin over the TARGET (its wildcard covers descendants too).
     if (!this.#hasAdminOverScope(callerAccess, target)) {
       throw new RegistryError(403, 'forbidden', `Caller is not an admin of "${target}"`);
     }
 
+    // Resolve the caller's own email (sub → email). ⚠️ Fail CLOSED on empty (M2): a just-removed admin
+    // still inside their access-token window must not be able to wipe a shared scope by having their
+    // exclusion match zero rows (→ "no other users" → wipe). Refuse rather than proceed.
+    const callerEmailLc = this.#emailForSub(callerSub);
+    if (!callerEmailLc) {
+      throw new RegistryError(403, 'forbidden', 'Caller identity not found');
+    }
+
     // Down: the target + all registered descendants.
     const down = this.#sql`
-      SELECT instanceName FROM Instances
-      WHERE instanceName = ${target} OR instanceName LIKE ${target + '.%'}
-    `.map(r => r.instanceName as string);
+      SELECT universeGalaxyStarId FROM Scopes
+      WHERE universeGalaxyStarId = ${target} OR universeGalaxyStarId LIKE ${target + '.%'}
+    `.map(r => r.universeGalaxyStarId as string);
 
-    // Nothing registered at the target → nothing to delete.
     if (!down.includes(target)) {
       return { affected: [], blockedBy: [] };
     }
 
-    // Guard: any OTHER user on any down-set scope blocks the whole delete (no prune, no wipe).
     const blockedBy = this.#otherUsers(down, callerEmailLc);
     if (blockedBy.length > 0) {
       return { affected: down.map(n => this.#toAffected(n)), blockedBy };
     }
 
-    // Prune up: for each ancestor — wipe it iff the caller admins it AND it's left with no remaining
-    // registered descendants outside the wipe set AND no other users. Admin coverage is monotonic
-    // up the tree (prefix patterns), so the first un-admined ancestor stops the walk. An ancestor
-    // that exists only conceptually (not registered) is skipped but doesn't block the walk upward.
+    // Prune up: wipe an ancestor iff the caller admins it AND it has no remaining registered
+    // descendants outside the wipe set AND no other users. Admin coverage is monotonic up the tree.
     const wipe = new Set(down);
     let ancestor = getParentId(parsed);
     while (ancestor) {
       if (!this.#hasAdminOverScope(callerAccess, ancestor)) break;
-      const isRegistered = this.#sql`SELECT 1 FROM Instances WHERE instanceName = ${ancestor}`.length > 0;
+      const isRegistered = !this.checkSlugAvailable(ancestor);
       if (isRegistered) {
         const childrenRemaining = this.#sql`
-          SELECT instanceName FROM Instances WHERE instanceName LIKE ${ancestor + '.%'}
-        `.map(r => r.instanceName as string).filter(n => !wipe.has(n));
-        if (childrenRemaining.length > 0) break; // still has live descendants
-        if (this.#otherUsers([ancestor], callerEmailLc).length > 0) break; // someone else uses it
+          SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId LIKE ${ancestor + '.%'}
+        `.map(r => r.universeGalaxyStarId as string).filter(n => !wipe.has(n));
+        if (childrenRemaining.length > 0) break;
+        if (this.#otherUsers([ancestor], callerEmailLc).length > 0) break;
         wipe.add(ancestor);
       }
       ancestor = getParentId(parseId(ancestor));
@@ -544,42 +687,48 @@ export class NebulaAuthRegistry extends DurableObject {
     return { affected: [...down, ...ancestors].map(n => this.#toAffected(n)), blockedBy: [] };
   }
 
-  #toAffected(instanceName: string): AffectedScope {
-    const p = parseId(instanceName);
-    return { instanceName, tier: p.tier, isDev: p.tier === 'star' && p.star === 'dev' };
+  #toAffected(universeGalaxyStarId: string): AffectedScope {
+    const p = parseId(universeGalaxyStarId);
+    return { instanceName: universeGalaxyStarId, tier: p.tier, isDev: p.tier === 'star' && p.star === 'dev' };
   }
 
-  #otherUsers(instanceNames: string[], callerEmailLc: string): ScopeDeletionBlocker[] {
+  /** Identities in any of `scopes` whose email differs from the caller's — blockers to a delete. */
+  #otherUsers(scopes: string[], callerEmailLc: string): ScopeDeletionBlocker[] {
     const out: ScopeDeletionBlocker[] = [];
-    for (const name of instanceNames) {
+    for (const name of scopes) {
       const rows = this.#sql`
-        SELECT DISTINCT email FROM Emails WHERE instanceName = ${name} AND email != ${callerEmailLc}
+        SELECT DISTINCT email FROM Identities WHERE universeGalaxyStarId = ${name} AND email != ${callerEmailLc}
       `;
       for (const r of rows) out.push({ instanceName: name, email: r.email as string });
     }
     return out;
   }
 
-  /** Admin over `scope` iff the access claim is admin AND its pattern covers the scope. */
-  #hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
-    if (!access?.admin) return false;
-    return matchAccess(access.authScopePattern, scope);
+  // ============================================
+  // Email
+  // ============================================
+
+  async #sendEmail(message: any): Promise<void> {
+    const sender = (this.env as any).AUTH_EMAIL_SENDER;
+    if (sender) {
+      await sender.send(message);
+    } else {
+      debug('nebula-auth.Registry.email').debug('Email not sent (AUTH_EMAIL_SENDER not configured)', {
+        type: message.type, to: message.to,
+      });
+    }
   }
 
   // ============================================
-  // HTTP fetch handler — public endpoints
+  // HTTP fetch handler — the router-forwarded endpoints
   // ============================================
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const path = url.pathname;
     const prefix = NEBULA_AUTH_PREFIX;
 
-    if (request.method !== 'POST') {
-      return new Response('Method Not Allowed', { status: 405 });
-    }
-
-    const endpoint = path.slice(prefix.length + 1); // after '/auth/'
+    if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+    const endpoint = url.pathname.slice(prefix.length + 1); // after '/auth/'
 
     try {
       switch (endpoint) {
@@ -589,98 +738,60 @@ export class NebulaAuthRegistry extends DurableObject {
         }
         case 'claim-universe': {
           const { slug, email } = await request.json() as { slug: string; email: string };
-          const origin = url.origin;
-          const result = await this.claimUniverse(slug, email, origin);
-          return Response.json(result);
-        }
-        case 'claim-star': {
-          // `verifiedAccess` is injected by the Worker router ONLY for a `.dev` authoring-Star
-          // claim (after JWT verify) — see router.ts. The registry enforces the parent-admin gate.
-          const { universeGalaxyStarId, email, verifiedAccess } = await request.json() as {
-            universeGalaxyStarId: string; email: string; verifiedAccess?: AccessEntry;
-          };
-          const origin = url.origin;
-          const result = await this.claimStar(universeGalaxyStarId, email, origin, verifiedAccess);
-          return Response.json(result);
+          return Response.json(await this.claimUniverse(slug, email, url.origin));
         }
         case 'create-galaxy': {
-          // JWT already verified by router — verified access claim passed in body
           const { universeGalaxyId, verifiedAccess } = await request.json() as {
-            universeGalaxyId: string;
-            verifiedAccess: AccessEntry;
+            universeGalaxyId: string; verifiedAccess?: AccessEntry;
           };
           if (!verifiedAccess) {
-            return Response.json(
-              { error: 'invalid_request', error_description: 'Missing verified access claim' },
-              { status: 400 },
-            );
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified access claim' }, { status: 400 });
           }
-          const result = this.createGalaxy(universeGalaxyId, verifiedAccess);
-          return Response.json(result, { status: 201 });
+          return Response.json(this.createGalaxy(universeGalaxyId, verifiedAccess), { status: 201 });
         }
         case 'create-star': {
           const { universeGalaxyStarId, verifiedAccess } = await request.json() as {
             universeGalaxyStarId: string; verifiedAccess?: AccessEntry;
           };
           if (!verifiedAccess) {
-            return Response.json(
-              { error: 'invalid_request', error_description: 'Missing verified access claim' },
-              { status: 400 },
-            );
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified access claim' }, { status: 400 });
           }
           return Response.json(this.createStar(universeGalaxyStarId, verifiedAccess), { status: 201 });
         }
         case 'my-scopes': {
           const { verifiedAccess } = await request.json() as { verifiedAccess?: AccessEntry };
           if (!verifiedAccess) {
-            return Response.json(
-              { error: 'invalid_request', error_description: 'Missing verified access claim' },
-              { status: 400 },
-            );
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified access claim' }, { status: 400 });
           }
           return Response.json({ scopes: this.myScopeTree(verifiedAccess) });
         }
         case 'delete-scope-plan': {
-          // JWT already verified by router — verified access + caller email injected.
-          const { target, verifiedAccess, callerEmail } = await request.json() as {
-            target: string; verifiedAccess?: AccessEntry; callerEmail?: string;
+          const { target, verifiedAccess, callerSub } = await request.json() as {
+            target: string; verifiedAccess?: AccessEntry; callerSub?: string;
           };
-          if (!verifiedAccess || !callerEmail) {
-            return Response.json(
-              { error: 'invalid_request', error_description: 'Missing verified caller identity' },
-              { status: 400 },
-            );
+          if (!verifiedAccess || !callerSub) {
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified caller identity' }, { status: 400 });
           }
-          return Response.json(this.planScopeDeletion(target, callerEmail, verifiedAccess));
+          return Response.json(this.planScopeDeletion(target, callerSub, verifiedAccess));
         }
         case 'delete-scope': {
-          const { target, verifiedAccess, callerEmail } = await request.json() as {
-            target: string; verifiedAccess?: AccessEntry; callerEmail?: string;
+          const { target, verifiedAccess, callerSub } = await request.json() as {
+            target: string; verifiedAccess?: AccessEntry; callerSub?: string;
           };
-          if (!verifiedAccess || !callerEmail) {
-            return Response.json(
-              { error: 'invalid_request', error_description: 'Missing verified caller identity' },
-              { status: 400 },
-            );
+          if (!verifiedAccess || !callerSub) {
+            return Response.json({ error: 'invalid_request', error_description: 'Missing verified caller identity' }, { status: 400 });
           }
-          return Response.json(await this.executeScopeDeletion(target, callerEmail, verifiedAccess));
+          return Response.json(await this.executeScopeDeletion(target, callerSub, verifiedAccess));
         }
         default:
           return new Response('Not Found', { status: 404 });
       }
     } catch (err) {
       if (err instanceof RegistryError) {
-        return Response.json(
-          { error: err.errorCode, error_description: err.message },
-          { status: err.status },
-        );
+        return Response.json({ error: err.errorCode, error_description: err.message }, { status: err.status });
       }
-      const log = debug('nebula-auth.Registry.fetch');
-      log.error('Unexpected error in registry fetch', { error: err });
-      return Response.json(
-        { error: 'internal_error', error_description: 'An unexpected error occurred' },
-        { status: 500 },
-      );
+      debug('nebula-auth.Registry.fetch').error('Unexpected error in registry fetch', { error: err });
+      return Response.json({ error: 'internal_error', error_description: 'An unexpected error occurred' }, { status: 500 });
     }
   }
 
@@ -688,44 +799,29 @@ export class NebulaAuthRegistry extends DurableObject {
   // Authorization helpers
   // ============================================
 
-  /**
-   * Check if the caller's access claim grants admin over a universe.
-   *
-   * Valid patterns:
-   * - "*" (platform admin) — always grants access
-   * - "universe.*" — exact universe match
-   * - "universe" with admin=true — exact universe match
-   */
-  #hasAdminOverUniverse(access: AccessEntry, universe: string): boolean {
-    if (!access.admin) return false;
+  /** Admin over `scope` iff the access claim is admin AND its pattern covers the scope. */
+  #hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
+    if (!access?.admin) return false;
+    return matchAccess(access.authScopePattern, scope);
+  }
 
-    // Platform admin
+  /** Admin over a universe (via `*`, `u.*`, or exact admin `u`). */
+  #hasAdminOverUniverse(access: AccessEntry | undefined, universe: string): boolean {
+    if (!access?.admin) return false;
     if (access.authScopePattern === '*') return true;
-
-    // Universe wildcard: "universe.*"
     if (access.authScopePattern === `${universe}.*`) return true;
-
-    // Exact universe match (non-wildcard, but still admin)
     if (access.authScopePattern === universe) return true;
-
     return false;
   }
 
-  /**
-   * Check if the caller's access claim grants admin over a galaxy (the parent of a `.dev`
-   * authoring Star). Mirrors {@link NebulaAuthRegistry.#hasAdminOverUniverse} one tier down, via
-   * the canonical hierarchy matcher: `*` (platform), `u.*` (universe admin — covers the galaxy),
-   * `u.g.*` (galaxy admin), or an exact admin `u.g` all qualify. Undefined / non-admin → false.
-   */
+  /** Admin over a galaxy via the canonical hierarchy matcher (`*` / `u.*` / `u.g.*` / exact `u.g`). */
   #hasAdminOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
     if (!access?.admin) return false;
     return matchAccess(access.authScopePattern, galaxyId);
   }
 }
 
-/**
- * Basic email format validation: non-empty local part, @, non-empty domain.
- */
+/** Basic email format validation: non-empty local part, @, non-empty domain. */
 function isValidEmail(email: string): boolean {
   if (!email || typeof email !== 'string') return false;
   const atIdx = email.indexOf('@');
@@ -733,9 +829,28 @@ function isValidEmail(email: string): boolean {
 }
 
 /**
- * Structured error thrown by registry methods.
- * Callers can catch and convert to HTTP responses.
+ * Canonical email normalization — lowercase AND trim. The single source of truth for the m1 invariant
+ * (§The schema: "casing drift splits identities or fail-blocks a delete"). EVERY email that is stored,
+ * looked up, or compared must pass through this: the registry compares email BINARY (UNIQUE(email,
+ * scope), the getAndVerifyIdentity/discover WHERE clauses, the delete-scope #otherUsers exclusion), so
+ * a stray leading/trailing space at mint that a trimmed login can't match would silently split an
+ * identity and lock the founder out. Lowercasing alone is not enough — trim too.
  */
+function normalizeEmail(email: string): string {
+  return email.toLowerCase().trim();
+}
+
+/**
+ * KV `expirationTtl` (seconds-from-now) from an absolute ISO expiry. CF KV requires ≥ 60s; clamp up so
+ * a near-expiry re-put doesn't throw. The absolute expiry is the source of truth (M4) — this only
+ * translates it to the seconds-from-now KV wants at write time.
+ */
+function kvTtlSeconds(expiresAtIso: string): number {
+  const seconds = Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / 1000);
+  return Math.max(60, seconds);
+}
+
+/** Structured error thrown by registry methods; callers convert to HTTP responses. */
 export class RegistryError extends Error {
   status: number;
   errorCode: string;

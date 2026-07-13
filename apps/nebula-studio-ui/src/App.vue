@@ -84,14 +84,16 @@ function suggestUniverseSlug(emailAddr: string): string {
 }
 
 // ── login ────────────────────────────────────────────────────────────────────
-async function discover(emailAddr: string): Promise<{ instanceName: string; isAdmin: boolean }[]> {
+// `discover` returns `universeGalaxyStarId` per scope (renamed from `instanceName` when identity
+// moved to the registry-minted surrogate `sub` — tasks/nebula-auth-surrogate-sub.md; `sub`-free).
+async function discover(emailAddr: string): Promise<{ universeGalaxyStarId: string; isAdmin: boolean }[]> {
   const res = await fetch(`/auth/discover`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email: emailAddr }),
   });
   if (!res.ok) throw new Error(`discover ${res.status}: ${await res.text().catch(() => "")}`);
-  return (await res.json()) as { instanceName: string; isAdmin: boolean }[];
+  return (await res.json()) as { universeGalaxyStarId: string; isAdmin: boolean }[];
 }
 
 function rememberAuthScope(s: string) {
@@ -109,7 +111,7 @@ async function sendMagicLink() {
     if (!target) {
       const entries = await discover(e);
       if (entries.length === 1) {
-        target = entries[0]!.instanceName;
+        target = entries[0]!.universeGalaxyStarId;
       } else if (entries.length === 0) {
         claimSlug.value = suggestUniverseSlug(e); // prefill the suggestion
         needsClaim.value = true;

@@ -1,767 +1,266 @@
 /**
- * Registry tests — NebulaAuthRegistry DO, NA→R wiring, discovery,
- * self-signup, galaxy creation.
+ * Registry unit tests — NebulaAuthRegistry: discovery, existence (`Scopes`), founder-minting claim
+ * flows, admin-gated in-session creation, scope-tree, and cascade deletion (sub-first).
  *
- * Uses Workers RPC to call registry methods directly.
+ * Uses Workers RPC to call registry methods directly (nebula-auth is raw-DO infrastructure). Each test
+ * gets a FRESH registry (unique name) for isolation; identities/scopes for the deletion tests are
+ * seeded via `runInDurableObject` (the surrogate `sub` is minted only at authority points, so there is
+ * no `registerEmail` seam anymore).
  */
 import { describe, it, expect } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject } from 'cloudflare:test';
 import type { AccessEntry } from '@lumenize/nebula-auth';
-import { fullLogin, requestMagicLink, clickMagicLink, refreshAndParse, adminRequest, url } from './test-helpers';
 
-/** Get the singleton registry stub (cast to any for RPC method access) */
-function getRegistry(): any {
-  return env.NEBULA_AUTH_REGISTRY.getByName('registry');
+/** A fresh, isolated registry stub (unique name → own migrated storage). */
+function freshRegistry(): any {
+  return env.NEBULA_AUTH_REGISTRY.getByName(`reg-${crypto.randomUUID()}`);
 }
 
-describe('NebulaAuthRegistry', () => {
-
-  // ============================================
-  // Direct RPC: registerEmail / removeEmail / updateEmailRole
-  // ============================================
-
-  describe('registerEmail / removeEmail / updateEmailRole', () => {
-    it('registers an email→scope mapping', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('alice@example.com', 'acme.crm.tenant-a', false);
-
-      const entries = await registry.discover('alice@example.com');
-      expect(entries).toHaveLength(1);
-      expect(entries[0].instanceName).toBe('acme.crm.tenant-a');
-      expect(entries[0].isAdmin).toBe(false);
-    });
-
-    it('upserts on duplicate (email, instanceName)', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('bob@example.com', 'acme.crm.tenant-b', false);
-      await registry.registerEmail('bob@example.com', 'acme.crm.tenant-b', true);
-
-      const entries = await registry.discover('bob@example.com');
-      expect(entries).toHaveLength(1);
-      expect(entries[0].isAdmin).toBe(true);
-    });
-
-    it('registers same email in multiple instances', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('carol@example.com', 'acme.crm.star-a', false);
-      await registry.registerEmail('carol@example.com', 'acme.crm.star-b', true);
-
-      const entries = await registry.discover('carol@example.com');
-      expect(entries).toHaveLength(2);
-      const names = entries.map((e: any) => e.instanceName).sort();
-      expect(names).toEqual(['acme.crm.star-a', 'acme.crm.star-b']);
-    });
-
-    it('removes an email→scope mapping', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('dave@example.com', 'acme.crm.tenant-d', false);
-      await registry.removeEmail('dave@example.com', 'acme.crm.tenant-d');
-
-      const entries = await registry.discover('dave@example.com');
-      expect(entries).toHaveLength(0);
-    });
-
-    it('updates email role', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('eve@example.com', 'acme.crm.tenant-e', false);
-      await registry.updateEmailRole('eve@example.com', 'acme.crm.tenant-e', true);
-
-      const entries = await registry.discover('eve@example.com');
-      expect(entries).toHaveLength(1);
-      expect(entries[0].isAdmin).toBe(true);
-    });
+/** Seed `Scopes` rows + `Identities` directly (bypassing the authority-point mint) for deletion tests. */
+async function seed(
+  stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; isAdmin?: boolean }>,
+): Promise<void> {
+  await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
+    for (const s of scopes) ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', s);
+    for (const m of members) {
+      ctx.storage.sql.exec(
+        'INSERT INTO Identities (sub, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,1,?)',
+        m.sub, m.scope, m.email.toLowerCase(), m.isAdmin ? 1 : 0, '2026-01-01T00:00:00.000Z',
+      );
+    }
   });
+}
 
-  // ============================================
-  // Discovery
-  // ============================================
+const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
 
+describe('NebulaAuthRegistry', () => {
+  // ── discover ──────────────────────────────────────────────────────────────────────────────────
   describe('discover', () => {
     it('returns empty array for unknown email', async () => {
-      const registry = getRegistry();
-      const entries = await registry.discover('nobody@example.com');
-      expect(entries).toEqual([]);
+      expect(await freshRegistry().discover('nobody@example.com')).toEqual([]);
+    });
+
+    it('returns { universeGalaxyStarId, isAdmin } for a claimed universe founder (sub-FREE)', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('acme', 'founder@example.com', 'http://localhost');
+      const entries = await r.discover('founder@example.com');
+      expect(entries).toEqual([{ universeGalaxyStarId: 'acme', isAdmin: true }]);
+      expect(entries[0]).not.toHaveProperty('sub'); // never leak the surrogate identity key
     });
 
     it('case-insensitive email lookup', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail('FRANK@Example.COM', 'acme.crm.tenant-f', false);
+      const r = freshRegistry();
+      await r.claimUniverse('caseu', 'FRANK@Example.COM', 'http://localhost');
+      expect(await r.discover('frank@example.com')).toHaveLength(1);
+    });
 
-      const entries = await registry.discover('frank@example.com');
-      expect(entries).toHaveLength(1);
+    it('returns all scopes for an email across universes', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('one', 'carol@example.com', 'http://localhost');
+      await r.claimUniverse('two', 'carol@example.com', 'http://localhost');
+      const names = (await r.discover('carol@example.com')).map((e: any) => e.universeGalaxyStarId).sort();
+      expect(names).toEqual(['one', 'two']);
     });
   });
 
-  // ============================================
-  // Slug Availability
-  // ============================================
+  // ── getAndVerifyIdentity — find-and-flip, reject if none ─────────────────────────────────────────
+  describe('getAndVerifyIdentity', () => {
+    it('returns null when no identity exists (login verify never mints)', async () => {
+      expect(await freshRegistry().getAndVerifyIdentity('ghost@example.com', 'acme')).toBeNull();
+    });
 
+    it('find-and-flips an existing identity → returns { sub, scope, isAdmin } and sets emailVerified', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('flipu', 'founder@example.com', 'http://localhost'); // mints founder (emailVerified=0)
+      const identity = await r.getAndVerifyIdentity('founder@example.com', 'flipu');
+      expect(identity).toMatchObject({ universeGalaxyStarId: 'flipu', isAdmin: true });
+      expect(identity.sub).toBeDefined();
+    });
+  });
+
+  // ── checkSlugAvailable (Scopes existence) ───────────────────────────────────────────────────────
   describe('checkSlugAvailable', () => {
-    it('returns true for unused slug', async () => {
-      const registry = getRegistry();
-      const available = await registry.checkSlugAvailable('brand-new-slug');
-      expect(available).toBe(true);
-    });
-
-    it('returns false for taken slug', async () => {
-      const registry = getRegistry();
-      // Register an email which auto-creates the instance
-      await registry.registerEmail('x@example.com', 'taken-slug', false);
-      const available = await registry.checkSlugAvailable('taken-slug');
-      expect(available).toBe(false);
+    it('true for unused, false after a Scopes row exists', async () => {
+      const r = freshRegistry();
+      expect(await r.checkSlugAvailable('brand-new')).toBe(true);
+      await r.claimUniverse('taken', 'x@example.com', 'http://localhost');
+      expect(await r.checkSlugAvailable('taken')).toBe(false);
     });
   });
 
-  // ============================================
-  // Self-Signup: claimUniverse
-  // ============================================
-
+  // ── claimUniverse (founder-minting self-signup) ─────────────────────────────────────────────────
   describe('claimUniverse', () => {
-    it('claims a universe and sends magic link', async () => {
-      const registry = getRegistry();
-      const result = await registry.claimUniverse(
-        'my-universe', 'founder@example.com', 'http://localhost',
-      );
-
-      expect(result.message).toContain('Check your email');
+    it('claims a universe, mints the founder identity, and returns the magic link', async () => {
+      const r = freshRegistry();
+      const result = await r.claimUniverse('my-universe', 'founder@example.com', 'http://localhost');
       expect(result.magicLinkUrl).toContain('/auth/my-universe/magic-link');
-
-      // Instance should be recorded
-      const available = await registry.checkSlugAvailable('my-universe');
-      expect(available).toBe(false);
+      expect(await r.checkSlugAvailable('my-universe')).toBe(false);
+      expect(await r.discover('founder@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', isAdmin: true }]);
     });
 
-    it('completes magic link login → founding admin', async () => {
-      const registry = getRegistry();
-      const result = await registry.claimUniverse(
-        'founder-univ', 'founder@example.com', 'http://localhost',
-      );
-
-      // Click the magic link on the NA instance
-      const naStub = env.NEBULA_AUTH.getByName('founder-univ');
-      const { refreshToken } = await clickMagicLink(naStub, result.magicLinkUrl!);
-      const { parsed } = await refreshAndParse(naStub, 'founder-univ', refreshToken);
-
-      expect(parsed.access.admin).toBe(true);
-      expect(parsed.adminApproved).toBe(true);
-
-      // Registry should have the email→scope mapping (set during magic link completion)
-      const entries = await registry.discover('founder@example.com');
-      expect(entries.some((e: any) => e.instanceName === 'founder-univ')).toBe(true);
-    });
-
-    it('rejects duplicate universe slug', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('taken-univ', 'first@example.com', 'http://localhost');
-
-      await expect(
-        registry.claimUniverse('taken-univ', 'second@example.com', 'http://localhost'),
-      ).rejects.toThrow(/already claimed/);
-    });
-
-    it('rejects reserved nebula-platform slug', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimUniverse('nebula-platform', 'hacker@example.com', 'http://localhost'),
-      ).rejects.toThrow(/reserved/);
-    });
-
-    it('rejects invalid slug format', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimUniverse('INVALID SLUG!', 'x@example.com', 'http://localhost'),
-      ).rejects.toThrow(/Invalid/);
+    it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('taken-univ', 'first@example.com', 'http://localhost');
+      await expect(r.claimUniverse('taken-univ', 'second@example.com', 'http://localhost')).rejects.toThrow(/already claimed/);
+      await expect(r.claimUniverse('nebula-platform', 'h@example.com', 'http://localhost')).rejects.toThrow(/reserved/);
+      await expect(r.claimUniverse('INVALID SLUG!', 'x@example.com', 'http://localhost')).rejects.toThrow(/Invalid/);
+      await expect(r.claimUniverse('email-val', 'not-an-email', 'http://localhost')).rejects.toThrow(/invalid.*email/i);
     });
   });
 
-  // ============================================
-  // Self-Signup: claimStar
-  // ============================================
+  // No open founder-minting `claimStar` exists: a star is created by its parent-Galaxy admin via
+  // createStar (below), never an open Turnstile-only self-signup (that would mint an admin identity in
+  // another user-developer's Universe — a stranger-claims-a-child escalation). The absence of the
+  // `/auth/claim-star` endpoint is asserted at the router level (nebula-auth-routes.test.ts). See
+  // createStar for the current star-creation path.
 
-  describe('claimStar', () => {
-    it('claims a star under an existing galaxy', async () => {
-      const registry = getRegistry();
-
-      // Set up parent universe and galaxy
-      await registry.claimUniverse('star-univ', 'admin@example.com', 'http://localhost');
-      await registry.createGalaxy('star-univ.my-app', { authScopePattern: 'star-univ.*', admin: true });
-
-      // Claim star
-      const result = await registry.claimStar(
-        'star-univ.my-app.tenant-1', 'tenant@example.com', 'http://localhost',
-      );
-
-      expect(result.message).toContain('Check your email');
-      expect(result.magicLinkUrl).toContain('/auth/star-univ.my-app.tenant-1/magic-link');
-    });
-
-    it('rejects star under nonexistent galaxy', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimStar('no-univ.no-galaxy.star', 'x@example.com', 'http://localhost'),
-      ).rejects.toThrow(/does not exist/);
-    });
-
-    it('rejects non-star tier id', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimStar('just-a-universe', 'x@example.com', 'http://localhost'),
-      ).rejects.toThrow(/3-segment/);
-    });
-
-    it('rejects duplicate star slug', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('dup-star-univ', 'admin@example.com', 'http://localhost');
-      await registry.createGalaxy('dup-star-univ.app', { authScopePattern: 'dup-star-univ.*', admin: true });
-      await registry.claimStar('dup-star-univ.app.tenant', 'first@example.com', 'http://localhost');
-
-      await expect(
-        registry.claimStar('dup-star-univ.app.tenant', 'second@example.com', 'http://localhost'),
-      ).rejects.toThrow(/already claimed/);
-    });
-  });
-
-  // ============================================
-  // claimStar — `.dev` authoring-Star parent-admin gate (m2, nebula-release-process.md)
-  // ============================================
-
-  describe('claimStar — .dev authoring-Star parent-admin gate (m2)', () => {
-    // Provision `${u}` universe + `${u}.app` galaxy; return the `.dev` star id under it.
-    async function setupGalaxy(u: string) {
-      const registry = getRegistry();
-      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
-      await registry.createGalaxy(`${u}.app`, { authScopePattern: `${u}.*`, admin: true });
-      return { registry, devStar: `${u}.app.dev` };
-    }
-
-    it('rejects a .dev claim from a non-admin caller', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-nonadmin');
-      await expect(
-        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
-          { authScopePattern: 'm2-nonadmin.*', admin: false }),
-      ).rejects.toThrow(/admin over the parent galaxy/);
-    });
-
-    it('rejects a .dev claim with no caller access at all', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-noaccess');
-      await expect(
-        registry.claimStar(devStar, 'x@example.com', 'http://localhost'),
-      ).rejects.toThrow(/admin over the parent galaxy/);
-    });
-
-    it('rejects a .dev claim from an admin of a DIFFERENT galaxy (wrong scope)', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-wrongscope');
-      await expect(
-        registry.claimStar(devStar, 'x@example.com', 'http://localhost',
-          { authScopePattern: 'm2-wrongscope.other.*', admin: true }),
-      ).rejects.toThrow(/admin over the parent galaxy/);
-    });
-
-    it('a galaxy admin (u.g.*) can claim the .dev authoring star', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-galadmin');
-      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
-        { authScopePattern: 'm2-galadmin.app.*', admin: true });
-      expect(result.magicLinkUrl).toContain('/auth/m2-galadmin.app.dev/magic-link');
-    });
-
-    it('a universe admin (u.*) can claim the .dev authoring star', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-univadmin');
-      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
-        { authScopePattern: 'm2-univadmin.*', admin: true });
-      expect(result.magicLinkUrl).toContain('/auth/m2-univadmin.app.dev/magic-link');
-    });
-
-    it('a platform admin (*) can claim the .dev authoring star', async () => {
-      const { registry, devStar } = await setupGalaxy('m2-platadmin');
-      const result = await registry.claimStar(devStar, 'admin@example.com', 'http://localhost',
-        { authScopePattern: '*', admin: true });
-      expect(result.magicLinkUrl).toContain('/auth/m2-platadmin.app.dev/magic-link');
-    });
-
-    it('a NON-.dev star claim stays open — no caller access required (claim ≠ use; gate is .dev-only)', async () => {
-      const { registry } = await setupGalaxy('m2-opentenant');
-      // A plain tenant star (not `.dev`) is NOT parent-admin gated — it claims openly, exactly as
-      // before m2. Pins the gate's scope to `.dev`; widening it to all stars would red this.
-      const result = await registry.claimStar('m2-opentenant.app.tenant', 'tenant@example.com', 'http://localhost');
-      expect(result.magicLinkUrl).toContain('/auth/m2-opentenant.app.tenant/magic-link');
-    });
-  });
-
-  // ============================================
-  // Galaxy Creation
-  // ============================================
-
+  // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
   describe('createGalaxy', () => {
-    it('creates a galaxy under an existing universe', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('gal-univ', 'admin@example.com', 'http://localhost');
-
-      const result = await registry.createGalaxy(
-        'gal-univ.my-galaxy',
-        { authScopePattern: 'gal-univ.*', admin: true },
-      );
+    it('creates a galaxy Scopes row under an existing universe (no founder identity)', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('gal-univ', 'admin@example.com', 'http://localhost');
+      const result = await r.createGalaxy('gal-univ.my-galaxy', ADMIN_OVER('gal-univ'));
       expect(result.instanceName).toBe('gal-univ.my-galaxy');
-
-      const available = await registry.checkSlugAvailable('gal-univ.my-galaxy');
-      expect(available).toBe(false);
+      expect(await r.checkSlugAvailable('gal-univ.my-galaxy')).toBe(false);
+      // wildcard-managed: no identity minted in the galaxy.
+      expect(await r.discover('admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', isAdmin: true }]);
     });
 
-    it('platform admin can create galaxy', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('plat-gal-univ', 'x@example.com', 'http://localhost');
-
-      const result = await registry.createGalaxy(
-        'plat-gal-univ.galaxy',
-        { authScopePattern: '*', admin: true },
-      );
-      expect(result.instanceName).toBe('plat-gal-univ.galaxy');
-    });
-
-    it('rejects non-admin caller', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('nonadmin-gal-univ', 'x@example.com', 'http://localhost');
-
-      await expect(
-        registry.createGalaxy(
-          'nonadmin-gal-univ.galaxy',
-          { authScopePattern: 'nonadmin-gal-univ.*', admin: false },
-        ),
-      ).rejects.toThrow(/admin access/);
-    });
-
-    it('rejects galaxy under nonexistent universe', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.createGalaxy(
-          'nonexistent.galaxy',
-          { authScopePattern: 'nonexistent.*', admin: true },
-        ),
-      ).rejects.toThrow(/does not exist/);
-    });
-
-    it('rejects non-galaxy tier id', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.createGalaxy(
-          'just-a-universe',
-          { authScopePattern: '*', admin: true },
-        ),
-      ).rejects.toThrow(/2-segment/);
-    });
-
-    it('rejects galaxy admin with wrong scope', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('scope-gal-univ', 'x@example.com', 'http://localhost');
-
-      await expect(
-        registry.createGalaxy(
-          'scope-gal-univ.galaxy',
-          { authScopePattern: 'other-univ.*', admin: true },
-        ),
-      ).rejects.toThrow(/admin access/);
-    });
-
-    it('rejects duplicate galaxy', async () => {
-      const registry = getRegistry();
-      await registry.claimUniverse('dup-gal-univ', 'x@example.com', 'http://localhost');
-      await registry.createGalaxy('dup-gal-univ.galaxy', { authScopePattern: 'dup-gal-univ.*', admin: true });
-
-      await expect(
-        registry.createGalaxy(
-          'dup-gal-univ.galaxy',
-          { authScopePattern: 'dup-gal-univ.*', admin: true },
-        ),
-      ).rejects.toThrow(/already claimed/);
+    it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
+      const r = freshRegistry();
+      await r.claimUniverse('gu', 'x@example.com', 'http://localhost');
+      await expect(r.createGalaxy('gu.g', { authScopePattern: 'gu.*', admin: false })).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('nonexistent.g', ADMIN_OVER('nonexistent'))).rejects.toThrow(/does not exist/);
+      await expect(r.createGalaxy('just-a-universe', { authScopePattern: '*', admin: true })).rejects.toThrow(/2-segment/);
+      await expect(r.createGalaxy('gu.g', { authScopePattern: 'other.*', admin: true })).rejects.toThrow(/admin access/);
+      await r.createGalaxy('gu.g', ADMIN_OVER('gu'));
+      await expect(r.createGalaxy('gu.g', ADMIN_OVER('gu'))).rejects.toThrow(/already claimed/);
     });
   });
 
-  // ============================================
-  // createStar (in-session, no email) + myScopeTree
-  // ============================================
-
+  // ── createStar (in-session, no email) + myScopeTree ─────────────────────────────────────────────
   describe('createStar (in-session) + myScopeTree', () => {
-    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
-
-    async function galaxy(u: string) {
-      const registry = getRegistry();
-      await registry.claimUniverse(u, 'owner@example.com', 'http://localhost');
-      await registry.createGalaxy(`${u}.app`, ADMIN_OVER(u));
-      return registry;
+    async function galaxy(r: any, u: string) {
+      await r.claimUniverse(u, 'owner@example.com', 'http://localhost');
+      await r.createGalaxy(`${u}.app`, ADMIN_OVER(u));
     }
 
-    it('creates a .dev star in-session — NO email, registers the instance', async () => {
-      const registry = await galaxy('cs-ok');
-      const result = await registry.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'));
+    it('creates a .dev star Scopes row in-session — NO email round-trip', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'cs-ok');
+      const result = await r.createStar('cs-ok.app.dev', ADMIN_OVER('cs-ok'));
       expect(result).toEqual({ instanceName: 'cs-ok.app.dev' });
-      expect((result as any).magicLinkUrl).toBeUndefined(); // no email round-trip
-      expect(await registry.checkSlugAvailable('cs-ok.app.dev')).toBe(false);
+      expect((result as any).magicLinkUrl).toBeUndefined();
+      expect(await r.checkSlugAvailable('cs-ok.app.dev')).toBe(false);
     });
 
-    it('rejects a non-galaxy-admin caller', async () => {
-      const registry = await galaxy('cs-nonadmin');
-      await expect(
-        registry.createStar('cs-nonadmin.app.dev', { authScopePattern: 'cs-nonadmin.*', admin: false }),
-      ).rejects.toThrow(/not an admin of the parent galaxy/);
+    it('rejects non-galaxy-admin / nonexistent parent / non-star tier', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'cs-x');
+      await expect(r.createStar('cs-x.app.dev', { authScopePattern: 'cs-x.*', admin: false })).rejects.toThrow(/not an admin of the parent galaxy/);
+      await expect(r.createStar('cs-noparent.app.dev', { authScopePattern: '*', admin: true })).rejects.toThrow(/does not exist/);
+      await expect(r.createStar('cs-bad.app', { authScopePattern: '*', admin: true })).rejects.toThrow(/3-segment/);
     });
 
-    it('rejects a star under a nonexistent galaxy', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.createStar('cs-noparent.app.dev', { authScopePattern: '*', admin: true }),
-      ).rejects.toThrow(/does not exist/);
-    });
-
-    it('rejects a non-star tier id', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.createStar('cs-bad.app', { authScopePattern: '*', admin: true }),
-      ).rejects.toThrow(/3-segment/);
-    });
-
-    it('myScopeTree returns the universe + descendants for a universe admin', async () => {
-      const registry = await galaxy('cs-tree');
-      await registry.createStar('cs-tree.app.dev', ADMIN_OVER('cs-tree'));
-
-      const tree = await registry.myScopeTree(ADMIN_OVER('cs-tree'));
-      const names = tree.map((s: any) => s.instanceName).sort();
-      expect(names).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
-      // carries tier + isDev so the client can render + pick bindings
-      expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual(
-        { instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
-    });
-
-    it('myScopeTree returns [] for a non-admin', async () => {
-      const registry = await galaxy('cs-empty');
-      expect(await registry.myScopeTree({ authScopePattern: 'cs-empty.*', admin: false })).toEqual([]);
-    });
-
-    it('myScopeTree scopes to the caller — an exact star-pattern admin sees only that star', async () => {
-      const registry = await galaxy('cs-exact');
-      await registry.createStar('cs-exact.app.dev', ADMIN_OVER('cs-exact'));
-      const tree = await registry.myScopeTree({ authScopePattern: 'cs-exact.app.dev', admin: true });
-      expect(tree.map((s: any) => s.instanceName)).toEqual(['cs-exact.app.dev']);
+    it('myScopeTree returns the universe + descendants (tier + isDev); [] for a non-admin; scoped to the caller', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'cs-tree');
+      await r.createStar('cs-tree.app.dev', ADMIN_OVER('cs-tree'));
+      const tree = await r.myScopeTree(ADMIN_OVER('cs-tree'));
+      expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
+      expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual({ instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
+      expect(await r.myScopeTree({ authScopePattern: 'cs-tree.*', admin: false })).toEqual([]);
+      const exact = await r.myScopeTree({ authScopePattern: 'cs-tree.app.dev', admin: true });
+      expect(exact.map((s: any) => s.instanceName)).toEqual(['cs-tree.app.dev']);
     });
   });
 
-  // ============================================
-  // Scope deletion — cascade teardown (plan + execute)
-  // ============================================
-
+  // ── scope deletion (cascade teardown — sub-first) ───────────────────────────────────────────────
   describe('scope deletion (cascade teardown)', () => {
-    const OWNER = 'owner@example.com';
-    const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
-
     it('plan: a solo `.dev` star → affected is just that star, no blockers (carries tier + isDev)', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del1-u.app.dev', true);
-
-      const plan = await registry.planScopeDeletion('del1-u.app.dev', OWNER, ADMIN_OVER('del1-u'));
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d1.app.dev'], [{ sub: owner, scope: 'd1.app.dev', email: 'o@x.com', isAdmin: true }]);
+      const plan = await r.planScopeDeletion('d1.app.dev', owner, ADMIN_OVER('d1'));
       expect(plan.blockedBy).toEqual([]);
-      expect(plan.affected).toEqual([
-        { instanceName: 'del1-u.app.dev', tier: 'star', isDev: true },
+      expect(plan.affected).toEqual([{ instanceName: 'd1.app.dev', tier: 'star', isDev: true }]);
+    });
+
+    it('plan: prune-up wipes a registered ancestor left empty + user-less; STOPS at one with a live child', async () => {
+      const r1 = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r1, ['d3', 'd3.app.dev'], [
+        { sub: owner, scope: 'd3', email: 'o@x.com', isAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd3.app.dev', email: 'o@x.com', isAdmin: true },
       ]);
-    });
+      const plan = await r1.planScopeDeletion('d3.app.dev', owner, ADMIN_OVER('d3'));
+      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d3', 'd3.app.dev']);
 
-    it('plan: prune-up wipes a registered ancestor left empty + user-less', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del3-u', true); // universe registered
-      await registry.registerEmail(OWNER, 'del3-u.app.dev', true); // its only descendant
-
-      const plan = await registry.planScopeDeletion('del3-u.app.dev', OWNER, ADMIN_OVER('del3-u'));
-      expect(plan.blockedBy).toEqual([]);
-      const names = plan.affected.map((a: { instanceName: string }) => a.instanceName).sort();
-      expect(names).toEqual(['del3-u', 'del3-u.app.dev']); // pruned up to the now-empty universe
-    });
-
-    it('plan: prune-up STOPS at an ancestor that still has another live child', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del4-u', true);
-      await registry.registerEmail(OWNER, 'del4-u.app.dev', true);
-      await registry.registerEmail(OWNER, 'del4-u.app.other', true); // a sibling star survives
-
-      const plan = await registry.planScopeDeletion('del4-u.app.dev', OWNER, ADMIN_OVER('del4-u'));
-      // Only the target — the universe keeps its other star, so it is NOT pruned.
-      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del4-u.app.dev']);
+      const r2 = freshRegistry();
+      const owner2 = crypto.randomUUID();
+      await seed(r2, ['d4', 'd4.app.dev', 'd4.app.other'], [
+        { sub: owner2, scope: 'd4', email: 'o@x.com', isAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.dev', email: 'o@x.com', isAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.other', email: 'o@x.com', isAdmin: true },
+      ]);
+      const plan2 = await r2.planScopeDeletion('d4.app.dev', owner2, ADMIN_OVER('d4'));
+      expect(plan2.affected.map((a: any) => a.instanceName)).toEqual(['d4.app.dev']); // sibling survives → no prune
     });
 
     it('plan: deleting a higher node cascades DOWN to descendants', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del2-u', true);
-      await registry.registerEmail(OWNER, 'del2-u.app.dev', true);
-
-      const plan = await registry.planScopeDeletion('del2-u', OWNER, ADMIN_OVER('del2-u'));
-      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName).sort()).toEqual(['del2-u', 'del2-u.app.dev']);
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d2', 'd2.app.dev'], [{ sub: owner, scope: 'd2', email: 'o@x.com', isAdmin: true }]);
+      const plan = await r.planScopeDeletion('d2', owner, ADMIN_OVER('d2'));
+      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d2', 'd2.app.dev']);
     });
 
     it('guard: another user on the target blocks the delete (plan reports who/where)', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del5-u.app.dev', true);
-      await registry.registerEmail('other@example.com', 'del5-u.app.dev', false);
-
-      const plan = await registry.planScopeDeletion('del5-u.app.dev', OWNER, ADMIN_OVER('del5-u'));
-      expect(plan.blockedBy).toEqual([{ instanceName: 'del5-u.app.dev', email: 'other@example.com' }]);
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d5.app.dev'], [
+        { sub: owner, scope: 'd5.app.dev', email: 'owner@x.com', isAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd5.app.dev', email: 'other@x.com', isAdmin: false },
+      ]);
+      const plan = await r.planScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'));
+      expect(plan.blockedBy).toEqual([{ instanceName: 'd5.app.dev', email: 'other@x.com' }]);
     });
 
-    it('execute: solo delete removes the registry rows (discovery → empty, slug free) + returns affected', async () => {
-      const registry = getRegistry();
-      // Unique email — the registry DO is shared across tests, so `discover` is email-global;
-      // a per-test email keeps the "discovery → empty" assertion isolated (testing.md pollution).
-      const solo = 'solo6@example.com';
-      await registry.registerEmail(solo, 'del6-u.app.dev', true);
-
-      const result = await registry.executeScopeDeletion('del6-u.app.dev', solo, ADMIN_OVER('del6-u'));
-      expect(result.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del6-u.app.dev']);
-      expect(await registry.discover(solo)).toEqual([]); // Emails gone → clean first-run
-      expect(await registry.checkSlugAvailable('del6-u.app.dev')).toBe(true); // Instances gone
+    it('execute: solo delete removes the rows (discover empty, slug free)', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', isAdmin: true }]);
+      const result = await r.executeScopeDeletion('d6.app.dev', owner, ADMIN_OVER('d6'));
+      expect(result.affected.map((a: any) => a.instanceName)).toEqual(['d6.app.dev']);
+      expect(await r.discover('solo@x.com')).toEqual([]);
+      expect(await r.checkSlugAvailable('d6.app.dev')).toBe(true);
     });
 
-    it('execute: refuses (throws) when another user is attached, and removes nothing', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del7-u.app.dev', true);
-      await registry.registerEmail('other@example.com', 'del7-u.app.dev', false);
-
-      await expect(
-        registry.executeScopeDeletion('del7-u.app.dev', OWNER, ADMIN_OVER('del7-u')),
-      ).rejects.toThrow(/other users/);
-      // Nothing wiped — the slug is still taken.
-      expect(await registry.checkSlugAvailable('del7-u.app.dev')).toBe(false);
-    });
-
-    it('authz: a non-admin (or wrong-scope) caller is rejected (403)', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del8-u.app.dev', true);
-
-      await expect(
-        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'del8-u.*', admin: false }),
-      ).rejects.toThrow(/not an admin/);
-      await expect(
-        registry.planScopeDeletion('del8-u.app.dev', OWNER, { authScopePattern: 'other-univ.*', admin: true }),
-      ).rejects.toThrow(/not an admin/);
+    it('authz: a non-admin / wrong-scope caller is rejected (403); reserved platform cannot be deleted', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', isAdmin: true }]);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'd8.*', admin: false })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'other.*', admin: true })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('nebula-platform', owner, { authScopePattern: '*', admin: true })).rejects.toThrow(/cannot be deleted/);
     });
 
     it('prune-up authz: a star-only admin deletes their star but does NOT prune the universe', async () => {
-      const registry = getRegistry();
-      await registry.registerEmail(OWNER, 'del9-u', true);
-      await registry.registerEmail(OWNER, 'del9-u.app.dev', true);
-
-      // Exact star-tier admin pattern — covers the star, NOT the parent universe.
-      const plan = await registry.planScopeDeletion(
-        'del9-u.app.dev', OWNER, { authScopePattern: 'del9-u.app.dev', admin: true },
-      );
-      expect(plan.affected.map((a: { instanceName: string }) => a.instanceName)).toEqual(['del9-u.app.dev']); // universe NOT pruned
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(r, ['d9', 'd9.app.dev'], [
+        { sub: owner, scope: 'd9.app.dev', email: 'o@x.com', isAdmin: true },
+      ]);
+      const plan = await r.planScopeDeletion('d9.app.dev', owner, { authScopePattern: 'd9.app.dev', admin: true });
+      expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 
-    it('reserved platform instance cannot be deleted', async () => {
-      const registry = getRegistry();
+    it('fail-closed (M2): a callerSub with no identity is refused (403), never "no other users → wipe"', async () => {
+      const r = freshRegistry();
+      await seed(r, ['d10.app.dev'], [{ sub: crypto.randomUUID(), scope: 'd10.app.dev', email: 'o@x.com', isAdmin: true }]);
       await expect(
-        registry.planScopeDeletion('nebula-platform', OWNER, { authScopePattern: '*', admin: true }),
-      ).rejects.toThrow(/cannot be deleted/);
-    });
-  });
-
-  // ============================================
-  // NA→R Wiring: magic link first-verify registers email
-  // ============================================
-
-  describe('NA→R wiring: magic link registers email in registry', () => {
-    it('first magic link verification creates email→scope mapping', async () => {
-      const inst = 'nar-ml-1';
-      const stub = env.NEBULA_AUTH.getByName(inst);
-      const registry = getRegistry();
-
-      // Before login: no mapping
-      let entries = await registry.discover('nar-ml-user@example.com');
-      expect(entries).toHaveLength(0);
-
-      // Login via magic link
-      await fullLogin(stub, inst, 'nar-ml-user@example.com');
-
-      // After login: mapping exists
-      entries = await registry.discover('nar-ml-user@example.com');
-      expect(entries.some((e: any) => e.instanceName === inst)).toBe(true);
-    });
-
-    it('second login does not duplicate registry entry', async () => {
-      const inst = 'nar-ml-2';
-      const stub = env.NEBULA_AUTH.getByName(inst);
-      const registry = getRegistry();
-
-      await fullLogin(stub, inst, 'nar-ml-user2@example.com');
-      await fullLogin(stub, inst, 'nar-ml-user2@example.com');
-
-      const entries = await registry.discover('nar-ml-user2@example.com');
-      const matching = entries.filter((e: any) => e.instanceName === inst);
-      expect(matching).toHaveLength(1);
-    });
-  });
-
-  // ============================================
-  // NA→R Wiring: invite registers email in registry
-  // ============================================
-
-  describe('NA→R wiring: invite registers email in registry', () => {
-    it('invite pre-registers email→scope mapping', async () => {
-      const inst = 'nar-inv-1';
-      const stub = env.NEBULA_AUTH.getByName(inst);
-      const registry = getRegistry();
-
-      const admin = await fullLogin(stub, inst, 'admin@example.com');
-
-      // Invite a new user
-      await adminRequest(stub, inst, 'invite?_test=true', admin.access_token, {
-        method: 'POST',
-        body: { emails: ['invitee@example.com'] },
-      });
-
-      // Email should be in registry even before invitee accepts
-      const entries = await registry.discover('invitee@example.com');
-      expect(entries.some((e: any) => e.instanceName === inst)).toBe(true);
-    });
-  });
-
-  // ============================================
-  // NA→R Wiring: delete removes email from registry
-  // ============================================
-
-  describe('NA→R wiring: delete removes email from registry', () => {
-    it('deleting a subject removes email→scope from registry', async () => {
-      const inst = 'nar-del-1';
-      const stub = env.NEBULA_AUTH.getByName(inst);
-      const registry = getRegistry();
-
-      const admin = await fullLogin(stub, inst, 'admin@example.com');
-      const user = await fullLogin(stub, inst, 'delete-me@example.com');
-
-      // Confirm registered
-      let entries = await registry.discover('delete-me@example.com');
-      expect(entries.some((e: any) => e.instanceName === inst)).toBe(true);
-
-      // Delete subject
-      await adminRequest(stub, inst, `subject/${user.parsed.sub}`, admin.access_token, {
-        method: 'DELETE',
-      });
-
-      // Confirm removed from registry
-      entries = await registry.discover('delete-me@example.com');
-      expect(entries.some((e: any) => e.instanceName === inst)).toBe(false);
-    });
-  });
-
-  // ============================================
-  // NA→R Wiring: role change updates registry
-  // ============================================
-
-  describe('NA→R wiring: role change updates registry', () => {
-    it('promoting to admin updates registry isAdmin flag', async () => {
-      const inst = 'nar-role-1';
-      const stub = env.NEBULA_AUTH.getByName(inst);
-      const registry = getRegistry();
-
-      const admin = await fullLogin(stub, inst, 'admin@example.com');
-      const user = await fullLogin(stub, inst, 'promote-me@example.com');
-
-      // Before promotion: not admin in registry
-      let entries = await registry.discover('promote-me@example.com');
-      let entry = entries.find((e: any) => e.instanceName === inst);
-      expect(entry?.isAdmin).toBe(false);
-
-      // Promote
-      await adminRequest(stub, inst, `subject/${user.parsed.sub}`, admin.access_token, {
-        method: 'PATCH',
-        body: { isAdmin: true },
-      });
-
-      // After promotion: admin in registry
-      entries = await registry.discover('promote-me@example.com');
-      entry = entries.find((e: any) => e.instanceName === inst);
-      expect(entry?.isAdmin).toBe(true);
-    });
-  });
-
-  // ============================================
-  // Discovery integration (from Validation Plan)
-  // ============================================
-
-  describe('Discovery integration', () => {
-    it('discovery returns all scopes for an email, revocation removes one', async () => {
-      const registry = getRegistry();
-
-      // Create two stars with the same email
-      const stubA = env.NEBULA_AUTH.getByName('disc.crm.star-a');
-      const stubB = env.NEBULA_AUTH.getByName('disc.crm.star-b');
-      await fullLogin(stubA, 'disc.crm.star-a', 'carol@example.com');
-      await fullLogin(stubB, 'disc.crm.star-b', 'carol@example.com');
-
-      // Both scopes returned
-      let entries = await registry.discover('carol@example.com');
-      const names = entries.map((e: any) => e.instanceName);
-      expect(names).toContain('disc.crm.star-a');
-      expect(names).toContain('disc.crm.star-b');
-
-      // Revoke from star-b: need an admin in star-b
-      // The first user is founding admin, so carol IS the admin
-      const carolB = await fullLogin(stubB, 'disc.crm.star-b', 'carol@example.com');
-
-      // Add a second user then delete carol from star-b
-      const user2 = await fullLogin(stubB, 'disc.crm.star-b', 'user2@example.com');
-
-      // Carol can't delete herself, so let's promote user2 and use them to delete carol
-      await adminRequest(stubB, 'disc.crm.star-b', `subject/${user2.parsed.sub}`, carolB.access_token, {
-        method: 'PATCH',
-        body: { isAdmin: true },
-      });
-
-      // user2 needs a fresh token (now admin)
-      const user2Fresh = await fullLogin(stubB, 'disc.crm.star-b', 'user2@example.com');
-      await adminRequest(stubB, 'disc.crm.star-b', `subject/${carolB.parsed.sub}`, user2Fresh.access_token, {
-        method: 'DELETE',
-      });
-
-      // Discovery now only returns star-a
-      entries = await registry.discover('carol@example.com');
-      const updatedNames = entries.map((e: any) => e.instanceName);
-      expect(updatedNames).toContain('disc.crm.star-a');
-      expect(updatedNames).not.toContain('disc.crm.star-b');
-    });
-  });
-
-  // ============================================
-  // Email validation on claim paths
-  // ============================================
-
-  describe('email validation', () => {
-    it('claimUniverse rejects invalid email format', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimUniverse('email-val-univ', 'not-an-email', 'http://localhost'),
-      ).rejects.toThrow(/invalid.*email/i);
-    });
-
-    it('claimUniverse rejects email missing local part', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimUniverse('email-val-univ-2', '@domain.com', 'http://localhost'),
-      ).rejects.toThrow(/invalid.*email/i);
-    });
-
-    it('claimUniverse rejects email missing domain', async () => {
-      const registry = getRegistry();
-      await expect(
-        registry.claimUniverse('email-val-univ-3', 'user@', 'http://localhost'),
-      ).rejects.toThrow(/invalid.*email/i);
-    });
-
-    it('claimStar rejects invalid email format', async () => {
-      const registry = getRegistry();
-      // Need a parent galaxy to exist
-      await registry.claimUniverse('cs-email-val', 'valid@example.com', 'http://localhost');
-      const naStub = (env as any).NEBULA_AUTH.getByName('cs-email-val');
-      await fullLogin(naStub, 'cs-email-val', 'valid@example.com');
-      await registry.createGalaxy('cs-email-val.app', { authScopePattern: 'cs-email-val.*', admin: true });
-
-      await expect(
-        registry.claimStar('cs-email-val.app.tenant', 'bad-email', 'http://localhost'),
-      ).rejects.toThrow(/invalid.*email/i);
+        r.planScopeDeletion('d10.app.dev', 'ghost-sub', ADMIN_OVER('d10')),
+      ).rejects.toThrow(/not found|forbidden/i);
     });
   });
 });

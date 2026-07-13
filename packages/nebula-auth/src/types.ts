@@ -46,88 +46,95 @@ export interface AccessEntry {
   admin?: boolean;
 }
 
-/** Nebula JWT payload — extends standard JWT claims with nebula-specific access */
+/**
+ * Nebula JWT payload — standard claims + nebula-specific `access`.
+ *
+ * `email` and `adminApproved` are NOT claims (removed in tasks/nebula-auth-surrogate-sub.md):
+ * `email` is a registry-only mutable attribute (resolved via the registry when needed, never keyed
+ * off), and `adminApproved` is retired (enforced at MINT — a valid token proves authorized
+ * membership by construction, so there is no edge gate to feed).
+ */
 export interface NebulaJwtPayload {
   /** Issuer — always NEBULA_AUTH_ISSUER */
   iss: string;
   /** Audience — the active universeGalaxyStarId this token is scoped to.
    *  Set from the required `activeScope` field in the refresh/delegation request body. */
   aud: string;
-  /** Subject UUID (within the issuing DO instance) */
+  /** Subject — the registry-minted surrogate `sub` (one per email-in-a-scope). */
   sub: string;
-  /** Expiration (Unix seconds) */
+  /** Expiration (Unix seconds — JWT NumericDate, ADR-011 carve-out) */
   exp: number;
-  /** Issued at (Unix seconds) */
+  /** Issued at (Unix seconds — JWT NumericDate) */
   iat: number;
   /** JWT ID (UUID) */
   jti: string;
-  /** Whether the subject has been approved by an admin */
-  adminApproved: boolean;
-  /** Subject's email address */
-  email: string;
-  /** Scoped access (one entry per JWT, issued by one DO instance) */
+  /** Scoped access (one entry per JWT). */
   access: AccessEntry;
   /** Delegation chain per RFC 8693 (optional) */
   act?: ActClaim;
 }
 
 // ---------------------------------------------------------------------------
-// Subjects (row shape from NebulaAuth SQLite)
+// Registry row shapes (NebulaAuthRegistry SQLite — see schemas.ts)
+// Timestamps are ISO 8601 Zulu strings (ADR-011); bearer tokens stored HASHED (`tokenHash`).
 // ---------------------------------------------------------------------------
 
-export interface Subject {
+/** `Scopes` row — scope existence + Universe consent (was `Instances`). */
+export interface Scope {
+  universeGalaxyStarId: string;
+  /** Universe-level data-use consent (opt-IN). Nullable/absent on non-Universe scopes. */
+  improveProductConsent?: boolean;
+}
+
+/** `Identities` row — person-in-a-scope (merged `Emails` + `Subjects`). */
+export interface Identity {
+  /** Registry-minted surrogate identity key (UUID). */
   sub: string;
+  universeGalaxyStarId: string;
+  /** MUTABLE current login address (lowercased). The ONLY copy. */
   email: string;
+  isAdmin: boolean;
+  /** Per-scope proof-click. Replaces the retired `adminApproved` as the "authorized member" signal. */
   emailVerified: boolean;
-  adminApproved: boolean;
-  isAdmin: boolean;
-  createdAt: number;
-  lastLoginAt: number | null;
+  createdAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Token types
-// ---------------------------------------------------------------------------
-
-export interface MagicLink {
-  token: string;
-  email: string;
-  expiresAt: number;
-}
-
-export interface InviteToken {
-  token: string;
-  email: string;
-  expiresAt: number;
-}
-
-export interface RefreshToken {
+/** `RefreshTokenIndex` row — live-token index for reliable KV invalidation. */
+export interface RefreshTokenIndex {
   tokenHash: string;
-  subjectId: string;
-  expiresAt: number;
-  createdAt: number;
-  revoked: boolean;
+  sub: string;
+  expiresAt: string;
 }
 
-// ---------------------------------------------------------------------------
-// Registry types
-// ---------------------------------------------------------------------------
-
-export interface RegistryInstance {
-  instanceName: string;
-  createdAt: number;
-}
-
-export interface RegistryEmail {
-  email: string;
-  instanceName: string;
+/** The Workers-KV refresh record (`refresh:{tokenHash}`), read at the edge on refresh — no registry.
+ *  `expiresAt` (absolute) is re-applied on a convergence re-put (CF KV drops expirationTtl on put). */
+export interface RefreshTokenKV {
+  sub: string;
+  universeGalaxyStarId: string;
   isAdmin: boolean;
-  createdAt: number;
+  expiresAt: string;
 }
 
-/** Discovery result returned by POST {prefix}/discover */
+/** `MagicLinks` row — login channel, token stored HASHED. */
+export interface MagicLink {
+  tokenHash: string;
+  email: string;
+  universeGalaxyStarId: string;
+  expiresAt: string;
+}
+
+/** `InviteTokens` row — login channel, token stored HASHED, single-use. */
+export interface InviteToken {
+  tokenHash: string;
+  email: string;
+  universeGalaxyStarId: string;
+  expiresAt: string;
+}
+
+/** Discovery result returned by POST {prefix}/discover. `sub`-free by design — `discover` is
+ *  unauthenticated/unthrottled, so it must never leak the surrogate identity key. */
 export interface DiscoveryEntry {
-  instanceName: string;
+  universeGalaxyStarId: string;
   isAdmin: boolean;
 }
 

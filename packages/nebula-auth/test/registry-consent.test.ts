@@ -22,11 +22,10 @@ describe('consent at claimUniverse + the consented corpus', () => {
   it('corpus filter: only consent=1 user Universes; NULL, declined-0, and platform are excluded', async () => {
     const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-corpus-${crypto.randomUUID()}`);
     const corpus = await (runInDurableObject as any)(stub, (instance: any, ctx: any) => {
-      const now = Date.now();
       const ins = (name: string, consent: number | null) =>
         ctx.storage.sql.exec(
-          'INSERT INTO Instances (instanceName, createdAt, improveProductConsent) VALUES (?, ?, ?)',
-          name, now, consent,
+          'INSERT INTO Scopes (universeGalaxyStarId, improveProductConsent) VALUES (?, ?)',
+          name, consent,
         );
       ins('acme', 1);                 // consented user Universe → included
       ins('acme.crm', null);          // sub-instance NULL (inherit) → excluded by `= 1`

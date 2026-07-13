@@ -22,4 +22,4 @@ export {
   DevStudio,
   DevContainer,
 } from './index';
-export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';

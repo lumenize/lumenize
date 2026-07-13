@@ -4,8 +4,13 @@
  *
  * Reused by BOTH mint paths so a token minted anywhere is byte-for-byte the shape the
  * server issues:
- *   - the production server mint — `NebulaAuth.#generateAccessToken` (real login / refresh);
+ *   - the production Worker mint — `worker-token.mintAccessToken` (refresh / delegated-token);
  *   - the test-util mint — {@link createNebulaTestToken} (a Node harness with the `.dev.vars` key).
+ *
+ * `email` and `adminApproved` are NOT claims (tasks/nebula-auth-surrogate-sub.md): `email` is a
+ * registry-only mutable attribute (resolved via the registry when needed, never keyed off), and
+ * `adminApproved` is retired — enforced at MINT (the registry refuses to mint for an absent/
+ * unverified identity, so a valid token proves authorized membership by construction).
  *
  * This is the "factor out to share, don't copy" seam. A second (or third) hand-rolled copy
  * of the `access: { authScopePattern, admin? }` shape is exactly the drift the de-fork task
@@ -24,18 +29,14 @@ import { buildAuthScopePattern, matchAccess } from './parse-id';
 
 /** Inputs for {@link buildNebulaJwtPayload}. */
 export interface NebulaAccessClaimInput {
-  /** Subject UUID (within the issuing DO instance). */
+  /** The registry-minted surrogate `sub` (one per email-in-a-scope) — the identity key. */
   sub: string;
-  /** Subject's email address. */
-  email: string;
-  /** Issuing DO instance name (universeGalaxyStarId) — drives the `authScopePattern`. */
+  /** Issuing scope (universeGalaxyStarId) — drives the `authScopePattern`. */
   instanceName: string;
   /** JWT `aud` — the active scope this token is bound to. MUST be covered by the pattern. */
   activeScope: string;
   /** `access.admin` is set only when true (kept omitted otherwise to keep the JWT compact). */
   isAdmin: boolean;
-  /** Whether the subject has been approved by an admin. */
-  adminApproved: boolean;
   /** RFC 8693 delegation actor sub (`act.sub`) — omitted when absent. */
   actorSub?: string;
   /**
@@ -93,8 +94,6 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     exp: now + (input.ttlSeconds ?? ACCESS_TOKEN_TTL),
     iat: now,
     jti: generateUuid(),
-    email: input.email,
-    adminApproved: input.adminApproved,
     access,
     ...(input.actorSub ? { act: { sub: input.actorSub } } : {}),
   };

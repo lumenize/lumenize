@@ -1,67 +1,55 @@
 /**
- * Nebula Auth Worker — hand-written router
+ * Nebula Auth Worker router — the single entry composed into the default Worker.
  *
- * Single Worker that routes to NebulaAuth and NebulaAuthRegistry DOs.
- * Handles Turnstile, JWT verification, and per-subject rate limiting
- * at the edge before forwarding to DOs.
+ * Since tasks/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this router
+ * handles the token/login flows IN THE WORKER (see `worker-token.ts`) over Workers KV + registry RPC,
+ * and forwards the registry endpoints (discover / claim / create / my-scopes / delete-scope) to the
+ * singleton `NebulaAuthRegistry` DO after Turnstile / JWT gating.
  *
- * @see tasks/nebula-auth.md § Phase 5: Worker Router
+ * @see tasks/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
-import {
-  verifyJwt,
-  verifyJwtWithRotation,
-  importPublicKey,
-  extractWebSocketToken,
-  verifyTurnstileToken,
-} from '@lumenize/auth';
+import { extractWebSocketToken, verifyTurnstileToken } from '@lumenize/auth';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
-import { matchAccess, parseId, isDevAuthoringStar } from './parse-id';
-import {
-  NEBULA_AUTH_PREFIX,
-  NEBULA_AUTH_ISSUER,
-  REGISTRY_INSTANCE_NAME,
-} from './types';
+import { matchAccess, parseId } from './parse-id';
+import { NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
+import { verifyNebulaAccessToken } from './verify';
+import {
+  handleEmailMagicLink,
+  handleMagicLinkClick,
+  handleAcceptInvite,
+  handleRefreshToken,
+  handleLogout,
+  handleInvite,
+  handleDelegatedToken,
+} from './worker-token';
 
-/**
- * Options for {@link routeNebulaAuthRequest}.
- */
+/** Options for {@link routeNebulaAuthRequest}. */
 export interface RouteNebulaAuthOptions {
   /**
-   * CORS configuration for cross-origin browser callers.
-   *
-   * See `@lumenize/routing`'s {@link CorsOptions} for the full type. Pass
-   * `{ origin: [...] }` with the allowed origins (typically derived from
-   * the `LUMENIZE_APPROVED_ORIGINS` env binding).
-   *
-   * - `false` or omitted (default): no CORS headers, no preflight handling.
-   *   Same-origin browser callers and non-browser callers work normally;
-   *   cross-origin browser callers are blocked by the browser.
-   * - `true`: permissive — reflect any `Origin`.
-   * - `{ origin: string[] }`: allowlist.
-   * - `{ origin: (origin, request) => boolean }`: custom validation.
+   * CORS configuration for cross-origin browser callers (see `@lumenize/routing`'s {@link CorsOptions}).
+   * `false`/omitted (default): no CORS headers. `true`: reflect any Origin. `{ origin }`: allowlist.
    */
   cors?: CorsOptions;
 }
 
-// Registry endpoint suffixes (exact match after prefix)
+// Registry endpoint suffixes (exact match after the prefix) — forwarded to the registry DO.
+// (No `claim-star`: the current model has no open star self-signup — a star is created by its
+//  parent-Galaxy admin via `create-star`; see nebula-auth-registry.ts § createStar.)
 const REGISTRY_ENDPOINTS = new Set([
-  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
+  'discover', 'claim-universe', 'create-galaxy', 'create-star', 'my-scopes',
   'delete-scope-plan', 'delete-scope',
 ]);
 
-// Auth-flow endpoints on NA instances (no JWT required — token/cookie validated by DO)
-const AUTH_FLOW_SUFFIXES = new Set([
-  'email-magic-link',
-  'magic-link',
-  'accept-invite',
-  'refresh-token',
-  'logout',
-]);
+// Instance-path auth flows handled IN THE WORKER (no JWT — token/cookie validated by the flow itself).
+const AUTH_FLOW_SUFFIXES = new Set(['email-magic-link', 'magic-link', 'accept-invite', 'refresh-token', 'logout']);
 
-// Turnstile-gated endpoints
-const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star', 'discover']);
+// Instance-path authenticated endpoints (JWT verified here, then handled in the Worker).
+const AUTHENTICATED_SUFFIXES = new Set(['invite', 'delegated-token']);
+
+// Turnstile-gated endpoints.
+const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'discover']);
 
 // ============================================
 // Response helpers
@@ -69,97 +57,48 @@ const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'clai
 
 function jsonError(status: number, error: string, description: string): Response {
   return Response.json({ error, error_description: description }, {
-    status,
-    headers: { 'Content-Type': 'application/json' },
+    status, headers: { 'Content-Type': 'application/json' },
   });
 }
 
 function json401(error: string, description: string): Response {
-  return new Response(
-    JSON.stringify({ error, error_description: description }),
-    {
-      status: 401,
-      headers: {
-        'Content-Type': 'application/json',
-        'WWW-Authenticate': `Bearer realm="Nebula", error="${error}", error_description="${description}"`,
-      },
+  return new Response(JSON.stringify({ error, error_description: description }), {
+    status: 401,
+    headers: {
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': `Bearer realm="Nebula", error="${error}", error_description="${description}"`,
     },
-  );
-}
-
-/**
- * Forward a request to a DO with a **materialized** body, not the live stream.
- *
- * Forwarding the original request's body stream across the Worker→DO boundary and
- * returning the DO's response races under `wrangler dev` on Linux: the Worker's request
- * context can tear down while the DO is still attached to the stream, throwing
- * "Can't read from request stream after response has been sent" → the runtime answers
- * `503`. Prod + pool-workers + macOS `wrangler dev` tolerate it; the Linux CI runner does
- * not. Reconstructing the request gives the DO a self-contained body and makes the forward
- * deterministic — this is the "always consume" half of the router's body discipline (the
- * field-injecting handlers above already reconstruct). GET/HEAD carry no body to dangle.
- */
-async function forwardToDo(stub: DurableObjectStub, request: Request): Promise<Response> {
-  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  if (!hasBody) return stub.fetch(request);
-  const buffered = await request.arrayBuffer();
-  return stub.fetch(new Request(request.url, {
-    method: request.method,
-    headers: request.headers,
-    body: buffered,
-  }));
+  });
 }
 
 // ============================================
-// Worker
+// Path parsing
 // ============================================
 
-/**
- * Parse the path after the prefix to determine routing target.
- *
- * Returns:
- * - { type: 'registry', endpoint } for registry paths
- * - { type: 'instance', instanceName, endpoint } for NA instance paths
- * - null if path doesn't match the prefix
- */
-function parsePath(pathname: string): {
-  type: 'registry'; endpoint: string;
-} | {
-  type: 'instance'; instanceName: string; endpoint: string;
-} | null {
+function parsePath(pathname: string):
+  | { type: 'registry'; endpoint: string }
+  | { type: 'instance'; instanceName: string; endpoint: string }
+  | null {
   const prefix = NEBULA_AUTH_PREFIX;
   if (!pathname.startsWith(prefix + '/')) return null;
-
   const rest = pathname.slice(prefix.length + 1); // after '/auth/'
   if (!rest) return null;
 
-  // Check if it's a registry endpoint (exact match, no instanceName segment)
-  if (REGISTRY_ENDPOINTS.has(rest)) {
-    return { type: 'registry', endpoint: rest };
-  }
+  if (REGISTRY_ENDPOINTS.has(rest)) return { type: 'registry', endpoint: rest };
 
-  // Instance path: {instanceName}/{endpoint} or {instanceName}
-  // instanceName contains dots but no slashes
   const slashIdx = rest.indexOf('/');
-  if (slashIdx === -1) {
-    // Just instanceName, no endpoint — could be a bare path
-    return { type: 'instance', instanceName: rest, endpoint: '' };
-  }
-
-  const instanceName = rest.slice(0, slashIdx);
-  const endpoint = rest.slice(slashIdx + 1);
-  return { type: 'instance', instanceName, endpoint };
+  if (slashIdx === -1) return { type: 'instance', instanceName: rest, endpoint: '' };
+  return { type: 'instance', instanceName: rest.slice(0, slashIdx), endpoint: rest.slice(slashIdx + 1) };
 }
 
-/**
- * Get the last segment of an endpoint path.
- * e.g. "subject/abc123/actors" → "actors"
- * e.g. "refresh-token" → "refresh-token"
- */
 function endpointSuffix(endpoint: string): string {
   const lastSlash = endpoint.lastIndexOf('/');
   return lastSlash === -1 ? endpoint : endpoint.slice(lastSlash + 1);
 }
+
+// ============================================
+// Router entry
+// ============================================
 
 export async function routeNebulaAuthRequest(
   request: Request,
@@ -168,21 +107,11 @@ export async function routeNebulaAuthRequest(
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
-  // 1. Match prefix — return undefined for non-matching paths (fallthrough pattern).
-  //    CORS is applied AFTER the path match so that requests on other prefixes
-  //    fall through to the next router cleanly (the entrypoint composes us with
-  //    other handlers).
   const parsed = parsePath(url.pathname);
-  if (!parsed) {
-    return undefined;
-  }
+  if (!parsed) return undefined;
 
-  // 2. CORS policy — handle preflight + origin gating once, share allowedOrigin
-  //    with the response-wrapping step below.
   const corsDecision = applyCorsPolicy(request, options.cors ?? false);
-  if (corsDecision.earlyResponse) {
-    return corsDecision.earlyResponse;
-  }
+  if (corsDecision.earlyResponse) return corsDecision.earlyResponse;
   const allowedOrigin = corsDecision.allowedOrigin;
   const withCors = (response: Response): Response =>
     allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
@@ -190,9 +119,8 @@ export async function routeNebulaAuthRequest(
   try {
     if (parsed.type === 'registry') {
       return withCors(await handleRegistryPath(request, env, parsed.endpoint));
-    } else {
-      return withCors(await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint));
     }
+    return withCors(await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint));
   } catch (err) {
     debug('nebula-auth.router.dispatch').error('dispatcher threw', {
       path: url.pathname,
@@ -207,183 +135,111 @@ export async function routeNebulaAuthRequest(
 }
 
 // ============================================
-// Registry path handler
+// Registry path handler — Turnstile / JWT gating, then forward to the registry DO
 // ============================================
 
-async function handleRegistryPath(
-  request: Request,
-  env: Env,
-  endpoint: string,
-): Promise<Response> {
-  // Turnstile gating for unauthenticated endpoints
+/** Forward to the registry DO with the given body reconstructed (self-contained; avoids stream races). */
+function forwardToRegistry(request: Request, env: Env, body: Record<string, any>): Promise<Response> {
+  const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+  return registryStub.fetch(new Request(request.url, {
+    method: request.method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+}
+
+async function readJsonBody(request: Request): Promise<Record<string, any> | null> {
+  try { return await request.json() as Record<string, any>; }
+  catch { return null; }
+}
+
+async function handleRegistryPath(request: Request, env: Env, endpoint: string): Promise<Response> {
+  // Registry endpoints are POST-only. Forward a non-POST raw (no body-injection, which would build an
+  // invalid GET-with-body) so the registry DO answers with its own 405.
+  if (request.method !== 'POST') {
+    return env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
+  }
+
   if (TURNSTILE_ENDPOINTS.has(endpoint)) {
     const turnstileResult = await checkTurnstile(request, env);
     if (turnstileResult) return turnstileResult;
   }
 
-  // JWT gating for create-galaxy — pass verified payload in body
-  if (endpoint === 'create-galaxy') {
+  // create-galaxy / create-star / my-scopes — authenticated admin ops; inject the verified access claim.
+  if (endpoint === 'create-galaxy' || endpoint === 'create-star' || endpoint === 'my-scopes') {
     const jwtResult = await checkJwtForRegistry(request, env);
     if ('error' in jwtResult) return jwtResult.error;
-
-    // Read the original body, inject verifiedAccess, and forward
-    let body: Record<string, any>;
-    try {
-      body = await request.json() as Record<string, any>;
-    } catch (err) {
-      debug('nebula-auth.router.bodyParse').debug('create-galaxy body not JSON', {
-        path: new URL(request.url).pathname,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return jsonError(400, 'invalid_request', 'Request body must be JSON');
-    }
+    const body = (await readJsonBody(request)) ?? {}; // my-scopes carries no body
     body.verifiedAccess = jwtResult.payload.access;
-
-    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-    return registryStub.fetch(new Request(request.url, {
-      method: request.method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }));
+    return forwardToRegistry(request, env, body);
   }
 
-  // create-star / my-scopes — authenticated admin ops (no Turnstile). Verify the JWT and inject the
-  // verified access claim; the registry enforces admin-over-parent (create-star) / scopes the tree.
-  if (endpoint === 'create-star' || endpoint === 'my-scopes') {
-    const jwtResult = await checkJwtForRegistry(request, env);
-    if ('error' in jwtResult) return jwtResult.error;
-
-    let body: Record<string, any> = {};
-    try {
-      body = await request.json() as Record<string, any>;
-    } catch {
-      // my-scopes carries no body — that's fine; create-star's missing id is caught downstream.
-    }
-    body.verifiedAccess = jwtResult.payload.access;
-
-    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-    return registryStub.fetch(new Request(request.url, {
-      method: request.method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }));
-  }
-
-  // delete-scope-plan / delete-scope — authenticated admin ops (no Turnstile). Verify the JWT and
-  // inject BOTH the verified access claim AND the verified caller email (the registry's
-  // "no other users" guard needs a TRUSTED caller identity — never client-supplied, which a caller
-  // could spoof to exclude a victim and delete a shared scope). The registry enforces admin-over-scope.
+  // delete-scope(-plan) — inject BOTH the verified access claim AND the verified caller `sub` (the
+  // registry's cross-scope `#otherUsers` guard needs a TRUSTED caller identity — never client-supplied;
+  // `sub`, resolved to email inside the registry, replaces the retired JWT `email` claim).
   if (endpoint === 'delete-scope-plan' || endpoint === 'delete-scope') {
     const jwtResult = await checkJwtForRegistry(request, env);
     if ('error' in jwtResult) return jwtResult.error;
-
-    let body: Record<string, any>;
-    try {
-      body = await request.json() as Record<string, any>;
-    } catch (err) {
-      debug('nebula-auth.router.bodyParse').debug('delete-scope body not JSON', {
-        path: new URL(request.url).pathname,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return jsonError(400, 'invalid_request', 'Request body must be JSON');
-    }
+    const body = await readJsonBody(request);
+    if (!body) return jsonError(400, 'invalid_request', 'Request body must be JSON');
     body.verifiedAccess = jwtResult.payload.access;
-    body.callerEmail = jwtResult.payload.email;
-
-    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-    return registryStub.fetch(new Request(request.url, {
-      method: request.method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }));
+    body.callerSub = jwtResult.payload.sub;
+    return forwardToRegistry(request, env, body);
   }
 
-  // claim-star — Turnstile (above) PLUS a conditional JWT gate for `.dev` AUTHORING-Star claims
-  // (m2 parent-admin gate). A `.dev` claim must come from a parent-Galaxy admin, so verify the JWT
-  // and inject the verified access claim; the registry enforces. Other star claims stay open
-  // (Turnstile-only) — claim ≠ use. Reading the body here doesn't touch the Authorization header
-  // checkJwtForRegistry reads.
-  if (endpoint === 'claim-star') {
-    let body: Record<string, any>;
-    try {
-      body = await request.json() as Record<string, any>;
-    } catch (err) {
-      debug('nebula-auth.router.bodyParse').debug('claim-star body not JSON', {
-        path: new URL(request.url).pathname,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return jsonError(400, 'invalid_request', 'Request body must be JSON');
-    }
-
-    if (isDevAuthoringStar(body.universeGalaxyStarId)) {
-      const jwtResult = await checkJwtForRegistry(request, env);
-      if ('error' in jwtResult) return jwtResult.error;
-      body.verifiedAccess = jwtResult.payload.access;
-    }
-
-    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-    return registryStub.fetch(new Request(request.url, {
-      method: request.method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    }));
-  }
-
-  // Forward to registry DO
-  const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-  return forwardToDo(registryStub, request);
+  // discover / claim-universe — Turnstile only (or none); forward the body as-is.
+  const body = (await readJsonBody(request)) ?? {};
+  return forwardToRegistry(request, env, body);
 }
 
 // ============================================
-// Instance path handler
+// Instance path handler — token flows in the Worker
 // ============================================
 
 async function handleInstancePath(
-  request: Request,
-  env: Env,
-  instanceName: string,
-  endpoint: string,
+  request: Request, env: Env, instanceName: string, endpoint: string,
 ): Promise<Response> {
-  // Validate instance name format (1–3 dot-separated slugs)
-  try {
-    parseId(instanceName);
-  } catch (err) {
+  try { parseId(instanceName); }
+  catch (err) {
     debug('nebula-auth.router.instanceParse').debug('invalid instance name', {
-      instanceName,
-      error: err instanceof Error ? err.message : String(err),
+      instanceName, error: err instanceof Error ? err.message : String(err),
     });
     return jsonError(400, 'invalid_instance', 'Invalid instance name format');
   }
 
   const suffix = endpointSuffix(endpoint);
 
-  // Auth-flow endpoints: Turnstile on email-magic-link, rest forwarded directly
+  // Auth flows — handled in the Worker (Turnstile on email-magic-link).
   if (AUTH_FLOW_SUFFIXES.has(suffix)) {
     if (suffix === 'email-magic-link') {
+      if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
       const turnstileResult = await checkTurnstile(request, env);
       if (turnstileResult) return turnstileResult;
+      return handleEmailMagicLink(request, env, instanceName);
     }
-    const naStub = env.NEBULA_AUTH.getByName(instanceName);
-    return forwardToDo(naStub, request);
+    if (suffix === 'magic-link' && request.method === 'GET') return handleMagicLinkClick(request, env);
+    if (suffix === 'accept-invite' && request.method === 'GET') return handleAcceptInvite(request, env);
+    if (suffix === 'refresh-token' && request.method === 'POST') return handleRefreshToken(request, env);
+    if (suffix === 'logout' && request.method === 'POST') return handleLogout(request, env, instanceName);
+    return new Response('Method Not Allowed', { status: 405 });
   }
 
-  // Authenticated endpoints: JWT verify + scope match + rate limit
-  const authResult = await checkJwtForInstance(request, env, instanceName);
-  if (authResult) return authResult;
+  // Authenticated flows — verify JWT (scope match) + rate limit, then handle in the Worker.
+  if (AUTHENTICATED_SUFFIXES.has(suffix) && request.method === 'POST') {
+    const authResult = await verifyInstanceJwt(request, env, instanceName);
+    if ('error' in authResult) return authResult.error;
+    if (suffix === 'invite') return handleInvite(request, env, instanceName, authResult.payload.access);
+    return handleDelegatedToken(request, env, authResult.payload);
+  }
 
-  const naStub = env.NEBULA_AUTH.getByName(instanceName);
-  return forwardToDo(naStub, request);
+  return new Response('Not Found', { status: 404 });
 }
 
 // ============================================
 // Turnstile validation
 // ============================================
 
-/**
- * Constant-time string comparison — avoids leaking how many leading chars matched via early-exit
- * timing. The length short-circuit is acceptable here: the bypass token is a fixed-length
- * high-entropy secret, so its length is not sensitive. Used only for the Turnstile bypass token.
- */
+/** Constant-time compare for the fixed-length Turnstile-bypass token (length short-circuit is fine). */
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -395,11 +251,9 @@ function constantTimeEqual(a: string, b: string): boolean {
 export const TURNSTILE_BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
 
 /**
- * Whether a request carries the authorized Turnstile-bypass token (the {@link TURNSTILE_BYPASS_HEADER}
- * header constant-time-equals `env.NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). Skips ONLY Turnstile (the
- * anti-bot gate on unauthenticated endpoints) — never the magic-link / JWT / scope checks, so it is
- * not an auth bypass. Returns false when the knob is unset (bypass disabled) or the header is absent/
- * wrong. Exported for testing. The token is a secret — never log it.
+ * Whether a request carries the authorized Turnstile-bypass token. Skips ONLY Turnstile (never the
+ * magic-link / JWT / scope checks), so it is not an auth bypass. False when the knob is unset or the
+ * header is absent/wrong. The token is a secret — never log it.
  */
 export function isTurnstileBypassed(request: Request, env: object): boolean {
   const bypassToken = (env as { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN?: string }).NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN;
@@ -408,26 +262,12 @@ export function isTurnstileBypassed(request: Request, env: object): boolean {
   return presented !== null && constantTimeEqual(presented, bypassToken);
 }
 
-async function checkTurnstile(
-  request: Request,
-  env: Env,
-): Promise<Response | null> {
-  // Skip in test mode
+async function checkTurnstile(request: Request, env: Env): Promise<Response | null> {
   if ((env as any).NEBULA_AUTH_TEST_MODE === 'true') return null;
 
   const secretKey = (env as any).TURNSTILE_SECRET_KEY;
-  if (!secretKey) {
-    // No Turnstile configured — skip (development/test)
-    return null;
-  }
+  if (!secretKey) return null; // No Turnstile configured — skip (development)
 
-  // Authorized bypass — a request carrying the shared bypass token in its header skips Turnstile
-  // (and ONLY Turnstile: the magic-link, JWT verification, and scope checks all still apply, so this
-  // is not an auth bypass — a leaked token allows abuse/enumeration of the anti-bot-gated endpoints,
-  // never account takeover). For the trusted autonomous inspection identity (the `/live` prod-drive).
-  // Constant-time compared; the token is NEVER logged (security.md). Turnstile stays fully ON for
-  // every request without a valid token. The knob is a secret — never a committed var (packaging.md;
-  // audit-test-mode.sh forbids it in committed configs).
   if (isTurnstileBypassed(request, env)) {
     debug('nebula-auth.router.turnstileBypass').info('Turnstile bypassed via authorized token', {
       path: new URL(request.url).pathname, // pathname only — never the token
@@ -435,159 +275,60 @@ async function checkTurnstile(
     return null;
   }
 
-  // Clone request to read body without consuming it
   const cloned = request.clone();
   let body: Record<string, any>;
-  try {
-    body = await cloned.json();
-  } catch (err) {
+  try { body = await cloned.json(); }
+  catch (err) {
     debug('nebula-auth.router.turnstileBodyParse').debug('turnstile body not JSON', {
-      path: new URL(request.url).pathname,
-      error: err instanceof Error ? err.message : String(err),
+      path: new URL(request.url).pathname, error: err instanceof Error ? err.message : String(err),
     });
     return jsonError(400, 'invalid_request', 'Request body must be JSON');
   }
 
   const turnstileToken = body['cf-turnstile-response'] ?? body['turnstileToken'];
-  if (!turnstileToken) {
-    return jsonError(403, 'turnstile_required', 'Turnstile verification token is required');
-  }
+  if (!turnstileToken) return jsonError(403, 'turnstile_required', 'Turnstile verification token is required');
 
   const result = await verifyTurnstileToken(secretKey, turnstileToken);
-  if (!result.success) {
-    return jsonError(403, 'turnstile_failed', 'Turnstile verification failed');
-  }
-
-  return null; // passed
+  if (!result.success) return jsonError(403, 'turnstile_failed', 'Turnstile verification failed');
+  return null;
 }
 
 // ============================================
-// JWT verification — shared foundation
+// JWT verification for instance + registry paths
 // ============================================
 
-async function getPublicKeys(env: Env): Promise<CryptoKey[]> {
-  const pems = [
-    env.JWT_PUBLIC_KEY_BLUE,
-    env.JWT_PUBLIC_KEY_GREEN,
-  ].filter(Boolean);
-
-  if (pems.length === 0) {
-    throw new Error('No JWT public keys found in env');
-  }
-
-  return Promise.all(pems.map(pem => importPublicKey(pem)));
-}
-
-/**
- * Verify a Nebula access token: signature, standard claims, and
- * matchAccess(authScopePattern, aud) internal-consistency check.
- *
- * Returns the decoded payload if valid, null if invalid/expired.
- */
-export async function verifyNebulaAccessToken(
-  token: string,
-  env: object,
-): Promise<NebulaJwtPayload | null> {
-  const publicKeys = await getPublicKeys(env as Env);
-
-  const rawPayload = publicKeys.length === 1
-    ? await verifyJwt(token, publicKeys[0]!)
-    : await verifyJwtWithRotation(token, publicKeys);
-
-  if (!rawPayload) return null;
-
-  const payload = rawPayload as unknown as NebulaJwtPayload;
-
-  // Standard claims validation
-  if (!payload.aud || typeof payload.aud !== 'string') return null;
-  if (payload.iss !== NEBULA_AUTH_ISSUER) return null;
-  if (!payload.sub) return null;
-  if (!payload.access?.authScopePattern) return null;
-
-  // Internal consistency: the active scope (aud) must be covered by the auth scope pattern.
-  // Phase 1.8's refresh handler already prevents minting tokens that violate this, but
-  // belt-and-suspenders at verification time catches tampered or stale tokens.
-  if (!matchAccess(payload.access.authScopePattern, payload.aud)) return null;
-
-  return payload;
-}
-
-// ============================================
-// JWT verification for instance paths
-// ============================================
-
-async function verifyAndGateJwt(
-  token: string,
-  env: Env,
-  targetInstanceName: string,
-): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
-  const payload = await verifyNebulaAccessToken(token, env);
-  if (!payload) {
-    return { error: json401('invalid_token', 'Token is invalid or expired') };
-  }
-
-  // Target-specific check: does the auth scope pattern cover this specific instance?
-  // This is a DIFFERENT check from verifyNebulaAccessToken's matchAccess(authScopePattern, aud).
-  // That check validates internal consistency (aud within auth scope).
-  // This check validates the token grants access to the target instance.
-  if (!matchAccess(payload.access.authScopePattern, targetInstanceName)) {
-    return {
-      error: jsonError(403, 'insufficient_scope',
-        `Token access "${payload.access.authScopePattern}" does not grant access to "${targetInstanceName}"`),
-    };
-  }
-
-  // Access gate: admin || adminApproved
-  if (!payload.access.admin && !payload.adminApproved) {
-    return { error: jsonError(403, 'access_denied', 'Account not yet approved') };
-  }
-
-  return { payload };
-}
-
-async function checkJwtForInstance(
+/** Verify a Bearer/WS access token AND gate it to the target instance's scope (no adminApproved gate). */
+async function verifyInstanceJwt(
   request: Request,
   env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit },
   instanceName: string,
-): Promise<Response | null> {
-  // Extract token from Bearer header or WebSocket subprotocol
+): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
   const isWebSocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
-  let token: string | null;
+  const token = isWebSocket
+    ? extractWebSocketToken(request)
+    : (request.headers.get('Authorization')?.startsWith('Bearer ')
+      ? request.headers.get('Authorization')!.slice(7)
+      : null);
 
-  if (isWebSocket) {
-    token = extractWebSocketToken(request);
-  } else {
-    const authHeader = request.headers.get('Authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    } else {
-      token = null;
-    }
+  if (!token) return { error: json401('invalid_request', 'Missing Authorization header with Bearer token') };
+
+  const payload = await verifyNebulaAccessToken(token, env);
+  if (!payload) return { error: json401('invalid_token', 'Token is invalid or expired') };
+
+  // The token must grant access to the target instance.
+  if (!matchAccess(payload.access.authScopePattern, instanceName)) {
+    return {
+      error: jsonError(403, 'insufficient_scope',
+        `Token access "${payload.access.authScopePattern}" does not grant access to "${instanceName}"`),
+    };
   }
 
-  if (!token) {
-    return json401('invalid_request', 'Missing Authorization header with Bearer token');
-  }
-
-  const result = await verifyAndGateJwt(token, env, instanceName);
-  if ('error' in result) return result.error;
-
-  // Per-subject rate limiting
-  const rateLimiter = env.NEBULA_AUTH_RATE_LIMITER;
-  if (rateLimiter) {
-    const { success } = await rateLimiter.limit({ key: result.payload.sub });
-    if (!success) {
-      return jsonError(429, 'rate_limited', 'Too many requests. Please try again later.');
-    }
-  }
-
-  return null; // passed
+  const rateLimited = await checkRateLimit(env, payload.sub);
+  if (rateLimited) return { error: rateLimited };
+  return { payload };
 }
 
-// ============================================
-// JWT check for registry create-galaxy
-// ============================================
-
+/** Verify a Bearer access token for a registry admin op (no instance gate; the registry enforces admin). */
 async function checkJwtForRegistry(
   request: Request,
   env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit },
@@ -596,21 +337,22 @@ async function checkJwtForRegistry(
   if (!authHeader?.startsWith('Bearer ')) {
     return { error: json401('invalid_request', 'Missing Authorization header with Bearer token') };
   }
+  const payload = await verifyNebulaAccessToken(authHeader.slice(7), env);
+  if (!payload) return { error: json401('invalid_token', 'Token is invalid or expired') };
 
-  const token = authHeader.slice(7);
-  const payload = await verifyNebulaAccessToken(token, env);
-  if (!payload) {
-    return { error: json401('invalid_token', 'Token is invalid or expired') };
-  }
-
-  // Per-subject rate limiting
-  const rateLimiter = env.NEBULA_AUTH_RATE_LIMITER;
-  if (rateLimiter) {
-    const { success } = await rateLimiter.limit({ key: payload.sub });
-    if (!success) {
-      return { error: jsonError(429, 'rate_limited', 'Too many requests. Please try again later.') };
-    }
-  }
-
+  const rateLimited = await checkRateLimit(env, payload.sub);
+  if (rateLimited) return { error: rateLimited };
   return { payload };
 }
+
+async function checkRateLimit(
+  env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit }, sub: string,
+): Promise<Response | null> {
+  const rateLimiter = env.NEBULA_AUTH_RATE_LIMITER;
+  if (!rateLimiter) return null;
+  const { success } = await rateLimiter.limit({ key: sub });
+  return success ? null : jsonError(429, 'rate_limited', 'Too many requests. Please try again later.');
+}
+
+// Re-export the token verifier for consuming packages (entrypoint, index).
+export { verifyNebulaAccessToken };

@@ -12,10 +12,14 @@
       { "name": "STAR", "class_name": "StarTest" },
       { "name": "DEV_STUDIO", "class_name": "DevStudioTest" },
       { "name": "DEV_CONTAINER", "class_name": "DevContainerServeStub" },
-      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
     ]
   },
+  // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
+  // in the REFRESH_TOKEN_KV namespace below.
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "nebula-baseline-refresh-token-kv-test" }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -26,7 +30,6 @@
         "StarTest",
         "DevStudioTest",
         "DevContainerServeStub",
-        "NebulaAuth",
         "NebulaAuthRegistry"
       ]
     }

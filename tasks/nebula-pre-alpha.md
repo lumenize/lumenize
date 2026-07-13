@@ -8,13 +8,13 @@
 
 Get **~4–5 pre-alpha users** (Larry's friends / family / business partners — "users," not
 "partners") building their own **data-bound, multi-user** apps on a **deployed** Nebula, evaluated
-via **impersonation / synthetic users**, with enough **instrumentation** to have **near-daily
+via **act-as / synthetic users**, with enough **instrumentation** to have **near-daily
 conversations** as they build — to generate valuable feedback and build stakeholder buy-in.
 
 ## Staging ladder (where pre-alpha sits — and what it deliberately is NOT)
 
 - **pre-alpha (THIS) = (iii-build):** dev-users *build* data-bound multi-user apps; *evaluated* by
-  them + us via **synthetic users + impersonation**. **No real third-party end-user signup.**
+  them + us via **synthetic users + act-as**. **No real third-party end-user signup.**
   Pre-alpha sidesteps migration-testing entirely because users already have the **wipe** capability.
 - **alpha:** real-use publish path + **data migration**. Writing migration code is relatively easy;
   **testing** migration code is the hard part and probably needs the on-hold **branching** work.
@@ -27,9 +27,13 @@ conversations** as they build — to generate valuable feedback and build stakeh
 - **Path to valuable feedback:** capture *(shared gate)* → `claude@` email → digest → in-Studio feedback.
 - **THE GATE** = the turn-recorder capturing behavioral signals **live BEFORE the first invite** — else day-1 data is lost forever.
 - **Pre-alpha users are Universe admins** (Larry invites, pre-picks slug + name). This is the decision
-  that shrinks the security story: impersonating anyone isn't an escalation, so **scope-bounded
-  impersonation enforcement is DEFERRED** until the first non-Universe-admin user exists (returns then:
-  scope-bounded / audited / reversible, security-review-gated with capable-of-failing negative tests).
+  that shrinks the security story: acting-as anyone isn't an escalation. The **mint privilege-escalation is
+  ✅ FIXED** — `/delegated-token` now gates `activeScope` on the *caller's own* pattern and binds the minted
+  pattern + `admin` to the caller (never the target's `isAdmin` or the instance's), plus rejects refresh-cookie
+  auth: [archive/rfc-act-chains.md](archive/rfc-act-chains.md) NOW-1, **+ the `{ sub }` root-identity guard**
+  (reject act-bearing tokens). What's LEFT is a single **non-security cleanup** — drop `AuthorizedActors` →
+  admins-only, whenever the delegation docs are touched anyway (Star-root/consent eligibility was **dropped** as
+  unforeseen) → [on-hold/delegation-hardening.md](on-hold/delegation-hardening.md).
 
 ## Building blocks that already EXIST (don't re-derive — verified against code 2026-06-23)
 
@@ -37,7 +41,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Super-admin `*`** — login at the reserved `nebula-platform` instance with `NEBULA_AUTH_BOOTSTRAP_EMAIL`
   → `access { authScopePattern:'*', admin:true }`; `matchAccess('*', …)` always true; bootstrap admin is
   modify-protected. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
-- **Act-as / impersonation core** — `POST {prefix}/delegated-token` (RFC-8693 `act.sub`, recursive chain,
+- **Act-as / delegation core** — `POST {prefix}/delegated-token` (RFC-8693 `act.sub`, recursive chain,
   `actorsAuthorized`, audited). NEW piece still needed = **synthetic-subject provisioning**.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index; `discover` /
   `claimUniverse` / `createGalaxy`).
@@ -58,6 +62,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - ✅ **Self-correcting codegen loop** — `DevStudio.chat` tool-loop → compile gate → Vue SFC → preview. [archive/nebula-codegen-loop.md](archive/nebula-codegen-loop.md)
 - ✅ **Recorder — generation capture** — `Galaxy.recordTurn`/`getTurns` (`TurnRecord` = replayable fixture). *The behavioral-UI-events **extension** is still LEFT → THE GATE below.*
 - ✅ **Auth gap — `onBeforeCall` higher-admin reach** (2026-06-23) — see Building blocks above. [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)
+- ✅ **`/delegated-token` escalation fix** (2026-07-07) — scope-bounded mint (gate `activeScope` on the *caller's* pattern; bind minted pattern + `admin` to the caller, never the target/instance) + refresh-cookie rejection + `{ sub }` root-identity guard (reject act-bearing tokens); delegation authz invariant (read + mint side) pinned in `.claude/rules/security.md`. Surfaced by the act-chain `/review-task` detour (whose model settled the chat `actAs` too). [archive/rfc-act-chains.md](archive/rfc-act-chains.md)
 - ✅ **Wave-1 ① Studio UI single-origin serving** (vite proxy + the prefix contract ③ transcribed). [archive/nebula-studio-vite-proxy.md](archive/nebula-studio-vite-proxy.md) · **Durable gotcha:** keep two-terminal vite+`wrangler dev`; **avoid the CF Vite plugin** (workerd-in-vite can't construct a `Container` → breaks the DevContainer preview).
 - ✅ **Wave-1 ② Local UI smoke + zero `it.skip`** (the `ui-smoke` Playwright lane; real-email login → shell → prompt → preview → wipe). [archive/nebula-local-smoke.md](archive/nebula-local-smoke.md)
 - ✅ **Wave-1 ③ First prod deploy** (2026-06-26; custom domain `nebula.lumenize.com`, migrations v1 frozen, `/_version` compare-only, `deploy.sh`). [archive/nebula-release-process.md](archive/nebula-release-process.md) · deferred CI/headless hardening → [on-hold/nebula-release-hardening.md](on-hold/nebula-release-hardening.md).
@@ -79,7 +84,9 @@ The remaining provisioning / capture / inspection work builds on these:
 
 ### Invite-gated (needed before the first F&F invite)
 
-- 🔧 **Chat history UI wiring — ACTIVE (next up).** *Capability shipped, UI never wired* (confirmed 2026-07-05). The deployed Studio (`nebula-studio-ui/src/App.vue`) keeps chat in a **local in-memory `messages` array** (a `{role,text}` shape, NOT `Message` Resources) and uses the ephemeral `client.chat()`→`onChatResult` path — it **never `subscribe`s** to the Messages, so reload / multi-tab / reconnect all start empty (old turns don't return). This is the deferred Child-3 *Phase-5 viewport UI driver*; git shows the Child-3 work never touched the SPA. **Backend already persists** durable Messages (`DevStudio.ensureSession` + `commitAssistantMessage` + the `Message where session==DEFAULT_SESSION_ID` query sub) and the client SDK already exposes `client.resources.subscribe(type, id)` — so the fix is **mostly SPA-side**: replace the local array with a live subscription to the session's Messages (render + history-restore), post the user turn durably, reconcile the live ephemeral stream by id. **Resolve first:** (1) confirm the durable Messages actually exist in prod (old turns recoverable vs ephemeral-only); (2) is the **user** message persisted, or only the assistant reply?; (3) reuse Child-2 windowing/grace. **live harness reproduced this live 2026-07-05** (`studio-chat-reload` scenario, `/live`): a submitted turn DOES trigger codegen (`DevContainer.applyChanges` + preview updates), but the user's message **never renders in the thread — before OR after reload** (a11y shows only the empty "Connected. Describe the app…" placeholder). So Q2's answer for the *rendered* thread: the user turn isn't echoed/rendered at all in this ephemeral path — the SPA-side subscribe+render is the whole fix. **Files:** `nebula-studio-ui/src/App.vue` · `apps/nebula/src/frontend/create-nebula-client.ts` (subscribe surface) · `apps/nebula/src/dev-studio.ts` (Message host). **→ Child task file (2026-07-06): [nebula-chat-history-multiuser.md](nebula-chat-history-multiuser.md)** (ready for `/review-task`). Grounded: **Q2 answered — the user turn is NOT persisted** (only the assistant Message is; `dev-studio.ts` commits `commitAssistantMessage` alone, the prompt just feeds the model call), so it's NOT a clean subscribe+render → a backend change (persist the user Message) is needed. **NEW driver (Larry 2026-07-06): single-user+AI → MULTI-user+AI**, resolved into a **participant model** — `author = sub` (server-authoritative, never client-forgeable; Nebula = a reserved-sub agent, first-party direct-stamp), **no `role`**, display names **resolved from a roster** (email for now, not stored — emails change). General agent-participation (a Claude Code bridge) is fenced/deferred to the first external agent. Feeds THE GATE (capture reads these Messages — now incl. attributed *user* turns, the highest-value signal).
+- 🔧 **Chat history UI wiring → durable multi-user reactive thread — ⏸️ ON HOLD for the [rfc-act-chains.md](archive/rfc-act-chains.md) auth detour (2026-07-07)** *(paused mid-`/review-task`, S1 settled; the chat's `actAs` builds on the `act`-chain foundation, so we fix that first).* *Capability shipped, UI never wired.* **Corrected by the Stage-1 review panel (verified 2026-07-06):** the user turn **IS** persisted (client-side via `postUserMessage`) — but lands on **STAR not DevStudio** and is **never rendered** (`App.vue` uses a local array + never `subscribe`s); and identity is a spoofable client `author` field. So it's a **render + host-binding + attribution** task, not storage. Design: author = the snapshot's server-stamped **`changedBy.sub`** (durable per-person UUID; **no `author` field** → spoof gone by construction), display **name** resolved from subscriber claims stored at the **subscription layer** (a generic upgrade, not a chat-specific roster); **multi-user is the framing** (3-participant `/live` test); streaming via subscribe **update-in-place** (retires `svc.broadcast`). Feeds THE GATE (identity-attributed user turns = the highest-value capture signal). → **Design + phases: [nebula-chat-history-multiuser.md](nebula-chat-history-multiuser.md)** (fresh `/review-task` pending after the re-ground).
+  - 🏗️ **Auth foundation LANDED (undeployed) + PROD WIPE deferred to THIS milestone (2026-07-13).** [archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md) is BUILT + green (surrogate `sub`, NebulaAuth DO dissolved → registry + Workers KV; verifier-panel clean). It provides the durable per-person `sub` the chat attribution (`changedBy.sub`) + the profile→presence sequence build on. **Deliberately NOT deployed** — it needs a greenfield prod **wipe** (re-key + DO-class delete), and rather than wipe once now + again later, we **batch ONE CF-dashboard worker-delete + redeploy at this multi-user-chat milestone** (pre-user window stays open ⇒ **keep F&F invites paused** until then). Runbook + the ⚠️ real-CF-KV-login→refresh verify-first note: the archived Phase 4. **Follow-ons that ride this milestone:** re-ground the `apps/nebula` baseline test infra on the new login model (login no longer mints — [backlog.md](backlog.md) § Nebula Auth), and profile→presence schema (their own wipe-needing changes fold into the same batch wipe).
+- 🔬 **DevStudio + DevContainer collapse — SPIKE DONE 2026-07-07 → CLEAN → GO.** The ≥3×-failed tab-refocus **reconstitution** race; **simplify-first** fix = merge the two dev-sandbox DOs into one **`DevStudio extends NebulaContainer`** (removes a hibernation dimension — a diagnosis-independent bet). The feasibility spike cleared all four gates (ResourceDataPlane composition · `ctx.abort`-vs-chat · DO-class migration · test-extraction) — a bounded, mechanical, multi-file change, not hard-&-messy. **Build lands AFTER the chat work + `rfc-act-chains` detour** (the merge relocates the chat Resources → don't build against a moving surface). **The collapse itself delivers "make reload work"** — its acceptance bar is the preview self-healing on refocus, so it **subsumes** preview-redeploys GATE candidate (b). A *separate* pre-collapse self-heal would be an interim the collapse obsoletes (same reconstitution path, cross-node → local), so we do **NOT** build one first; any residual self-heal is post-collapse, single-node, and only if the prod trigger-rate still shows it. → the preview-survives-redeploys invite gate **rides on the collapse** (fine — invites aren't imminent). Not the rejected Galaxy+DevStudio merge — Galaxy stays separate. → **[nebula-devstudio-collapse.md](nebula-devstudio-collapse.md)** *(deliberate [one-at-a-time exception](nebula-devstudio-collapse.md); has the punch-list)*.
 - ⚠️ **GATE — capture live (THE GATE)** — confirm generation-capture is live on deploy; extend with UI
   events (undo / abandon / feedback), sharing the sink with the feedback button. **Rides the
   turn-as-Resource (`Message`) model** Child 3 introduced (capture = reading those Resources), not the
@@ -104,16 +111,16 @@ The remaining provisioning / capture / inspection work builds on these:
    gate + (later) the GLM-5.2 judge. Driven by capture → inspection → the **un-parked replay harness**
    (`tasks/on-hold/nebula-offline-prompt-harness.md`). NOT a transcribable spec — capable-of-failing checks
    + captured findings (build-task exploratory rule).
-2. **UX-exploratory** — *the impersonation / persona UI.* Open, prototype-and-react, NOT pinnable up front;
+2. **UX-exploratory** — *the act-as / persona UI.* Open, prototype-and-react, NOT pinnable up front;
    the tight loop is **Larry's own dogfooding**: the `delegated-token` consent UX; persona switching;
-   multi-tab use; preview-panel tabs coupled to the impersonation UI.
+   multi-tab use; preview-panel tabs coupled to the act-as UI.
 
 - **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned
-  slug+name + magic-link claim) **+** synthetic (impersonate-only, no claim) subjects **+** act-as
+  slug+name + magic-link claim) **+** synthetic (act-as-only, no claim) subjects **+** act-as
   wiring. Generic on scope — but the typical case is **synthetic test users Star-scoped to the `.dev`
-  Star**, impersonated to exercise multi-user behavior. The Universe admin's `{u}.*` reach (the Wave-1
+  Star**, driven via act-as to exercise multi-user behavior. The Universe admin's `{u}.*` reach (the Wave-1
   `onBeforeCall` change) lets them provision + grant into `.dev` without re-minting a per-target token;
-  impersonation downscopes automatically because DAG checks key off the delegated token's `sub` (the test
+  act-as downscopes automatically because DAG checks key off the delegated token's `sub` (the test
   user), never `act` (the admin). For **all Universe/Galaxy admins editing their apps going forward**, not
   just pre-alpha. This is the **push** half; shares the subject/grant/scope core with
   `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
@@ -126,7 +133,7 @@ The remaining provisioning / capture / inspection work builds on these:
   is `UNLICENSED`). See `tasks/archive/nebula-release-process.md` Phase 3 § *Dependency resolution*.
 - **Data-bound generation (EXPLORATORY)** — the empirical prompt loop. **Un-parks** the replay harness
   (`tasks/on-hold/nebula-offline-prompt-harness.md`) + the **skills** (`tasks/nebula-skills.md`). Dogfood
-  secret-santa-grade apps with synthetic users + impersonation. Includes the UX-exploratory questions above.
+  secret-santa-grade apps with synthetic users + act-as. Includes the UX-exploratory questions above.
 
 ### Wave 3 — invite + scale the feedback loop
 
@@ -159,7 +166,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Iterating the data-bound PROMPT must NOT require a deploy** (prompt = content, not code). Tight loop
   = the offline replay harness (model + gate, **seconds**, no preview / no deploy); live checks = local
   `wrangler dev` + Docker. Deploy is for: **(a)** retiring the one-way migrations-door risk, **(b)** where
-  pre-alpha **users** live (mandatory for invites), **(c)** realistic multi-tab / auth / impersonation
+  pre-alpha **users** live (mandatory for invites), **(c)** realistic multi-tab / auth / act-as
   integration checks (**~1-min** cycles — not run every iteration).
 - **The system prompt becomes a platform-owned FILE TREE, not a baked const.** `STUDIO_LOOP_SYSTEM_PROMPT`
   is one source string today; the target is a `NEBULA.md` (the `CLAUDE.md` analog) + `skills/*.md` + `rules/*.md`
@@ -175,7 +182,7 @@ The remaining provisioning / capture / inspection work builds on these:
   "isolation proven" (validates codegen + in-app multi-user, not cross-Galaxy boundaries).
 - **Migrations one-way door** is open (first prod deploy 06-26): DO-class add/rename/delete = a migration forever.
 - **Synthetic users** use an RFC-reserved dead domain (`@example.com` / `*.test` / `*.invalid`),
-  **NEVER `@lumenize.io`** (collides with `claude@` routing + it's a domain we own). Impersonate-only (the
+  **NEVER `@lumenize.io`** (collides with `claude@` routing + it's a domain we own). Act-as-only (the
   fake email is just a label). The `synthetic:true` flag is **deferred (YAGNI)** — add it only when the
   digest needs to filter test users out of real-activity metrics (a one-column add).
 - Cost ceiling is set; Larry watches the CF dashboard. A spend line in the digest is a nice-to-have.

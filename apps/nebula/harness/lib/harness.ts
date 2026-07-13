@@ -185,10 +185,11 @@ export async function connectDriver(
   // NebulaClient omits the base `refresh` fn (two-scope cookie model), so mint upfront and pass
   // `accessToken` + `instanceName` — the constructor then skips its own refresh (as
   // test/browser/multi-client.ts does). A longer TTL covers a slow scenario without a re-mint.
+  // `email` is no longer a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
+  // `sub`, so the local mint no longer takes an email.
   const { access_token, sub } = await createNebulaTestToken({
     privateKey: stack.signingKey,
     activeKey: stack.activeKey,
-    email: opts.email ?? 'claude@lumenize.io',
     activeScope: scope,
     instanceName: opts.issuerInstanceName ?? scope,
     isAdmin: opts.isAdmin ?? true,

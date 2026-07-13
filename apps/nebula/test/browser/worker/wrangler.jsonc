@@ -16,11 +16,16 @@
       { "name": "UNIVERSE", "class_name": "Universe" },
       { "name": "GALAXY", "class_name": "Galaxy" },
       { "name": "STAR", "class_name": "StarTest" },
-      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
       { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
       { "name": "BenchAgent", "class_name": "BenchAgent" }
     ]
   },
+  // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
+  // in the REFRESH_TOKEN_KV namespace below. This is a local `wrangler dev` harness — if a stale
+  // `.wrangler` still has NebulaAuth registered under v1, `rm -rf .wrangler` before re-running.
+  "kv_namespaces": [
+    { "binding": "REFRESH_TOKEN_KV", "id": "nebula-browser-refresh-token-kv-test" }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -30,7 +35,6 @@
         "Galaxy",
         "StarTest",
         "ResourceHistory",
-        "NebulaAuth",
         "NebulaAuthRegistry"
       ]
     },

@@ -22,7 +22,7 @@ export {
 } from '@lumenize/nebula';
 
 // Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
-export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 
 // Import classes needed for test subclasses
 import {

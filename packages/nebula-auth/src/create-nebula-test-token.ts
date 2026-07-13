@@ -13,10 +13,11 @@
  * verified normally against the corresponding public key, no test-mode, all production
  * verification paths exercised.
  *
- * NOT a login: `email` is baked into the token's `email` claim as the driving identity, but
- * no email is sent and no subject is DB-promoted. For local `wrangler dev` an admin token for
- * one's own sandbox scope needs neither (founder-equivalent by construction). Prod tokens must
- * still come via audited login / stored-refresh — never this local mint (security invariant).
+ * NOT a login: the token carries only a `sub` (identity is the surrogate `sub`, never email —
+ * `email` is no longer a JWT claim), and no email is sent and no identity is DB-minted. For local
+ * `wrangler dev` an admin token for one's own sandbox scope needs neither (founder-equivalent by
+ * construction). Prod tokens must still come via audited login / stored-refresh — never this
+ * local mint (security invariant).
  *
  * Node-safe by construction: imports only `./access-claims` (pure) and the Node-safe
  * `@lumenize/auth/client` signing primitives — no `cloudflare:workers` — so it runs under
@@ -26,7 +27,6 @@
  * ```typescript
  * const refresh = createNebulaTestToken({
  *   privateKey: readDevVar('JWT_PRIVATE_KEY_BLUE'),   // the .dev.vars signing key
- *   email: 'claude@lumenize.io',
  *   activeScope: 'claude.sandbox.dev',                 // own sandbox star scope
  * });
  * const client = new NebulaClient({ baseUrl, authScope, activeScope, refresh, ... });
@@ -48,8 +48,6 @@ export interface CreateNebulaTestTokenOptions {
    * BLUE for a Worker whose `PRIMARY_JWT_KEY` is GREEN — sign with the matching key.
    */
   activeKey?: 'BLUE' | 'GREEN';
-  /** Identity email baked into the `email` claim. NOT a login — no magic link is sent. */
-  email: string;
   /** JWT `aud` — the active scope this token is bound to. Must be covered by the pattern. */
   activeScope: string;
   /**
@@ -61,8 +59,6 @@ export interface CreateNebulaTestTokenOptions {
   sub?: string;
   /** Mint an admin token (sets `access.admin`, enabling the scope-admin bypass). Default `true`. */
   isAdmin?: boolean;
-  /** `adminApproved` claim. Default `true`. */
-  adminApproved?: boolean;
   /** RFC 8693 delegation actor sub (`act.sub`). */
   actorSub?: string;
   /** Token TTL in seconds. Default: nebula-auth's `ACCESS_TOKEN_TTL`. */
@@ -81,12 +77,10 @@ export function createNebulaTestToken(
   const {
     privateKey: privateKeyPem,
     activeKey = 'BLUE',
-    email,
     activeScope,
     instanceName = activeScope,
     sub = generateUuid(),
     isAdmin = true,
-    adminApproved = true,
     actorSub,
     ttlSeconds,
   } = options;
@@ -95,11 +89,9 @@ export function createNebulaTestToken(
     const privateKey = await importPrivateKey(privateKeyPem);
     const payload = buildNebulaJwtPayload({
       sub,
-      email,
       instanceName,
       activeScope,
       isAdmin,
-      adminApproved,
       actorSub,
       ttlSeconds,
     });

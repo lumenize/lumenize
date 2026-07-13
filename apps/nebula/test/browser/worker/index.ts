@@ -36,7 +36,7 @@ export {
 // binding (and any prior migration history) stays unchanged.
 export { InstrumentedNebulaClientGateway as NebulaClientGateway } from './instrumented-nebula-client-gateway';
 
-export { NebulaAuth, NebulaAuthRegistry } from '@lumenize/nebula-auth';
+export { NebulaAuthRegistry } from '@lumenize/nebula-auth';
 
 export { StarTest } from '../../test-apps/baseline/index';
 

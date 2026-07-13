@@ -11,7 +11,7 @@ import { AuthEmailSenderBase } from '@lumenize/auth';
  * Matches the `instanceName` segment of a Nebula magic-link URL.
  *
  * Expected URL shape: `${baseUrl}${prefix}/${instanceName}/magic-link?one_time_token=...`
- * — produced by `NebulaAuth` in `packages/nebula-auth/src/nebula-auth.ts:239`.
+ * — produced by the registry's `#createMagicLinkAndSend` (`nebula-auth-registry.ts`).
  * The `instanceName` is a 1-3 dot-separated slug like `acme.app.tenant-a`.
  *
  * Anchored to `/magic-link?` to avoid false matches on other path segments.

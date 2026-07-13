@@ -11,7 +11,6 @@ export const {
   StarTest,
   DevStudioTest,
   DevContainerServeStub,
-  NebulaAuth,
   NebulaAuthRegistry,
   NebulaClientTest,
 } = instrumented.dos;

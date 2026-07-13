@@ -4,11 +4,14 @@
  * Magic link login, JWT access tokens, and admin roles scoped to
  * a three-tier hierarchy: Universe > Galaxy > Star.
  *
- * @see tasks/nebula-auth.md for architecture details
+ * The per-scope `NebulaAuth` DO was dissolved (tasks/nebula-auth-surrogate-sub.md): the singleton
+ * `NebulaAuthRegistry` owns all durable state, token/login flows run in the Worker (`router.ts` +
+ * `worker-token.ts`) over Workers KV, and identity is keyed by a registry-minted surrogate `sub`.
+ *
+ * @see tasks/nebula-auth-surrogate-sub.md for architecture details
  */
 
-// DO classes (needed for wrangler bindings in consuming projects)
-export { NebulaAuth } from './nebula-auth';
+// The singleton registry DO (needed for wrangler bindings in consuming projects).
 export { NebulaAuthRegistry } from './nebula-auth-registry';
 
 // Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
@@ -39,7 +42,6 @@ export type {
   ParsedId,
   AccessEntry,
   NebulaJwtPayload,
-  Subject,
   DiscoveryEntry,
 } from './types';
 

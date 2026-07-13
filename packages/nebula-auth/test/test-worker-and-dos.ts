@@ -8,8 +8,7 @@ import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/auth';
 
-// Re-export DO classes for wrangler bindings
-export { NebulaAuth } from '../src/nebula-auth';
+// Re-export the singleton registry DO for wrangler bindings (the per-scope NebulaAuth DO is dissolved).
 export { NebulaAuthRegistry } from '../src/nebula-auth-registry';
 
 /**

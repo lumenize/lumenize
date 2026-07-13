@@ -5,10 +5,6 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "NEBULA_AUTH",
-        "class_name": "NebulaAuth"
-      },
-      {
         "name": "NEBULA_AUTH_REGISTRY",
         "class_name": "NebulaAuthRegistry"
       },
@@ -18,11 +14,12 @@
       }
     ]
   },
+  // DO class registry (NOT SQL migration). The per-scope NebulaAuth DO is dissolved
+  // (tasks/nebula-auth-surrogate-sub.md) — only the singleton registry remains.
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": [
-        "NebulaAuth",
         "NebulaAuthRegistry"
       ]
     },
@@ -31,6 +28,14 @@
       "new_sqlite_classes": [
         "BareStorageDO"
       ]
+    }
+  ],
+  // Workers KV — the ONE hot refresh-token record (`refresh:{tokenHash}`), written by the registry
+  // and read at the edge by the Worker on refresh. miniflare simulates KV locally (`id` is nominal).
+  "kv_namespaces": [
+    {
+      "binding": "REFRESH_TOKEN_KV",
+      "id": "nebula-auth-refresh-token-kv-test"
     }
   ],
   "services": [
