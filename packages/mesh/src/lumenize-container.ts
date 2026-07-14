@@ -1,9 +1,6 @@
 import { Container } from '@cloudflare/containers';
-import {
-  newContinuation,
-  type Continuation,
-} from './ocan/index.js';
-import { createLmzApiForDO, executeEnvelope, initIdentityFromHeaders, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { newContinuation, type Continuation } from './ocan/index.js';
+import { ComposedMeshDO, initIdentityFromHeaders } from './lmz-api.js';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
 // Register ClientDisconnectedError on globalThis so a container node can
@@ -47,25 +44,16 @@ export function stripContainerTargetPort(request: Request): Request {
  * It exists because the Studio dev preview fronts a vite **container** (its
  * reason for being), yet to talk to the rest of Nebula it must speak Mesh. It
  * therefore **composes** the narrow comms+guards core (ADR-007) onto the
- * `Container` base — it cannot, and should not, inherit `LumenizeDO`. The DO
- * ancestry (via `Container extends DurableObject`) is incidental.
+ * `Container` base via the shared {@link ComposedMeshDO} mixin — it cannot, and
+ * should not, inherit `LumenizeDO`. The DO ancestry (via `Container extends
+ * DurableObject`) is incidental.
  *
- * ## Composition recipe (how the core sits on a non-`LumenizeDO` base)
- * Six members, each delegating to the same shared building blocks `LumenizeDO`/
- * `LumenizeWorker` use — never reimplemented:
- *  - lazy `lmz` getter → `createLmzApiForDO(this.ctx, this.env, this)` — gives
- *    identity (`__init`/`bindingName`/`instanceName`), `callContext` (the
- *    ALS-bound getter), and `call` for free.
- *  - `onBeforeCall()` — no-op here; subclasses override for auth/scope guards. Runs at
- *    admission on BOTH receive entries (the D5 gate on the response leg too).
- *  - `__executeOperation(envelope)` → `executeEnvelope(…, { includeInstanceName: true })` —
- *    the DO-flavored request seam `lmz.call` dispatches to (early-ack, D15). The @mesh
- *    allowlist is enforced inside the shared `executeEnvelope` (secure by default).
- *  - `__handleResponse(envelope)` → `executeEnvelope(…, { requireMeshDecorator: false })` —
- *    the fire-back seam (D5/D17); @mesh off, `onBeforeCall` on.
- *  - `ctn()` — continuation factory.
- *  (No `__localChainExecutor` — this node has no alarms/fetch consumer for it, and the
- *  send path no longer runs the 4-arg handler locally, so it would be dead code.)
+ * ## Composition (how the core sits on a non-`LumenizeDO` base)
+ * `extends ComposedMeshDO(Container, 'LumenizeContainer')` supplies the receive
+ * glue shared with `LumenizeDO` — the lazy `lmz` getter, `ctn()`, the default
+ * `onBeforeCall`, and the `__executeOperation`/`__handleResponse` seams — never
+ * reimplemented. This class adds only the container-specific pieces below. (No
+ * `__localChainExecutor` — this node has no alarms/fetch consumer for it.)
  *
  * Identity persists in `ctx.storage.kv` (`__lmz_do_*`), so the class MUST be
  * registered with `new_sqlite_classes` (Container storage is SQLite-backed).
@@ -102,9 +90,7 @@ export function stripContainerTargetPort(request: Request): Request {
  * @see tasks/nebula-devcontainer-node-type.md — full design + decisions
  * @see docs/adr/007-shared-node-security-core.md — the comms+guards invariant
  */
-export class LumenizeContainer<Env = any> extends Container<Env> {
-  #lmzApi: LmzApi | null = null;
-
+export class LumenizeContainer<Env = any> extends ComposedMeshDO(Container, 'LumenizeContainer') {
   /**
    * Pin outbound internet OFF (the base defaults to `true`). SSRF/exfil-safe
    * default for a node that fronts a vite container and ultimately runs
@@ -112,61 +98,12 @@ export class LumenizeContainer<Env = any> extends Container<Env> {
    */
   override enableInternet = false;
 
-  /**
-   * Lumenize identity + RPC infrastructure (`bindingName`, `instanceName`,
-   * `callContext`, `call`, `__init`). Composed — not reimplemented —
-   * via the shared DO factory; identity persists in `ctx.storage.kv`.
-   */
-  get lmz(): LmzApi {
-    if (!this.#lmzApi) {
-      this.#lmzApi = createLmzApiForDO(this.ctx, this.env, this);
-    }
-    return this.#lmzApi;
-  }
-
+  // `ctn()` stays per-class (not on ComposedMeshDO) — its `Continuation<this>` return can't cross
+  // the mixin boundary cleanly (see the ComposedMeshDO doc). It's a trivial 3-line stanza.
   ctn(): Continuation<this>;
   ctn<T>(): Continuation<T>;
   ctn(): Continuation<unknown> {
     return newContinuation() as Continuation<unknown>;
-  }
-
-  /**
-   * Hook run before each incoming mesh call executes (inside `executeEnvelope`,
-   * within the call context). Override for auth/scope guards. Default: no-op.
-   * Does NOT run on the `fetch()`/`containerFetch` path (by design).
-   */
-  onBeforeCall(): void {
-    // Default: no-op. Subclasses (e.g. NebulaContainer) override for tenant scope.
-  }
-
-  /**
-   * Receive + execute an incoming request envelope, auto-initializing identity from
-   * `metadata.callee`. The DO-flavored seam (`includeInstanceName: true`) — identical to
-   * `LumenizeDO`'s. Acks early, then runs the chain + fire-back under `ctx.waitUntil` via
-   * the shared `executeEnvelope` (D15). @internal Called by `lmz.call`.
-   */
-  async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    return await executeEnvelope(envelope, this, {
-      nodeTypeName: 'LumenizeContainer',
-      includeInstanceName: true,
-      waitUntil: (p) => this.ctx.waitUntil(p),
-      env: this.env,
-    });
-  }
-
-  /**
-   * Receive a fire-back response — the second mesh RPC entry (D5/D17). Same shared
-   * `executeEnvelope` path, `requireMeshDecorator: false`: `onBeforeCall` still runs (D5),
-   * only the per-method @mesh allowlist is skipped. @internal Fired at by the framework.
-   */
-  async __handleResponse(envelope: CallEnvelope): Promise<any> {
-    return await executeEnvelope(envelope, this, {
-      nodeTypeName: 'LumenizeContainer',
-      includeInstanceName: true,
-      requireMeshDecorator: false,
-      waitUntil: (p) => this.ctx.waitUntil(p),
-      env: this.env,
-    });
   }
 
   /**

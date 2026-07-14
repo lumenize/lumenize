@@ -7,7 +7,7 @@ import {
   type AnyContinuation,
 } from './ocan/index.js';
 import { parse } from '@lumenize/structured-clone';
-import { createLmzApiForDO, executeEnvelope, initIdentityFromHeaders, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { ComposedMeshDO, initIdentityFromHeaders } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
@@ -54,13 +54,14 @@ export type { Continuation, AnyContinuation };
  * }
  * ```
  */
-export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
+export abstract class LumenizeDO<Env = any> extends ComposedMeshDO(DurableObject, 'LumenizeDO') {
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
-  #lmzApi: LmzApi | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
+    // `env as Cloudflare.Env`: ComposedMeshDO erases DurableObject's env generic (the base is
+    // applied unparameterized), so the generic `Env` must be asserted to the base's env type.
+    super(ctx, env as Cloudflare.Env);
 
     ctx.blockConcurrencyWhile(async () => {
       if (this.onStart) {
@@ -134,44 +135,6 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Lifecycle hook called before each incoming mesh call is executed
-   *
-   * Override this method to:
-   * - Validate authentication/authorization based on `this.lmz.callContext`
-   * - Populate `callContext.state` with computed data (sessions, permissions)
-   * - Add logging or tracing metadata
-   * - Reject unauthorized calls by throwing an error
-   *
-   * This hook is called AFTER the DO is initialized and BEFORE the operation
-   * chain is executed. The `callContext` is available via `this.lmz.callContext`.
-   *
-   * **Important**: If you override this, remember to call `super.onBeforeCall()`
-   * to ensure any parent class logic is also executed.
-   *
-   * @example
-   * ```typescript
-   * class SecureDocumentDO extends LumenizeDO<Env> {
-   *   onBeforeCall(): void {
-   *     super.onBeforeCall();
-   *
-   *     const { origin, originAuth, state } = this.lmz.callContext;
-   *
-   *     // Require authenticated origin for client calls
-   *     if (origin.type === 'LumenizeClient' && !originAuth?.sub) {
-   *       throw new Error('Authentication required');
-   *     }
-   *
-   *     // Cache computed permissions in state (synchronously)
-   *     state.canEdit = this.#permissions.get(originAuth?.sub);
-   *   }
-   * }
-   * ```
-   */
-  onBeforeCall(): void {
-    // Default: no-op. Subclasses override this for authentication/authorization.
-  }
-
-  /**
    * Optional synchronous HTTP request handler
    *
    * Override this to handle HTTP requests routed to this DO. Called after
@@ -241,30 +204,14 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Create an OCAN (Operation Chaining And Nesting) continuation proxy
+   * Create an OCAN continuation proxy that records a method chain to run later (alarms, `call`
+   * result handlers). Without a type param it is typed to the concrete subclass; with one
+   * (`ctn<RemoteDO>()`) to that remote type.
    *
-   * Returns a proxy that records method calls into an operation chain.
-   * Used with async strategies (alarms, call, proxyFetch) to define
-   * what to execute when the operation completes.
+   * Stays per-class (not on {@link ComposedMeshDO}) — its `Continuation<this>` return can't cross
+   * the mixin boundary cleanly, because `this` concretizes `DurableObject`'s optional `alarm`.
    *
-   * When called without a type parameter, returns a continuation typed to the
-   * concrete subclass. When called with a type parameter (e.g., `ctn<RemoteDO>()`),
-   * returns a continuation for that remote type.
-   *
-   * @example
-   * ```typescript
-   * // Local method chaining
-   * this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
-   *
-   * // Remote DO calls
-   * const remote = this.ctn<RemoteDO>().getUserData(userId);
-   * this.lmz.call(REMOTE_DO, 'instance-id', remote, this.ctn().handleResult(remote));
-   *
-   * // Nesting
-   * const data1 = this.ctn().getData(1);
-   * const data2 = this.ctn().getData(2);
-   * this.svc.alarms.schedule(60, this.ctn().combineData(data1, data2));
-   * ```
+   * @see https://lumenize.com/docs/mesh/calls — Complete tested examples
    */
   ctn(): Continuation<this>;
   ctn<T>(): Continuation<T>;
@@ -308,87 +255,8 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Receive and execute an RPC call envelope with auto-initialization
-   * 
-   * Handles versioned envelopes and automatically initializes this DO's identity
-   * from the callee metadata included in the envelope. This enables DOs to learn
-   * their binding name and instance name from the first incoming call.
-   * 
-   * **Envelope format**:
-   * - `version: 1` - Current envelope version (required)
-   * - `chain` - Preprocessed operation chain to execute
-   * - `metadata.callee` - Identity of this DO (used for auto-initialization)
-   * 
-   * @internal This is the RPC entry reached by a remote `this.lmz.call()` dispatch, not meant for direct use
-   * @param envelope - The call envelope with version, chain, and metadata
-   * @returns The result of executing the operation chain
-   * @throws Error if envelope version is not 1
-   * 
-   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
-   */
-  async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    const log = debug('lmz.mesh.LumenizeDO.__executeOperation');
-
-    return await executeEnvelope(envelope, this, {
-      nodeTypeName: 'LumenizeDO',
-      includeInstanceName: true,
-      waitUntil: (p) => this.ctx.waitUntil(p),
-      env: this.env,
-      onValidationError: (error, details) => {
-        log.error(error.message.split('.')[0], details);
-      },
-    });
-  }
-
-  /**
-   * Receive a fire-back response (the callee-authored 4-arg handler filled with a result
-   * or Error) — the SECOND mesh RPC entry (D5/D17). Routes through the SAME shared
-   * `executeEnvelope` path as `__executeOperation`, but with `requireMeshDecorator: false`:
-   * `onBeforeCall`/`enforceScopeReach` STILL runs (the response leg is scope-gated by
-   * construction, D5), only the per-method @mesh allowlist is skipped — the handler is the
-   * caller's own continuation, not an app-exposed method (D10). Address-selected, never
-   * envelope-content-selected: knocking on this door is what turns the @mesh gate off.
-   *
-   * @internal Fired at by the framework, not for direct use.
-   */
-  async __handleResponse(envelope: CallEnvelope): Promise<any> {
-    const log = debug('lmz.mesh.LumenizeDO.__handleResponse');
-
-    return await executeEnvelope(envelope, this, {
-      nodeTypeName: 'LumenizeDO',
-      includeInstanceName: true,
-      requireMeshDecorator: false,
-      waitUntil: (p) => this.ctx.waitUntil(p),
-      env: this.env,
-      onValidationError: (error, details) => {
-        log.error(error.message.split('.')[0], details);
-      },
-    });
-  }
-
-  /**
-   * Access Lumenize infrastructure: identity and RPC methods
-   *
-   * Provides clean abstraction over identity management and RPC infrastructure:
-   * - **Identity**: `bindingName`, `instanceName`, `id`, `type`
-   * - **RPC**: `call()` (the only cross-node call surface)
-   *
-   * Properties are read-only getters that read from DO storage.
-   * Identity is set automatically via headers from `routeDORequest` or
-   * from the envelope metadata when receiving mesh calls.
-   *
-   * @see [Usage Examples](https://lumenize.com/docs/mesh/calls) - Complete tested examples
-   */
-  get lmz(): LmzApi {
-    if (!this.#lmzApi) {
-      this.#lmzApi = createLmzApiForDO(this.ctx, this.env, this);
-    }
-    return this.#lmzApi;
-  }
-
-  /**
    * Access NADIS services via this.svc.*
-   * 
+   *
    * Services are auto-discovered from the global LumenizeServices interface
    * and lazily instantiated on first access.
    */
@@ -430,20 +298,20 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
   /**
    * Resolve a service by name from the global registry
-   * 
+   *
    * Handles both stateless (functions) and stateful (classes) services:
    * - Stateless: Call function with `this` (e.g., sql(this))
    * - Stateful: Instantiate class with ctx, this, and dependencies
    */
   #resolveService(name: string): any {
     const registry = (globalThis as any).__lumenizeServiceRegistry;
-    
+
     if (!registry) {
       return null;
     }
 
     const serviceFactory = registry[name];
-    
+
     if (!serviceFactory) {
       return null;
     }

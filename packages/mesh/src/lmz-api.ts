@@ -680,7 +680,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         setInstanceName(options.instanceName);
       }
     },
-    
+
     call<T = any>(
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
@@ -986,5 +986,100 @@ export async function executeEnvelope(
   options?.waitUntil?.(postAck);
 
   return { $ack: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ComposedMeshDO — the shared DO-flavored mesh-composition mixin (ADR-007)
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A constructor (abstract-tolerant) with unconstrained args — the mixin base bound. */
+type AbstractConstructor<T = object> = abstract new (...args: any[]) => T;
+
+/**
+ * Mixin that composes the narrow comms+guards core (ADR-007) onto any DO-flavored base
+ * (`DurableObject`, or `@cloudflare/containers` `Container`). It supplies the receive glue that
+ * `LumenizeDO` / `LumenizeContainer` / the Profile DO otherwise copy verbatim: the lazy `lmz`
+ * getter, the default no-op `onBeforeCall`, and the two receive seams
+ * (`__executeOperation` / `__handleResponse`) that delegate to {@link executeEnvelope}.
+ * `nodeTypeName` is the per-type label threaded through (debug namespaces + validation logging).
+ * (`ctn()` deliberately stays per-class: its `Continuation<this>` return can't cross the mixin
+ * boundary cleanly when a subclass concretizes an optional base method — e.g. `LumenizeDO.alarm`.)
+ *
+ * A **mixin**, not a free helper: the glue must read the base's **protected** `ctx`/`env` (to thread
+ * `ctx.waitUntil` + the fire-back `env` into `executeEnvelope`), which only a subclass may. The
+ * generic `TBase` can't surface those protected members to the mixin *body*, so they're read through
+ * a narrow local cast; the *concrete* base type still flows through to subclasses (so
+ * `LumenizeContainer` keeps `Container`'s `fetch`/`enableInternet`/`destroy` for `override`/`super`).
+ *
+ * Each node adds its à-la-carte capabilities on top — `svc`/`onStart`/hibernation-WS/`__localChainExecutor`
+ * for `LumenizeDO`; egress + public-port pin for `LumenizeContainer`; reach helpers + storage + the
+ * hand-rolled fanout for the Profile DO — none of which are part of the shared invariant.
+ */
+export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, nodeTypeName: string) {
+  abstract class MeshComposed extends Base {
+    #lmzApi: LmzApi | null = null;
+
+    /**
+     * Lumenize identity + RPC infrastructure — `bindingName`, `instanceName`, `callContext`, and
+     * `call` (the only cross-node call surface). Composed via the shared DO factory, never
+     * reimplemented; identity is read from DO storage (set by `routeDORequest` headers or envelope
+     * metadata on the first incoming call).
+     */
+    get lmz(): LmzApi {
+      if (!this.#lmzApi) {
+        // Base exposes ctx/env PROTECTED — invisible to a generic TBase; read via a narrow cast.
+        const base = this as unknown as { ctx: DurableObjectState; env: any };
+        this.#lmzApi = createLmzApiForDO(base.ctx, base.env, this);
+      }
+      return this.#lmzApi;
+    }
+
+    /**
+     * Hook run at admission, before each incoming mesh call executes (inside `executeEnvelope`, on
+     * BOTH receive entries incl. the D5 response leg). Override for auth/scope guards — reject by
+     * throwing, or cache derived context in `callContext.state`; call `super.onBeforeCall()` if a
+     * parent adds logic. Does NOT run on the `fetch()` path (by design). Default: no-op.
+     */
+    onBeforeCall(): void {
+      // Default: no-op. Subclasses override for authentication/authorization.
+    }
+
+    /**
+     * Request seam a remote `lmz.call` dispatches to: acks early, then runs the chain + fire-back
+     * under `ctx.waitUntil` (D15) via the shared `executeEnvelope`. @internal
+     */
+    async __executeOperation(envelope: CallEnvelope): Promise<any> {
+      const base = this as unknown as { ctx: DurableObjectState; env: any };
+      return await executeEnvelope(envelope, this, {
+        nodeTypeName,
+        includeInstanceName: true,
+        waitUntil: (p) => base.ctx.waitUntil(p),
+        env: base.env,
+        onValidationError: (error, details) => {
+          debug(`lmz.mesh.${nodeTypeName}.__executeOperation`).error(error.message.split('.')[0], details);
+        },
+      });
+    }
+
+    /**
+     * Fire-back seam (D5/D17): the caller's traveling handler, filled with a result/Error. Same
+     * `executeEnvelope` path with `requireMeshDecorator: false` — `onBeforeCall` still runs, only the
+     * per-method @mesh allowlist is skipped (the handler is the caller's own continuation). @internal
+     */
+    async __handleResponse(envelope: CallEnvelope): Promise<any> {
+      const base = this as unknown as { ctx: DurableObjectState; env: any };
+      return await executeEnvelope(envelope, this, {
+        nodeTypeName,
+        includeInstanceName: true,
+        requireMeshDecorator: false,
+        waitUntil: (p) => base.ctx.waitUntil(p),
+        env: base.env,
+        onValidationError: (error, details) => {
+          debug(`lmz.mesh.${nodeTypeName}.__handleResponse`).error(error.message.split('.')[0], details);
+        },
+      });
+    }
+  }
+  return MeshComposed;
 }
 

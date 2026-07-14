@@ -28,19 +28,27 @@ describe('m7: narrow core — Container lifecycle untouched, mesh surface added'
     expect(LumenizeContainer.prototype.onStart).toBe(Container.prototype.onStart);
   });
 
-  // Positive own-prop control: the core DID add exactly the mesh surface.
-  // Capable-of-failing: drop any member → its hasOwn flips false.
-  it('adds the mesh receive surface as own properties', () => {
+  // The core DID add exactly the mesh surface — now via the shared `ComposedMeshDO` mixin
+  // (one prototype level up), not copy-pasted as own members. So assert REACHABILITY on the
+  // container + PROVENANCE (own on the mixin layer, absent from the raw Container base). Stays
+  // capable-of-failing: gut any mixin member → it stops being reachable AND own-on-the-mixin.
+  it('adds the mesh receive surface via the ComposedMeshDO mixin layer', () => {
     // Two RPC entries (requests + fire-back responses); __executeChain is folded away (M3),
     // and __localChainExecutor is removed on this node (m2 — no alarms/fetch consumer for it).
+    const mixinProto = Object.getPrototypeOf(LumenizeContainer.prototype);
     for (const member of ['onBeforeCall', '__executeOperation', '__handleResponse']) {
-      expect(Object.hasOwn(LumenizeContainer.prototype, member)).toBe(true);
+      expect(member in LumenizeContainer.prototype).toBe(true);   // reachable on instances
+      expect(Object.hasOwn(mixinProto, member)).toBe(true);       // supplied by the mixin layer
+      expect(member in Container.prototype).toBe(false);          // NOT from Container (capable-of-failing)
     }
     for (const gone of ['__executeChain', '__localChainExecutor']) {
-      expect(Object.hasOwn(LumenizeContainer.prototype, gone)).toBe(false);
+      expect(gone in LumenizeContainer.prototype).toBe(false);
     }
-    // Getters: present as own accessor descriptors.
-    expect(Object.getOwnPropertyDescriptor(LumenizeContainer.prototype, 'lmz')?.get).toBeTypeOf('function');
+    // `lmz` getter: an own accessor on the mixin layer, reachable on the container.
+    expect(Object.getOwnPropertyDescriptor(mixinProto, 'lmz')?.get).toBeTypeOf('function');
+    // `ctn` stays per-class (own on LumenizeContainer, NOT on the mixin).
+    expect(Object.hasOwn(LumenizeContainer.prototype, 'ctn')).toBe(true);
+    expect(Object.hasOwn(mixinProto, 'ctn')).toBe(false);
   });
 
   // M1: fetch IS overridden (own + distinct from the base) so the port pin runs.
