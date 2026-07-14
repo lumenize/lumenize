@@ -32,6 +32,9 @@ export type { BroadcastFn, BroadcastTarget, BroadcastOptions } from './broadcast
 
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope } from './lmz-api';
+// ComposedMeshDO — the DO-flavored mesh-composition mixin (VALUE export; consumed cross-package,
+// e.g. the Profile DO in @lumenize/nebula-auth does `extends ComposedMeshDO(DurableObject, 'Profile')`).
+export { ComposedMeshDO } from './lmz-api';
 
 // Re-export mesh node identity and call context types
 export type {
