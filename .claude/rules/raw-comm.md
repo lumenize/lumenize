@@ -37,7 +37,7 @@ return (await routeDORequest(request, env, { prefix: '/auth' })
 Raw `stub.method()` is how non-mesh Workers and DOs talk to other DOs, WorkerEntrypoints, and RpcTargets. (Mesh code uses `this.lmz.call` instead — see [mesh.md](mesh.md).) Gotchas:
 - Synchronous DO methods become **async over RPC** — in tests use `await expect(...).rejects.toThrow()`, not `expect(() => ...).toThrow()`.
 - Private (`#`) methods silently return `undefined` over RPC stubs — use public methods or HTTP endpoints for communication.
-- Hold the stub for the narrowest scope (`using stub = ...`) — an open stub bills wall-clock time (see [durable-objects.md](durable-objects.md) § Wall-clock billing).
+- **Don't `using` a DO stub** (nor a service/WorkerEntrypoint binding or facet stub) — it's a local pointer with no `Symbol.dispose`, so `using` throws `"Object is not disposable."` in every environment. Use a plain `const` + `await`; the pointer needs no disposal. `using` is only for a **method-returned RpcTarget session stub** (see [durable-objects.md](durable-objects.md) § Wall-clock billing; verified in `experiments/rpc-stub-disposability/FINDINGS.md`).
 
 ## Errors over raw Workers RPC
 Workers RPC serializes arguments and return values with structured clone, so rich types (`Date`, `Map`, `Set`, typed arrays, and reference identity within a single call) cross fine. **Errors are the exception: Cloudflare's RPC does not reconstruct custom Error subclasses** — a thrown custom error arrives as a plain `Error` with `name` + `message`, no `instanceof` for your class, and none of the `globalThis`-based reconstruction the mesh path does (see [mesh.md](mesh.md) § Errors across mesh calls).

@@ -46,11 +46,15 @@ this.ctx.storage.kv.put('subscribers', subscribers);
 **Safe** instance-variable uses: statically initialized utilities (a pre-compiled regex, `#sql = this.ctx.storage.sql.exec`), ephemeral caches where loss is acceptable, config set in the constructor.
 
 ## Wall-clock billing
-A DO is billed for elapsed time whenever any of these are active: `await`ing I/O, `setTimeout`/`setInterval`, or holding Workers RPC stubs open. Mitigations:
+A DO is billed for elapsed time whenever it is actively working: `await`ing I/O, running a `setTimeout`/`setInterval`, or holding a **method-returned RpcTarget session** open. Mitigations:
 - Keep business logic synchronous (above).
-- Use `using` for Workers RPC stubs in the narrowest scope so they dispose promptly:
+- **`using` is for a method-returned RpcTarget / WorkerEntrypoint session stub — NOT a DO stub.** An RpcTarget (the object-capability pattern) holds a live server-side session, so release it in the narrowest scope:
   ```typescript
-  { using stub = env.MY_DO.get(id); const result = stub.someMethod(); }
+  { using cap = await stub.getCapability(); const result = await cap.someMethod(); }
+  ```
+  A **DO stub** (and a service/WorkerEntrypoint binding stub, and a facet stub) is a local pointer with **no `Symbol.dispose`** — `using` on it throws `"Object is not disposable."` in every environment (pool-workers ≡ wrangler dev ≡ deployed; verified 2026-07-15, `experiments/rpc-stub-disposability/FINDINGS.md`). Use a plain `const` and `await` the call; the pointer needs no disposal:
+  ```typescript
+  const stub = env.MY_DO.getByName(name); const result = await stub.someMethod();
   ```
 - Avoid blocking external API calls from a DO. Mesh code uses the two-one-way-call pattern ([mesh.md](mesh.md))
 - Use `setTimeout`/`setInterval` only to keep a DO from hibernating for up to a few minutes; beyond that use `alarm()` or two one-way calls.
