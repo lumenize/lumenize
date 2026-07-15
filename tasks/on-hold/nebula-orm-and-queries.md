@@ -149,6 +149,17 @@ star.getResource('person-123', {
 
 All strategies are local SQLite queries — no network hops.
 
+### Dynamic-identifier safety (the ontology is the allowlist)
+
+Configurable queries expose a **projection / filter / sort field list** as API input, and those names land in SQL **identifier** positions (`SELECT <fields>`, `WHERE <col>`, `ORDER BY <col> <dir>`, table names). Identifiers **cannot be parameterized** — `?` binds values only — so they must be interpolated into the SQL text, which is a SQL-injection vector whenever the list comes from raw client input unvalidated. It's the injection the "always parameterize" habit misses: binding protects *values*, so the one spot you're forced off the parameterized path is the one spot the reflex never covers — and it reads as "picking columns," not "building SQL."
+
+**Commitment:** every client-supplied identifier is validated by **membership in the ontology's declared fields for that type** before it touches SQL. The ontology (see *How the Ontology Feeds In*) already IS the authoritative field set (ADR-001), so this is a lookup — not a hand-maintained allowlist that drifts. A name not in the type → reject (or loud-warn, per the no-foot-guns rule), never passed through.
+
+- **Guard every identifier position**, not just the SELECT list: projection fields, `where` columns, `order by` columns, sort **direction** (`ASC`/`DESC` is a keyword, also not bindable), and table names. `limit`/`offset` are *values* → bind them.
+- **Validate by membership, never by escaping.** Quoting `"${col}"` and doubling embedded quotes makes an identifier *syntactically* safe but still lets a caller name a real-but-unauthorized column — membership constrains to *valid and authorized*; escaping only to *parseable*.
+- **Enforce at the framework layer** — the `query()` engine does the ontology check; app / user-developer code never interpolates raw request input into SQL. A genuinely-needed non-ontology field goes through an escape hatch that **loudly warns**.
+- **Same choke point carries field-level read authz later** — the projectable-field set can be narrowed to what this caller may see (ADR-008, point-of-action), so the gate that stops injection also stops over-reading. Out of scope now; noted so the seam isn't designed away.
+
 ### Open Questions
 
 - **Query language**: TypeScript method chaining? GraphQL subset? Plain object? Method chaining is type-safe and IDE-friendly. GraphQL adds parsing complexity. Plain object is simplest but loses type safety.
@@ -170,6 +181,7 @@ All strategies are local SQLite queries — no network hops.
 - [ ] M:N relationships resolved via join tables (per Part B)
 - [ ] Depth limits enforced (configurable, default 3)
 - [ ] Permission checks applied per-resource in the result set
+- [ ] Client-supplied identifiers (projection / `where` / `order by` / direction / table) validated against ontology fields *before* SQL construction; an unknown field is rejected or loud-warned, never interpolated — proven by a capable-of-failing test that feeds a bogus column and asserts refusal
 - [ ] Performance: query with 2 levels of nesting completes in <10ms for reasonable dataset sizes
 - [ ] All results are current snapshots (validTo = END_OF_TIME)
 - [ ] JSDoc validation constraints (Part A) flow through to the generated `parse()`

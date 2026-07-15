@@ -1,5 +1,8 @@
 # Nightly loop — review-eligible candidate backlog
 
+> **⚠️ RETIRED 2026-07-15 — no longer an input to `/nightly-pass`.**
+> The nightly pass now runs a fixed, hard-coded audit menu (whole-repo tripwires + mutation-audit backfill), not task-file-mined candidates — this *is* the selection approach that didn't pan out. See the [`/nightly-pass` skill](../../.claude/skills/nightly-pass/SKILL.md). This curated list is **frozen**: kept only as raw material if a future *hand-picked* review campaign ever wants it. Don't add to it, and the pass must not read it.
+
 This file is the **source-C candidate pool** for the nightly self-improvement loop's selector.
 The loop does ONE kind of overnight work: a code/design OPTIMIZATION review pass — like a `/review-task` or `/code-review` over a spec/doc/source file, producing findings (+ optionally a proposed diff on a dedicated worktree).
 It NEVER commits, deploys, runs experiments, or builds.
