@@ -23,11 +23,9 @@ function uuid(): string { return crypto.randomUUID(); }
 /** Receive side: captures every pushed `handleResourceUpdate` (the client-facing continuation target). */
 class SubscriberProbe extends LumenizeClient {
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];
-  // Permissive onBeforeCall — accept unsolicited peer-to-peer pushes (the fanned-out UPDATE originates
-  // in the WRITER's chain, not this client's). The real NebulaClient does the same, delegating the
-  // boundary to the Gateway's onBeforeCallToClient (the PROFILE-fence). Without this, the default
-  // rejects the update with "Peer-to-peer client calls are disabled by default".
-  override onBeforeCall(): void {}
+  // No onBeforeCall override — the DEFAULT LumenizeClient guard accepts the fanned-out UPDATE because
+  // its immediate caller is the PROFILE DO (not another client), even though the UPDATE ORIGINATES in
+  // the writer's chain. The cross-scope boundary remains the Gateway's onBeforeCallToClient (PROFILE-fence).
   @mesh()
   handleResourceUpdate(resourceType: string, resourceId: string, snapshot: ProfileSnapshot): void {
     this.updates.push({ resourceType, resourceId, snapshot });
@@ -57,9 +55,9 @@ async function meshClient(opts: {
 }
 
 /**
- * A connected REAL `NebulaClient` (via `NebulaClientTest`, which inherits the real permissive
- * `onBeforeCall` + captures `handleResourceUpdate`) using a PRE-MINTED accessToken (skips the baked
- * cookie refresh). This is the production receive-side — NOT a hand-rolled probe.
+ * A connected REAL `NebulaClient` (via `NebulaClientTest`, which inherits the corrected caller-based
+ * default `onBeforeCall` + captures `handleResourceUpdate`) using a PRE-MINTED accessToken (skips the
+ * baked cookie refresh). This is the production receive-side — NOT a hand-rolled probe.
  */
 async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClientTest> {
   const { access_token, sub } = await createNebulaTestToken({
@@ -151,9 +149,9 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
   });
 
   it('a REAL NebulaClient receives a cross-scope profile UPDATE via subscribeProfile — production receive path (#5)', async () => {
-    // The whole point of Phase 3, on the REAL client (real permissive onBeforeCall — the fanned-out
-    // update rides the WRITER's chain, so the base LumenizeClient peer-to-peer guard would reject it;
-    // NebulaClient overrides onBeforeCall permissive and delegates the boundary to the Gateway fence).
+    // The whole point of Phase 3, on the REAL client. The fanned-out update rides the WRITER's chain,
+    // but its immediate CALLER is the PROFILE DO, so the corrected caller-based default onBeforeCall
+    // accepts it (no override needed); the Gateway fence remains the real cross-scope boundary.
     const pid = uuid();
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     await writeProfile(owner, pid, { name: 'Ada' });

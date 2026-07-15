@@ -1478,21 +1478,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#onPreviewReady?.(scope);
   }
 
-  /**
-   * Accept calls relayed through Star (fanout, transaction-result, read-result).
-   *
-   * The default `LumenizeClient.onBeforeCall` rejects calls where `callChain[0]`
-   * is another `LumenizeClient` instance (its peer-to-peer guard). Nebula's
-   * fanout pattern is **Star-mediated**, not peer-to-peer: client A mutates →
-   * Star fans out → client B receives `handleResourceUpdate`. The default's
-   * `callChain[0] === otherClient` view of this is too strict.
-   *
-   * The actual security boundary is `NebulaClientGateway.onBeforeCallToClient`,
-   * which verifies the call's `originAuth.claims.aud` matches the connected
-   * client's aud at the Gateway. Once a call has cleared that check, it has
-   * a legitimate Nebula-scope and can be dispatched on the client.
-   */
-  override onBeforeCall(): void {
-    // intentionally permissive — Gateway aud check is the boundary
-  }
+  // No onBeforeCall override — NebulaClient inherits the base LumenizeClient default, which blocks
+  // only a DIRECT client→client call (immediate caller is another client) and accepts DO/Worker-
+  // mediated pushes (Star fanout, transaction/read result). Nebula does no direct client→client, and
+  // the real cross-scope boundary is NebulaClientGateway.onBeforeCallToClient (the same-aud fence).
 }

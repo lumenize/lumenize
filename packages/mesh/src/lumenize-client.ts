@@ -702,21 +702,21 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
    * Called before each incoming mesh call is executed
    *
    * Override to add authentication/authorization.
-   * Default: reject calls from other LumenizeClients (peer-to-peer),
-   * but allow calls that originated from this same client instance.
+   * Default: block a DIRECT client-to-client call — one whose IMMEDIATE caller
+   * (`callChain.at(-1)`) is another LumenizeClient. DO/Worker-mediated pushes
+   * (fanout, direct-delivery, `svc.broadcast`) have a DO/Worker as the caller and
+   * are accepted — this is what every reactive app relies on, so no override is
+   * needed for them. Override (and skip `super`) to opt into peer communication.
    *
    * Access context via `this.lmz.callContext`.
    */
   onBeforeCall(): void {
-    // Default: reject peer-to-peer client calls, but allow self-originated calls
-    const origin = this.#currentCallContext?.callChain[0];
-    if (origin?.type === 'LumenizeClient') {
-      // Allow if origin is this same client instance (response to our own request)
-      if (origin.instanceName === this.#instanceName) {
-        return;
-      }
+    // Check the IMMEDIATE caller, not the origin: a DO/Worker-mediated push has a
+    // DO/Worker caller (accepted); only a direct peer call has a client caller.
+    const caller = this.#currentCallContext?.callChain.at(-1);
+    if (caller?.type === 'LumenizeClient' && caller.instanceName !== this.#instanceName) {
       throw new Error(
-        'Peer-to-peer client calls are disabled by default. ' +
+        'Direct client-to-client calls are disabled by default. ' +
         'Override onBeforeCall() to allow them.'
       );
     }

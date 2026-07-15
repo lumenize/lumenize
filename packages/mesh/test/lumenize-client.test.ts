@@ -656,29 +656,9 @@ describe('LumenizeClient', () => {
     });
   });
 
-  describe('Default onBeforeCall', () => {
-    it('rejects calls from LumenizeClient origins by default', () => {
-      const client = new TestClient({
-        instanceName: 'user.tab1',
-        baseUrl: 'wss://example.com',
-        accessToken: 'token',
-        WebSocket: createMockWebSocketClass(),
-      });
-
-      // Set up a fake call context with LumenizeClient origin
-      // @ts-ignore - accessing private for testing
-      client['#currentCallContext'] = {
-        origin: { type: 'LumenizeClient', bindingName: 'GATEWAY', instanceName: 'other.tab1' },
-        callChain: [],
-        callee: { type: 'LumenizeClient', bindingName: 'GATEWAY', instanceName: 'user.tab1' },
-        state: {},
-      };
-
-      // Note: We can't directly test onBeforeCall because #currentCallContext is private
-      // This would be tested in integration tests
-      client.disconnect();
-    });
-  });
+  // The default onBeforeCall (client peer-guard) is covered by capable-of-failing INTEGRATION tests
+  // in test/for-docs/calls/peer-guard.test.ts — the guard needs a real callChain, which #currentCallContext
+  // (private) can't be faked into here. A prior placeholder unit test lived here but asserted nothing.
 });
 
 describe('Message Queue', () => {

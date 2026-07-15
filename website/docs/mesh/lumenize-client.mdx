@@ -149,20 +149,20 @@ Or call `disconnect()` manually. Monitor state via `onConnectionStateChange` cal
 
 ## Access Control
 
-LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The exception is that LumenizeClient's have one additional restriction. Calls originating from other LumenizeClients are rejected by default:
+LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The one additional restriction: a **direct client-to-client call is rejected by default** — identified by the call's **immediate caller** (`callChain.at(-1)`), not its origin.
 
-- ✅ Calls from LumenizeDOs and LumenizeWorkers are allowed
-- ✅ Calls that originated from this same client instance (responses flowing back through the mesh) are also allowed
-- ❌ Calls originating from other LumenizeClients are rejected by default
+- ✅ Calls whose immediate caller is a LumenizeDO or LumenizeWorker are allowed — this covers every DO/Worker-mediated push (fanout, direct-delivery, `svc.broadcast`), **even when the call originated from another client** (client A mutates → a DO fans out → client B receives it).
+- ✅ A call whose immediate caller is this same client instance (a response flowing back through the mesh) is allowed.
+- ❌ A **direct** client-to-client call — another LumenizeClient as the immediate caller — is rejected by default.
 
-### Opting In to Calls From Other LumenizeClients
+### Opting In to Direct Client-to-Client Calls
 
-For collaborative features (cursors, voice/video signaling, etc.), override `onBeforeCall`:
+For collaborative features (cursors, voice/video signaling, etc.) where clients call each other directly, override `onBeforeCall`:
 
 ```typescript @skip-check-approved('conceptual')
 class CollaborativeClient extends LumenizeClient {
   onBeforeCall() {
-    // Note: NOT calling super.onBeforeCall() — we WANT to allow peers
+    // Note: NOT calling super.onBeforeCall() — we WANT to allow direct peer calls
     // Auth is already guaranteed by auth hooks — originAuth.sub always exists
   }
 
