@@ -13,9 +13,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { LumenizeClient, mesh } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
-import { NebulaClient } from '@lumenize/nebula';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
+import { NebulaClientTest } from './index';
 
 const ORIGIN = 'http://localhost';
 function uuid(): string { return crypto.randomUUID(); }
@@ -56,15 +56,19 @@ async function meshClient(opts: {
   return client;
 }
 
-/** A connected real `NebulaClient` via a PRE-MINTED accessToken (skips the baked cookie refresh). */
-async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClient> {
+/**
+ * A connected REAL `NebulaClient` (via `NebulaClientTest`, which inherits the real permissive
+ * `onBeforeCall` + captures `handleResourceUpdate`) using a PRE-MINTED accessToken (skips the baked
+ * cookie refresh). This is the production receive-side — NOT a hand-rolled probe.
+ */
+async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClientTest> {
   const { access_token, sub } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.activeScope, instanceName: opts.activeScope, isAdmin: false, ttlSeconds: 3600,
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
-  const client = new NebulaClient({
+  const client = new NebulaClientTest({
     baseUrl: ORIGIN, authScope: opts.activeScope, activeScope: opts.activeScope, appVersion: 'v1',
     resourceHostBinding: 'STAR', accessToken: access_token,
     instanceName: `${sub}.${uuid().slice(0, 8)}`,
@@ -144,6 +148,24 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
     const snap = await client.subscribeProfile(pid);
     expect(snap?.value).toEqual({ name: 'Ada' });           // cross-scope initial snapshot via the client API
+  });
+
+  it('a REAL NebulaClient receives a cross-scope profile UPDATE via subscribeProfile — production receive path (#5)', async () => {
+    // The whole point of Phase 3, on the REAL client (real permissive onBeforeCall — the fanned-out
+    // update rides the WRITER's chain, so the base LumenizeClient peer-to-peer guard would reject it;
+    // NebulaClient overrides onBeforeCall permissive and delegates the boundary to the Gateway fence).
+    const pid = uuid();
+    const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
+    await writeProfile(owner, pid, { name: 'Ada' });
+
+    const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
+    expect((await client.subscribeProfile(pid))?.value).toEqual({ name: 'Ada' });
+    const baseline = client.resourceUpdateCount;
+
+    await writeProfile(owner, pid, { name: 'Grace' });      // cross-scope UPDATE (owner in scope Y)
+    await vi.waitFor(() => expect(client.resourceUpdateCount).toBeGreaterThan(baseline));
+    expect(client.lastResourceUpdate).toMatchObject({ resourceType: 'Profile', resourceId: pid });
+    expect((client.lastResourceUpdate?.snapshot as ProfileSnapshot | null)?.value).toEqual({ name: 'Grace' });
   });
 
   it('reconnect re-subscribes a Profile entry to PROFILE, not STAR — the binding-agnostic reconnect branch (#5)', async () => {

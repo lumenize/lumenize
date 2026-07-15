@@ -260,11 +260,11 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * The scoped-admin registry read — `profileId → scopes`. A `protected` SEAM so a test subclass can
    * force the fail-closed path (`#requireOwnerOrAdmin` catches a throw here and denies). NOT public API.
    *
-   * Raw Workers RPC to the raw registry (nebula-auth is raw-DO infra). NOT a `using` stub — DO stubs
-   * from `getByName` aren't `Symbol.dispose`-disposable in this runtime (`using` throws "not
-   * disposable"); the stub is released when this method returns after the single awaited SQL read (the
-   * narrowest practical scope). The `await` is load-bearing — returning the pending promise before the
-   * method's stub reference drops would race the release.
+   * Raw Workers RPC to the raw registry (nebula-auth is raw-DO infra). NOT a `using` stub — under
+   * vitest-pool-workers the miniflare DO-stub proxy lacks `Symbol.dispose` (BOTH `get`/`getByName`), so
+   * `using` throws "Object is not disposable" — a test-runtime quirk, not prod. The wall-clock win is
+   * negligible here anyway (one awaited SQL read): the stub releases on method return. The `await` is
+   * load-bearing — returning the pending promise unawaited would race that release.
    */
   protected async lookupProfileScopes(profileId: string): Promise<string[]> {
     type RegistryStub = { getScopesForProfile(id: string): Promise<string[]> };

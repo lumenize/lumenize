@@ -18,7 +18,7 @@ Intra-monorepo deps use `"*"` as the version.
 
 ## Standard package files
 - `package.json` — no build scripts, points to `src/`
-- `src/index.ts` — single export file re-exporting the public API
+- `src/index.ts` — single export file re-exporting the public API. ⚠️ **Do NOT re-export a `@lumenize/mesh`-composing DO (`ComposedMeshDO`/`LumenizeDO` subclass) from this widely-imported index** — pulling the whole mesh chain (transitive `cloudflare:workers` + client/Gateway code) through the index **breaks the transform of pure-unit test files that import the index only for light utilities**: they get a bare `SyntaxError: Invalid or unexpected token` with **no location**, and the whole file silently stops running (marked failed with 0 assertion failures). A DO test that imports `cloudflare:test` transforms the same chain fine, so it looks file-specific and is baffling. A plain `extends DurableObject` (no mesh) in the index is fine — it's the mesh dependency weight. **Fix: export the mesh-composing DO from a dedicated subpath** (`"./profile": { "import": "./src/profile.ts" }`), consumers do `import { X } from '@lumenize/pkg/subpath'`. Bit 2026-07-14 (nebula-auth `Profile` DO → `@lumenize/nebula-auth/profile`).
 - `README.md` — minimal: name, tagline, link to website docs, key features, install
 - `LICENSE` — `MIT` for open-source packages, or `UNLICENSED` for Nebula code (`packages/nebula-auth`, `apps/nebula`) until the platform ships externally as `BUSL-1.1`. Use the **exact SPDX identifier** in `package.json` `license` (`BUSL-1.1`, not `BSL-1.1`/`BSI-1.1`).
 - `dist/` — generated at publish only (gitignored)
