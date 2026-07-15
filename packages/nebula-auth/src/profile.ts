@@ -142,7 +142,45 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     this.ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('eTag', ?)`, this.#ulid(),
     );
-    // Phase 3: fanout the new #publicSnapshot() to Subscribers rows (hand-rolled loop + PROFILE-fence).
+    this.#fanout();
+  }
+
+  /**
+   * Push the new public snapshot to every subscriber — a HAND-ROLLED `lmz.call` loop (not
+   * `svc.broadcast`, which is `LumenizeDO`-only AND whose tier-worker path rewrites `metadata.caller`,
+   * defeating the cross-scope PROFILE-fence). The loop never hops a tier worker, so `metadata.caller`
+   * stays `PROFILE` and the Gateway fence is reliable at any N. 4-arg `onErrorOnly`: on a failed
+   * delivery the Gateway returns a `ClientDisconnectedError` to `onProfileBroadcastResult`, which drops
+   * the dead subscriber row (self-healing, per testing.md §self-healing-transient).
+   */
+  #fanout(): void {
+    const snapshot = this.#publicSnapshot();
+    const profileId = this.#profileId();
+    for (const row of this.ctx.storage.sql.exec(`SELECT clientId, subscriberBinding FROM Subscribers`)) {
+      const clientId = (row as { clientId: string }).clientId;
+      const subscriberBinding = (row as { subscriberBinding: string }).subscriberBinding;
+      this.lmz.call(
+        subscriberBinding, clientId,
+        this.ctn<ResourceUpdateReceiver>().handleResourceUpdate(RESOURCE_TYPE, profileId, snapshot),
+        this.ctn().onProfileBroadcastResult(),
+        { onErrorOnly: true },
+      );
+    }
+  }
+
+  /**
+   * Dead-subscriber cleanup — the 4-arg fire-back from a failed fanout delivery. Drops the subscriber
+   * row when the Gateway reports the client disconnected. Mirrors `Star.onBroadcastResult`, BUT is
+   * **`public` and deliberately NOT `@mesh()`**: the fire-back lands via `__handleResponse`
+   * (`requireMeshDecorator: false`), so no decorator is needed — and with this DO's open `onBeforeCall`,
+   * an `@mesh` here would let any client forge a `ClientDisconnectedError` to drop another subscriber's
+   * row (a DoS surface). Detect by `name` (custom Error classes don't keep `instanceof` — mesh.md).
+   */
+  onProfileBroadcastResult(result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.ctx.storage.sql.exec(`DELETE FROM Subscribers WHERE clientId = ?`, clientId);
+    }
   }
 
   /** Read the PRIVATE `privateNotes` blob — gated (owner/admin only), NEVER via a snapshot. */

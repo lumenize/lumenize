@@ -276,6 +276,15 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
   };
 }
 
+/** The reactive-store resourceType key for global Profile subscriptions (`Profile:${profileId}`) —
+ *  matches the Profile DO's `RESOURCE_TYPE`. The subscribe instance is the profileId (binding-agnostic;
+ *  NOT `activeScope`), since the Profile DO is global/cross-scope. tasks/nebula-profile-store.md. */
+const PROFILE_RESOURCE_TYPE = 'Profile';
+
+/** Minimal structural target for the Profile subscribe continuation — avoids importing the Profile DO
+ *  (a `cloudflare:workers` class) into the browser-bundled client. Matches `Profile.subscribe()`. */
+interface ProfileSubscribeTarget { subscribe(): void; }
+
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
   #activeScope: string;
@@ -755,8 +764,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   #resubscribeAll(): void {
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
+      if (resourceType === PROFILE_RESOURCE_TYPE) {
+        // Binding-agnostic: a global Profile sub re-subscribes to PROFILE/profileId, not STAR/activeScope.
+        this.lmz.call('PROFILE', resourceId, this.ctn<ProfileSubscribeTarget>().subscribe());
+      } else {
+        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+          this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
+      }
     }
     // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
     // a reconnect after token expiry re-subscribes with the fresh token, so a
@@ -1120,11 +1134,35 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   #subscribeResource(resourceType: string, resourceId: string): Promise<Snapshot | null> {
     const key = `${resourceType}:${resourceId}`;
+    this.#subscriptionRegistry.set(key, { resourceType, resourceId });
+    return this.#subscribeVia(key, () =>
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId)));
+  }
 
-    // Coalesce with an in-flight subscribe for the same key. Capture the
-    // entry's CURRENT resolve/reject as plain function values (not via the
-    // entry object) — aliasing the object would make the chained closure
-    // read the newly-installed function back through itself, recursing.
+  /**
+   * Subscribe to a global Profile's PUBLIC fields by `profileId` — the **binding-agnostic** path: the
+   * callee instance is the `profileId` (NOT `activeScope`), since the Profile DO is global/cross-scope.
+   * The received snapshot lands in the SAME reactive store as resource subs (key `Profile:${profileId}`,
+   * via `handleResourceUpdate` → the engine), so `readResource('Profile', profileId)` observes it.
+   * Resolves on the first snapshot. tasks/nebula-profile-store.md Phase 3.
+   */
+  subscribeProfile(profileId: string): Promise<Snapshot | null> {
+    const key = `${PROFILE_RESOURCE_TYPE}:${profileId}`;
+    this.#subscriptionRegistry.set(key, { resourceType: PROFILE_RESOURCE_TYPE, resourceId: profileId });
+    return this.#subscribeVia(key, () =>
+      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe()));
+  }
+
+  /**
+   * Shared subscribe plumbing (binding-agnostic): coalesce with an in-flight subscribe for `key`, else
+   * register a pending entry and `fire()` the subscribe call. Extracted so the Star-resource and
+   * global-Profile paths share the pending/coalesce logic — only the callee binding+instance differ.
+   */
+  #subscribeVia(key: string, fire: () => void): Promise<Snapshot | null> {
+    // Coalesce with an in-flight subscribe for the same key. Capture the entry's CURRENT resolve/reject
+    // as plain function values (not via the entry object) — aliasing the object would make the chained
+    // closure read the newly-installed function back through itself, recursing.
     const inFlight = this.#pendingSubscribes.get(key);
     if (inFlight) {
       return new Promise<Snapshot | null>((resolve, reject) => {
@@ -1134,13 +1172,9 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         inFlight.reject = (err) => { prevReject(err); reject(err); };
       });
     }
-
-    this.#subscriptionRegistry.set(key, { resourceType, resourceId });
-
     return new Promise<Snapshot | null>((resolve, reject) => {
       this.#pendingSubscribes.set(key, { resolve, reject });
-      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
+      fire();
     });
   }
 
