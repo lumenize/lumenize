@@ -15,6 +15,8 @@ paths:
 - **Deferring ≠ deleting.** When a test exposes a real issue whose fix is deferred, use `it.skip` with the original assertions intact + a one-line comment naming the blocker + a task-file/TODO entry — never delete the test or weaken its assertions to ship green (false confidence). Removal is only for tests of deprecated behavior (previous bullet); `it.skip` shows up as `↓ skipped` in every run, keeping the deferral visible.
 
 ## Tests must be capable of failing
+*Lineage: this is targeted, manual **mutation testing** (perturb the code under test, confirm the specific test reddens) plus TDD's **red-first** (Red-Green-Refactor) discipline — search those terms for the formal, tooled versions (e.g. Stryker for TS).*
+
 A test that passes regardless of the implementation's correctness is worse than no test. Before considering a test done, ask: **"If I gutted the code under test, would this assertion fail?"** If not, it checks the wrong thing. Common ways tests pass for the wrong reason:
 - **Harness fidelity loss**: a path that JSON-stringifies (or otherwise serializes) silently degrades rich types — `Date`→string, `Map`/`Set`→`{}`/`[]`, `BigInt` throws/vanishes, cycles flatten. The validator accepts the degraded value and the test passes, but you validated the round-trip degradation, not the code.
 - **Mocks returning expected values**: a stub that always returns what the test expects passes regardless of real behavior.
