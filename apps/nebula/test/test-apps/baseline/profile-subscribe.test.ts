@@ -145,4 +145,45 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     const snap = await client.subscribeProfile(pid);
     expect(snap?.value).toEqual({ name: 'Ada' });           // cross-scope initial snapshot via the client API
   });
+
+  it('reconnect re-subscribes a Profile entry to PROFILE, not STAR — the binding-agnostic reconnect branch (#5)', async () => {
+    const pid = uuid();
+    const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
+    await writeProfile(owner, pid, { name: 'Ada' });
+    const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
+    await client.subscribeProfile(pid);
+    await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
+
+    // Drop the DO's subscriber row so ONLY a correct reconnect re-subscribe can restore it.
+    const stub: any = (env as any).PROFILE.getByName(pid);
+    await (runInDurableObject as any)(stub, (_i: any, c: any) => c.storage.sql.exec('DELETE FROM Subscribers'));
+    expect(await subscriberCount(pid)).toBe(0);
+
+    // The reconnect walk must re-fire the subscribe to PROFILE/pid. A regression routing it to
+    // STAR/pid instead would throw (pid is not a parseId-valid scope) and never re-add the row.
+    (client as any)._resubscribeAllForTest();
+    await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
+  });
+
+  it('the fence is PROFILE-scoped — a cross-scope STAR-origin push is REJECTED while cross-scope PROFILE pushes are allowed (#6)', async () => {
+    const pid = uuid();
+    const yScope = 'universe-y.app.tenant';
+    // One client is BOTH the profile owner AND a STAR admin in scope Y; the subscriber X is cross-scope.
+    const owner = await meshClient({ profileId: pid, isAdmin: true, activeScope: yScope, instanceName: yScope });
+    const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
+
+    await subscribe(x, pid);
+    await vi.waitFor(() => expect(x.updates.length).toBe(1));         // initial PROFILE snapshot (cross-scope, fence-allowed)
+
+    // Fire a STAR-origin cross-scope push to X FIRST (bindingName='STAR' ≠ 'PROFILE', aud Y ≠ X → the
+    // untouched aud check must reject it at the Gateway, so it never reaches X)...
+    await owner.lmz.callAsync('STAR', yScope,
+      (owner.ctn() as any).callClient(x.lmz.instanceName, 'handleResourceUpdate', 'StarPush', 'star-probe', { value: {}, meta: { eTag: '0' } }));
+    // ...then a PROFILE update, which IS delivered (fence skips) — a same-connection barrier: once THIS
+    // lands on X, the earlier STAR push would have too if the fence had (wrongly) let it through.
+    await writeProfile(owner, pid, { name: 'Grace' });
+    await vi.waitFor(() => expect(x.updates.some((u) => u.resourceId === pid && u.snapshot.value?.name === 'Grace')).toBe(true));
+
+    expect(x.updates.some((u) => u.resourceId === 'star-probe')).toBe(false); // the STAR-origin push was gated
+  });
 });

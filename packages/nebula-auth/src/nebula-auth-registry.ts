@@ -153,7 +153,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Login **verify** — find the identity for `(email, scope)` and flip `emailVerified` true, returning
-   * `{ sub, universeGalaxyStarId, isAdmin }`. Returns `null` if **no identity exists** (the load-bearing
+   * `{ sub, universeGalaxyStarId, isAdmin, profileId }`. Returns `null` if **no identity exists** (the load-bearing
    * "a row ⇒ authorized member" invariant that lets `adminApproved` retire — a stranger who requested a
    * login magic link for a scope they were never minted into is rejected here). NEVER mints. Public so
    * the token layer can drive it, but only reached via the consume RPCs.
