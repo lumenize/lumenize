@@ -261,10 +261,11 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
    * force the fail-closed path (`#requireOwnerOrAdmin` catches a throw here and denies). NOT public API.
    *
    * Raw Workers RPC to the raw registry (nebula-auth is raw-DO infra). NOT a `using` stub — under
-   * vitest-pool-workers the miniflare DO-stub proxy lacks `Symbol.dispose` (BOTH `get`/`getByName`), so
-   * `using` throws "Object is not disposable" — a test-runtime quirk, not prod. The wall-clock win is
-   * negligible here anyway (one awaited SQL read): the stub releases on method return. The `await` is
-   * load-bearing — returning the pending promise unawaited would race that release.
+   * vitest-pool-workers a DO stub lacks `Symbol.dispose`, so `using` throws "Object is not disposable"
+   * (whether that's miniflare-only or universal is an OPEN question — tasks/rpc-stub-disposability.md).
+   * A plain `const` + `await` works in every environment, and the wall-clock win is negligible here
+   * anyway (one awaited SQL read; the stub releases on method return). The `await` is load-bearing —
+   * returning the pending promise unawaited would race that release.
    */
   protected async lookupProfileScopes(profileId: string): Promise<string[]> {
     type RegistryStub = { getScopesForProfile(id: string): Promise<string[]> };
