@@ -14,6 +14,10 @@
     "./testing": {
       "import": "./src/testing.ts",
       "types": "./src/testing.ts"
+    },
+    "./profile": {
+      "import": "./src/profile.ts",
+      "types": "./src/profile.ts"
     }
   },
   "files": [
@@ -48,8 +52,10 @@
   "dependencies": {
     "@lumenize/auth": "*",
     "@lumenize/debug": "*",
+    "@lumenize/mesh": "*",
     "@lumenize/routing": "*",
-    "@lumenize/sql-migrations": "*"
+    "@lumenize/sql-migrations": "*",
+    "ulid-workers": "^2.1.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.15.1",

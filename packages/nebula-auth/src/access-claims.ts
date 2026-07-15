@@ -37,6 +37,9 @@ export interface NebulaAccessClaimInput {
   activeScope: string;
   /** `access.admin` is set only when true (kept omitted otherwise to keep the JWT compact). */
   isAdmin: boolean;
+  /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. Omitted when
+   *  absent (a pre-rollout KV record mints gracefully without it). tasks/nebula-profile-store.md. */
+  profileId?: string;
   /** RFC 8693 delegation actor sub (`act.sub`) — omitted when absent. */
   actorSub?: string;
   /**
@@ -95,6 +98,7 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     iat: now,
     jti: generateUuid(),
     access,
+    ...(input.profileId ? { profileId: input.profileId } : {}),
     ...(input.actorSub ? { act: { sub: input.actorSub } } : {}),
   };
 }

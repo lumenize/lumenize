@@ -13,6 +13,7 @@ export const {
   DevContainerServeStub,
   NebulaAuthRegistry,
   NebulaClientTest,
+  ProfileTest,
 } = instrumented.dos;
 
 // Non-DO classes are passed through unwrapped

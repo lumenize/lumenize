@@ -70,6 +70,13 @@ export interface NebulaJwtPayload {
   jti: string;
   /** Scoped access (one entry per JWT). */
   access: AccessEntry;
+  /**
+   * The bearer's PUBLIC profile address (a UUID) — a bare, first-party CUSTOM claim (RFC 7519 §4.3),
+   * NOT the OIDC `profile` page-URL claim. Sibling of `sub`. The Profile DO's owner check is a direct
+   * `claims.profileId === instanceName` equality (no URL to parse). Optional: a KV record predating the
+   * profileId rollout mints gracefully without it. tasks/nebula-profile-store.md § JWT decisions.
+   */
+  profileId?: string;
   /** Delegation chain per RFC 8693 (optional) */
   act?: ActClaim;
 }
@@ -90,6 +97,9 @@ export interface Scope {
 export interface Identity {
   /** Registry-minted surrogate identity key (UUID). */
   sub: string;
+  /** Registry-minted PUBLIC address (UUID) — minted WITH `sub`, distinct namespace. `sub → exactly
+   *  one profileId`; `profileId ← 1..N subs` (the P2 unification substrate). tasks/nebula-profile-store.md. */
+  profileId: string;
   universeGalaxyStarId: string;
   /** MUTABLE current login address (lowercased). The ONLY copy. */
   email: string;
@@ -113,6 +123,10 @@ export interface RefreshTokenKV {
   universeGalaxyStarId: string;
   isAdmin: boolean;
   expiresAt: string;
+  /** The bearer's `profileId` — carried so the pure-KV refresh mint can emit the `profileId` JWT claim
+   *  without a registry read. Written by all three record writers (record/converge/self-heal);
+   *  tasks/nebula-profile-store.md Phase 1. */
+  profileId: string;
 }
 
 /** `MagicLinks` row — login channel, token stored HASHED. */

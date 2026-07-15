@@ -34,10 +34,13 @@ CREATE TABLE IF NOT EXISTS Scopes (
 /** Person-in-a-scope (merged `Emails` + `Subjects`), keyed by the registry-minted surrogate `sub`.
  *  `UNIQUE (email, universeGalaxyStarId)` is one identity per email per scope AND serves the
  *  `WHERE email = ?` discover lookup by leftmost-prefix — so there is deliberately NO separate email
- *  index. `email` is stored lowercased (see the registry mint/change paths). */
+ *  index. `email` is stored lowercased (see the registry mint/change paths). `profileId` is the
+ *  minted-with-`sub` PUBLIC address (a UUID, distinct namespace from `sub`) — see the reverse index
+ *  below + tasks/nebula-profile-store.md. */
 export const IDENTITIES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS Identities (
   sub TEXT PRIMARY KEY,
+  profileId TEXT NOT NULL,
   universeGalaxyStarId TEXT NOT NULL,
   email TEXT NOT NULL,
   isAdmin INTEGER NOT NULL DEFAULT 0,
@@ -45,6 +48,13 @@ CREATE TABLE IF NOT EXISTS Identities (
   createdAt TEXT NOT NULL,
   UNIQUE (email, universeGalaxyStarId)
 ) WITHOUT ROWID
+`;
+
+/** Reverse lookup `profileId → scopes` — serves the Profile DO's scoped-admin authz check
+ *  (`SELECT universeGalaxyStarId FROM Identities WHERE profileId = ?`; tasks/nebula-profile-store.md).
+ *  `profileId ← 1..N subs` (P2 unification substrate), so this is not unique. */
+export const IDENTITIES_PROFILE_ID_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_Identities_profileId ON Identities(profileId)
 `;
 
 /** Live refresh-token index → reliable invalidation. The single-writer looks tokens up by `tokenHash`
@@ -94,12 +104,20 @@ CREATE TABLE IF NOT EXISTS InviteTokens (
  * (CF-dashboard worker-delete clears DO storage → no prior applied ids survive) and local vitest is
  * always a fresh deploy. **From here on APPEND-ONLY:** never edit, reorder, or reuse an applied id —
  * add a new id for any further change.
+ *
+ * **Pre-wipe baseline exception (tasks/nebula-profile-store.md, 2026-07-14):** `Identities.profileId`
+ * is folded into the id-2 baseline `IDENTITIES_SCHEMA` above (NOT an append-only `ALTER`) — permitted
+ * ONLY because the surrogate-sub wipe that resets this sequence hasn't deployed yet, so no live DO has
+ * applied id 2. Its reverse index is appended as id 7. ⚠️ A local `wrangler dev` DO that already ran
+ * id 2 won't re-run it (→ `profileId` INSERTs fail) — `rm -rf .wrangler` to recover (fresh vitest is
+ * unaffected). Once the wipe deploys, this exception closes and the list is APPEND-ONLY again.
  */
 export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 1, description: 'Scopes table (scope-existence registry + Universe consent)', sql: SCOPES_SCHEMA },
-  { idMonotonicInc: 2, description: 'Identities table (person-in-a-scope, surrogate sub PK)', sql: IDENTITIES_SCHEMA },
+  { idMonotonicInc: 2, description: 'Identities table (person-in-a-scope, surrogate sub PK, profileId)', sql: IDENTITIES_SCHEMA },
   { idMonotonicInc: 3, description: 'RefreshTokenIndex table', sql: REFRESH_TOKEN_INDEX_SCHEMA },
   { idMonotonicInc: 4, description: 'RefreshTokenIndex(sub) index', sql: REFRESH_TOKEN_INDEX_SUB_INDEX },
   { idMonotonicInc: 5, description: 'MagicLinks table (login channel, hashed)', sql: MAGIC_LINKS_SCHEMA },
   { idMonotonicInc: 6, description: 'InviteTokens table (login channel, hashed, single-use)', sql: INVITE_TOKENS_SCHEMA },
+  { idMonotonicInc: 7, description: 'Identities(profileId) index (profile-store reverse lookup)', sql: IDENTITIES_PROFILE_ID_INDEX },
 ];

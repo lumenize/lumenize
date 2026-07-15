@@ -23,6 +23,22 @@ export {
 
 // Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
 export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+import { Profile } from '@lumenize/nebula-auth/profile';
+
+/** A profileId that forces `Profile`'s scoped-admin registry read to throw — the fail-closed probe. */
+export const FAIL_CLOSED_PROFILE_ID = '__fail_closed_probe__';
+
+/**
+ * Test subclass of `Profile` (bound at `PROFILE`) — overrides the `lookupProfileScopes` seam to THROW
+ * for {@link FAIL_CLOSED_PROFILE_ID}, so a scoped-admin write against that instance exercises the
+ * fail-closed path (`#requireOwnerOrAdmin` must catch the throw and DENY). Otherwise transparent.
+ */
+export class ProfileTest extends Profile {
+  protected override async lookupProfileScopes(profileId: string): Promise<string[]> {
+    if (profileId === FAIL_CLOSED_PROFILE_ID) throw new Error('injected registry failure (test)');
+    return super.lookupProfileScopes(profileId);
+  }
+}
 
 // Import classes needed for test subclasses
 import {

@@ -59,6 +59,12 @@ export interface CreateNebulaTestTokenOptions {
   sub?: string;
   /** Mint an admin token (sets `access.admin`, enabling the scope-admin bypass). Default `true`. */
   isAdmin?: boolean;
+  /**
+   * The bearer's PUBLIC profile address → the bare `profileId` claim. Omitted when absent (a token
+   * with no `profileId` claim). Seed it explicitly to exercise the Profile owner short-circuit
+   * (`claims.profileId === instanceName`) from a rung-3 mint. tasks/nebula-profile-store.md.
+   */
+  profileId?: string;
   /** RFC 8693 delegation actor sub (`act.sub`). */
   actorSub?: string;
   /** Token TTL in seconds. Default: nebula-auth's `ACCESS_TOKEN_TTL`. */
@@ -81,6 +87,7 @@ export function createNebulaTestToken(
     instanceName = activeScope,
     sub = generateUuid(),
     isAdmin = true,
+    profileId,
     actorSub,
     ttlSeconds,
   } = options;
@@ -92,6 +99,7 @@ export function createNebulaTestToken(
       instanceName,
       activeScope,
       isAdmin,
+      profileId,
       actorSub,
       ttlSeconds,
     });

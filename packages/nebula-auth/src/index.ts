@@ -14,6 +14,11 @@
 // The singleton registry DO (needed for wrangler bindings in consuming projects).
 export { NebulaAuthRegistry } from './nebula-auth-registry';
 
+// NOTE: the `Profile` DO is deliberately NOT re-exported here — it composes `@lumenize/mesh`, and
+// pulling that whole chain through this (widely-imported) index breaks the transform of pure-unit
+// consumers that import only light utilities (e.g. parse-id). Import it from the dedicated subpath
+// instead: `import { Profile } from '@lumenize/nebula-auth/profile'` (tasks/nebula-profile-store.md).
+
 // Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
 export type { AffectedScope, ScopeDeletionBlocker, ScopeDeletionPlan } from './nebula-auth-registry';
 

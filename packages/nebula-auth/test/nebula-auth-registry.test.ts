@@ -20,12 +20,15 @@ function freshRegistry(): any {
 async function seed(
   stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; isAdmin?: boolean }>,
 ): Promise<void> {
+  // profileId is a NOT NULL column the real mint supplies; seed a throwaway UUID per member (deletion
+  // tests don't exercise profileId). Generate outside the callback (no crypto reliance inside it).
+  const seeded = members.map(m => ({ ...m, profileId: crypto.randomUUID() }));
   await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
     for (const s of scopes) ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', s);
-    for (const m of members) {
+    for (const m of seeded) {
       ctx.storage.sql.exec(
-        'INSERT INTO Identities (sub, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,1,?)',
-        m.sub, m.scope, m.email.toLowerCase(), m.isAdmin ? 1 : 0, '2026-01-01T00:00:00.000Z',
+        'INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,?,1,?)',
+        m.sub, m.profileId, m.scope, m.email.toLowerCase(), m.isAdmin ? 1 : 0, '2026-01-01T00:00:00.000Z',
       );
     }
   });

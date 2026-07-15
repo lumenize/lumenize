@@ -12,7 +12,7 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { REGISTRY_MIGRATIONS } from '../src/schemas';
 
 const MARKER_KEY = '__sql_migrations_lastID';
-const LAST_ID = REGISTRY_MIGRATIONS[REGISTRY_MIGRATIONS.length - 1]!.idMonotonicInc; // 6
+const LAST_ID = REGISTRY_MIGRATIONS[REGISTRY_MIGRATIONS.length - 1]!.idMonotonicInc; // 7
 
 /** Run `fn` with a virgin `ctx.storage` (a fresh BareStorageDO that runs no migrations of its own). */
 async function inVirginStorage<T>(fn: (storage: any) => T): Promise<T> {
@@ -35,6 +35,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     });
     for (const t of EXPECTED_TABLES) expect(r.tables).toContain(t);
     expect(r.indexes).toContain('idx_RefreshTokenIndex_sub');
+    expect(r.indexes).toContain('idx_Identities_profileId'); // profile-store reverse-lookup index (migration id 7)
     expect(r.marker).toBe(LAST_ID);
   });
 
@@ -74,7 +75,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
   it('fresh path: a new NebulaAuthRegistry has the migrated schema (constructor wired the runner)', async () => {
     const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-fresh-${crypto.randomUUID()}`);
     const r = await (runInDurableObject as any)(stub, (_instance: any, ctx: any) => {
-      ctx.storage.sql.exec("INSERT INTO Identities (sub, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES ('s1','acme','a@x.com',1,1,'2026-01-01T00:00:00.000Z')");
+      ctx.storage.sql.exec("INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES ('s1','p1','acme','a@x.com',1,1,'2026-01-01T00:00:00.000Z')");
       return {
         row: ctx.storage.sql.exec("SELECT sub, isAdmin AS a FROM Identities WHERE sub = 's1'").toArray()[0],
         marker: ctx.storage.kv.get(MARKER_KEY),

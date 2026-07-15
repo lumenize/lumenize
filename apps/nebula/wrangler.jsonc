@@ -54,7 +54,8 @@
       { "name": "STAR", "class_name": "Star" },
       { "name": "DEV_STUDIO", "class_name": "DevStudio" },
       { "name": "DEV_CONTAINER", "class_name": "DevContainer" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
+      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "PROFILE", "class_name": "Profile" }
     ]
   },
   // Workers KV — the ONE hot refresh-token record (`refresh:{tokenHash}`), written by the registry and
@@ -126,7 +127,8 @@
         "Star",
         "DevStudio",
         "DevContainer",
-        "NebulaAuthRegistry"
+        "NebulaAuthRegistry",
+        "Profile"
       ]
     }
   ],

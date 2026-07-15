@@ -87,6 +87,8 @@ export async function mintAccessToken(
     universeGalaxyStarId: string;
     isAdmin: boolean;
     activeScope: string;
+    /** The bearer's PUBLIC profile address → the bare `profileId` claim (omitted when absent). */
+    profileId?: string;
     actorSub?: string;
     /** Override the derived pattern (delegated mint binds to the caller's covered scope). */
     authScopePattern?: string;
@@ -104,6 +106,7 @@ export async function mintAccessToken(
     instanceName: opts.universeGalaxyStarId,
     activeScope: opts.activeScope,
     isAdmin: opts.isAdmin,
+    profileId: opts.profileId,
     actorSub: opts.actorSub,
     authScopePattern: opts.authScopePattern,
   });
@@ -227,6 +230,7 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
     sub: record.sub,
     universeGalaxyStarId: record.universeGalaxyStarId,
     isAdmin: record.isAdmin,
+    profileId: record.profileId,
     activeScope: body.activeScope,
   });
 
@@ -332,14 +336,16 @@ export async function handleDelegatedToken(
 
   // The principal (actFor) must be a real identity — 404 otherwise (parity + traceability).
   const principal = await registry(env).getIdentityScope(body.actFor) as
-    { universeGalaxyStarId: string; isAdmin: boolean } | null;
+    { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null;
   if (!principal) return errorResponse(404, 'not_found', 'Subject not found');
 
-  // Bind the minted token to the CALLER's covered scope + the CALLER's admin bit.
+  // Bind the minted token to the CALLER's covered scope + the CALLER's admin bit. The `profileId` claim
+  // is the acted-for TARGET's (the token acts AS them — owner-authz on their own profile is correct).
   const accessToken = await mintAccessToken(env, {
     sub: body.actFor,
     universeGalaxyStarId: body.activeScope,
     isAdmin: payload.access.admin === true,
+    profileId: principal.profileId,
     activeScope: body.activeScope,
     actorSub: payload.sub,
     authScopePattern: buildAuthScopePattern(body.activeScope),

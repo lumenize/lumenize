@@ -12,7 +12,8 @@
       { "name": "STAR", "class_name": "StarTest" },
       { "name": "DEV_STUDIO", "class_name": "DevStudioTest" },
       { "name": "DEV_CONTAINER", "class_name": "DevContainerServeStub" },
-      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
+      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" },
+      { "name": "PROFILE", "class_name": "ProfileTest" }
     ]
   },
   // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
@@ -30,7 +31,8 @@
         "StarTest",
         "DevStudioTest",
         "DevContainerServeStub",
-        "NebulaAuthRegistry"
+        "NebulaAuthRegistry",
+        "ProfileTest"
       ]
     }
   ],

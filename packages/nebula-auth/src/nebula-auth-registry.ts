@@ -134,16 +134,19 @@ export class NebulaAuthRegistry extends DurableObject {
     const existing = this.#sql`
       SELECT sub FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
     `;
-    if (existing.length > 0) return existing[0].sub as string;
+    if (existing.length > 0) return existing[0].sub as string; // idempotent: existing sub AND profileId preserved
 
     const sub = generateUuid();
+    // Mint the PUBLIC `profileId` in the SAME INSERT as `sub` (one write, not a second row). ADR-010:
+    // both are random opaque UUIDs, minted without coordination. tasks/nebula-profile-store.md Phase 1.
+    const profileId = generateUuid();
     this.ctx.storage.sql.exec(
-      `INSERT INTO Identities (sub, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      sub, universeGalaxyStarId, lc, isAdmin ? 1 : 0, emailVerified ? 1 : 0, new Date().toISOString(),
+      `INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      sub, profileId, universeGalaxyStarId, lc, isAdmin ? 1 : 0, emailVerified ? 1 : 0, new Date().toISOString(),
     );
     debug('nebula-auth.Registry.identity.minted').info('Identity minted', {
-      sub, universeGalaxyStarId, email: lc, isAdmin, emailVerified,
+      sub, profileId, universeGalaxyStarId, email: lc, isAdmin, emailVerified,
     });
     return sub;
   }
@@ -156,15 +159,15 @@ export class NebulaAuthRegistry extends DurableObject {
    * the token layer can drive it, but only reached via the consume RPCs.
    */
   getAndVerifyIdentity(email: string, universeGalaxyStarId: string):
-    { sub: string; universeGalaxyStarId: string; isAdmin: boolean } | null {
+    { sub: string; universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
     const lc = normalizeEmail(email);
     const rows = this.#sql`
-      SELECT sub, isAdmin FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
+      SELECT sub, isAdmin, profileId FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
     `;
     if (rows.length === 0) return null;
     const sub = rows[0].sub as string;
     this.ctx.storage.sql.exec('UPDATE Identities SET emailVerified = 1 WHERE sub = ?', sub);
-    return { sub, universeGalaxyStarId, isAdmin: Boolean(rows[0].isAdmin) };
+    return { sub, universeGalaxyStarId, isAdmin: Boolean(rows[0].isAdmin), profileId: rows[0].profileId as string };
   }
 
   /**
@@ -183,11 +186,17 @@ export class NebulaAuthRegistry extends DurableObject {
     return true;
   }
 
-  /** Resolve a `sub` → its scope + admin bit. `null` if unknown. Used by delegated-token (actFor). */
-  getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean } | null {
-    const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE sub = ${sub}`;
+  /** Resolve a `sub` → its scope + admin bit + `profileId`. `null` if unknown. Used by the refresh
+   *  KV-miss self-heal, the `isAdmin` convergence re-put, and delegated-token (actFor) — each threads
+   *  `profileId` into the record it rebuilds so the `profileId` claim survives (Phase 1). */
+  getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
+    const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin, profileId FROM Identities WHERE sub = ${sub}`;
     if (rows.length === 0) return null;
-    return { universeGalaxyStarId: rows[0].universeGalaxyStarId as string, isAdmin: Boolean(rows[0].isAdmin) };
+    return {
+      universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
+      isAdmin: Boolean(rows[0].isAdmin),
+      profileId: rows[0].profileId as string,
+    };
   }
 
   /**
@@ -210,10 +219,25 @@ export class NebulaAuthRegistry extends DurableObject {
     if (!scope) return null; // identity deleted
     const record: RefreshTokenKV = {
       sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin: scope.isAdmin, expiresAt,
+      profileId: scope.profileId, // writer (c): self-heal must carry profileId or the claim vanishes for the token's life
     };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(expiresAt) });
     debug('nebula-auth.Registry.token.kvSelfHeal').info('refresh KV record reconstructed on miss', { sub });
     return record;
+  }
+
+  /**
+   * Reverse lookup: the DISTINCT scopes a `profileId` spans (via `idx_Identities_profileId`) — the
+   * Profile DO's scoped-admin authz check (`requireOwnerOrAdmin`, tasks/nebula-profile-store.md). A
+   * profileId maps to 1..N `sub`s across scopes (P2 unification), so this can return several.
+   *
+   * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
+   * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors), so the
+   * Profile DO caller fails CLOSED on `[]`/reject rather than reading a lost `status`.
+   */
+  getScopesForProfile(profileId: string): string[] {
+    const rows = this.#sql`SELECT DISTINCT universeGalaxyStarId FROM Identities WHERE profileId = ${profileId}`;
+    return rows.map(r => r.universeGalaxyStarId as string);
   }
 
   /** The lowercased `email` for a `sub`, or `null` — an ADR-010 indexed lookup, never a key. */
@@ -526,7 +550,7 @@ export class NebulaAuthRegistry extends DurableObject {
       });
       return null;
     }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, refreshTokenHash, refreshExpiresAt);
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
     debug('nebula-auth.Registry.login.succeeded').info('Magic link login', { targetSub: identity.sub });
     return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
   }
@@ -555,20 +579,21 @@ export class NebulaAuthRegistry extends DurableObject {
       });
       return null;
     }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, refreshTokenHash, refreshExpiresAt);
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
     debug('nebula-auth.Registry.login.succeeded').info('Invite accepted', { targetSub: identity.sub });
     return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
   }
 
-  /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3). */
+  /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3).
+   *  Writer (a) of `profileId` into the KV record (the login funnel). */
   async #recordRefreshToken(
-    sub: string, universeGalaxyStarId: string, isAdmin: boolean, tokenHash: string, expiresAt: string,
+    sub: string, universeGalaxyStarId: string, isAdmin: boolean, profileId: string, tokenHash: string, expiresAt: string,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?, ?, ?)',
       tokenHash, sub, expiresAt,
     );
-    const record: RefreshTokenKV = { sub, universeGalaxyStarId, isAdmin, expiresAt };
+    const record: RefreshTokenKV = { sub, universeGalaxyStarId, isAdmin, expiresAt, profileId };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), {
       expirationTtl: kvTtlSeconds(expiresAt),
     });
@@ -604,6 +629,7 @@ export class NebulaAuthRegistry extends DurableObject {
     for (const t of tokens) {
       const record: RefreshTokenKV = {
         sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin, expiresAt: t.expiresAt as string,
+        profileId: scope.profileId, // writer (b): re-put must carry profileId forward or the claim vanishes after an admin change
       };
       // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
       await this.#refreshKv.put(`refresh:${t.tokenHash as string}`, JSON.stringify(record), {
