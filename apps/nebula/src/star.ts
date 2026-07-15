@@ -32,7 +32,7 @@ import { ReloadSubscriptions } from './reload-subscriptions';
 import { OntologyStaleError } from './errors';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
-import type { QueryDescriptor } from './query-hash';
+import type { QueryDescriptor, PresenceEntry } from './query-hash';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
@@ -72,6 +72,12 @@ export class Star extends NebulaDO {
         deliverQueryUpdate: (clientId, queryHash, result) =>
           this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
             this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
+            this.ctn<Star>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
+        broadcastPresenceUpdate: (queryHash, roster, targets) =>
+          this.#broadcastPresenceUpdate(queryHash, roster, targets),
+        deliverPresenceUpdate: (clientId, queryHash, roster) =>
+          this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
+            this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster),
             this.ctn<Star>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => this.#onDagChanged(),
@@ -706,6 +712,18 @@ export class Star extends NebulaDO {
    */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]) {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
+  }
+
+  /**
+   * Host-side fanout for a presence roster push (the `ResourceHostBridge`
+   * `broadcastPresenceUpdate` impl) — the distinct-by-`sub` roster to a query's whole
+   * subscriber set via `svc.broadcast`. Dead-subscriber cleanup reuses
+   * `onQueryBroadcastResult` (the roster lands on the same `QuerySubscribers` rows).
+   * NO `onErrorOnly` — `svc.broadcast` applies it internally for any `onResult`.
+   */
+  #broadcastPresenceUpdate(queryHash: string, roster: PresenceEntry[], targets: BroadcastTarget[]) {
+    const remote = this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster);
     this.svc.broadcast(targets, remote, { onResult: this.ctn<Star>().onQueryBroadcastResult(queryHash) });
   }
 

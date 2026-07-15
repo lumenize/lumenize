@@ -30,7 +30,7 @@ import { Subscriptions } from './subscriptions';
 import { QuerySubs } from './query-subscriptions';
 import type { QuerySubscriberRow } from './query-subscriptions';
 import { canonicalQueryHash } from './query-hash';
-import type { QueryDescriptor, QueryUpdatePayload } from './query-hash';
+import type { QueryDescriptor, QueryUpdatePayload, PresenceEntry } from './query-hash';
 import { parse } from '@lumenize/structured-clone';
 import type { OperationDescriptor, TransactionResult, Snapshot } from './resources';
 
@@ -85,6 +85,14 @@ export interface ResourceHostBridge {
    *  carries `deniedNodes`; `resourceIds` iff `onPartial:'allow'` — D4/D14), or an
    *  Error (validation failure). Also `onResult`-cleaned (m6). */
   deliverQueryUpdate(clientId: string, queryHash: string, result: QueryUpdatePayload | Error): void;
+  /** Fan a presence roster (the distinct-by-`sub` `{ sub, profileId }` set) to a query's
+   *  subscriber set — on a genuine join (roster grew) or a leave. `svc.broadcast`; drop-on-
+   *  failed-fanout cleanup rides `onQueryBroadcastResult` (same table). nebula-presence-subscription.md. */
+  broadcastPresenceUpdate(queryHash: string, roster: PresenceEntry[], targets: BroadcastTarget[]): void;
+  /** Deliver the current roster to ONE joining connection only (a reconnect / 2nd tab of an
+   *  already-present `sub` — the roster didn't change for others, but the new connection must
+   *  render it). Single-target; `onResult`-cleaned like `deliverQueryUpdate`. */
+  deliverPresenceUpdate(clientId: string, queryHash: string, roster: PresenceEntry[]): void;
 }
 
 export class ResourceDataPlane {
@@ -147,6 +155,45 @@ export class ResourceDataPlane {
       .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
   }
 
+  // --- Presence (the query's live subscriber roster — nebula-presence-subscription.md) ---
+
+  /**
+   * The DISTINCT-by-`sub` presence roster for a query — a set of PEOPLE, not
+   * connections. `forQueryHash` returns one row per connection (per tab), so dedup by
+   * `sub`, and a defined `profileId` never loses to an absent one (M3). Advisory /
+   * display-only: carries no `accessAdmin`/permission data (ADR-008).
+   */
+  #rosterFor(queryHash: string): PresenceEntry[] {
+    const bySub = new Map<string, PresenceEntry>();
+    for (const r of this.#querySubs.forQueryHash(queryHash)) {
+      const existing = bySub.get(r.sub);
+      if (!existing) bySub.set(r.sub, r.profileId != null ? { sub: r.sub, profileId: r.profileId } : { sub: r.sub });
+      else if (existing.profileId == null && r.profileId != null) existing.profileId = r.profileId;
+    }
+    return [...bySub.values()];
+  }
+
+  /**
+   * Presence delivery targets — one per CONNECTION (every tab), built straight from
+   * `forQueryHash` with NO permission filter. Deliberately NOT `targetsForQuery` (which
+   * read-gates by `nodeId`): presence is reachability-gated, uniform (ADR-008), so a
+   * subscriber with zero read grants still receives the full roster.
+   */
+  #presenceTargets(queryHash: string): BroadcastTarget[] {
+    return this.#querySubs
+      .forQueryHash(queryHash)
+      .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
+  }
+
+  /** Broadcast the current distinct-by-`sub` roster to a query's whole subscriber set —
+   *  fired on a genuine join (`isNewSub`) and on an actual leave. A read-only projection of
+   *  `QuerySubscribers` (never a row in it), so it can never echo into the commit/rerun scan. */
+  #broadcastPresence(queryHash: string): void {
+    const targets = this.#presenceTargets(queryHash);
+    if (targets.length === 0) return;
+    this.#bridge.broadcastPresenceUpdate(queryHash, this.#rosterFor(queryHash), targets);
+  }
+
   /** Drop all subscriber rows (deploy/ontology-install cleanup). Star's
    *  host-retained `#installState` calls this on a new-version install. */
   clearSubscribers(): Array<{ subscriberBinding: string; clientId: string }> {
@@ -167,9 +214,16 @@ export class ResourceDataPlane {
   }
 
   /** Drop one query-sub row — `unsubscribeQuery` + the host's query-broadcast-result
-   *  handler call this (the latter on a `ClientDisconnectedError`, m6). */
+   *  handler call this (the latter on a `ClientDisconnectedError`, m6). On an ACTUAL
+   *  removal (`rowsWritten > 0`) re-push the shrunk presence roster to the remaining
+   *  subscribers; a no-op remove (duplicate/late fire-back) emits nothing — the
+   *  mass-disconnect-storm guard (nebula-presence-subscription.md). */
   removeQuerySubscriber(queryHash: string, clientId: string): void {
-    this.#querySubs.removeQuerySubscriber(queryHash, clientId);
+    const removed = this.#querySubs.removeQuerySubscriber(queryHash, clientId);
+    debug('nebula.ResourceDataPlane.presence').debug('remove', {
+      event: 'remove', queryHash, clientId, mode: removed > 0 ? 'broadcast' : 'noop',
+    });
+    if (removed > 0) this.#broadcastPresence(queryHash);
   }
 
   /**
@@ -289,10 +343,19 @@ export class ResourceDataPlane {
         err instanceof Error ? err : new Error(String(err)));
       return;
     }
-    const { row } = this.#querySubs.registerQuerySubscriber(query, clientId, subscriberBinding);
+    const { row, queryHash, isNewSub } = this.#querySubs.registerQuerySubscriber(query, clientId, subscriberBinding);
     // Initial push — scoped to the one new subscriber (mirrors single-resource
     // subscribe, which pushes the first snapshot rather than returning it).
     this.#broadcastQueries(query, [row]);
+    // Presence: the joiner always gets the current roster, but broadcast to the OTHER
+    // subscribers ONLY when a distinct-by-`sub` gain occurred (isNewSub). A reconnect /
+    // 2nd tab of an already-present sub delivers the roster to just this connection —
+    // the reconnect-storm guard (nebula-presence-subscription.md).
+    debug('nebula.ResourceDataPlane.presence').debug('subscribe', {
+      event: 'subscribe', queryHash, clientId, mode: isNewSub ? 'broadcast' : 'deliver',
+    });
+    if (isNewSub) this.#broadcastPresence(queryHash);
+    else this.#bridge.deliverPresenceUpdate(clientId, queryHash, this.#rosterFor(queryHash));
   }
 
   /**

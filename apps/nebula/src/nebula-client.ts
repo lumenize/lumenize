@@ -31,7 +31,7 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
-import type { QueryUpdatePayload, QueryDescriptor } from './query-hash';
+import type { QueryUpdatePayload, QueryDescriptor, PresenceEntry, PresenceUpdatePayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
@@ -108,6 +108,10 @@ interface QueryEntry {
   query: QueryDescriptor;
   resourceIds: string[];
   deniedNodes: string[];
+  /** The query's live presence roster (its distinct-by-`sub` subscriber set) — delivered
+   *  on the dedicated `handlePresenceUpdate` channel, folded here so it shares the entry's
+   *  lifecycle (cleaned up at {@link #disposeQuerySubscription}). nebula-presence-subscription.md. */
+  roster: PresenceEntry[];
   refcount: number;
   ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
   /** Ids the consumer asked to render; effective window = this ∩ resourceIds. */
@@ -994,6 +998,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           query,
           resourceIds: [],
           deniedNodes: [],
+          roster: [],
           refcount: 0,
           ready: { promise, resolve, reject, settled: false },
           desiredWindow: new Set<string>(),
@@ -1340,6 +1345,37 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       try { cb(); } catch { /* a listener throw must not break the push channel */ }
     }
     if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.resolve(); }
+  }
+
+  /**
+   * Receive a presence roster push for a query the client is subscribed to — the
+   * distinct-by-`sub` `{ sub, profileId }` set (nebula-presence-subscription.md).
+   * Folded onto the query's {@link QueryEntry} so it shares that lifecycle, correlated
+   * by the locally-computed `queryHash`. A push for an unknown/disposed `queryHash` is
+   * ignored (the same no-handle guard as {@link handleQueryUpdate} — a late/racing push
+   * can't resurrect a disposed entry). Replaces the roster (idempotent) + fires the
+   * entry's listeners so a consumer re-renders; does NOT settle `ready` (that is the
+   * query-DATA push's job). `@mesh()` — a remotely dispatched Gateway push.
+   */
+  @mesh()
+  handlePresenceUpdate(queryHash: string, roster: PresenceUpdatePayload): void {
+    const entry = this.#queryEntries.get(queryHash);
+    if (!entry) return;
+    entry.roster = roster;
+    for (const cb of entry.listeners) {
+      try { cb(); } catch { /* a listener throw must not break the push channel */ }
+    }
+  }
+
+  /**
+   * @internal Read the current presence roster for a live query subscription (the
+   * distinct-by-`sub` `{ sub, profileId }` set). Public-but-undocumented (like
+   * {@link streamingProgress}) so a consumer / test subclass can read it without a
+   * `#`-private; NOT yet a documented `client.resources.*` capability. Returns `[]`
+   * for a query with no live handle.
+   */
+  presenceRoster(query: QueryDescriptor): PresenceEntry[] {
+    return this.#queryEntries.get(canonicalQueryHash(query))?.roster ?? [];
   }
 
   /**

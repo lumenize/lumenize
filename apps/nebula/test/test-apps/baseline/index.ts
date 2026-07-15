@@ -51,7 +51,7 @@ import {
   ROOT_NODE_ID,
   compileOntologyVersion,
 } from '@lumenize/nebula';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow } from '@lumenize/nebula';
+import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, PresenceEntry, PresenceUpdatePayload } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -421,6 +421,13 @@ export class NebulaClientTest extends NebulaClient {
   lastQueryUpdate: { queryHash: string; result: QueryUpdatePayload } | undefined = undefined;
   lastQueryError: Error | undefined = undefined;
   queryUpdateCount = 0;
+
+  // --- handlePresenceUpdate capture (presence roster channel — nebula-presence-subscription.md).
+  //     CUMULATIVE count. The server-integration path uses initiators that bypass client
+  //     reactive state, so tests assert on THIS override (raw push args); a client-unit test
+  //     asserts the store landing via `presenceRoster(query)`. ---
+  lastPresenceUpdate: { queryHash: string; roster: PresenceEntry[] } | undefined = undefined;
+  presenceUpdateCount = 0;
 
   // --- handleStreamChunk capture (Child 3 transient progress stream). CUMULATIVE —
   //     count of chunks received; read `streamingProgress(id)` for the accumulated text. ---
@@ -898,6 +905,17 @@ export class NebulaClientTest extends NebulaClient {
     } else {
       this.lastQueryUpdate = { queryHash, result };
     }
+  }
+
+  /** Capture presence roster pushes (nebula-presence-subscription.md). Delegates to base so
+   *  the roster still folds onto the `QueryEntry` (readable via `presenceRoster(query)`), then
+   *  records the latest roster + counts pushes — the server-integration assertion surface (the
+   *  initiator path bypasses the reactive store). */
+  @mesh()
+  override handlePresenceUpdate(queryHash: string, roster: PresenceUpdatePayload): void {
+    super.handlePresenceUpdate(queryHash, roster);
+    this.presenceUpdateCount++;
+    this.lastPresenceUpdate = { queryHash, roster };
   }
 
   /** Capture transient progress chunks (Child 3). Delegates to base so the ephemeral

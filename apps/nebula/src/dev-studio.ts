@@ -44,7 +44,7 @@ import type { NebulaClient } from './nebula-client';
 import type { DevContainer, SourceFile } from './dev-container';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
-import type { QueryDescriptor } from './query-hash';
+import type { QueryDescriptor, PresenceEntry } from './query-hash';
 import { createResourceOntologyProvider } from './devstudio-resource-ontology';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { DagTree } from './dag-tree';
@@ -165,6 +165,12 @@ export class DevStudio extends NebulaDO {
         deliverQueryUpdate: (clientId, queryHash, result) =>
           this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
             this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
+            this.ctn<DevStudio>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
+        broadcastPresenceUpdate: (queryHash, roster, targets) =>
+          this.#broadcastPresenceUpdate(queryHash, roster, targets),
+        deliverPresenceUpdate: (clientId, queryHash, roster) =>
+          this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
+            this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster),
             this.ctn<DevStudio>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => { /* no org-tree subscribe channel on DevStudio */ },
@@ -675,6 +681,15 @@ export class DevStudio extends NebulaDO {
    *  {@link onQueryBroadcastResult} keyed by `queryHash` (m6). */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
     const remote = this.ctn<NebulaClient>().handleQueryUpdate(queryHash, { resourceIds });
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQueryBroadcastResult(queryHash) });
+  }
+
+  /** Host-side fanout for a presence roster push (the `broadcastPresenceUpdate` bridge
+   *  impl) — the distinct-by-`sub` roster to a query's whole subscriber set. Dead-subscriber
+   *  cleanup reuses {@link onQueryBroadcastResult} (same `QuerySubscribers` rows). NO
+   *  `onErrorOnly` — `svc.broadcast` applies it internally for any `onResult`. */
+  #broadcastPresenceUpdate(queryHash: string, roster: PresenceEntry[], targets: BroadcastTarget[]): void {
+    const remote = this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster);
     this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQueryBroadcastResult(queryHash) });
   }
 

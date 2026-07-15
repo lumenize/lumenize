@@ -35,7 +35,7 @@ export type { SubscriberRow } from './subscriptions';
 export { QuerySubs } from './query-subscriptions';
 export type { QuerySubscriberRow } from './query-subscriptions';
 export { canonicalQueryHash } from './query-hash';
-export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy } from './query-hash';
+export type { QueryDescriptor, QueryUpdatePayload, QueryType, OnPartial, OrderBy, PresenceEntry, PresenceUpdatePayload } from './query-hash';
 
 // Resource data-plane capability (Child 1) — the composable host for Resources,
 // shared by Star + DevStudio (ADR-007).

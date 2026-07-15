@@ -54,6 +54,19 @@ export interface QueryUpdatePayload {
   deniedNodes?: string[];
 }
 
+/** One entry in a presence roster — a distinct PERSON (deduped by `sub`) subscribed to a
+ *  query, with their public `profileId` display handle. `profileId` is absent on a
+ *  pre-rollout token (nebula-presence-subscription.md § The set). */
+export interface PresenceEntry {
+  sub: string;
+  profileId?: string;
+}
+
+/** A presence push payload — the DISTINCT-by-`sub` roster of a query's subscribers,
+ *  delivered on the dedicated `handlePresenceUpdate` channel (never folded into a
+ *  query-data push). Advisory/display-only; carries no `accessAdmin`/permission data. */
+export type PresenceUpdatePayload = PresenceEntry[];
+
 /**
  * FNV-1a, 64-bit variant — the standard algorithm (offset basis
  * `0xcbf29ce484222325`, prime `0x100000001b3`), implemented from its public

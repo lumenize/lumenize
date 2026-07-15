@@ -33,6 +33,10 @@ export interface QuerySubscriberRow {
   query: string;
   clientId: string;
   sub: string;
+  /** The subscriber's public `profileId` claim at subscribe time (the presence roster's
+   *  display handle — nebula-presence-subscription.md). OPTIONAL: the claim is absent on a
+   *  pre-rollout token, stored NULL, and read back as `null`/`undefined`. */
+  profileId?: string;
   /** The `claims.access.admin` flag at subscribe time (0/1) — D16, same as Subscribers. */
   accessAdmin: number;
   subscriberBinding: string;
@@ -68,6 +72,7 @@ export class QuerySubs {
         query             TEXT NOT NULL,
         clientId          TEXT NOT NULL,
         sub               TEXT NOT NULL,
+        profileId         TEXT,
         accessAdmin       INTEGER NOT NULL DEFAULT 0,
         subscriberBinding TEXT NOT NULL,
         subscribedAt      TEXT NOT NULL,
@@ -102,33 +107,46 @@ export class QuerySubs {
    * canonical query) reuses the row.
    *
    * Returns the `queryHash` + the stored row so the caller can run the
-   * membership-delivery routine scoped to just this new subscriber (Flow 1).
+   * membership-delivery routine scoped to just this new subscriber (Flow 1), plus
+   * `isNewSub` — whether this `sub` was ABSENT from the query's roster before this
+   * registration (a distinct-by-`sub` gain). The presence roster broadcasts to the
+   * OTHER subscribers only when `isNewSub` (nebula-presence-subscription.md — the
+   * reconnect-storm guard: `subscribeQuery` is idempotent, so `INSERT OR REPLACE`
+   * `rowsWritten` can't tell a genuine join from a reconnect / 2nd-tab re-subscribe).
    */
   registerQuerySubscriber(
     query: QueryDescriptor,
     clientId: string,
     subscriberBinding: string,
-  ): { queryHash: string; row: QuerySubscriberRow } {
+  ): { queryHash: string; row: QuerySubscriberRow; isNewSub: boolean } {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
     const accessAdmin = claims?.access?.admin ? 1 : 0;
+    // Presence: capture the public profileId claim alongside sub (bind NULL when absent —
+    // a pre-rollout token omits it). The roster (nebula-presence-subscription.md) reads it back.
+    const profileId = claims?.profileId ?? null;
 
     const queryHash = canonicalQueryHash(query);
     const queryBlob = stringify(query);
     const subscribedAt = new Date().toISOString();
 
+    // Distinct-by-sub gain check BEFORE the (idempotent) INSERT: is this sub already
+    // present via ANY connection (another tab, or this same tab reconnecting)?
+    const isNewSub = !this.forQueryHash(queryHash).some((r) => r.sub === sub);
+
     this.#ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO QuerySubscribers
-         (queryHash, query, clientId, sub, accessAdmin, subscriberBinding, subscribedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      queryHash, queryBlob, clientId, sub, accessAdmin, subscriberBinding, subscribedAt,
+         (queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      queryHash, queryBlob, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt,
     );
 
     return {
       queryHash,
-      row: { queryHash, query: queryBlob, clientId, sub, accessAdmin, subscriberBinding, subscribedAt },
+      row: { queryHash, query: queryBlob, clientId, sub, profileId: profileId ?? undefined, accessAdmin, subscriberBinding, subscribedAt },
+      isNewSub,
     };
   }
 
@@ -137,18 +155,23 @@ export class QuerySubs {
    * `callChain[0]` (NEVER a param), so a client can only drop its OWN row (m3).
    * PK-targeted delete — single billed write. Called by `unsubscribeQuery` and by
    * the reactive dead-client cleanup (`onBroadcastResult` → here).
+   *
+   * Returns the DELETE cursor's `rowsWritten` (0 on a no-op remove) so the presence
+   * roster push fires ONLY on an actual removal, not on a duplicate/no-op remove
+   * (nebula-presence-subscription.md — the mass-disconnect-storm guard).
    */
-  removeQuerySubscriber(queryHash: string, clientId: string): void {
-    this.#ctx.storage.sql.exec(
+  removeQuerySubscriber(queryHash: string, clientId: string): number {
+    const cursor = this.#ctx.storage.sql.exec(
       `DELETE FROM QuerySubscribers WHERE queryHash = ? AND clientId = ?`,
       queryHash, clientId,
     );
+    return cursor.rowsWritten;
   }
 
   /** All subscribers of one query (Flow-3 delivery: the rows sharing a `queryHash`). */
   forQueryHash(queryHash: string): QuerySubscriberRow[] {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT queryHash, query, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+      `SELECT queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt
        FROM QuerySubscribers WHERE queryHash = ?`,
       queryHash,
     ).toArray();
@@ -159,7 +182,7 @@ export class QuerySubs {
    *  `queryHash` (parsing each `query` for its `typeName`). */
   all(): QuerySubscriberRow[] {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT queryHash, query, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+      `SELECT queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt
        FROM QuerySubscribers`,
     ).toArray();
     return rows as unknown as QuerySubscriberRow[];
