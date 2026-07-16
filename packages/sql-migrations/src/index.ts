@@ -19,7 +19,6 @@
  *
  * MIT License. Portions © Lambros Petrou (durable-utils); modifications © Larry Maccherone.
  */
-import type { DurableObjectStorage, SqlStorageValue } from '@cloudflare/workers-types';
 
 /** The default kv key under which the last-applied migration id is tracked. Override
  *  per-runner via {@link SQLSchemaMigrationsConfig.markerKey} for composed DOs. */

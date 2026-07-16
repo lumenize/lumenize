@@ -4,7 +4,7 @@
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "types": ["@cloudflare/workers-types"]
+    "types": []
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"],

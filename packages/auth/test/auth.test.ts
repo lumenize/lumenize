@@ -2607,7 +2607,7 @@ describe('@lumenize/auth - Turnstile validation', () => {
       TURNSTILE_SECRET_KEY: 'some-secret',
       AUTH_EMAIL_SENDER: {}, // stub service binding
     };
-    expect(() => createAuthRoutes(prodEnv as typeof env)).not.toThrow();
+    expect(() => createAuthRoutes(prodEnv as unknown as typeof env)).not.toThrow();
     expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_SECRET_KEY'));
     expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('AUTH_EMAIL_SENDER'));
     debugSpy.mockRestore();

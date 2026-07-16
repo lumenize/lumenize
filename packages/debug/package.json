@@ -26,8 +26,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "4.1.4",
-    "vitest": "4.1.4"
+    "@vitest/coverage-istanbul": "4.1.10",
+    "vitest": "4.1.10"
   },
   "keywords": [
     "debug",
