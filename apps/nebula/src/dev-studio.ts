@@ -44,7 +44,7 @@ import type { NebulaClient } from './nebula-client';
 import type { DevContainer, SourceFile } from './dev-container';
 import { ResourceDataPlane } from './resource-data-plane';
 import type { BroadcastTarget } from './resource-data-plane';
-import type { QueryDescriptor, PresenceEntry } from './query-hash';
+import type { QueryDescriptor, SubscriberEntry } from './query-hash';
 import { createResourceOntologyProvider } from './devstudio-resource-ontology';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
 import type { DagTree } from './dag-tree';
@@ -166,12 +166,12 @@ export class DevStudio extends NebulaDO {
           this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
             this.ctn<NebulaClient>().handleQueryUpdate(queryHash, result),
             this.ctn<DevStudio>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
-        broadcastPresenceUpdate: (queryHash, roster, targets) =>
-          this.#broadcastPresenceUpdate(queryHash, roster, targets),
-        deliverPresenceUpdate: (clientId, queryHash, roster) =>
+        broadcastRosterUpdate: (queryHash, roster, targets) =>
+          this.#broadcastRosterUpdate(queryHash, roster, targets),
+        deliverRosterUpdate: (clientId, queryHash, result) =>
           this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
-            this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster),
-            this.ctn<DevStudio>().onQueryBroadcastResult(queryHash), { onErrorOnly: true }),
+            this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
+            this.ctn<DevStudio>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => { /* no org-tree subscribe channel on DevStudio */ },
     );
@@ -651,6 +651,31 @@ export class DevStudio extends NebulaDO {
     this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
   }
 
+  /** Watch `query`'s live subscriber-LIST roster (the STANDALONE watcher sub — NOT a data-subscriber).
+   *  Void (D7); initial roster arrives via `handleQuerySubscribersUpdate`. See `Star.subscribeQuerySubscribers`. */
+  @mesh()
+  subscribeQuerySubscribers(query: QueryDescriptor): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('subscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
+    }
+    const subscriberBinding = this.lmz.callContext.callChain.at(-1)?.bindingName;
+    if (!subscriberBinding) {
+      throw new Error('subscribeQuerySubscribers requires a gateway in callChain.at(-1)');
+    }
+    this.#dataPlane.doSubscribeQuerySubscribers(query, clientId, subscriberBinding);
+  }
+
+  /** Drop the caller's subscriber-list WATCHER row for `queryHash` (clientId from callChain, m3). */
+  @mesh()
+  unsubscribeQuerySubscribers(queryHash: string): void {
+    const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('unsubscribeQuerySubscribers requires a client origin with instanceName in callChain[0]');
+    }
+    this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
+  }
+
   /** Single `@mesh()` entry for the DagTree API (per-op auth inside DagTree). */
   @mesh()
   dagTree(): DagTree {
@@ -684,13 +709,13 @@ export class DevStudio extends NebulaDO {
     this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQueryBroadcastResult(queryHash) });
   }
 
-  /** Host-side fanout for a presence roster push (the `broadcastPresenceUpdate` bridge
-   *  impl) — the distinct-by-`sub` roster to a query's whole subscriber set. Dead-subscriber
-   *  cleanup reuses {@link onQueryBroadcastResult} (same `QuerySubscribers` rows). NO
-   *  `onErrorOnly` — `svc.broadcast` applies it internally for any `onResult`. */
-  #broadcastPresenceUpdate(queryHash: string, roster: PresenceEntry[], targets: BroadcastTarget[]): void {
-    const remote = this.ctn<NebulaClient>().handlePresenceUpdate(queryHash, roster);
-    this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQueryBroadcastResult(queryHash) });
+  /** Host-side fanout for a subscriber-list roster push (the `broadcastRosterUpdate` bridge impl) — the
+   *  distinct-by-`sub` roster to a query's WATCHERS. Dead-WATCHER cleanup uses the DEDICATED
+   *  {@link onQuerySubscriberListBroadcastResult} (watcher table, NOT `QuerySubscribers`). NO `onErrorOnly`
+   *  — `svc.broadcast` applies it internally for any `onResult`. */
+  #broadcastRosterUpdate(queryHash: string, roster: SubscriberEntry[], targets: BroadcastTarget[]): void {
+    const remote = this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, roster);
+    this.svc.broadcast(targets, remote, { onResult: this.ctn<DevStudio>().onQuerySubscriberListBroadcastResult(queryHash) });
   }
 
   /** Per-target query-push result handler (no-denial broadcast + has-denial
@@ -700,6 +725,16 @@ export class DevStudio extends NebulaDO {
     if (result instanceof Error && result.name === 'ClientDisconnectedError') {
       const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
       if (clientId) this.#dataPlane.removeQuerySubscriber(queryHash, clientId);
+    }
+  }
+
+  /** Per-target roster-push result handler — drops the dead WATCHER's row from the WATCHER table ONLY
+   *  (NOT `QuerySubscribers`), so a dual-role client keeps its data sub. `@mesh()` for the tier-worker path. */
+  @mesh()
+  onQuerySubscriberListBroadcastResult(queryHash: string, result?: unknown): void {
+    if (result instanceof Error && result.name === 'ClientDisconnectedError') {
+      const clientId = (result as { clientInstanceName?: string }).clientInstanceName;
+      if (clientId) this.#dataPlane.removeQuerySubscriberListWatcher(queryHash, clientId);
     }
   }
 

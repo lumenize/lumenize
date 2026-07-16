@@ -45,7 +45,11 @@ import { debug } from '@lumenize/debug';
 import { deepEquals } from './deep-equals';
 import type { Middleware, StoreClient, WriteContext } from './types';
 import { NebulaClient } from '../nebula-client';
-import type { NebulaStoreAdapter, ResourceSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, SubscriberListSubscription, OntologyStaleInfo, NebulaClientConfig } from '../nebula-client';
+
+/** The common shape the factory holds + disposes: a `ResourceSubscription`/profile handle (error-surface
+ *  via `.snapshot`) OR a subscriber-list roster handle (via `.ready`). Both are `Disposable`. */
+type HeldHandle = Disposable & { readonly snapshot?: Promise<unknown>; readonly ready?: Promise<void> };
 import type { Snapshot } from '../resources';
 
 const log = debug('lumenize.nebula-frontend');
@@ -111,7 +115,7 @@ export function createNebulaStore(
   // no init (api-reference § Reserved state paths).
   const seed: Record<string, any> = {
     resources: {},
-    lmz: { connection: { state: 'disconnected', connected: false }, orgTree: {} },
+    lmz: { connection: { state: 'disconnected', connected: false }, orgTree: {}, profiles: {}, querySubscribers: {} },
     ui: {},
     app: {},
   };
@@ -152,24 +156,33 @@ export function createNebulaStore(
   const refcount = new Map<string, number>();
   const scopeReads = new WeakMap<EffectScope, Set<string>>();
   const pendingUnsubscribes = new Map<string, ReturnType<typeof setTimeout>>();
-  // One held subscription handle per component-bound (rt, rid). The factory's
-  // component-scope refcount collapses N reads to this single handle; disposing
-  // it (after grace) releases the factory's contribution to the client's
-  // per-handle refcount (explicit `using` handles contribute independently).
-  const componentHandles = new Map<string, ResourceSubscription>();
+  // One held subscription handle per component-bound key. The factory's component-scope refcount collapses
+  // N reads to this single handle; disposing it (after grace) releases the factory's contribution to the
+  // client's per-handle refcount (explicit `using` handles contribute independently). A HELD-HANDLE common
+  // shape covers resource/profile handles (error-surface via `.snapshot`) AND subscriber-list roster
+  // handles (via `.ready`) — the dispatcher holds them uniformly. tasks/nebula-subscriber-lists.md.
+  const componentHandles = new Map<string, HeldHandle>();
 
   function resourceKey(rt: string, rid: string): string {
     return `${rt}:${rid}`;
   }
 
-  function trackResourceRead(rt: string, rid: string): void {
+  // Distinct keyspace for global-Profile auto-subscribes so a profile can never share a refcount/handle
+  // slot with a resource. A `${rt}:${rid}` resource key can't collide — no dev-user type name is `lmz.profiles`.
+  function profileKey(profileId: string): string {
+    return `lmz.profiles:${profileId}`;
+  }
+
+  // Generic read-tracker: bind an auto-subscribe keyed by `key` to the current effect/component scope, so
+  // 0→1 subscribes (via `subscribe()`) and scope-dispose decrements → grace → dispose. Shared by resource
+  // (`store.resources.<rt>.<rid>`) and global-Profile (`store.lmz.profiles[id]`) reads.
+  function trackRead(key: string, subscribe: () => HeldHandle): void {
     // Try the standard `@vue/reactivity` scope first (synthetic test scopes via
     // `effectScope().run(...)`). If absent, fall back to Vue's component
     // instance — render effects don't activate their owning scope, but
     // `getCurrentInstance().scope` exposes it.
     const scope = getCurrentScope() ?? getActiveVueScope();
     if (!scope) return; // read outside any tracked context — no auto-subscribe
-    const key = resourceKey(rt, rid);
     let seenInScope = scopeReads.get(scope);
     if (!seenInScope) {
       seenInScope = new Set();
@@ -192,10 +205,30 @@ export function createNebulaStore(
     }
     if (seenInScope.has(key)) return; // already counted in this scope
     seenInScope.add(key);
-    incrementRefcount(key, rt, rid);
+    incrementRefcount(key, subscribe);
   }
 
-  function incrementRefcount(key: string, rt: string, rid: string): void {
+  function trackResourceRead(rt: string, rid: string): void {
+    trackRead(resourceKey(rt, rid), () => client.resources.subscribe(rt, rid));
+  }
+
+  function trackProfileRead(profileId: string): void {
+    trackRead(profileKey(profileId), () => client.subscribeProfile(profileId));
+  }
+
+  // Distinct keyspace for subscriber-list (a) query-in-path auto-subscribes, keyed by the parentChild query.
+  function querySubscribersKey(typeName: string, field: string, value: string): string {
+    return `lmz.querySubscribers:${typeName}.${field}.${value}`;
+  }
+
+  function trackQuerySubscribersRead(typeName: string, field: string, value: string): void {
+    // The path segments ARE the parentChild query → subscribe to its subscriber-LIST (STANDALONE roster,
+    // NOT the coupled data sub). The roster lands via `onQuerySubscribersUpdate` below.
+    const query = { queryType: 'parentChild' as const, typeName, field, value };
+    trackRead(querySubscribersKey(typeName, field, value), () => client.subscribeQuerySubscribers(query));
+  }
+
+  function incrementRefcount(key: string, subscribe: () => HeldHandle): void {
     const pending = pendingUnsubscribes.get(key);
     if (pending) {
       // Grace-cancel: a new binding showed up before unsubscribe fired. The
@@ -209,15 +242,15 @@ export function createNebulaStore(
     const prev = refcount.get(key) ?? 0;
     refcount.set(key, prev + 1);
     if (prev === 0) {
-      // 0 → 1: issue subscribe and HOLD the handle. Fanout writes arrive via the
-      // engine's `applyFanout` (the bound adapter). A failed subscribe (bad rid
-      // / no read permission) leaves the path `undefined`; surface it to the
-      // developer via `.snapshot.catch` instead of swallowing silently.
-      const handle = client.resources.subscribe(rt, rid);
-      handle.snapshot.catch((err: unknown) => {
+      // 0 → 1: issue subscribe and HOLD the handle. Fanout writes arrive via the engine's `applyFanout` /
+      // the profile / roster listeners (the bound adapter). A failed subscribe (bad rid / no read
+      // permission / rejected query) leaves the path `undefined`; surface it to the developer via the
+      // handle's error-surface (`.snapshot` for resource/profile, `.ready` for a roster) instead of
+      // swallowing silently.
+      const handle = subscribe();
+      (handle.snapshot ?? handle.ready)?.catch((err: unknown) => {
         log.warn('auto-subscribe failed', {
-          rt,
-          rid,
+          key,
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -398,7 +431,17 @@ export function createNebulaStore(
         // wrapping. Vue's normal triggers still fire for the vivification write.
         const isResourcesPath = path.length === 1 && path[0] === 'resources';
         const isResourceTypePath = path.length === 2 && path[0] === 'resources';
-        if ((isResourcesPath || isResourceTypePath) && Reflect.get(t, key) === undefined) {
+        // Global-Profile read boundary: `store.lmz.profiles[profileId]` → path === ['lmz', 'profiles'],
+        // key === profileId. Distinct from a dev-user `Profile` resource (`store.resources.Profile[id]`).
+        const isProfilesPath = path.length === 2 && path[0] === 'lmz' && path[1] === 'profiles';
+        // Subscriber-list query-in-path: `store.lmz.querySubscribers.<typeName>.<field>[value]`. Vivify the
+        // intermediate typeName (L2) + field (L3) containers so the [value] leaf (L4) is reachable +
+        // triggers the standalone roster auto-subscribe (the ONLY roster store surface — Decision 6).
+        const isQs = path[0] === 'lmz' && path[1] === 'querySubscribers';
+        const isQsL2 = isQs && path.length === 2;
+        const isQsL3 = isQs && path.length === 3;
+        const isQsQueryPath = isQs && path.length === 4;
+        if ((isResourcesPath || isResourceTypePath || isProfilesPath || isQsL2 || isQsL3) && Reflect.get(t, key) === undefined) {
           withContext({ source: 'computed' }, () => {
             Reflect.set(t, key, {});
           });
@@ -406,11 +449,15 @@ export function createNebulaStore(
 
         const value = Reflect.get(t, key);
 
-        // Resource-read tracking fires when we cross the
-        // `resources.<rt>.<rid>` boundary. path === ['resources', rt] and
-        // key === rid.
+        // Read-tracking crosses a subscribe boundary: `resources.<rt>.<rid>` → resource sub; `lmz.profiles[id]`
+        // → the dedicated `subscribeProfile`; `lmz.querySubscribers.<type>.<field>[value]` → the STANDALONE
+        // `subscribeQuerySubscribers` (roster only — Decision 1, NOT the coupled data sub).
         if (isResourceTypePath) {
           trackResourceRead(path[1], key);
+        } else if (isProfilesPath) {
+          trackProfileRead(key);
+        } else if (isQsQueryPath) {
+          trackQuerySubscribersRead(path[2], path[3], key);
         }
 
         if (value !== null && typeof value === 'object') {
@@ -604,6 +651,32 @@ export function createNebulaStore(
   client.onOrgTreeUpdate((state) => {
     withContext({ source: 'remote' }, () => {
       internalDeepWrite(['lmz', 'orgTree', 'value'], state);
+    });
+  });
+
+  // ─── Profile surfacing ────────────────────────────────────────────────────
+  // Mirror each pushed global-Profile snapshot into store.lmz.profiles[profileId].value/meta — the
+  // DEDICATED profile channel (never handleResourceUpdate, so a dev-user `Profile` type can't collide).
+  // Reads of store.lmz.profiles[id] auto-subscribe via `subscribeProfile` (the read-matcher above); this
+  // is the write-back. Like orgTree, lmz.* is invisible to the `^resources\.` transaction matcher.
+  client.onProfileUpdate((profileId, snapshot) => {
+    if (!snapshot) return; // absent profile — leave the slot undefined
+    withContext({ source: 'remote' }, () => {
+      internalDeepWrite(['lmz', 'profiles', profileId, 'value'], snapshot.value);
+      internalDeepWrite(['lmz', 'profiles', profileId, 'meta'], snapshot.meta);
+    });
+  });
+
+  // ─── Subscriber-list roster surfacing ─────────────────────────────────────
+  // Mirror each subscriber-list roster into the query-in-path store surface
+  // `store.lmz.querySubscribers.<typeName>.<field>[value]` — a reactive array of `{ sub, profileId }`
+  // (v-for-ready). Fed by the STANDALONE `handleQuerySubscribersUpdate` channel.
+  client.onQuerySubscribersUpdate((delivery) => {
+    withContext({ source: 'remote' }, () => {
+      internalDeepWrite(
+        ['lmz', 'querySubscribers', delivery.query.typeName, delivery.query.field, delivery.query.value],
+        delivery.roster,
+      );
     });
   });
 

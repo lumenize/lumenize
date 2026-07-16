@@ -51,7 +51,7 @@ import {
   ROOT_NODE_ID,
   compileOntologyVersion,
 } from '@lumenize/nebula';
-import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, PresenceEntry, PresenceUpdatePayload } from '@lumenize/nebula';
+import type { PermissionTier, WireOperationDescriptor as OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig, OntologyVersionRow, SubscriberRow, QueryDescriptor, QueryUpdatePayload, QuerySubscriberRow, SubscriberEntry, SubscriberRosterPayload } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -407,6 +407,12 @@ export class NebulaClientTest extends NebulaClient {
   lastResourceUpdate: { resourceType: string; resourceId: string; snapshot: Snapshot | null } | undefined = undefined;
   resourceUpdateCount = 0;
 
+  // --- handleProfileUpdate capture (the DEDICATED global-Profile channel — tasks/nebula-subscriber-lists.md).
+  //     Separate from resourceUpdate so a dev-user `Profile` resource and a platform profile never share a
+  //     counter. CUMULATIVE count. ---
+  lastProfileUpdate: { profileId: string; snapshot: Snapshot | null } | undefined = undefined;
+  profileUpdateCount = 0;
+
   // --- handleOrgTreeUpdate capture (the dedicated org-tree channel) ---
   lastOrgTree: unknown = undefined;
   orgTreeUpdateCount = 0;
@@ -422,12 +428,12 @@ export class NebulaClientTest extends NebulaClient {
   lastQueryError: Error | undefined = undefined;
   queryUpdateCount = 0;
 
-  // --- handlePresenceUpdate capture (presence roster channel — nebula-presence-subscription.md).
-  //     CUMULATIVE count. The server-integration path uses initiators that bypass client
-  //     reactive state, so tests assert on THIS override (raw push args); a client-unit test
-  //     asserts the store landing via `presenceRoster(query)`. ---
-  lastPresenceUpdate: { queryHash: string; roster: PresenceEntry[] } | undefined = undefined;
-  presenceUpdateCount = 0;
+  // --- handleQuerySubscribersUpdate capture (the STANDALONE subscriber-list roster channel —
+  //     tasks/nebula-subscriber-lists.md). CUMULATIVE count. Server-integration tests assert on THIS
+  //     override (raw push args); a factory test asserts the store landing. `roster` is undefined on the
+  //     fail-closed Error push. ---
+  lastQuerySubscribersUpdate: { queryHash: string; roster?: SubscriberEntry[]; error?: Error } | undefined = undefined;
+  querySubscribersUpdateCount = 0;
 
   // --- handleStreamChunk capture (Child 3 transient progress stream). CUMULATIVE —
   //     count of chunks received; read `streamingProgress(id)` for the accumulated text. ---
@@ -885,6 +891,24 @@ export class NebulaClientTest extends NebulaClient {
     this.callCompleted = true;
   }
 
+  /** Capture pushes on the DEDICATED global-Profile channel (tasks/nebula-subscriber-lists.md). Delegates
+   *  to base for pending-settle + the factory `#profileListener`, then records the latest snapshot + counts
+   *  pushes. Kept SEPARATE from resourceUpdate so a dev-user `Profile` resource can't inflate this counter. */
+  @mesh()
+  override handleProfileUpdate(profileId: string, result: Snapshot | null | Error): void {
+    super.handleProfileUpdate(profileId, result);
+    this.profileUpdateCount++;
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastErrorObject = result;
+      this.lastProfileUpdate = undefined;
+    } else {
+      this.lastProfileUpdate = { profileId, snapshot: result };
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
   @mesh()
   override handleOrgTreeUpdate(envelope: { value: unknown }): void {
     // Delegate to base so the factory's listener fires (a no-op headless), then
@@ -907,15 +931,16 @@ export class NebulaClientTest extends NebulaClient {
     }
   }
 
-  /** Capture presence roster pushes (nebula-presence-subscription.md). Delegates to base so
-   *  the roster still folds onto the `QueryEntry` (readable via `presenceRoster(query)`), then
-   *  records the latest roster + counts pushes — the server-integration assertion surface (the
-   *  initiator path bypasses the reactive store). */
+  /** Capture STANDALONE subscriber-list roster pushes (tasks/nebula-subscriber-lists.md). Delegates to
+   *  base so the roster still lands via the factory listener, then records the latest roster/error +
+   *  counts pushes — the server-integration assertion surface (the initiator path bypasses the store). */
   @mesh()
-  override handlePresenceUpdate(queryHash: string, roster: PresenceUpdatePayload): void {
-    super.handlePresenceUpdate(queryHash, roster);
-    this.presenceUpdateCount++;
-    this.lastPresenceUpdate = { queryHash, roster };
+  override handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
+    super.handleQuerySubscribersUpdate(queryHash, result);
+    this.querySubscribersUpdateCount++;
+    this.lastQuerySubscribersUpdate = result instanceof Error
+      ? { queryHash, error: result }
+      : { queryHash, roster: result };
   }
 
   /** Capture transient progress chunks (Child 3). Delegates to base so the ephemeral

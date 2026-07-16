@@ -33,9 +33,9 @@ export interface QuerySubscriberRow {
   query: string;
   clientId: string;
   sub: string;
-  /** The subscriber's public `profileId` claim at subscribe time (the presence roster's
-   *  display handle — nebula-presence-subscription.md). OPTIONAL: the claim is absent on a
-   *  pre-rollout token, stored NULL, and read back as `null`/`undefined`. */
+  /** The subscriber's public `profileId` claim at subscribe time — the subscriber-list roster's display
+   *  handle (tasks/nebula-subscriber-lists.md). OPTIONAL: the claim is absent on a pre-rollout token,
+   *  stored NULL, and read back as `null`/`undefined`. */
   profileId?: string;
   /** The `claims.access.admin` flag at subscribe time (0/1) — D16, same as Subscribers. */
   accessAdmin: number;
@@ -109,10 +109,10 @@ export class QuerySubs {
    * Returns the `queryHash` + the stored row so the caller can run the
    * membership-delivery routine scoped to just this new subscriber (Flow 1), plus
    * `isNewSub` — whether this `sub` was ABSENT from the query's roster before this
-   * registration (a distinct-by-`sub` gain). The presence roster broadcasts to the
-   * OTHER subscribers only when `isNewSub` (nebula-presence-subscription.md — the
-   * reconnect-storm guard: `subscribeQuery` is idempotent, so `INSERT OR REPLACE`
-   * `rowsWritten` can't tell a genuine join from a reconnect / 2nd-tab re-subscribe).
+   * registration (a distinct-by-`sub` gain). The subscriber-list roster re-broadcasts to the query's
+   * WATCHERS only when `isNewSub` (tasks/nebula-subscriber-lists.md — the reconnect-storm guard:
+   * `subscribeQuery` is idempotent, so `INSERT OR REPLACE` `rowsWritten` can't tell a genuine join
+   * from a reconnect / 2nd-tab re-subscribe).
    */
   registerQuerySubscriber(
     query: QueryDescriptor,
@@ -124,8 +124,8 @@ export class QuerySubs {
     if (!sub) throw new Error('Authentication required');
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
     const accessAdmin = claims?.access?.admin ? 1 : 0;
-    // Presence: capture the public profileId claim alongside sub (bind NULL when absent —
-    // a pre-rollout token omits it). The roster (nebula-presence-subscription.md) reads it back.
+    // Subscriber-list roster: capture the public profileId claim alongside sub (bind NULL when absent —
+    // a pre-rollout token omits it). The roster projection (tasks/nebula-subscriber-lists.md) reads it back.
     const profileId = claims?.profileId ?? null;
 
     const queryHash = canonicalQueryHash(query);
@@ -156,9 +156,9 @@ export class QuerySubs {
    * PK-targeted delete — single billed write. Called by `unsubscribeQuery` and by
    * the reactive dead-client cleanup (`onBroadcastResult` → here).
    *
-   * Returns the DELETE cursor's `rowsWritten` (0 on a no-op remove) so the presence
-   * roster push fires ONLY on an actual removal, not on a duplicate/no-op remove
-   * (nebula-presence-subscription.md — the mass-disconnect-storm guard).
+   * Returns the DELETE cursor's `rowsWritten` (0 on a no-op remove) so the subscriber-list roster
+   * re-broadcast (to the query's WATCHERS) fires ONLY on an actual removal, not on a duplicate/no-op
+   * remove (tasks/nebula-subscriber-lists.md — the mass-disconnect-storm guard).
    */
   removeQuerySubscriber(queryHash: string, clientId: string): number {
     const cursor = this.#ctx.storage.sql.exec(

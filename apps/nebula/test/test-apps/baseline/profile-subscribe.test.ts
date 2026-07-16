@@ -6,8 +6,8 @@
  *
  * Harness: mesh clients with `refresh: createNebulaTestToken(...)` in DISTINCT scopes so the subscriber
  * (X) and the writer (Y) carry genuinely different `aud`s — the lever the fence gates on (rung-2/3;
- * ADR-009). A `SubscriberProbe` (a `LumenizeClient` with a capturing `@mesh handleResourceUpdate`) is
- * the receive side; a `NebulaClient` exercises the real `subscribeProfile` client API.
+ * ADR-009). A `SubscriberProbe` (a `LumenizeClient` capturing the dedicated `@mesh handleProfileUpdate`
+ * channel) is the receive side; a `NebulaClient` exercises the real `subscribeProfile` client API.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
@@ -20,12 +20,19 @@ import { NebulaClientTest } from './index';
 const ORIGIN = 'http://localhost';
 function uuid(): string { return crypto.randomUUID(); }
 
-/** Receive side: captures every pushed `handleResourceUpdate` (the client-facing continuation target). */
+/** Receive side: captures pushes on the DEDICATED global-Profile channel (`handleProfileUpdate`, the
+ *  production path); ALSO captures `handleResourceUpdate` solely for the STAR-origin negative-control push
+ *  in the fence test. Profiles ride their own channel now (tasks/nebula-subscriber-lists.md). */
 class SubscriberProbe extends LumenizeClient {
+  profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];
   // No onBeforeCall override — the DEFAULT LumenizeClient guard accepts the fanned-out UPDATE because
   // its immediate caller is the PROFILE DO (not another client), even though the UPDATE ORIGINATES in
   // the writer's chain. The cross-scope boundary remains the Gateway's onBeforeCallToClient (PROFILE-fence).
+  @mesh()
+  handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
+    this.profileUpdates.push({ profileId, snapshot });
+  }
   @mesh()
   handleResourceUpdate(resourceType: string, resourceId: string, snapshot: ProfileSnapshot): void {
     this.updates.push({ resourceType, resourceId, snapshot });
@@ -99,17 +106,17 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     // X subscribes → the INITIAL snapshot is delivered inside X's own subscribe call (inherits X's aud),
     // so it arrives EVEN WITHOUT the fence (asserted here as the open-read demonstration).
     await subscribe(x, pid);
-    await vi.waitFor(() => expect(x.updates.length).toBe(1));
-    expect(x.updates[0]).toMatchObject({ resourceType: 'Profile', resourceId: pid });
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));
+    expect(x.profileUpdates[0]).toMatchObject({ profileId: pid });
 
     // Y mutates → the UPDATE fanout originates in Y's scope (aud Y ≠ X's connection aud), so it is
     // delivered to X ONLY because the PROFILE-fence skips the same-aud check. ⚠️ MUTATION-CHECK: remove
     // the `bindingName === 'PROFILE'` early-return in NebulaClientGateway.onBeforeCallToClient and this
-    // second update never arrives (updates stays length 1) while the initial snapshot above still does —
-    // exactly isolating the fence to the update leg.
+    // second update never arrives (profileUpdates stays length 1) while the initial snapshot above still
+    // does — exactly isolating the fence to the update leg.
     await writeProfile(owner, pid, { name: 'Grace' });
-    await vi.waitFor(() => expect(x.updates.length).toBe(2));
-    expect(x.updates[1].snapshot.value).toEqual({ name: 'Grace' });
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
+    expect(x.profileUpdates[1].snapshot.value).toEqual({ name: 'Grace' });
   });
 
   it('the fanned-out UPDATE snapshot carries PUBLIC fields only — no privateNotes on the push leg (#①)', async () => {
@@ -121,8 +128,8 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
 
     await subscribe(x, pid);
     await writeProfile(owner, pid, { name: 'Grace' });
-    await vi.waitFor(() => expect(x.updates.length).toBe(2));
-    expect(JSON.stringify(x.updates)).not.toContain(SENTINEL); // the blob never rides a pushed snapshot
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(2));
+    expect(JSON.stringify(x.profileUpdates)).not.toContain(SENTINEL); // the blob never rides a pushed snapshot
   });
 
   it('a disconnected subscriber row is DROPPED after a failed fanout push (self-healing) (#3)', async () => {
@@ -144,7 +151,7 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
 
     // A real NebulaClient in a DIFFERENT scope subscribes by profileId (instance ≠ its activeScope).
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
-    const snap = await client.subscribeProfile(pid);
+    const snap = await client.subscribeProfile(pid).snapshot;
     expect(snap?.value).toEqual({ name: 'Ada' });           // cross-scope initial snapshot via the client API
   });
 
@@ -157,13 +164,13 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     await writeProfile(owner, pid, { name: 'Ada' });
 
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
-    expect((await client.subscribeProfile(pid))?.value).toEqual({ name: 'Ada' });
-    const baseline = client.resourceUpdateCount;
+    expect((await client.subscribeProfile(pid).snapshot)?.value).toEqual({ name: 'Ada' });
+    const baseline = client.profileUpdateCount;
 
     await writeProfile(owner, pid, { name: 'Grace' });      // cross-scope UPDATE (owner in scope Y)
-    await vi.waitFor(() => expect(client.resourceUpdateCount).toBeGreaterThan(baseline));
-    expect(client.lastResourceUpdate).toMatchObject({ resourceType: 'Profile', resourceId: pid });
-    expect((client.lastResourceUpdate?.snapshot as ProfileSnapshot | null)?.value).toEqual({ name: 'Grace' });
+    await vi.waitFor(() => expect(client.profileUpdateCount).toBeGreaterThan(baseline));
+    expect(client.lastProfileUpdate).toMatchObject({ profileId: pid });
+    expect((client.lastProfileUpdate?.snapshot as ProfileSnapshot | null)?.value).toEqual({ name: 'Grace' });
   });
 
   it('reconnect re-subscribes a Profile entry to PROFILE, not STAR — the binding-agnostic reconnect branch (#5)', async () => {
@@ -171,7 +178,7 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
     await writeProfile(owner, pid, { name: 'Ada' });
     const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
-    await client.subscribeProfile(pid);
+    await client.subscribeProfile(pid).snapshot;
     await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1));
 
     // Drop the DO's subscriber row so ONLY a correct reconnect re-subscribe can restore it.
@@ -193,17 +200,42 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
 
     await subscribe(x, pid);
-    await vi.waitFor(() => expect(x.updates.length).toBe(1));         // initial PROFILE snapshot (cross-scope, fence-allowed)
+    await vi.waitFor(() => expect(x.profileUpdates.length).toBe(1));  // initial PROFILE snapshot (cross-scope, fence-allowed)
 
     // Fire a STAR-origin cross-scope push to X FIRST (bindingName='STAR' ≠ 'PROFILE', aud Y ≠ X → the
-    // untouched aud check must reject it at the Gateway, so it never reaches X)...
+    // untouched aud check must reject it at the Gateway, so it never reaches X). It targets the RESOURCE
+    // channel (`handleResourceUpdate`), distinct from the profile channel — the negative control.
     await owner.lmz.callAsync('STAR', yScope,
       (owner.ctn() as any).callClient(x.lmz.instanceName, 'handleResourceUpdate', 'StarPush', 'star-probe', { value: {}, meta: { eTag: '0' } }));
     // ...then a PROFILE update, which IS delivered (fence skips) — a same-connection barrier: once THIS
-    // lands on X, the earlier STAR push would have too if the fence had (wrongly) let it through.
+    // lands on X (on the profile channel), the earlier STAR push would have too if the fence had let it through.
     await writeProfile(owner, pid, { name: 'Grace' });
-    await vi.waitFor(() => expect(x.updates.some((u) => u.resourceId === pid && u.snapshot.value?.name === 'Grace')).toBe(true));
+    await vi.waitFor(() => expect(x.profileUpdates.some((u) => u.profileId === pid && u.snapshot.value?.name === 'Grace')).toBe(true));
 
     expect(x.updates.some((u) => u.resourceId === 'star-probe')).toBe(false); // the STAR-origin push was gated
+  });
+
+  it('subscribeProfile is refcounted — 2 handles share ONE server sub; Profile.unsubscribe fires only on the LAST dispose', async () => {
+    const pid = uuid();
+    const owner = await meshClient({ profileId: pid, activeScope: 'universe-y.app.tenant' });
+    await writeProfile(owner, pid, { name: 'Ada' });
+    const client = await nebulaClient({ activeScope: 'universe-x.app.tenant' });
+
+    // Two handles for the same profile — the 2nd coalesces (refcount++), NOT a duplicate server sub.
+    const h1 = client.subscribeProfile(pid);
+    const h2 = client.subscribeProfile(pid);
+    await Promise.all([h1.snapshot, h2.snapshot]);
+    await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(1)); // one DO subscriber row
+
+    // Release ONE handle — the other still holds it open, so NO Profile.unsubscribe fires. Positive
+    // signal: a subsequent write still fans out to this client (proves the subscriber row survived).
+    h1[Symbol.dispose]();
+    const baseline = client.profileUpdateCount;
+    await writeProfile(owner, pid, { name: 'Grace' });
+    await vi.waitFor(() => expect(client.profileUpdateCount).toBeGreaterThan(baseline)); // reds if h1 dispose unsubscribed early
+
+    // Release the LAST handle → Profile.unsubscribe fires (refcount 0) → the DO row drops.
+    h2[Symbol.dispose]();
+    await vi.waitFor(async () => expect(await subscriberCount(pid)).toBe(0));
   });
 });

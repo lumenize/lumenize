@@ -2,7 +2,8 @@
  * Core factory types for `@lumenize/nebula/frontend`.
  */
 import type { ConnectionState } from '@lumenize/mesh/client';
-import type { NebulaStoreAdapter, ResourceSubscription } from '../nebula-client';
+import type { NebulaStoreAdapter, ResourceSubscription, ProfileChannelSnapshot, SubscriberListSubscription, SubscriberRosterDelivery } from '../nebula-client';
+import type { QueryDescriptor } from '../query-hash';
 
 /**
  * Middleware fires on every write through the Proxy `set` trap (and wrapped
@@ -48,6 +49,19 @@ export interface StoreClient {
   /** Register the factory's org-tree listener (mirrors to lmz.orgTree.value).
    *  Registering it also opts the client into auto-subscribing the tree on connect. */
   onOrgTreeUpdate(handler: (state: unknown) => void): void;
+  /** Register the factory's global-Profile listener (mirrors each pushed snapshot to
+   *  store.lmz.profiles[id].value/meta — the DEDICATED profile channel, never resources.*). */
+  onProfileUpdate(handler: (profileId: string, snapshot: ProfileChannelSnapshot | null) => void): void;
+  /** Subscribe to a global Profile by id (auto-subscribe 0→1). Returns a handle the factory holds +
+   *  disposes after grace; pushes arrive via `onProfileUpdate`. Dedicated channel (not `resources.*`). */
+  subscribeProfile(profileId: string): ResourceSubscription;
+  /** Register the factory's subscriber-list roster listener (mirrors each roster to the query-in-path
+   *  surface `store.lmz.querySubscribers.<typeName>.<field>[value]`). */
+  onQuerySubscribersUpdate(handler: (delivery: SubscriberRosterDelivery) => void): void;
+  /** Subscribe to a query's live subscriber-list roster — the STANDALONE watcher sub (roster only, NOT
+   *  the query's data). Returns a handle the factory holds + disposes after grace; the roster arrives via
+   *  `onQuerySubscribersUpdate` and lands at the query-in-path store surface. */
+  subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription;
   /** Flush pending debounced writes (no args = all). */
   flush(resourceType?: string, resourceId?: string): void;
   /** Flush + settle open submissions + tear down the debounce queue. */

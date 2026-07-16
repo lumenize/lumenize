@@ -47,15 +47,17 @@ export interface ProfileSnapshot {
 
 /**
  * The client-side continuation target for a pushed snapshot — a minimal structural interface so the
- * fanout can type `ctn<ResourceUpdateReceiver>()` WITHOUT importing `NebulaClient` (an upward edge a
- * type-only import would silently pass tests on). Matches `NebulaClient.handleResourceUpdate`.
+ * fanout can type `ctn<ProfileUpdateReceiver>()` WITHOUT importing `NebulaClient` (an upward edge a
+ * type-only import would silently pass tests on). Matches `NebulaClient.handleProfileUpdate`.
+ *
+ * A **dedicated** profile channel (NOT `handleResourceUpdate('Profile', …)`): the platform profile must
+ * not share the client's resource-type keyspace/routing with a dev-user ontology type named `Profile`
+ * (that collision was a footgun AND a shipped reconnect mis-route — tasks/nebula-subscriber-lists.md).
  */
-interface ResourceUpdateReceiver {
-  handleResourceUpdate(resourceType: string, resourceId: string, result: ProfileSnapshot | Error): void;
+interface ProfileUpdateReceiver {
+  handleProfileUpdate(profileId: string, result: ProfileSnapshot | Error): void;
 }
 
-/** The client subscribe key is `Profile:${profileId}` — resourceType is a constant, resourceId = profileId. */
-const RESOURCE_TYPE = 'Profile';
 /** The public fields, in the ProfileFields k-v table. `privateNotes` and `eTag` are separate keys. */
 const PUBLIC_FIELDS = ['name', 'nickname', 'picture'] as const;
 
@@ -113,9 +115,9 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       `INSERT OR REPLACE INTO Subscribers (clientId, subscriberBinding) VALUES (?, ?)`,
       clientId, subscriberBinding,
     );
-    // Initial-snapshot delivery (3-arg fire-and-forget), mirroring Star's deliverResourceUpdate.
+    // Initial-snapshot delivery (3-arg fire-and-forget) on the DEDICATED profile channel.
     this.lmz.call(subscriberBinding, clientId,
-      this.ctn<ResourceUpdateReceiver>().handleResourceUpdate(RESOURCE_TYPE, this.#profileId(), this.#publicSnapshot()));
+      this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(this.#profileId(), this.#publicSnapshot()));
   }
 
   /** Drop the caller's subscriber row (best-effort; mirrors Star.unsubscribe). */
@@ -161,7 +163,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       const subscriberBinding = (row as { subscriberBinding: string }).subscriberBinding;
       this.lmz.call(
         subscriberBinding, clientId,
-        this.ctn<ResourceUpdateReceiver>().handleResourceUpdate(RESOURCE_TYPE, profileId, snapshot),
+        this.ctn<ProfileUpdateReceiver>().handleProfileUpdate(profileId, snapshot),
         this.ctn().onProfileBroadcastResult(),
         { onErrorOnly: true },
       );

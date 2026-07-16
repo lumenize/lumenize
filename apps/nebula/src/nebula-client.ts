@@ -31,7 +31,7 @@ import {
 import type { ConflictResolverVerdict } from './frontend/text-merge';
 import type { QueueSubmission } from './frontend/debounce';
 import type { OperationDescriptor as WireOp, TransactionResult, Snapshot, TransactionError } from './resources';
-import type { QueryUpdatePayload, QueryDescriptor, PresenceEntry, PresenceUpdatePayload } from './query-hash';
+import type { QueryUpdatePayload, QueryDescriptor, SubscriberEntry, SubscriberRosterPayload } from './query-hash';
 import { canonicalQueryHash } from './query-hash';
 import type { DagTreeState, PermissionTier } from './dag-ops';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from './chat-constants';
@@ -65,6 +65,17 @@ export type OperationDescriptor = EngineOp;
  */
 export interface ResourceSubscription extends Disposable {
   readonly snapshot: Promise<Snapshot | null>;
+}
+
+/**
+ * The minimal snapshot the DEDICATED global-Profile channel delivers — a public `value` + an eTag-only
+ * `meta` (the Profile DO carries no ADR-004/005 resource meta). A resources `Snapshot` is a structural
+ * superset, so a real push (typed `Snapshot`) is assignable to this; tests construct it directly. Used by
+ * the `onProfileUpdate` listener + the factory's `store.lmz.profiles[id]` write-back.
+ */
+export interface ProfileChannelSnapshot {
+  value: unknown;
+  meta: { eTag: string };
 }
 
 /** Options for {@link NebulaClient.resources.subscribeQuery}. */
@@ -103,15 +114,37 @@ export interface QuerySubscription extends Disposable {
   onChange(cb: () => void): void;
 }
 
+/**
+ * A `using`-compatible handle for a subscriber-LIST watcher subscription (the STANDALONE
+ * `subscribeQuerySubscribers`). `ready` resolves on the first roster push (rejects if the query is
+ * rejected fail-closed). `[Symbol.dispose]()` releases `unsubscribeQuerySubscribers` on the last handle
+ * (refcounted). The roster itself lands in `store.lmz.querySubscribers.*` via the factory listener, NOT
+ * on this handle. tasks/nebula-subscriber-lists.md.
+ */
+export interface SubscriberListSubscription extends Disposable {
+  readonly ready: Promise<void>;
+}
+
+/** A roster delivery to the factory listener — carries the `query` so the factory computes the
+ *  query-in-path store path (`store.lmz.querySubscribers.<typeName>.<field>[value]`). */
+export interface SubscriberRosterDelivery {
+  queryHash: string;
+  query: QueryDescriptor;
+  roster: SubscriberEntry[];
+}
+
+/** Internal per-watcher state, keyed by canonical `queryHash` (refcounted across handles). */
+interface QuerySubscriberEntry {
+  query: QueryDescriptor;
+  refcount: number;
+  ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
+}
+
 /** Internal per-query state shared across handles of the same canonical query. */
 interface QueryEntry {
   query: QueryDescriptor;
   resourceIds: string[];
   deniedNodes: string[];
-  /** The query's live presence roster (its distinct-by-`sub` subscriber set) — delivered
-   *  on the dedicated `handlePresenceUpdate` channel, folded here so it shares the entry's
-   *  lifecycle (cleaned up at {@link #disposeQuerySubscription}). nebula-presence-subscription.md. */
-  roster: PresenceEntry[];
   refcount: number;
   ready: { promise: Promise<void>; resolve: () => void; reject: (e: unknown) => void; settled: boolean };
   /** Ids the consumer asked to render; effective window = this ∩ resourceIds. */
@@ -280,14 +313,13 @@ function createInMemoryStoreAdapter(): NebulaStoreAdapter {
   };
 }
 
-/** The reactive-store resourceType key for global Profile subscriptions (`Profile:${profileId}`) —
- *  matches the Profile DO's `RESOURCE_TYPE`. The subscribe instance is the profileId (binding-agnostic;
- *  NOT `activeScope`), since the Profile DO is global/cross-scope. tasks/nebula-profile-store.md. */
-const PROFILE_RESOURCE_TYPE = 'Profile';
-
-/** Minimal structural target for the Profile subscribe continuation — avoids importing the Profile DO
- *  (a `cloudflare:workers` class) into the browser-bundled client. Matches `Profile.subscribe()`. */
-interface ProfileSubscribeTarget { subscribe(): void; }
+/** Minimal structural target for the Profile subscribe/unsubscribe continuations — avoids importing the
+ *  Profile DO (a `cloudflare:workers` class) into the browser-bundled client. Matches `Profile.subscribe()`
+ *  / `Profile.unsubscribe()`. The subscribe instance is the profileId (binding-agnostic; NOT `activeScope`),
+ *  since the Profile DO is global/cross-scope. Profiles ride a DEDICATED client channel (`#profileRefcount`
+ *  / `handleProfileUpdate`), NOT the resource keyspace — so a dev-user ontology type named `Profile` can't
+ *  collide (tasks/nebula-subscriber-lists.md). */
+interface ProfileSubscribeTarget { subscribe(): void; unsubscribe(): void; }
 
 export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #authScope: string;
@@ -379,12 +411,38 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   #pendingSubscribes = new Map<SubscribeKey, PendingSubscribe>();
 
   /**
+   * Dedicated global-Profile subscription state — a SEPARATE channel from the resource
+   * `#subscriptionRegistry`/`#subscribeRefcount`/`#pendingSubscribes` above, keyed by bare `profileId`.
+   * Kept separate so the platform profile never shares the `${resourceType}:${resourceId}` keyspace/routing
+   * with a dev-user ontology type named `Profile` (that collision was a footgun AND a shipped reconnect
+   * mis-route — tasks/nebula-subscriber-lists.md). `#profileRefcount` keys ARE the live-sub set (walked on
+   * reconnect); `#profilePending` settles each `subscribeProfile().snapshot` on its first push.
+   */
+  #profileRefcount = new Map<string, number>();
+  #profilePending = new Map<string, PendingSubscribe>();
+
+  /**
+   * Runtime profile listener registered by the factory ({@link onProfileUpdate}) — it mirrors each pushed
+   * profile snapshot into `store.lmz.profiles[profileId].value`. Single-handler (mirrors {@link #orgTreeListener}).
+   * Fed by the `handleProfileUpdate` @mesh handler (initial subscribe snapshot + every fanout push).
+   */
+  #profileListener: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null = null;
+
+  /**
    * Active query subscriptions (Child 2), keyed by the locally-computed canonical
    * `queryHash`. Shared across handles of the same query (refcounted). Each entry
    * holds the membership set, the windowed per-resource content subs, and the
    * grace timers — see {@link QueryEntry}.
    */
   #queryEntries = new Map<string, QueryEntry>();
+
+  /**
+   * Active STANDALONE subscriber-list watcher subscriptions, keyed by canonical `queryHash` (refcounted,
+   * reconnect-walked). Delivered rosters flow to `#querySubscribersListener` (the factory) → the store.
+   */
+  #querySubscriberEntries = new Map<string, QuerySubscriberEntry>();
+  /** Factory listener that mirrors each roster into `store.lmz.querySubscribers.*`. Single-handler. */
+  #querySubscribersListener: ((delivery: SubscriberRosterDelivery) => void) | null = null;
 
 
   /**
@@ -565,6 +623,25 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    */
   onOrgTreeUpdate(handler: ((state: DagTreeState) => void) | null): void {
     this.#orgTreeListener = handler;
+  }
+
+  /**
+   * Register a runtime listener for global-Profile updates. The factory uses this to mirror each pushed
+   * profile snapshot into `store.lmz.profiles[profileId].value`. Single-handler; replaces. Fed by every
+   * `handleProfileUpdate` (initial `subscribeProfile` snapshot + every fanout push). Dedicated channel —
+   * profiles never flow through the resource `handleResourceUpdate`/engine path.
+   */
+  onProfileUpdate(handler: ((profileId: string, snapshot: ProfileChannelSnapshot | null) => void) | null): void {
+    this.#profileListener = handler;
+  }
+
+  /**
+   * Register a runtime listener for subscriber-list roster updates. The factory uses this to mirror each
+   * roster into the query-in-path store surface `store.lmz.querySubscribers.<typeName>.<field>[value]`
+   * (keyed by the delivery's `query`). Single-handler; replaces. Fed by `handleQuerySubscribersUpdate`.
+   */
+  onQuerySubscribersUpdate(handler: ((delivery: SubscriberRosterDelivery) => void) | null): void {
+    this.#querySubscribersListener = handler;
   }
 
   /**
@@ -767,14 +844,17 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * issuing a fresh RTT — which is exactly the trap above.
    */
   #resubscribeAll(): void {
+    // Every `#subscriptionRegistry` entry is a Star resource → re-subscribe to the active-scope Star.
+    // (Global Profiles are NOT in this registry — they walk `#profileRefcount` below on their dedicated
+    // PROFILE binding. This is what fixes the shipped mis-route where a dev-user `Profile`-typed resource
+    // was re-routed to the global PROFILE DO — tasks/nebula-subscriber-lists.md.)
     for (const { resourceType, resourceId } of this.#subscriptionRegistry.values()) {
-      if (resourceType === PROFILE_RESOURCE_TYPE) {
-        // Binding-agnostic: a global Profile sub re-subscribes to PROFILE/profileId, not STAR/activeScope.
-        this.lmz.call('PROFILE', resourceId, this.ctn<ProfileSubscribeTarget>().subscribe());
-      } else {
-        this.lmz.call(this.#resourceHostBinding, this.#activeScope,
-          this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
-      }
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribe(this.#appVersion, resourceType, resourceId));
+    }
+    // Re-fire every live global-Profile sub on its own PROFILE binding (binding-agnostic, instance = profileId).
+    for (const profileId of this.#profileRefcount.keys()) {
+      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe());
     }
     // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
     // a reconnect after token expiry re-subscribes with the fresh token, so a
@@ -784,6 +864,12 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     for (const entry of this.#queryEntries.values()) {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,
         this.ctn<Star>().subscribeQuery(entry.query));
+    }
+    // Re-fire every live STANDALONE subscriber-list watcher sub (the roster re-arrives via
+    // handleQuerySubscribersUpdate; the server's INSERT OR REPLACE makes the re-register idempotent).
+    for (const entry of this.#querySubscriberEntries.values()) {
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribeQuerySubscribers(entry.query));
     }
   }
 
@@ -998,7 +1084,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           query,
           resourceIds: [],
           deniedNodes: [],
-          roster: [],
           refcount: 0,
           ready: { promise, resolve, reject, settled: false },
           desiredWindow: new Set<string>(),
@@ -1146,29 +1231,108 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Subscribe to a global Profile's PUBLIC fields by `profileId` — the **binding-agnostic** path: the
-   * callee instance is the `profileId` (NOT `activeScope`), since the Profile DO is global/cross-scope.
-   * The received snapshot lands in the SAME reactive store as resource subs (key `Profile:${profileId}`,
-   * via `handleResourceUpdate` → the engine), so `readResource('Profile', profileId)` observes it.
-   * Resolves on the first snapshot. tasks/nebula-profile-store.md Phase 3.
+   * Subscribe to a global Profile's PUBLIC fields by `profileId` — the **binding-agnostic** path (callee
+   * instance = `profileId`, NOT `activeScope`; the Profile DO is global/cross-scope). Returns a
+   * `using`-compatible {@link ResourceSubscription}: `.snapshot` resolves with the initial snapshot on the
+   * first `handleProfileUpdate`; `[Symbol.dispose]()` decrements a per-`profileId` refcount and issues
+   * `Profile.unsubscribe` only when the LAST handle releases — so the factory's windowed auto-subscribe
+   * (the reactive store's grace→dispose) can actually unwind a profile. DEDICATED channel: profiles use
+   * `#profileRefcount` / `#profilePending` / `handleProfileUpdate` and are mirrored to `store.lmz.profiles`
+   * by the factory listener — never the resource keyspace, so a dev-user ontology type named `Profile`
+   * can't collide. tasks/nebula-subscriber-lists.md.
    */
-  subscribeProfile(profileId: string): Promise<Snapshot | null> {
-    const key = `${PROFILE_RESOURCE_TYPE}:${profileId}`;
-    this.#subscriptionRegistry.set(key, { resourceType: PROFILE_RESOURCE_TYPE, resourceId: profileId });
-    return this.#subscribeVia(key, () =>
-      this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe()));
+  subscribeProfile(profileId: string): ResourceSubscription {
+    this.#profileRefcount.set(profileId, (this.#profileRefcount.get(profileId) ?? 0) + 1);
+    const snapshot = this.#subscribeVia(
+      profileId,
+      () => this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe()),
+      this.#profilePending,
+    );
+    let disposed = false;
+    return {
+      snapshot,
+      [Symbol.dispose]: (): void => {
+        if (disposed) return; // per-handle idempotent
+        disposed = true;
+        this.#disposeProfileSubscription(profileId);
+      },
+    };
   }
 
   /**
-   * Shared subscribe plumbing (binding-agnostic): coalesce with an in-flight subscribe for `key`, else
-   * register a pending entry and `fire()` the subscribe call. Extracted so the Star-resource and
-   * global-Profile paths share the pending/coalesce logic — only the callee binding+instance differ.
+   * Release a profile subscription — equivalent to one `[Symbol.dispose]()` on a `subscribeProfile`
+   * handle. Decrements the per-`profileId` refcount; on the last release drops the local entry then
+   * issues `Profile.unsubscribe` (routed to **PROFILE**, NOT the Star). Shared by the handle's
+   * `[Symbol.dispose]()`.
    */
-  #subscribeVia(key: string, fire: () => void): Promise<Snapshot | null> {
+  unsubscribeProfile(profileId: string): void {
+    this.#disposeProfileSubscription(profileId);
+  }
+
+  #disposeProfileSubscription(profileId: string): void {
+    const n = this.#profileRefcount.get(profileId) ?? 0;
+    if (n > 1) { this.#profileRefcount.set(profileId, n - 1); return; } // other handles still hold it open
+    this.#profileRefcount.delete(profileId);
+    this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().unsubscribe());
+  }
+
+  /**
+   * Subscribe to the live subscriber-LIST roster of `query` — the STANDALONE watcher subscription (roster
+   * only; does NOT subscribe to the query's DATA). Returns a `using`-compatible {@link SubscriberListSubscription}
+   * whose `ready` resolves on the first roster push; the roster lands in the reactive store at the
+   * query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` via the factory listener.
+   * Refcounted (a 2nd subscribe of the same canonical query coalesces) + reconnect-safe (re-fired by
+   * `#resubscribeAll`). Routes to the active-scope host (Star/DevStudio). tasks/nebula-subscriber-lists.md.
+   */
+  subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription {
+    const queryHash = canonicalQueryHash(query);
+    let entry = this.#querySubscriberEntries.get(queryHash);
+    if (!entry) {
+      let resolve!: () => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+      entry = { query, refcount: 0, ready: { promise, resolve, reject, settled: false } };
+      this.#querySubscriberEntries.set(queryHash, entry);
+      this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+        this.ctn<Star>().subscribeQuerySubscribers(query));
+    }
+    entry.refcount++;
+    const e = entry;
+    let disposed = false;
+    return {
+      ready: e.ready.promise,
+      [Symbol.dispose]: (): void => {
+        if (disposed) return; // per-handle idempotent
+        disposed = true;
+        this.#disposeQuerySubscribersSubscription(queryHash);
+      },
+    };
+  }
+
+  #disposeQuerySubscribersSubscription(queryHash: string): void {
+    const entry = this.#querySubscriberEntries.get(queryHash);
+    if (!entry) return;
+    if (entry.refcount > 1) { entry.refcount--; return; } // other handles still hold it open
+    this.#querySubscriberEntries.delete(queryHash);
+    this.lmz.call(this.#resourceHostBinding, this.#activeScope,
+      this.ctn<Star>().unsubscribeQuerySubscribers(queryHash));
+  }
+
+  /**
+   * Shared subscribe plumbing (binding-agnostic): coalesce with an in-flight subscribe for `key` in the
+   * given `pending` map, else register a pending entry and `fire()` the subscribe call. Extracted so the
+   * Star-resource path (`#pendingSubscribes`) and the dedicated global-Profile path (`#profilePending`)
+   * share the pending/coalesce logic — only the callee binding+instance and the pending map differ.
+   */
+  #subscribeVia(
+    key: string,
+    fire: () => void,
+    pending: Map<string, PendingSubscribe> = this.#pendingSubscribes,
+  ): Promise<Snapshot | null> {
     // Coalesce with an in-flight subscribe for the same key. Capture the entry's CURRENT resolve/reject
     // as plain function values (not via the entry object) — aliasing the object would make the chained
     // closure read the newly-installed function back through itself, recursing.
-    const inFlight = this.#pendingSubscribes.get(key);
+    const inFlight = pending.get(key);
     if (inFlight) {
       return new Promise<Snapshot | null>((resolve, reject) => {
         const prevResolve = inFlight.resolve;
@@ -1178,7 +1342,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       });
     }
     return new Promise<Snapshot | null>((resolve, reject) => {
-      this.#pendingSubscribes.set(key, { resolve, reject });
+      pending.set(key, { resolve, reject });
       fire();
     });
   }
@@ -1306,6 +1470,26 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
+   * Receive a global-Profile snapshot push from the Profile DO — the initial `subscribeProfile` snapshot
+   * or a later fanout. A **dedicated** channel (not `handleResourceUpdate`), correlated by bare `profileId`
+   * so the platform profile never shares the resource keyspace with a dev-user ontology type named
+   * `Profile`. Two jobs (mirrors `handleResourceUpdate`): mirror the snapshot into the store via the
+   * factory's `#profileListener` (→ `store.lmz.profiles[profileId]`) and settle a pending
+   * `subscribeProfile().snapshot` (first-call-wins). `result === null` (absent profile) writes nothing.
+   * An Error rejects the pending Promise (no state write). `@mesh()` — a remotely dispatched Gateway push.
+   */
+  @mesh()
+  handleProfileUpdate(profileId: string, result: Snapshot | null | Error): void {
+    const pending = this.#profilePending.get(profileId);
+    if (result instanceof Error) {
+      if (pending) { this.#profilePending.delete(profileId); pending.reject(result); }
+      return;
+    }
+    if (result !== null) this.#profileListener?.(profileId, result);
+    if (pending) { this.#profilePending.delete(profileId); pending.resolve(result); }
+  }
+
+  /**
    * Receive an org-tree snapshot from Star — the initial `subscribeTree`
    * snapshot or a `#onDagChanged` broadcast (originator included). Forwards the
    * tree state to the factory's registered listener, which mirrors it to
@@ -1348,34 +1532,23 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
-   * Receive a presence roster push for a query the client is subscribed to — the
-   * distinct-by-`sub` `{ sub, profileId }` set (nebula-presence-subscription.md).
-   * Folded onto the query's {@link QueryEntry} so it shares that lifecycle, correlated
-   * by the locally-computed `queryHash`. A push for an unknown/disposed `queryHash` is
-   * ignored (the same no-handle guard as {@link handleQueryUpdate} — a late/racing push
-   * can't resurrect a disposed entry). Replaces the roster (idempotent) + fires the
-   * entry's listeners so a consumer re-renders; does NOT settle `ready` (that is the
-   * query-DATA push's job). `@mesh()` — a remotely dispatched Gateway push.
+   * Receive a subscriber-list roster push (the query's distinct-by-`sub` `{ sub, profileId }` set) for a
+   * query whose STANDALONE WATCHER subscription this client holds — or an Error (a fail-closed invalid
+   * watcher query). Correlated by the locally-computed `queryHash`; a push for an unknown/disposed
+   * `queryHash` is ignored (a late/racing push can't resurrect a disposed watcher). On a roster: deliver
+   * it to the factory's registered listener (→ `store.lmz.querySubscribers.*`, keyed by the entry's
+   * query + optional name) and settle `ready`. On an Error: reject `ready`. `@mesh()` — a Gateway push.
    */
   @mesh()
-  handlePresenceUpdate(queryHash: string, roster: PresenceUpdatePayload): void {
-    const entry = this.#queryEntries.get(queryHash);
+  handleQuerySubscribersUpdate(queryHash: string, result: SubscriberRosterPayload | Error): void {
+    const entry = this.#querySubscriberEntries.get(queryHash);
     if (!entry) return;
-    entry.roster = roster;
-    for (const cb of entry.listeners) {
-      try { cb(); } catch { /* a listener throw must not break the push channel */ }
+    if (result instanceof Error) {
+      if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.reject(result); }
+      return;
     }
-  }
-
-  /**
-   * @internal Read the current presence roster for a live query subscription (the
-   * distinct-by-`sub` `{ sub, profileId }` set). Public-but-undocumented (like
-   * {@link streamingProgress}) so a consumer / test subclass can read it without a
-   * `#`-private; NOT yet a documented `client.resources.*` capability. Returns `[]`
-   * for a query with no live handle.
-   */
-  presenceRoster(query: QueryDescriptor): PresenceEntry[] {
-    return this.#queryEntries.get(canonicalQueryHash(query))?.roster ?? [];
+    this.#querySubscribersListener?.({ queryHash, query: entry.query, roster: result });
+    if (!entry.ready.settled) { entry.ready.settled = true; entry.ready.resolve(); }
   }
 
   /**
