@@ -11,6 +11,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
+- [ ] **Fully eliminate `@cloudflare/workers-types`** (started in `tasks/archive/do-exports-and-toolchain-upgrade.md`). The `packages/*` runtime/dev path is already off it — `wrangler types` output (`worker-configuration.d.ts`) provides the same globals, proven 12/12 type-check clean. Two threads remain: (1) the 6 `packages/*/tsconfig.build.json` still name it in `types` (resolved via the copy still hoisted by out-of-scope declarers) — but that `tsc -p tsconfig.build.json` **publish** path was *already broken pre-session* (`cloudflare:test` imported in `src`, cross-package `Env`), so making the publish build workers-types-free is its own careful pass, not a swap; (2) `apps/nebula`, `website`, `experiments/*`, `tooling` still declare it (keeping it hoisted). Not blocking anything — do when addressing the publish/build path or those apps.
+
 
 ## Lumenize Mesh
 

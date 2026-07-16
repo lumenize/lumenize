@@ -20,14 +20,8 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["TestEndpointsDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["EnvTestDO"]
-    }
-  ]
+  "exports": {
+    "TestEndpointsDO": { "type": "durable-object", "storage": "sqlite" },
+    "EnvTestDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

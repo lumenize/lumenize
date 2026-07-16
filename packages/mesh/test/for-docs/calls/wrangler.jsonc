@@ -34,20 +34,12 @@
       "entrypoint": "AnalyticsWorker"
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["LumenizeAuth"]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": ["CalculatorDO"]
-    }
-  ],
+  "exports": {
+    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" },
+    "CalculatorDO": { "type": "durable-object", "storage": "sqlite" }
+  },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "LUMENIZE_AUTH_REDIRECT": "/app"

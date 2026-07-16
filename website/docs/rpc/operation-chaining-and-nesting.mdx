@@ -401,12 +401,9 @@ export default {
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["DataService"]
-    }
-  ]
+  "exports": {
+    "DataService": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 
 ```

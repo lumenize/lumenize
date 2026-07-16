@@ -5,14 +5,9 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "MyDO"
-      ],
-      "tag": "v1"
-    }
-  ],
+  "exports": {
+    "MyDO": { "type": "durable-object", "storage": "sqlite" }
+  },
   "durable_objects": {
     "bindings": [
       {

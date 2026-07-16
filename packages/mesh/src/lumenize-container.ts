@@ -56,7 +56,7 @@ export function stripContainerTargetPort(request: Request): Request {
  * `__localChainExecutor` — this node has no alarms/fetch consumer for it.)
  *
  * Identity persists in `ctx.storage.kv` (`__lmz_do_*`), so the class MUST be
- * registered with `new_sqlite_classes` (Container storage is SQLite-backed).
+ * registered in `exports` with `storage: "sqlite"` (Container storage is SQLite-backed).
  *
  * ## What this node does NOT take from the core (per-node-type, per ADR-007)
  *  - **No constructor body, no `onStart` override.** `Container`'s constructor

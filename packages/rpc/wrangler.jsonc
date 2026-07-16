@@ -50,72 +50,17 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "ExampleDO"
-      ]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": [
-        "ManualRoutingDO"
-      ]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": [
-        "SubclassDO"
-      ]
-    },
-    {
-      "tag": "v4",
-      "new_sqlite_classes": [
-        "PipeliningDO"
-      ]
-    },
-    {
-      "tag": "v5",
-      "new_sqlite_classes": [
-        "MyDO"
-      ]
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": [
-        "NotificationDO"
-      ]
-    },
-    {
-      "tag": "v7",
-      "new_sqlite_classes": [
-        "VideoDO"
-      ]
-    },
-    {
-      "tag": "v8",
-      "new_sqlite_classes": [
-        "NotificationHub"
-      ]
-    },
-    {
-      "tag": "v9",
-      "new_sqlite_classes": [
-        "DocumentDO"
-      ]
-    },
-    {
-      "tag": "v10",
-      "new_sqlite_classes": [
-        "BroadcastDO"
-      ]
-    },
-    {
-      "tag": "v11",
-      "new_sqlite_classes": [
-        "MapSetTestDOWithRpc"
-      ]
-    }
-  ]
+  "exports": {
+    "ExampleDO": { "type": "durable-object", "storage": "sqlite" },
+    "ManualRoutingDO": { "type": "durable-object", "storage": "sqlite" },
+    "SubclassDO": { "type": "durable-object", "storage": "sqlite" },
+    "PipeliningDO": { "type": "durable-object", "storage": "sqlite" },
+    "MyDO": { "type": "durable-object", "storage": "sqlite" },
+    "NotificationDO": { "type": "durable-object", "storage": "sqlite" },
+    "VideoDO": { "type": "durable-object", "storage": "sqlite" },
+    "NotificationHub": { "type": "durable-object", "storage": "sqlite" },
+    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
+    "BroadcastDO": { "type": "durable-object", "storage": "sqlite" },
+    "MapSetTestDOWithRpc": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

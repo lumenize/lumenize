@@ -32,16 +32,10 @@
       "remote": true
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeAuth"]
-    },
-    {
-      "tag": "v2",
-      "new_classes": ["EchoDO"]
-    }
-  ],
+  "exports": {
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" },
+    "EchoDO": { "type": "durable-object", "storage": "legacy-kv" }
+  },
   "ratelimits": [
     {
       "name": "LUMENIZE_AUTH_RATE_LIMITER",

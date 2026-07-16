@@ -107,31 +107,28 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/auth/*", "/gateway/*", "/dev-container/*", "/_version"]
   },
-  // DO class registry (NOT SQL migration). Every class is `new_sqlite_classes` — all use sync storage
-  // (LumenizeContainer persists identity in ctx.storage.kv; `new_classes` would make sync storage
-  // throw → hard deploy failure).
-  // ⚠️ NOT append-only anymore: this v1 block was edited to REMOVE the dissolved `NebulaAuth` class
-  // (tasks/nebula-auth-surrogate-sub.md). That is a one-way, non-append change that is valid ONLY
-  // because Phase 4 performs a full CF-DASHBOARD worker-delete first (clears all DO storage +
-  // migration history, so redeploy is a fresh v1 — [[wrangler-delete-leaves-do-data]]). Prod IS live
-  // (nebula.lumenize.com, 2026-07-04), so a plain `wrangler deploy` WITHOUT that dashboard-delete would
-  // be rejected (removing a migrated class needs deleted_classes, which m9 forbids on a fresh worker) —
-  // follow the task's Phase 4 runbook, do not just `wrangler deploy`.
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "NebulaClientGateway",
-        "Universe",
-        "Galaxy",
-        "Star",
-        "DevStudio",
-        "DevContainer",
-        "NebulaAuthRegistry",
-        "Profile"
-      ]
-    }
-  ],
+  // Declarative DO class registry — `exports` (NOT SQL migration; replaced the old `migrations` array,
+  // tasks/archive/do-exports-and-toolchain-upgrade.md). Every class is `storage: "sqlite"` — all use sync storage
+  // (LumenizeContainer persists identity in ctx.storage.kv; `storage: "legacy-kv"` would make sync
+  // storage throw → hard deploy failure, so the audit-migrations.mjs preflight reds on any non-sqlite).
+  // ⚠️ DEPLOY COUPLING — do NOT just `wrangler deploy`. Prod IS live (nebula.lumenize.com, 2026-07-04)
+  // and was last deployed under the `migrations` model. Switching a live worker `migrations`→`exports`
+  // via a plain incremental `wrangler deploy` may be rejected. This conversion lands ONLY via the frozen
+  // wipe runbook — a full CF-DASHBOARD worker-delete (clears all DO storage + registry history —
+  // [[wrangler-delete-leaves-do-data]]) then a FRESH deploy, at which point this `exports` map is the
+  // clean starting state. Runbook: Phase 4 of the frozen archive tasks/archive/nebula-auth-surrogate-sub.md
+  // (reached via nebula-pre-alpha.md:88) — its `migrations`-shaped steps are superseded by the exports-aware
+  // audit; follow do-exports-and-toolchain-upgrade.md Phase 4, not the frozen narration.
+  "exports": {
+    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "Universe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "Star": { "type": "durable-object", "storage": "sqlite" },
+    "DevStudio": { "type": "durable-object", "storage": "sqlite" },
+    "DevContainer": { "type": "durable-object", "storage": "sqlite" },
+    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "Profile": { "type": "durable-object", "storage": "sqlite" }
+  },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "NEBULA_AUTH_REDIRECT": "/app",

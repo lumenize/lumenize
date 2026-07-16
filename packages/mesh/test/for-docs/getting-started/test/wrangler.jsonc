@@ -35,12 +35,11 @@
       "name": "EMAIL"
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
-    }
-  ],
+  "exports": {
+    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "DocumentDO": { "type": "durable-object", "storage": "sqlite" },
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+  },
   "ratelimits": [
     {
       "name": "LUMENIZE_AUTH_RATE_LIMITER",

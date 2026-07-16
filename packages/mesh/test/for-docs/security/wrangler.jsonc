@@ -22,12 +22,12 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "UserProfileDO", "TeamDocDO", "LumenizeAuth"]
-    }
-  ],
+  "exports": {
+    "LumenizeClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "UserProfileDO": { "type": "durable-object", "storage": "sqlite" },
+    "TeamDocDO": { "type": "durable-object", "storage": "sqlite" },
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+  },
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
     "LUMENIZE_AUTH_REDIRECT": "/app"

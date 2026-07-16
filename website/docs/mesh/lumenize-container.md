@@ -17,7 +17,7 @@ import { LumenizeContainer } from '@lumenize/mesh/container';
 
 ## Mesh API
 
-`LumenizeContainer` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations. The core is **composed, not reimplemented** ([ADR-007](https://github.com/lumenize/lumenize/blob/main/docs/adr/007-shared-node-security-core.md)): it uses the same receive path as `LumenizeDO`. Identity persists in the container DO's storage, so register the class with `new_sqlite_classes`.
+`LumenizeContainer` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations. The core is **composed, not reimplemented** ([ADR-007](https://github.com/lumenize/lumenize/blob/main/docs/adr/007-shared-node-security-core.md)): it uses the same receive path as `LumenizeDO`. Identity persists in the container DO's storage, so register the class in `exports` with `storage: "sqlite"`.
 
 ```typescript @skip-check-approved('conceptual')
 class MyContainer extends LumenizeContainer<Env> {

@@ -28,9 +28,9 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
       { "name": "SUPERVISOR", "class_name": "SupervisorDO" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SupervisorDO"] }
-  ]
+  "exports": {
+    "SupervisorDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 ```
 

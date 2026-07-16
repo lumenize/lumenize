@@ -12,7 +12,7 @@
       { "name": "SUPERVISOR", "class_name": "SupervisorDO" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SupervisorDO"] }
-  ]
+  "exports": {
+    "SupervisorDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

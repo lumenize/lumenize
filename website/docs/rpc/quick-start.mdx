@@ -306,12 +306,9 @@ Your `wrangler` config should look something like this:
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["Counter"]
-    }
-  ]
+  "exports": {
+    "Counter": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 
 ```

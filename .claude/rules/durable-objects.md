@@ -62,19 +62,19 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
 ## Dynamic Worker Loader cache
 `env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the cache, so identical `bundleId` values silently collide on the first cached entry. Scope `bundleId` by something globally unique (include a tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.
 
-## DO class registration (`wrangler.jsonc` `migrations`)
-Cloudflare's `wrangler.jsonc` `migrations` array is a misleading name: it does **not** migrate SQL schema. It's the **DO class registry/versioning** — it tells Cloudflare which DO classes exist, whether each is SQLite-backed, and how class renames/deletes/transfers map across deploys.
+## DO class registration (`wrangler.jsonc` `exports`)
+The **DO class registry** is the declarative `exports` map (⚠️ a *different* `exports` from the package.json subpath/condition field — never conflate them; see `packaging.md`). It's **not** SQL-schema migration — it tells Cloudflare which DO classes exist and how each is backed. It **replaced** the old imperative `migrations` array (which is still accepted for back-compat, but new code uses `exports`); the two are mutually exclusive in one config. `durable_objects.bindings` is unchanged and still declares binding names alongside it.
 
-The rule that matters: a DO using the synchronous storage API must be **SQLite-backed**, so register it with `new_sqlite_classes`, **never** `new_classes` (which creates a non-SQLite DO where only the legacy async API works). This can't change once a class deploys to production; during testing you can change it freely.
+The rule that matters: a DO using the synchronous storage API must be **SQLite-backed**, so register it with `storage: "sqlite"`, **never** `"legacy-kv"` (a non-SQLite DO where only the legacy async API works). This can't change once a class deploys to production; during testing you can change it freely.
 
 ```jsonc
 // Wrong — ctx.storage.kv.* throws
-"migrations": [{ "tag": "v1", "new_classes": ["MyDO"] }]
-// Right
-"migrations": [{ "tag": "v1", "new_sqlite_classes": ["MyDO"] }]
+"exports": { "MyDO": { "type": "durable-object", "storage": "legacy-kv" } }
+// Right ("state" defaults to "created"; omit it)
+"exports": { "MyDO": { "type": "durable-object", "storage": "sqlite" } }
 ```
 
-These entries only matter when deployed to Cloudflare's cloud; in local testing every run is a fresh deploy, so they don't take effect there.
+`exports` requires a recent toolchain (wrangler ≥ 4.111 / `@cloudflare/vitest-pool-workers` ≥ 0.18.5, which parse + validate the field). A class add/rename/delete is a one-way door on a live prod worker; states (`deleted`/`renamed`/`transferred`) exist for that, but on a fresh (post-wipe) deploy you emit only live `created` entries — no tombstones. These entries only matter when deployed to Cloudflare's cloud; in local testing every run is a fresh deploy, so they don't take effect there.
 
 **Not the same as database/schema migration** — evolving a DO's SQLite tables (add a column, backfill, reindex) is a separate concern that lives in DO code (idempotent `CREATE TABLE IF NOT EXISTS` at construction, versioned in-DO `ALTER TABLE` logic), never in `wrangler.jsonc`.
 

@@ -10,13 +10,8 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "TestDO"
-      ]
-    }
-  ]
+  "exports": {
+    "TestDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 

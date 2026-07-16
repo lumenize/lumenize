@@ -21,21 +21,16 @@
   "kv_namespaces": [
     { "binding": "REFRESH_TOKEN_KV", "id": "nebula-baseline-refresh-token-kv-test" }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "NebulaClientGateway",
-        "Universe",
-        "Galaxy",
-        "StarTest",
-        "DevStudioTest",
-        "DevContainerServeStub",
-        "NebulaAuthRegistry",
-        "ProfileTest"
-      ]
-    }
-  ],
+  "exports": {
+    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "Universe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "StarTest": { "type": "durable-object", "storage": "sqlite" },
+    "DevStudioTest": { "type": "durable-object", "storage": "sqlite" },
+    "DevContainerServeStub": { "type": "durable-object", "storage": "sqlite" },
+    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "ProfileTest": { "type": "durable-object", "storage": "sqlite" }
+  },
   "services": [
     {
       "binding": "AUTH_EMAIL_SENDER",

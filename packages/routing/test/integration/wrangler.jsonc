@@ -18,14 +18,9 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "TestDO",
-        "MyDO",
-        "UserSession"
-      ]
-    }
-  ]
+  "exports": {
+    "TestDO": { "type": "durable-object", "storage": "sqlite" },
+    "MyDO": { "type": "durable-object", "storage": "sqlite" },
+    "UserSession": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

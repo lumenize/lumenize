@@ -1,46 +1,47 @@
 /**
- * Migrations / DO-class consistency gate for the FIRST (and every subsequent) prod
- * deploy of apps/nebula. The `wrangler.jsonc` `migrations` block is a ONE-WAY DOOR:
- * once the first prod deploy lands, the DO-class registry is append-only forever
- * (a class add/rename/delete is a migration that can never be undone; old rows may
- * not be trimmable). So this is the last thing checked before cutting a deploy —
- * `deploy.sh` runs it as a preflight (nebula-release-process.md Phase 0/A + Phase 3).
+ * DO-class consistency gate for the FIRST (and every subsequent) prod deploy of apps/nebula.
+ * The `wrangler.jsonc` DO-class registry is a ONE-WAY DOOR: once the first prod deploy lands, a
+ * class add/rename/delete can never be cleanly undone (old rows may not be trimmable). So this is
+ * the last thing checked before cutting a deploy — `deploy.sh` runs it as a preflight
+ * (nebula-release-process.md Phase 0/A + Phase 3).
  *
- * It asserts, on the HARDCODED single prod `apps/nebula/wrangler.jsonc` (never a glob —
- * the bench worker's chain intentionally diverges):
- *   1. the durable_objects.bindings class_names == the migrations new_sqlite_classes
- *      (set-equality), each set sized EXACTLY {@link EXPECTED_DO_CLASS_COUNT} (the
- *      size tripwire guards against a silent parse→[] vacuous-passing the comparison);
- *   2. zero `new_classes` entries (sync storage throws on a non-SQLite DO → hard
- *      deploy failure — see .claude/rules/durable-objects.md § DO class registration);
- *   3. the non-DO exports `default` (the fetch handler) and `NebulaEmailSender` (a
- *      WorkerEntrypoint) are ABSENT from both bindings and migrations — adding
- *      NebulaEmailSender to `migrations` is a hard deploy failure;
+ * (Named `audit-migrations` for history; the registry moved from the imperative `migrations` array
+ * to the declarative `exports` map — tasks/archive/do-exports-and-toolchain-upgrade.md — and this gate reads
+ * `exports` now.) It asserts, on the HARDCODED single prod `apps/nebula/wrangler.jsonc` (never a glob
+ * — the bench worker's chain intentionally diverges):
+ *   1. the durable_objects.bindings class_names == the `type: "durable-object"` `exports` keys
+ *      (set-equality), each set sized EXACTLY {@link EXPECTED_DO_CLASS_COUNT} (the size tripwire
+ *      guards against a silent parse→{} vacuous-passing the comparison);
+ *   2. every durable-object export is `storage: "sqlite"` — a non-SQLite prod DO makes sync storage
+ *      throw → hard deploy failure (see .claude/rules/durable-objects.md § DO class registration);
+ *   3. the non-DO exports `default` (the fetch handler) and `NebulaEmailSender` (a WorkerEntrypoint)
+ *      are ABSENT from the bindings and from the durable-object exports (a `type: "worker"` export is
+ *      allowed, a durable-object one is a hard failure);
  *   4. `src/worker.ts` re-exports each of the registered DO classes.
  *
- * Why PARSE, never substring-grep (the criterion that drove this script): `NebulaAuth`
- * is a substring of `NebulaAuthRegistry` and `NebulaEmailSender` shares an export line,
- * so a grep false-passes. We parse the JSONC into sets and the worker.ts `export {…}`
- * clauses into a token set — exact membership, no substring collisions.
+ * Why PARSE, never substring-grep (the criterion that drove this script): a class name can be a
+ * substring of another export (e.g. a `Profil` prefix of `Profile`), so a grep false-passes. We parse
+ * the JSONC into sets and the worker.ts `export {…}` clauses into a token set — exact membership.
  *
- * The {@link auditMigrations} core is a PURE function (string in → result out) so the
- * capable-of-failing mutation tests (test/audit-migrations.test.ts) can feed it mutated
- * config/worker text with no filesystem. The CLI block at the bottom reads the hardcoded
- * prod files and exits non-zero on any failure.
+ * The {@link auditMigrations} core is a PURE function (string in → result out) so the capable-of-failing
+ * mutations in `scripts/audit-migrations.selftest.mjs` (plain Node, run via `npm run audit:migrations:selftest`
+ * — NOT a vitest test, NOT in `npm run test:code`/CI) feed it mutated config/worker text with no filesystem.
+ * The CLI block at the bottom reads the hardcoded prod files and exits non-zero on any failure.
  */
 
 /**
- * Freeze-time count of registered DO classes (NebulaClientGateway, Universe, Galaxy,
- * Star, DevStudio, DevContainer, NebulaAuthRegistry). The per-scope `NebulaAuth` DO was
- * dissolved (tasks/nebula-auth-surrogate-sub.md), dropping the count 8 → 7. The gate is the
- * one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or removed
- * post-pre-alpha), bump this DELIBERATELY in the same change that edits bindings + migrations +
- * worker.ts — that conscious edit is the discipline, and it keeps a silent parse failure
- * (→ empty set, size 0) from vacuous-passing.
+ * Freeze-time count of registered DO classes: NebulaClientGateway, Universe, Galaxy, Star,
+ * DevStudio, DevContainer, NebulaAuthRegistry, Profile — 8. (The `Profile` DO was added post-
+ * pre-alpha; the per-scope `NebulaAuth` DO was dissolved earlier — tasks/nebula-auth-surrogate-sub.md.)
+ * The gate is a one-way-door tripwire, so when the registry LEGITIMATELY changes (a DO class added or
+ * removed), bump this DELIBERATELY in the same change that edits bindings + exports + worker.ts — that
+ * conscious edit is the discipline, and it keeps a silent parse failure (→ empty set, size 0) from
+ * vacuous-passing. (⚠️ Coordinate with tasks/nebula-devstudio-collapse.md, which removes DevContainer:
+ * whichever lands second sets the final count 8→7.)
  */
-export const EXPECTED_DO_CLASS_COUNT = 7;
+export const EXPECTED_DO_CLASS_COUNT = 8;
 
-/** Non-DO exports that must never appear in `durable_objects.bindings` or `migrations`. */
+/** Non-DO exports that must never be a `durable_objects` binding NOR a `type: "durable-object"` export. */
 const NON_DO_EXPORTS = ['default', 'NebulaEmailSender'];
 
 /**
@@ -145,67 +146,73 @@ export function auditMigrations({ wranglerJsonc, workerTs }) {
   if (!Array.isArray(bindings)) {
     return { ok: false, errors: ['durable_objects.bindings is missing or not an array'] };
   }
-  const migrations = config?.migrations;
-  if (!Array.isArray(migrations)) {
-    return { ok: false, errors: ['migrations is missing or not an array'] };
+  const exportsMap = config?.exports;
+  if (!exportsMap || typeof exportsMap !== 'object' || Array.isArray(exportsMap)) {
+    return { ok: false, errors: ['exports is missing or not an object'] };
   }
 
   const bindingClasses = new Set(bindings.map((b) => b?.class_name).filter(Boolean));
 
-  // Union new_sqlite_classes across every tag (append-only chain); collect any forbidden
-  // new_classes entries.
-  const sqliteClasses = new Set();
-  const newClasses = [];
-  for (const tag of migrations) {
-    for (const c of tag?.new_sqlite_classes ?? []) sqliteClasses.add(c);
-    for (const c of tag?.new_classes ?? []) newClasses.push(c);
+  // Durable-object exports, TYPE-AWARE: an `exports` value may be a DurableObjectExport OR a
+  // WorkerEntrypointExport (`type: "worker"`) — so scope the DO checks to `type: "durable-object"`
+  // entries. Collect the DO class set and flag any that isn't storage:"sqlite" (a non-SQLite prod DO
+  // throws on first sync-storage access = hard deploy failure — the invariant the old new_classes ban held).
+  const doClasses = new Set();
+  const nonSqlite = [];
+  for (const [name, cfg] of Object.entries(exportsMap)) {
+    if (cfg?.type !== 'durable-object') continue; // e.g. a WorkerEntrypoint export — not a DO
+    doClasses.add(name);
+    if (cfg?.storage !== 'sqlite') nonSqlite.push(`${name} (storage: ${cfg?.storage ?? 'missing'})`);
   }
 
-  // (c) zero new_classes — a non-SQLite DO makes sync storage throw (hard deploy failure).
-  if (newClasses.length) {
+  // SQLite invariant — every durable-object export must be storage:"sqlite" (NOT just a valid enum:
+  // legacy-kv/missing is a hard prod failure). This preserves the force of the old new_classes ban.
+  if (nonSqlite.length) {
     errors.push(
-      `migrations register new_classes (must be new_sqlite_classes — sync storage throws ` +
-        `on a non-SQLite DO): ${newClasses.join(', ')}`,
+      `durable-object exports must be storage:"sqlite" (a non-SQLite DO throws on sync storage — ` +
+        `hard deploy failure): ${nonSqlite.join(', ')}`,
     );
   }
 
-  // Size tripwire: both sets EXACTLY the freeze-time count (a silent parse→[] → size 0 → red).
+  // Size tripwire: both sets EXACTLY the freeze-time count (a silent parse→{} → size 0 → red).
   if (bindingClasses.size !== EXPECTED_DO_CLASS_COUNT) {
     errors.push(
       `expected ${EXPECTED_DO_CLASS_COUNT} durable_objects.bindings DO classes, found ` +
         `${bindingClasses.size}: [${[...bindingClasses].join(', ')}]`,
     );
   }
-  if (sqliteClasses.size !== EXPECTED_DO_CLASS_COUNT) {
+  if (doClasses.size !== EXPECTED_DO_CLASS_COUNT) {
     errors.push(
-      `expected ${EXPECTED_DO_CLASS_COUNT} migrations new_sqlite_classes, found ` +
-        `${sqliteClasses.size}: [${[...sqliteClasses].join(', ')}]`,
+      `expected ${EXPECTED_DO_CLASS_COUNT} durable-object exports, found ` +
+        `${doClasses.size}: [${[...doClasses].join(', ')}]`,
     );
   }
 
-  // Set-equality between the binding class_names and the registered SQLite classes.
-  const onlyInBindings = [...bindingClasses].filter((c) => !sqliteClasses.has(c));
-  const onlyInMigrations = [...sqliteClasses].filter((c) => !bindingClasses.has(c));
+  // Set-equality between the binding class_names and the durable-object exports.
+  const onlyInBindings = [...bindingClasses].filter((c) => !doClasses.has(c));
+  const onlyInExports = [...doClasses].filter((c) => !bindingClasses.has(c));
   if (onlyInBindings.length) {
-    errors.push(`classes in durable_objects.bindings but not migrations: ${onlyInBindings.join(', ')}`);
+    errors.push(`classes in durable_objects.bindings but not exports: ${onlyInBindings.join(', ')}`);
   }
-  if (onlyInMigrations.length) {
-    errors.push(`classes in migrations but not durable_objects.bindings: ${onlyInMigrations.join(', ')}`);
+  if (onlyInExports.length) {
+    errors.push(`classes in exports but not durable_objects.bindings: ${onlyInExports.join(', ')}`);
   }
 
-  // (3) Non-DO exports must be absent from both bindings and migrations.
+  // Non-DO exports (`default`, `NebulaEmailSender`) must NOT be a durable-object binding NOR a
+  // durable-object export. (They may legitimately be a `type: "worker"` export — hence the DO-scoped
+  // check above — but never a DO.)
   for (const forbidden of NON_DO_EXPORTS) {
     if (bindingClasses.has(forbidden)) {
       errors.push(`${forbidden} must NOT be a durable_objects binding (it is not a DO)`);
     }
-    if (sqliteClasses.has(forbidden)) {
-      errors.push(`${forbidden} must NOT appear in migrations (non-DO — hard deploy failure)`);
+    if (doClasses.has(forbidden)) {
+      errors.push(`${forbidden} must NOT be a durable-object export (non-DO — hard deploy failure)`);
     }
   }
 
-  // (4) worker.ts re-exports each registered DO class so the runtime can locate it.
+  // worker.ts re-exports each registered DO class so the runtime can locate it.
   const exported = parseReexports(workerTs);
-  const registered = new Set([...bindingClasses, ...sqliteClasses]);
+  const registered = new Set([...bindingClasses, ...doClasses]);
   const missing = [...registered].filter((c) => !NON_DO_EXPORTS.includes(c) && !exported.has(c));
   if (missing.length) {
     errors.push(`src/worker.ts does not re-export: ${missing.join(', ')}`);

@@ -9,12 +9,9 @@
       { "name": "EGRESS_PROBE", "class_name": "EgressProbeDO" }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["EgressProbeDO"]
-    }
-  ],
+  "exports": {
+    "EgressProbeDO": { "type": "durable-object", "storage": "sqlite" }
+  },
   "services": [
     {
       "binding": "EGRESS",

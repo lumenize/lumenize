@@ -13,10 +13,7 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["EmailTestDO"]
-    }
-  ]
+  "exports": {
+    "EmailTestDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

@@ -7,7 +7,7 @@
       { "name": "TEST_DO", "class_name": "SqlMigrationsTestDO" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["SqlMigrationsTestDO"] }
-  ]
+  "exports": {
+    "SqlMigrationsTestDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

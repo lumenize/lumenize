@@ -533,12 +533,10 @@ export default {
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeDO", "CapnWebRpcTarget"]
-    }
-  ]
+  "exports": {
+    "LumenizeDO": { "type": "durable-object", "storage": "sqlite" },
+    "CapnWebRpcTarget": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 
 ```

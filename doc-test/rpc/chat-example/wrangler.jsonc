@@ -11,8 +11,9 @@
 	"kv_namespaces": [
 		{ "binding": "TOKENS", "id": "preview_id", "preview_id": "preview_id" }
 	],
-	"migrations": [
-		{ "tag": "v1", "new_sqlite_classes": ["User", "Room"] }
-	]
+	"exports": {
+	  "User": { "type": "durable-object", "storage": "sqlite" },
+	  "Room": { "type": "durable-object", "storage": "sqlite" }
+	}
 }
 

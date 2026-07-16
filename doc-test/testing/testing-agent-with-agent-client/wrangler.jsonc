@@ -5,20 +5,10 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "migrations": [
-    {
-      "new_sqlite_classes": [
-        "ChatAgent"
-      ],
-      "tag": "v1"
-    },
-    {
-      "new_sqlite_classes": [
-        "AuthAgent"
-      ],
-      "tag": "v2"
-    }
-  ],
+  "exports": {
+    "ChatAgent": { "type": "durable-object", "storage": "sqlite" },
+    "AuthAgent": { "type": "durable-object", "storage": "sqlite" }
+  },
   "durable_objects": {
     "bindings": [
       {

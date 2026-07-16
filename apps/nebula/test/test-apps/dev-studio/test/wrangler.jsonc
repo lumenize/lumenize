@@ -15,10 +15,9 @@
       { "name": "GALAXY", "class_name": "Galaxy" }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["DevStudioLoopProbe", "DevStarOntologyProbe", "Galaxy"]
-    }
-  ]
+  "exports": {
+    "DevStudioLoopProbe": { "type": "durable-object", "storage": "sqlite" },
+    "DevStarOntologyProbe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

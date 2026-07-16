@@ -20,14 +20,10 @@
     ]
   },
 
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["TestSimpleDO", "TestEndpointsDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["FetchExampleDO", "RetryExampleDO"]
-    }
-  ]
+  "exports": {
+    "TestSimpleDO": { "type": "durable-object", "storage": "sqlite" },
+    "TestEndpointsDO": { "type": "durable-object", "storage": "sqlite" },
+    "FetchExampleDO": { "type": "durable-object", "storage": "sqlite" },
+    "RetryExampleDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

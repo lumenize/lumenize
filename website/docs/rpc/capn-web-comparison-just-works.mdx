@@ -536,17 +536,12 @@ npm install --save-dev capnweb
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "User", 
-        "Room", 
-        "CapnWebRoom", 
-        "CapnWebPlainRoom"
-      ]
-    }
-  ]
+  "exports": {
+    "User": { "type": "durable-object", "storage": "sqlite" },
+    "Room": { "type": "durable-object", "storage": "sqlite" },
+    "CapnWebRoom": { "type": "durable-object", "storage": "sqlite" },
+    "CapnWebPlainRoom": { "type": "durable-object", "storage": "sqlite" }
+  }
 }
 
 ```

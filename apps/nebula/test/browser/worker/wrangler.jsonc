@@ -26,43 +26,19 @@
   "kv_namespaces": [
     { "binding": "REFRESH_TOKEN_KV", "id": "nebula-browser-refresh-token-kv-test" }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": [
-        "NebulaClientGateway",
-        "Universe",
-        "Galaxy",
-        "StarTest",
-        "ResourceHistory",
-        "NebulaAuthRegistry"
-      ]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["BenchAgent"]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
-    },
-    {
-      "tag": "v4",
-      "deleted_classes": ["BenchBroadcaster", "BenchFanoutHelper"]
-    },
-    {
-      "tag": "v5",
-      "deleted_classes": ["ResourceHistory"]
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": ["DevStar"]
-    },
-    {
-      "tag": "v7",
-      "deleted_classes": ["DevStar"]
-    }
-  ],
+  // Declarative DO `exports` (was `migrations`) — lists only LIVE classes. The old migrations block
+  // carried tombstone entries for the removed (BenchBroadcaster, BenchFanoutHelper, ResourceHistory,
+  // DevStar); `exports` drops them, since it lists live classes only (no tombstones). This is a
+  // DEPLOYED throwaway harness: if a future redeploy is ever rejected because CF still holds the old
+  // migration history, dashboard-delete the worker + redeploy (it holds no durable state worth keeping).
+  "exports": {
+    "NebulaClientGateway": { "type": "durable-object", "storage": "sqlite" },
+    "Universe": { "type": "durable-object", "storage": "sqlite" },
+    "Galaxy": { "type": "durable-object", "storage": "sqlite" },
+    "StarTest": { "type": "durable-object", "storage": "sqlite" },
+    "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
+    "BenchAgent": { "type": "durable-object", "storage": "sqlite" }
+  },
   "services": [
     {
       "binding": "AUTH_EMAIL_SENDER",

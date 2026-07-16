@@ -18,10 +18,7 @@
     ]
   },
 
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["PrimaryDO"]
-    }
-  ]
+  "exports": {
+    "PrimaryDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

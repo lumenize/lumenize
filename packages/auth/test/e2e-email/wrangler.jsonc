@@ -28,12 +28,9 @@
       "remote": true
     }
   ],
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["LumenizeAuth"]
-    }
-  ],
+  "exports": {
+    "LumenizeAuth": { "type": "durable-object", "storage": "sqlite" }
+  },
   "ratelimits": [
     {
       "name": "LUMENIZE_AUTH_RATE_LIMITER",

@@ -9,10 +9,7 @@
       { "name": "SECRET_BROKER", "class_name": "SecretBrokerDO" }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["SecretBrokerDO"]
-    }
-  ]
+  "exports": {
+    "SecretBrokerDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

@@ -19,7 +19,8 @@
       { "name": "SEAM_HARNESS", "class_name": "MeshContainerSeamHarness" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["ProbeContainer", "MeshContainerSeamHarness"] }
-  ]
+  "exports": {
+    "ProbeContainer": { "type": "durable-object", "storage": "sqlite" },
+    "MeshContainerSeamHarness": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

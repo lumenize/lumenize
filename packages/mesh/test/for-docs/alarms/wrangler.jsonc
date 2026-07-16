@@ -10,10 +10,7 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["ReminderDO"]
-    }
-  ]
+  "exports": {
+    "ReminderDO": { "type": "durable-object", "storage": "sqlite" }
+  }
 }

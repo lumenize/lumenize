@@ -70,40 +70,19 @@
       }
     ]
   },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["TestDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["UsersDO", "NotificationsDO"]
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": ["NadisPluginTestDO"]
-    },
-    {
-      "tag": "v4",
-      "new_sqlite_classes": ["OnStartTestDO", "OnStartErrorDO"]
-    },
-    {
-      "tag": "v5",
-      "new_sqlite_classes": ["EchoDO"]
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": ["AlarmTestDO", "TaskSchedulerDO"]
-    },
-    {
-      "tag": "v7",
-      "new_sqlite_classes": ["OnRequestTestDO"]
-    },
-    {
-      "tag": "v8",
-      "new_sqlite_classes": ["RejectingDO"]
-    }
-  ],
+  "exports": {
+    "TestDO": { "type": "durable-object", "storage": "sqlite" },
+    "UsersDO": { "type": "durable-object", "storage": "sqlite" },
+    "NotificationsDO": { "type": "durable-object", "storage": "sqlite" },
+    "NadisPluginTestDO": { "type": "durable-object", "storage": "sqlite" },
+    "OnStartTestDO": { "type": "durable-object", "storage": "sqlite" },
+    "OnStartErrorDO": { "type": "durable-object", "storage": "sqlite" },
+    "EchoDO": { "type": "durable-object", "storage": "sqlite" },
+    "AlarmTestDO": { "type": "durable-object", "storage": "sqlite" },
+    "TaskSchedulerDO": { "type": "durable-object", "storage": "sqlite" },
+    "OnRequestTestDO": { "type": "durable-object", "storage": "sqlite" },
+    "RejectingDO": { "type": "durable-object", "storage": "sqlite" }
+  },
   "ratelimits": [
     {
       "name": "LUMENIZE_AUTH_RATE_LIMITER",
