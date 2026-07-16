@@ -23,6 +23,7 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `client.resources.subscribe(rt, rid)` | implemented-in-spike | [resources.subscribe](#resourcessubscribe) |
 | `client.resources.createAndSubscribe(rt, rid, nodeId, value)` | new-in-v3 | [resources.createAndSubscribe](#resourcescreateandsubscribe) |
 | `client.resources.unsubscribe(rt, rid)` | implemented-in-spike | [resources.unsubscribe](#resourcesunsubscribe) |
+| `client.resources.subscribeQuery(query, options?)` | new-in-v3 | [resources.subscribeQuery](#resourcessubscribequery) |
 | `client.resources.read(rt, rid, options?)` | implemented-in-spike | [resources.read](#resourcesread) |
 | `client.resources.transaction(ops, options?)` | implemented-in-spike (single-resource happy path); new-in-v3 (per-resource outcomes, infrastructure-error, multi-resource) | [resources.transaction](#resourcestransaction) |
 | `client.resources.onTransactionResourceResolution(rt, handler, options?)` | new-in-v3 (replaces shipped `onETagConflict`) | [resources.onTransactionResourceResolution](#resourcesontransactionresourceresolution) |
@@ -34,6 +35,10 @@ Each surface below carries one tag describing its provenance. The tags captured 
 | `ROOT_NODE_ID` (sentinel UUID) constant | new-in-v3 | [OrgTreeState](#orgtreestate) |
 | Reserved state paths (`store.resources.*`, `store.lmz.*`) | implemented-in-spike | [Reserved state paths](#reserved-state-paths) |
 | `store.lmz.connection.{state, connected, lastConnectedAt}` | implemented-in-spike | [lmz.connection](#lmzconnection) |
+| `client.subscribeProfile(id)` (+ auto-subscribe on read) | new-in-v3 | [subscribeProfile](#subscribeprofile) |
+| `store.lmz.profiles[profileId].value.{name, nickname, picture}` | new-in-v3 | [store.lmz.profiles](#lmzprofiles) |
+| `client.subscribeQuerySubscribers(query)` (+ auto-subscribe on read) | new-in-v3 | [subscribeQuerySubscribers](#subscribequerysubscribers) |
+| `store.lmz.querySubscribers.<typeName>.<field>[value]` (live roster) | new-in-v3 | [store.lmz.querySubscribers](#lmzquerysubscribers) |
 | `textMerge(server, local, base)` helper | new-in-v3 | [textMerge](#textmerge) |
 | Handler `context.bindings` arg | deferred-post-5.3.7 | [Handler bindings](#handler-bindings) |
 | `TransactionOutcome` discriminated union (top-level, what `transaction()` resolves with) | implemented-in-spike (`'committed'` shape only); new-in-v3 (kinds `'committed'` / `'rejected'` / `'timeout'` / `'infrastructure-error'` / `'ontology-stale'`, `retryable` flag on failures) | [TransactionOutcome](#transactionoutcome) |
@@ -76,7 +81,7 @@ Wraps a `NebulaClient` with a Vue-reactive store and a middleware chain. The fac
 | Field | Type | Description |
 | --- | --- | --- |
 | `client` | `NebulaClient` | Lower-level API. Use for explicit subscriptions, reads, transactions, resolver registration. |
-| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz.connection`, and empty `ui` / `app` objects. |
+| `store` | `Record<string, any>` | Vue-reactive Proxy. Reads inside a component's `setup()` auto-subscribe to the resources they touch (refcounted, grace-period-aware). Writes under `store.resources.<rt>.<rid>.value.*` flow through the synced-state middleware → optimistic apply + debounced transaction submission. Seeded with `resources`, `lmz` (`connection`, `orgTree`, `profiles`, `querySubscribers`), and empty `ui` / `app` objects. |
 | `ready` | `Promise<void>` | **Resolves** after the first successful connection — the initial token refresh has completed and `client.claims` is populated. Studio's bootstrap top-level-awaits it, so components in Studio-generated apps always render with claims present (see [client.claims](#clientclaims)). **Rejects** with a `LoginRequiredError` (mesh's existing terminal-auth signal, also delivered via the `onLoginRequired` hook — there is no separate `AuthRequiredError`) on *terminal* auth failure (no valid session — e.g. the refresh endpoint returns 401 for a logged-out visitor); the bootstrap catches it and redirects to the login / auth-discovery flow. It stays **pending** through *transient* failures (network blips, server restarts), which the client retries with backoff — so a flaky connection shows a loading state, not an error. The distinction matters: without it, a logged-out visitor's `ready` would hang forever and the top-level `await` would leave a blank page. |
 | `use(middleware)` | `(mw: Middleware) => () => void` | Register an additional middleware. Returns a deregistration function. Synced-state middleware is always-on; user-supplied middleware layers on top. |
 | `dispose()` | `() => void` | Same as [`client.dispose()`](#clientdispose): flush pending debounced writes, clear refcount + pending-unsubscribe timers, dispose internal scopes, and disconnect the underlying `LumenizeClient` WebSocket. |
@@ -207,6 +212,47 @@ Unsubscribe from a resource. Fire-and-forget. Server drops the subscriber row.
 **Equivalent to calling `[Symbol.dispose]()` on the matching [`ResourceSubscription`](#resourcessubscribe) handle.** Use this standalone form when the subscribe and unsubscribe sites legitimately differ (a parent component subscribes; an unrelated event handler later unsubscribes). When subscribe and unsubscribe live in the same scope, prefer `using` — see [`subscribe`](#resourcessubscribe) for the idiomatic form.
 
 Auto-subscribe handles the common case (component unmount → grace period → unsubscribe). Call explicitly only when you subscribed explicitly.
+
+## `client.resources.subscribeQuery` {#resourcessubscribequery}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeQuery(query: QueryDescriptor, options?: { renderGraceMs?: number }): QuerySubscription;
+```
+
+Subscribe to a **live query** — the ordered set of resource ids matching a relationship query, kept current as resources are created / deleted / re-parented. Fire-and-forget (the client computes the query's canonical hash locally and correlates pushes by it — ADR-003), so the initial membership arrives asynchronously: `await handle.ready`. Membership is REPLACED on every push (idempotent, self-healing — no delta merge).
+
+v1 supports exactly one query shape — equality on a single to-one relationship field:
+
+```typescript @skip-check
+interface QueryDescriptor {
+  queryType: 'parentChild';   // the only v1 queryType
+  typeName: string;           // the CHILD type being matched, e.g. 'Message'
+  field: string;              // its to-one relationship field, e.g. 'session'
+  value: string;              // the parent id that `field` must equal
+  onPartial?: 'error' | 'allow';  // per-push shape for a subscriber with denied nodes (default 'allow')
+  orderBy?: 'validFrom';          // v1 only (default)
+}
+```
+
+The handle is a `using`-compatible `QuerySubscription`:
+
+```typescript @skip-check
+interface QuerySubscription extends Disposable {
+  readonly ready: Promise<void>;          // resolves on the first push; rejects if the query is rejected
+  readonly resourceIds: string[];         // current ordered membership — the ids you may read
+  readonly deniedNodes: string[];         // node ids you can't reach (drives request-access UI)
+  setRenderWindow(resourceIds: string[]): void;  // open content subs for exactly these ids
+  onChange(cb: () => void): void;          // fired on every membership / denied change
+}
+```
+
+**The query delivers ids, not content.** `resourceIds` is the ordered membership; read each resource's value the normal way (`store.resources.<typeName>[id].value.*`), which auto-subscribes it. For large results, call `setRenderWindow(ids)` with just the ids you're actually rendering (e.g. the 25 visible rows of a virtual list) — the factory opens per-resource content subscriptions for exactly those and releases ids that scroll out of view after a grace period. Content subs are refcounted and shared with direct [`subscribe`](#resourcessubscribe).
+
+`deniedNodes` lists nodes the subscriber can't reach; surface a "request access" affordance (climb the org tree to the nearest admin — see [`OrgTreeState`](#orgtreestate)). `[Symbol.dispose]()` is per-handle (refcounted); the server-side `unsubscribeQuery` fires when the last handle releases.
+
+To watch **who is subscribed** to a query (its live roster) rather than its data, see [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
 
 ## `client.resources.read` {#resourcesread}
 
@@ -523,6 +569,38 @@ interface OrgTreeState {
 
 `ROOT_NODE_ID` (a reserved sentinel UUID, the root node every Star is provisioned with) is also exported from `@lumenize/nebula/frontend` — the bootstrap and admin-gating examples in Coding your UI import it.
 
+## `client.subscribeProfile` {#subscribeprofile}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeProfile(profileId: string): ResourceSubscription;
+```
+
+Subscribe to a person's **public profile** (`name` / `nickname` / `picture`) by their `profileId` — a global, cross-Star identity handle, delivered on a dedicated channel to [`store.lmz.profiles[profileId]`](#lmzprofiles). Returns the same `using`-compatible [`ResourceSubscription`](#resourcessubscribe) handle as `resources.subscribe` (`.snapshot` resolves with the first snapshot; `[Symbol.dispose]()` releases on the last handle).
+
+You rarely call this directly — **reading `store.lmz.profiles[profileId].value` inside a component auto-subscribes it** (refcounted, grace-period-aware, windowed), exactly like reading a resource. The common pattern is resolving display identity for ids you already hold (the current user's own `client.claims.profileId` for the app chrome, or each `profileId` in a roster).
+
+Profiles are read-only through the store; the owner edits their own profile via a separate write path. A profile is a **shape**, not a resource — it lives under `store.lmz.*` (never `store.resources.*`), so a dev-user ontology type named `Profile` does **not** collide with it.
+
+## `client.subscribeQuerySubscribers` {#subscribequerysubscribers}
+
+**Tag**: `new-in-v3`
+
+```typescript @skip-check
+subscribeQuerySubscribers(query: QueryDescriptor): SubscriberListSubscription;
+```
+
+Subscribe to a query's **live subscriber-list roster** — the distinct-by-person set of everyone currently subscribed to that query's data — WITHOUT subscribing to the data itself. "Who's here / who's online" for a shared view. The roster is delivered to [`store.lmz.querySubscribers.<typeName>.<field>[value]`](#lmzquerysubscribers) as a reactive array of `{ sub, profileId }`, kept current as people join and leave.
+
+```typescript @skip-check
+interface SubscriberListSubscription extends Disposable {
+  readonly ready: Promise<void>;  // resolves on the first roster push; rejects if the query is rejected
+}
+```
+
+As with the other surfaces, you rarely call this directly — **reading the query-in-path `store.lmz.querySubscribers.<typeName>.<field>[value]` auto-subscribes the roster** (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)). Resolve each entry's `profileId` to a display name/avatar by reading [`store.lmz.profiles[profileId]`](#lmzprofiles) — window it (subscribe only the profiles for rendered rows) exactly as you window a large query. The roster is advisory/display-only (reachability-gated, uniform — it carries no permission data).
+
 ## Reserved state paths
 
 **Tag**: `implemented-in-spike`
@@ -530,7 +608,7 @@ interface OrgTreeState {
 Two top-level prefixes on the store are framework-reserved — but "reserved" doesn't mean read-only. `store.resources.<rt>.<rid>.value.*` is the **primary write surface**: `v-model` and assignments there flow through the synced-state middleware → optimistic apply + transaction (see the `set`-trap note below). What's restricted is narrower: `meta.*` is server-owned (writes pass through but are warned in debug builds), and `store.lmz.*` is framework-written only (user writes dropped) — this prefix holds `store.lmz.connection.*` (connection state) and `store.lmz.orgTree` (the org/permission tree, delivered on its own channel and mutated via [`client.orgTree.*`](#clientorgtree), never by writing the store). For when to read off `store` vs when to call methods on `client`, see [Coding your UI § `store` vs `client`](./coding-your-ui.md#store-vs-client--what-goes-where).
 
 - **`store.resources.*`** — Synced resource snapshots, written by the framework on every server push. `store.resources.{type}.{id}.value` holds the resource value; `store.resources.{type}.{id}.meta` holds the eTag, change metadata, etc.
-- **`store.lmz.*`** — Other framework-owned state. Today: `store.lmz.connection.*` (see [below](#lmzconnection)) and `store.lmz.orgTree` (the org/permission tree — see [OrgTreeState](#orgtreestate)). Future framework-meta paths land under this prefix too.
+- **`store.lmz.*`** — Other framework-owned state, each on its own dedicated channel: `store.lmz.connection.*` (connection state — see [below](#lmzconnection)), `store.lmz.orgTree` (the org/permission tree — see [OrgTreeState](#orgtreestate)), `store.lmz.profiles[profileId]` (public profiles — see [store.lmz.profiles](#lmzprofiles)), and `store.lmz.querySubscribers.<typeName>.<field>[value]` (a query's live subscriber-list roster — see [store.lmz.querySubscribers](#lmzquerysubscribers)). Future framework-meta paths land under this prefix too.
 
 Every other top-level segment is yours. Common conventions:
 
@@ -555,6 +633,44 @@ The factory mirrors the underlying `LumenizeClient` connection state to three re
 | `store.lmz.connection.lastConnectedAt` | `number \| undefined` | Set on each `'connected'` transition (`Date.now()`). Unset before first connect. |
 
 The factory writes to these paths on every transition; user code never registers a connection-state listener. The initial seed values are intentional so first-paint reads never return `undefined`.
+
+## `store.lmz.profiles` {#lmzprofiles}
+
+**Tag**: `new-in-v3`
+
+Public profiles keyed by `profileId`, delivered on a dedicated channel (never `store.resources.*`). **Reading a path auto-subscribes** the profile (refcounted, grace-period-aware, windowed) — the same auto-subscribe as resources.
+
+| Path | Type | Notes |
+| --- | --- | --- |
+| `store.lmz.profiles[profileId].value.name` | `string \| undefined` | Full name (OIDC). |
+| `store.lmz.profiles[profileId].value.nickname` | `string \| undefined` | Display / casual name. |
+| `store.lmz.profiles[profileId].value.picture` | `string \| undefined` | Avatar image URL. |
+| `store.lmz.profiles[profileId].meta.eTag` | `string` | Forward-only version of the profile. |
+
+Read-only through the store. Resolve `profileId`s you already hold — `client.claims.profileId` for the current user, or the ids in a roster. See [`client.subscribeProfile`](#subscribeprofile).
+
+## `store.lmz.querySubscribers` {#lmzquerysubscribers}
+
+**Tag**: `new-in-v3`
+
+The live subscriber-list roster of a query, delivered on a dedicated channel. **Reading the query-in-path auto-subscribes** the roster (the path segments *are* the [`QueryDescriptor`](#resourcessubscribequery)).
+
+| Path | Type | Notes |
+| --- | --- | --- |
+| `store.lmz.querySubscribers.<typeName>.<field>[value]` | `{ sub: string; profileId?: string }[]` | Distinct-by-person roster of everyone subscribed to that query's data, kept live. `v-for`-ready. |
+
+Advisory / display-only (carries no permission data). Resolve each entry's `profileId` via [`store.lmz.profiles`](#lmzprofiles), windowed to rendered rows. See [`client.subscribeQuerySubscribers`](#subscribequerysubscribers).
+
+Example — a "who's here" roster for a chat session, with each person's avatar + name:
+
+```vue @skip-check
+<template>
+  <li v-for="{ sub, profileId } in store.lmz.querySubscribers.Message.session[sessionId].slice(0, 25)" :key="sub">
+    <img :src="store.lmz.profiles[profileId].value.picture" />
+    <span>{{ store.lmz.profiles[profileId].value.name }}</span>
+  </li>
+</template>
+```
 
 ## `client.claims` {#clientclaims}
 
