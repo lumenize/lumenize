@@ -11,7 +11,7 @@ The monorepo has distinct layers of Worker/DO code, and **which conventions appl
 ## Derive your layer (per file — this is the authority)
 Look at the file you're editing:
 
-1. **Defines a DO?** `class X extends LumenizeDO` → **Mesh layer**; `class X extends DurableObject` → **raw-DO layer**. (Holds for test-fixture DOs too — a DO in `test/**` follows the same rules as one in `src/`.) Apply [durable-objects.md](durable-objects.md) **plus** the matching comm file ([mesh.md](mesh.md) or [raw-comm.md](raw-comm.md)).
+1. **Defines a DO?** `class X extends LumenizeDO` → **Mesh layer**; `class X extends DurableObject` → **raw-DO layer**. (Holds for test-fixture DOs too — a DO in `test/**` follows the same rules as one in `src/`.) Apply [durable-objects.md](durable-objects.md) **plus** the matching comm file ([mesh.md](mesh.md) or [raw-comm.md](raw-comm.md)). **A DO that drives an attached Container** does so via **raw `ctx.container`** — you do *not* `extends Container` (that base is optional and being retired; a plain `LumenizeDO`/`NebulaDO` + raw `ctx.container` is the path, and it restores pool-workers testability). It stays **Mesh layer**, and *additionally* apply [containers.md](containers.md) for the container lifecycle/state-machine concerns the plain-DO rules don't cover.
 2. **Uses `this.lmz` / `this.svc` but defines no DO?** (a Mesh service/library, e.g. `fetch`) → **Mesh layer**: [mesh.md](mesh.md).
 3. **Drives DOs without defining one?** (a harness that wraps user DOs, e.g. `@lumenize/testing`) → follow the comm file for *how* it talks; raw DO RPC → [raw-comm.md](raw-comm.md).
 4. **None of the above?** → utility / Worker code; none of the three DO files apply.
@@ -36,8 +36,8 @@ Convenience only, not authoritative, and may lag the code:
 
 | Package | Layer |
 |---|---|
-| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) |
-| `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals (the Gateway) |
+| `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) — Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
+| `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals (the Gateway). Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
 | `fetch` | Mesh library — uses `this.lmz`, defines no DO |
 | `auth`, `nebula-auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
 | `testing` | DO-driving tooling — wraps user DOs, defines none in `src` (`raw-comm.md` applies) |

@@ -22,8 +22,8 @@ what the tests run. The script, in order:
 
 1. **Computes the git SHA + dirty flag** first (before any build step touches the tree).
 2. **Preflights** (refuses before building):
-   - migrations / DO-class consistency (`scripts/audit-migrations.mjs`) — the DO-class registry is
-     a one-way door once deployed.
+   - DO-class registry consistency (`scripts/audit-migrations.mjs` — named for history; it reads the
+     declarative `exports` map) — the DO-class registry is a one-way door once deployed.
    - the super-admin bootstrap secret (`NEBULA_AUTH_BOOTSTRAP_EMAIL`) is set (name-only check;
      never echoes a value).
 3. **Builds the Studio SPA** (`vite build` → `apps/nebula-studio-ui/dist`) so the Workers-Assets

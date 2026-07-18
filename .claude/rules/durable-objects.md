@@ -16,6 +16,21 @@ Always synchronous, never the legacy async API (`await ctx.storage.put/get`).
 - **`ctx.storage.sql.exec()` directly** — a recommended first-class choice (not a fallback) when you need streaming/cursors (process rows without loading all into memory), large result sets (`LIMIT`/`OFFSET` pagination), metadata (`rowsRead`, `rowsWritten`), or raw mode (arrays instead of repeated-column-name objects).
 - **`ctx.storage.kv.*`** — counters, flags, single-entity lookups, config state.
 
+## Persist before `ctx.abort()` — yield a macrotask first
+A storage write immediately before `ctx.abort()` is **silently dropped**. Verified on deployed CF:
+
+```typescript
+ctx.storage.kv.put(k, v); ctx.abort();                                  // ❌ LOST
+await ctx.storage.put(k, v); ctx.abort();                               // ❌ LOST — the async API is not a fix
+ctx.storage.kv.put(k, v); await Promise.resolve(); ctx.abort();         // ❌ LOST — a microtask is not enough
+ctx.storage.kv.put(k, v); await new Promise(r => setTimeout(r, 0)); ctx.abort();  // ✅ SURVIVES — macrotask
+```
+
+(Sync `kv` and async `storage` share one keyspace, which is why swapping APIs changes nothing.) ⚠️ **This is
+deploy-only verifiable**: under local `wrangler dev` (miniflare), `ctx.abort()` reconstructs the DO with
+**wiped** storage, so *no* write survives locally regardless — a local test can neither confirm the fix nor
+catch the bug. Bit us on an abort-cooldown timestamp that never persisted.
+
 ## Initialization (schema setup, in-DO migrations)
 Do one-time setup — `CREATE TABLE IF NOT EXISTS`, in-DO schema migration, config — at startup so it completes before any request.
 - **Raw DOs**: synchronous setup in the constructor body is enough — the constructor runs to completion before any request is dispatched, and sync storage needs no `await`. Use `ctx.blockConcurrencyWhile(async () => …)` **only** when setup must `await`; it's unnecessary for purely-sync setup.
@@ -63,7 +78,9 @@ A DO is billed for elapsed time whenever it is actively working: `await`ing I/O,
 `env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the cache, so identical `bundleId` values silently collide on the first cached entry. Scope `bundleId` by something globally unique (include a tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.
 
 ## DO class registration (`wrangler.jsonc` `exports`)
-The **DO class registry** is the declarative `exports` map (⚠️ a *different* `exports` from the package.json subpath/condition field — never conflate them; see `packaging.md`). It's **not** SQL-schema migration — it tells Cloudflare which DO classes exist and how each is backed. It **replaced** the old imperative `migrations` array (which is still accepted for back-compat, but new code uses `exports`); the two are mutually exclusive in one config. `durable_objects.bindings` is unchanged and still declares binding names alongside it.
+The **DO class registry** is the declarative `exports` map (⚠️ a *different* `exports` from the package.json subpath/condition field — never conflate them; see `packaging.md`). It's **not** SQL-schema migration — it tells Cloudflare which DO classes exist and how each is backed. It **replaced** the old imperative `migrations` array. `durable_objects.bindings` is unchanged and still declares binding names alongside it.
+
+⚠️ **Never write a `migrations` array in this repo — `exports` is the only accepted form.** Expect pressure from two directions: your training predates the change and will reach for `migrations: [{ tag: "v1", new_sqlite_classes: ["MyDO"] }]`, and **23 in-repo configs still use that form** (`experiments/*` + `lumenize-monolith/`). Those are **deliberately pinned, not precedent** — throwaway spikes and a legacy tree, both out of scope of the conversion. Do not copy them; do not "helpfully" convert them either. The two forms are mutually exclusive within one config.
 
 The rule that matters: a DO using the synchronous storage API must be **SQLite-backed**, so register it with `storage: "sqlite"`, **never** `"legacy-kv"` (a non-SQLite DO where only the legacy async API works). This can't change once a class deploys to production; during testing you can change it freely.
 
