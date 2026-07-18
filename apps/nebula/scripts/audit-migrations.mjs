@@ -235,12 +235,12 @@ if (globalThis.process?.argv?.[1]?.endsWith('audit-migrations.mjs')) {
     });
     if (ok) {
       console.log(
-        `✅ migrations audit clean — ${EXPECTED_DO_CLASS_COUNT} DO classes consistent across ` +
-          `durable_objects.bindings, migrations.new_sqlite_classes, and src/worker.ts re-exports.`,
+        `✅ DO-registry audit clean — ${EXPECTED_DO_CLASS_COUNT} DO classes consistent across ` +
+          `durable_objects.bindings, the wrangler \`exports\` map, and src/worker.ts re-exports.`,
       );
       process.exit(0);
     }
-    console.error('❌ migrations audit FAILED (the prod DO-class registry is a one-way door — do not deploy):');
+    console.error('❌ DO-registry audit FAILED (the prod DO-class registry is a one-way door — do not deploy):');
     for (const e of errors) console.error(`   • ${e}`);
     process.exit(1);
   })();
