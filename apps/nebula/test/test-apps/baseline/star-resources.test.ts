@@ -342,7 +342,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      // Default debounceMs is 1 hour — all writes within this test are within the window
+      // Default coalesceWindowMs is 1 hour — all writes within this test are within the window
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -370,13 +370,13 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('debounceMs: 0 creates new snapshot on every update', async () => {
+    it('coalesceWindowMs: 0 creates new snapshot on every update', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      // Set debounceMs to 0
-      client.callStarSetConfig(star, 'debounceMs', 0);
+      // Set coalesceWindowMs to 0
+      client.callStarSetConfig(star, 'coalesceWindowMs', 0);
       await waitForSuccess(client);
 
       // Create
@@ -461,13 +461,13 @@ describe('star-resources', () => {
 
   describe('temporal storage', () => {
 
-    it('validTo of previous snapshot equals validFrom of new snapshot (debounceMs: 0)', async () => {
+    it('validTo of previous snapshot equals validFrom of new snapshot (coalesceWindowMs: 0)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      // Set debounceMs to 0 for full audit trail
-      client.callStarSetConfig(star, 'debounceMs', 0);
+      // Set coalesceWindowMs to 0 for full audit trail
+      client.callStarSetConfig(star, 'coalesceWindowMs', 0);
       await waitForSuccess(client);
 
       // Create then update twice

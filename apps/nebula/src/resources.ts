@@ -104,7 +104,7 @@ export class Resources {
   #bootstrapConfig() {
     const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     let dirty = false;
-    if (!('debounceMs' in config)) { config.debounceMs = 3_600_000; dirty = true; }
+    if (!('coalesceWindowMs' in config)) { config.coalesceWindowMs = 3_600_000; dirty = true; }
     if (dirty) this.#ctx.storage.kv.put('config', config);
   }
 
@@ -178,7 +178,7 @@ export class Resources {
     ontologyVersion: string,
   ): void {
     const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
-    const debounceMs = (config.debounceMs as number) ?? 3_600_000;
+    const coalesceWindowMs = (config.coalesceWindowMs as number) ?? 3_600_000;
 
     // Determine new values based on op type
     let nodeId: string;
@@ -211,9 +211,9 @@ export class Resources {
 
     const changedByJson = JSON.stringify(changedBy);
 
-    // Debounce check: same actor within window overwrites in place
+    // Coalesce check: same actor within window overwrites in place
     if (current && op.op !== 'create') {
-      const withinWindow = Date.now() - new Date(current.meta.validFrom).getTime() < debounceMs;
+      const withinWindow = Date.now() - new Date(current.meta.validFrom).getTime() < coalesceWindowMs;
       const sameActor = JSON.stringify(current.meta.changedBy) === changedByJson;
 
       if (withinWindow && sameActor) {
