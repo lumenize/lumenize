@@ -1,0 +1,14 @@
+{
+  "name": "container-cold-start-probe",
+  "private": true,
+  "version": "0.0.0",
+  "//": "Throwaway DEPLOYED probe: real CF-side timings for the Nebula build-box sequence (cold container start → restore source → npm install → vite build → return dist). Local Docker cannot see CF instance acquisition; this can. Tear down with `npm run teardown` — `wrangler delete` alone leaves the container app running against the account quota.",
+  "scripts": {
+    "types": "wrangler types",
+    "deploy": "wrangler deploy",
+    "teardown": "wrangler delete --name container-cold-start-probe && wrangler containers delete container-cold-start-probe"
+  },
+  "devDependencies": {
+    "wrangler": "^4.111.0"
+  }
+}

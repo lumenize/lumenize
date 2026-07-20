@@ -5,6 +5,14 @@ Docker Desktop, `node:22-slim`, **arm64** (Apple silicon), `--cpus=0.5` (≈ the
 so ~1 s of container start is excluded — this is why absolute numbers differ from the older
 `container-dep-install-bench`, which timed the whole `docker run`.
 
+> ⚠️ **SUPERSEDED FOR ABSOLUTE NUMBERS (2026-07-20, same day).** Everything below is **local Docker on
+> Apple silicon** and proved **3–5× optimistic** against real Cloudflare. A deployed probe
+> ([container-cold-start-probe](../container-cold-start-probe/RESULTS.md)) measured the same sequence at
+> **8–10 s baked / 11–33 s with a user dep**, where this file predicts 2.1 s / 7.9 s. The *relative*
+> findings here still hold (restore mechanisms all tie baked; tar.zst beats squashfs; a read-only
+> `node_modules` cannot build) — but **do not budget from the absolutes on this page**, and note the
+> superlinear CPU-scaling result in particular did **not** reproduce on CF.
+
 **Bottom line: the whole snapshot/restore question is competing for a ~1 s prize against a 6 s build.
 Adding a user dep on top of the baked tree costs 1–4 s, and no restore mechanism beats baked-into-the-image
 by more than ~1 s. The real blocker for user-supplied deps is container egress, not speed — and no

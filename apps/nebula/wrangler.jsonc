@@ -67,15 +67,35 @@
     { "binding": "REFRESH_TOKEN_KV", "id": "REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4" }
   ],
   // DevContainer runs the dev-loop vite preview (5173 public) + command-server
-  // (9000, host-DO-only). standard-1 (½ vCPU) clears the `vite build` starvation
-  // bar (Phase-3 sizing). Image is baked (deps + framework skeleton) → 0 npm
+  // (9000, host-DO-only). Image is baked (deps + framework skeleton) → 0 npm
   // install on cold boot. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).
+  //
+  // instance_type = standard-2 (1 vCPU / 6 GiB). ⚠️ Do NOT drop back to standard-1
+  // (½ vCPU): the old "standard-1 clears the `vite build` starvation bar" sizing held
+  // only for the trivial seed App.vue.
+  //
+  // Measured ON REAL CF 2026-07-20 (experiments/container-cold-start-probe — trust these
+  // over the LOCAL-Docker figures in container-dep-restore-bench, which proved 3–5×
+  // optimistic). Building a small app with one charting lib, holding colo constant:
+  // standard-1 ≈ 21–26 s vs standard-4 ≈ 7.7–8.7 s — roughly 2.7× for sizing up. Cost
+  // partly follows: CF bills per vCPU-second while RUNNING, so a shorter build claws
+  // back much of the higher rate.
+  //
+  // ⚠️ But sizing is NOT the dominant term, and standard-2 is a hedge, not an optimum:
+  //   - COLO dominates. Containers do NOT run where the caller enters (entry was IAD on
+  //     every probe run; containers landed in MIA/EWR/CMH/YYZ). One colo (EWR) built in
+  //     ~28 s at BOTH standard-1 and standard-4 — sizing bought nothing there. Picking
+  //     DO ids/names cannot buy local placement.
+  //   - The evidence is n=3–5 per cell with colo uncontrolled; the sizing result rests on
+  //     3 colo-matched pairs. Directionally sound, not powered. standard-4 may well be
+  //     better; resolving it needs many samples per (instance_type × colo) cell.
+  // Revisit with a powered experiment before spending more here.
   "containers": [
     {
       "max_instances": 10,
       "class_name": "DevContainer",
       "image": "./container/Dockerfile",
-      "instance_type": "standard-1"
+      "instance_type": "standard-2"
     }
   ],
   // Serve the Studio SPA from Workers Assets (declarative routing — no Worker code).
