@@ -1,0 +1,5 @@
+# The "fresh container that has NO deps yet" starting point: the app source and the
+# archiver/mounter tooling, but node_modules deliberately absent. Every restore
+# method below has to get a working node_modules into /app before `vite build` runs.
+FROM depbench-tools
+RUN rm -rf /app/node_modules

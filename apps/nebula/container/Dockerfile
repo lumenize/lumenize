@@ -42,8 +42,16 @@ RUN if [ -f /ccr/ccr-ca.crt ]; then \
 # vs. source). This is the curated dependency surface — "remove a lib" = stop
 # importing it (vite tree-shakes); pulling a NON-baked package is the only thing
 # that would need runtime egress (deferred; deps are fully baked for the demo).
+# `npm cache clean --force` is NOT cosmetic: the install leaves a ~179 MB cache behind
+# and it ships in this layer (which measured 306 MB uncompressed — 111 MB node_modules
+# + the cache). Measured A/B on THIS image: 173 MB → 130 MB (−25%), and CF cold start
+# is image-dependent (containers.md § Cost/sizing). The cache
+# is dead weight HERE specifically because nothing installs at runtime: it can only
+# speed up re-installing packages already in it, which the baked design never does, and
+# a user-supplied dep would not be in it anyway. Measured in
+# experiments/container-dep-restore-bench.
 COPY app/package.json app/package-lock.json* ./
-RUN npm install
+RUN npm install && npm cache clean --force
 
 # Framework skeleton (baked) + the command-server. The per-app source (App.vue,
 # components, ontology.d.ts) is pushed by DevStudio at runtime via applyChanges.

@@ -1,0 +1,7 @@
+# Tooling image: the baked tree plus the archivers/mounters under test.
+# squashfs-tools = mksquashfs/unsquashfs; squashfuse = the FUSE mounter CF's
+# restoreBackup() uses; zstd = the fast-decompress tar alternative.
+FROM depbench-baked
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      squashfs-tools squashfuse zstd fuse3 \
+  && rm -rf /var/lib/apt/lists/*
