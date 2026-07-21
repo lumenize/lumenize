@@ -91,6 +91,17 @@ If you need a count for scoping ("this is small, ~5 files"), include it as comme
 
 > "Migrate all files matching `grep -l 'X' test/` (\~5 files at time of writing)."
 
+### Anchor code citations on symbol + quoted fragment, NOT line numbers
+
+Same failure mode as counts, one level down. A `file.ts:734` reference into source **rots before `/build-task` runs** — and worse than a stale count, a wrong line number can point at *different, plausible* code, turning a "pin this, don't delete it" instruction into a booby trap. (Bit 2026-07-21: a 🚨 safety pin read `registry:735-737`; a sweep commit **in the same session** shifted the real target to `:742-745`, and `:735-737` had become the tail of an unrelated SQL query. A cold implementer would pin the decoy and delete the guard the pin existed to protect — the exact catastrophic regression it warned against. The drift was **not uniform** — `+8`, `+10`, `+3`, `+1`, and two *exact* — so there is no mechanical "add N" fix either.)
+
+The trap is sharpest in the common case where **the task file instructs edits to the very files it cites** — your own edits (and any companion sweep) invalidate the numbers you wrote. So:
+
+- ✅ "the `if (blockedBy.length > 0)` early return in `#computeDeletionPlan` — immediately after the `#otherUsers(down, …)` call, before the prune-up loop"
+- ❌ "the early return at `registry:735-737`"
+
+Anchor on the **symbol + a quoted code fragment** (a predicate, a throw, a distinctive string). A line number is fine as *trailing commentary* on a self-verifying anchor (`` `#computeDeletionPlan` (~:742) ``), never as the sole locator — and never for the one instruction whose mis-resolution is dangerous.
+
 ### Multi-version (vN) phases: pinned decisions OR an explicit exploratory tag
 
 A phase carries one of two kinds of spec, and it should be obvious which:
