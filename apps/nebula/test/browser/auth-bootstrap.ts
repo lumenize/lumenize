@@ -37,11 +37,18 @@ interface BootstrapAdminOptions {
  * can construct a `NebulaClient({ baseUrl, fetch: browser.fetch, ... })`
  * which will mint access JWTs via the real refresh-token flow.
  *
- * The first email registered at a NebulaAuth instance becomes that instance's
- * founder/admin (per #loginSubject). Combined with
- * `NEBULA_AUTH_BOOTSTRAP_EMAIL=test@lumenize.io` (set by globalSetup), the
- * resulting subject has admin permissions — sufficient for ontology
- * registration + transactions in the round-trip test.
+ * ⚠️ **STALE PREMISE — this no longer bootstraps anything on its own (2026-07-21).** It used to rely
+ * on "the first email registered at a NebulaAuth instance becomes that instance's founder/admin",
+ * but that founder-minting-on-login path was DELIBERATELY REMOVED: it was the stranger-claims-a-child
+ * escalation, and identity mint is now authority-point-only (Universe/Star claim + invite issuance) —
+ * `nebula-auth-registry.ts` says outright "NEVER call from a login path". So at a scope with no
+ * pre-existing identity, the magic link is minted and emailed fine and then REJECTED on consumption:
+ * `getAndVerifyIdentity` returns null → `302 /app?error=invalid_token`, no cookie.
+ *
+ * The replacement (open Star self-signup with a real founder) is designed and pinned but NOT BUILT —
+ * `tasks/nebula-star-founder-provisioning.md`. Until it lands, a local real login only works where an
+ * identity already exists. This is the same "expectedly red mid-turnover" state the baseline test-app
+ * header notes. (8th site of the stale-signup-design family swept in `0c2989d`.)
  */
 export async function bootstrapAdmin(options: BootstrapAdminOptions): Promise<void> {
   const { browser, baseUrl, scope, email, testToken } = options;
