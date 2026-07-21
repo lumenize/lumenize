@@ -31,7 +31,7 @@ function devClient(scope: string, email = 'admin@example.com') {
 describe('child3 Phase 4 — client posts the user Message', () => {
   it('sender and a 2nd subscriber both see posted user Messages in send order; no streaming for a user message', async () => {
     const scope = uniqueDevScope();
-    const { client: sender } = await devClient(scope);
+    const { client: sender, payload: senderPayload } = await devClient(scope);
     const { client: observer } = await devClient(scope); // distinct participant (same admin email, different client)
 
     using ss = sender.resources.subscribeQuery(sessionQuery); await ss.ready;
@@ -54,7 +54,11 @@ describe('child3 Phase 4 — client posts the user Message', () => {
     const v = snap.value as { role?: string; content?: string; author?: string };
     expect(v.role).toBe('user');
     expect(v.content).toBe('hello from sender');
-    expect(v.author).toBe('admin@example.com');           // sender's email (display-only)
+    // `author` is `claims.sub` (nebula-client.ts `postUserMessage`), and since the surrogate-`sub`
+    // change that is a random opaque id, NOT the email. Assert against the sender's actual `sub`
+    // rather than a literal — a hardcoded email here only ever passed under the pre-surrogate model.
+    expect(v.author).toBe(senderPayload.sub);             // sender's sub (display-only)
+    expect(v.author).not.toContain('@');                  // guard: never re-anchor this on an email
     expect(snap.meta.nodeId).toBe(SESSION_NODE_ID);
 
     // D-human-no-stream: posting a user Message streams NOTHING (a single atomic create,

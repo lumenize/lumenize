@@ -36,6 +36,7 @@ import type { QueryDescriptor, SubscriberEntry } from './query-hash';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
+import { hasAdminOverScope } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
@@ -81,6 +82,11 @@ export class Star extends NebulaDO {
             this.ctn<Star>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => this.#onDagChanged(),
+      // Host name as a THUNK, never a captured value — this runs inside `onStart()`, where
+      // `this.lmz.instanceName` is not yet stamped, and `resetDevData` re-runs `onStart()` after a
+      // `deleteAll()` that wipes the identity key. It is the scope the `access.admin` bypass is
+      // confined to at both confinement points (requirePermission + the subscribe-time writers).
+      () => this.lmz.instanceName,
     )
     this.#treeSubscriptions = new TreeSubscriptions(this.ctx)
     this.#reloadSubscriptions = new ReloadSubscriptions(this.ctx)
@@ -118,7 +124,15 @@ export class Star extends NebulaDO {
     if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
     const auth = this.lmz.callContext.originAuth
     const claims = auth?.claims as NebulaJwtPayload | undefined
-    if (!claims?.access?.admin || !auth?.sub) return
+    // `hasAdminOverScope`, NOT a bare `access.admin`: this is the one site where the transient
+    // scope-admin bypass becomes a DURABLE DAG grant, so an admin of a child scope must never seed
+    // itself as root admin of an ancestor host. Behavior-preserving today by construction — the
+    // `super.onBeforeCall()` above has already admitted the caller, and on a star-tier leaf
+    // admission implies the predicate — so this is pre-positioning for the pending DataPlane lift
+    // (tasks/on-hold/nebula-dataplane-root-admin.md), which moves this seed onto hosts that are NOT
+    // leaves. Confining it here means that lift inherits the fix instead of re-opening the hole.
+    if (!auth?.sub || !this.lmz.instanceName) return
+    if (!hasAdminOverScope(claims?.access, this.lmz.instanceName)) return
     this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }

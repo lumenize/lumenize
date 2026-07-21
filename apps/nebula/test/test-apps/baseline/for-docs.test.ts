@@ -25,7 +25,7 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
-import { browserLogin, createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { browserLogin, foundAndLogin, createAuthenticatedClient, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -48,7 +48,7 @@ function makeFactoryClient(star: string, browser: Browser) {
   const ctx = browser.context(ORIGIN);
   return createNebulaClient({
     baseUrl: ORIGIN,
-    authScope: star,
+    authScope: universeOf(star),
     activeScope: star,
     appVersion: ONTOLOGY_VERSION,
     fetch: browser.fetch,
@@ -76,7 +76,7 @@ describe('for-docs runtime examples (real Star)', () => {
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();
-    await browserLogin(browser, star, 'founder@example.com', star);
+    await foundAndLogin(browser, star, 'founder@example.com', star);
     const bf = makeFactoryClient(star, browser);
     await bf.ready;
     // Alias to the names the doc snippets use.

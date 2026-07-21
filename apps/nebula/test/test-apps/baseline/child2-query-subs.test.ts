@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -182,10 +182,10 @@ describe('child2 query subscriptions (Phase 3)', () => {
 
     // A non-admin user granted read on pubNode only.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
     const { client: user, payload } =
-      await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
+      await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
     adminC.callStarSetPermission(star, pubNode, payload.sub, 'read');
     await waitForSuccess(adminC);
 
@@ -217,10 +217,10 @@ describe('child2 query subscriptions (Phase 3)', () => {
     });
 
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'nope@example.com');
     const { client: user } =
-      await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'nope@example.com');
+      await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'nope@example.com');
 
     user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await awaitQueryPush(user);

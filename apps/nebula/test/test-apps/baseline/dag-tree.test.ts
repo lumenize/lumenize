@@ -9,7 +9,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { DagTreeState } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // Helper: create a unique star scope per test to avoid cross-test interference
@@ -27,10 +27,10 @@ async function adminClient(star: string) {
 async function userClient(star: string, adminToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
   // Need a browser with the admin's cookies for createSubject
-  const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+  const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, userBrowser, star, star, email);
+  return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
 describe('dag-tree', () => {
@@ -254,11 +254,11 @@ describe('dag-tree', () => {
 
       // A non-admin writer, granted 'write' on P.
       const adminBrowser = new Browser();
-      const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const writerBrowser = new Browser();
       await createSubject(adminBrowser, star, accessToken, 'writer@example.com');
       const { client: writer, payload: writerPayload } =
-        await createAuthenticatedClient(NebulaClientTest, writerBrowser, star, star, 'writer@example.com');
+        await createInvitedClient(NebulaClientTest, writerBrowser, star, star, 'writer@example.com');
       admin.callStarSetPermission(star, parentId, writerPayload.sub, 'write');
       await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
 
@@ -980,10 +980,10 @@ describe('dag-tree', () => {
 
       // Create non-admin user
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'writer@example.com');
-      const { client: writer, payload: writerPayload } = await createAuthenticatedClient(
+      const { client: writer, payload: writerPayload } = await createInvitedClient(
         NebulaClientTest, userBrowser, star, star, 'writer@example.com',
       );
 
@@ -1012,10 +1012,10 @@ describe('dag-tree', () => {
 
       // Create non-admin user with write access
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'writer2@example.com');
-      const { client: writer, payload: writerPayload } = await createAuthenticatedClient(
+      const { client: writer, payload: writerPayload } = await createInvitedClient(
         NebulaClientTest, userBrowser, star, star, 'writer2@example.com',
       );
 
@@ -1048,10 +1048,10 @@ describe('dag-tree', () => {
       // Mallory: non-admin, admin on her own node, write (Approach-1
       // collaborator tier) on victim
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const malloryBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
-      const { client: mallory, payload: malloryPayload } = await createAuthenticatedClient(
+      const { client: mallory, payload: malloryPayload } = await createInvitedClient(
         NebulaClientTest, malloryBrowser, star, star, 'mallory@example.com',
       );
 
@@ -1099,10 +1099,10 @@ describe('dag-tree', () => {
       const childId = admin.lastResult as string;
 
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const malloryBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'mallory@example.com');
-      const { client: mallory, payload: malloryPayload } = await createAuthenticatedClient(
+      const { client: mallory, payload: malloryPayload } = await createInvitedClient(
         NebulaClientTest, malloryBrowser, star, star, 'mallory@example.com',
       );
 
@@ -1230,10 +1230,10 @@ describe('dag-tree', () => {
 
       // Create a user and delegate admin on team subtree
       const adminBrowser = new Browser();
-      const { accessToken: adminToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+      const { accessToken: adminToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
       const userBrowser = new Browser();
       await createSubject(adminBrowser, star, adminToken, 'lead@example.com');
-      const { client: lead, payload: leadPayload } = await createAuthenticatedClient(
+      const { client: lead, payload: leadPayload } = await createInvitedClient(
         NebulaClientTest, userBrowser, star, star, 'lead@example.com',
       );
 
@@ -1270,24 +1270,34 @@ describe('dag-tree', () => {
   // ─── Universe Admin Cross-Access ──────────────────────────────────
 
   describe('universe admin (wildcard JWT) has full DAG access', () => {
+    // ⚠️ ONE founder per universe — `claim-universe` is the only founder-minting path and the slug is
+    // unique, so the old fixture's separate `star-admin@` + `universe-admin@` identities are
+    // unmintable (an invite mints `isAdmin: false`, so there is no "star-level admin" tier either).
+    // Both clients are therefore the same founder; the property under test is unchanged and is now
+    // exercised more precisely, because the second client holds aud = the UNIVERSE while acting on a
+    // STAR DO — admission via the *reach* branch (pattern covers the callee), which is what
+    // "universe admin has full DAG access to a descendant Star" actually means.
     it('universe admin bypasses all DAG checks via the scope-admin claim', async () => {
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // Bootstrap at star level first to create the Star DO
+      // Founder at the star aud — creates the Star DO and seeds root admin.
       const starBrowser = new Browser();
       const { client: starAdmin } = await createAuthenticatedClient(
-        NebulaClientTest, starBrowser, star, star, 'star-admin@example.com',
+        NebulaClientTest, starBrowser, star, star, 'admin@example.com',
       );
       starAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'star-node', 'Star Node');
       await vi.waitFor(() => expect(starAdmin.lastResult).toBeDefined());
       starAdmin[Symbol.dispose]();
 
-      // Universe admin connects to the same star
+      // Same identity with aud = the UNIVERSE, reaching down into the Star.
       const uniBrowser = new Browser();
-      const { client: uniAdmin } = await createAuthenticatedClient(
-        NebulaClientTest, uniBrowser, universe, star, 'universe-admin@example.com',
+      const { client: uniAdmin, payload } = await createAuthenticatedClient(
+        NebulaClientTest, uniBrowser, universe, universe, 'admin@example.com',
       );
+      // Guard the fixture: a star aud here would test the tenant branch, not cross-tier reach.
+      expect(payload.aud).toBe(universe);
+      expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
 
       // Universe admin can create nodes (scope-admin bypass)
       uniAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'uni-node', 'Universe Node');

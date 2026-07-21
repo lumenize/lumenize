@@ -8,32 +8,66 @@
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { buildAuthScopePattern, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
+import { buildAuthScopePattern, hasAdminOverScope, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /**
  * The minimal structural shape `requireAdmin` reads. Both NebulaDO and the
- * sibling NebulaContainer satisfy it (each exposes `lmz.callContext`), so the
- * guard works on either without casting one to the other's class.
+ * sibling NebulaContainer satisfy it (each exposes `lmz.callContext` and
+ * `lmz.instanceName`), so the guard works on either without casting one to the
+ * other's class. Module-private — `index.ts` exports the guard functions, not
+ * this type.
+ *
+ * `instanceName` is OPTIONAL because `LmzApi.instanceName` is
+ * `readonly instanceName?: string` — a required `string | undefined` here fails
+ * to compile for `NebulaDO` itself.
  */
-type HasCallContext = { lmz: { callContext: CallContext } };
+type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string } };
 
 /**
- * Guard: require admin access in the caller's JWT claims.
+ * Guard: require admin access **over the node this call is running on**.
  * Used with @mesh(requireAdmin) on subclass methods.
  *
- * Orthogonal to onBeforeCall's tenant boundary: onBeforeCall decides *which
- * tenant* may call (the scope check), `requireAdmin` decides *whether the call
- * must be admin-originated*. A galaxy-A admin is still rejected by onBeforeCall
- * from reaching galaxy B.
+ * Orthogonal to onBeforeCall's tenant boundary: onBeforeCall decides *which tenant* may call
+ * (admission), `requireAdmin` decides *whether the caller holds admin authority here*.
+ *
+ * ⚠️ **The bare `access.admin` bit is NOT authority** — it is authority only over what the
+ * caller's `authScopePattern` covers. `enforceScopeReach`'s tenant branch deliberately admits a
+ * caller whose `aud` sits *below* this node (a member of a child may reach its parent), so a bare
+ * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
+ * narrowing a `/delegated-token` mint. See tasks/nebula-confine-admin-bypass.md.
+ *
+ * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
+ * `LumenizeWorker`, and a node type could compose this guard *without* `enforceScopeReach`. Never
+ * coerce: `?? ''` denies every scoped admin, `!` opens the hole.
+ *
+ * ⚠️ This deliberately mirrors only branch (a) of `enforceScopeReach`, not its platform-name reject
+ * (b) or `buildAuthScopePattern` parse (d) — whose ORDER there is load-bearing because
+ * `matchAccess('*', x)` is true for any string, including an unparseable name. The invariant that
+ * makes that sound here: `onBeforeCall` always runs before guard execution, and both `NebulaDO` and
+ * `NebulaContainer` compose `enforceScopeReach`, so (b)/(d) have already run on every node that
+ * composes both. That is an enforced ordering, not an incidental property.
  *
  * Typed against the structural `HasCallContext` shape (not `NebulaDO`) so it
  * guards NebulaContainer — a sibling node type — without a cast.
  */
 export function requireAdmin(instance: HasCallContext) {
   const claims = instance.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
+  const name = instance.lmz.instanceName;
+  if (!name) {
+    throw new Error('Admin check failed: missing callee instance name');
+  }
   if (!claims?.access?.admin) {
     throw new Error('Admin access required');
+  }
+  if (!hasAdminOverScope(claims.access, name)) {
+    // Distinct from the bare-non-admin message above: the caller IS an admin, just not of THIS
+    // node — a different user action (switch scope / ask the admin above you, vs. request admin).
+    // ADR-008 disclaims confidentiality of the scope boundary and discloses the denied set on
+    // purpose, and both operands are already in the caller's own JWT, so naming them leaks nothing.
+    throw new Error(
+      `Admin access required for ${name} — your admin scope is ${claims.access.authScopePattern}`,
+    );
   }
 }
 
@@ -85,8 +119,9 @@ export function enforceScopeReach(
   const pattern = buildAuthScopePattern(name);
 
   // Higher-admin reach (gated on access.admin — pattern-coverage is NOT authority).
-  const access = claims?.access;
-  if (access?.admin && access.authScopePattern && matchAccess(access.authScopePattern, name)) {
+  // Delegates to the ONE shared predicate (ADR-007); its body is exactly the inline form this
+  // previously hand-rolled, truthiness guard included.
+  if (hasAdminOverScope(claims?.access, name)) {
     return;
   }
 

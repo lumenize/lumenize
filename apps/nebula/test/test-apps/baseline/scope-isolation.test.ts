@@ -11,15 +11,23 @@
  * @see tasks/nebula-do-scope-isolation.md (the test matrix)
  */
 import { describe, it, expect, vi } from 'vitest';
-import { env } from 'cloudflare:test';
+import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
+import { generateUuid } from '@lumenize/auth';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
 import { Galaxy, Universe, requireAdmin, enforceScopeReach } from '@lumenize/nebula';
+import { matchAccess } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
   createAuthenticatedClient,
+  createInvitedClient,
+  bootstrapAdmin,
+  createSubject,
+  refreshToken,
+  foundAndLogin,
+  mintDelegatedToken,
   uniqueGalaxyScope,
   uniqueStar,
 } from '../../test-helpers';
@@ -218,19 +226,39 @@ describe('structural scope isolation (Fix 1)', () => {
 
   // ── Exact-star sibling isolation (the post-T6-rewrite anchor for branch e) ─
   // A star-scoped caller (exact pattern `<u>.<g>.tenant-a`) cannot reach a
-  // SIBLING star `<u>.<g>.tenant-b` even as an admin: the exact pattern doesn't
-  // cover the sibling, so the reach clause is skipped and the aud check also
-  // misses → branch (e). A within-galaxy isolation case + a clean (e) anchor
-  // independent of T6 (which now reaches). Mutation: blank the matchAccess(aud)
-  // reject → this passes.
+  // SIBLING star `<u>.<g>.tenant-b`: the exact pattern doesn't cover the
+  // sibling, so the reach clause is skipped and the aud check also misses →
+  // branch (e). A within-galaxy isolation case + a clean (e) anchor independent
+  // of T6 (which now reaches). Mutation: blank the matchAccess(aud) reject →
+  // this passes.
+  //
+  // ⚠️ The caller is an INVITED MEMBER, not a founder. An exact-star
+  // `authScopePattern` can only be minted by an invite (`buildAuthScopePattern`
+  // returns the exact id at star tier); `claim-universe` — the only founder-
+  // minting path — always yields a universe-tier `<u>.*`. So the reach clause
+  // here is skipped because the caller is non-admin, whereas the original
+  // fixture skipped it because an exact-star *admin* pattern missed the sibling.
+  // Branch (e) is reached identically either way. The exact-pattern-ADMIN
+  // variant needs a `/delegated-token` narrowing and is covered by the
+  // confinement tests in tasks/nebula-confine-admin-bypass.md Phase 1.
   it('exact-star caller is rejected reaching a sibling Star (branch e)', async () => {
-    const browser = new Browser();
-    const { starA, starB } = uniqueGalaxyScope();
+    const { universe, starA, starB } = uniqueGalaxyScope();
 
-    // Founder admin at starA (authScopePattern = exact `starA`, aud = starA).
-    const { client } = await createAuthenticatedClient(
-      NebulaClientTest, browser, starA, starA, 'admin@example.com',
+    // Founder admin at the universe — only needed to issue the invite below.
+    const adminBrowser = new Browser();
+    await bootstrapAdmin(adminBrowser, universe, 'admin@example.com');
+    const { accessToken: adminToken } = await refreshToken(adminBrowser, universe, universe);
+
+    // The caller: invited INTO starA, so authScopePattern is the exact star id.
+    const browser = new Browser();
+    await createSubject(browser, starA, adminToken, 'member@example.com');
+    const { client, payload } = await createInvitedClient(
+      NebulaClientTest, browser, starA, starA, 'member@example.com',
     );
+    // Guard the fixture itself: if this stopped being an exact-star pattern the
+    // test would pass for the wrong reason (a `<u>.*` pattern covers starB).
+    expect(payload.access?.authScopePattern).toBe(starA);
+
     client.callStarWhoAmI(starB);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
     expect(client.lastError).toContain('Active-scope mismatch');
@@ -559,5 +587,86 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
   // verified token (verifyNebulaAccessToken requires aud), documented not gated. ─
   it('m2: an admin+pattern token with no aud is admitted by the reach clause (documented unreachable)', () => {
     expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.*', admin: true /* no aud */ }))).not.toThrow();
+  });
+});
+
+// ── The `access.admin` confinement (tasks/nebula-confine-admin-bypass.md Phase 1) ──
+// The escalation this closes, end to end, with a REAL principal:
+//   1. `enforceScopeReach`'s TENANT branch admits a caller whose `aud` sits BELOW this node —
+//      intended (a member of a child may reach its parent).
+//   2. `requireAdmin` used to key on the bare `access.admin` bit with no reference to which node it
+//      was running in → that admitted descendant-scope admin acted as admin on the ANCESTOR.
+// The principal is minted through the production `/delegated-token` endpoint, whose gate is an
+// upper bound only, so a universe admin can narrow itself to `{u}.{g}` and keep `admin: true`.
+describe('access.admin is confined to the node it covers (Phase 1)', () => {
+  async function delegatedGalaxyAdmin() {
+    const browser = new Browser();
+    const universe = `conf-${generateUuid().slice(0, 8)}`;
+    const galaxy = `${universe}.app`;
+    const { accessToken, payload } = await foundAndLogin(browser, universe, 'admin@example.com', universe);
+    const delegated = await mintDelegatedToken(browser, universe, accessToken, payload.sub, galaxy);
+    return { universe, galaxy, delegated };
+  }
+
+  // Drive the Universe DO directly with the delegated token's REAL claims. Isolated-DO tier: the
+  // claims come from the production mint; only the transport is synthetic (a NebulaClient refreshes
+  // from a cookie, so it cannot carry a bearer-minted delegated token).
+  const driveUniverse = (universe: string, claims: NebulaJwtPayload, method: string, args: unknown[] = []) =>
+    (env as any).UNIVERSE.getByName(universe).__executeOperation({
+      version: 1,
+      chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
+      callContext: { callChain: [], state: {}, originAuth: { sub: 'deleg', claims } },
+      metadata: { callee: { type: 'LumenizeDO', bindingName: 'UNIVERSE', instanceName: universe } },
+    });
+
+  it('the delegated principal really is a sub-universe admin (fixture guard)', async () => {
+    const { universe, galaxy, delegated } = await delegatedGalaxyAdmin();
+    // If any of these drift the escalation tests below stop testing an escalation at all.
+    expect(delegated.payload.aud).toBe(galaxy);
+    expect(delegated.payload.access?.admin).toBe(true);
+    expect(delegated.payload.access?.authScopePattern).toBe(`${galaxy}.*`);
+    // ...and it does NOT cover the Universe DO — the whole point.
+    expect(matchAccess(`${galaxy}.*`, universe)).toBe(false);
+  });
+
+  // ⚠️ Assert the EFFECT, not the returned error. A `@mesh` guard runs POST-ack, so a
+  // `requireAdmin` denial is never in the synchronous response — that silence is the hazard this
+  // task documents. Reading the DO's own storage is both the only way to see it and the stronger
+  // assertion: it proves no privileged mutation occurred, not merely that a message was produced.
+  const readConfig = (universe: string) =>
+    (runInDurableObject as any)(
+      (env as any).UNIVERSE.getByName(universe),
+      (inst: any) => inst.ctx.storage.kv.get('config'),
+    );
+
+  it('a galaxy-scoped admin CANNOT setUniverseConfig on the Universe DO (was: full admin)', async () => {
+    const { universe, delegated } = await delegatedGalaxyAdmin();
+
+    // Control: the covering universe admin CAN write — so the DO is reachable and the method works.
+    const browser = new Browser();
+    const { payload: uniAdmin } = await foundAndLogin(browser, universe, 'admin@example.com', universe);
+    await driveUniverse(universe, uniAdmin, 'setUniverseConfig', ['owner', 'universe-admin']);
+    await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ owner: 'universe-admin' }));
+
+    // The escalation: same DO, descendant-scope admin, admitted by the tenant branch.
+    await driveUniverse(universe, delegated.payload, 'setUniverseConfig', ['owner', 'galaxy-admin']);
+
+    // Give the post-ack chain a chance to run, then assert it did NOT take effect.
+    // Pre-fix this wrote 'galaxy-admin'; post-fix `requireAdmin` denies before the write.
+    await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ owner: 'universe-admin' }));
+    expect(await readConfig(universe)).not.toMatchObject({ owner: 'galaxy-admin' });
+  });
+
+  it('a galaxy-scoped admin CANNOT teardown the Universe DO (destructive; was: full admin)', async () => {
+    const { universe, delegated } = await delegatedGalaxyAdmin();
+    const browser = new Browser();
+    const { payload: uniAdmin } = await foundAndLogin(browser, universe, 'admin@example.com', universe);
+    await driveUniverse(universe, uniAdmin, 'setUniverseConfig', ['survives', 'yes']);
+    await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ survives: 'yes' }));
+
+    await driveUniverse(universe, delegated.payload, 'teardown');
+
+    // `teardown` is `ctx.storage.deleteAll()`. Pre-fix the config vanished; post-fix it survives.
+    await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ survives: 'yes' }));
   });
 });

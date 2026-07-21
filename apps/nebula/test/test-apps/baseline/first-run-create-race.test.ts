@@ -25,7 +25,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
-import { createAuthenticatedClient, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -52,7 +52,7 @@ async function setupGrantedMember(star: string) {
   await awaitCall(admin.client);
 
   await createSubject(new Browser(), star, admin.accessToken, 'member@example.com');
-  const probe = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+  const probe = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
   const sub = probe.payload.sub;
   // Guard: the member must NOT be a scope-admin — otherwise create-under-ROOT could
   // pass via the claims.access.admin bypass and mask a missing/broken DAG grant.
@@ -81,8 +81,8 @@ describe('first-run container create — race-safe (real Star)', () => {
     const star = uniqueStar();
     const { admin, sub } = await setupGrantedMember(star);
     // Two tabs for the SAME member (same sub, distinct tabId/instanceName).
-    const tab1 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
-    const tab2 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab1 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab2 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
     const listId = `todolist-${sub}`;
 
     // Both tabs read first — both see "absent", so both ENTER the create branch.
@@ -118,8 +118,8 @@ describe('first-run container create — race-safe (real Star)', () => {
   it('serialized (non-contended): the second tab sees the list present and never enters the create branch', async () => {
     const star = uniqueStar();
     const { admin, sub } = await setupGrantedMember(star);
-    const tab1 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
-    const tab2 = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab1 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
+    const tab2 = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
     const listId = `todolist-${sub}`;
 
     // Tab 1 creates first (awaited → committed).

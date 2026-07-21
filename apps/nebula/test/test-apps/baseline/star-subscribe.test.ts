@@ -10,7 +10,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -36,10 +36,10 @@ async function adminClient(star: string) {
 
 async function userClient(star: string, adminToken: string, email = 'user@example.com') {
   const adminBrowser = new Browser();
-  const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+  const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com');
   const userBrowser = new Browser();
   await createSubject(adminBrowser, star, accessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, userBrowser, star, star, email);
+  return createInvitedClient(NebulaClientTest, userBrowser, star, star, email);
 }
 
 async function waitForResult(client: NebulaClientTest) {

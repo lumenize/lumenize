@@ -19,7 +19,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { browserLogin, ORIGIN } from '../../test-helpers';
+import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 
 function uniqueStar(): string {
   return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
@@ -29,7 +29,7 @@ function makeFactoryClient(star: string, browser: Browser) {
   const ctx = browser.context(ORIGIN);
   return createNebulaClient({
     baseUrl: ORIGIN,
-    authScope: star,
+    authScope: universeOf(star),
     activeScope: star,
     appVersion: 'v1',
     fetch: browser.fetch,
@@ -48,7 +48,7 @@ function nodeLabels(state: unknown): string[] {
 
 async function loggedInFactory(star: string) {
   const browser = new Browser();
-  await browserLogin(browser, star, 'admin@example.com', star);
+  await foundAndLogin(browser, star, 'admin@example.com', star);
   const f = makeFactoryClient(star, browser);
   await f.ready;
   return f;

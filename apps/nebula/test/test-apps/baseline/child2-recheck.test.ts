@@ -16,7 +16,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -62,10 +62,10 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
 
     // A non-admin user, granted read on the node, subscribes.
     const adminBrowser = new Browser();
-    const { accessToken } = await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    const { accessToken } = await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
     const { client: user, payload: userPayload } =
-      await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
+      await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
     admin.callStarSetPermission(star, nodeId, userPayload.sub, 'read');
     await waitForSuccess(admin);
 
@@ -127,10 +127,15 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
     const eTag = created.eTags[rid];
 
-    // A UNIVERSE admin connects after the founder latch is set → access.admin: true
-    // but NO DAG grant of its own. Its Subscribers row stores accessAdmin = 1.
-    const { client: uni } = await createAuthenticatedClient(
-      NebulaClientTest, new Browser(), universe, star, 'universe-admin@example.com');
+    // A second admin connects after the founder latch is set → access.admin: true but NO DAG
+    // grant of its own. Its Subscribers row stores accessAdmin = 1.
+    // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
+    // founder can exist per universe (`claim-universe` is the sole founder-minting path and the
+    // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
+    // bootstrap email is the one production path to a second `access.admin` here, and it reaches
+    // this Star because `*` covers every scope.
+    const { client: uni } = await createPlatformAdminClient(
+      NebulaClientTest, new Browser(), star);
     uni.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
     await waitForUpdateCount(uni, 1);
 

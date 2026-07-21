@@ -7,7 +7,7 @@
  * @see tasks/nebula-auth.md § universeGalaxyStarId Format Constraints
  */
 
-import type { ParsedId, Tier } from './types';
+import type { AccessEntry, ParsedId, Tier } from './types';
 import { PLATFORM_INSTANCE_NAME } from './types';
 
 /** Regex for a single slug segment: lowercase alphanumeric + hyphens, at least 1 char */
@@ -150,4 +150,25 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
 
   // Exact match
   return authScopePattern === targetId;
+}
+
+/**
+ * **The single admin-authority predicate**: is this access claim admin *over `scope`*?
+ *
+ * `admin` alone is never authority — it is only authority over what the claim's
+ * `authScopePattern` actually covers. Every guard that consults `access.admin` must ask this
+ * question about the node it is running in, or an admin of a child scope acts as admin on its
+ * ancestors (the tenant branch of `enforceScopeReach` admits exactly those callers).
+ *
+ * ⚠️ **The `authScopePattern` truthiness check is load-bearing, not defensive noise.**
+ * `matchAccess(undefined as any, x)` throws `TypeError` at `.endsWith`, so omitting it converts a
+ * clean branch denial into an opaque error. A verified token always carries the pattern
+ * (`AccessEntry.authScopePattern` is required), so this is a fail-closed guarantee for
+ * hand-constructed / partially-populated claims, not a live exploit path.
+ *
+ * One predicate, one place to audit (ADR-007) — do not re-inline this comparison anywhere.
+ */
+export function hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
+  if (!access?.admin || !access.authScopePattern) return false;
+  return matchAccess(access.authScopePattern, scope);
 }

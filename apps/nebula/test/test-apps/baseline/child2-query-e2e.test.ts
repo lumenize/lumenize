@@ -14,7 +14,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueDevScope = () => `c2e-${generateUuid().slice(0, 8)}.app.dev`;
@@ -137,9 +137,9 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
 
     // A non-admin user granted read on BOTH sibling nodes (so it initially sees both).
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
-    const { client: user, payload } = await createAuthenticatedClient(
+    const { client: user, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
     await admin.orgTree.setPermission(nodeA, payload.sub, 'read');
     await admin.orgTree.setPermission(nodeB, payload.sub, 'read');

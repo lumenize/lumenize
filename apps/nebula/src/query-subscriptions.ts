@@ -19,6 +19,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
+import { hasAdminOverScope } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { stringify } from '@lumenize/structured-clone';
 import { canonicalQueryHash } from './query-hash';
@@ -37,7 +38,10 @@ export interface QuerySubscriberRow {
    *  handle (tasks/nebula-subscriber-lists.md). OPTIONAL: the claim is absent on a pre-rollout token,
    *  stored NULL, and read back as `null`/`undefined`. */
   profileId?: string;
-  /** The `claims.access.admin` flag at subscribe time (0/1) — D16, same as Subscribers. */
+  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
+   *  <host instance name>)`, NOT the raw `claims.access.admin` bit. D16, same as Subscribers
+   *  (see `SubscriberRow.accessAdmin` for the full rationale: confinement point 2, and why the
+   *  historical column name is kept). */
   accessAdmin: number;
   subscriberBinding: string;
   subscribedAt: string;
@@ -51,17 +55,22 @@ export class QuerySubs {
   // in the capability, which holds its own refs.
   #dagTree: DagTree;
   #resources: Resources;
+  #getHostName: () => string | undefined;
 
+  /** @param getHostName - Host DO instance name as a **thunk** (identity is not stamped at
+   *   `onStart()` time, when this is constructed) — the scope the stored verdict is confined to. */
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     dagTree: DagTree,
     resources: Resources,
+    getHostName: () => string | undefined,
   ) {
     this.#ctx = ctx;
     this.#getCallContext = getCallContext;
     this.#dagTree = dagTree;
     this.#resources = resources;
+    this.#getHostName = getHostName;
     this.#createSchema();
   }
 
@@ -123,7 +132,12 @@ export class QuerySubs {
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
-    const accessAdmin = claims?.access?.admin ? 1 : 0;
+    // ⚠️ The CONFINED verdict, not the raw bit — confinement point 2. The push path never re-reads
+    // the JWT, so storing the bare claim would leave a descendant-scope admin an unconfined bypass
+    // for the life of the subscription. Store-time is the only option: at push time we hold neither
+    // the live claim nor the pattern. Fail closed if the host name is absent (no bypass granted).
+    const hostName = this.#getHostName();
+    const accessAdmin = hostName && hasAdminOverScope(claims?.access, hostName) ? 1 : 0;
     // Subscriber-list roster: capture the public profileId claim alongside sub (bind NULL when absent —
     // a pre-rollout token omits it). The roster projection (tasks/nebula-subscriber-lists.md) reads it back.
     const profileId = claims?.profileId ?? null;

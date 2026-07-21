@@ -49,8 +49,15 @@ describe('DevStudio @mesh surface freeze (m5)', () => {
   // non-admin ENTERS it (→ red). Both gate sets are thus pinned.
   it('non-admin @mesh surface == the resource surface, exactly', () => {
     expect(meshMethods(false)).toEqual(
-      ['dagTree', 'onBroadcastResult', 'onQueryBroadcastResult', 'read', 'subscribe',
-       'subscribeQuery', 'transaction', 'unsubscribe', 'unsubscribeQuery'],
+      ['dagTree', 'onBroadcastResult', 'onQueryBroadcastResult',
+       // Query-subscriber-list (presence). Non-admin BY DESIGN: ADR-008 extends full-org-tree
+       // visibility to presence — who is actively subscribed is Star-reachability-gated, not
+       // admin-gated. These landed with the presence feature and this freeze list was never
+       // updated; the drift predates tasks/nebula-confine-admin-bypass.md (which does not touch
+       // dev-studio.ts) and is recorded here rather than left red.
+       'onQuerySubscriberListBroadcastResult', 'subscribeQuerySubscribers', 'unsubscribeQuerySubscribers',
+       'read', 'subscribe',
+       'subscribeQuery', 'transaction', 'unsubscribe', 'unsubscribeQuery'].sort(),
     );
   });
 

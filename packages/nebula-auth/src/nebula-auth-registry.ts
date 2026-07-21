@@ -34,7 +34,7 @@ import {
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, RefreshTokenKV } from './types';
-import { parseId, isValidSlug, matchAccess, getParentId } from './parse-id';
+import { parseId, isValidSlug, matchAccess, getParentId, hasAdminOverScope } from './parse-id';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
@@ -863,25 +863,27 @@ export class NebulaAuthRegistry extends DurableObject {
   // Authorization helpers
   // ============================================
 
+  // All three delegate to the ONE shared predicate (ADR-007 — one guard path, one place to audit).
+  // They are kept as named private wrappers only because their call sites read better with the tier
+  // named; none of them may reintroduce an inline `admin && matchAccess(...)`.
+
   /** Admin over `scope` iff the access claim is admin AND its pattern covers the scope. */
   #hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
-    if (!access?.admin) return false;
-    return matchAccess(access.authScopePattern, scope);
+    return hasAdminOverScope(access, scope);
   }
 
-  /** Admin over a universe (via `*`, `u.*`, or exact admin `u`). */
+  /**
+   * Admin over a universe. Delegates to the shared predicate: on a single dot-free segment
+   * `matchAccess` reduces exactly to the three cases this used to hand-roll (`*`, `u.*`, exact `u`),
+   * and its sole caller passes `parsed.universe`, which `isValidSlug` guarantees is dot-free.
+   */
   #hasAdminOverUniverse(access: AccessEntry | undefined, universe: string): boolean {
-    if (!access?.admin) return false;
-    if (access.authScopePattern === '*') return true;
-    if (access.authScopePattern === `${universe}.*`) return true;
-    if (access.authScopePattern === universe) return true;
-    return false;
+    return hasAdminOverScope(access, universe);
   }
 
   /** Admin over a galaxy via the canonical hierarchy matcher (`*` / `u.*` / `u.g.*` / exact `u.g`). */
   #hasAdminOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
-    if (!access?.admin) return false;
-    return matchAccess(access.authScopePattern, galaxyId);
+    return hasAdminOverScope(access, galaxyId);
   }
 }
 

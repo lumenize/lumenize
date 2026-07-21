@@ -21,7 +21,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { QueryDescriptor } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueDevScope = () => `c3t-${generateUuid().slice(0, 8)}.app.dev`;
@@ -47,15 +47,15 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
 
     // Non-admin "granted": explicit read on `node`.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'granted@example.com');
-    const { client: granted, payload: grantedP } = await createAuthenticatedClient(
+    const { client: granted, payload: grantedP } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'granted@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
     await admin.orgTree.setPermission(node, grantedP.sub, 'read');
 
     // Non-admin "denied": no grant anywhere.
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
-    const { client: denied } = await createAuthenticatedClient(
+    const { client: denied } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
 
     // All three subscribe the SAME session query → three QuerySubs rows (each carrying

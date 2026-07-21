@@ -57,26 +57,75 @@ export function uniqueGalaxyScope(): {
 }
 
 /**
- * Bootstrap an admin at the given auth scope.
- * Creates a NebulaAuth instance with the bootstrap admin as first subject.
+ * The universe segment of any scope id (`a.b.c` → `a`). The universe is the only tier
+ * `claim-universe` accepts (`isValidSlug` rejects dots), and therefore the only tier at
+ * which a *founder admin* identity can be minted.
+ */
+export function universeOf(scope: string): string {
+  return scope.split('.')[0];
+}
+
+/**
+ * Claim a universe — the **only open founder-minting path** (`#mintIdentity(..., isAdmin: true)`).
+ * Returns the test-mode magic-link URL.
+ *
+ * ⚠️ Login NEVER mints. `requestMagicLink` creates a link for any email, but consuming it fails
+ * unless an `Identities` row already exists (`getAndVerifyIdentity` → no row → reject). So an
+ * identity must be established here (founder) or via `createSubject` (invite) *before* any login.
+ */
+export async function claimUniverse(
+  browser: Browser,
+  universe: string,
+  email: string,
+): Promise<string | null> {
+  const resp = await browser.fetch(`${ORIGIN}${PREFIX}/claim-universe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: universe, email }),
+  });
+  // 409 = slug already claimed. Legitimate and common: one founder backing several clients
+  // (sibling-star fixtures) claims once, then re-logs-in. Return null so the caller falls
+  // through to an ordinary login. ⚠️ NOT swallowed silently — if the universe was claimed by a
+  // *different* email, no identity exists for this one and the login fails at consume (401 on
+  // refresh), which is the correct, visible outcome: that fixture needs an invite, not a claim.
+  if (resp.status === 409) return null;
+  expect(resp.status).toBe(200);
+  const { magicLinkUrl } = await resp.json() as any;
+  expect(magicLinkUrl).toBeDefined();
+  return magicLinkUrl;
+}
+
+/**
+ * Establish a founder admin for `scope`'s universe and capture its refresh cookie.
+ *
+ * ⚠️ **The cookie lands at `/auth/{universe}`, not `/auth/{scope}`** — cookie paths are
+ * RFC-6265 matched (`@lumenize/testing` `cookieMatches`), and `/auth/acme` does NOT match
+ * `/auth/acme.app.tenant`. So every later refresh for this identity must target the
+ * **universe** auth scope; only `activeScope` varies down the hierarchy (`{u}.*` covers it).
  */
 export async function bootstrapAdmin(
   browser: Browser,
-  authScope: string,
+  scope: string,
   email: string,
 ): Promise<void> {
-  // Request magic link in test mode
-  const mlResp = await browser.fetch(authUrl(`${authScope}/email-magic-link?_test=true`), {
+  const universe = universeOf(scope);
+  const claimLink = await claimUniverse(browser, universe, email);
+  if (claimLink) {
+    // Click magic link — browser captures Set-Cookie at Path=/auth/{universe}
+    await browser.fetch(claimLink);
+    return;
+  }
+  // Already claimed (this founder backing a second client, or a second Browser for the same
+  // identity) — request a fresh login link for the existing identity and click that instead.
+  const mlResp = await browser.fetch(authUrl(`${universe}/email-magic-link?_test=true`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   });
   expect(mlResp.status).toBe(200);
-  const { magic_link } = await mlResp.json() as any;
-  expect(magic_link).toBeDefined();
-
-  // Click magic link — browser captures Set-Cookie with path scope
-  await browser.fetch(magic_link);
+  const { magicLinkUrl } = await mlResp.json() as any;
+  expect(magicLinkUrl).toBeDefined();
+  await browser.fetch(magicLinkUrl);
 }
 
 /**
@@ -109,8 +158,8 @@ export async function createSubject(
     body: JSON.stringify({ email }),
   });
   expect(mlResp.status).toBe(200);
-  const { magic_link } = await mlResp.json() as any;
-  await browser.fetch(magic_link);
+  const { magicLinkUrl } = await mlResp.json() as any;
+  await browser.fetch(magicLinkUrl);
 }
 
 /**
@@ -136,7 +185,11 @@ export async function refreshToken(
 }
 
 /**
- * Full browser-based login: bootstrap (or login existing) + refresh → access token.
+ * Log in an **already-minted** identity at `authScope` (request link → click → refresh).
+ *
+ * ⚠️ The identity must already exist at `authScope` — login never mints. Use this for an
+ * **invited member** (`createSubject` minted them at that scope). For a founder admin use
+ * {@link foundAndLogin}, which claims the universe first.
  */
 export async function browserLogin(
   browser: Browser,
@@ -151,43 +204,48 @@ export async function browserLogin(
     body: JSON.stringify({ email }),
   });
   expect(mlResp.status).toBe(200);
-  const { magic_link } = await mlResp.json() as any;
-  expect(magic_link).toBeDefined();
+  const { magicLinkUrl } = await mlResp.json() as any;
+  expect(magicLinkUrl).toBeDefined();
 
   // Click magic link — browser captures Set-Cookie with path scope
-  await browser.fetch(magic_link);
+  await browser.fetch(magicLinkUrl);
 
   // Refresh to get JWT
   return refreshToken(browser, authScope, activeScope ?? authScope);
 }
 
 /**
- * Create an authenticated NebulaClient subclass and wait for it to connect.
- * Each test-app passes its own client class (e.g., NebulaClientTest).
+ * Found a universe and log its admin in: claim (mints the founder, `isAdmin: true`) → click →
+ * refresh. The founder-admin counterpart to {@link browserLogin}.
  *
- * `appVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
- * `star-resources.test.ts` and similar). Tests that bind to a different
- * ontology pass their own value. Tests that don't use `client.resources.*`
- * at all are unaffected by the default — only the auto-attach paths use it.
+ * `scope` is the **hierarchy** you want to authenticate within — its universe is what gets
+ * claimed and what the refresh cookie is scoped to. `activeScope` (defaulting to `scope`) is the
+ * JWT `aud`; it may be any descendant, since the founder's pattern is `{universe}.*`.
+ *
+ * Returns the `authScope` actually used (the universe) so callers can configure a client with it.
  */
-export async function createAuthenticatedClient<T extends NebulaClient>(
+export async function foundAndLogin(
+  browser: Browser,
+  scope: string,
+  email: string,
+  activeScope?: string,
+): Promise<{ accessToken: string; payload: NebulaJwtPayload; authScope: string }> {
+  const universe = universeOf(scope);
+  await bootstrapAdmin(browser, universe, email);
+  const { accessToken, payload } = await refreshToken(browser, universe, activeScope ?? scope);
+  return { accessToken, payload, authScope: universe };
+}
+
+/** Build + connect a client over an already-established refresh cookie. Shared by both factories. */
+async function connectClient<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
   browser: Browser,
   authScope: string,
   activeScope: string,
-  email: string,
-  appVersion: string = 'v1',
-  /** Optional extra config to pass through to the client constructor —
-   *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
+  appVersion: string,
   extraConfig?: Partial<NebulaClientConfig>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
-  // Login and get access token
-  const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
-
-  // Create a browser context for this client
+): Promise<T> {
   const ctx = browser.context(ORIGIN);
-
-  // Create the client
   const client = new ClientClass({
     baseUrl: ORIGIN,
     authScope,
@@ -199,12 +257,123 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
     BroadcastChannel: ctx.BroadcastChannel,
     ...extraConfig,
   });
-
   // Wait for connection. Baseline-project setup file bumps vi.waitFor's
   // default timeout to 5s (apps/nebula/test/test-apps/baseline/test/setup.ts).
   await vi.waitFor(() => {
     expect(client.connectionState).toBe('connected');
   });
+  return client;
+}
 
+/**
+ * Create an authenticated **founder-admin** NebulaClient and wait for it to connect.
+ * Each test-app passes its own client class (e.g., NebulaClientTest).
+ *
+ * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a founder
+ * with `isAdmin: true` and pattern `{universe}.*`) and becomes the client's `authScope`, because
+ * that is where the refresh cookie is path-scoped. `activeScope` is the JWT `aud` — any descendant
+ * of that universe. ⚠️ **The client's `authScope` is therefore the universe, not `scope`** — passing
+ * a star as `scope` still yields a client whose cookie/refresh live at the universe. That is not a
+ * convenience; it is the only shape RFC-6265 cookie paths permit (see {@link bootstrapAdmin}).
+ *
+ * For an **invited member** (no admin, minted at a non-universe scope by `createSubject`) use
+ * {@link createInvitedClient} instead — this factory would mint them a *second*, admin identity.
+ *
+ * `appVersion` defaults to `'v1'` (matches `ONTOLOGY_VERSION` in
+ * `star-resources.test.ts` and similar). Tests that bind to a different
+ * ontology pass their own value. Tests that don't use `client.resources.*`
+ * at all are unaffected by the default — only the auto-attach paths use it.
+ */
+export async function createAuthenticatedClient<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
+  browser: Browser,
+  scope: string,
+  activeScope: string,
+  email: string,
+  appVersion: string = 'v1',
+  /** Optional extra config to pass through to the client constructor —
+   *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
+  extraConfig?: Partial<NebulaClientConfig>,
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  const { accessToken, payload, authScope } = await foundAndLogin(browser, scope, email, activeScope);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
+  return { client, payload, accessToken };
+}
+
+/**
+ * Mint a **narrowed** admin token through the production `/delegated-token` endpoint.
+ *
+ * The gate there is an UPPER bound only (`matchAccess(caller.authScopePattern, activeScope)`), so a
+ * caller may request any scope *at or below* its own reach; the mint then binds the new token to the
+ * REQUESTED scope (`buildAuthScopePattern(activeScope)`), not the caller's. That is the intended
+ * least-privilege delegation — and it is also the one production path that yields a **sub-universe
+ * admin** today, which is exactly the principal the `access.admin` confinement is about.
+ *
+ * ADR-009 rung 1–2: real issuance through the real endpoint, no test-mode client mint.
+ */
+export async function mintDelegatedToken(
+  browser: Browser,
+  callerAuthScope: string,
+  callerAccessToken: string,
+  actFor: string,
+  activeScope: string,
+): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
+  const resp = await browser.fetch(authUrl(`${callerAuthScope}/delegated-token`), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${callerAccessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actFor, activeScope }),
+  });
+  expect(resp.status).toBe(200);
+  const { access_token } = await resp.json() as any;
+  expect(access_token).toBeDefined();
+  const { payload } = parseJwtUnsafe(access_token)!;
+  return { accessToken: access_token, payload: payload as unknown as NebulaJwtPayload };
+}
+
+/** The reserved platform scope, and the bootstrap email bound in `vitest.config.js` miniflare.bindings. */
+export const PLATFORM_SCOPE = 'nebula-platform';
+export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
+
+/**
+ * Log in the configured **platform bootstrap admin** (`authScopePattern: '*'`) at `activeScope`.
+ *
+ * This is the ONE production path to a *second* `access.admin` identity in a universe that already
+ * has a founder: `requestMagicLink` mints the bootstrap email at `nebula-platform`
+ * (`nebula-auth-registry.ts` — the only email-magic-link mint), and `*` covers every scope. Because
+ * the founder's `__nebula_rootAdminSeeded` latch is already set, this identity receives **no root
+ * DAG grant** — which is exactly the shape the D16 stored-bypass fixtures need ("`access.admin`
+ * with no DAG grant of its own").
+ *
+ * ⚠️ Only usable where `NEBULA_AUTH_BOOTSTRAP_EMAIL` is bound (baseline project). Without it, login
+ * succeeds but the first authed route 403s.
+ */
+export async function createPlatformAdminClient<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
+  browser: Browser,
+  activeScope: string,
+  appVersion: string = 'v1',
+  extraConfig?: Partial<NebulaClientConfig>,
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  const { accessToken, payload } = await browserLogin(browser, PLATFORM_SCOPE, BOOTSTRAP_EMAIL, activeScope);
+  const client = await connectClient(ClientClass, browser, PLATFORM_SCOPE, activeScope, appVersion, extraConfig);
+  return { client, payload, accessToken };
+}
+
+/**
+ * Create an authenticated client for an **already-minted, non-founder** identity — the invitee
+ * half of the pair with {@link createAuthenticatedClient}. `authScope` is where the invite minted
+ * them (`createSubject`'s scope), which is also where their refresh cookie is path-scoped.
+ */
+export async function createInvitedClient<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
+  browser: Browser,
+  authScope: string,
+  activeScope: string,
+  email: string,
+  appVersion: string = 'v1',
+  extraConfig?: Partial<NebulaClientConfig>,
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
   return { client, payload, accessToken };
 }

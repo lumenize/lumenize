@@ -19,7 +19,8 @@ import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
   createAuthenticatedClient,
-  browserLogin,
+  createInvitedClient,
+  browserLogin, foundAndLogin,
   createSubject,
   uniqueGalaxyScope,
 } from '../../test-helpers';
@@ -134,9 +135,9 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // Non-admin galaxy member (invited subject) refreshed to the dev activeScope:
     // valid aud (onBeforeCall passes), but no admin claim.
     const adminBrowser = new Browser();
-    const { accessToken } = await browserLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
+    const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
     await createSubject(adminBrowser, galaxy, accessToken, 'user@example.com');
-    const { client: user } = await createAuthenticatedClient(
+    const { client: user } = await createInvitedClient(
       NebulaClientTest, new Browser(), galaxy, dev, 'user@example.com',
     );
 
@@ -223,9 +224,9 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     await applyOntology(admin, dev, 'v1', TODO_V1);
 
     const adminBrowser = new Browser();
-    const { accessToken } = await browserLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
+    const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
     await createSubject(adminBrowser, galaxy, accessToken, 'user@example.com');
-    const { client: user, payload: userPayload } = await createAuthenticatedClient(
+    const { client: user, payload: userPayload } = await createInvitedClient(
       NebulaClientTest, new Browser(), galaxy, dev, 'user@example.com',
     );
     const userSub = userPayload.sub;

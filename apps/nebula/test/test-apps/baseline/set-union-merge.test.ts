@@ -20,7 +20,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
-import { createAuthenticatedClient, browserLogin, ORIGIN } from '../../test-helpers';
+import { createAuthenticatedClient, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -41,7 +41,7 @@ function makeFactoryClient(star: string, browser: Browser) {
   const ctx = browser.context(ORIGIN);
   return createNebulaClient({
     baseUrl: ORIGIN,
-    authScope: star,
+    authScope: universeOf(star),
     activeScope: star,
     appVersion: ONTOLOGY_VERSION,
     fetch: browser.fetch,
@@ -74,12 +74,12 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
 
     // B (factory): a set-union resolver, then add 't2' against the stale seed eTag.
     const browserB = new Browser();
-    await browserLogin(browserB, star, 'admin@example.com', star);
+    await foundAndLogin(browserB, star, 'admin@example.com', star);
     const bf = makeFactoryClient(star, browserB);
     await bf.ready;
     // C (factory): a read-only observer subscribed to the same list.
     const browserC = new Browser();
-    await browserLogin(browserC, star, 'admin@example.com', star);
+    await foundAndLogin(browserC, star, 'admin@example.com', star);
     const cf = makeFactoryClient(star, browserC);
     await cf.ready;
 

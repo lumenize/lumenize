@@ -7,6 +7,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
+import { hasAdminOverScope } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import {
   ROOT_NODE_ID,
@@ -30,11 +31,23 @@ export class DagTree {
   #_view: DagTreeView | null = null
   #getCallContext: () => CallContext
   #onChanged: () => void
+  #getHostName: () => string | undefined
 
-  constructor(ctx: DurableObjectState, getCallContext: () => CallContext, onChanged: () => void) {
+  /**
+   * @param getHostName - The host DO's instance name as a **thunk** (never a captured value — the
+   *   host builds this in `onStart()`, before its identity is stamped). It is the scope the
+   *   `access.admin` bypass is confined to in {@link requirePermission}.
+   */
+  constructor(
+    ctx: DurableObjectState,
+    getCallContext: () => CallContext,
+    onChanged: () => void,
+    getHostName: () => string | undefined,
+  ) {
     this.#ctx = ctx
     this.#getCallContext = getCallContext
     this.#onChanged = onChanged
+    this.#getHostName = getHostName
     this.#createSchema()
     this.#ensureRoot()
   }
@@ -156,7 +169,22 @@ export class DagTree {
     const sub = cc.originAuth?.sub
     if (!sub) throw new Error('Authentication required')
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined
-    if (claims?.access?.admin) return sub // Galaxy/Universe-scope admin bypass (NOT a Star admin — that's a DAG `admin` grant on root). `access.admin` is only minted with an `aud` inside the admin's authScopePattern (nebula-auth.ts mint + router.ts re-check), so trusting it here is sound: the Star is provably within the admin's scope.
+    // Scope-admin bypass — a Galaxy/Universe admin holds no DAG grant, so without this they could
+    // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
+    //
+    // ⚠️ Confined to THIS host (`hasAdminOverScope`), never the bare `access.admin` bit. The bit
+    // alone is not authority: `enforceScopeReach`'s tenant branch deliberately admits a caller
+    // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
+    // on its ancestors. The prior comment here justified the bare bit with "`access.admin` is only
+    // minted with an `aud` inside the admin's authScopePattern" — true, but it establishes
+    // aud ⊆ pattern, NOT this-host ⊆ pattern, which is the question actually being asked.
+    // (It held only because every DagTree host is a star-tier leaf — an incidental property the
+    // Galaxy collapse deletes. See tasks/nebula-confine-admin-bypass.md §B.)
+    // Fail closed on an absent host name by simply NOT granting the bypass — the caller falls
+    // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
+    // it would flow into `matchAccess`, where a `*` pattern matches any string.
+    const hostName = this.#getHostName()
+    if (hostName && hasAdminOverScope(claims?.access, hostName)) return sub
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
       throw new PermissionDeniedError(tier, nodeId)
     }
@@ -428,13 +456,27 @@ export class DagTree {
    *   2. **No short-circuit** — every `nodeId` is evaluated so the `denied` set is
    *      COMPLETE (it drives request-access; a query caller already named these
    *      nodes — ADR-008 / D14). Do NOT early-return on the first denial.
-   *   3. **Explicit `sub` + stored `accessAdmin`** — at push time we don't hold the
-   *      subscriber's live JWT, so `requirePermission`'s `claims.access.admin`
-   *      bypass (a Galaxy/Universe scope-admin who holds no DAG grant — dag-tree.ts
-   *      `requirePermission`) is replicated here from the `accessAdmin` flag stored
-   *      on the subscriber row at subscribe time (D16). `accessAdmin:true` ⇒ ALL
-   *      allowed. Otherwise `resolvePermission` per node, which already honors a
-   *      **Star** DAG `admin` grant (so a Star admin needs no `accessAdmin`).
+   *   3. **Explicit `sub` + stored `accessAdmin` VERDICT** — at push time we don't hold the
+   *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (a Galaxy/Universe
+   *      admin who holds no DAG grant) is replicated here from the flag stored on the subscriber
+   *      row at subscribe time (D16). `accessAdmin:true` ⇒ ALL allowed. Otherwise
+   *      `resolvePermission` per node, which already honors a **Star** DAG `admin` grant (so a
+   *      Star admin needs no `accessAdmin`).
+   *
+   * ⚠️ **This method takes no pattern and no host name, so it is NOT a confinement point** — do not
+   * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources
+   * and only one of them comes from the store:
+   *   - **Push path** (`resource-data-plane.ts` `targetsForQuery` / query-push / mutation-broadcast)
+   *     passes the stored row's verdict, which IS confined at write time. That is the path that
+   *     matters, and the one tasks/nebula-confine-admin-bypass.md closes.
+   *   - **Wire path** — `Star.dagTree()` / `DevStudio.dagTree()` are bare `@mesh()`, and mesh's
+   *     "gate once, then chain" checks the allowlist only on a chain's ENTRY op, so a caller can
+   *     reach this method directly with an attacker-chosen `accessAdmin`. **That is harmless for a
+   *     separate reason**: this method is read-only, non-throwing, and echoes back only the
+   *     caller's OWN `nodeIds` — disclosing nothing ADR-008 doesn't already make Star-wide visible.
+   *     A forged `accessAdmin:true` therefore grants no capability, it only relabels a set the
+   *     caller already named. Keep these two justifications distinct; conflating them would assert
+   *     an invariant nothing enforces.
    *
    * Unknown / missing nodeIds resolve to `denied` (no grant climbs to them) — no
    * throw, matching the non-throwing contract.

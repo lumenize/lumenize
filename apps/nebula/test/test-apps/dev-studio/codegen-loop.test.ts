@@ -288,7 +288,10 @@ const fire = (binding: any, bindingName: string, instance: string, method: strin
   binding.getByName(instance).__executeOperation({
     version: 1,
     chain: preprocess([{ type: 'get', key: method }, { type: 'apply', args }]),
-    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims: { aud: instance, access: { admin: true } } } } as any,
+    // `authScopePattern` is required — `requireAdmin` confines the admin bit to the callee node, and
+    // the denial on these 3-arg calls is SILENT (a missing downstream effect, not an error).
+    // `{universe}.*` mirrors the real caller: a universe founder reaching its `.dev` Star.
+    callContext: { callChain: [], state: {}, originAuth: { sub: 'admin', claims: { aud: instance, access: { admin: true, authScopePattern: `${instance.split('.')[0]}.*` } } } } as any,
     metadata: { callee: { type: 'LumenizeDO', bindingName, instanceName: instance } },
   });
 const tc = toolCall;

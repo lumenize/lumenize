@@ -39,6 +39,7 @@ export {
   getParentId,
   buildAuthScopePattern,
   matchAccess,
+  hasAdminOverScope,
 } from './parse-id';
 
 // Types needed by consuming packages

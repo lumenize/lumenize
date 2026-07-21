@@ -105,12 +105,23 @@ export class ResourceDataPlane {
   #querySubs: QuerySubs;
   #querySubscriberListSubs: QuerySubscriberListSubs;
 
+  /**
+   * @param getHostName - The host DO's own instance name, as a **thunk**. Required: it is the scope
+   *   the `access.admin` bypass is confined to (`hasAdminOverScope`), at both confinement points —
+   *   `DagTree.requirePermission` (live claim) and the two subscribe-time writers (stored verdict).
+   *   ⚠️ **Must be lazy.** `ResourceDataPlane` is constructed in the host's `onStart()`, where
+   *   `this.lmz.instanceName` is not yet stamped; `Star.resetDevData` also re-runs `onStart()` after
+   *   a `deleteAll()` that wipes the identity key. A captured value would be permanently `undefined`
+   *   for that isolate — and since the guards fail closed on an absent name, every first-touch call
+   *   would be denied. Mirror `getCallContext`, which is lazy for the same reason.
+   */
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     getOntology: OntologyProvider,
     bridge: ResourceHostBridge,
     onDagChanged: () => void,
+    getHostName: () => string | undefined,
   ) {
     this.#getOntology = getOntology;
     this.#bridge = bridge;
@@ -123,10 +134,10 @@ export class ResourceDataPlane {
     this.#dagTree = new DagTree(ctx, getCallContext, () => {
       onDagChanged();
       this.#rerunQueries(() => true);
-    });
+    }, getHostName);
     this.#resources = new Resources(ctx, getCallContext, this.#dagTree);
-    this.#subscriptions = new Subscriptions(ctx, getCallContext, this.#dagTree, this.#resources);
-    this.#querySubs = new QuerySubs(ctx, getCallContext, this.#dagTree, this.#resources);
+    this.#subscriptions = new Subscriptions(ctx, getCallContext, this.#dagTree, this.#resources, getHostName);
+    this.#querySubs = new QuerySubs(ctx, getCallContext, this.#dagTree, this.#resources, getHostName);
     this.#querySubscriberListSubs = new QuerySubscriberListSubs(ctx);
   }
 

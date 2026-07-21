@@ -42,9 +42,18 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // isolated-DO norm) so its cross-DO `lmz.call` effects PROPAGATE callContext. Returns the {$ack};
 // the result travels via fire-back, so observe the durable cross-DO EFFECT with `inDO` + vi.waitFor.
 // This is the @lumenize/mesh feasibility-test pattern (drive → {$ack} → poll the effect).
+// ⚠️ `authScopePattern` is REQUIRED in the default claims, not decoration: `requireAdmin` confines
+// the admin bit to the callee node (`hasAdminOverScope`), so a pattern-less admin claim is denied —
+// and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
+// downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
+// that reaches a `.dev` Star: a universe founder, whose pattern is `{universe}.*`.
 const fire = (
   binding: any, bindingName: string, instance: string, method: string,
-  args: unknown[] = [], claims: any = { aud: instance, access: { admin: true } },
+  args: unknown[] = [],
+  claims: any = {
+    aud: instance,
+    access: { admin: true, authScopePattern: `${instance.split('.')[0]}.*` },
+  },
 ) =>
   binding.getByName(instance).__executeOperation({
     version: 1,
@@ -124,11 +133,48 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
   // carry requireAdmin (writeSource/compileAndInstallOntology/recordTurn/…) — is the static
   // frozen-surface test in devstudio-resource-surface.test.ts ("codegen/source methods stay
   // requireAdmin"); the framework invoking a wired guard is covered in @lumenize/mesh.
-  it('rejects a non-admin claim, admits an admin claim', () => {
-    const nonAdmin = { lmz: { callContext: { originAuth: { claims: { aud: 'x.y.dev' } } } } };
-    expect(() => requireAdmin(nonAdmin as any)).toThrow('Admin access required');
-    const admin = { lmz: { callContext: { originAuth: { claims: { access: { admin: true } } } } } };
-    expect(() => requireAdmin(admin as any)).not.toThrow();
+  // The guard has THREE independent operands; each gets its own probe so a mutation to one reds a
+  // distinct test (testing.md § compound conditions). Node under test: `u.y.dev`.
+  const NODE = 'u.y.dev';
+  // ⚠️ Two builders, NOT one with a defaulted param: passing `undefined` explicitly to a parameter
+  // that has a default triggers the default, so `guard(claims, undefined)` would silently test the
+  // named node instead of the absent-name path — a test that cannot fail.
+  const guard = (claims: unknown) =>
+    () => requireAdmin({ lmz: { callContext: { originAuth: { claims } }, instanceName: NODE } } as any);
+  const guardNoName = (claims: unknown) =>
+    () => requireAdmin({ lmz: { callContext: { originAuth: { claims } } } } as any);
+
+  it('operand 1 — rejects a non-admin claim', () => {
+    expect(guard({ aud: NODE })).toThrow('Admin access required');
+  });
+
+  it('operand 2 — rejects an admin whose pattern does NOT cover this node, naming the scope', () => {
+    // A star-scoped admin (exact pattern) reaching a SIBLING node: admin bit set, pattern misses.
+    // This is the escalation the confinement closes; pre-fix it returned silently.
+    const foreign = { aud: 'u.y.other', access: { admin: true, authScopePattern: 'u.y.other' } };
+    expect(guard(foreign)).toThrow(`Admin access required for ${NODE}`);
+    expect(guard(foreign)).toThrow('your admin scope is u.y.other'); // distinct from operand 1
+  });
+
+  it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
+    // Permanently undefined on a LumenizeWorker; must never coerce (`?? ''` would deny every
+    // scoped admin, `!` would open the hole).
+    const admin = { access: { admin: true, authScopePattern: 'u.*' } };
+    expect(guardNoName(admin)).toThrow('missing callee instance name');
+  });
+
+  it('admits an admin whose pattern covers this node (exact and wildcard)', () => {
+    expect(guard({ access: { admin: true, authScopePattern: 'u.*' } })).not.toThrow();
+    expect(guard({ access: { admin: true, authScopePattern: 'u.y.*' } })).not.toThrow();
+    expect(guard({ access: { admin: true, authScopePattern: NODE } })).not.toThrow();
+    expect(guard({ access: { admin: true, authScopePattern: '*' } })).not.toThrow();
+  });
+
+  it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {
+    // `matchAccess(undefined, x)` would throw at `.endsWith`; `hasAdminOverScope` returns false so
+    // the caller gets the clean scope-naming denial. Mutation: drop the truthiness guard in
+    // `hasAdminOverScope` → this reds with a TypeError instead.
+    expect(guard({ access: { admin: true } })).toThrow('Admin access required for');
   });
 });
 

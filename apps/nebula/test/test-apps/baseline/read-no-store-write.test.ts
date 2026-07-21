@@ -23,7 +23,7 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { createAuthenticatedClient, browserLogin, ORIGIN } from '../../test-helpers';
+import { createAuthenticatedClient, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -58,11 +58,11 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
 
     // A fresh factory client that NEVER subscribes to or writes this resource.
     const browserR = new Browser();
-    await browserLogin(browserR, star, 'admin@example.com', star);
+    await foundAndLogin(browserR, star, 'admin@example.com', star);
     const ctx = browserR.context(ORIGIN);
     const { client, store, ready, dispose } = createNebulaClient({
       baseUrl: ORIGIN,
-      authScope: star,
+      authScope: universeOf(star),
       activeScope: star,
       appVersion: ONTOLOGY_VERSION,
       fetch: browserR.fetch,

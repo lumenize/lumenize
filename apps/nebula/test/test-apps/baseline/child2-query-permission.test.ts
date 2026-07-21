@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -54,9 +54,9 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
 
     // A non-admin user with NO grant subscribes → denied push.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
-    const { client: user, payload } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
+    const { client: user, payload } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
     user.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await nextPush(user, 0);
     expect(user.lastQueryUpdate?.result.resourceIds ?? []).toEqual([]);
@@ -96,9 +96,12 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 
-    // A UNIVERSE admin (access.admin, NO DAG grant) subscribes → sees the private
-    // child via the stored accessAdmin bypass; its row carries accessAdmin = 1.
-    const { client: uni } = await createAuthenticatedClient(NebulaClientTest, new Browser(), universe, star, 'universe-admin@example.com');
+    // A second admin (access.admin, NO DAG grant) subscribes → sees the private child via the
+    // stored accessAdmin bypass; its row carries accessAdmin = 1.
+    // ⚠️ PLATFORM bootstrap admin (`*`), not a second universe admin: one founder per universe
+    // (`claim-universe` is the sole founder-minting path, slug unique), so the old
+    // `universe-admin@example.com` identity is unmintable. `*` covers this Star.
+    const { client: uni } = await createPlatformAdminClient(NebulaClientTest, new Browser(), star);
     uni.callStarSubscribeQuery(star, query);
     await nextPush(uni, 0);
     expect(uni.lastQueryUpdate?.result.resourceIds).toEqual([c1]); // bypass → sees it
@@ -111,9 +114,9 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     // → DENIED. Mutation: registerQuerySubscriber hardcodes accessAdmin = 1 (keeps the
     // stale bypass) → this non-admin would WRONGLY see c1 → red.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'demoted@example.com');
-    const { client: ex } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'demoted@example.com');
+    const { client: ex } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'demoted@example.com');
     ex.callStarSubscribeQuery(star, query);
     await nextPush(ex, 0);
     expect(ex.lastQueryUpdate?.result.resourceIds ?? []).toEqual([]);

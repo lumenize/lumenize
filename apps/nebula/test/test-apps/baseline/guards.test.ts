@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('guard enforcement', () => {
@@ -19,12 +19,12 @@ describe('guard enforcement', () => {
       const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin
-      const { accessToken: adminToken } = await browserLogin(browser, star, 'admin@example.com');
+      const { accessToken: adminToken } = await foundAndLogin(browser, star, 'admin@example.com');
 
       // Create non-admin subject
       const userBrowser = new Browser();
       await createSubject(browser, star, adminToken, 'user@example.com');
-      const { client: userClient } = await createAuthenticatedClient(
+      const { client: userClient } = await createInvitedClient(
         NebulaClientTest, userBrowser, star, star, 'user@example.com',
       );
 
@@ -75,15 +75,23 @@ describe('guard enforcement', () => {
       adminClient[Symbol.dispose]();
     });
 
+    // ⚠️ ONE founder per universe. `claim-universe` is the only founder-minting path and the slug is
+    // unique, so a universe cannot hold two distinct founder admins — the old fixture's separate
+    // `star-admin@` + `universe-admin@` identities are unmintable. There is likewise no "star-level
+    // admin" tier: an invite mints `isAdmin: false`, so every admin's pattern is `{u}.*` (or `*`).
+    // The property under test survives intact, and is now exercised more precisely: the second client
+    // holds aud = the UNIVERSE while calling a STAR DO, so admission comes from the *reach* branch
+    // (pattern covers the callee node) rather than the tenant branch — which is exactly what
+    // "universe admin reaches star-level admin methods" means.
     it('universe admin (wildcard) can call star-level setStarConfig', async () => {
       const browser = new Browser();
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // First, bootstrap a star-level admin so the Star DO gets created
+      // Founder (pattern `{universe}.*`) at the star aud — creates the Star DO.
       const starBrowser = new Browser();
       const { client: starClient } = await createAuthenticatedClient(
-        NebulaClientTest, starBrowser, star, star, 'star-admin@example.com',
+        NebulaClientTest, starBrowser, star, star, 'admin@example.com',
       );
       starClient.callStarSetConfig(star, 'initial', 'value');
       await vi.waitFor(() => {
@@ -91,10 +99,13 @@ describe('guard enforcement', () => {
       });
       starClient[Symbol.dispose]();
 
-      // Universe admin authenticates and connects to the star
-      const { client: universeAdmin } = await createAuthenticatedClient(
-        NebulaClientTest, browser, universe, star, 'universe-admin@example.com',
+      // Same identity, now with aud = the UNIVERSE, reaching down into the Star.
+      const { client: universeAdmin, payload } = await createAuthenticatedClient(
+        NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
+      // Guard the fixture: aud must be the universe, or this stops testing cross-tier reach.
+      expect(payload.aud).toBe(universe);
+      expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
 
       // Universe admin calls star-level setStarConfig → succeeds (cross-admin access)
       universeAdmin.callStarSetConfig(star, 'cross', 'admin');

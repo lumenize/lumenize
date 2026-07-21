@@ -19,7 +19,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
-import { createAuthenticatedClient, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -73,7 +73,10 @@ async function twoAdminClients(star: string) {
  *  with NO DAG grants — the caller grants what it needs via `setPermission`. */
 async function setupNonAdminUser(star: string, adminAccessToken: string, email = 'user@example.com') {
   await createSubject(new Browser(), star, adminAccessToken, email);
-  return createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, email);
+  // createInvitedClient, NOT createAuthenticatedClient: the invite already minted this identity at
+  // `star`, so it logs in there. The founder factory would claim the universe and mint them a
+  // SECOND, admin identity — silently turning this non-admin fixture into an admin one.
+  return createInvitedClient(NebulaClientTest, new Browser(), star, star, email);
 }
 
 /** Wait for a `callStarXxx` initiator to complete and return its `lastResult`. */

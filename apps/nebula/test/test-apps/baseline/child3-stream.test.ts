@@ -23,7 +23,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueDevScope = () => `c3st-${generateUuid().slice(0, 8)}.app.dev`;
@@ -82,9 +82,9 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
     // A non-admin with NO grant on SESSION_NODE_ID (ROOT). It subscribes the query, so
     // it WOULD receive chunks if the transient push skipped the permission recheck.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'denied@example.com');
-    const { client: denied } = await createAuthenticatedClient(
+    const { client: denied } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'denied@example.com', 'v1', { resourceHostBinding: 'DEV_STUDIO' });
 
     using sa = admin.resources.subscribeQuery(sessionQuery); await sa.ready;

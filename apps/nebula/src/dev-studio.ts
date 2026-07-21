@@ -174,6 +174,9 @@ export class DevStudio extends NebulaDO {
             this.ctn<DevStudio>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
       },
       () => { /* no org-tree subscribe channel on DevStudio */ },
+      // Host name as a THUNK — `this.lmz.instanceName` is not stamped yet inside `onStart()`.
+      // It is the scope the `access.admin` bypass is confined to at both confinement points.
+      () => this.lmz.instanceName,
     );
   }
 

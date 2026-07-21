@@ -11,6 +11,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
+import { hasAdminOverScope } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
@@ -56,9 +57,22 @@ export interface SubscriberRow {
   resourceId: string;
   clientId: string;
   sub: string;
-  /** The `claims.access.admin` flag at subscribe time (0/1) — the Galaxy/Universe
-   *  scope-admin bypass replicated for the per-push recheck (D16). NOT a Star DAG
-   *  `admin` grant (that resolves through `resolvePermission` normally). */
+  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
+   *  <host instance name>)`, NOT the raw `claims.access.admin` bit. The Galaxy/Universe scope-admin
+   *  bypass replicated for the per-push recheck (D16); NOT a Star DAG `admin` grant (that resolves
+   *  through `resolvePermission` normally).
+   *
+   *  ⚠️ The column name is historical — it holds a *verdict*, not the claim. (Renaming it was
+   *  considered and rejected: the blast radius is test-side and invisible to type-check — a
+   *  hand-rolled `CREATE TABLE Subscribers` in `test-apps/baseline/index.ts` that does not replay
+   *  migrations — and the milestone wipes this data anyway. See tasks/nebula-confine-admin-bypass.md
+   *  § Decisions.)
+   *
+   *  Storing a verdict rather than the claim is what closes the push-path back door: the push path
+   *  never re-reads the JWT, so confining only the live claim would leave this bypass unconfined.
+   *  Sound per ADR-013 because the stored value is **monotonically narrowing** — a strict
+   *  conjunct-subset of the old raw bit, and the host instance name is immutable for the DO's
+   *  lifetime, so drift can only ever go 1→0 (under-privilege), never 0→1. */
   accessAdmin: number;
   subscriberBinding: string;
   subscribedAt: string;
@@ -69,17 +83,22 @@ export class Subscriptions {
   #getCallContext: () => CallContext;
   #dagTree: DagTree;
   #resources: Resources;
+  #getHostName: () => string | undefined;
 
+  /** @param getHostName - Host DO instance name as a **thunk** (identity is not stamped at
+   *   `onStart()` time, when this is constructed) — the scope the stored verdict is confined to. */
   constructor(
     ctx: DurableObjectState,
     getCallContext: () => CallContext,
     dagTree: DagTree,
     resources: Resources,
+    getHostName: () => string | undefined,
   ) {
     this.#ctx = ctx;
     this.#getCallContext = getCallContext;
     this.#dagTree = dagTree;
     this.#resources = resources;
+    this.#getHostName = getHostName;
     // Run the Subscribers schema migrations once, eagerly (the constructor runs in
     // onStart, before any request). id-gated + atomic; brings an existing prod Star's
     // pre-accessAdmin table up to date without a hand-rolled ALTER guard.
@@ -158,11 +177,18 @@ export class Subscriptions {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
-    // Store the access.admin claim so the per-push recheck (D3) can replicate the
-    // requirePermission bypass for a Galaxy/Universe scope-admin who holds no DAG
-    // grant — we don't have the subscriber's live JWT at push time (D16).
+    // Store the CONFINED scope-admin verdict so the per-push recheck (D3) can replicate the
+    // requirePermission bypass for a Galaxy/Universe scope-admin who holds no DAG grant — we don't
+    // have the subscriber's live JWT at push time (D16).
+    //
+    // ⚠️ `hasAdminOverScope(...)`, NOT `claims?.access?.admin`. This is confinement point 2: the
+    // push path never re-reads the JWT, so confining only the live claim (requirePermission) would
+    // leave this back door open — a descendant-scope admin would keep an unconfined bypass for the
+    // life of the subscription. Confining at STORE time is the only option: at push time we hold
+    // neither the live claim nor the pattern, only this bit.
+    const hostName = this.#getHostName();
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
-    const accessAdmin = claims?.access?.admin ? 1 : 0;
+    const accessAdmin = hostName && hasAdminOverScope(claims?.access, hostName) ? 1 : 0;
 
     this.#ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO Subscribers (resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt)

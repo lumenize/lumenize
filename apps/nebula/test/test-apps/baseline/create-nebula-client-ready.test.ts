@@ -30,7 +30,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { LoginRequiredError } from '@lumenize/mesh/client';
-import { browserLogin, ORIGIN } from '../../test-helpers';
+import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 
 function uniqueStar(): string {
   return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
@@ -40,12 +40,12 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
   it('resolves on first connect with claims populated + lmz.connection.state connected', async () => {
     const star = uniqueStar();
     const browser = new Browser();
-    await browserLogin(browser, star, 'admin@example.com', star);
+    await foundAndLogin(browser, star, 'admin@example.com', star);
     const ctx = browser.context(ORIGIN);
 
     const { client, store, ready, dispose } = createNebulaClient({
       baseUrl: ORIGIN,
-      authScope: star,
+      authScope: universeOf(star),
       activeScope: star,
       appVersion: 'v1',
       fetch: browser.fetch,
@@ -74,7 +74,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
 
     const { store, ready, dispose } = createNebulaClient({
       baseUrl: ORIGIN,
-      authScope: star,
+      authScope: universeOf(star),
       activeScope: star,
       appVersion: 'v1',
       fetch: browser.fetch,
@@ -116,7 +116,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
 
     const { ready, dispose } = createNebulaClient({
       baseUrl: ORIGIN,
-      authScope: star,
+      authScope: universeOf(star),
       activeScope: star,
       appVersion: 'v1',
       fetch: forbiddenFetch,
@@ -136,7 +136,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
   it('stays pending across a transient first-connect failure (5xx), then resolves', async () => {
     const star = uniqueStar();
     const browser = new Browser();
-    await browserLogin(browser, star, 'admin@example.com', star);
+    await foundAndLogin(browser, star, 'admin@example.com', star);
     const ctx = browser.context(ORIGIN);
 
     // Fail the FIRST refresh with a 503 (transient), then delegate to the real
@@ -156,7 +156,7 @@ describe('createNebulaClient ready (§5.3.8 connection lifecycle, real Star)', (
     let rejected = false;
     const { store, ready, dispose } = createNebulaClient({
       baseUrl: ORIGIN,
-      authScope: star,
+      authScope: universeOf(star),
       activeScope: star,
       appVersion: 'v1',
       fetch: faultyFetch,

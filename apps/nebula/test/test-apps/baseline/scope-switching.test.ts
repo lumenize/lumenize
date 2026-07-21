@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { browserLogin, refreshToken } from '../../test-helpers';
+import { browserLogin, foundAndLogin, refreshToken } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('admin active-scope switching', () => {
@@ -18,7 +18,7 @@ describe('admin active-scope switching', () => {
     const starB = `${universe}.app.tenant-b`;
 
     // Bootstrap universe admin
-    const { accessToken: adminToken, payload: adminPayload } = await browserLogin(
+    const { accessToken: adminToken, payload: adminPayload } = await foundAndLogin(
       browser, universe, 'admin@example.com', universe,
     );
     expect(adminPayload.access.authScopePattern).toContain(universe);

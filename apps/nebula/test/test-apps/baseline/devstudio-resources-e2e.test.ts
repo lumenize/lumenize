@@ -21,7 +21,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // A DevStudio sandbox is the `{u}.{g}.dev` star-tier instance.
@@ -107,9 +107,9 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
 
     // A non-admin subject at the same {u}.{g}.dev scope (real signup; no grant yet).
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, scope, 'admin@example.com', scope);
+    await foundAndLogin(adminBrowser, scope, 'admin@example.com', scope);
     await createSubject(adminBrowser, scope, accessToken, 'coach@example.com');
-    const { client: user, payload } = await createAuthenticatedClient(
+    const { client: user, payload } = await createInvitedClient(
       NebulaClientTest, new Browser(), scope, scope, 'coach@example.com', 'v1',
       { resourceHostBinding: 'DEV_STUDIO' },
     );

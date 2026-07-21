@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
-import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -156,9 +156,9 @@ describe('child2 query rerun on commit (Phase 4)', () => {
 
     // user granted read on pub only.
     const adminBrowser = new Browser();
-    await browserLogin(adminBrowser, star, 'admin@example.com', star);
+    await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
     await createSubject(adminBrowser, star, accessToken, 'coach@example.com');
-    const { client: user, payload } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
+    const { client: user, payload } = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'coach@example.com');
     a.callStarSetPermission(star, pub, payload.sub, 'read');
     await waitForSuccess(a);
 
