@@ -25,7 +25,7 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
-import { accessTokenViaEmail } from '../../test/lib/email-login';
+import { provisionAndLogin } from '../../test/lib/email-login';
 import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth/client';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
@@ -165,17 +165,10 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * Connect a real-WS `NebulaClient` for `scope`, bound to DEV_STUDIO (so chat `Session`/`Message`
  * Resources round-trip on the DevStudio DO). Resolves once connected.
  *
- * ⚠️ **Identity SHOULD come from a real email login** (rung 1, ADR-009) — this harness is the artifact
- * the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic identity is
- * the exact mis-grounding the ADR was written about, sitting inside the ADR's own instrument. Cost is
- * not the obstacle: the loop is ~1.4 s and boot dwarfs it.
- *
- * 🚧 **`realLogin: true` is opt-in rather than the default because it is currently BLOCKED**, and the
- * blocker is real (found by trying it, 2026-07-21): the magic-link GET returns 302 with NO
- * `refresh-token` cookie against a local `wrangler dev`, i.e. the link is rejected after the email
- * arrives. Everything upstream works — the email sends and is received in <4 s, and the link's issuer
- * origin is rewritten to `baseUrl`. Next step is to dump the 302's `Location` (expect an `error=` code)
- * and find why a locally-issued link fails consumption. Flip the default here once that's fixed.
+ * ⚠️ **Identity comes from a REAL email login by default** (rung 1, ADR-009). This harness is the
+ * artifact the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic
+ * identity was the exact mis-grounding the ADR was written about, sitting inside the ADR's own
+ * instrument. Cost is not the obstacle: the loop is ~1.4 s and boot dwarfs it.
  *
  * Pass `mint` for an identity the real path genuinely CANNOT produce — and say why in `reason`.
  */
@@ -186,8 +179,6 @@ export async function connectDriver(
     /** Login identity. Defaults to a fresh `test-<uuid>@lumenize.io` (routed by the catch-all). */
     email?: string;
     connectTimeoutMs?: number;
-    /** Opt in to the real email login. 🚧 Currently blocked — see the note above this function. */
-    realLogin?: boolean;
     /**
      * Escape hatch to rung 3 (synthetic mint) — ONLY for identities real login can't create, e.g. a
      * NON-admin at a scope whose founder would be admin. `reason` is required and is not decorative:
@@ -214,7 +205,7 @@ export async function connectDriver(
   // and pass `accessToken` + `instanceName`; the constructor then skips its own refresh.
   let access_token: string;
   let sub: string;
-  if (!opts.realLogin) {
+  if (opts.mint) {
     // `email` is not a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
     // `sub`, so the mint takes no email.
     ({ access_token, sub } = await createNebulaTestToken({
@@ -226,9 +217,12 @@ export async function connectDriver(
       ttlSeconds: 3600,
     })());
   } else {
-    const result = await accessTokenViaEmail({
+    // provisionAndLogin, not a bare login: a fresh boot has no scopes at all, and login
+    // never mints an identity. It claims the universe (the one open founder-minting entry),
+    // logs in there for real, then creates the galaxy/star beneath with that founder's token.
+    const result = await provisionAndLogin({
       baseUrl: stack.baseUrl,
-      authScope: scope,
+      scope,
       email: opts.email,
       testToken: readDevVar('TEST_TOKEN'),
       fetchImpl: browser.fetch,

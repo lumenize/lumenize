@@ -174,9 +174,103 @@ export async function refreshAccessToken(
 }
 
 /**
+ * Provision a scope and log in as its real founder — the rung-1 path for a scope
+ * that does not exist yet.
+ *
+ * Why this and not just `loginViaEmail`: **login never mints an identity.** Identity
+ * mint is authority-point-only (`nebula-auth-registry.ts` says outright *"NEVER call
+ * from a login path"*), so a magic link for a scope with no identity is issued, emailed,
+ * and then rejected on consumption — `302 /app?error=invalid_token`, no cookie. The one
+ * open, founder-minting entry point today is `claim-universe`, which mints the founder
+ * with `isAdmin: true` before sending the link.
+ *
+ * So: claim the **universe**, log in there for real, then create the galaxy/star beneath
+ * it with that founder's token. The returned token's universe-founder reach covers every
+ * scope below, which is what lets a caller drive a star it never logged into directly —
+ * the same shape prod uses (`prodLogin` at `nebula-platform`, then refresh at the target).
+ *
+ * ⚠️ Logging in *directly* at a fresh star is a different thing and is NOT possible yet:
+ * `createStar` writes a `Scopes` row with no founder. That is open Star self-signup —
+ * `tasks/nebula-star-founder-provisioning.md`, tracked by the `it.skip('claim-star: …')`
+ * in `packages/nebula-auth/test/nebula-auth-routes.test.ts`.
+ *
+ * @param scope 1–3 dot-separated segments (`u`, `u.g`, or `u.g.s`). Each level below the
+ *              universe is created in order.
+ */
+export async function provisionAndLogin(
+  options: Omit<EmailLoginOptions, 'authScope'> & { scope: string },
+): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
+  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout } = options;
+  const email = options.email ?? uniqueTestEmail();
+  const origin = baseUrl.replace(/\/$/, '');
+  const [universe, galaxy, star] = scope.split('.');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
+
+  // 1. Claim the universe. Open + Turnstile-only, and the ONLY thing here that mints an
+  //    identity — it also sends the magic link, so no separate email-magic-link call.
+  const waiter = waitForEmail({ testToken, instance: universe, to: email, timeout: timeout ?? 60_000 });
+  let session: EmailSession;
+  try {
+    const claim = await fetchImpl(`${origin}/auth/claim-universe`, {
+      method: 'POST', headers, body: JSON.stringify({ slug: universe, email }),
+    });
+    if (!claim.ok) {
+      throw new Error(`claim-universe ${claim.status}: ${(await claim.text()).slice(0, 200)}`);
+    }
+    const link = extractMagicLink(await waiter.emailPromise);
+    const target = new URL(origin);
+    const localLink = new URL(link);
+    localLink.protocol = target.protocol;
+    localLink.host = target.host;
+    const linkRes = await fetchImpl(localLink.toString(), { redirect: 'manual' });
+    const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
+    if (!refreshToken) {
+      throw new Error(
+        `claim-universe magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
+        `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
+      );
+    }
+    session = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
+  } finally {
+    waiter.cleanup();
+  }
+
+  // 2. Token at the universe, used to authorize the scope creations below it.
+  let { accessToken, sub } = await refreshAccessToken(origin, session, universe, fetchImpl);
+
+  // 3. Create each level below the universe. Both endpoints are admin-gated over the
+  //    parent, and the universe founder is admin — so this founder authorizes its own tree.
+  const levels: Array<[string, string]> = [];
+  if (galaxy) levels.push(['create-galaxy', `${universe}.${galaxy}`]);
+  if (star) levels.push(['create-star', `${universe}.${galaxy}.${star}`]);
+  for (const [endpoint, id] of levels) {
+    const key = endpoint === 'create-galaxy' ? 'universeGalaxyId' : 'universeGalaxyStarId';
+    const res = await fetchImpl(`${origin}/auth/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ [key]: id }),
+    });
+    // 409 = already exists, which is success for provisioning purposes.
+    if (!res.ok && res.status !== 409) {
+      throw new Error(`${endpoint} ${res.status} for ${id}: ${(await res.text()).slice(0, 200)}`);
+    }
+  }
+
+  // 4. Re-issue at the requested scope. `aud` becomes `scope`; reach stays the founder's.
+  if (scope !== universe) {
+    ({ accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl));
+  }
+  return { accessToken, sub, session };
+}
+
+/**
  * The one-call path: real login, then an access token for `activeScope`
  * (defaults to the login scope). Use this wherever a test or harness previously
  * reached for `createNebulaTestToken`.
+ *
+ * Requires an identity to already exist at `authScope` — for a scope that does not
+ * exist yet, use {@link provisionAndLogin}.
  */
 export async function accessTokenViaEmail(
   options: EmailLoginOptions & { activeScope?: string },
