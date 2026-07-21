@@ -19,7 +19,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -52,7 +52,7 @@ function resolutionSnapshot(outcome: TransactionOutcome, rid: string): Snapshot 
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, {
     version: ONTOLOGY_VERSION,
@@ -65,7 +65,7 @@ async function setupAdminClient(star: string) {
 /** Two independent admin clients on the same Star, sharing the same scope. */
 async function twoAdminClients(star: string) {
   const a = await setupAdminClient(star);
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 
@@ -418,10 +418,10 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     // to the Note too (shadowing its per-type), which this probe forbids.
     const star = uniqueStar();
     const galaxyName = star.split('.').slice(0, 2).join('.');
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TWO_TYPES });
     await awaitCall(a.client);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Set up a stale-eTag conflict for one resource of EACH type.
     const todoId = generateUuid();

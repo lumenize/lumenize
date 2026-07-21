@@ -16,7 +16,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -38,7 +38,7 @@ async function waitForUpdateCount(client: NebulaClientTest, n: number) {
 
 /** Founder star-admin: connects (seeds ROOT admin), installs the ontology. */
 async function founder(star: string) {
-  const f = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const f = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   f.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(f.client);
   return f;
@@ -75,7 +75,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     // A second always-granted subscriber (admin → accessAdmin bypass) acts as the
     // deterministic anchor: once IT receives a push, the broadcast loop for that
     // mutation has run, so the user's (non-)push has been decided — no setTimeout.
-    const { client: anchor } = await createAuthenticatedClient(
+    const { client: anchor } = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     anchor.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
     await waitForUpdateCount(anchor, 1);

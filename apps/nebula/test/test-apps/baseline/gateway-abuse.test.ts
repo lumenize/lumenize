@@ -8,7 +8,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { StarTest, NebulaClientTest } from './index';
 
 describe('gateway abuse cases', () => {
@@ -97,7 +97,7 @@ describe('gateway abuse cases', () => {
       const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
 
       // Create admin client
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
@@ -130,7 +130,7 @@ describe('gateway abuse cases', () => {
       const browser = new Browser();
       const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
 
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 

@@ -27,7 +27,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { OntologyStaleInfo, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TEST_TYPES = `interface TestResource { title: string; }`;
@@ -69,7 +69,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
 
     // Build a v1-pinned client with the refresh hook registered. The hook is
     // the user-facing signal that push-on-clear arrived.
-    const a = await createAuthenticatedClient(
+    const a = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com',
       'v1',
       { onShouldRefreshUI: refreshHookSpy },

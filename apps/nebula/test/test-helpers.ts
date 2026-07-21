@@ -266,7 +266,65 @@ async function connectClient<T extends NebulaClient>(
 }
 
 /**
+ * **An admin that legitimately governs `scope`** — the default choice.
+ *
+ * Says WHAT THE TEST NEEDS, not what the auth layer happens to mint. Use this whenever the test
+ * just needs "an authenticated admin who can operate here" and does **not** depend on the admin's
+ * tier or pattern shape.
+ *
+ * 🔶 **INTERIM — today this is a UNIVERSE admin (`{u}.*`), even when you ask for a star.**
+ * `claim-universe` is currently the only founder-minting path, so a star has no governing admin of
+ * its own. [nebula-star-founder-provisioning.md](../../../tasks/nebula-star-founder-provisioning.md)
+ * retires that: a star scope will yield a real **star founder** with an **exact-star** pattern —
+ * inert above its own Star. **When it lands, only this function body changes**, not the ~70 call
+ * sites, which is the entire reason for the split.
+ *
+ * ⚠️ If your assertion depends on the pattern being a wildcard (cross-tier reach, `{u}.*` widening),
+ * you want {@link universeAdminClient} instead — this one's guarantee will change under you.
+ */
+export async function adminClientAt<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
+  browser: Browser,
+  scope: string,
+  activeScope: string,
+  email: string,
+  appVersion: string = 'v1',
+  extraConfig?: Partial<NebulaClientConfig>,
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
+}
+
+/**
+ * **Specifically a universe-tier admin** (`authScopePattern` = `{u}.*`), whatever `activeScope` is.
+ *
+ * Use this — and *only* this — when the assertion depends on the wildcard: cross-tier reach (aud at
+ * one tier, callee at another), `{u}.*` widening, or "an admin with no DAG grant on this node".
+ * Unlike {@link adminClientAt}, this guarantee is **stable** across the star-founder change, so
+ * these fixtures keep testing the same property.
+ *
+ * `scope` may be any tier — the universe is derived from it.
+ */
+export async function universeAdminClient<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
+  browser: Browser,
+  scope: string,
+  activeScope: string,
+  email: string,
+  appVersion: string = 'v1',
+  extraConfig?: Partial<NebulaClientConfig>,
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
+}
+
+/**
  * Create an authenticated **founder-admin** NebulaClient and wait for it to connect.
+ *
+ * ⚠️ **Prefer {@link adminClientAt} or {@link universeAdminClient}** — they encode INTENT (what the
+ * test needs) rather than PROVENANCE (how the identity was minted), so the star-founder change
+ * touches one helper body instead of every call site. This remains the shared implementation both
+ * delegate to, and the right choice only where the founder-mint mechanics are themselves the
+ * subject.
+ *
  * Each test-app passes its own client class (e.g., NebulaClientTest).
  *
  * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a founder

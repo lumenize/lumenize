@@ -10,7 +10,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -22,7 +22,7 @@ function uniqueStar(): string {
 
 async function adminClient(star: string) {
   const browser = new Browser();
-  const result = await createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  const result = await adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
   result.client.callStarApplyOntology(star, {

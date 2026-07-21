@@ -23,7 +23,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { adminClientAt, ORIGIN } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 function uniqueStar(): string {
@@ -34,7 +34,7 @@ describe('nebula-client resilient chat-turn delivery', () => {
 
   it('chat() round-trips: fires the turn one-way and resolves via onChatResult', async () => {
     const star = uniqueStar();
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     const result = await a.client.chatViaStarForTest(star, 'build a todo app');
 
@@ -43,7 +43,7 @@ describe('nebula-client resilient chat-turn delivery', () => {
 
   it('onChatResult settles only the matching turnId; an unknown turnId is ignored', async () => {
     const star = uniqueStar();
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const clientId = a.client.lmz.instanceName;
 
     const turnId = generateUuid();
@@ -60,7 +60,7 @@ describe('nebula-client resilient chat-turn delivery', () => {
 
   it('a pending turn survives a WS reconnect and is settled by onChatResult on the new socket', async () => {
     const star = uniqueStar();
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Register the pending turn BEFORE the drop — it lives in #pendingTurns (memory),
     // which a transient reconnect does NOT clear (only an explicit disconnect() does).

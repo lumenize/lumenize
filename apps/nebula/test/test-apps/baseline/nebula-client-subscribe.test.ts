@@ -17,7 +17,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -28,7 +28,7 @@ function uniqueStar(): string {
 }
 
 async function twoAdminClients(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, {
@@ -37,7 +37,7 @@ async function twoAdminClients(star: string) {
   });
   await waitForResult(a.client);
 
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 

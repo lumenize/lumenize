@@ -21,7 +21,7 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/nebula';
 import { isOntologyStaleError } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TEST_TYPES = `interface TestResource { title: string; }`;
@@ -48,7 +48,7 @@ async function setupStaleScenario() {
   const refreshHookSpy = vi.fn<(info: OntologyStaleInfo) => void>();
 
   // Construct the client with v1 + the hook
-  const a = await createAuthenticatedClient(
+  const a = await adminClientAt(
     NebulaClientTest, new Browser(), star, star, 'admin@example.com',
     'v1',
     { onShouldRefreshUI: refreshHookSpy },
@@ -154,7 +154,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     // Same setup but no hook
     const star = uniqueStar();
 
-    const a = await createAuthenticatedClient(
+    const a = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com',
       'v1',
       // no onShouldRefreshUI

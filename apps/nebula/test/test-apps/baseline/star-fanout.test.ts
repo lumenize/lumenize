@@ -11,7 +11,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -26,7 +26,7 @@ function uniqueStar(): string {
 // underlying `sub` (user identity) is the same. Sufficient for fanout
 // testing: originator exclusion is keyed on `clientId`.
 async function twoAdminClients(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, {
@@ -35,7 +35,7 @@ async function twoAdminClients(star: string) {
   });
   await waitForResult(a.client);
 
-  const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   return { a, b };
 }
 
@@ -143,7 +143,7 @@ describe('star-fanout', () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
     // Spin up a third client (also admin, distinct browser → distinct clientId)
-    const c = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const c = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     const resourceId = generateUuid();
     const eTag = await createResource(a.client, star, resourceId, 'Initial');

@@ -20,7 +20,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { createAuthenticatedClient, uniqueGalaxyScope } from '../../test-helpers';
+import { universeAdminClient, uniqueGalaxyScope } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
@@ -35,7 +35,7 @@ async function waitForSuccess(client: NebulaClientTest) {
   return client.lastResult;
 }
 async function devAdminClient(galaxy: string, dev: string, extraConfig?: { onReload?: () => void }) {
-  return createAuthenticatedClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1', extraConfig);
+  return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com', 'v1', extraConfig);
 }
 /** Apply an ontology version to the `.dev` Star (the `setOntology` path — explicit
  *  version labels, so `#installState` sees a new version when the label changes). */

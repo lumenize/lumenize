@@ -21,7 +21,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // A DevStudio sandbox is the `{u}.{g}.dev` star-tier instance.
@@ -30,7 +30,7 @@ const uniqueDevScope = () => `acme-${generateUuid().slice(0, 8)}.app.dev`;
 // Admin (scope-admin) client bound to DEV_STUDIO. appVersion is irrelevant to
 // DevStudio (no version-gate, D8) — default 'v1'.
 function devAdmin(scope: string, appVersion = 'v1') {
-  return createAuthenticatedClient(
+  return adminClientAt(
     NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', appVersion,
     { resourceHostBinding: 'DEV_STUDIO' },
   );

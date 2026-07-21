@@ -33,7 +33,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, ORIGIN } from '../../test-helpers';
+import { adminClientAt, ORIGIN } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -68,7 +68,7 @@ async function createResource(
 }
 
 async function setupSubscribedClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });

@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import {
-  createAuthenticatedClient,
+  adminClientAt, universeAdminClient,
   createInvitedClient,
   createSubject,
   foundAndLogin,
@@ -84,7 +84,7 @@ describe('structural tier-DO scope binding', () => {
 
       // Universe admin authenticates at the universe but refreshes activeScope to the star. Its
       // pattern is `{universe}.*`, which COVERS the Star's instance name → admitted by reach.
-      const { client: adminClient, payload } = await createAuthenticatedClient(
+      const { client: adminClient, payload } = await universeAdminClient(
         NebulaClientTest, browser, universe, star, 'admin@example.com',
       );
       // Fixture guard: the wildcard pattern is the premise of this case.
@@ -108,10 +108,10 @@ describe('structural tier-DO scope binding', () => {
       // is the FOUNDER's `{universe}.*`, not `<galaxy>.*` — `claim-universe` is the only
       // founder-minting path, so a founder is always universe-tier. The widening under test is
       // therefore the universe wildcard; the galaxy wildcard is not mintable as a founder today.
-      const { client: clientA } = await createAuthenticatedClient(
+      const { client: clientA } = await universeAdminClient(
         NebulaClientTest, browser, galaxy, starA, 'admin@example.com',
       );
-      const { client: clientB } = await createAuthenticatedClient(
+      const { client: clientB } = await universeAdminClient(
         NebulaClientTest, browser, galaxy, starB, 'admin@example.com',
       );
 
@@ -131,7 +131,7 @@ describe('structural tier-DO scope binding', () => {
       // A different galaxy's aud reaching this Galaxy → rejected.
       const otherGalaxy = uniqueGalaxyScope().galaxy;
       const browserOther = new Browser();
-      const { client: clientOther } = await createAuthenticatedClient(
+      const { client: clientOther } = await adminClientAt(
         NebulaClientTest, browserOther, otherGalaxy, otherGalaxy, 'carol@example.com',
       );
       clientOther.callGalaxyGetConfig(galaxy);
@@ -147,7 +147,7 @@ describe('structural tier-DO scope binding', () => {
       const otherUniverse = `other-${generateUuid().slice(0, 8)}`;
 
       const browser = new Browser();
-      const { client: clientA } = await createAuthenticatedClient(
+      const { client: clientA } = await adminClientAt(
         NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
       clientA.callUniverseGetConfig(universe);
@@ -158,7 +158,7 @@ describe('structural tier-DO scope binding', () => {
 
       // A different universe's aud reaching this Universe → rejected.
       const browserB = new Browser();
-      const { client: clientB } = await createAuthenticatedClient(
+      const { client: clientB } = await adminClientAt(
         NebulaClientTest, browserB, otherUniverse, otherUniverse, 'bob@example.com',
       );
       clientB.callUniverseGetConfig(universe);

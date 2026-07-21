@@ -21,7 +21,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 function uniqueStar(): string {
@@ -33,7 +33,7 @@ describe('nebula-client preview-ready auto-refresh', () => {
   it('warmPreview round-trips: handlePreviewReady invokes onPreviewReady by scope', async () => {
     const star = uniqueStar();
     const captured: string[] = [];
-    const a = await createAuthenticatedClient(
+    const a = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'admin@example.com', 'v1',
       { onPreviewReady: (scope: string) => { captured.push(scope); } },
     );

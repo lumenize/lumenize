@@ -8,7 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('guard enforcement', () => {
@@ -56,7 +56,7 @@ describe('guard enforcement', () => {
       const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin and create client
-      const { client: adminClient } = await createAuthenticatedClient(
+      const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
@@ -90,7 +90,7 @@ describe('guard enforcement', () => {
 
       // Founder (pattern `{universe}.*`) at the star aud — creates the Star DO.
       const starBrowser = new Browser();
-      const { client: starClient } = await createAuthenticatedClient(
+      const { client: starClient } = await adminClientAt(
         NebulaClientTest, starBrowser, star, star, 'admin@example.com',
       );
       starClient.callStarSetConfig(star, 'initial', 'value');
@@ -100,7 +100,7 @@ describe('guard enforcement', () => {
       starClient[Symbol.dispose]();
 
       // Same identity, now with aud = the UNIVERSE, reaching down into the Star.
-      const { client: universeAdmin, payload } = await createAuthenticatedClient(
+      const { client: universeAdmin, payload } = await universeAdminClient(
         NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
       // Guard the fixture: aud must be the universe, or this stops testing cross-tier reach.
@@ -130,7 +130,7 @@ describe('guard enforcement', () => {
       const starB = `acme-${generateUuid().slice(0, 8)}.app.tenant-b`;
 
       // Create Star A with admin
-      const { client: clientA } = await createAuthenticatedClient(
+      const { client: clientA } = await adminClientAt(
         NebulaClientTest, browser, starA, starA, 'admin@example.com',
       );
       clientA.callStarWhoAmI(starA); // Initialize Star A binding
@@ -141,7 +141,7 @@ describe('guard enforcement', () => {
 
       // Create client B with different active scope
       const browserB = new Browser();
-      const { client: clientB } = await createAuthenticatedClient(
+      const { client: clientB } = await adminClientAt(
         NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
 

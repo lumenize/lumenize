@@ -23,7 +23,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionOutcome } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -50,7 +50,7 @@ function useServerSnapshot(outcome: TransactionOutcome, rid: string): Snapshot {
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, {
     version: ONTOLOGY_VERSION,
@@ -325,7 +325,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('default resolver: eTag conflict resolves committed via use-server (server value wins)', async () => {
     const star = uniqueStar();
     const { client: a, accessToken } = await setupAdminClient(star);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const resourceId = generateUuid();
 
     const created = await a.resources.transaction({
@@ -394,7 +394,7 @@ describe('nebula-client.resources.transaction (v3)', () => {
   it('explicit eTag bypasses auto-derive (works even when the resource is absent from the local store)', async () => {
     const star = uniqueStar();
     const { client: a } = await setupAdminClient(star);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const resourceId = generateUuid();
 
     const created = await a.resources.transaction({

@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -26,7 +26,7 @@ const uniqueUniverse = () => `c2p-${generateUuid().slice(0, 8)}`;
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
 async function admin(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   a.client.callStarApplyOntology(star, { version: VERSION, types: TYPES });
   await waitForResult(a.client);
   return a;

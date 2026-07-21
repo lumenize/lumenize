@@ -25,7 +25,7 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
-import { browserLogin, foundAndLogin, createAuthenticatedClient, ORIGIN, universeOf } from '../../test-helpers';
+import { browserLogin, foundAndLogin, adminClientAt, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -68,7 +68,7 @@ describe('for-docs runtime examples (real Star)', () => {
 
     // ── Setup: founder installs the ontology, then connects via the factory ──
     // The first subject to reach a fresh Star becomes the founder (admin on ROOT).
-    const admin = await createAuthenticatedClient(
+    const admin = await adminClientAt(
       NebulaClientTest, new Browser(), star, star, 'founder@example.com', ONTOLOGY_VERSION,
     );
     const galaxyName = star.split('.').slice(0, 2).join('.');

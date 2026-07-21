@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -26,7 +26,7 @@ const uniqueStar = () => `c2r-${generateUuid().slice(0, 8)}.app.tenant-a`;
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
 async function admin(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   a.client.callStarApplyOntology(star, { version: VERSION, types: TYPES });
   await waitForResult(a.client);
   return a;
@@ -55,7 +55,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
   it('create / reparent-in / reparent-out / delete each re-push the correct ordered membership', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const P = generateUuid(), Q = generateUuid();
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 
@@ -103,7 +103,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
   it('a mutation to an UNRELATED typeName triggers no query push', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const P = generateUuid();
     b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await nextPush(b, 0);
@@ -126,7 +126,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
   it('content-only edit reruns with unchanged ids (idempotent client replace)', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const P = generateUuid();
     const c1 = generateUuid();
     const e = await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } } });
@@ -163,7 +163,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     await waitForSuccess(a);
 
     // A no-denial admin subscriber + the has-denial user, same query.
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
     b.callStarSubscribeQuery(star, query); await nextPush(b, 0);
     user.callStarSubscribeQuery(star, query); await nextPush(user, 0);

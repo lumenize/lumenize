@@ -10,7 +10,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 function uniqueStar(): string {
@@ -41,7 +41,7 @@ async function waitForError(client: NebulaClientTest) {
 
 async function adminClient(star: string) {
   const browser = new Browser();
-  return createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 }
 
 const TODO = `interface Todo { title: string; done: boolean; }`;

@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const TODO = `interface Todo { title: string; done: boolean; }`;
@@ -20,7 +20,7 @@ function uniqueStar(): string {
 }
 
 async function adminClient(star: string) {
-  const r = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const r = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxy = star.split('.').slice(0, 2).join('.');
   r.client.callStarApplyOntology(star, { version: 'v1', types: TODO });
   await vi.waitFor(() => { expect(r.client.callCompleted).toBe(true); });

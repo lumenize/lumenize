@@ -18,7 +18,7 @@ import { ROOT_NODE_ID, Star, requireAdmin } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
-  createAuthenticatedClient,
+  universeAdminClient,
   createInvitedClient,
   browserLogin, foundAndLogin,
   createSubject,
@@ -46,7 +46,7 @@ async function waitForSuccess(client: NebulaClientTest) {
   return client.lastResult;
 }
 async function devAdminClient(galaxy: string, dev: string) {
-  return createAuthenticatedClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com');
+  return universeAdminClient(NebulaClientTest, new Browser(), galaxy, dev, 'admin@example.com');
 }
 /** Apply an ontology version to the `.dev` Star (the setOntology path that replaced
  *  append + lazy-pull / deployToDev). */
@@ -156,7 +156,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // against a prod tenant slug.
     const { galaxy, starA } = uniqueGalaxyScope();
     expect(starA.split('.')[2]).not.toBe('dev');   // fixture sanity: a non-dev tenant
-    const { client } = await createAuthenticatedClient(
+    const { client } = await universeAdminClient(
       NebulaClientTest, new Browser(), galaxy, starA, 'admin@example.com',
     );
 

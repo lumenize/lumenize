@@ -21,7 +21,7 @@ import { matchAccess } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
-  createAuthenticatedClient,
+  adminClientAt, universeAdminClient,
   createInvitedClient,
   bootstrapAdmin,
   createSubject,
@@ -45,10 +45,10 @@ describe('structural scope isolation (Fix 1)', () => {
 
     // One founder-admin at the galaxy; two clients at sibling star activeScopes.
     // Both clients share the single Galaxy DO `galaxy` — the collision under test.
-    const { client: clientA } = await createAuthenticatedClient(
+    const { client: clientA } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, starA, 'admin@example.com',
     );
-    const { client: clientB } = await createAuthenticatedClient(
+    const { client: clientB } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, starB, 'admin@example.com',
     );
 
@@ -77,10 +77,10 @@ describe('structural scope isolation (Fix 1)', () => {
     const a = uniqueGalaxyScope();
     const b = uniqueGalaxyScope(); // a different galaxy → different Galaxy DO
 
-    const { client: clientA } = await createAuthenticatedClient(
+    const { client: clientA } = await universeAdminClient(
       NebulaClientTest, browser, a.galaxy, a.starA, 'admin@example.com',
     );
-    const { client: clientB } = await createAuthenticatedClient(
+    const { client: clientB } = await universeAdminClient(
       NebulaClientTest, browser, b.galaxy, b.starA, 'admin@example.com',
     );
 
@@ -107,7 +107,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const victimStar = uniqueStar();
 
     const browserAtk = new Browser();
-    const { client: atkClient } = await createAuthenticatedClient(
+    const { client: atkClient } = await adminClientAt(
       NebulaClientTest, browserAtk, attacker, attacker, 'attacker@example.com',
     );
 
@@ -122,7 +122,7 @@ describe('structural scope isolation (Fix 1)', () => {
     // The victim's legitimate first call still succeeds — TOFU would have
     // locked the Star to the attacker's aud and rejected this.
     const browserVic = new Browser();
-    const { client: vicClient } = await createAuthenticatedClient(
+    const { client: vicClient } = await adminClientAt(
       NebulaClientTest, browserVic, victimStar, victimStar, 'victim@example.com',
     );
     vicClient.callStarWhoAmI(victimStar);
@@ -145,7 +145,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const galaxyY = uniqueGalaxyScope().galaxy; // a different Galaxy DO
 
     // Founder admin at galaxy X (aud = galaxyX, admin = true).
-    const { client } = await createAuthenticatedClient(
+    const { client } = await adminClientAt(
       NebulaClientTest, browser, galaxyX, galaxyX, 'admin@example.com',
     );
 
@@ -176,7 +176,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const { galaxy, starA: star } = uniqueGalaxyScope();
 
     // Galaxy-level founder admin (aud = galaxy, admin) addressing a descendant Star.
-    const { client: galaxyClient } = await createAuthenticatedClient(
+    const { client: galaxyClient } = await adminClientAt(
       NebulaClientTest, browser, galaxy, galaxy, 'admin@example.com',
     );
     galaxyClient.callStarWhoAmI(star);
@@ -187,7 +187,7 @@ describe('structural scope isolation (Fix 1)', () => {
 
     // Positive control: the same admin refreshed to the star activeScope (aud =
     // star) also reaches it — now via the unchanged aud path.
-    const { client: starClient } = await createAuthenticatedClient(
+    const { client: starClient } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, star, 'admin@example.com',
     );
     starClient.callStarWhoAmI(star);
@@ -206,7 +206,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const { universe, galaxy, starA: star } = uniqueGalaxyScope();
 
     // Universe-level founder admin (aud = universe, admin).
-    const { client } = await createAuthenticatedClient(
+    const { client } = await adminClientAt(
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
 
@@ -273,7 +273,7 @@ describe('structural scope isolation (Fix 1)', () => {
   it('T-platform: a tenant DO addressed at "nebula-platform" is rejected for a foreign aud', async () => {
     const browser = new Browser();
     const scope = uniqueStar();
-    const { client } = await createAuthenticatedClient(
+    const { client } = await adminClientAt(
       NebulaClientTest, browser, scope, scope, 'user@example.com',
     );
     client.callUniverseGetConfig('nebula-platform');
@@ -289,7 +289,7 @@ describe('structural scope isolation (Fix 1)', () => {
   it('T-malformed: a Star addressed with an unparseable name fails closed', async () => {
     const browser = new Browser();
     const scope = uniqueStar();
-    const { client } = await createAuthenticatedClient(
+    const { client } = await adminClientAt(
       NebulaClientTest, browser, scope, scope, 'user@example.com',
     );
 
@@ -391,7 +391,7 @@ describe('gate ignores the inert stored value (T-migration, B2)', () => {
     const foreign = uniqueStar();
 
     const browser = new Browser();
-    const { client } = await createAuthenticatedClient(
+    const { client } = await adminClientAt(
       NebulaClientTest, browser, star, star, 'admin@example.com',
     );
 
@@ -413,7 +413,7 @@ describe('gate ignores the inert stored value (T-migration, B2)', () => {
     // (ii) the foreign aud is still rejected, even though the stored value
     // equals it. (Reintroduced TOFU would accept — a pre-claim hijack.)
     const browserF = new Browser();
-    const { client: fClient } = await createAuthenticatedClient(
+    const { client: fClient } = await adminClientAt(
       NebulaClientTest, browserF, foreign, foreign, 'evil@example.com',
     );
     fClient.callStarWhoAmI(star);
@@ -462,7 +462,7 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
     setDebugSink(sink);
     try {
       const browser = new Browser();
-      const { client } = await createAuthenticatedClient(
+      const { client } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 

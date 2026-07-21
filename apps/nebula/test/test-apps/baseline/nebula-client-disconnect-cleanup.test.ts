@@ -21,7 +21,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -60,7 +60,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const star = uniqueStar();
 
     // Client A and client B both connected, both subscribed to the same resource.
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
     a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
@@ -68,7 +68,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const resourceId = generateUuid();
     const eTag = await createResource(a.client, star, resourceId);
 
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Both subscribe via the public API so registries are populated and Star
     // has both rows in Subscribers.
@@ -110,7 +110,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
   it('successful fanout does NOT trigger cleanup (success path is a no-op)', async () => {
     const star = uniqueStar();
 
-    const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
     a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
@@ -118,7 +118,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     const resourceId = generateUuid();
     const eTag = await createResource(a.client, star, resourceId);
 
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
     await b.client.resources.subscribe('TestResource', resourceId).snapshot;
 

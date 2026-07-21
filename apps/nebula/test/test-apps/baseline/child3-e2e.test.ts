@@ -18,7 +18,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueDevScope = () => `c3e-${generateUuid().slice(0, 8)}.app.dev`;
@@ -27,7 +27,7 @@ const sessionQuery = {
 };
 
 function devClient(scope: string, email = 'admin@example.com') {
-  return createAuthenticatedClient(
+  return adminClientAt(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
     { resourceHostBinding: 'DEV_STUDIO' },
   );

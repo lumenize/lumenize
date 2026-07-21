@@ -25,7 +25,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -46,7 +46,7 @@ async function awaitCall(c: NebulaClientTest): Promise<unknown> {
  * the member's sub so its create-under-ROOT relies on the DAG grant, not scope-admin.
  */
 async function setupGrantedMember(star: string) {
-  const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
   admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
   await awaitCall(admin.client);

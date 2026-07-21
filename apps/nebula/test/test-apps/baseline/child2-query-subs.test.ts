@@ -13,7 +13,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
@@ -34,7 +34,7 @@ async function waitForSuccess(c: NebulaClientTest) {
   return c.lastResult;
 }
 async function admin(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   a.client.callStarApplyOntology(star, { version: VERSION, types: TYPES });
   await waitForResult(a.client);
   return a;
@@ -91,7 +91,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
       vf[x] < vf[y] ? -1 : vf[x] > vf[y] ? 1 : (x < y ? -1 : x > y ? 1 : 0));
 
     // A second admin (no-denial) subscribes the parentChild query.
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
     b.callStarSubscribeQuery(star, query);
     await awaitQueryPush(b);
@@ -246,7 +246,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     });
 
     // A second client with ONLY a query sub (no single-resource sub).
-    const { client: b } = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await awaitQueryPush(b);
     b.resetResults(); // clear lastErrorObject before the install

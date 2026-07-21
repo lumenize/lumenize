@@ -14,13 +14,13 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const uniqueDevScope = () => `c2e-${generateUuid().slice(0, 8)}.app.dev`;
 
 function devClient(scope: string, email = 'admin@example.com') {
-  return createAuthenticatedClient(
+  return adminClientAt(
     NebulaClientTest, new Browser(), scope, scope, email, 'v1',
     { resourceHostBinding: 'DEV_STUDIO' },
   );

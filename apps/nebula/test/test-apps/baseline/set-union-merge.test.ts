@@ -20,7 +20,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
-import { createAuthenticatedClient, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
+import { adminClientAt, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -58,7 +58,7 @@ describe('set-union merge + client-computed aggregate (§5.3.8, real Star)', () 
 
     // Admin (the "other" actor) installs the ontology, seeds an empty list, then
     // adds 't1' — advancing the server so a second add against the seed eTag conflicts.
-    const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
     admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: LIST_TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });

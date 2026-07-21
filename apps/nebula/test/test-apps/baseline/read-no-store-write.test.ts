@@ -23,7 +23,7 @@ import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
-import { createAuthenticatedClient, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
+import { adminClientAt, browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -45,7 +45,7 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
     const star = uniqueStar();
 
     // Admin installs the ontology and creates the resource (the "other" actor).
-    const admin = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const admin = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const galaxyName = star.split('.').slice(0, 2).join('.');
     admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });

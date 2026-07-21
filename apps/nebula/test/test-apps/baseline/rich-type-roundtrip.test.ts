@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
-import { createAuthenticatedClient } from '../../test-helpers';
+import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 const ONTOLOGY_VERSION = 'v1';
@@ -28,7 +28,7 @@ function uniqueStar(): string {
 }
 
 async function setupAdminClient(star: string) {
-  const a = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+  const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   const galaxyName = star.split('.').slice(0, 2).join('.');
   a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: RICH_TYPES });
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
@@ -106,7 +106,7 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
   it('rich types survive the subscribe/fanout path to a second client', async () => {
     const star = uniqueStar();
     const a = await setupAdminClient(star);
-    const b = await createAuthenticatedClient(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
+    const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const resourceId = generateUuid();
 
     await a.client.resources.transaction({

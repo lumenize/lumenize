@@ -9,7 +9,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { DagTreeState } from '@lumenize/nebula';
-import { createAuthenticatedClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // Helper: create a unique star scope per test to avoid cross-test interference
@@ -20,7 +20,7 @@ function uniqueStar(): string {
 // Helper: create admin client connected to a star
 async function adminClient(star: string) {
   const browser = new Browser();
-  return createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
 }
 
 // Helper: create a non-admin user client
@@ -1283,7 +1283,7 @@ describe('dag-tree', () => {
 
       // Founder at the star aud — creates the Star DO and seeds root admin.
       const starBrowser = new Browser();
-      const { client: starAdmin } = await createAuthenticatedClient(
+      const { client: starAdmin } = await adminClientAt(
         NebulaClientTest, starBrowser, star, star, 'admin@example.com',
       );
       starAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'star-node', 'Star Node');
@@ -1292,7 +1292,7 @@ describe('dag-tree', () => {
 
       // Same identity with aud = the UNIVERSE, reaching down into the Star.
       const uniBrowser = new Browser();
-      const { client: uniAdmin, payload } = await createAuthenticatedClient(
+      const { client: uniAdmin, payload } = await universeAdminClient(
         NebulaClientTest, uniBrowser, universe, universe, 'admin@example.com',
       );
       // Guard the fixture: a star aud here would test the tenant branch, not cross-tier reach.
