@@ -12,6 +12,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
+import { delimiter, resolve as resolvePath } from 'node:path';
 
 /**
  * Pick a free TCP port by opening a listener on `0`, reading the OS-assigned
@@ -135,10 +136,24 @@ export async function spawnWranglerDev(
 
   const port = await pickFreePort();
 
+  // Resolve `wrangler` from the TARGET package's node_modules, not from PATH.
+  // `spawn` does NOT add `cwd`'s node_modules/.bin the way an npm script would, so a
+  // bare 'wrangler' silently picks up whichever version sits at the workspace root —
+  // and a root that lags the package's pin runs the WRONG wrangler against its config.
+  // That is not a cosmetic mismatch: wrangler <4.111 doesn't understand the declarative
+  // `exports` DO-class registry, so it warns "Unexpected fields found in top-level
+  // field: exports", registers NO class as SQLite-backed, and every `ctx.storage.kv`
+  // call throws at runtime. Prepending the package-local bin makes the spawned wrangler
+  // match the one `npx wrangler` would give you in that directory.
+  const localBin = resolvePath(cwd ?? process.cwd(), 'node_modules/.bin');
   const proc = spawn(
     'wrangler',
     ['dev', '--config', configPath, '--port', String(port), '--ip', '127.0.0.1', ...extraArgs],
-    { cwd, stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PATH: `${localBin}${delimiter}${process.env.PATH ?? ''}` },
+    },
   );
 
   const readyRegex = /Ready on (https?:\/\/[^\s]+)/;

@@ -157,6 +157,14 @@ export function waitForEmail(options: WaitForEmailOptions): {
     return email;
   })();
 
+  // An abandoned wait must not crash the process. If the caller fails for an
+  // unrelated reason and calls cleanup() in a `finally`, closing a still-
+  // connecting socket rejects this promise with nobody awaiting it — an
+  // unhandled rejection, which is fatal in Node and masks the REAL error with a
+  // useless "WebSocket connection failed". Marking it handled here changes
+  // nothing for an actual awaiter: the returned reference still rejects.
+  emailPromise.catch(() => { /* see above — real awaiters still see the rejection */ });
+
   return { emailPromise, cleanup, marks };
 }
 

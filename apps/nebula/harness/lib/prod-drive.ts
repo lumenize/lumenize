@@ -89,7 +89,7 @@ export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): 
 
 /** Refresh headlessly (NOT Turnstile-gated) → an access token whose `aud` is `activeScope`. */
 export async function prodRefresh(session: ProdSession, activeScope: string): Promise<string> {
-  return refreshAccessToken(PROD_URL, session, activeScope);
+  return (await refreshAccessToken(PROD_URL, session, activeScope)).accessToken;
 }
 
 /**

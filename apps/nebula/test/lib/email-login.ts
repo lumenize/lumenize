@@ -116,8 +116,19 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
     }
 
     const link = extractMagicLink(await waiter.emailPromise);
+    // Re-point the link at `baseUrl`. LumenizeAuth embeds the configured ISSUER origin
+    // (e.g. nebula.lumenize.com) in the emailed link, which is NOT where we're driving
+    // when that's a local wrangler-dev or a proxy — GETting it as-sent leaves the stack
+    // under test entirely and comes back a 301 with no cookie. Only the host changes; the
+    // `one_time_token` query param is what carries the grant. No-op against prod, where
+    // the issuer origin already equals baseUrl.
+    const target = new URL(origin);
+    const localLink = new URL(link);
+    localLink.protocol = target.protocol;
+    localLink.host = target.host;
+
     // `manual` so we can read Set-Cookie: the 302 Location is a client-side route.
-    const linkRes = await fetchImpl(link, { redirect: 'manual' });
+    const linkRes = await fetchImpl(localLink.toString(), { redirect: 'manual' });
     const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
     if (!refreshToken) {
       throw new Error(`magic-link GET (${linkRes.status}) set no refresh-token cookie`);
@@ -138,7 +149,7 @@ export async function refreshAccessToken(
   session: Pick<EmailSession, 'refreshToken' | 'authScope'>,
   activeScope: string,
   fetchImpl: FetchLike = fetch,
-): Promise<string> {
+): Promise<{ accessToken: string; sub: string }> {
   const origin = baseUrl.replace(/\/$/, '');
   const res = await fetchImpl(`${origin}/auth/${session.authScope}/refresh-token`, {
     method: 'POST',
@@ -149,8 +160,8 @@ export async function refreshAccessToken(
     body: JSON.stringify({ activeScope }),
   });
   if (!res.ok) throw new Error(`refresh-token ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const { access_token } = (await res.json()) as { access_token: string };
-  return access_token;
+  const { access_token, sub } = (await res.json()) as { access_token: string; sub: string };
+  return { accessToken: access_token, sub };
 }
 
 /**
@@ -160,13 +171,13 @@ export async function refreshAccessToken(
  */
 export async function accessTokenViaEmail(
   options: EmailLoginOptions & { activeScope?: string },
-): Promise<{ accessToken: string; session: EmailSession }> {
+): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
   const session = await loginViaEmail(options);
-  const accessToken = await refreshAccessToken(
+  const { accessToken, sub } = await refreshAccessToken(
     options.baseUrl,
     session,
     options.activeScope ?? options.authScope,
     options.fetchImpl,
   );
-  return { accessToken, session };
+  return { accessToken, sub, session };
 }

@@ -2,9 +2,9 @@
  * Live self-verification harness — reusable core.
  *
  * The standalone driver behind `tasks/archive/claude-live-verification.md`: boot a fresh local
- * `wrangler dev`, mint a correct-shape Nebula admin token for a sandbox scope (NO email —
- * `createNebulaTestToken` with the `.dev.vars` signing key), connect a real-WS `NebulaClient`,
- * and drive/inspect arbitrary scenarios. Not a fixed vitest test — invoked from Bash via
+ * `wrangler dev`, obtain an identity for a sandbox scope via a REAL email login (rung 1, ADR-009 —
+ * `connectDriver`; the synthetic mint is now an explicit, justified opt-in), connect a real-WS
+ * `NebulaClient`, and drive/inspect arbitrary scenarios. Not a fixed vitest test — invoked from Bash via
  * `tsx` (`harness/drive.ts`), so I can verify a change against a *running* system before
  * reporting it done.
  *
@@ -25,6 +25,7 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import { accessTokenViaEmail } from '../../test/lib/email-login';
 import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth/client';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
@@ -161,42 +162,83 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
 }
 
 /**
- * Mint a correct-shape admin token for `scope` (founder-equivalent — `access.admin` for its own
- * scope) and connect a real-WS `NebulaClient` bound to DEV_STUDIO (so chat `Session`/`Message`
+ * Connect a real-WS `NebulaClient` for `scope`, bound to DEV_STUDIO (so chat `Session`/`Message`
  * Resources round-trip on the DevStudio DO). Resolves once connected.
+ *
+ * ⚠️ **Identity SHOULD come from a real email login** (rung 1, ADR-009) — this harness is the artifact
+ * the ADR names as *"the path design reasoning grounds on"*, so running it on a synthetic identity is
+ * the exact mis-grounding the ADR was written about, sitting inside the ADR's own instrument. Cost is
+ * not the obstacle: the loop is ~1.4 s and boot dwarfs it.
+ *
+ * 🚧 **`realLogin: true` is opt-in rather than the default because it is currently BLOCKED**, and the
+ * blocker is real (found by trying it, 2026-07-21): the magic-link GET returns 302 with NO
+ * `refresh-token` cookie against a local `wrangler dev`, i.e. the link is rejected after the email
+ * arrives. Everything upstream works — the email sends and is received in <4 s, and the link's issuer
+ * origin is rewritten to `baseUrl`. Next step is to dump the 302's `Location` (expect an `error=` code)
+ * and find why a locally-issued link fails consumption. Flip the default here once that's fixed.
+ *
+ * Pass `mint` for an identity the real path genuinely CANNOT produce — and say why in `reason`.
  */
 export async function connectDriver(
   stack: DevStack,
   opts: {
     scope: string;
+    /** Login identity. Defaults to a fresh `test-<uuid>@lumenize.io` (routed by the catch-all). */
     email?: string;
-    isAdmin?: boolean;
     connectTimeoutMs?: number;
+    /** Opt in to the real email login. 🚧 Currently blocked — see the note above this function. */
+    realLogin?: boolean;
     /**
-     * The token ISSUER's DO instance (drives the token's `authScopePattern`) — distinct from the
-     * client's own gateway instanceName below. Default: `scope` (a founder of its own scope). Pass
-     * `'nebula-platform'` to mint a `*` super-admin token whose `aud` is `scope` but whose reach is
-     * global (`authScopePattern: '*'`, admin) — the cross-scope form.
+     * Escape hatch to rung 3 (synthetic mint) — ONLY for identities real login can't create, e.g. a
+     * NON-admin at a scope whose founder would be admin. `reason` is required and is not decorative:
+     * ADR-009 says each surviving mint is justified per-site, so the justification lives at the call
+     * site instead of in a reviewer's memory. If you're reaching for this to save time, don't — the
+     * whole point of the measurement is that time isn't the trade-off.
      */
-    issuerInstanceName?: string;
+    mint?: {
+      reason: string;
+      isAdmin?: boolean;
+      /**
+       * The token ISSUER's DO instance (drives `authScopePattern`) — distinct from the client's own
+       * gateway instanceName. Default `scope` (founder of its own scope); `'nebula-platform'` mints
+       * a `*` super-admin whose `aud` is `scope` but whose reach is global.
+       */
+      issuerInstanceName?: string;
+    };
   },
 ): Promise<Driver> {
   const scope = opts.scope;
-  // NebulaClient omits the base `refresh` fn (two-scope cookie model), so mint upfront and pass
-  // `accessToken` + `instanceName` — the constructor then skips its own refresh (as
-  // test/browser/multi-client.ts does). A longer TTL covers a slow scenario without a re-mint.
-  // `email` is no longer a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
-  // `sub`, so the local mint no longer takes an email.
-  const { access_token, sub } = await createNebulaTestToken({
-    privateKey: stack.signingKey,
-    activeKey: stack.activeKey,
-    activeScope: scope,
-    instanceName: opts.issuerInstanceName ?? scope,
-    isAdmin: opts.isAdmin ?? true,
-    ttlSeconds: 3600,
-  })();
-
   const browser = new Browser();
+
+  // NebulaClient omits the base `refresh` fn (two-scope cookie model), so obtain the token upfront
+  // and pass `accessToken` + `instanceName`; the constructor then skips its own refresh.
+  let access_token: string;
+  let sub: string;
+  if (!opts.realLogin) {
+    // `email` is not a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
+    // `sub`, so the mint takes no email.
+    ({ access_token, sub } = await createNebulaTestToken({
+      privateKey: stack.signingKey,
+      activeKey: stack.activeKey,
+      activeScope: scope,
+      instanceName: opts.mint?.issuerInstanceName ?? scope,
+      isAdmin: opts.mint?.isAdmin ?? true,
+      ttlSeconds: 3600,
+    })());
+  } else {
+    const result = await accessTokenViaEmail({
+      baseUrl: stack.baseUrl,
+      authScope: scope,
+      email: opts.email,
+      testToken: readDevVar('TEST_TOKEN'),
+      fetchImpl: browser.fetch,
+      // No bypassToken: Turnstile is OFF in local dev (no secret → checkTurnstile skips). The
+      // turnstile-canary scenario, which turns it ON, drives the endpoint directly.
+    });
+    access_token = result.accessToken;
+    sub = result.sub;
+  }
+
   const ctx = browser.context(stack.baseUrl);
   const client = new NebulaClient({
     baseUrl: stack.baseUrl,

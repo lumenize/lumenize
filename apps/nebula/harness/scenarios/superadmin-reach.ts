@@ -16,8 +16,8 @@
  * the predicate — it is not, on its own, evidence about the non-covering side.
  *
  * ⚠️ **Do NOT read that as "narrow the pattern here and the op is denied."** You cannot produce a
- * denial by narrowing through this harness: `connectDriver` mints with
- * `instanceName: opts.issuerInstanceName ?? scope` (harness.ts), so narrowing the scope narrows the
+ * denial by narrowing through this harness: `connectDriver`'s mint uses
+ * `instanceName: mint.issuerInstanceName ?? scope` (harness.ts), so narrowing the scope narrows the
  * pattern in lockstep and it still covers the callee; and `buildNebulaJwtPayload` throws unless
  * `aud ⊆ authScopePattern`, so a token whose pattern misses its own aud is unmintable. The shape
  * that IS denied is a pattern covering the token's own `aud` but **not the node it calls** — reach
@@ -38,15 +38,24 @@ export async function run(stack: DevStack): Promise<void> {
   // TARGET (covered by '*'), but it holds no DAG grant there.
   const admin = await connectDriver(stack, {
     scope: TARGET,
-    issuerInstanceName: 'nebula-platform',
-    email: 'claude@lumenize.io',
+    mint: {
+      reason:
+        "this scenario is ABOUT precise token shapes: a '*' pattern issued by nebula-platform while " +
+        'aud is TARGET. Real login could approximate it only by depending on the bootstrap-email ' +
+        'grant, which would make the test assert about bootstrap config rather than the bypass.',
+      issuerInstanceName: 'nebula-platform',
+    },
   });
   // A non-`*` non-admin for the SAME scope: authScopePattern TARGET, no admin, no grant.
   const control = await connectDriver(stack, {
     scope: TARGET,
-    issuerInstanceName: TARGET,
-    isAdmin: false,
-    email: 'nobody@lumenize.io',
+    mint: {
+      reason:
+        'real login CANNOT produce this identity: logging in at TARGET makes you its founder, hence ' +
+        'admin — and a NON-admin at TARGET is exactly the control this scenario needs.',
+      issuerInstanceName: TARGET,
+      isAdmin: false,
+    },
   });
 
   try {
