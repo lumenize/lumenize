@@ -33,7 +33,7 @@ After it, `hasAdminOverScope(access, <callee node>)` is false for an exact-star 
 
 ### Who owns what — Option A (registry owns the mechanism)
 
-Star signup is **shape-identical to `claim-universe`**: an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token. Every machine part already exists (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `InviteTokens`, the email path), so this adds **no new mechanism and no new test scaffolding**.
+Star signup is **shape-identical to `claim-universe`**: an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token. Every machine part already exists (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `InviteTokens`, the email path), so **the signup flow itself** adds no new mechanism and no new test scaffolding. ⚠️ **That claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
 
 ⚠️ **The registry cannot reach platform DOs** — its own JSDoc says so ([nebula-auth-registry.ts:665-667](../packages/nebula-auth/src/nebula-auth-registry.ts)), and two prior files burned the idea ([archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md); [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) — *"a write with no reader"*). So the DAG grant is **not** the registry's job.
 
@@ -41,11 +41,27 @@ Star signup is **shape-identical to `claim-universe`**: an open endpoint on the 
 
 **This is a constant, not a choice.** At signup there is no authenticated principal: the founder exists as an `Identities` row but has never logged in. Any *eager* stamp therefore needs a mesh call with no `aud`, which means either minting a token to act as someone who hasn't authenticated, or exempting a Star method from `onBeforeCall` — both standing backdoors.
 
-The founder's **first authenticated touch** has everything: `aud` = their star, exact-star pattern, `admin`. So `Star.onBeforeCall`'s existing seed stays, **narrowed** from *"first `access.admin` caller"* to *"caller holding an exact-star pattern for this star."*
+The founder's **first authenticated touch** has everything: `aud` = their star, exact-star pattern, `admin`. So `Star.onBeforeCall`'s existing seed stays — with a **founder preference added, and its current gate LEFT INTACT.**
 
-✅ **Why the narrowed seed is exact, not a heuristic.** At creation the founder is the **only** principal who can hold an exact-star pattern for that star — the registry minted exactly one identity there. The only way to manufacture another is for a **Galaxy admin to deliberately invite a star-admin** into the window between signup and first login — and a Galaxy admin already holds full authority over that star. **The seed can therefore never grant authority the actor did not already have.** That is an invariant, not a coincidence; it is why no extra founder-stamping machinery is needed.
+🚨 **DO NOT narrow the seed to "exact-star pattern only."** An earlier revision of this file proposed exactly that. It is wrong and would have deleted shipped behavior for the **primary pre-alpha flow**:
 
-⇒ This **narrows** rather than retires the first-touch latch, so it only *partially* supersedes [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1. Its `TODO(self-signup)` is answered (the founder is known at signup); the latch itself remains.
+- The seed today gates on `hasAdminOverScope(access, instanceName)` ([star.ts:135](../apps/nebula/src/star.ts)), which a `{u}.{g}.*` galaxy admin **satisfies**.
+- `createStar` mints **no founder** — *"Scopes row only, NO founder + NO email"* ([registry:371](../packages/nebula-auth/src/nebula-auth-registry.ts)) — and `dev` is reserved, so an exact-star identity can never exist there.
+- `nebula-client.ts:735` hardcodes `${galaxy}.dev`, and the collapse pins `{u}.{g}.{env}` Stars on the same path.
+
+⇒ An exact-star-only predicate is a **strict subset** of the current check, so every admin-created Star — including every user-developer's `.dev` authoring workspace — would be left **permanently root-adminless**, destroying the climb-findable terminus [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) depends on and falsifying `resetDevData`'s "reseeds on the next admin call's first-touch."
+
+⚠️ **The reasoning error is worth naming, because it is repeatable.** The rejected revision argued the narrowed seed "can never grant authority the actor did not already have" — true, and irrelevant. It proved the seed cannot **over**-grant while never asking **who qualifies when there is no founder**. A predicate needs checking in *both* directions: what it wrongly admits **and** what it wrongly excludes.
+
+**The rule to build instead — founder preference, covering-admin fallback:**
+1. If the caller is the Star's **founder**, seed them. (Self-signup tenants own their own Star's root, rather than whichever covering admin happened to touch first.)
+2. Otherwise fall back to the **current** `hasAdminOverScope` gate, unchanged — so admin-created and `.dev` Stars keep seeding exactly as they do today.
+
+**Pin the founder-marker mechanism in review.** The registry already knows who the founder is (it minted them); the cheap route is a marker on the `Identities` row carried into the access claim, which `access-claims.ts` already builds from that row. If that is rejected, choose explicitly between (a) fallback-only — i.e. accept that a covering admin may win the root grant on a self-signup Star, which is benign since they can re-grant it — and (b) a registry lookup from the Star.
+
+⚠️ **State the rule host-generically, not Star-specifically.** The collapse lands the first DagTree on the non-Star host `{u}.{g}`, and the pending DataPlane lift moves this seed off Star entirely — so express it against `this.lmz.instanceName`, never a tier special-case. Same cost, no drift.
+
+⇒ This **augments** rather than retires the first-touch latch, so it only *partially* supersedes [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1. Its `TODO(self-signup)` is answered (the founder is known at signup); the latch itself remains.
 
 ### Slug — caller-chosen, with a reserved-slug reject
 
@@ -55,9 +71,15 @@ The signer-upper picks the slug. The signup path **must reject reserved names**,
 
 ### Signup policy — data the registry owns
 
-*"May anyone sign up for a Star in my app?"* is the **app developer's** policy, but it does not require app code. Put it as a field on the **Galaxy's `Scopes` row** (`signupPolicy`), written by the Galaxy admin through an existing admin-gated path and read by the signup path. The registry reads its own data — **no dependency inversion** — and later shapes (invite-code-required, payment-first, custom fields) extend that field without moving the flow.
+*"May anyone sign up for a Star in my app?"* is the **app developer's** policy, but it does not require app code. Put it as a field on the **Galaxy's `Scopes` row** (`signupPolicy`), read by the signup path. The registry reads its own data — **no dependency inversion** — and later shapes (invite-code-required, payment-first, custom fields) extend that field without moving the flow.
 
 That is the seam: the 80% case is free and identical across every app; the 20% we cannot yet specify has somewhere to go.
+
+🚨 **There is NO existing write path — an earlier revision claimed one, and it does not exist.** Verified: `Scopes` has exactly two columns (`universeGalaxyStarId`, `improveProductConsent` — [schemas.ts:28-31](../packages/nebula-auth/src/schemas.ts)), there is **zero** `UPDATE Scopes` anywhere in the package (rows are INSERT-only, DELETE at `:690`), and the registry's endpoint surface is the seven at `router.ts:40-43`. So a writer needs: an append-only `REGISTRY_MIGRATIONS` entry, a new admin-gated endpoint, a registry method, a client method, and tests.
+
+⇒ **Two consequences.** (1) The **read** (this task) and the **write** (admin UI to toggle it) are separate phases — do not smuggle a schema migration + endpoint + client + UI into the read. (2) This punctures the *"no new mechanism and no new test scaffolding"* claim made for Option A: that claim is true of the **signup flow itself**, which genuinely reuses `claim-universe`'s machinery — it is **not** true of `signupPolicy`. Keep the two claims separate.
+
+🚨 **PIN the default-on-absent, and pin it CLOSED.** Every pre-existing Galaxy row predates the column, so it reads NULL. If NULL means *open*, **shipping this silently flips every existing Galaxy to accepting public signups** — a security change nobody opted into, delivered by a migration. The safe default is **closed on absent**, with opening it an explicit act by the Galaxy admin. ⚠️ That trades against the pinned business decision (signup is the product and should be on by default), so it is a genuine decision, not a formality: *default-closed for pre-existing Galaxies, default-open for newly created ones* is a defensible split — but it must be **written down**, not left to the implementer's reading of NULL.
 
 ## ⚠️ Remediation — a PREREQUISITE, not a follow-up
 
@@ -115,13 +137,16 @@ The registry's deferral note ([:336-341](../packages/nebula-auth/src/nebula-auth
 ## Phases
 *(to be pinned with capable-of-failing criteria in `/review-task`)*
 1. **Make deletion non-blocking** (prerequisite) — `blockedBy` becomes warning data on the existing confirm screen; `executeScopeDeletion` stops throwing on it; prune-up's `#otherUsers` stop stays. Enrich the warning with last-login / user-count so the decision is informed.
-2. **Open signup endpoint on the registry router** — `Scopes` row + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; `signupPolicy` read.
-3. **Narrow the `Star.onBeforeCall` seed** to an exact-star-pattern caller.
-4. **Audit §Upward visibility** — content of the two config blobs; record why each non-admin `@mesh()` is deliberately tenant-readable.
-5. **Re-ground the ~30 baseline fixtures** onto real star founders — `adminClientAt` on a star scope starts returning one, so this is one helper body (the intent-split landed 2026-07-21).
+2. **Open signup endpoint on the registry router** — `Scopes` row + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; `signupPolicy` **read only** (column + default-on-absent; the write path is phase 6).
+3. **Re-ground the ~30 baseline fixtures** onto real star founders — `adminClientAt` on a star scope starts returning one, so this is one helper body (the intent-split landed 2026-07-21). ⚠️ **Before phase 4, not after**: changing the seed first reds the baseline lane for a reason unrelated to the change under test. In this order there is no such gap.
+4. **Add founder preference to the seed** (leaving its current `hasAdminOverScope` gate intact — see §The DAG root grant), stated host-generically.
+5. **Audit §Upward visibility** — content of the two config blobs; record why each non-admin `@mesh()` is deliberately tenant-readable. ⚠️ Regenerate the inventory rather than trusting the table above; the collapse changes what a tenant can reach.
+6. **`signupPolicy` write path** — migration + admin-gated endpoint + client + UI toggle. Separate from phase 2's read (see §Signup policy).
 
 ## Open questions for `/review-task`
 1. What the renamed `blockedBy` should be called and carry (last login, user count, …), and whether `#emailForSub`'s fail-closed still earns its keep once the list is informational.
+1b. The **founder-marker mechanism** (claim field vs registry lookup vs fallback-only) — see §The DAG root grant.
+1c. **`signupPolicy` default-on-absent**, and whether pre-existing vs newly-created Galaxies get different defaults — see §Signup policy.
 2. **Eager Star creation to pin placement** — *separable, and an opportunity rather than a cost.* [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1b is BLOCKED because in-Star code runs *after* placement is pinned; it says the decision must be made at **the first `getByName` that creates the Star**. A signup request is exactly that moment and is the one time we hold the **user's own** `request.cf`. Needs `getByName(name, { locationHint })` threading, which does not exist yet. Composes with either ownership choice.
 3. `signupPolicy` field shape — enum now, or an object with room for invite-code/payment later?
 4. Does a Universe admin need a **delete-any-Galaxy** feature (with warnings surfacing child-Star info — last login, user count — so the decision is informed)? Adjacent, probably its own task.
