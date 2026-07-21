@@ -60,7 +60,7 @@ The founder's **first authenticated touch** has everything: `aud` = their star, 
 
 - The seed today gates on `hasAdminOverScope(access, instanceName)` (the `hasAdminOverScope(claims?.access, this.lmz.instanceName)` gate in `Star.onBeforeCall` — [star.ts](../apps/nebula/src/star.ts)), which a `{u}.{g}.*` galaxy admin **satisfies**.
 - `createStar` mints **no founder** — *"Scopes row only, NO founder + NO email"* (`createStar`'s JSDoc, [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)) — and `dev` is reserved, so an exact-star identity can never exist there.
-- `nebula-client.ts:735` hardcodes `${galaxy}.dev`, and the collapse pins `{u}.{g}.{env}` Stars on the same path.
+- `nebula-client.ts` hardcodes `create-star` with `${galaxy}.dev`, and the collapse pins `{u}.{g}.{env}` Stars on the same path.
 
 ⇒ An exact-star-only predicate is a **strict subset** of the current check, so every admin-created Star — including every user-developer's `.dev` authoring workspace — would be left **permanently root-adminless**, destroying the climb-findable terminus [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) depends on and falsifying `resetDevData`'s "reseeds on the next admin call's first-touch."
 
