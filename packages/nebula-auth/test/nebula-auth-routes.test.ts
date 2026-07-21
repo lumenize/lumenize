@@ -67,18 +67,43 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       expect((await dup.json() as any).error).toBe('slug_taken');
     });
 
-    it('claim-star is NOT a registry endpoint YET — POST → 404', async () => {
-      // `/auth/claim-star` is not routed as a registry endpoint, so it falls through as a bare
-      // instance path with no auth-flow/authenticated suffix → 404. Star creation today is
-      // `create-star`, admin-gated over the parent galaxy.
-      // ⚠️ This asserts CURRENT behavior, not a prohibition — open star self-signup is the pinned
-      // target (tasks/nebula-star-founder-provisioning.md). When that lands, this test flips to
-      // asserting the endpoint EXISTS; do not read it as settled intent that it never should.
-      const resp = await SELF.fetch(new Request(registryUrl('claim-star'), {
+    // ⚠️ Asserts the TARGET, not today's 404. Blocker: the open star self-signup endpoint is not
+    // built — design pinned in tasks/nebula-star-founder-provisioning.md (phase 2). Un-skip when it
+    // lands; these assertions are the contract, not a scaffold.
+    //
+    // Deliberately NOT written as "claim-star 404s today": that assertion was mechanically redundant
+    // (bare-instance fall-through is already covered above and by the `some-bare-instance` case), so
+    // its only content was a rationale — and the rationale argued the endpoint must never exist,
+    // which is the model we rejected. A skipped test carrying the real contract is strictly more
+    // useful than a green test documenting an obsolete prohibition.
+    //
+    // Only pinned decisions are asserted here. The response SHAPE and the claim-token delivery
+    // details are NOT yet pinned, so nothing asserts them — adding guesses would make this the
+    // scaffold it is trying not to be.
+    it.skip('claim-star: open self-signup mints an exact-star founder and rejects reserved slugs', async () => {
+      const universe = `sf-${crypto.randomUUID().slice(0, 8)}`;
+      const galaxy = `${universe}.app`;
+
+      // 1. The endpoint EXISTS — no longer a bare-instance fall-through.
+      const ok = await SELF.fetch(new Request(registryUrl('claim-star'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ universeGalaxyStarId: 'nonexistent.galaxy.star', email: 's@example.com' }),
+        body: JSON.stringify({ universeGalaxyStarId: `${galaxy}.tenant`, email: 'founder@example.com' }),
       }));
-      expect(resp.status).toBe(404);
+      expect(ok.status).not.toBe(404);
+
+      // 2. RESERVED SLUGS ARE REJECTED — the security-critical half. `${galaxy}.dev` is the
+      //    user-developer's own Studio workspace (nebula-client.ts hardcodes it); a stranger
+      //    founding it would 409 their Studio forever AND clear resetDevData's requireAdmin.
+      const reserved = await SELF.fetch(new Request(registryUrl('claim-star'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ universeGalaxyStarId: `${galaxy}.dev`, email: 'squatter@example.com' }),
+      }));
+      expect(reserved.status).toBe(400);
+
+      // 3. The founder's pattern is the EXACT STAR ID, never `{u}.*` — this is what makes open
+      //    signup safe (ADR-015: authority flows strictly downward, so an exact-star founder is
+      //    inert above its own Star). If this ever widens, open signup becomes an escalation.
+      //    (Resolve via the claim link → login → inspect the minted token's authScopePattern.)
     });
 
     it('create-galaxy: requires a JWT (401); succeeds (201) with an admin JWT', async () => {
