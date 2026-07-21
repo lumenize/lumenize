@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency } from '../e2e-email/email-test-helpers';
 
 // Resend e2e smoke test — keeps the Resend transport path exercised alongside
 // the default Cloudflare transport path (see test/e2e-email/).
@@ -28,6 +28,7 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
     const waiter = waitForEmail({ testToken: env.TEST_TOKEN, timeout: 45000 });
     cleanup = waiter.cleanup;
 
+    const requestedAt = Date.now();
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -37,6 +38,7 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
     expect(magicLinkResponse.status).toBe(200);
 
     const email = await waiter.emailPromise;
+    reportEmailLatency('resend', 'full-flow', requestedAt, waiter.marks);
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
     expect(email.from?.address).toBe('auth@test.lumenize.com');

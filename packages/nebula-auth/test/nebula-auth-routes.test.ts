@@ -67,9 +67,13 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       expect((await dup.json() as any).error).toBe('slug_taken');
     });
 
-    it('claim-star is NOT a registry endpoint (open star self-signup removed) — POST → 404', async () => {
-      // `/auth/claim-star` is no longer routed as a registry endpoint; it falls through as a bare
-      // instance path with no auth-flow/authenticated suffix → 404. Star creation is `create-star`.
+    it('claim-star is NOT a registry endpoint YET — POST → 404', async () => {
+      // `/auth/claim-star` is not routed as a registry endpoint, so it falls through as a bare
+      // instance path with no auth-flow/authenticated suffix → 404. Star creation today is
+      // `create-star`, admin-gated over the parent galaxy.
+      // ⚠️ This asserts CURRENT behavior, not a prohibition — open star self-signup is the pinned
+      // target (tasks/nebula-star-founder-provisioning.md). When that lands, this test flips to
+      // asserting the endpoint EXISTS; do not read it as settled intent that it never should.
       const resp = await SELF.fetch(new Request(registryUrl('claim-star'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ universeGalaxyStarId: 'nonexistent.galaxy.star', email: 's@example.com' }),

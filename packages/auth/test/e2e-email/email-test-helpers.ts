@@ -11,6 +11,17 @@ interface WaitForEmailOptions {
 }
 
 /**
+ * Wall-clock marks (ms since epoch) filled in as the receive side progresses.
+ * `wsOpenAt` is a floor on any latency measured across the whole loop:
+ * EmailTestDO pushes only to *connected* sockets and never replays stored
+ * mail, so an email beating the socket open would never be observed at all.
+ */
+export interface EmailWaitMarks {
+  wsOpenAt?: number;
+  receivedAt?: number;
+}
+
+/**
  * Connect to the deployed EmailTestDO via WebSocket, clear existing emails,
  * and wait for a new email to arrive. Returns the parsed email.
  *
@@ -22,9 +33,12 @@ export function waitForEmail(options: WaitForEmailOptions): {
   emailPromise: Promise<StoredEmail>;
   /** Call this to clean up the WebSocket when done */
   cleanup: () => void;
+  /** Receive-side timing, for `reportEmailLatency` */
+  marks: EmailWaitMarks;
 } {
   const { testToken, timeout = 20000 } = options;
 
+  const marks: EmailWaitMarks = {};
   let ws: WebSocket;
   let cleanedUp = false;
 
@@ -44,7 +58,7 @@ export function waitForEmail(options: WaitForEmailOptions): {
 
     // Wait for connection to open
     await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => resolve());
+      ws.addEventListener('open', () => { marks.wsOpenAt = Date.now(); resolve(); });
       ws.addEventListener('error', () => reject(new Error('WebSocket connection to EmailTestDO failed')));
       setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
     });
@@ -58,6 +72,7 @@ export function waitForEmail(options: WaitForEmailOptions): {
 
       ws.addEventListener('message', (event) => {
         clearTimeout(timer);
+        marks.receivedAt = Date.now();
         resolve(JSON.parse(event.data as string));
       });
 
@@ -70,7 +85,33 @@ export function waitForEmail(options: WaitForEmailOptions): {
     return email;
   })();
 
-  return { emailPromise, cleanup };
+  return { emailPromise, cleanup, marks };
+}
+
+/**
+ * Log the magic-link round trip — send request issued → email in hand — in a
+ * uniform, greppable form: `[email-latency] provider=… label=… loop=…ms`.
+ *
+ * This loop is the number that decides whether the *real login* can stay the
+ * default tier in `.claude/rules/testing.md`; measuring it on every run is why
+ * it never has to be re-derived by a throwaway harness. `Date.now()` is
+ * trustworthy across these awaits (real network I/O advances it — see the
+ * `cf-clock-traps` correction), but both marks are read in one isolate, so
+ * treat the value as elapsed time, not as absolute wall-clock.
+ */
+export function reportEmailLatency(
+  provider: string,
+  label: string,
+  startedAt: number,
+  marks: EmailWaitMarks,
+): number {
+  const loop = (marks.receivedAt ?? Date.now()) - startedAt;
+  const wsOpen = marks.wsOpenAt !== undefined ? marks.wsOpenAt - startedAt : undefined;
+  console.log(
+    `[email-latency] provider=${provider} label=${label} loop=${loop}ms` +
+    (wsOpen !== undefined ? ` wsOpen=${wsOpen}ms` : ''),
+  );
+  return loop;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from './email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency } from './email-test-helpers';
 
 // Real email delivery e2e test.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
@@ -29,6 +29,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
     cleanup = waiter.cleanup;
 
     // 2. Request magic link (NOT test mode — real email sent via Cloudflare Email Sending)
+    const requestedAt = Date.now();
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -42,6 +43,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
 
     // 3. Wait for the email to arrive at the deployed EmailTestDO
     const email = await waiter.emailPromise;
+    reportEmailLatency('cloudflare', 'full-flow', requestedAt, waiter.marks);
 
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
@@ -100,6 +102,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
     const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
     cleanup = waiter.cleanup;
 
+    const requestedAt = Date.now();
     await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -108,6 +111,7 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
 
     // 2. Wait for email and extract link
     const email = await waiter.emailPromise;
+    reportEmailLatency('cloudflare', 'single-use', requestedAt, waiter.marks);
     const magicLinkUrl = extractMagicLink(email);
 
     // 3. First click — should succeed, cookie captured

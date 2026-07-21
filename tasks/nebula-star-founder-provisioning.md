@@ -95,8 +95,6 @@ The business decision rests on *"a covering admin deletes the squatted Star."* *
 
 ⚠️ **Scoped to the deletion TARGET.** Leave the `#otherUsers` check in the **prune-up** at [:751](../packages/nebula-auth/src/nebula-auth-registry.ts) intact: that one decides whether the cascade silently climbs into an *ancestor* the admin did not name. Preventing a surprise ancestor wipe is a different concern from letting an admin delete what they explicitly chose.
 
-**A note on the earlier framing, so it is not re-litigated:** a first pass proposed a narrow carve-out — "a Star whose only identity is its own founder is not shared, so it should not block." That is true but far too narrow, and it treats the symptom. The block is wrong for *every* descendant, not only the single-founder case. Likewise, the guard was not "correct for its original premise" — the premise itself inverted the authority model by letting members veto an admin above them; open signup only made the consequence visible.
-
 ⚠️ **`#emailForSub`'s fail-closed (M2)** was load-bearing *because* an empty email made the block match zero rows and permit a wipe. Once the block is informational, that path degrades a **warning**, not an authorization — the real gate is `#hasAdminOverScope` at [:712](../packages/nebula-auth/src/nebula-auth-registry.ts). Re-derive its behavior deliberately in review rather than deleting it by omission.
 
 ## Upward visibility — audit the allocation, don't add a mechanism

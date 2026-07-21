@@ -333,12 +333,20 @@ export class NebulaAuthRegistry extends DurableObject {
     return this.#createMagicLinkAndSend(email, slug, origin);
   }
 
-  // NOTE: there is deliberately NO open, founder-minting `claimStar`. The current model
-  // (tasks/nebula-auth-surrogate-sub.md §Founder) is "Star = parent Galaxy admin, Scopes row,
-  // wildcard-managed (no local admin stamped)" — which is exactly {@link createStar} (admin, in-session,
-  // no founder). An open Turnstile-only star claim that minted an `isAdmin=true` founder inside another
-  // user-developer's Universe was a stranger-claims-a-child escalation; the founder-minting star
-  // self-signup is a FUTURE flow (§Founder table "Star (future: self-signup)"), not built here.
+  // NOTE: there is no open, founder-minting `claimStar` **yet**. Star creation today is
+  // {@link createStar} (admin-gated over the parent galaxy, `Scopes` row only, no founder).
+  //
+  // ⚠️ This is "not built", NOT "must never exist" — open Star self-signup is the pinned target
+  // (tasks/nebula-star-founder-provisioning.md). The objection this note used to carry — that an open
+  // star claim minting an `isAdmin=true` founder inside another user-developer's Universe is a
+  // "stranger-claims-a-child escalation" — is **OBSOLETE**. It was true only because the bare
+  // `access.admin` bit was authority anywhere; the confinement removed exactly that, so a star
+  // founder's exact-star pattern is now inert above its own Star (ADR-015: scope authority flows
+  // strictly downward). What made it an escalation was never "a stranger created a row" — it was that
+  // the founder became an admin of the PARENT.
+  //
+  // This note is the source the router comment and two registry/routes tests were echoing; if you
+  // change the model again, sweep all four together.
 
   /**
    * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO founder identity + NO email. The

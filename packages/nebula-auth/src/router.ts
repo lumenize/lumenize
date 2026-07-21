@@ -35,8 +35,11 @@ export interface RouteNebulaAuthOptions {
 }
 
 // Registry endpoint suffixes (exact match after the prefix) — forwarded to the registry DO.
-// (No `claim-star`: the current model has no open star self-signup — a star is created by its
-//  parent-Galaxy admin via `create-star`; see nebula-auth-registry.ts § createStar.)
+// (No `claim-star` YET — star creation today is `create-star`, admin-gated over the parent galaxy.
+//  ⚠️ NOT a prohibition: open star self-signup is the pinned target, designed in
+//  tasks/nebula-star-founder-provisioning.md. The old "stranger-claims-a-child escalation" objection
+//  is OBSOLETE — that escalation was removed by the access.admin confinement (ADR-015: authority
+//  flows strictly downward, so a star founder's exact-star pattern is inert above its own Star).)
 const REGISTRY_ENDPOINTS = new Set([
   'discover', 'claim-universe', 'create-galaxy', 'create-star', 'my-scopes',
   'delete-scope-plan', 'delete-scope',
