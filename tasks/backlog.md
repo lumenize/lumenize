@@ -7,6 +7,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] **Manually re-read ADR-012 / ADR-013** now that they are committed (`1ea309b`, 2026-07-21). Both were written with `Status: Accepted` but had never been committed, so `CLAUDE.md`'s always-loaded one-liner index referenced files that did not exist in git — meaning every session loaded the *summary* of a decision whose full text was never reviewed in place. Nothing about them changed on commit; this is a read-through, not a re-decision. **ADR-014 needs no entry here** — it carries `Status: Proposed` and the index already says "pending Larry's read", which is the mechanism working as designed. If 012/013 turn out to need revision, flip their Status line rather than tracking it here.
+
 - [ ] **Set up Substack** as a third cross-post channel (alongside Lumenize blog + Discord + Medium). Currently a gap in the post-2b/2c rollout for the parse-validator release — see `tasks/archive/parse-validate-release.md` "Revised staging". Once active, update `reference_content_distribution.md` and the parse-validate-release task file to fold Substack into the Day +3–5 broadcast window.
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
