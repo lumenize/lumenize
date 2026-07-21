@@ -65,9 +65,17 @@ The business decision rests on *"a covering admin deletes the squatted Star."* *
 
 `#computeDeletionPlan` computes `blockedBy = #otherUsers(down, callerEmailLc)` where `down` **includes the target itself** ([registry:734](../packages/nebula-auth/src/nebula-auth-registry.ts)), and `#otherUsers` ([:767](../packages/nebula-auth/src/nebula-auth-registry.ts)) returns every Identity in those scopes whose email differs from the caller's. So a Galaxy admin deleting a squatted Star gets `blockedBy = [the squatter]` → **403 at [:673](../packages/nebula-auth/src/nebula-auth-registry.ts)**. The block fires on the **Star**, so an automated sweep hits it exactly as a support ticket would. (Galaxies were never the target — the prune-up at `:739` only fires when the last child goes and nobody else is attached.)
 
-**The guard is correct for its original premise** — it stops an admin from wiping a scope real people are using, and its fail-closed `#emailForSub` reasoning is deliberate. What changed is the premise: "other users" used to mean *people you invited*; under open signup it can mean *a stranger who took your slug*. Same incidental-property pattern the confinement work kept surfacing.
+### The fix is the principle, not a carve-out
 
-**The carve-out is principled, not a hack:** a Star whose only identity is its own founder is **not shared**, so it should never block a covering admin. Pin the exact predicate in review (single-identity? founder-only? never-logged-in?) and keep the guard intact for genuinely shared scopes.
+**Authority trickles DOWN. A covering admin may delete any descendant scope — shared or not, risky or not — and the only restraint is a UI warning.** (Pinned with Larry 2026-07-21.) That is a design principle of the whole tier model, not a concession to self-signup: a Galaxy admin already holds full authority over every Star beneath them, so a Star's own members cannot be allowed to *veto* that authority.
+
+⇒ **`blockedBy` stops blocking.** `#computeDeletionPlan` keeps computing the attached-user list — it is genuinely useful — but `executeScopeDeletion` no longer throws on it ([registry:673-676](../packages/nebula-auth/src/nebula-auth-registry.ts)). The list becomes **warning data on the confirm screen the plan endpoint already feeds**, so the admin makes an informed decision rather than hitting a wall. Rename it to say what it now means (it is not a blocker), and enrich it with what an admin needs to decide — per Larry: **last login, user count**, and similar.
+
+⚠️ **Scoped to the deletion TARGET.** Leave the `#otherUsers` check in the **prune-up** at [:751](../packages/nebula-auth/src/nebula-auth-registry.ts) intact: that one decides whether the cascade silently climbs into an *ancestor* the admin did not name. Preventing a surprise ancestor wipe is a different concern from letting an admin delete what they explicitly chose.
+
+**A note on the earlier framing, so it is not re-litigated:** a first pass proposed a narrow carve-out — "a Star whose only identity is its own founder is not shared, so it should not block." That is true but far too narrow, and it treats the symptom. The block is wrong for *every* descendant, not only the single-founder case. Likewise, the guard was not "correct for its original premise" — the premise itself inverted the authority model by letting members veto an admin above them; open signup only made the consequence visible.
+
+⚠️ **`#emailForSub`'s fail-closed (M2)** was load-bearing *because* an empty email made the block match zero rows and permit a wipe. Once the block is informational, that path degrades a **warning**, not an authorization — the real gate is `#hasAdminOverScope` at [:712](../packages/nebula-auth/src/nebula-auth-registry.ts). Re-derive its behavior deliberately in review rather than deleting it by omission.
 
 ## Upward visibility — audit the allocation, don't add a mechanism
 
@@ -100,19 +108,20 @@ The registry's deferral note ([:336-341](../packages/nebula-auth/src/nebula-auth
 | **No "partially-stamped Star" phase** | Creating the Star in a pending state that only the founder can finish, protected by the slug — redundant *and* weaker. The founder's post-login JWT already carries an unguessable exact-star admin pattern, so the narrowed seed **is** "only the real founder can finish it"; a slug is guessable. Slug reservation is likewise already handled by the `Scopes` row + `checkSlugAvailable`. |
 | Caller-chosen slug + **reserved-slug reject** | A server-minted opaque slug — kills squatting and the enumeration surface, but star ids stop being human-friendly and vanity slugs become their own feature later. |
 | Signup policy as **registry data** on the Galaxy's `Scopes` row | A policy hook calling into `apps/nebula` — forbidden direction. App code owning the flow — see Option A above. |
+| **Authority trickles DOWN: a covering admin may delete any descendant; warn, never block** | (a) The status quo, where a Star's members *veto* an admin above them — inverts the tier model. (b) A narrow "only if the Star has a single founder" carve-out — treats the symptom; the block is wrong for every descendant, not just that case. Restraint belongs in the UI warning, not the authorization. |
 | **Unblocking deletion is a PREREQUISITE** | Treating it as a follow-up — the business decision's own backstop depends on it. |
 | **One file, full product** — not a pre-alpha slice | Splitting pre-alpha (founder mint only) from alpha (the signup product). Rejected 2026-07-21: *"We have over-applied YAGNI. It's led us to build interims that are harder to overcome than if we had built it the way we think it will work best. Favor the goal, not the milestone."* ⚠️ **Tests are a consumer, and an interim built to make tests runnable ossifies nearly as hard as production code** — every test written against it must be unlearned too. Building the real flow means the tests drive the real flow. |
 
 ## Phases
 *(to be pinned with capable-of-failing criteria in `/review-task`)*
-1. **Unblock remediation** (prerequisite) — the founder-only carve-out in `#computeDeletionPlan`, keeping the shared-scope guard intact.
+1. **Make deletion non-blocking** (prerequisite) — `blockedBy` becomes warning data on the existing confirm screen; `executeScopeDeletion` stops throwing on it; prune-up's `#otherUsers` stop stays. Enrich the warning with last-login / user-count so the decision is informed.
 2. **Open signup endpoint on the registry router** — `Scopes` row + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; `signupPolicy` read.
 3. **Narrow the `Star.onBeforeCall` seed** to an exact-star-pattern caller.
 4. **Audit §Upward visibility** — content of the two config blobs; record why each non-admin `@mesh()` is deliberately tenant-readable.
 5. **Re-ground the ~30 baseline fixtures** onto real star founders — `adminClientAt` on a star scope starts returning one, so this is one helper body (the intent-split landed 2026-07-21).
 
 ## Open questions for `/review-task`
-1. The exact founder-only predicate for the deletion carve-out (single-identity / founder-only / never-logged-in).
+1. What the renamed `blockedBy` should be called and carry (last login, user count, …), and whether `#emailForSub`'s fail-closed still earns its keep once the list is informational.
 2. **Eager Star creation to pin placement** — *separable, and an opportunity rather than a cost.* [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1b is BLOCKED because in-Star code runs *after* placement is pinned; it says the decision must be made at **the first `getByName` that creates the Star**. A signup request is exactly that moment and is the one time we hold the **user's own** `request.cf`. Needs `getByName(name, { locationHint })` threading, which does not exist yet. Composes with either ownership choice.
 3. `signupPolicy` field shape — enum now, or an object with room for invite-code/payment later?
 4. Does a Universe admin need a **delete-any-Galaxy** feature (with warnings surfacing child-Star info — last login, user count — so the decision is informed)? Adjacent, probably its own task.
