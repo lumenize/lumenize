@@ -9,6 +9,7 @@ import { generateUuid, parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
+import { requestUniverseClaim, requestMagicLink } from './lib/email-login';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 export const ORIGIN = 'http://localhost';
@@ -78,21 +79,15 @@ export async function claimUniverse(
   universe: string,
   email: string,
 ): Promise<string | null> {
-  const resp = await browser.fetch(`${ORIGIN}${PREFIX}/claim-universe`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug: universe, email }),
+  // Delegates to the vitest-free core in ./lib/email-login so the Node harness and these
+  // vitest helpers can't drift apart on endpoint shape or 409 semantics. The 409 rule lives
+  // there: slug already claimed → null, so the caller falls through to an ordinary login.
+  const magicLinkUrl = await requestUniverseClaim({
+    baseUrl: ORIGIN, universe, email, fetchImpl: browser.fetch,
   });
-  // 409 = slug already claimed. Legitimate and common: one founder backing several clients
-  // (sibling-star fixtures) claims once, then re-logs-in. Return null so the caller falls
-  // through to an ordinary login. ⚠️ NOT swallowed silently — if the universe was claimed by a
-  // *different* email, no identity exists for this one and the login fails at consume (401 on
-  // refresh), which is the correct, visible outcome: that fixture needs an invite, not a claim.
-  if (resp.status === 409) return null;
-  expect(resp.status).toBe(200);
-  const { magicLinkUrl } = await resp.json() as any;
+  if (magicLinkUrl === null) return null;
   expect(magicLinkUrl).toBeDefined();
-  return magicLinkUrl;
+  return magicLinkUrl!;
 }
 
 /**
@@ -117,15 +112,11 @@ export async function bootstrapAdmin(
   }
   // Already claimed (this founder backing a second client, or a second Browser for the same
   // identity) — request a fresh login link for the existing identity and click that instead.
-  const mlResp = await browser.fetch(authUrl(`${universe}/email-magic-link?_test=true`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+  const magicLinkUrl = await requestMagicLink({
+    baseUrl: ORIGIN, authScope: universe, email, fetchImpl: browser.fetch,
   });
-  expect(mlResp.status).toBe(200);
-  const { magicLinkUrl } = await mlResp.json() as any;
   expect(magicLinkUrl).toBeDefined();
-  await browser.fetch(magicLinkUrl);
+  await browser.fetch(magicLinkUrl!);
 }
 
 /**
@@ -207,17 +198,13 @@ export async function browserLogin(
   // knowing: a leaked `NEBULA_AUTH_TEST_MODE` in a deployed worker would return magic links to
   // ORDINARY traffic, where the same leak in @lumenize/auth would only affect requests that
   // deliberately asked. The control that actually holds this line is `audit-test-mode.sh`.
-  const mlResp = await browser.fetch(authUrl(`${authScope}/email-magic-link`), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+  const magicLinkUrl = await requestMagicLink({
+    baseUrl: ORIGIN, authScope, email, fetchImpl: browser.fetch,
   });
-  expect(mlResp.status).toBe(200);
-  const { magicLinkUrl } = await mlResp.json() as any;
   expect(magicLinkUrl).toBeDefined();
 
   // Click magic link — browser captures Set-Cookie with path scope
-  await browser.fetch(magicLinkUrl);
+  await browser.fetch(magicLinkUrl!);
 
   // Refresh to get JWT
   return refreshToken(browser, authScope, activeScope ?? authScope);

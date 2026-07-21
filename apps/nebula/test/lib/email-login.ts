@@ -93,6 +93,74 @@ function setCookieHeaders(res: Response): string[] {
   return single ? [single] : [];
 }
 
+// ─── Shared primitives ────────────────────────────────────────────────────────
+// The vitest-free core. `test/test-helpers.ts` builds its `expect`-flavoured,
+// cookie-jar-based surface on top of these instead of re-implementing the HTTP
+// shapes — same endpoints, same 409 semantics, same host rewrite, one place.
+// Keep them free of `vitest` and `cloudflare:*` so the Node harness can use them.
+
+/**
+ * Point a magic link at `baseUrl`. The auth layer embeds its configured ISSUER origin in
+ * the link, which is not where we're driving against a local wrangler-dev or a proxy —
+ * GETting it as-sent leaves the stack under test. Only the host changes; the
+ * `one_time_token` query param carries the grant. No-op when the origins already match.
+ */
+export function pointLinkAt(baseUrl: string, link: string): string {
+  const target = new URL(baseUrl.replace(/\/$/, ''));
+  const out = new URL(link);
+  out.protocol = target.protocol;
+  out.host = target.host;
+  return out.toString();
+}
+
+/**
+ * POST `claim-universe` — the one open, founder-minting entry point. Returns the magic-link
+ * URL in test mode, `undefined` in email mode (the link arrives by email instead), or
+ * `null` when the slug is **already claimed** (409).
+ *
+ * ⚠️ 409 is legitimate and common, not an error: one founder backing several clients claims
+ * once, then re-logs-in. Callers fall through to an ordinary login. It is NOT silently
+ * swallowed — if the universe was claimed by a *different* email, no identity exists for
+ * this one and the login fails visibly at consume.
+ */
+export async function requestUniverseClaim(options: {
+  baseUrl: string; universe: string; email: string;
+  fetchImpl?: FetchLike; bypassToken?: string;
+}): Promise<string | null | undefined> {
+  const { baseUrl, universe, email, fetchImpl = fetch, bypassToken } = options;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
+  const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/claim-universe`, {
+    method: 'POST', headers, body: JSON.stringify({ slug: universe, email }),
+  });
+  if (res.status === 409) return null;
+  if (!res.ok) {
+    throw new Error(`claim-universe ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return ((await res.json()) as { magicLinkUrl?: string }).magicLinkUrl;
+}
+
+/**
+ * POST `email-magic-link` for an identity that already exists at `authScope`.
+ * Returns the link URL in test mode, `undefined` in email mode.
+ */
+export async function requestMagicLink(options: {
+  baseUrl: string; authScope: string; email: string;
+  fetchImpl?: FetchLike; bypassToken?: string;
+}): Promise<string | undefined> {
+  const { baseUrl, authScope, email, fetchImpl = fetch, bypassToken } = options;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
+  const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/${authScope}/email-magic-link`, {
+    method: 'POST', headers, body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    // 403 here usually means Turnstile blocked us — a missing/stale bypassToken.
+    throw new Error(`email-magic-link ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return ((await res.json()) as { magicLinkUrl?: string }).magicLinkUrl;
+}
+
 /**
  * Log in for real: POST the magic-link request → catch the email via the
  * email-test Worker → GET the link → capture the `refresh-token` cookie.
@@ -115,34 +183,11 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
   // already-connected sockets and never replays stored mail.
   const waiter = waitForEmail({ testToken, instance: authScope, to: email, timeout });
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
+    await requestMagicLink({ baseUrl: origin, authScope, email, fetchImpl, bypassToken });
 
-    const res = await fetchImpl(`${origin}/auth/${authScope}/email-magic-link`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ email }),
-    });
-    if (!res.ok) {
-      // 403 here usually means Turnstile blocked us — a missing/stale bypassToken
-      // against an environment that has Turnstile ON.
-      throw new Error(`email-magic-link ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    }
-
-    const link = extractMagicLink(await waiter.emailPromise);
-    // Re-point the link at `baseUrl`. LumenizeAuth embeds the configured ISSUER origin
-    // (e.g. nebula.lumenize.com) in the emailed link, which is NOT where we're driving
-    // when that's a local wrangler-dev or a proxy — GETting it as-sent leaves the stack
-    // under test entirely and comes back a 301 with no cookie. Only the host changes; the
-    // `one_time_token` query param is what carries the grant. No-op against prod, where
-    // the issuer origin already equals baseUrl.
-    const target = new URL(origin);
-    const localLink = new URL(link);
-    localLink.protocol = target.protocol;
-    localLink.host = target.host;
-
+    const link = pointLinkAt(origin, extractMagicLink(await waiter.emailPromise));
     // `manual` so we can read Set-Cookie: the 302 Location is a client-side route.
-    const linkRes = await fetchImpl(localLink.toString(), { redirect: 'manual' });
+    const linkRes = await fetchImpl(link, { redirect: 'manual' });
     const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
     if (!refreshToken) {
       // Say WHY, not just "no cookie". `Location` carries the auth layer's own error code
@@ -153,7 +198,7 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
       throw new Error(
         `magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
         `Location=${linkRes.headers.get('Location') ?? '(none)'}; Set-Cookie names=${others}; ` +
-        `origin=${target.protocol}//${target.host}`,
+        `origin=${new URL(origin).origin}`,
       );
     }
 
@@ -218,9 +263,6 @@ export async function provisionAndLogin(
   const email = options.email ?? uniqueTestEmail();
   const origin = baseUrl.replace(/\/$/, '');
   const [universe, galaxy, star] = scope.split('.');
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
-
   // 1. Claim the universe. Open + Turnstile-only, and the ONLY thing here that mints an
   //    identity — it also issues the magic link, so no separate email-magic-link call.
   const useEmail = (options.channel ?? 'email') === 'email';
@@ -229,30 +271,27 @@ export async function provisionAndLogin(
     : undefined;
   let session: EmailSession;
   try {
-    const claim = await fetchImpl(`${origin}/auth/claim-universe`, {
-      method: 'POST', headers, body: JSON.stringify({ slug: universe, email }),
-    });
-    if (!claim.ok) {
-      throw new Error(`claim-universe ${claim.status}: ${(await claim.text()).slice(0, 200)}`);
+    const claimed = await requestUniverseClaim({ baseUrl: origin, universe, email, fetchImpl, bypassToken });
+    let rawLink: string | undefined;
+    if (claimed === null) {
+      // Already claimed — fall through to an ordinary login for the existing identity.
+      rawLink = await requestMagicLink({ baseUrl: origin, authScope: universe, email, fetchImpl, bypassToken });
+    } else {
+      rawLink = claimed;
     }
     let link: string;
     if (useEmail) {
-      link = extractMagicLink(await waiter!.emailPromise);
+      link = pointLinkAt(origin, extractMagicLink(await waiter!.emailPromise));
     } else {
-      const body = await claim.json() as { magicLinkUrl?: string };
-      if (!body.magicLinkUrl) {
+      if (!rawLink) {
         throw new Error(
-          "channel 'test-mode' but claim-universe returned no magicLinkUrl — " +
+          "channel 'test-mode' but no magicLinkUrl came back — " +
           'NEBULA_AUTH_TEST_MODE must be "true" on the worker for this channel',
         );
       }
-      link = body.magicLinkUrl;
+      link = pointLinkAt(origin, rawLink);
     }
-    const target = new URL(origin);
-    const localLink = new URL(link);
-    localLink.protocol = target.protocol;
-    localLink.host = target.host;
-    const linkRes = await fetchImpl(localLink.toString(), { redirect: 'manual' });
+    const linkRes = await fetchImpl(link, { redirect: 'manual' });
     const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
     if (!refreshToken) {
       throw new Error(
