@@ -51,35 +51,37 @@ The inherited premise does not survive contact with its own provenance:
 
 Provenance being broken does not by itself prove ~8 s never happened somewhere — but it is not reproducible in this apparatus, and it should not have been load-bearing.
 
-### Refinement: ~8 s wasn't invented — but its stated *mechanism* was exactly backwards
+### Refinement: where the ~8 s actually goes (measured twice; I mis-attributed it twice first)
 
-A cold prod login really does land near 8 s. Decomposed (2026-07-21, `nebula.lumenize.com`, Cloudflare send path):
+⚠️ **This section has been wrong two ways already — read the numbers, not a narrative.** First I said "the ~8 s was never real"; then "it's cold-start-bound, not email-bound". A controlled probe says both were wrong.
 
-| Phase | Cold | Warm (n=3) |
+**The probe.** `discover` hits the *same* registry DO with **no email send**, so it isolates DO wake from send cost:
+
+| Probe | First-after-idle | Warm |
 |---|--:|--:|
-| `POST /auth/{scope}/email-magic-link` — server handler | **7245 ms** | **1191 / 1222 / 2790 ms** |
-| email delivery *after* that POST returned | **0 ms** | **0 / 0 / 1 ms** |
-| `GET` magic link → 302 + cookie | 1242 ms | — |
-| `POST /refresh-token` → JWT | 71 ms | — |
-| **Total** | **8558 ms** | — |
+| `discover` — same registry DO, no email | 3030 ms | 40 / 46 / 68 ms |
+| `email-magic-link` — **on an already-warm DO** | **6995 ms** | 1226 / 1326 ms |
 
-Two things fall out, and both contradict the original claim:
+**What that establishes:**
 
-1. **The email is not the cost. It is not even measurable at this resolution.** Delivery completes *inside* the POST handler's own window — the mail was already at the email-test Worker before the HTTP response came back, every single run. So the ADR's *"it's **email-pipeline-bound**, not cold-start"* is precisely inverted: it is **cold-start-bound, and not email-bound at all.**
-2. **Warm is ~4-6× faster than cold**, which directly falsifies the companion claim *"warm and cold both land at ~8s"*. Warm steady-state for the whole login is ≈ 2.5 s, and the magic-link handler alone is ~1.2 s — matching the ~1.4 s the local test lanes measure for the same span, since that span *is* the handler.
+1. **The registry DO is not the cost.** Warm, it answers in ~50 ms; even its cold wake is ~3 s, and the 7 s magic-link ran *after* the DO was already warm.
+2. **The cost is the email-send path's FIRST CALL AFTER IDLE — ~7 s, recovering to ~1.2 s.** Reproducible across two rounds ~15 min apart (7245 ms, then 6995 ms).
+3. **Delivery is still ~0 ms.** The mail is at the email-test Worker before the POST returns, every run — so this is the *send* going slow, not the pipeline behind it.
 
-So the corrected picture, by scenario:
+So ADR-009's *"email-pipeline-bound"* was closer to right than my correction was; what it got wrong is *"warm and cold both land at ~8s"* — warm is ~6× faster.
+
+**Costs by scenario (use the row that matches):**
 
 | Scenario | Cost |
 |---|--:|
-| Cold standalone prod login (a human running one harness command) | **~8.5 s** |
-| Warm prod login | **~2.5 s** |
+| First magic-link after the send path has been idle | **~7 s** |
+| Warm magic-link (prod) | **~1.2 s** |
 | In-suite loop, first email in a fresh run | **~1.4 s** |
 | In-suite loop, each additional login | **~0.9 s** |
 
-The ADR measured the top row and cited it for a claim about the bottom row. And **"is it different between Resend and Cloudflare?" — no, and it cannot be**: the provider only touches a phase that costs ~0 ms here, and the two providers measured identically (1451 vs 1400 ms) when isolated. Whatever the ~7 s cold POST is doing, it is auth/DO work, not email.
+⚠️ **Still unexplained, and worth chasing: what takes ~7 s inside that first send?** The registry is warm and delivery is instant, so the candidates are the `AUTH_EMAIL_SENDER` service-binding hop and `env.EMAIL.send()` itself. Isolating further needs server-side timing (the endpoint already logs under `DEBUG=nebula-auth`), not more black-box probing. **This is the unauthenticated signup endpoint**, so ~7 s is a real first-impression cost. Backlog item filed.
 
-⚠️ **That cold handler is worth its own look** — 7.2 s of server-side work on the unauthenticated magic-link endpoint is a real user-facing first-impression cost, and it is now measured rather than assumed. Out of scope here; noted in the backlog.
+**Does the provider matter? No.** Both measured identically in isolation (1451 vs 1400 ms), and the CF `send_email` binding is what shows the 7 s — a Resend comparison of the *cold send* has not been run and is the obvious next probe if this is chased.
 
 ---
 
