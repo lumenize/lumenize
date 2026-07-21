@@ -62,7 +62,8 @@ export interface CreateNebulaTestTokenOptions {
    *
    * ⚠️ **The bit alone no longer enables the scope-admin bypass** — the guards confine it to the
    * callee node via `hasAdminOverScope`, so what actually decides is whether `authScopePattern`
-   * (derived from `instanceName`, or overridden) covers the node being called. A token minted with
+   * — which this factory always derives from `instanceName`, exposing no override — covers the node
+   * being called. A token minted with
    * `isAdmin: true` at a STAR `instanceName` gets an exact-star pattern and is therefore NOT an
    * admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose authority you
    * actually want. See tasks/nebula-confine-admin-bypass.md.

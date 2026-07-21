@@ -291,11 +291,7 @@ export class ResourceDataPlane {
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
    * is confinement point 1. So the platform-seed path (DevStudio's `ensureSession` running under
    * the admin's call) is admitted **iff that admin's `authScopePattern` covers THIS host** — the
-   * same rule as every other caller.
-   * ⚠️ The previous wording — "the `access.admin` bypass covers the platform-seed path" — appealed
-   * to the bare bit, which was authority anywhere. That is precisely the reasoning
-   * tasks/nebula-confine-admin-bypass.md removes: state the enforced invariant (it inherits
-   * `requirePermission`), never an incidental property.
+   * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
    */
   async ensureResource(
     resourceId: string, typeName: string, nodeId: string, value: Record<string, unknown>,

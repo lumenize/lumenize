@@ -10,11 +10,19 @@
  * mutation-check; this is the end-to-end, real-WS confirmation the bootstrap-array `*` promotion
  * feeds it.)
  *
- * ⚠️ This scenario stays green under the confinement (tasks/nebula-confine-admin-bypass.md) for a
- * reason worth stating, because it is no longer the reason the prose implied: the bypass is now
- * granted only when `authScopePattern` covers the callee node, and `*` covers every node. So this
- * exercises the **covering-admin** side of the predicate. It is NOT evidence that a bare
- * `access.admin` bit grants reach — swap the `*` for a narrower pattern and the same op is denied.
+ * ⚠️ This scenario stays green under the confinement (tasks/nebula-confine-admin-bypass.md), and the
+ * reason is worth stating precisely: the bypass is now granted only when `authScopePattern` covers
+ * the **callee node**, and `*` covers every node. So this exercises the **covering-admin** side of
+ * the predicate — it is not, on its own, evidence about the non-covering side.
+ *
+ * ⚠️ **Do NOT read that as "narrow the pattern here and the op is denied."** You cannot produce a
+ * denial by narrowing through this harness: `connectDriver` mints with
+ * `instanceName: opts.issuerInstanceName ?? scope` (harness.ts), so narrowing the scope narrows the
+ * pattern in lockstep and it still covers the callee; and `buildNebulaJwtPayload` throws unless
+ * `aud ⊆ authScopePattern`, so a token whose pattern misses its own aud is unmintable. The shape
+ * that IS denied is a pattern covering the token's own `aud` but **not the node it calls** — reach
+ * it by setting `issuerInstanceName` strictly below the node under test. That escalation shape is
+ * covered by scope-isolation.test.ts's `/delegated-token` tests, not here.
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';

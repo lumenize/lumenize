@@ -331,12 +331,30 @@ export async function handleDelegatedToken(
 
   // activeScope must be within the CALLER's own verified reach (the escalation fix — never derive the
   // grant from the acted-for target or the issuing scope).
+  //
+  // ⚠️ **This is an UPPER bound, and that is CORRECT — do not "fix" it.** It stops widening; it
+  // deliberately permits NARROWING, which is the endpoint's entire purpose (the mint below binds the
+  // new token to the REQUESTED scope, not the caller's — see `authScopePattern` at the mint, and the
+  // test "binds the minted token to the REQUESTED scope, not the caller pattern"). Forbidding
+  // narrowing would break least-privilege delegation; re-checking that the minted pattern is a
+  // subset of the caller's would be redundant, since narrowing already implies subset.
+  //
+  // Narrowing is nevertheless how the `access.admin` escalation was reachable: a `{u}.*` admin can
+  // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `enforceScopeReach`'s tenant branch then
+  // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
+  // never here; it was downstream, and it is fixed there** (`hasAdminOverScope` in `requireAdmin` /
+  // `requirePermission` / the subscribe-time writers). Post-fix the delegated token is denied on the
+  // ancestor and nothing is residual. See tasks/nebula-confine-admin-bypass.md § Decisions.
   if (!matchAccess(payload.access.authScopePattern, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
       `Requested scope "${body.activeScope}" exceeds the caller's reach "${payload.access.authScopePattern}"`);
   }
 
   // The ADMIN branch is the only surviving delegation path (the AuthorizedActor path is cut).
+  // ✅ CONFINED — by the `:334` gate immediately above, not by this bare read: the requested scope is
+  // already proven to be within the caller's reach, so `admin` here only asks "is the caller an admin
+  // at all". The pair is the `security.md` delegation rule-(2) site: bind the mint to the CALLER's
+  // covered scope + the CALLER's admin bit, never the acted-for target's.
   if (!payload.access.admin) {
     debug('nebula-auth.worker.delegated.denied').warn('Non-admin delegation attempt', {
       sub: payload.sub, targetSub: body.actFor,

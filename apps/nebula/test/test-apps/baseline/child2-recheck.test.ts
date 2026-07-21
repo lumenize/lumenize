@@ -134,8 +134,19 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
     // bootstrap email is the one production path to a second `access.admin` here, and it reaches
     // this Star because `*` covers every scope.
-    const { client: uni } = await createPlatformAdminClient(
+    const { client: uni, payload: uniPayload } = await createPlatformAdminClient(
       NebulaClientTest, new Browser(), star);
+    // Fixture guards — BOTH premises this test rests on, neither previously pinned:
+    //   (1) it really is a scope-admin whose pattern covers this Star (else the stored verdict is
+    //       0 and the push below would be explained by something other than the bypass);
+    //   (2) it really holds NO DAG grant — that rests entirely on the implicit ordering that
+    //       `founder(star)` ran first and set the `__nebula_rootAdminSeeded` latch. If this
+    //       identity ever acquired a root grant, the test would stay green while the bypass it
+    //       exists to prove went untested.
+    expect(uniPayload.access?.admin).toBe(true);
+    expect(uniPayload.access?.authScopePattern).toBe('*');
+    admin.callStarGetEffectivePermission(star, ROOT_NODE_ID, uniPayload.sub);
+    expect(await waitForSuccess(admin)).toBeNull(); // no DAG grant of its own
     uni.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
     await waitForUpdateCount(uni, 1);
 

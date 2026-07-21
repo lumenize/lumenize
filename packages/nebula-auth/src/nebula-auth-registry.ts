@@ -402,8 +402,10 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
     // ✅ SELF-CONFINING — the bare bit is safe here because it is not the authority decision; the
-    // QUERY is. Every branch below derives its WHERE clause from `authScopePattern`, so the result
-    // set can never exceed the caller's own reach no matter what `admin` says. The bit only decides
+    // QUERY is. Every branch below is BOUNDED BY `authScopePattern`, so the result set can never
+    // exceed the caller's own reach no matter what `admin` says: the `*` branch selects every scope
+    // (correct — `*` reach IS every scope), and the other two bind `${prefix}` / `${pattern}`
+    // (slugs are `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible). The bit only decides
     // "is this principal an admin at all", and a non-admin gets `[]`. Confining it against a node
     // would be meaningless: this method has no callee node — it spans the caller's whole subtree.
     if (!callerAccess?.admin) return [];

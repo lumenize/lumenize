@@ -19,7 +19,13 @@ export { buildNebulaJwtPayload, buildNebulaAccessEntry } from './access-claims';
 export type { NebulaAccessClaimInput } from './access-claims';
 
 // Pure scope-parsing / access-matching helpers a harness uses to derive + assert scopes.
-export { parseId, isValidSlug, isPlatformInstance, getParentId, buildAuthScopePattern, matchAccess } from './parse-id';
+// `hasAdminOverScope` is exported here too — a Node harness reasoning about admin authority must
+// never re-inline the `admin && matchAccess(...)` conjunction this task collapsed to one predicate
+// (ADR-007, one guard path / one place to audit).
+export {
+  parseId, isValidSlug, isPlatformInstance, getParentId, buildAuthScopePattern, matchAccess,
+  hasAdminOverScope,
+} from './parse-id';
 
 // Types + constants needed to build/inspect tokens.
 export type { AccessEntry, NebulaJwtPayload, Tier, ParsedId } from './types';
