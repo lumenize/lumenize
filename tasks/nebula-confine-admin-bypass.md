@@ -1,10 +1,14 @@
 # Confine the `access.admin` bypass to the DO it actually covers
 
-**Status:** ACTIVE — **security fix; reachable today via `/delegated-token`, and bounded.** A caller who already holds ancestor authority can mint a *deliberately narrowed* token that still acts as admin on the ancestor — so what is defeated is **voluntary scope-reduction**, not stranger-gains-power. The surface widens sharply in the next two tasks. Surfaced 2026-07-19 by the `/review-task` framing panel on [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) (finding B1); reachability re-derived twice by this file's own framing panels (two earlier revisions got it wrong in both directions — see *How this is reachable today*).
+**Status:** ✅ **DONE 2026-07-21 — all four phases built, verified, and committed** (`84d3510` guards + lane, `e75731b` annotations, `b16d845` verifier fixes). 405 passed / 1 skipped in `apps/nebula` (baseline + dev-studio + unit), 196/197 in `packages/nebula-auth`, type-check clean. **The hole described below is CLOSED** — the past-tense sections are kept because the reasoning is load-bearing for the tasks this one gates, not because anything is outstanding.
+
+⚠️ **Releases both dependents:** [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) Phase 1 and [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md). Neither is gated any more.
+
+*History:* surfaced 2026-07-19 by the `/review-task` framing panel on identity-mint (finding B1). Reachability was re-derived twice by this file's own framing panels — two revisions got it wrong in opposite directions before landing on `/delegated-token` narrowing as the real vector (see *How this was reachable*). The generalized invariant is now **ADR-015** (scope authority flows strictly downward).
 
 **Objective:** an `access.admin` caller must be treated as admin **only on nodes its `authScopePattern` actually covers.** Two guards — and one *stored copy* of the admin bit — trust the bare `admin` flag with no reference to *which DO they are running in*, so an admin of a child scope acts as admin on its ancestors.
 
-## The bug
+## The bug (fixed — past tense throughout)
 Admission and authority are decided by two different checks, and only the first considers the DO's identity.
 
 **Step 1 — admission.** `enforceScopeReach` ([nebula-do.ts:66-101](../apps/nebula/src/nebula-do.ts)) accepts a call iff **either** the caller is an `access.admin` whose pattern covers this DO's name (`:89`), **or** the caller's `aud` falls under this DO's scope (`:98`, the tenant branch). A Galaxy-scoped caller reaching the **Universe** DO:
@@ -42,7 +46,7 @@ So: **both halves arm on the first freely-mintable sub-universe admin** (identit
 
 The collapse's escalation reads: `buildAuthScopePattern('{u}.{g}')` = `{u}.{g}.*` ([parse-id.ts:118](../packages/nebula-auth/src/parse-id.ts)) → the tenant branch admits a caller with `aud={u}.{g}.dev`; their star-tier pattern is the *exact id* (`:117`) so the reach branch never fires — admitted purely as a tenant, then `dag-tree.ts:159` hands them admin over the whole Galaxy chat DAG (`ROOT_NODE_ID`, `SESSION_NODE_ID`, cascading write).
 
-### How this is reachable today
+### How this WAS reachable (pre-fix)
 ⚠️ **`authScopePattern` is not minted by `#mintIdentity`.** Two earlier revisions of this file enumerated the three `#mintIdentity` call sites, found only universe-tier (`{u}.*`) and platform (`*`) admins, and concluded "unreachable." That is the wrong enumeration: the pattern comes from `mintAccessToken`'s **explicit override**, and exactly one caller sets it independently — `handleDelegatedToken` ([worker-token.ts:345-351](../packages/nebula-auth/src/worker-token.ts)).
 
 `/delegated-token` ([router.ts:49](../packages/nebula-auth/src/router.ts), reachable from `apps/nebula` via `entrypoint.ts:110`) is gated only by an **upper** bound — `matchAccess(caller.authScopePattern, activeScope)` at `:324` — which permits arbitrary **narrowing**. A `{u}.*` admin requesting `activeScope={u}.{g}` gets back `aud={u}.{g}`, `authScopePattern={u}.{g}.*`, `admin: true`: exactly the §A principal. This is shipped, tested behavior — [nebula-auth-delegation.test.ts](../packages/nebula-auth/test/nebula-auth-delegation.test.ts) *"binds the minted token to the REQUESTED scope, not the caller pattern"* asserts precisely that token shape.
