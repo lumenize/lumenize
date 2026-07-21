@@ -1,6 +1,6 @@
 # Star self-signup — a real founder, with no admin in the loop
 
-**Status:** 🚧 **DRAFT — NOT reviewed.** Pivoted with Larry 2026-07-21 (see *The business decision*), superseding an earlier draft of this file that routed signup through a Galaxy admin. **Do not `/build-task` this file** — it needs `/review-task`, and it carries one **open blocker** (§Upward visibility) that must be pinned first.
+**Status:** 🚧 **DRAFT — NOT reviewed.** Pivoted with Larry 2026-07-21 (see *The business decision*), superseding an earlier draft of this file that routed signup through a Galaxy admin. **Do not `/build-task` this file** — it needs `/review-task` first.
 
 **Objective:** anyone can sign up for a Star and become its **founder** — an identity minted at the star with `isAdmin: true` and an **exact-star** `authScopePattern` — with **no Galaxy or Universe admin involved in the flow at any point**.
 
@@ -14,7 +14,7 @@ The instinct to reject this — *"a rando can create something inside someone el
 |---|---|
 | **Star founder gets** | complete control of their Star — **non-exclusive**: Galaxy, Universe, and super admins all sit above them |
 | **Star founder gets NO** | ability to **affect** anything at Galaxy or Universe level |
-| **Star founder gets NO** | ability to **see** anything at Galaxy or Universe level |
+| **Star founder sees** | only what it needs above it — the surface is whatever the `@mesh` guards on the Galaxy/Universe methods expose (§Upward visibility). *Not* "nothing": the Star legitimately reads its app's ontology from the Galaxy. |
 | **Cleanup** | the Galaxy/Universe admin can delete the Star afterwards — remediation, not prevention |
 
 ⚠️ **Do not reintroduce an approval step, an invite code, or an admin-in-the-loop as a "safety" measure.** If a specific abuse (quota, spam) needs bounding, bound *that*, and say so explicitly — do not convert the flow back into an authorized one.
@@ -25,23 +25,25 @@ The instinct to reject this — *"a rando can create something inside someone el
 
 After the confinement, `hasAdminOverScope(access, <callee node>)` is false for an exact-star pattern at any ancestor, so the "gets NO ability to **affect**" row above is enforced by construction. That is why the ordering is hard: **confine → star-founder → re-ground fixtures.**
 
-## ⚠️ OPEN BLOCKER — the "see" half is NOT satisfied today
+## Upward visibility — the mechanism already exists; audit the allocation
 
-The confinement closes *affect*. It does **not** close *see*, and the difference is load-bearing for an open-signup model where the tenant is an untrusted stranger.
+**Refined with Larry 2026-07-21.** The requirement is *not* "a Star sees nothing above it" — that would break the ontology path the Star depends on. It is: **a Star sees only what it needs, and that surface is controlled by the `@mesh` guards on the Galaxy/Universe methods.**
 
-A star-scoped caller (`aud = {u}.{g}.{s}`, exact-star pattern) is still **admitted** to its ancestors by `enforceScopeReach`'s tenant branch — `buildAuthScopePattern('{u}.{g}')` is `{u}.{g}.*`, which covers the star's aud — and can call every **non-admin** `@mesh()` method there. Verified against source 2026-07-21:
+So there is **no new gating mechanism to design.** `@mesh()` vs `@mesh(requireAdmin)` *is* the control, per method, and it already partitions the surface. The confinement closes *affect*; the guards decide *see*.
 
-| Node | Method | Verdict |
+What a star-scoped caller (`aud = {u}.{g}.{s}`, exact-star pattern) can reach: it is admitted to its ancestors by `enforceScopeReach`'s tenant branch (`buildAuthScopePattern('{u}.{g}')` is `{u}.{g}.*`, which covers the star's aud), and may call every **non-admin** `@mesh()` method there. Verified against source 2026-07-21:
+
+| Node | Method | Assessment |
 |---|---|---|
-| Galaxy | `getLatestOntologyVersion` / `getOntologyVersion` / `listOntologyVersions` | **legitimate** — the Star needs its app's schema; the Star already fetches the Galaxy-cached ontology row |
-| Galaxy | `getGalaxyConfig` | **leak?** — the app developer's config, readable by every tenant |
-| Universe | `getUniverseConfig` | **leak?** — the universe owner's config, readable by every tenant |
+| Galaxy | `getLatestOntologyVersion` / `getOntologyVersion` / `listOntologyVersions` | **Required** — the Star needs its app's schema; it already fetches the Galaxy-cached ontology row |
+| Galaxy | `getGalaxyConfig` | **Probably fine** (Larry's lean) — depends on what apps put in it |
+| Universe | `getUniverseConfig` | **Probably fine** (Larry's lean) — same |
 
-**So the fix is NOT "close the tenant branch"** — that would break the ontology path the Star depends on. The decision to pin is *which* upward reads are part of the contract and which are not. Candidate shapes (for review):
-- Split the Galaxy surface: an explicit **tenant-facing** read set (ontology) vs. an **owner-facing** set (config), gated separately — the honest fix, and it generalizes.
-- Or: keep the tenant branch for descendants but require an explicit per-method opt-in (`@mesh({ tenantReadable: true })`), making the surface allow-list-shaped rather than deny-list-shaped.
+⚠️ **The work is a CONTENT audit, not an architecture change** — confirm nothing sensitive to the app developer or universe owner lives in those two config blobs, and that nothing is *expected* to later. If something is, the fix is to move that field or split the method, **not** to narrow the tenant branch.
 
-⚠️ **This revisits a warning in the gating task.** [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) says *"Do NOT fix this by tightening `enforceScopeReach`'s tenant branch — narrowing it would change non-admin reach as a side effect."* That warning was written when upward non-admin reach was assumed benign. **Open self-signup changes that assumption** — the descendant is now an untrusted stranger. The warning still holds for *this* task's scope (don't fix an authority bug by breaking admission), but the underlying question is genuinely reopened, and reopening it is in scope **here**.
+⚠️ **The current allocation is incidental, not deliberate.** Those methods were marked `@mesh()` before open self-signup existed as a model, so "non-admin" then meant "another member of the same org," not "an untrusted stranger who signed up five minutes ago." Re-confirm each one against the new meaning and **write the reason down** — an allocation that is merely inherited is the same class of latent trap the gating task spent its whole length removing.
+
+✅ **The gating task's warning still stands and is not reopened.** [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) says *"Do NOT fix this by tightening `enforceScopeReach`'s tenant branch."* That holds: the tenant branch is admission, the guards are authority, and the fix for any over-broad read is the guard on that method — not admission.
 
 ## Why there is no `claimStar`-shaped hole to worry about
 
@@ -62,7 +64,7 @@ The second is live today: `Star.onBeforeCall` seeds the DAG root admin for *"the
    ⚠️ **The founder is the SIGNING-UP USER**, never a Galaxy admin acting on their behalf. The `email` above is the stranger's.
 2. **Single-use claim token** — reuse `InviteTokens` verbatim (opaque, hashed, single-use, emailed link). Larry's "pre-stamp with a temporary token only used until claimed" **is** this mechanism; it already exists, so this is composition, not new machinery. It proves email ownership; it is **not** an authorization step.
 3. **Pre-stamp the DAG root admin** from the signup flow instead of first-touch, retiring the `__nebula_rootAdminSeeded` latch.
-4. **Resolve §Upward visibility** — the open blocker.
+4. **Audit §Upward visibility** — confirm the non-admin `@mesh()` allocation on Galaxy/Universe is deliberate under the new stranger-tenant meaning, and record the reason.
 
 ## Decisions
 | Decision | Rejected alternative — why |
@@ -75,7 +77,7 @@ The second is live today: `Star.onBeforeCall` seeds the DAG root admin for *"the
 | Pre-stamp the DAG root admin | Keeping first-touch — a documented race with its own test, and the signup flow *knows* the founder, so first-touch is strictly worse information. |
 
 ## Open questions for `/review-task`
-1. **§Upward visibility** — which Galaxy/Universe reads are tenant-facing? (blocker)
+1. **§Upward visibility** — a CONTENT audit of `getGalaxyConfig` / `getUniverseConfig`, plus writing down why each non-admin `@mesh()` on Galaxy/Universe is deliberately tenant-readable.
 2. **Does the Galaxy get a say at all?** The business decision says no *approval*, but an app developer plausibly wants signup **disabled** for a private app. Is that a Galaxy config flag (still no per-signup admin action), or is signup unconditionally open? These are different products; pin one.
 3. **Abuse bounding** — is anything needed at pre-alpha beyond "the admin can delete it"?
 4. **What creates the `Scopes` row?** `createStar` is admin-gated in-method ([:383](../packages/nebula-auth/src/nebula-auth-registry.ts), verified) and is therefore **not** the path — the open signup flow needs its own registry entry point that mints scope + founder together. Confirm no caller depends on `createStar` remaining the only star-creating path.
