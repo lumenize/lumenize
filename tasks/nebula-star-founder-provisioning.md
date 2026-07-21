@@ -1,15 +1,16 @@
 # Star self-signup — open signup, a real founder, no admin in the loop
 
-**Status:** 🚧 **DESIGN PINNED 2026-07-21 — SEVEN phases (1a, 1b, 2, 3, 4, 5, 6), each with capable-of-failing criteria.** Three Stage-1 framing passes have run; findings folded in (the citation blocker fixed, the 7-site stale sweep landed).
+**Status:** 🚧 **DESIGN PINNED 2026-07-21 — Phase 2, the headline capability, is now UNBLOCKED.** Three Stage-1 framing passes have run; findings folded in (the citation blocker fixed, the missing Turnstile gate caught, the 7-site stale sweep landed). Larry pinned three scope calls 2026-07-21: **Phase 4 cut**, **`signupPolicy` moved wholly to Phase 6**, **a minimal signup UI added as Phase 4b, served from Galaxy**.
 
 **Build order — derive it from the ⛔ markers, not from this summary:**
-| Buildable today | Blocked |
+| | Phases |
 |---|---|
-| **1a** (deletion authorization), **1b** (warning schema), **5** (visibility audit) | **2** ⛔ OQ 1c · **3** ⛔ depends on Phase 2 · **4** ⛔ OQ 1b · **6** ⛔ depends on Phase 2 |
+| **Buildable today** | **1a** (deletion authorization) · **2** (the signup endpoint) · **5** (visibility audit) |
+| **Blocked on a decision** | **1b** ⛔ OQ 1e (`lastLogin` mechanism) |
+| **Blocked on a phase** | **3** and **6** ⛔ depend on Phase 2 · **4b** ⛔ depends on [collapse](nebula-galaxy-collapse-and-chat.md) Phase 3 |
+| **Cut** | ~~4~~ — resolved by pinning; see §The DAG root grant |
 
-⚠️ **Phase 3 is transitively blocked** — it re-grounds fixtures onto *star founders*, and nothing but Phase 2's `claim-star` can mint one (`createStar` writes a `Scopes` row with no founder; login never mints). It is also the phase that touches the most surface (78 call sites), so it is worth scheduling the moment Phase 2 lands. Run `/review-task` Stage 2 (conformance) before `/build-task`.
-
-**Objective:** anyone can sign up for a Star and become its **founder** — an identity minted at the star with `isAdmin: true` and an **exact-star** `authScopePattern` — with **no Galaxy or Universe admin involved in the flow at any point**.
+⚠️ **Phase 3 is the big one** (78 call sites / 39 files) and is transitively blocked — nothing but Phase 2's `claim-star` mints a star founder. Schedule it the moment Phase 2 lands. Run `/review-task` Stage 2 (conformance) before `/build-task`.
 
 ## The business decision (pinned 2026-07-21, Larry)
 
@@ -70,7 +71,7 @@ The founder's **first authenticated touch** has everything: `aud` = their star, 
 1. If the caller is the Star's **founder**, seed them. (Self-signup tenants own their own Star's root, rather than whichever covering admin happened to touch first.)
 2. Otherwise fall back to the **current** `hasAdminOverScope` gate, unchanged — so admin-created and `.dev` Stars keep seeding exactly as they do today.
 
-**Pin the founder-marker mechanism in review.** The registry already knows who the founder is (it minted them); the cheap route is a marker on the `Identities` row carried into the access claim, which `access-claims.ts` already builds from that row. If that is rejected, choose explicitly between (a) fallback-only — i.e. accept that a covering admin may win the root grant on a self-signup Star, which is benign since they can re-grant it — and (b) a registry lookup from the Star.
+✅ **PINNED 2026-07-21 (Larry): option (a), fallback-only — NO founder marker, and no Phase 4.** The seed gate is already sufficient: `hasAdminOverScope(claims?.access, this.lmz.instanceName)` is **TRUE for an exact-star founder on their own Star**, so post-Phase-2 the founder self-seeds on their first touch with **zero new code**. A marker would change the outcome in exactly one case — a covering Galaxy/Universe admin touches the Star *before* the founder ever logs in — and that case is benign **and doubly self-healing**: the admin can re-grant, and the founder's own exact-star `access.admin` clears `requirePermission` on their own Star, so they can grant themselves root unaided. Against that, a marker costs a column on `Identities` (a migration) threaded through `access-claims.ts` into the JWT. Not worth it. ⇒ **Rule: keep `Star.onBeforeCall`'s existing gate exactly as it is.** Reversible if the race ever proves non-benign.
 
 ⚠️ **State the rule host-generically, not Star-specifically.** The collapse lands the first DagTree on the non-Star host `{u}.{g}`, and the pending DataPlane lift moves this seed off Star entirely — so express it against `this.lmz.instanceName`, never a tier special-case. Same cost, no drift.
 
@@ -92,7 +93,13 @@ That is the seam: the 80% case is free and identical across every app; the 20% w
 
 ⇒ **Two consequences.** (1) The **read** (this task) and the **write** (admin UI to toggle it) are separate phases — do not smuggle a schema migration + endpoint + client + UI into the read. (2) This punctures the *"no new mechanism and no new test scaffolding"* claim made for Option A: that claim is true of the **signup flow itself**, which genuinely reuses `claim-universe`'s machinery — it is **not** true of `signupPolicy`. Keep the two claims separate.
 
-🚨 **PIN the default-on-absent, and pin it CLOSED.** Every pre-existing Galaxy row predates the column, so it reads NULL. If NULL means *open*, **shipping this silently flips every existing Galaxy to accepting public signups** — a security change nobody opted into, delivered by a migration. The safe default is **closed on absent**, with opening it an explicit act by the Galaxy admin. ⚠️ That trades against the pinned business decision (signup is the product and should be on by default), so it is a genuine decision, not a formality: *default-closed for pre-existing Galaxies, default-open for newly created ones* is a defensible split — but it must be **written down**, not left to the implementer's reading of NULL.
+✅ **PINNED 2026-07-21 (Larry): `signupPolicy` is ENTIRELY Phase 6 — read and write together. It does not gate Phase 2.**
+
+⚠️ **An earlier revision of this section argued the opposite, on a premise that was simply false.** It claimed shipping open *"silently flips every existing Galaxy to accepting public signups — a security change nobody opted into."* That describes retrofitting a policy onto an **already-open** flow. It is not this: `claim-star` **does not exist**, so **today zero Galaxies accept Star self-signup**. Landing the endpoint open is the feature arriving exactly as pinned — not a posture regression. Do not reintroduce the default-closed argument on that footing.
+
+⇒ Two consequences. (1) **The field has no consumer of any kind** — `grep -rn signupPolicy packages/ apps/` returns **nothing**: no column, no test, no reader — so building the read first is a capability with no consumer, and per the YAGNI rule that is exactly the flag-worthy case. (2) A field defaulting **closed** with its write path in the **last** phase ships the primary product flow **dark, with no way to turn it on** — a Galaxy admin who must act before any stranger can sign up, which directly contradicts this file's own Objective (*"no Galaxy or Universe admin involved in the flow at any point"*) and weakens the get-paid path.
+
+The seam argument above **stands and is worth keeping** — it is why the field belongs on the `Scopes` row rather than in app code. It is just not built until it has a consumer.
 
 ## ⚠️ Remediation — a PREREQUISITE, not a follow-up
 
@@ -142,6 +149,9 @@ A star-scoped caller is admitted to its ancestors by `enforceScopeReach`'s tenan
 | Caller-chosen slug + **reserved-slug reject** | A server-minted opaque slug — kills squatting and the enumeration surface, but star ids stop being human-friendly and vanity slugs become their own feature later. |
 | Signup policy as **registry data** on the Galaxy's `Scopes` row | A policy hook calling into `apps/nebula` — forbidden direction. App code owning the flow — see Option A above. |
 | **Authority trickles DOWN: a covering admin may delete any descendant; warn, never block** | (a) The status quo, where a Star's members *veto* an admin above them — inverts the tier model. (b) A narrow "only if the Star has a single founder" carve-out — treats the symptom; the block is wrong for every descendant, not just that case. Restraint belongs in the UI warning, not the authorization. |
+| **Founder marker: NOT built — the existing seed gate suffices** | A marker on `Identities` threaded into the JWT. Rejected 2026-07-21: an exact-star founder already satisfies `hasAdminOverScope` on their own Star, so the marker buys only the covering-admin-touches-first race — benign and doubly self-healing — at the cost of a migration and a JWT-payload change. |
+| **`signupPolicy` is Phase 6 in full (read + write)** | Landing the read in Phase 2. Rejected 2026-07-21: the field has **zero** consumers today, and a closed default with the write path in the last phase ships the primary flow dark, contradicting the Objective. The premise that shipping open "flips existing Galaxies" was false — `claim-star` does not exist, so nothing is being flipped. |
+| **Minimal signup UI, served from Galaxy, after the collapse's serving phase** | (a) Building it in `nebula-studio-ui` — that is the user-developer control plane; a stranger has no business there. (b) Deferring the UI entirely — *"not having Star self-signup before caused us to work around its absence"* (Larry). (c) Building it before the collapse — would require standing up a Galaxy serving surface for signup alone. |
 | **Unblocking deletion is a PREREQUISITE** | Treating it as a follow-up — the business decision's own backstop depends on it. |
 | **One file, full product** — not a pre-alpha slice | Splitting pre-alpha (founder mint only) from alpha (the signup product). Rejected 2026-07-21: *"We have over-applied YAGNI. It's led us to build interims that are harder to overcome than if we had built it the way we think it will work best. Favor the goal, not the milestone."* ⚠️ **Tests are a consumer, and an interim built to make tests runnable ossifies nearly as hard as production code** — every test written against it must be unlearned too. Building the real flow means the tests drive the real flow. |
 
@@ -182,9 +192,7 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 ### Phase 2 — open signup endpoint on the registry router
 **Goal:** a stranger POSTs a slug + email and becomes the founder of that Star, with no admin involved.
 
-**Scope:** `Scopes` row + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; **Turnstile registration (below)**; `signupPolicy` **read only** (column + default-on-absent — the write path is Phase 6).
-
-⛔ **BLOCKED ON:** the `signupPolicy` default-on-absent decision (OQ 1c). Every pre-existing Galaxy row reads NULL, so the wrong default silently changes the security posture of every existing Galaxy via a migration. Do not start this phase until that is pinned.
+**Scope:** `Scopes` row + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; **Turnstile registration (below)**. ⛔ **NOT `signupPolicy`** — the whole field, read and write, is Phase 6 (§Signup policy). Phase 2 ships the flow **open**, which is the pinned business decision.
 
 🔒 **`claim-star` must join TWO sets in [router.ts](../packages/nebula-auth/src/router.ts), and only one of them is needed for the route to work.** `REGISTRY_ENDPOINTS` routes it; **`TURNSTILE_ENDPOINTS`** gates it. They are separate `Set`s about ten lines apart, and today `TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'discover'])` — **no `claim-star`**. ⚠️ This is the one place "shape-identical to `claim-universe`" **actively misleads**: `claimUniverse`'s own JSDoc says *"(open, Turnstile-gated at the Worker)"*, but the gate is registered somewhere the copied code does not live. An implementer who copies the registry method faithfully ships an **ungated open mutation endpoint that mints identities and sends email**, and nothing reds. This is a bound on a specific abuse (scripted mass slug-squatting + mail-send amplification), **not** an approval step — the flow stays open to any human.
 
@@ -210,15 +218,22 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 - **No `universeAdminClient` call site is touched** — they depend on the wildcard and must keep the universe admin (`grep -rn 'universeAdminClient(' apps/nebula/test | grep -v test-helpers.ts` — 13 before the pre-step, more after).
 - The baseline lane is green, and a fixture asserting an exact-star pattern now passes where it previously would have seen `{u}.*`.
 
-### Phase 4 — founder preference in the seed
-**Goal:** on a self-signup Star the **founder** gets the root DAG grant, not whichever covering admin touched first — while admin-created Stars keep seeding exactly as today.
+### Phase 4 — ~~founder preference in the seed~~ ✅ CUT 2026-07-21
+**Not built — resolved by pinning, not by deferral.** The existing `Star.onBeforeCall` gate already seeds a self-signup founder on their own Star (an exact-star pattern satisfies `hasAdminOverScope`), so this phase had no consumer. See §The DAG root grant for the reasoning and the one benign case it declines to fix. **Phase numbering is left intact** so the OQ/commit references above and in git history keep resolving.
 
-⛔ **BLOCKED ON:** the founder-marker mechanism (OQ 1b) — claim field vs registry lookup vs fallback-only.
+### Phase 4b — the signup UI (minimal), served from Galaxy
+**Goal:** a stranger can actually sign up — a real page, on the app's own surface, not a curl command.
+
+✅ **PINNED 2026-07-21 (Larry): build a minimal UI, and serve it from Galaxy.** The instinct is right and the collapse confirms why: [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) makes **Galaxy the thing that serves the tenant-facing app** (*"the user-developer's built app is a pre-built static artifact … served dev: Galaxy-direct/uncached — the Galaxy DO **IS** engaged per request"*). A signup page for a Star inside `{u}.{g}` belongs on exactly that surface. ⚠️ **Do NOT build it inside `nebula-studio-ui`** — that is the user-developer **control plane**, and a stranger signing up for someone else's app has no business there; it would be a textbook interim to unlearn.
+
+⛔ **SEQUENCED AFTER [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) Phase 3 ("build-box + container-less serving").** ⚠️ **Galaxy has NO `fetch` handler today** — verified: the only HTTP surfaces in `apps/nebula/src` are `entrypoint.ts` and `dev-container.ts`. Collapse Phase 3 is what gives Galaxy its serving surface. Building signup before it means standing up a serving surface *for signup alone* — the interim this repo keeps paying to unlearn. After it, the page is a route on a surface that already exists.
+
+🔒 **The one wire-level decision the UI cannot fix later — pin it in this file, build it in Phase 2.** `consumeAndLogin` redirects **every** claim/magic-link/invite click to `${NEBULA_AUTH_REDIRECT}/{scope}`, and `NEBULA_AUTH_REDIRECT` is a single **env-global** value pinned to `/app` — the Studio SPA. So today a Star founder clicks their claim link and lands in the user-developer control plane, in `stageMode==='help'`, reading about Universes and Galaxies. **The redirect target is baked into the emailed link**, so no later UI work can correct a link already sent. **Mechanism: derive the destination by TIER at the one site that already holds it** — `consumeAndLogin` has `result.universeGalaxyStarId` in hand, so a **star-tier** scope routes to the Galaxy-served tenant surface and universe/galaxy-tier keeps `/app`. One site, tier-derived, no per-Galaxy config to thread and no new env var per tenant.
 
 **Success (capable-of-failing):**
-- A self-signup founder's first touch seeds **the founder**, even when a covering admin touched first — reds against today's first-caller-wins.
-- 🔒 **An admin-created Star still seeds.** Create a Star via `createStar` (no founder minted) and confirm a covering admin's first touch still yields the root grant. **This is the criterion that catches the exact-star-only regression** described in §The DAG root grant — without it, `.dev` silently loses its root admin and nothing reds.
-- Stated **host-generically** against `this.lmz.instanceName`, so the collapse's non-Star DagTree host and the pending DataPlane lift inherit it without a tier special-case.
+- A stranger completes signup **through the rendered page** and lands authenticated on the app's own surface — **not** `/app/{scope}`. Reds against today's env-global redirect.
+- A **universe or galaxy** founder's claim link still lands at `/app/{scope}` — the tier split must not regress the Studio path.
+- Turnstile widget is present and enforced on the rendered form (pairs with Phase 2's gate criterion; widget provisioning is the tracked blocker in `apps/nebula/harness/FINDINGS.md` B0/B1).
 
 ### Phase 5 — audit §Upward visibility
 **Goal:** every non-admin `@mesh()` on Galaxy/Universe is deliberately tenant-readable, with the reason written down.
@@ -228,19 +243,19 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 ### Phase 6 — `signupPolicy` write path
 **Goal:** a Galaxy admin can turn signup on/off for their app.
 
-**Scope:** append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + UI toggle. **None of this exists** — see §Signup policy.
+**Scope:** append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + UI toggle — **plus the read** in the `claim-star` path. **None of this exists** — see §Signup policy. Default-on-absent is decided here, where the write path exists to change it; until this phase, signup is open.
 
 **Success:** a Galaxy admin toggles the policy and a subsequent signup to that Galaxy is accepted/rejected accordingly, end-to-end.
 
 ## Open questions for `/review-task`
 1. What the renamed `blockedBy` should be called and carry (last login, user count, …). ⚠️ **The rename belongs to Phase 1b, not 1a** — 1a keeps the name and only stops *acting* on it, which is what lets 1a stay "buildable today". (The `#emailForSub` fail-closed is **NOT** an open question — §Remediation pins it as staying. It was listed here once; relitigating it re-opens the exact reasoning error this file was corrected for.)
-1b. The **founder-marker mechanism** (claim field vs registry lookup vs fallback-only) — see §The DAG root grant.
+1b. ✅ **RESOLVED 2026-07-21 — fallback-only, no marker, Phase 4 cut.** See §The DAG root grant.
 1d. **`claim-star` double-submit idempotency** — accept-and-record, or close it with a client-supplied idempotency key (the ADR-010-shaped answer: the caller mints one with no coordination). §Who owns what says *"do not let it ride unnamed"*; this is where it stops riding unnamed. **Blocks nothing** — a recorded acceptance discharges it.
 1e. **`lastLogin` mechanism** (Phase 1b) — the two options are pinned in the phase but neither is chosen, and one adds a schema migration while the other does not. ⛔ **Phase 1b cannot be scoped until this is picked.**
 1f. **Phase 1a's prune-up either/or** — "the early return must stay, **or** the prune-up gains its own equivalent guard." Pin which. Recommend: **keep the early return** (zero new code, and the guard it would be replaced by is the one whose absence causes the Galaxy+Universe cascade).
-1c. **`signupPolicy` default-on-absent**, and whether pre-existing vs newly-created Galaxies get different defaults — see §Signup policy.
+1c. ✅ **RESOLVED 2026-07-21 — moved wholly to Phase 6**, so it no longer gates Phase 2. The default-on-absent question is real but belongs where the write path exists to act on it; until then signup is open, as pinned. See §Signup policy.
 2. **Eager Star creation to pin placement** — *separable, and an opportunity rather than a cost.* [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1b is BLOCKED because in-Star code runs *after* placement is pinned; it says the decision must be made at **the first `getByName` that creates the Star**. A signup request is exactly that moment and is the one time we hold the **user's own** `request.cf`. Needs `getByName(name, { locationHint })` threading, which does not exist yet. Composes with either ownership choice.
-3. `signupPolicy` field shape — enum now, or an object with room for invite-code/payment later?
+3. `signupPolicy` field shape — enum now, or an object with room for invite-code/payment later? **(Phase 6; no longer on Phase 2's path.)**
 4. Does a Universe admin need a **delete-any-Galaxy** feature (with warnings surfacing child-Star info — last login, user count — so the decision is informed)? Adjacent, probably its own task.
 
 ## Relationships
