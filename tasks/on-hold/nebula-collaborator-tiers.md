@@ -1,0 +1,30 @@
+# Collaborator tiers — varied per-person permissions via a carried context payload (TARGET)
+
+**Status:** ON HOLD — the **target** design behind the [collaborator-invite interim](../nebula-auth-identity-mint.md) (which ships collaborators as full **Galaxy admins**). Resumes when a **less-privileged collaborator** is actually wanted, **or** when **self-signup** needs the same carrier — whichever first. Design pinned with Larry 2026-07-18/19; not yet built.
+
+## Why this exists (the interim it supersedes)
+The shipping interim mints a collaborator as a **Galaxy admin** (`isAdmin=true`), who reaches everything via the scope-admin `access.admin` bypass — no per-node grants. That's deliberately over-privileged: a collaborator can invite others + manage the app. This target adds **varied, inviter-chosen, sub-Galaxy-admin tiers** so a collaborator can get *exactly* what they need and no more.
+
+- **Minimum useful collaborator (Larry, 2026-07-19):** `admin@.dev-Star` (create test users / run test ops there) **+ `write@Galaxy-root`** (edit the app's files) — but **not** full Galaxy-admin (inviting others / managing the app stays the owner's). This is a **bundle of DAG grants**, not the `isAdmin` bit — which is exactly what needs the carrier below.
+- Everyone in a chat can hold **different** permissions; the inviter's UI offers only combinations valid for the situation. (The interim's "everyone equal" was only ever "don't special-case the coach.")
+
+## The carried context payload — a generic, opaque, flow-scoped carrier (pinned 2026-07-18)
+The inviter's UI composes a JSON payload (the collaborator's chosen `(node, tier)` grants); **auth carries it opaquely** (never interprets it — layering); **Nebula reads + applies it.**
+
+- **Store — reuse the existing flow token as the key ("same key, different tables").** A generic `Contexts(tokenHash → payload, expiresAt)` table in **auth**, keyed by the **hash of the flow's already-minted token** — **no separate context token**. Invite keys on `invite_token`; self-signup (consumer #2) keys on its verify token; one table serves all flows. `getContext(rawToken) → payload` / `deleteContext(rawToken)` (hash → lookup, opaque blob). **Possession of the unguessable token IS the capability — ADR-012/010, no access control around the lookup.**
+- **Attach:** the inviter's UI passes the payload in the `POST /invite` **body**; auth writes `Contexts[invite_token_hash] = payload` beside the `InviteTokens` row. **Nothing rides email but the `invite_token`** — the payload never touches the URL or email body.
+- **Apply — the inviter pre-stages on the mesh at ISSUE-time (M1 option A, pinned 2026-07-19).** Grants apply **Nebula-side, never in the auth Worker** (accept-invite is a bodiless 302 in the Worker under the non-admin invitee — no body, no mesh, no admin authority; verified 2026-07-19). Instead:
+  - **Validate bounded-reach at issue-time** (`POST /invite`, the one point the inviter's admin JWT is verified + present): each chosen `(node, tier) ⊆ inviter's server-derived reach + admin` (security.md — never grant broader than the inviter holds).
+  - The inviter's admin client **fires a one-way `lmz.call`** to the Galaxy DO recording a **pending grant keyed by the invitee's `sub`** (ADR-003-clean; authority is the present, verified admin). Applied **idempotently at the invitee's first authenticated touch**, then cleared.
+  - The **generic primitive both flows share:** *a pending grant recorded Nebula-side, keyed by `sub`, applied idempotently at first touch* — only the **authorizer** differs (invite = the inviting admin's bounded choice; self-signup = the scope's self-signup policy). Auth stays Nebula-blind throughout (it may fire a generic `onRedeem(scope, sub, context)` hook Nebula registers, but never "grant on a Galaxy node").
+- **Cleanup:** piggybacks on the single-use invite token — the `DELETE FROM InviteTokens` on accept also deletes `Contexts[hash]`; `INVITE_TTL` is the backstop.
+
+## Dependencies / relationships
+- **Supersedes** the [collaborator-invite interim](../nebula-auth-identity-mint.md) — that interim's `isAdmin?` boolean grows into this richer grant spec (a pre-alpha wire break, fine). The dedicated `SESSION_NODE_ID` (child of `ROOT`, from the collapse task) matters **here** — a sub-Galaxy-admin collaborator granted chat participation on `SESSION_NODE_ID` must **not** get whole-app write, which a grant on `ROOT` would cascade.
+- **Self-signup is consumer #2** of the same generic `Contexts` carrier (later, outside-world / fast-follow work) — **don't fork it**.
+- Reconcile with the paused **F&F-invites** ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § Invite-gated) + [nebula-request-access.md](../nebula-request-access.md) — shared `/invite` / `accept-invite` / `InviteTokens` substrate.
+
+## Open (resolve at resume)
+- Exact `onRedeem` hook signature + where the Nebula impl runs (must not cross the nebula-auth → apps/nebula dep boundary).
+- Whether the inviter pre-stages the pending grant directly (client → Galaxy `lmz.call`) or via the auth `onRedeem` hook at accept — M1(A) leans pre-stage; confirm against the self-signup case (which has no present admin, so self-signup *must* use the hook).
+- The inviter-facing UI: which `(node, tier)` combinations are offered, and how "valid for the situation" is computed.
