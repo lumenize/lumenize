@@ -2,7 +2,7 @@
   "name": "@lumenize/nebula",
   "version": "0.24.0",
   "private": true,
-  "description": "Nebula application — multi-tenant Durable Objects with universe/galaxy/star hierarchy",
+  "description": "Nebula application \u2014 multi-tenant Durable Objects with universe/galaxy/star hierarchy",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -51,6 +51,7 @@
   "license": "UNLICENSED",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@lumenize/email-test": "*",
     "@lumenize/testing": "*",
     "@types/jsdom": "^21.1.7",
     "@vitest/browser": "4.1.10",

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink, reportEmailLatency } from './email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare

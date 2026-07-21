@@ -14,89 +14,9 @@
  * browser-native fetch + cookie jar + WebSocket are used directly. Unlike
  * apps/nebula's helper (which uses @lumenize/testing's Browser class to
  * simulate cookies in Node), nothing here is shimmed.
- *
- * Adapted from `apps/nebula/test/browser/auth-bootstrap.ts`; mesh's
- * `@lumenize/auth` integration is single-tenant so there's no scope/instance
- * parameter, and the `X-Lumenize-Auth-Instance` email header (item #4b)
- * isn't load-bearing here because the mesh e2e test is the only test that
- * runs against this wrangler-dev worker.
  */
 
-const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
-const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';
-
-interface StoredEmail {
-  subject?: string;
-  html?: string;
-  to?: Array<{ address: string }>;
-  from?: { address: string };
-}
-
-interface WaitForEmailOptions {
-  testToken: string;
-  timeout?: number;
-}
-
-export function waitForEmail(options: WaitForEmailOptions): {
-  emailPromise: Promise<StoredEmail>;
-  cleanup: () => void;
-} {
-  const { testToken, timeout = 20_000 } = options;
-
-  let ws: WebSocket;
-  let cleanedUp = false;
-
-  const cleanup = () => {
-    if (!cleanedUp) {
-      cleanedUp = true;
-      try { ws?.close(); } catch { /* ignore */ }
-    }
-  };
-
-  const emailPromise = (async () => {
-    await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}`, { method: 'POST' });
-
-    ws = new WebSocket(`${EMAIL_TEST_WS_URL}/ws?token=${testToken}`);
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => resolve());
-      ws.addEventListener('error', () => reject(new Error('WebSocket connection to email-test Worker failed')));
-      setTimeout(() => reject(new Error('WebSocket connection timeout')), 5000);
-    });
-
-    const email = await new Promise<StoredEmail>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        cleanup();
-        reject(new Error(`No email received within ${timeout}ms`));
-      }, timeout);
-
-      ws.addEventListener('message', (event) => {
-        clearTimeout(timer);
-        resolve(JSON.parse(event.data as string));
-      });
-
-      ws.addEventListener('close', () => {
-        clearTimeout(timer);
-        reject(new Error('WebSocket closed before email received'));
-      });
-    });
-
-    return email;
-  })();
-
-  return { emailPromise, cleanup };
-}
-
-export function extractMagicLink(email: StoredEmail): string {
-  const html = email.html;
-  if (!html) {
-    throw new Error('Email has no HTML content');
-  }
-  const hrefMatch = html.match(/href="([^"]*magic-link[^"]*one_time_token[^"]*)"/);
-  if (!hrefMatch) {
-    throw new Error(`No magic link found in email HTML. Subject: "${email.subject}"`);
-  }
-  return hrefMatch[1];
-}
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 interface BootstrapOptions {
   baseUrl: string;

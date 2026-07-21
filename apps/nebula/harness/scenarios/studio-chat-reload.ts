@@ -15,7 +15,7 @@ import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
 import { bootStudioVite, launchChromium, instrumentedPage, captureArtifacts } from '../lib/browser';
 // Reuse the ui-smoke email loop (Node-safe, filters by scope) rather than duplicating it.
-import { waitForEmail, extractMagicLink } from '../../test/browser/auth-bootstrap';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 /** A `.dev` star scope for the browser drive (distinct from the API driver's). */
 const SCOPE = 'claude.browser.dev';

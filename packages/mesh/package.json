@@ -54,6 +54,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
     "@lumenize/debug": "*",
+    "@lumenize/email-test": "*",
     "@lumenize/testing": "^0.26.0",
     "@vitest/browser": "4.1.10",
     "@vitest/browser-playwright": "4.1.10",

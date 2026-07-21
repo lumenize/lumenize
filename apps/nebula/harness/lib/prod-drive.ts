@@ -15,7 +15,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readDevVar } from './harness';
 // Reuse the ui-smoke email loop (Node-safe, filters by scope) to catch the magic-link.
-import { waitForEmail, extractMagicLink } from '../../test/browser/auth-bootstrap';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 /** Gitignored `*`-admin refresh-token store (M1: never committed, never logged). */

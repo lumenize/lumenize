@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink, reportEmailLatency } from '../e2e-email/email-test-helpers';
+import { waitForEmail, extractMagicLink, reportEmailLatency } from '@lumenize/email-test/client';
 
 // Resend e2e smoke test — keeps the Resend transport path exercised alongside
 // the default Cloudflare transport path (see test/e2e-email/).

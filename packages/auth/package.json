@@ -1,7 +1,7 @@
 {
   "name": "@lumenize/auth",
   "version": "0.26.0",
-  "description": "De✨light✨ful authentication for Cloudflare Durable Objects",
+  "description": "De\u2728light\u2728ful authentication for Cloudflare Durable Objects",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -36,6 +36,7 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@lumenize/email-test": "*",
     "@lumenize/testing": "^0.26.0",
     "@vitest/coverage-istanbul": "4.1.10",
     "hono": "^4.11.9",

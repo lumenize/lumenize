@@ -25,7 +25,7 @@ import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
-import { waitForEmail, extractMagicLink } from '../browser/auth-bootstrap';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { HAS_DOCKER, HAS_AI_PATH } from './gates';
 
 /**

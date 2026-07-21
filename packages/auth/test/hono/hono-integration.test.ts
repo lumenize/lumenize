@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
+import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test — same flow as e2e-email but routed through Hono.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
