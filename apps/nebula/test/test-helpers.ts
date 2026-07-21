@@ -197,8 +197,17 @@ export async function browserLogin(
   email: string,
   activeScope?: string,
 ): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
-  // Request magic link in test mode
-  const mlResp = await browser.fetch(authUrl(`${authScope}/email-magic-link?_test=true`), {
+  // Request the magic link. Test mode is decided ENTIRELY by the `NEBULA_AUTH_TEST_MODE`
+  // binding — there is no per-request opt-in here, so no `?_test=true`.
+  //
+  // ⚠️ Don't copy that param over from `@lumenize/auth`, where it IS load-bearing:
+  // `lumenize-auth.ts` gates on `#isTestMode && searchParams.get('_test') === 'true'`, so the
+  // binding alone does nothing there. nebula-auth can't do the same because the decision is
+  // made inside the registry DO, reached by RPC with no request URL to read. Consequence worth
+  // knowing: a leaked `NEBULA_AUTH_TEST_MODE` in a deployed worker would return magic links to
+  // ORDINARY traffic, where the same leak in @lumenize/auth would only affect requests that
+  // deliberately asked. The control that actually holds this line is `audit-test-mode.sh`.
+  const mlResp = await browser.fetch(authUrl(`${authScope}/email-magic-link`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
