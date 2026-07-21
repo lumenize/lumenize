@@ -280,6 +280,16 @@ export async function handleInvite(
   // Admin gate HERE (the Worker is the trusted gate): the router already verified the JWT + scope
   // match (matchAccess(pattern, instanceName)); `admin === true` completes admin-over-scope. Gating
   // here keeps the registry RPC throw-free for this expected client error (RPC drops custom Error props).
+  //
+  // ✅ CONFINED — but by the ROUTER, not by this line. The invariant: `router.ts` runs
+  // `matchAccess(access.authScopePattern, instanceName)` before dispatching here, so by the time
+  // this executes, "covers this scope" is already proven and the bare bit legitimately completes
+  // the conjunction. That split is the whole reason this read is safe, and it is why this line
+  // must never be copied to a site that lacks the router's check.
+  // ⚠️ This gate is about to matter far more: nebula-auth-identity-mint.md Phase 1 turns
+  // `issueInvites` from member-minting into ADMIN-minting, and that task's §2 requires the safety
+  // not rest on a single Worker line — it adds an in-method re-assertion in `issueInvites`,
+  // matching `createGalaxy`/`createStar`. Do not treat this line as sufficient after that lands.
   if (verifiedAccess.admin !== true) return errorResponse(403, 'forbidden', 'Admin access required');
 
   let body: { emails?: string[] };

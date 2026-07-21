@@ -62,6 +62,18 @@ export interface NebulaAccessClaimInput {
  * `authScopePatternOverride` bounds the pattern to something other than the issuing instance's
  * (the `/delegated-token` scope-bounded mint passes the caller's covered scope); default derives
  * from `instanceName`, the shape every non-delegated mint keeps.
+ *
+ * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `admin` and
+ * `authScopePattern` are produced together, so `admin` is never emitted without a pattern — which
+ * is what lets `hasAdminOverScope` treat a missing pattern as fail-closed rather than as a normal
+ * case. `buildNebulaJwtPayload` below adds the other mint-side guarantee: `aud` ⊆ `authScopePattern`.
+ *
+ * ⚠️ **`aud` ⊆ pattern is NOT the property the guards need.** The old `dag-tree.ts` comment
+ * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
+ * only that the caller's ACTIVE SCOPE sits inside their authority. The guards ask a different
+ * question: does the pattern cover **the callee node**? `enforceScopeReach`'s tenant branch
+ * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
+ * gap between them was the escalation. See tasks/nebula-confine-admin-bypass.md.
  */
 export function buildNebulaAccessEntry(
   instanceName: string,

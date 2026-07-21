@@ -57,7 +57,16 @@ export interface CreateNebulaTestTokenOptions {
   instanceName?: string;
   /** Subject UUID. Default: a stable `crypto.randomUUID()` generated once per factory call. */
   sub?: string;
-  /** Mint an admin token (sets `access.admin`, enabling the scope-admin bypass). Default `true`. */
+  /**
+   * Mint an admin token (sets `access.admin`). Default `true`.
+   *
+   * ⚠️ **The bit alone no longer enables the scope-admin bypass** — the guards confine it to the
+   * callee node via `hasAdminOverScope`, so what actually decides is whether `authScopePattern`
+   * (derived from `instanceName`, or overridden) covers the node being called. A token minted with
+   * `isAdmin: true` at a STAR `instanceName` gets an exact-star pattern and is therefore NOT an
+   * admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose authority you
+   * actually want. See tasks/nebula-confine-admin-bypass.md.
+   */
   isAdmin?: boolean;
   /**
    * The bearer's PUBLIC profile address → the bare `profileId` claim. Omitted when absent (a token

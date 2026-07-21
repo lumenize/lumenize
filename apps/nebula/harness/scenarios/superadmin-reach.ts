@@ -4,10 +4,17 @@
  *
  * Capable-of-failing on the ENFORCEMENT path (not just the isAdmin flag): a `*` super-admin token
  * (issued by `nebula-platform` → `access.authScopePattern: '*'`, admin) reaches a scope it has NO
- * DAG grant on and SUCCEEDS via the `access.admin` bypass (dag-tree.ts:159); a non-`*` non-admin
- * token for the SAME scope is DENIED the same op — proving the success is the bypass, not an open
- * scope. (The bypass itself is also unit-covered in dag-tree.test.ts with its own mutation-check;
- * this is the end-to-end, real-WS confirmation the bootstrap-array `*` promotion feeds it.)
+ * DAG grant on and SUCCEEDS via the scope-admin bypass in `DagTree.requirePermission`; a non-`*`
+ * non-admin token for the SAME scope is DENIED the same op — proving the success is the bypass, not
+ * an open scope. (The bypass itself is also unit-covered in dag-tree.test.ts with its own
+ * mutation-check; this is the end-to-end, real-WS confirmation the bootstrap-array `*` promotion
+ * feeds it.)
+ *
+ * ⚠️ This scenario stays green under the confinement (tasks/nebula-confine-admin-bypass.md) for a
+ * reason worth stating, because it is no longer the reason the prose implied: the bypass is now
+ * granted only when `authScopePattern` covers the callee node, and `*` covers every node. So this
+ * exercises the **covering-admin** side of the predicate. It is NOT evidence that a bare
+ * `access.admin` bit grants reach — swap the `*` for a narrower pattern and the same op is denied.
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';

@@ -401,6 +401,11 @@ export class NebulaAuthRegistry extends DurableObject {
    * surface a galaxy you just created; this reads `Scopes` directly. Flat list; the client nests by id.
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
+    // ✅ SELF-CONFINING — the bare bit is safe here because it is not the authority decision; the
+    // QUERY is. Every branch below derives its WHERE clause from `authScopePattern`, so the result
+    // set can never exceed the caller's own reach no matter what `admin` says. The bit only decides
+    // "is this principal an admin at all", and a non-admin gets `[]`. Confining it against a node
+    // would be meaningless: this method has no callee node — it spans the caller's whole subtree.
     if (!callerAccess?.admin) return [];
     const pattern = callerAccess.authScopePattern;
     let rows: any[];
