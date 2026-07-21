@@ -18,13 +18,17 @@ describe('Hono integration (real email delivery via Cloudflare)', () => {
   });
 
   it('sends magic link via Hono-routed auth, completes auth flow, then connects WebSocket', async () => {
-    const testEmail = 'test@lumenize.io';
+    // A DEDICATED address rather than uniqueTestEmail(): this lane's bootstrap-admin
+    // binding (LUMENIZE_AUTH_BOOTSTRAP_EMAIL, set in vitest.config.js) must match the
+    // login email, and a miniflare binding can't be minted inside the test. Distinct
+    // from the other lanes' addresses is all this needs to run alongside them.
+    const testEmail = 'hono@lumenize.io';
 
     // Browser with cookie jar — uses SELF.fetch (the Hono test-harness Worker)
     const browser = new Browser();
 
     // 1. Set up WebSocket listener BEFORE triggering the email
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
     // 2. Request magic link through Hono middleware

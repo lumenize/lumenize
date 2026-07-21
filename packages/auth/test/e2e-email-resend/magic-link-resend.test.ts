@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink, reportEmailLatency } from '@lumenize/email-test/client';
+import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } from '@lumenize/email-test/client';
 
 // Resend e2e smoke test — keeps the Resend transport path exercised alongside
 // the default Cloudflare transport path (see test/e2e-email/).
@@ -18,14 +18,14 @@ describe('Magic link e2e (real email delivery via Resend)', () => {
   });
 
   it('sends magic link via Resend, receives via EmailTestDO, completes auth flow', async () => {
-    const testEmail = 'test@lumenize.io';
+    const testEmail = uniqueTestEmail();
     const browser = new Browser();
 
     // 45s email-wait window — wider than the 20s default because Resend's
     // HTTPS delivery is more variable than Cloudflare Email Sending's
     // in-process binding. The vitest project testTimeout is bumped to 60s to
     // hold this plus the click round-trip.
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, timeout: 45000 });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail, timeout: 45000 });
     cleanup = waiter.cleanup;
 
     const requestedAt = Date.now();

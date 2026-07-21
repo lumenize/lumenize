@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { waitForEmail, extractMagicLink, reportEmailLatency } from '@lumenize/email-test/client';
+import { waitForEmail, extractMagicLink, reportEmailLatency, uniqueTestEmail } from '@lumenize/email-test/client';
 
 // Real email delivery e2e test.
 // Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
@@ -19,13 +19,15 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
   });
 
   it('sends magic link via Cloudflare, receives via EmailTestDO, completes auth flow', async () => {
-    const testEmail = 'test@lumenize.io';
+    // Unique recipient per test — the isolation that lets these lanes run
+    // concurrently instead of being serialized by a shared mailbox.
+    const testEmail = uniqueTestEmail();
 
     // Browser with cookie jar — uses SELF.fetch (the test-harness Worker)
     const browser = new Browser();
 
     // 1. Set up WebSocket listener BEFORE triggering the email
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
     // 2. Request magic link (NOT test mode — real email sent via Cloudflare Email Sending)
@@ -95,11 +97,13 @@ describe('Magic link e2e (real email delivery via Cloudflare)', () => {
   });
 
   it('magic link is single-use', async () => {
-    const testEmail = 'test@lumenize.io';
+    // Unique recipient per test — the isolation that lets these lanes run
+    // concurrently instead of being serialized by a shared mailbox.
+    const testEmail = uniqueTestEmail();
     const browser = new Browser();
 
     // 1. Set up WebSocket listener and request magic link
-    const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
+    const waiter = waitForEmail({ testToken: env.TEST_TOKEN, to: testEmail });
     cleanup = waiter.cleanup;
 
     const requestedAt = Date.now();

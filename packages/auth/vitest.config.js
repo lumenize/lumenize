@@ -54,6 +54,17 @@ if (!includeCfRemote) {
 // (60s/45s below) remain the first line; retry covers the cold tail beyond them.
 const EMAIL_DELIVERY_RETRY = 2;
 
+// The three email lanes used to carry `sequence.groupOrder: 1/2/3`, serializing
+// them because they all listened for `test@lumenize.io` on the one shared
+// EmailTestDO and would steal each other's mail. That is fixed at the source
+// instead of scheduled around: each lane now uses a DISTINCT recipient
+// (`uniqueTestEmail()` per test; a dedicated `hono@lumenize.io` for the lane
+// whose bootstrap-admin binding must match its login address) and `waitForEmail`
+// filters on it, so a non-matching email no longer resolves the wrong waiter.
+// ⚠️ Don't reintroduce groupOrder — real login is the DEFAULT test tier now
+// (`testing.md` § Philosophy), and lanes that can't run in parallel don't scale
+// to that. If these ever cross-talk again, the recipient filter is the bug.
+
 export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
@@ -105,8 +116,6 @@ export default defineConfig({
       ...(includeCfRemote ? [{
         // E2E email test via Cloudflare Email Sending — the default path.
         // Real sends + real Email Routing — no test mode.
-        // groupOrder 1: runs after main tests, serialized with resend/hono to
-        // avoid race on shared EmailTestDO (all listen for test@lumenize.io).
         // Omitted when LUMENIZE_NO_CF_REMOTE is set (no Cloudflare remote-proxy creds).
         extends: true,
         plugins: [cloudflareTest({
@@ -123,14 +132,12 @@ export default defineConfig({
           name: 'e2e-email',
           testTimeout: 30000, // 30s — real email delivery can take 10-15s
           retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
-          sequence: { groupOrder: 1 },
           include: ['test/e2e-email/**/*.test.ts'],
         },
       }] : []),
       {
         // E2E email test via Resend (selected with EMAIL_PROVIDER=resend) — smoke test keeping the
         // Resend path exercised alongside the default Cloudflare path.
-        // groupOrder 2: runs after e2e-email to avoid shared EmailTestDO race.
         extends: true,
         plugins: [cloudflareTest({
           isolatedStorage: false,
@@ -151,13 +158,11 @@ export default defineConfig({
           // is cushion for Resend variability on cold-start sequential runs.
           testTimeout: 60000,
           retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
-          sequence: { groupOrder: 2 },
           include: ['test/e2e-email-resend/**/*.test.ts'],
         },
       },
       ...(includeCfRemote ? [{
         // Hono integration test (real Cloudflare Email Sending — no test mode)
-        // groupOrder 3: runs last to avoid shared EmailTestDO race.
         // Omitted when LUMENIZE_NO_CF_REMOTE is set (no Cloudflare remote-proxy creds).
         extends: true,
         plugins: [cloudflareTest({
@@ -166,7 +171,7 @@ export default defineConfig({
           miniflare: {
             bindings: {
               ...JWT_TEST_KEYS,
-              LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'test@lumenize.io',
+              LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'hono@lumenize.io',
               DEBUG: 'auth',
             },
           },
@@ -175,7 +180,6 @@ export default defineConfig({
           name: 'hono',
           testTimeout: 30000,
           retry: EMAIL_DELIVERY_RETRY, // cold-start self-heal (see EMAIL_DELIVERY_RETRY)
-          sequence: { groupOrder: 3 },
           include: ['test/hono/**/*.test.ts'],
         },
       }] : []),

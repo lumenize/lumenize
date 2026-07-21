@@ -41,6 +41,17 @@ export interface WaitForEmailOptions {
    */
   instance?: string;
   /**
+   * Resolve only for an email addressed to this recipient, ignoring any other
+   * that arrives on the socket. Pair with `uniqueTestEmail()` to make a test
+   * independent of every other test sending mail at the same time.
+   *
+   * Filtered client-side on purpose: the EmailTestDO is *deployed* shared
+   * infrastructure, so keeping isolation here means a new test lane needs no
+   * redeploy — and no cooperation from the sender, unlike `instance` (which
+   * only works if the sender stamps the header).
+   */
+  to?: string;
+  /**
    * Give-up timeout in ms. Default 60 s — far above the measured ~1.4 s so a slow
    * CI runner never flakes; a received email resolves immediately, so the ceiling
    * costs the warm path nothing.
@@ -86,8 +97,10 @@ export function waitForEmail(options: WaitForEmailOptions): {
   /** Receive-side timing, for `reportEmailLatency`. */
   marks: EmailWaitMarks;
 } {
-  const { testToken, instance, timeout = 60_000 } = options;
+  const { testToken, instance, to, timeout = 60_000 } = options;
   const instanceParam = instance !== undefined ? `&instance=${encodeURIComponent(instance)}` : '';
+  const matchesRecipient = (email: StoredEmail) =>
+    to === undefined || email.to?.some((addr) => addr.address?.toLowerCase() === to.toLowerCase()) === true;
 
   const marks: EmailWaitMarks = {};
   let ws: WebSocket;
@@ -101,8 +114,13 @@ export function waitForEmail(options: WaitForEmailOptions): {
   };
 
   const emailPromise = (async () => {
-    // Clear only this instance's bucket — concurrent tests' mail stays intact.
-    await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
+    // Clearing exists to stop a PREVIOUS run's mail resolving us instantly. A
+    // unique recipient can't have any, so skip it — and skipping matters: the
+    // clear wipes a shared bucket, which would destroy a concurrent test's
+    // stored mail. No clear + a recipient filter = genuinely independent tests.
+    if (to === undefined) {
+      await fetch(`${EMAIL_TEST_HTTP_URL}/clear?token=${testToken}${instanceParam}`, { method: 'POST' });
+    }
 
     // The instance filter persists via serializeAttachment on the DO side, so
     // concurrent subscribers each see only their own emails.
@@ -121,9 +139,13 @@ export function waitForEmail(options: WaitForEmailOptions): {
       }, timeout);
 
       ws.addEventListener('message', (event) => {
+        const email = JSON.parse(event.data as string) as StoredEmail;
+        // Another test's email on the shared socket — keep waiting, don't
+        // resolve with it and don't consume our timer.
+        if (!matchesRecipient(email)) return;
         clearTimeout(timer);
         marks.receivedAt = Date.now();
-        resolve(JSON.parse(event.data as string));
+        resolve(email);
       });
 
       ws.addEventListener('close', () => {
