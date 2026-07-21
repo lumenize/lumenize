@@ -94,10 +94,23 @@ function setCookieHeaders(res: Response): string[] {
 }
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
-// The vitest-free core. `test/test-helpers.ts` builds its `expect`-flavoured,
-// cookie-jar-based surface on top of these instead of re-implementing the HTTP
-// shapes — same endpoints, same 409 semantics, same host rewrite, one place.
+// The vitest-free core. `test/test-helpers.ts` builds its `expect`-flavoured surface
+// on top of these instead of re-implementing the HTTP shapes — same endpoints, same
+// 409 semantics, same host rewrite, one place.
 // Keep them free of `vitest` and `cloudflare:*` so the Node harness can use them.
+//
+// Why two surfaces still exist (the accurate reasons — commit 3c6641f's message got
+// one of them wrong and it should not be inherited):
+//   1. `test-helpers.ts` imports `expect` from vitest. The Node harness cannot, so it
+//      cannot consume that module at all. This is the real separator.
+//   2. `refreshAccessToken` takes an EXPLICIT refresh token because `harness/lib/
+//      prod-drive.ts` persists a session to `.prod-session.json` and refreshes on a
+//      LATER PROCESS invocation. A cookie jar is per-`Browser`-instance and in-memory,
+//      so it cannot span processes. Nothing to do with Node.
+// ⚠️ NOT a reason: "the Node harness can't use the cookie jar." It can and does —
+// `@lumenize/testing`'s `Browser` is Node-safe (no workerd-only imports) and the
+// harness constructs it directly. Pass `fetchImpl: browser.fetch` and the jar captures
+// the refresh cookie exactly as it does under vitest; that is the normal path here.
 
 /**
  * Point a magic link at `baseUrl`. The auth layer embeds its configured ISSUER origin in
