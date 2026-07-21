@@ -131,7 +131,16 @@ export async function loginViaEmail(options: EmailLoginOptions): Promise<EmailSe
     const linkRes = await fetchImpl(localLink.toString(), { redirect: 'manual' });
     const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
     if (!refreshToken) {
-      throw new Error(`magic-link GET (${linkRes.status}) set no refresh-token cookie`);
+      // Say WHY, not just "no cookie". `Location` carries the auth layer's own error code
+      // when the link was REJECTED (`?error=invalid_token` = the token was not found or was
+      // already consumed), while the presence of other Set-Cookie names separates "server
+      // never set it" from "our client dropped it". Report both; don't guess between them.
+      const others = setCookieHeaders(linkRes).map((c) => c.split('=')[0]).join(', ') || '(none)';
+      throw new Error(
+        `magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
+        `Location=${linkRes.headers.get('Location') ?? '(none)'}; Set-Cookie names=${others}; ` +
+        `origin=${target.protocol}//${target.host}`,
+      );
     }
 
     return { refreshToken, authScope, email, savedAt: new Date().toISOString() };

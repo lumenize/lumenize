@@ -51,19 +51,35 @@ The inherited premise does not survive contact with its own provenance:
 
 Provenance being broken does not by itself prove ~8 s never happened somewhere — but it is not reproducible in this apparatus, and it should not have been load-bearing.
 
-### Refinement (measured later the same day): the ~8 s wasn't invented — it measured the wrong thing
+### Refinement: ~8 s wasn't invented — but its stated *mechanism* was exactly backwards
 
-A full real login against **deployed prod**, from a standalone Node process, measures **6231 ms** (2026-07-21, `loginViaEmail` → `nebula.lumenize.com`, existing harness identity). Add tsx process boot and a hand-started stopwatch and "~8 s" is entirely plausible **for that scenario**.
+A cold prod login really does land near 8 s. Decomposed (2026-07-21, `nebula.lumenize.com`, Cloudflare send path):
 
-So the honest correction is sharper than "the number was wrong":
+| Phase | Cold | Warm (n=3) |
+|---|--:|--:|
+| `POST /auth/{scope}/email-magic-link` — server handler | **7245 ms** | **1191 / 1222 / 2790 ms** |
+| email delivery *after* that POST returned | **0 ms** | **0 / 0 / 1 ms** |
+| `GET` magic link → 302 + cookie | 1242 ms | — |
+| `POST /refresh-token` → JWT | 71 ms | — |
+| **Total** | **8558 ms** | — |
 
-| What | Cost | What it's evidence for |
-|---|--:|---|
-| Standalone prod login, cold, fresh process | **~6.2 s** | what a human waits for running one harness command |
-| In-suite loop, first email in a fresh run | **~1.4 s** | what a test lane pays |
-| In-suite loop, additional login in a running suite | **~0.9 s** | **what "real login in every test" actually costs** |
+Two things fall out, and both contradict the original claim:
 
-The ADR measured the top row and cited it to justify a claim about the bottom row — "8 s is too slow to put in every unit test." Those differ by ~7×, and the gap is process boot, WS handshake and prod cold-start, none of which a test in a warm suite pays. The provider attribution was independently wrong (that instrument sent via Cloudflare). Both defects point the same way: **nothing about latency justifies a shortcut inside a test suite.**
+1. **The email is not the cost. It is not even measurable at this resolution.** Delivery completes *inside* the POST handler's own window — the mail was already at the email-test Worker before the HTTP response came back, every single run. So the ADR's *"it's **email-pipeline-bound**, not cold-start"* is precisely inverted: it is **cold-start-bound, and not email-bound at all.**
+2. **Warm is ~4-6× faster than cold**, which directly falsifies the companion claim *"warm and cold both land at ~8s"*. Warm steady-state for the whole login is ≈ 2.5 s, and the magic-link handler alone is ~1.2 s — matching the ~1.4 s the local test lanes measure for the same span, since that span *is* the handler.
+
+So the corrected picture, by scenario:
+
+| Scenario | Cost |
+|---|--:|
+| Cold standalone prod login (a human running one harness command) | **~8.5 s** |
+| Warm prod login | **~2.5 s** |
+| In-suite loop, first email in a fresh run | **~1.4 s** |
+| In-suite loop, each additional login | **~0.9 s** |
+
+The ADR measured the top row and cited it for a claim about the bottom row. And **"is it different between Resend and Cloudflare?" — no, and it cannot be**: the provider only touches a phase that costs ~0 ms here, and the two providers measured identically (1451 vs 1400 ms) when isolated. Whatever the ~7 s cold POST is doing, it is auth/DO work, not email.
+
+⚠️ **That cold handler is worth its own look** — 7.2 s of server-side work on the unauthenticated magic-link endpoint is a real user-facing first-impression cost, and it is now measured rather than assumed. Out of scope here; noted in the backlog.
 
 ---
 
