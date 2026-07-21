@@ -14,8 +14,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readDevVar } from './harness';
-// Reuse the ui-smoke email loop (Node-safe, filters by scope) to catch the magic-link.
+// The real-login flow itself is shared with the vitest lanes (rung 1, ADR-009) —
+// this module adds only what is prod-specific: the stored-session cache.
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
+import { loginViaEmail, refreshAccessToken, type EmailSession } from '../../test/lib/email-login';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 /** Gitignored `*`-admin refresh-token store (M1: never committed, never logged). */
@@ -28,14 +30,8 @@ export const PLATFORM_SCOPE = 'nebula-platform';
 /** The harness identity (must be an `@lumenize.io` address routed to the email-test Worker). */
 export const HARNESS_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? 'claude@lumenize.io';
 
-interface ProdSession {
-  /** The refresh-token cookie value — a `*`-admin credential. */
-  refreshToken: string;
-  /** The authScope the refresh cookie is bound to (its Path). */
-  authScope: string;
-  email: string;
-  savedAt: string;
-}
+/** A stored `*`-admin session. Shape is `EmailSession`; the alias keeps prod call sites readable. */
+type ProdSession = EmailSession;
 
 function readSession(): ProdSession | null {
   if (!existsSync(SESSION_FILE)) return null;
@@ -50,45 +46,22 @@ function writeSession(s: ProdSession): void {
   writeFileSync(SESSION_FILE, JSON.stringify(s, null, 2));
 }
 
-function cookieValue(setCookies: string[], name: string): string | undefined {
-  for (const c of setCookies) {
-    const m = c.match(new RegExp(`^${name}=([^;]+)`));
-    if (m) return m[1];
-  }
-  return undefined;
-}
-
 /**
  * One-time login: POST email-magic-link WITH the Turnstile-bypass header → catch the magic-link via
  * the email-test Worker → GET it to obtain the `refresh-token` cookie. Stores + returns the session.
  * Requires the harness identity (`HARNESS_EMAIL`) to be routed to the email-test Worker.
  */
 export async function prodLogin(authScope = PLATFORM_SCOPE, email = HARNESS_EMAIL): Promise<ProdSession> {
-  const bypassToken = readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN');
-  const testToken = readDevVar('TEST_TOKEN');
-  const waiter = waitForEmail({ testToken, instance: authScope, timeout: 120_000 });
-  try {
-    const res = await fetch(`${PROD_URL}/auth/${authScope}/email-magic-link`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', [BYPASS_HEADER]: bypassToken },
-      body: JSON.stringify({ email }),
-    });
-    if (!res.ok) {
-      // A 403 here means the bypass token didn't take (not deployed / wrong value) — Turnstile blocked us.
-      throw new Error(`email-magic-link ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    }
-    const link = extractMagicLink(await waiter.emailPromise);
-    const linkRes = await fetch(link, { redirect: 'manual' }); // 302 + Set-Cookie(refresh-token)
-    const refreshToken = cookieValue(linkRes.headers.getSetCookie?.() ?? [], 'refresh-token');
-    if (!refreshToken) {
-      throw new Error(`magic-link GET (${linkRes.status}) set no refresh-token cookie`);
-    }
-    const session: ProdSession = { refreshToken, authScope, email, savedAt: new Date().toISOString() };
-    writeSession(session);
-    return session;
-  } finally {
-    waiter.cleanup();
-  }
+  const session = await loginViaEmail({
+    baseUrl: PROD_URL,
+    authScope,
+    email,
+    testToken: readDevVar('TEST_TOKEN'),
+    bypassToken: readDevVar('NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN'),
+    timeout: 120_000,
+  });
+  writeSession(session);
+  return session;
 }
 
 /**
@@ -116,14 +89,7 @@ export async function prodEmailSpin(email: string, authScope = PLATFORM_SCOPE): 
 
 /** Refresh headlessly (NOT Turnstile-gated) → an access token whose `aud` is `activeScope`. */
 export async function prodRefresh(session: ProdSession, activeScope: string): Promise<string> {
-  const res = await fetch(`${PROD_URL}/auth/${session.authScope}/refresh-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${session.refreshToken}` },
-    body: JSON.stringify({ activeScope }),
-  });
-  if (!res.ok) throw new Error(`refresh-token ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const { access_token } = (await res.json()) as { access_token: string };
-  return access_token;
+  return refreshAccessToken(PROD_URL, session, activeScope);
 }
 
 /**

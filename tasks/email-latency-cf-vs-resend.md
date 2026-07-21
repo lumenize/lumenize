@@ -51,6 +51,20 @@ The inherited premise does not survive contact with its own provenance:
 
 Provenance being broken does not by itself prove ~8 s never happened somewhere — but it is not reproducible in this apparatus, and it should not have been load-bearing.
 
+### Refinement (measured later the same day): the ~8 s wasn't invented — it measured the wrong thing
+
+A full real login against **deployed prod**, from a standalone Node process, measures **6231 ms** (2026-07-21, `loginViaEmail` → `nebula.lumenize.com`, existing harness identity). Add tsx process boot and a hand-started stopwatch and "~8 s" is entirely plausible **for that scenario**.
+
+So the honest correction is sharper than "the number was wrong":
+
+| What | Cost | What it's evidence for |
+|---|--:|---|
+| Standalone prod login, cold, fresh process | **~6.2 s** | what a human waits for running one harness command |
+| In-suite loop, first email in a fresh run | **~1.4 s** | what a test lane pays |
+| In-suite loop, additional login in a running suite | **~0.9 s** | **what "real login in every test" actually costs** |
+
+The ADR measured the top row and cited it to justify a claim about the bottom row — "8 s is too slow to put in every unit test." Those differ by ~7×, and the gap is process boot, WS handshake and prod cold-start, none of which a test in a warm suite pays. The provider attribution was independently wrong (that instrument sent via Cloudflare). Both defects point the same way: **nothing about latency justifies a shortcut inside a test suite.**
+
 ---
 
 ## Answers to the task's open questions
