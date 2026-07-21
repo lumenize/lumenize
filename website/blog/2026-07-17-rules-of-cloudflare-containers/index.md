@@ -3,7 +3,7 @@ title: "Rules of Cloudflare Containers: the companion DO mounts the container"
 slug: rules-of-cloudflare-containers
 authors: [larry]
 tags: [architecture]
-description: "A state machine for Cloudflare Containers and their companion Durable Object — the mount model, why the only status signal lies, the one call that keeps it honest, and a design that makes the hard problems disappear. Work in progress."
+description: "A state machine for Cloudflare Containers and their companion Durable Object — the mount model, why the only status signal lies, the one call that keeps it honest, and a design that makes the hard problems disappear."
 draft: true
 ---
 

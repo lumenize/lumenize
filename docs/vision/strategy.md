@@ -90,7 +90,7 @@ The coaching is nominally success-enablement, and it is that. But its primary va
 
 Every product Larry has shipped has had this loop; it has been hard to sell in advance and decisive in practice every time. What's new is that the market just got a reference point: **Anthropic's Claude Tag** ([announced June 2026](https://www.anthropic.com/news/introducing-claude-tag)) is the same interaction model — one shared agentic chat, multiple humans, anyone can see the work and pick it up where the last person left off — and Anthropic reports tagging Claude is now one of the main ways it gets its own work done (~65% of its product team's code, per the announcement). Claude Tag targets small teams, so it lands slightly off our solopreneur center — but it maps one-for-one onto the coach-joins-your-chat mechanic, and it carries over *directly* to the **intrapreneur working inside an enterprise team**, which is precisely the expansion persona ([`enterprise.md`](enterprise.md)).
 
-**This does not soften "not collaboration-first."** The persona remains ~90% solo; a coach joining your chat is a support-and-feedback surface, not multi-user collaborative editing. The multi-participant substrate exists for the coach loop first — team collaboration inherits it later, for free, when the intrapreneur needs it.
+**What this changed — the substrate, not the positioning (updated 2026-07-19).** Anthropic's number is precisely why the chat is **multi-participant from day one** rather than something team collaboration inherits later: Nebula + the owner + a coach + an invited collaborator share one thread **pre-alpha**. That substrate is now core, and we will not ship the single-participant version. The **positioning is unchanged**: the persona is still the ~90%-solo user-developer, we do not sell team collaboration, and we do not build density-dependent features before single-player value exists. Hold that distinction — *more than one human in the chat* is the intended design, not a scope violation.
 
 Economically, coaching is a scale question (human touch doesn't scale like software), and that's fine at wedge stage: the coach loop is how the wedge *converts and compounds* while the platform is young, not a permanent COGS line — over time the same feedback loop trains the platform's own agents, docs, and defaults — the compounding *self-improving-platform* moat ([`self-improving-platform.md`](self-improving-platform.md)). (Coach economics is a research item in `deck-workplan.md`.)
 
@@ -146,7 +146,7 @@ Community and discovery are an *outcome* of density, never a shortcut to it — 
 
 - **Not a deployment-flexibility play.** "Deploy anywhere" is the opposite of our moat.
 - **Not a social-network play.** Remix and discovery are an acquisition funnel, not the product; forks and "trending" are not success metrics — retained, user-developers producing money-making apps are.
-- **Not collaboration-first.** The persona is ~90% solo user-developers. Multi-user collaborative development is more of a side benefit than a pillar we rely upon.
+- **Not collaboration-*sold*.** The persona is still ~90% solo user-developers: we don't market team collaboration, and we don't build density-dependent features (team billing, seat management, org-chart UI) before single-player value exists. But the **multi-participant chat substrate is core and ships pre-alpha** — see *The coach in the loop*. A shared thread is how the work actually gets done; that is substrate, not positioning.
 - **Not a toy gallery.** The unit of value is a deployable, revenue-capable SaaS app.
 
 ---
@@ -157,7 +157,7 @@ Flag a task that:
 
 1. **Trades away security defaults for flexibility, speed, or AI answer quality** — the wedge is secure-by-default; if the AI needs more data, the answer is just-in-time elevation up the org tree, never broader default access. A footgun is a strategy violation, not just a bug.
 2. **Optimizes a vanity metric** (forks, trending, stars) as if it were the business, or builds density-dependent features before single-player value exists.
-3. **Assumes collaboration / multi-user as a primary persona** rather than the ~90%-solo user-developer.
+3. **Sells to teams, or builds density-dependent collaboration features** (team billing, seat management, org-chart UI, presence for its own sake) **before single-player value exists** — the persona is still the ~90%-solo user-developer. ⚠️ **Multi-participant chat is NOT this check** (updated 2026-07-19): a shared thread carrying the owner, a coach, an invited collaborator, and Nebula is the intended pre-alpha design. Flag the *business* assumption, never the *substrate*.
 4. **Weakens the "get-paid" path** — anything that makes it harder for a user-developer to reach or charge end users undercuts the crown-jewel flywheel.
 5. **Erodes homogeneity** — special-casing, escape hatches to "deploy elsewhere," or per-app infrastructure divergence dissolves the moat.
 6. **Treats discovery as a someday problem** — adds publishable artifacts without an anti-slop/quality story.
