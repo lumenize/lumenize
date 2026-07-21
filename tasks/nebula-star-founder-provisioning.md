@@ -1,75 +1,87 @@
-# Star founder provisioning — self-signup without an open claim
+# Star self-signup — a real founder, with no admin in the loop
 
-**Status:** 🚧 **DRAFT — NOT reviewed.** Captures a pivot decided with Larry 2026-07-21 during `/build-task` on [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md). **Do not `/build-task` this file** — it needs `/review-task` first, and it rests on one unverified premise (below). Written now so the decision isn't lost in a transcript.
+**Status:** 🚧 **DRAFT — NOT reviewed.** Pivoted with Larry 2026-07-21 (see *The business decision*), superseding an earlier draft of this file that routed signup through a Galaxy admin. **Do not `/build-task` this file** — it needs `/review-task`, and it carries one **open blocker** (§Upward visibility) that must be pinned first.
 
-**Objective:** a Star gets a real **founder** — an identity minted at the star with `isAdmin: true` and an **exact-star** `authScopePattern` — as part of tenant signup, **without** introducing an open, stranger-reachable star claim.
+**Objective:** anyone can sign up for a Star and become its **founder** — an identity minted at the star with `isAdmin: true` and an **exact-star** `authScopePattern` — with **no Galaxy or Universe admin involved in the flow at any point**.
 
-## Why not an open `claimStar`
+## The business decision (pinned 2026-07-21, Larry)
 
-The registry records the deferral ([nebula-auth-registry.ts:336-341](../packages/nebula-auth/src/nebula-auth-registry.ts)):
+**Star self-signup is the PRIMARY use case, and it is open.** A stranger signs up for a Star inside a user-developer's Galaxy without anyone approving it. That is not a security defect to be engineered away; it is the product.
 
-> *"there is deliberately NO open, founder-minting `claimStar` … An open Turnstile-only star claim that minted an `isAdmin=true` founder **inside another user-developer's Universe** was a stranger-claims-a-child escalation"*
+The instinct to reject this — *"a rando can create something inside someone else's `{u}.{g}`"* — is the wrong frame and should be shut down when it recurs. The model that makes it sound:
 
-⚠️ **This is an authorization hole, not a timing hole** — the distinction matters because timing fixes don't address it. `claim-universe` can be open because a universe slug is the **root of a fresh tree**; claiming `acme` touches nobody. A star id `{u}.{g}.{s}` sits **inside** `{u}.{g}`, which already belongs to someone.
+| | |
+|---|---|
+| **Star founder gets** | complete control of their Star — **non-exclusive**: Galaxy, Universe, and super admins all sit above them |
+| **Star founder gets NO** | ability to **affect** anything at Galaxy or Universe level |
+| **Star founder gets NO** | ability to **see** anything at Galaxy or Universe level |
+| **Cleanup** | the Galaxy/Universe admin can delete the Star afterwards — remediation, not prevention |
 
-**And the slug is sufficient to exploit it** — universe/galaxy slugs are not secret (they appear in URLs; the claim path's own comment notes "slug is not secret"). So an open claim keyed on a public slug has *no* authorization component whatsoever. Any design that fixes this must add a capability the stranger cannot guess.
+⚠️ **Do not reintroduce an approval step, an invite code, or an admin-in-the-loop as a "safety" measure.** If a specific abuse (quota, spam) needs bounding, bound *that*, and say so explicitly — do not convert the flow back into an authorized one.
 
-## The reframe — the authorization already exists
+## Why the confinement is the ENABLER, not merely a gate
 
-Nebula's own model never had a stranger POSTing to an open endpoint. From [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md):
+[nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) is what makes this business model implementable at all. A star founder holds an **exact-star** pattern. Before the confinement, `enforceScopeReach`'s tenant branch admitted such a principal to its Galaxy and Universe and the guards then treated the bare `access.admin` bit as authority there — so **every self-signup tenant would have been an admin of the app they signed up to**. Open signup would have been a catastrophe.
 
-> *"a new tenant self-signs-up **via the Galaxy** (create account → pick Star name + slug → **Galaxy provisions the Star**), and the founder must come out of that flow holding `admin` on root"*
+After the confinement, `hasAdminOverScope(access, <callee node>)` is false for an exact-star pattern at any ancestor, so the "gets NO ability to **affect**" row above is enforced by construction. That is why the ordering is hard: **confine → star-founder → re-ground fixtures.**
 
-The **app** — the Galaxy, which already owns `{u}.{g}` — provisions `{u}.{g}.{s}`. That path exists and is already admin-gated: **`createStar`**, in-session. The deferral NOTE says so itself: *"which is exactly `createStar` (admin, in-session, no founder)."*
+## ⚠️ OPEN BLOCKER — the "see" half is NOT satisfied today
 
-**So the gap is three words: `no founder`.** `createStar` creates the `Scopes` row and stops. Authorization is *inherited from the Galaxy's existing authority* — which is the correct place for it. "May anyone sign up for a Star in my app?" becomes a policy the **app developer** owns, not a platform security gap.
+The confinement closes *affect*. It does **not** close *see*, and the difference is load-bearing for an open-signup model where the tenant is an untrusted stranger.
 
-## ✅ Premise VERIFIED from source (2026-07-21)
-The design rests on `createStar` being admin-gated in-method. **Confirmed by reading the body**, not a summary — [nebula-auth-registry.ts:375-395](../packages/nebula-auth/src/nebula-auth-registry.ts):
+A star-scoped caller (`aud = {u}.{g}.{s}`, exact-star pattern) is still **admitted** to its ancestors by `enforceScopeReach`'s tenant branch — `buildAuthScopePattern('{u}.{g}')` is `{u}.{g}.*`, which covers the star's aud — and can call every **non-admin** `@mesh()` method there. Verified against source 2026-07-21:
 
-```ts
-const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
-if (!this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
-  throw new RegistryError(403, 'forbidden', `Caller is not an admin of the parent galaxy "${parentGalaxy}"`);
-}
-```
+| Node | Method | Verdict |
+|---|---|---|
+| Galaxy | `getLatestOntologyVersion` / `getOntologyVersion` / `listOntologyVersions` | **legitimate** — the Star needs its app's schema; the Star already fetches the Galaxy-cached ontology row |
+| Galaxy | `getGalaxyConfig` | **leak?** — the app developer's config, readable by every tenant |
+| Universe | `getUniverseConfig` | **leak?** — the universe owner's config, readable by every tenant |
 
-Gated **over the parent galaxy**, in-method, before any write; it also validates tier, parent existence, and slug availability, and returns `{ instanceName }` for a signup flow to build on. Its own JSDoc states the gap in the same words this task does: *"`Scopes` row only, **NO founder** + NO email."* (`#hasAdminOverGalaxy` now delegates to the shared `hasAdminOverScope` exported by [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) Phase 1.)
+**So the fix is NOT "close the tenant branch"** — that would break the ontology path the Star depends on. The decision to pin is *which* upward reads are part of the contract and which are not. Candidate shapes (for review):
+- Split the Galaxy surface: an explicit **tenant-facing** read set (ontology) vs. an **owner-facing** set (config), gated separately — the honest fix, and it generalizes.
+- Or: keep the tenant branch for descendants but require an explicit per-method opt-in (`@mesh({ tenantReadable: true })`), making the surface allow-list-shaped rather than deny-list-shaped.
 
-⇒ **Phase 1 below shrinks from "verify + harden" to "confirm the gate is unchanged and move on."** The authorization genuinely already exists; the whole task is minting the founder and pre-stamping the DAG grant.
+⚠️ **This revisits a warning in the gating task.** [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) says *"Do NOT fix this by tightening `enforceScopeReach`'s tenant branch — narrowing it would change non-admin reach as a side effect."* That warning was written when upward non-admin reach was assumed benign. **Open self-signup changes that assumption** — the descendant is now an untrusted stranger. The warning still holds for *this* task's scope (don't fix an authority bug by breaking admission), but the underlying question is genuinely reopened, and reopening it is in scope **here**.
+
+## Why there is no `claimStar`-shaped hole to worry about
+
+The registry's existing deferral note ([nebula-auth-registry.ts:336-341](../packages/nebula-auth/src/nebula-auth-registry.ts)) rejects an open star claim as *"a stranger-claims-a-child escalation."* **That reasoning was correct at the time and is now obsolete** — the escalation it names is precisely the one the confinement removed. Update or delete that note as part of this task; leaving it is an unlearning tax on every future reader.
+
+What made it an escalation was never "a stranger created a row." It was that the minted founder became an admin of the *parent*. With the confinement, an exact-star founder is inert above its own Star, so the create is just a create.
 
 ## Two layers, two different problems
-Conflating them is how the "is it a timing hole?" confusion arose. Both are real:
-
 | | Layer | Nature | Fix |
 |---|---|---|---|
-| Who may create a Star under someone's Galaxy | auth | **authorization** | inherit the Galaxy's authority (`createStar`) + a single-use claim token |
-| Who becomes root admin of a newly provisioned Star | DAG | **timing** (first-caller-wins) | pre-stamp from the signup flow |
+| Who may create a Star | auth | **open by decision** — no authorization component, deliberately | mint the founder in an open signup path |
+| Who becomes root admin of a new Star | DAG | **timing** (first-caller-wins) | pre-stamp from the signup flow |
 
-The second is live today: `Star.onBeforeCall` seeds the DAG root admin for *"the first `access.admin` caller who touches this Star"* ([star.ts](../apps/nebula/src/star.ts)), with a race test (`first-run-create-race.test.ts`). The on-hold dataplane task already carries the intended fix as `TODO(self-signup)`: *"the founder's identity should come from the signup flow, not 'first scope-admin to connect'"*. **This task closes that TODO.**
+The second is live today: `Star.onBeforeCall` seeds the DAG root admin for *"the first `access.admin` caller who touches this Star"* ([star.ts](../apps/nebula/src/star.ts)), with a race test (`first-run-create-race.test.ts`). This task closes the `TODO(self-signup)` that [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) has carried since 2026-06-14 — and **supersedes** that file's Part 1 lift rather than merely relocating the seed.
 
 ## Design sketch (to be pinned in review)
-1. **Mint a founder in the star-provisioning path** — `#mintIdentity(email, starId, isAdmin: true)`. Pattern is `buildAuthScopePattern(starId)` = **the exact star id** ([parse-id.ts:117](../packages/nebula-auth/src/parse-id.ts)), so a star founder is *not* a universe admin. That property is the point.
-2. **Single-use claim token** — reuse `InviteTokens` verbatim (hashed, single-use, emailed link). Larry's "pre-stamp with a temporary token only used until claimed" **is** this mechanism; it already exists, so this should be composition, not new machinery.
-3. **Pre-stamp the DAG root admin** from the provisioning flow instead of first-touch, retiring `Star.onBeforeCall`'s seed latch.
+1. **An open signup endpoint** that mints the founder: `#mintIdentity(email, starId, isAdmin: true)`. Pattern is `buildAuthScopePattern(starId)` = **the exact star id** ([parse-id.ts:117](../packages/nebula-auth/src/parse-id.ts)) — *not* `{u}.*`. That property is the whole point.
+   ⚠️ **The founder is the SIGNING-UP USER**, never a Galaxy admin acting on their behalf. The `email` above is the stranger's.
+2. **Single-use claim token** — reuse `InviteTokens` verbatim (opaque, hashed, single-use, emailed link). Larry's "pre-stamp with a temporary token only used until claimed" **is** this mechanism; it already exists, so this is composition, not new machinery. It proves email ownership; it is **not** an authorization step.
+3. **Pre-stamp the DAG root admin** from the signup flow instead of first-touch, retiring the `__nebula_rootAdminSeeded` latch.
+4. **Resolve §Upward visibility** — the open blocker.
 
 ## Decisions
 | Decision | Rejected alternative — why |
 |---|---|
-| Extend the **existing admin-gated** star-provisioning path | An open `claimStar` with the hole "captured and lived with" — the hole has no authorization component at all (public slug), so it is not a bounded risk; and inheriting the Galaxy's authority is *less* work, not more. |
-| The founder's pattern is the **exact star id** | A `{u}.*` pattern — that is a universe admin wearing a star's name, and is exactly what this whole line of work exists to prevent. |
-| Reuse `InviteTokens` for the claim token | A bespoke star-claim token — same shape (opaque, hashed, single-use, redeem-once), ADR-010-conformant, already built and tested. |
-| Pre-stamp the DAG root admin | Keeping first-touch — it is a documented race with its own test, and the signup flow *knows* the founder, so first-touch is strictly worse information. |
+| **Open self-signup, no admin in the loop** | Routing through `createStar` under the Galaxy admin's authority (this file's own previous draft) — it contradicts the business model. Self-signup is the product; an approval step is not a "safer version" of it, it is a different product. |
+| The founder's pattern is the **exact star id** | A `{u}.*` pattern — a universe admin wearing a star's name, and exactly what the gating task exists to prevent. This is also what makes open signup safe. |
+| The founder is the **signing-up user** | The Galaxy admin as founder — then it is not self-signup, and the new tenant cannot administer their own Star. |
+| Abuse is bounded by **remediation**, not prevention | An approval gate — see the business decision. If quota/spam needs bounding, bound *that* explicitly (rate limit, per-Galaxy cap) and keep the flow open. |
+| Reuse `InviteTokens` for the claim token | A bespoke star-claim token — same shape, ADR-010-conformant, already built and tested. |
+| Pre-stamp the DAG root admin | Keeping first-touch — a documented race with its own test, and the signup flow *knows* the founder, so first-touch is strictly worse information. |
 
-## Phases
-*(sketch only — `/review-task` must pin these with capable-of-failing criteria)*
-1. ✅ **Gate already verified** (see above) — confirm it is unchanged, add no new authorization.
-2. Mint the founder identity + issue the claim token in the provisioning path.
-3. Pre-stamp the DAG root admin from that flow; retire the first-touch seed and its latch.
-4. Re-ground the ~30 baseline fixtures onto real star founders (see Relationships).
+## Open questions for `/review-task`
+1. **§Upward visibility** — which Galaxy/Universe reads are tenant-facing? (blocker)
+2. **Does the Galaxy get a say at all?** The business decision says no *approval*, but an app developer plausibly wants signup **disabled** for a private app. Is that a Galaxy config flag (still no per-signup admin action), or is signup unconditionally open? These are different products; pin one.
+3. **Abuse bounding** — is anything needed at pre-alpha beyond "the admin can delete it"?
+4. **What creates the `Scopes` row?** `createStar` is admin-gated in-method ([:383](../packages/nebula-auth/src/nebula-auth-registry.ts), verified) and is therefore **not** the path — the open signup flow needs its own registry entry point that mints scope + founder together. Confirm no caller depends on `createStar` remaining the only star-creating path.
 
 ## Relationships
-- 🚧 **GATED BY [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) — all phases.** A star founder holds an exact-star pattern; before that task's confinement, such a principal is admitted to its **Galaxy and Universe** by `enforceScopeReach`'s tenant branch and then treated as admin there (§A). **Landing star founders first would ship that escalation to every self-signup tenant.** This is a hard ordering, not a preference.
-- **Supersedes part of [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1** — its `TODO(self-signup)` is this task's Phase 3. Its Part 2 (last-admin protection) is unaffected.
-- **Overlaps [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** — that task mints star-tier admins by *invite* (admin-authorized). Same principal shape, different provenance. Neither blocks the other; if identity-mint lands first, the fixture re-grounding can start there.
-- **Releases the fixture re-grounding.** [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) Phase 0 left ~30 baseline fixtures asking for "an admin at this star" and receiving a **universe admin** — the only thing mintable today. That is the interim this task retires. ⚠️ Do the **intent-split** (`adminClientAt(scope)` vs `universeAdminClient(universe, activeScope)`) in the confine task *before* this lands, so re-grounding is one helper body rather than ~30 call sites.
+- 🚧 **GATED BY [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) — all phases.** Not merely sequencing: the confinement is what makes open self-signup safe (§Why the confinement is the ENABLER). Landing this first would make every self-signup tenant an admin of the app they joined.
+- **Supersedes [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1** — its `TODO(self-signup)` is this task's step 3. Part 2 (last-admin protection) is unaffected.
+- **Overlaps [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** — that task mints star-tier admins by *invite* (admin-authorized). Same principal shape, different provenance. Neither blocks the other.
+- **Releases the fixture re-grounding.** The gating task's Phase 0 left ~30 baseline fixtures asking for "an admin at this star" and receiving a **universe** admin — the only thing mintable today. ⚠️ Do the **intent-split** (`adminClientAt(scope)` vs `universeAdminClient(universe, activeScope)`) in the gating task *before* this lands, so re-grounding is one helper body rather than ~30 call sites. `scope-binding.test.ts` is a second consumer of that split.
