@@ -8,8 +8,10 @@
  * committed `2a2978b`) that routed any `resourceType === 'Profile'` entry to the PROFILE binding and would
  * silently lose that resource's updates after any WS blip.
  *
- * Rung-3 ADMIN mint (createNebulaTestToken; browserLogin is red mid-turnover — ADR-009 ladder) so the client
- * can install an ontology with a `Profile` type + create/subscribe a resource of it.
+ * Auth: **real server issuance** (ADR-009 rung 2) via `adminClientAt` — claim the universe, which mints the
+ * founder `isAdmin: true`, then refresh at the star — so the client can install an ontology with a `Profile`
+ * type + create/subscribe a resource of it. No hand-minted token: nothing here needs an identity shape real
+ * issuance can't produce.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
