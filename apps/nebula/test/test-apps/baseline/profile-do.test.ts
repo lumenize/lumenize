@@ -4,6 +4,10 @@
  * scoped-admin the ONE read), the private-notes gate, fail-closed, and LWW + forward-only eTag. Every
  * test is capable-of-failing.
  *
+ * ⚠️ **Rung 3 is LOAD-BEARING here** (ADR-009 in-place justification): the fixtures seed registry
+ * `Identities` rows keyed on a CHOSEN `profileId` so `getScopesForProfile(profileId)` resolves to a known
+ * scope. Real issuance assigns `profileId` server-side, so the fixture could not be constructed through it.
+ *
  * Harness: a plain `LumenizeClient` (mesh) with `refresh: createNebulaTestToken(...)` (ADR-009 rung 3,
  * justified per-site: these tests need PRECISE control over the `profileId` / `access` / scope claims,
  * which the cookie login can't give — and the baseline login lane is expectedly red mid-turnover). The

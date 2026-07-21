@@ -14,30 +14,29 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
 import { NebulaClientTest } from './index';
+import { adminClientAt } from '../../test-helpers';
 
 const ORIGIN = 'http://localhost';
 function uuid(): string { return crypto.randomUUID(); }
 function uniqueStar(): string { return `acme-${uuid().slice(0, 8)}.app.tenant`; }
 
-/** A connected rung-3 ADMIN NebulaClientTest for `star` (can applyOntology + create). */
+/**
+ * A connected ADMIN `NebulaClientTest` for `star` (can applyOntology + create), via **real server
+ * issuance** — claim the universe (which mints the founder, `isAdmin: true`), consume the magic
+ * link, refresh at the star. Rung 2 of the ADR-009 ladder, and rung 3 is gone from this file.
+ *
+ * This used to hand-mint a token, justified in-place as *"browserLogin is red mid-turnover"*. That
+ * excuse expired: `adminClientAt` works, and nothing here needs a shape real issuance can't produce
+ * — it wants an admin at a star, which the founder's pattern already covers. (Its siblings
+ * `profile-do` / `profile-subscribe` / `subscriber-list` legitimately keep the mint; they assert on
+ * `profileId`/`sub` values they must choose. See their headers.)
+ */
 async function adminClient(star: string): Promise<NebulaClientTest> {
-  const { access_token, sub } = await createNebulaTestToken({
-    privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
-    activeScope: star, instanceName: star, isAdmin: true, ttlSeconds: 3600,
-  })();
   const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
-  const client = new NebulaClientTest({
-    baseUrl: ORIGIN, authScope: star, activeScope: star, appVersion: 'v1',
-    resourceHostBinding: 'STAR', accessToken: access_token,
-    instanceName: `${sub}.${uuid().slice(0, 8)}`,
-    fetch: browser.fetch, WebSocket: browser.WebSocket,
-    sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
-  });
+  const { client } = await adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
   await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
   return client;
 }

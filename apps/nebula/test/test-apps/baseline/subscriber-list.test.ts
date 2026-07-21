@@ -6,7 +6,11 @@
  * join/leave. Reworks the presence build: the projection (dedup-by-`sub`, profileId capture, join/leave
  * guards) is reused verbatim; the AUDIENCE moved from data-subscribers → a separate watcher registry.
  *
- * Harness (rung-3, ADR-009 — the baseline login lane is expectedly red mid-turnover): `NebulaClientTest`
+ * Harness — **rung 3 is LOAD-BEARING here, not a shortcut** (ADR-009 requires the justification in place):
+ * the assertions name the exact identity values, e.g. `roster).toContainEqual({ sub: aSub, profileId: aPid })`,
+ * and one case needs a token with the profileId claim ABSENT to prove the sub-only degrade. Real issuance
+ * assigns `sub`/`profileId` server-side and can never omit the claim, so those cases are unreachable
+ * through it. (`profile-channel-collision` had no such need and moved to rung 2.) `NebulaClientTest`
  * + `createNebulaTestToken` → real Gateway → Star/DevStudio. A WATCHER uses `client.subscribeQuerySubscribers`
  * and asserts on the `handleQuerySubscribersUpdate` capture (`lastQuerySubscribersUpdate`/count). Data
  * churn uses `client.resources.subscribeQuery`. Server branch decisions are asserted via the debug marker

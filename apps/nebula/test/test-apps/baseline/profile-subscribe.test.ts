@@ -4,6 +4,10 @@
  * hand-rolled fanout + dead-subscriber-row drop. Every test is capable-of-failing; the fence is
  * mutation-checked (see the mutation note in the headline test).
  *
+ * ⚠️ **Rung 3 is LOAD-BEARING here** (ADR-009 in-place justification): the assertions read Profile-DO
+ * subscriber rows for a SPECIFIC `profileId` and drive clients that must share or differ on it. Real
+ * issuance assigns `profileId` server-side, so the identities under test are unreachable through it.
+ *
  * Harness: mesh clients with `refresh: createNebulaTestToken(...)` in DISTINCT scopes so the subscriber
  * (X) and the writer (Y) carry genuinely different `aud`s — the lever the fence gates on (rung-2/3;
  * ADR-009). A `SubscriberProbe` (a `LumenizeClient` capturing the dedicated `@mesh handleProfileUpdate`

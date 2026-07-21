@@ -46,6 +46,20 @@ export interface EmailLoginOptions {
    * `refreshToken` (the usual case for a harness that persists a session).
    */
   fetchImpl?: FetchLike;
+  /**
+   * Where the magic link comes from — the ADR-009 rung, made explicit:
+   *
+   * - `'email'` (default, **rung 1**) — the real thing: the server sends, the deployed
+   *   email-test Worker receives, the link arrives over a WebSocket push.
+   * - `'test-mode'` (**rung 2**) — the server returns `magicLinkUrl` in the response body
+   *   instead of sending. Requires `NEBULA_AUTH_TEST_MODE=true` on the worker.
+   *
+   * ⚠️ Rung 2 is **still real server issuance** — real `MagicLinks` row, real consume, real
+   * cookie, real JWT. The ONLY thing it skips is the email hop. It is emphatically not a
+   * client-side mint (rung 3), and it is a legitimate choice for an isolated unit lane that
+   * shouldn't take a network dependency. Prefer `'email'` wherever the lane can afford it.
+   */
+  channel?: 'email' | 'test-mode';
   /** Turnstile bypass token. Omit where Turnstile is off — it is, in local dev. */
   bypassToken?: string;
   /** Email-wait ceiling. Default 60 s (the loop is ~1.4 s; this is slack, not an expectation). */
@@ -208,8 +222,11 @@ export async function provisionAndLogin(
   if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
 
   // 1. Claim the universe. Open + Turnstile-only, and the ONLY thing here that mints an
-  //    identity — it also sends the magic link, so no separate email-magic-link call.
-  const waiter = waitForEmail({ testToken, instance: universe, to: email, timeout: timeout ?? 60_000 });
+  //    identity — it also issues the magic link, so no separate email-magic-link call.
+  const useEmail = (options.channel ?? 'email') === 'email';
+  const waiter = useEmail
+    ? waitForEmail({ testToken, instance: universe, to: email, timeout: timeout ?? 60_000 })
+    : undefined;
   let session: EmailSession;
   try {
     const claim = await fetchImpl(`${origin}/auth/claim-universe`, {
@@ -218,7 +235,19 @@ export async function provisionAndLogin(
     if (!claim.ok) {
       throw new Error(`claim-universe ${claim.status}: ${(await claim.text()).slice(0, 200)}`);
     }
-    const link = extractMagicLink(await waiter.emailPromise);
+    let link: string;
+    if (useEmail) {
+      link = extractMagicLink(await waiter!.emailPromise);
+    } else {
+      const body = await claim.json() as { magicLinkUrl?: string };
+      if (!body.magicLinkUrl) {
+        throw new Error(
+          "channel 'test-mode' but claim-universe returned no magicLinkUrl — " +
+          'NEBULA_AUTH_TEST_MODE must be "true" on the worker for this channel',
+        );
+      }
+      link = body.magicLinkUrl;
+    }
     const target = new URL(origin);
     const localLink = new URL(link);
     localLink.protocol = target.protocol;
@@ -233,7 +262,7 @@ export async function provisionAndLogin(
     }
     session = { refreshToken, authScope: universe, email, savedAt: new Date().toISOString() };
   } finally {
-    waiter.cleanup();
+    waiter?.cleanup();
   }
 
   // 2. Token at the universe, used to authorize the scope creations below it.
