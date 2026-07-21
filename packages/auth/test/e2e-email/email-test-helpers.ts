@@ -105,7 +105,13 @@ export function reportEmailLatency(
   startedAt: number,
   marks: EmailWaitMarks,
 ): number {
-  const loop = (marks.receivedAt ?? Date.now()) - startedAt;
+  // No `?? Date.now()` fallback: this is only called after the email promise
+  // resolved, so an unset mark means the wiring broke — and a fallback would
+  // print a number within milliseconds of the true one, hiding that silently.
+  if (marks.receivedAt === undefined) {
+    throw new Error('reportEmailLatency: marks.receivedAt unset — waitForEmail instrumentation is broken');
+  }
+  const loop = marks.receivedAt - startedAt;
   const wsOpen = marks.wsOpenAt !== undefined ? marks.wsOpenAt - startedAt : undefined;
   console.log(
     `[email-latency] provider=${provider} label=${label} loop=${loop}ms` +
