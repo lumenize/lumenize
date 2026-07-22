@@ -23,8 +23,12 @@
   // The per-scope NebulaAuth DO is dissolved (tasks/nebula-auth-surrogate-sub.md); refresh state lives
   // in the REFRESH_TOKEN_KV namespace below. This is a local `wrangler dev` harness — if a stale
   // `.wrangler` still has NebulaAuth registered under v1, `rm -rf .wrangler` before re-running.
+  // Real KV namespace provisioned 2026-07-22 (the documented PHASE-4 manual step —
+  // `wrangler kv namespace create nebula-browser-refresh-token-kv-test`) so this
+  // deployed harness can actually deploy for the cold-start bench. A real hex id
+  // still works as a local `wrangler dev` key (miniflare stays local, no remote bind).
   "kv_namespaces": [
-    { "binding": "REFRESH_TOKEN_KV", "id": "nebula-browser-refresh-token-kv-test" }
+    { "binding": "REFRESH_TOKEN_KV", "id": "abb2b39afdcf49dc90c0793ccd0b2099" }
   ],
   // Declarative DO `exports` (was `migrations`) — lists only LIVE classes. The old migrations block
   // carried tombstone entries for the removed (BenchBroadcaster, BenchFanoutHelper, ResourceHistory,
@@ -37,7 +41,13 @@
     "Galaxy": { "type": "durable-object", "storage": "sqlite" },
     "StarTest": { "type": "durable-object", "storage": "sqlite" },
     "NebulaAuthRegistry": { "type": "durable-object", "storage": "sqlite" },
-    "BenchAgent": { "type": "durable-object", "storage": "sqlite" }
+    "BenchAgent": { "type": "durable-object", "storage": "sqlite" },
+    // Tombstones (2026-07-22): the previous deploy predated the migrations->exports switch and the
+    // surrogate-sub NebulaAuth dissolution, so CF still holds these orphaned namespaces. Retire them
+    // per wrangler's reconciliation (throwaway harness, no durable state worth keeping). Alternative
+    // per the note above: dashboard-delete the worker + redeploy, then drop these two lines.
+    "NebulaAuth": { "type": "durable-object", "state": "deleted" },
+    "ResourceHistory": { "type": "durable-object", "state": "deleted" }
   },
   "services": [
     {
