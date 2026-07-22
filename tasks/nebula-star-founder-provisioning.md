@@ -8,7 +8,6 @@
 | **Buildable today** | **1a** (deletion authorization) · **2** (the signup endpoint) · **5** (visibility audit) |
 | **Blocked on a decision** | **1b** ⛔ OQ 3 (`lastLogin` mechanism) |
 | **Blocked on a phase** | **3** and **6** ⛔ depend on Phase 2 · **4b** ⛔ depends on [collapse](nebula-galaxy-collapse-and-chat.md) Phase 3 |
-| **Cut** | ~~4~~ — resolved by pinning; see §The DAG root grant |
 
 ⚠️ **Phase 3 is the big one** (78 call sites / 39 files) and is transitively blocked — nothing but Phase 2's `claim-star` mints a star founder. Schedule it the moment Phase 2 lands.
 
