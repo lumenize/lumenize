@@ -113,6 +113,16 @@ A vN phase that is **thin but neither** — only `"works"`-grade bullets, no dec
 
 This is the §5.3.7 lesson: at the `/build-task` handoff, v3 carried 34 pinned decisions and shipped as transcription; v4 carried 0 and was where every under-specified call landed (the WS-disconnect tooling took three tries to discover). v4 still shipped clean *because* the work was inherently empirical — but tagging it exploratory up front would have set the right expectation and verifier bar instead of looking like an oversight.
 
+### "Open questions" are decisions to MAKE — not design considerations to keep in mind
+
+An **open question** is a decision that *must be made* before or during the build, and that *gates* something (a phase can't be scoped, a criterion can't be written) until it's answered. It belongs in an `## Open questions` list, and resolving it removes it.
+
+A **design consideration** is different: something the builder should *hold in mind so they don't foreclose a future option* — "when you build X, shape it so Y can extend it later; don't build Y now." It gates nothing and needs no decision. It belongs **inline in the design prose** at the point it applies, phrased as forward guidance (`⚠️ Design consideration:` …), **never** as a tracked open question.
+
+Mis-filing a design consideration as an open question bloats the doc: it reads as an unresolved blocker, invites a "decide now" round that ends in "defer," and then sits as resolution-churn. If the honest answer to "what happens if we never *decide* this?" is "nothing — we just keep a seam open when we build," it was never an open question. (Bit twice on `nebula-star-founder-provisioning.md` 2026-07-21: `signupPolicy` field-shape and DO placement were both tracked as OQs when each was really "keep the seam open, build nothing now.")
+
+Corollary for the whole doc: once every OQ is resolved/folded/deferred, a top-of-file "build order / dependency" summary table has done its job — the per-phase `⛔` markers carry the ordering, so the table becomes a redundant second source. Remove it.
+
 ### Grep-based success criteria: target structure, not a bare word
 
 A criterion of the form `grep 'X' <file>` returns nothing must target **structure** — a JSON key, a symbol, a code token — not a bare **word**. A word the same task ALSO instructs you to write into a comment or prose will false-fail the grep even when the substantive intent is met. Scope the grep to the structure it means (e.g. `grep '"state": "deleted"'` for tombstone *entries*, or a key like `"type": "durable-object"`), not a bare token like `deleted` that a required comment also contains. (Bit 2026-07-16: the exports-conversion Phase-2 `grep 'deleted'`-clean criterion was doomed by its own "note the dropped tombstones in the file's comment" instruction — the `/build-task` verifier panel flagged the self-contradiction.)
