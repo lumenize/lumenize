@@ -214,6 +214,19 @@ export class HarnessNebulaClient extends NebulaClient {
     });
   }
 
+  /**
+   * Cold-start anatomy (2026-07-22): the pure mesh round-trip. Fires `StarTest.echo(value)`
+   * (returns its arg, zero data-plane work) via the 4-arg fire-back into `handleResult`,
+   * combined with the per-callId `bench_marker` into a DecomposedCallResult. A COLD echo
+   * on a fresh Star measures fresh-Star cold-wake with no ontology/transaction path.
+   */
+  callStarEcho(starName: string, value: unknown): Promise<DecomposedCallResult<unknown>> {
+    return this.#callWithMarker<unknown>((onSent) => {
+      const remote = (this.ctn() as any).echo(value);
+      this.lmz.call('STAR', starName, remote, (this.ctn() as any).handleResult(remote), { onSent });
+    });
+  }
+
   callGalaxyAppendOntologyVersion(
     galaxyName: string,
     cfg: { version: string; types: string },

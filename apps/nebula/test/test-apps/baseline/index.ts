@@ -239,6 +239,19 @@ export class StarTest extends Star {
   }
 
   /**
+   * Test-only (cold-start anatomy, 2026-07-22): the PURE mesh round-trip — returns
+   * its argument straight back, touching neither the ontology nor `#dataPlane`. The
+   * 4-arg fire-back delivers the value to the client's `handleResult`. A COLD echo on
+   * a fresh Star therefore isolates fresh-Star cold-wake (placement + onStart schema/
+   * ROOT + onBeforeCall scope-check + founder-seed) from any data-plane operation —
+   * the clean counterpart to `transaction`'s cold path.
+   */
+  @mesh()
+  echo(value: unknown): unknown {
+    return value;
+  }
+
+  /**
    * Test-only: spike handler for the Phase-0 ws.send flush experiment in
    * `tasks/gateway-hop-benchmark.md`. Forces a known-duration await on the
    * Star side; the Gateway's invocation is paused at
