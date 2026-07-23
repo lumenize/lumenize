@@ -45,7 +45,7 @@ Star signup **reuses `claim-universe`'s machinery** — an open endpoint on the 
 2. The registry validates, in order, rejecting **before any state change or email**: email format → slug format → **not a reserved slug** → **parent Galaxy exists** → **slug unclaimed**.
 3. In one `transactionSync`: insert the `Scopes` row, **mint the founder** (`isAdmin: true`, `emailVerified: false`, **exact-star** pattern), and insert the magic-link token.
 4. Email the claim link. *(The only step outside the transaction — see the double-submit note below.)*
-5. The founder clicks it: the link is consumed, `emailVerified` flips, a refresh cookie is set, and they land on the app's own surface (**tier-derived redirect**, Phase 4b).
+5. The founder clicks it: the link is consumed, `emailVerified` flips, a refresh cookie is set, and they land on the app's own surface (**tier-derived redirect**, Phase 4).
 6. Their **first authenticated touch** of the Star self-seeds the org-tree root grant (§The DAG root grant) — no extra step.
 
 ```mermaid
@@ -131,13 +131,13 @@ That is the seam: the 80% case is free and identical across every app; the 20% w
 
 The business decision rests on *"a covering admin deletes the squatted Star."* **That does not work today**, and open signup without it is the one combination that does not hold together.
 
-`#computeDeletionPlan` computes `blockedBy = #otherUsers(down, callerEmailLc)` where `down` **includes the target itself**, and `#otherUsers` (defined just below `#computeDeletionPlan` in [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)) returns every Identity in those scopes whose email differs from the caller's. So a Galaxy admin deleting a squatted Star gets `blockedBy = [the squatter]` → **`RegistryError(409, 'scope_in_use')`** — thrown by `executeScopeDeletion`, in [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts). The block fires on the **Star**, so an automated sweep hits it exactly as a support ticket would. (Galaxies are not the target *today* — but they **become** reachable if Phase 1a's `if (blockedBy.length > 0)` early return is wrongly deleted; that cascade is the 🚨 in Phase 1a.)
+`#computeDeletionPlan` computes `blockedBy = #otherUsers(down, callerEmailLc)` where `down` **includes the target itself**, and `#otherUsers` (defined just below `#computeDeletionPlan` in [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)) returns every Identity in those scopes whose email differs from the caller's. So a Galaxy admin deleting a squatted Star gets `blockedBy = [the squatter]` → **`RegistryError(409, 'scope_in_use')`** — thrown by `executeScopeDeletion`, in [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts). The block fires on the **Star**, so an automated sweep hits it exactly as a support ticket would. (Galaxies are not the target *today* — but they **become** reachable if Phase 1's `if (blockedBy.length > 0)` early return is wrongly deleted; that cascade is the 🚨 in Phase 1.)
 
 ### The fix is the principle, not a carve-out
 
 **Authority trickles DOWN. A covering admin may delete any descendant scope — shared or not, risky or not — and the only restraint is a UI warning.** That is a design principle of the whole tier model, not a concession to self-signup: a Galaxy admin already holds full authority over every Star beneath them, so a Star's own members cannot be allowed to *veto* that authority.
 
-⇒ **`blockedBy` → `affectedUsers`, and it stops blocking.** `executeScopeDeletion` no longer throws (the `RegistryError(409, 'scope_in_use')` throw goes). The plan carries **`affectedUsers: { total, sample }`** — a `COUNT` plus a **≤25-email sample**, NOT the unbounded list `#otherUsers` materializes today — and the confirm screen shows it as a *warning*, not a wall. The bound matters: deleting an active Star must never shuttle every attached user's email across the wire (Phase 1a criterion). A "see all / last-login" step-2 is a **deferred follow-on** ([backlog](backlog.md) § deletion-warning enrichment).
+⇒ **`blockedBy` → `affectedUsers`, and it stops blocking.** `executeScopeDeletion` no longer throws (the `RegistryError(409, 'scope_in_use')` throw goes). The plan carries **`affectedUsers: { total, sample }`** — a `COUNT` plus a **≤25-email sample**, NOT the unbounded list `#otherUsers` materializes today — and the confirm screen shows it as a *warning*, not a wall. The bound matters: deleting an active Star must never shuttle every attached user's email across the wire (Phase 1 criterion). A "see all / last-login" step-2 is a **deferred follow-on** ([backlog](backlog.md) § deletion-warning enrichment).
 
 ⚠️ **Scoped to the deletion TARGET.** Leave the `#otherUsers` check in the **prune-up** — the `if (this.#otherUsers([ancestor], callerEmailLc).length > 0) break;` inside the `while (ancestor)` loop of `#computeDeletionPlan` ([nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)) — intact: that one decides whether the cascade silently climbs into an *ancestor* the admin did not name. Preventing a surprise ancestor wipe is a different concern from letting an admin delete what they explicitly chose.
 
@@ -183,7 +183,7 @@ A star-scoped caller is admitted to its ancestors by `enforceScopeReach`'s tenan
 
 Each phase carries a **Goal** and **capable-of-failing success criteria** — `/build-task` feeds these to its verifier panel, so a phase without them gets rubber-stamped.
 
-### Phase 1a — deletion stops blocking + a bounded warning (PREREQUISITE)
+### Phase 1 — deletion stops blocking + a bounded warning (PREREQUISITE)
 **Goal:** a covering admin can delete a descendant **Star** through the UI regardless of who else is attached (ADR-015), shown a **bounded** warning — the affected scopes + a `count + ≤25-email sample` of attached users — so deleting an active Star never shuttles every attached user's email. **No schema; a query-shape + rename change only.** (The block removal is uniform across tiers per ADR-015; the *richer per-tier warning* a Galaxy needs — a `count + sample` of its **affectedStars**, since a Galaxy's danger is its child Stars, not its own users — is the deferred delete-any-Galaxy task, a similar-but-separate method.)
 
 **Scope — all four sites, or the prerequisite lands "done" with the backstop still broken:**
@@ -202,9 +202,6 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 - ⚠️ **Retitle + re-assert `nebula-auth-registry.test.ts`'s *"guard: another user on the target blocks the delete"*.** It asserts a populated `blockedBy` (→ `affectedUsers`) and stays **GREEN** after this phase while its name states the opposite of the new behavior — the "green test enshrining the old shape" false-confidence trap (`workflow.md`). Note nothing today asserts the `409 scope_in_use` throw at all, so removing that throw reds **nothing** on its own — this test is the only place the old semantics are written down.
 - The prune-up's own `#otherUsers` stop (in the `while (ancestor)` loop) still refuses to climb into an ancestor holding other users.
 
-### Phase 1b — ~~warning enrichment (last-login)~~ ✅ DEFERRED → backlog
-The count + ≤25-email sample landed in Phase 1a. The richer step-2 (see-all / pagination + `last-login`, which needs a schema/derivation decision) is **not** on the star-founder path — it moved to [backlog](backlog.md) § deletion-warning enrichment, carrying the two zero-cost `lastLogin` mechanisms and the ADR-011 "no epoch column" ban.
-
 ### Phase 2 — open signup endpoint on the registry router
 **Goal:** a stranger POSTs a slug + email and becomes the founder of that Star, with no admin involved.
 
@@ -222,13 +219,13 @@ The count + ≤25-email sample landed in Phase 1a. The richer step-2 (see-all / 
 - **Taken-slug behavior is owner-aware** (resumable claim), two tests, opposite email: a re-claim **by a different email** gets `RegistryError(409, 'slug_taken')` with **no email sent** (assert both — a 409 that still emails breaks the pinned safety argument); a re-claim **by the founder's own email** instead **re-sends the magic link**, no 409 (idempotent resume).
 - **The claim writes are atomic.** `Scopes` + `Identities` (+ `MagicLinks`) commit in one `transactionSync`; force `#mintIdentity` to throw mid-sequence and assert **no orphan `Scopes` row** survives. Reds if the writes aren't wrapped.
 - ✅ **`provisionAndLogin` collapses.** [email-login.ts:272](../apps/nebula/test/lib/email-login.ts) currently reaches a star founder by claiming the **universe** and creating the galaxy/star beneath it — a detour that exists *only* because `createStar` mints no founder, and whose ⚠️ names this task file as the fix. Rewriting it to a direct claim-star, with its call sites unchanged, is **part of Phase 2's DONE definition**, not a follow-up. ⚠️ Its universe-claiming path must **survive** for callers genuinely provisioning a universe — collapse the star case, don't delete the function.
-- 🔒 **The redirect tier-split is tested HERE, where it is built — not deferred to Phase 4b.** The `consumeAndLogin` change that routes a star-tier claim link to the Galaxy-served surface (Phase 4b's 🔒 note pins it as *"built in Phase 2"*) bakes into every emailed link and cannot be fixed later. It is a cheap **302 `Location` assertion** over the real claim→consume loop, no rendered page needed: a **star-tier** claim's consume redirects to the tenant surface; a **universe/galaxy-tier** claim still redirects to `/app/{scope}`. Reds against today's env-global `NEBULA_AUTH_REDIRECT`. (Phase 4b keeps only the *rendered-page* assertions, which genuinely need the collapse's serving surface + `ui-smoke`.)
+- 🔒 **The redirect tier-split is tested HERE, where it is built — not deferred to Phase 4.** The `consumeAndLogin` change that routes a star-tier claim link to the Galaxy-served surface (Phase 4's 🔒 note pins it as *"built in Phase 2"*) bakes into every emailed link and cannot be fixed later. It is a cheap **302 `Location` assertion** over the real claim→consume loop, no rendered page needed: a **star-tier** claim's consume redirects to the tenant surface; a **universe/galaxy-tier** claim still redirects to `/app/{scope}`. Reds against today's env-global `NEBULA_AUTH_REDIRECT`. (Phase 4 keeps only the *rendered-page* assertions, which genuinely need the collapse's serving surface + `ui-smoke`.)
 - ⚠️ **Un-skip `nebula-auth-routes.test.ts` `claim-star: open self-signup mints an exact-star founder and rejects reserved slugs`** — it already carries these as skipped assertions and shows as `↓ skipped` until then. Extend with response shape + claim-token details once pinned; they are deliberately unasserted so it stays a contract, not a scaffold.
 
 ### Phase 3 — re-ground the baseline fixtures onto real star founders
 **Goal:** retire the interim where a fixture asking for "an admin at this star" receives a universe admin.
 
-⛔ **Depends on Phase 2** — nothing but `claim-star` mints a star founder, and this phase re-grounds fixtures *onto* one. (No seed change is involved; Phase 4 was cut.)
+⛔ **Depends on Phase 2** — nothing but `claim-star` mints a star founder, and this phase re-grounds fixtures *onto* one. (No seed change is involved; the founder-preference phase was cut — see §The DAG root grant.)
 
 **Success (capable-of-failing):**
 ⚠️ **PRE-STEP — the intent-split is NOT finished, and the criterion below is false until it is.** Enumerate with `grep -rn 'adminClientAt(' apps/nebula/test | grep -v test-helpers.ts` (**78 sites across 39 files** at time of writing; the helper's own JSDoc estimates "~70"). Several of those pass a **non-star** scope and assert wildcard cross-tier reach — `scope-isolation.test.ts` *"a galaxy admin reaches a descendant Star"* / *"a universe admin reaches a descendant Galaxy and Star"*, and sites in `scope-binding.test.ts`. A body that mints an **exact-star founder cannot serve a galaxy or universe `scope` argument**, so those must MOVE to `universeAdminClient` first. That one `it()` in `scope-isolation.test.ts` already calls `universeAdminClient` for its positive control while its primary client is still `adminClientAt` is the tell that the sweep missed them. **Do not satisfy the criterion with a tier-branch inside the helper** — that is the tier special-case this file bans, hidden in a test helper.
@@ -237,10 +234,7 @@ The count + ≤25-email sample landed in Phase 1a. The richer step-2 (see-all / 
 - **No `universeAdminClient` call site is touched** — they depend on the wildcard and must keep the universe admin (`grep -rn 'universeAdminClient(' apps/nebula/test | grep -v test-helpers.ts` — 13 before the pre-step, more after).
 - The baseline lane is green, and a fixture asserting an exact-star pattern now passes where it previously would have seen `{u}.*`.
 
-### Phase 4 — ~~founder preference in the seed~~ ✅ CUT
-**Not built — resolved by pinning, not by deferral.** The existing `Star.onBeforeCall` gate already seeds a self-signup founder on their own Star (an exact-star pattern satisfies `hasAdminOverScope`), so this phase had no consumer. See §The DAG root grant for the reasoning and the one benign case it declines to fix. **Phase numbering is left intact** so existing git-history references keep resolving.
-
-### Phase 4b — the signup UI (minimal), served from Galaxy
+### Phase 4 — the signup UI (minimal), served from Galaxy
 **Goal:** a stranger can actually sign up — a real page, on the app's own surface, not a curl command.
 
 **Build a minimal UI, served from Galaxy** — the collapse confirms why: [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) makes **Galaxy the node that serves the tenant-facing app** (*"the user-developer's built app is a pre-built static artifact … served dev: Galaxy-direct/uncached — the Galaxy DO **IS** engaged per request"*). A signup page for a Star inside `{u}.{g}` belongs on exactly that surface. ⚠️ **Do NOT build it inside `nebula-studio-ui`** — that is the user-developer **control plane**, and a stranger signing up for someone else's app has no business there; it would be a textbook interim to unlearn.
