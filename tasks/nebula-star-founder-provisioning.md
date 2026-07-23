@@ -36,9 +36,7 @@ The rights model that makes it sound:
 
 ### Who owns what — the registry owns the mechanism
 
-Star signup **reuses `claim-universe`'s machinery** — an open endpoint on the `nebula-auth` router that creates the `Scopes` row, mints the founder identity, and issues the emailed claim token. Every machine part already exists (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `InviteTokens`, the email path), so the flow adds no new mechanism. ⚠️ **That "no new mechanism" claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
-
-**What "reuses" means, precisely: `claimStar` is a NEW sibling method on the registry that calls the same private helpers `claimUniverse` calls** — `isValidSlug`, `checkSlugAvailable`, `mintIdentity`, `createMagicLinkAndSend`. It does **not** call `claimUniverse`, and it is **not** a copy-paste of it. Same building blocks, different validation prologue.
+Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls**: `isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`. It does **not** call `claimUniverse`, and it is **not** a copy-paste of it — same building blocks, different validation prologue. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token entirely from parts that already exist, adding no new mechanism. ⚠️ **That "no new mechanism" claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
 
 **The happy path:**
 1. A stranger POSTs `{ starId, email }` to the open `/auth/claim-star`. The Worker router verifies **Turnstile** first.
