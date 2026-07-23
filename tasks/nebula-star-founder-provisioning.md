@@ -49,7 +49,7 @@ sequenceDiagram
     U->>W: POST /auth/claim-star (starId = {u}.{g}.{s}, email)
     W->>W: Turnstile verify
     W->>R: claimStar(starId, email, origin)
-    Note over R,M: reject before any write
+    Note over R,M: validate first — a reject writes no Scopes row, sends no email
     R->>R: transactionSync - Scopes, founder, link token
     R->>M: send claim link
     M-->>U: email
