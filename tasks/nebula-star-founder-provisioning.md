@@ -46,7 +46,7 @@ sequenceDiagram
     participant W as Auth Worker (router)
     participant R as Registry DO
     participant M as Email provider
-    U->>W: POST /auth/claim-star (starId, email)
+    U->>W: POST /auth/claim-star (starId = {u}.{g}.{s}, email)
     W->>W: Turnstile verify
     W->>R: claimStar(starId, email, origin)
     Note over R,M: reject before any write
