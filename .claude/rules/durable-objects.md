@@ -102,6 +102,11 @@ The rule that matters: a DO using the synchronous storage API must be **SQLite-b
 
 This maps SQL rows directly to TS interfaces with minimal conversion. SQLite column names are case-insensitive in queries but case-preserved in output.
 
+## Boolean-ish columns: declare `INTEGER`, never `BOOLEAN`
+SQLite has no boolean type. A column declared `BOOLEAN` merely gets NUMERIC affinity — it still stores and returns `1`/`0` — so the declaration is a **lie that invites a real bug**: a reader sees `BOOLEAN` and writes `row.flag === true`, which is **always false**. Declare `INTEGER` (which primes the reader to convert) and let the **TypeScript type carry the boolean** (ADR-001), converting explicitly at the write boundary (`isAdmin ? 1 : 0`).
+
+Add **`CHECK (col IN (0, 1))`** — it documents boolean-ness exactly where a SQL-console reader looks and rejects a stray value, at **zero write cost** (no index, no extra row written). ⚠️ **Cheap only at creation:** SQLite has **no `ALTER TABLE ADD CONSTRAINT`**, so retrofitting a CHECK onto a live table requires the full 12-step rebuild (create shadow → copy → drop → rename). ⇒ add it **when you create the column**, or during a planned greenfield/wipe window — never as a retrofit on live data. (For a nullable tri-state: `CHECK (col IS NULL OR col IN (0, 1))`.)
+
 ## SQLite write-cost optimization
 DO SQLite charges **$1.00/M rows written — 1,000× the cost of reads** ($0.001/M). INSERT cost = `1 (row) + 1 per index updated`. Design schemas to minimize index writes:
 
