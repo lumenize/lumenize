@@ -114,7 +114,7 @@ The switch was justified entirely by a latency gap that does not exist. Building
 
 `testing.md` now makes *"drive a real `NebulaClient` through the real login"* the **default** tier for Nebula behavior. That default only holds if the round trip is cheap enough that nobody reaches for a shortcut — and reaching for shortcuts is exactly what produced the login-shortcut era (low fidelity → real bugs through, ossified fixtures, deferred building what the feature needed to be usable).
 
-⚠️ **The number is load-bearing beyond this task.** [ADR-009](../docs/adr/009-real-auth-path.md) justifies its rung-2 (test-mode server issuance) partly on *"a real login round-trip is ~8s … the reason rung 2 exists for fast units."* If the local path is ~1s, that justification mostly evaporates and the ADR's cost line should be rewritten — it is the sentence a future session will cite to reach for a shortcut.
+⚠️ **The number is load-bearing beyond this task.** [ADR-009](../../docs/adr/009-real-auth-path.md) justifies its rung-2 (test-mode server issuance) partly on *"a real login round-trip is ~8s … the reason rung 2 exists for fast units."* If the local path is ~1s, that justification mostly evaporates and the ADR's cost line should be rewritten — it is the sentence a future session will cite to reach for a shortcut.
 
 ## ⚠️ NOT an experiment directory — the apparatus already exists
 

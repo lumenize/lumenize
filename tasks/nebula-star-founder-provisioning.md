@@ -36,7 +36,7 @@ The rights model that makes it sound:
 
 ### Who owns what — the registry owns the mechanism
 
-Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls**: `isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`. It does **not** call `claimUniverse`, and it is **not** a copy-paste of it — same building blocks, different validation prologue. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token entirely from parts that already exist, adding no new mechanism. ⚠️ **That "no new mechanism" claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
+Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls**: `isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`. It does **not** call `claimUniverse`, and it is **not** a copy-paste of it — same building blocks, different validation prologue. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token.
 
 **The happy path:**
 1. A stranger POSTs `{ starId, email }` to the open `/auth/claim-star`. The Worker router verifies **Turnstile** first.
@@ -121,7 +121,7 @@ The signer-upper picks the slug. The signup path **must reject reserved names**,
 
 That is the seam: the 80% case is free and identical across every app; the 20% we cannot yet specify has somewhere to go.
 
-🚨 **No write path exists yet.** `Scopes` has exactly one column (`universeGalaxyStarId` — [schemas.ts](../packages/nebula-auth/src/schemas.ts)), there is **zero** `UPDATE Scopes` in the package, and the endpoint surface is the seven in `REGISTRY_ENDPOINTS`. A writer needs an append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + tests — so "no new mechanism" (true of the signup *flow*) does **not** extend to `signupPolicy`.
+🚨 **No write path exists yet.** `Scopes` has exactly one column (`universeGalaxyStarId` — [schemas.ts](../packages/nebula-auth/src/schemas.ts)), there is **zero** `UPDATE Scopes` in the package, and the endpoint surface is the seven in `REGISTRY_ENDPOINTS`. A writer needs an append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + tests.
 
 **`signupPolicy` is entirely Phase 6 (read + write); it does NOT gate Phase 2 — the flow ships open** (the pinned business decision). The field has zero consumers today; landing a closed-by-default read earlier would ship the primary flow dark.
 
