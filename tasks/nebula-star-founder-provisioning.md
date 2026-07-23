@@ -38,9 +38,9 @@ The rights model that makes it sound:
 
 Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls** (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`), with a **different validation prologue**. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token.
 
-⚠️ **The emailed claim link needs no new template.** `#createMagicLinkAndSend` sends `type: 'magic-link'` — the generic "Sign in to Nebula" email, same as `claimUniverse` and login, *not* a distinct signup/welcome email. (All auth email is one subclass — `NebulaEmailSender extends AuthEmailSenderBase`, a `WorkerEntrypoint` with a **method per email type**, bound as `AUTH_EMAIL_SENDER`; per-tier branded/welcome copy is deferred template work, [nebula-scratchpad.md](nebula-scratchpad.md) § Email Template Customization.)
+⚠️ **No new email template — but it inherits `claimUniverse`'s context-free copy, and that bites harder here.** `#createMagicLinkAndSend` sends `type: 'magic-link'` (the message is just `{ to, magicLinkUrl }`), so the founder gets the generic "**Sign in to Nebula**" email — no app/Star name, no signup signal. Tolerable for a *universe* claim (the user is already on the Nebula site); **disconnected for a Star self-signup**, where the user came from the **app-developer's** site and never asked about "Nebula" — a get-paid-path first impression. **Decide before F&F:** accept it, or land a distinct `claim`/welcome template carrying the app name. Mechanism is one subclass — `NebulaEmailSender extends AuthEmailSenderBase`, a `WorkerEntrypoint` with a **method per email type**, bound `AUTH_EMAIL_SENDER`; per-tier branded copy is the deferred work in [nebula-scratchpad.md](nebula-scratchpad.md) § Email Template Customization.
 
-**The happy path** (full validation order below; first-touch self-seed in §The DAG root grant):
+**The `claim-star` flow** (the validation order is enumerated below, under **Keep `claimUniverse`'s ORDERING**; the first-touch self-seed is in §The DAG root grant):
 
 ```mermaid
 sequenceDiagram
@@ -51,17 +51,21 @@ sequenceDiagram
     U->>W: POST /auth/claim-star (starId = {u}.{g}.{s}, email)
     W->>W: Turnstile verify
     W->>R: claimStar(starId, email, origin)
-    Note over R,M: validate first — a reject writes no Scopes row, sends no email
-    R->>R: transactionSync - Scopes, founder, link token
-    R->>M: send claim link
-    M-->>U: email
-    U->>W: GET magic-link (one_time_token)
-    W->>R: consume + verify identity
-    R-->>W: sub and scope, emailVerified flipped
-    W-->>U: 302 to the app surface, refresh cookie
+    alt validation fails (format, reserved, no parent, or taken slug)
+        R-->>W: RegistryError 400/409 - no Scopes row, no email
+        W-->>U: error (pick a new slug)
+    else valid
+        R->>R: transactionSync - checkSlugAvailable, Scopes, founder, link token
+        R->>M: send claim link
+        M-->>U: email
+        U->>W: GET magic-link (one_time_token)
+        W->>R: consume + verify identity
+        R-->>W: sub and scope, emailVerified flipped
+        W-->>U: 302 to the app surface, refresh cookie
+    end
 ```
 
-⚠️ **Design consideration — keep the already-authenticated door open.** We may later let a *logged-in* user found a Star without the email round-trip. The mechanism allows it (`mintIdentity` already takes `emailVerified`, and the send is a separate final step), so simply **don't foreclose it**: let the endpoint tolerate an authenticated caller and branch (authenticated + verified email → mint verified, **skip step 4**, return success), and don't bake *"check your email"* into the response shape. That stays **claim** semantics — they are founding their *own* Star.
+⚠️ **Design consideration — keep the already-authenticated door open.** We may later let a *logged-in* user found a Star without the email round-trip. The mechanism allows it (`mintIdentity` already takes `emailVerified`, and the send is a separate final step), so simply **don't foreclose it**: let the endpoint tolerate an authenticated caller and branch (authenticated + verified email → mint verified, **skip the email send**, return success), and don't bake *"check your email"* into the response shape. That stays **claim** semantics — they are founding their *own* Star.
 
 🚨 **What it is NOT: a verbatim copy of `claimUniverse` — that would ship real security holes.** `claim-universe` is **top-level**; `claim-star` **nests under an existing Galaxy**. It is also not a copy of `createStar` (the admin path to a star row) — it deliberately drops that path's admin gate. It is a specific blend; each divergence below is load-bearing security with its own Phase 2 criterion:
 
