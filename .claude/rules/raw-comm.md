@@ -33,6 +33,17 @@ return (await routeDORequest(request, env, { prefix: '/auth' })
   || new Response('Not found', { status: 404 }));
 ```
 
+## Edge Worker fronting a DO: forward the request, or handle it in the Worker?
+
+When an edge Worker router fronts a backing DO (canonical: `nebula-auth`'s Worker → the Registry singleton), each route takes one of two shapes — and the choice is consistent, not ad-hoc:
+
+- **Forward the request to the DO's `fetch()`** when the endpoint's job **IS the DO's data operation** (claim / create / delete / query on the DO's storage). The edge does only the cross-cutting pre-checks that need env/secrets and produce **trusted claims** — Turnstile, JWT-verify, then inject `verifiedAccess`/`callerSub` into the body (**never** client-supplied) — and forwards: `stub.fetch(new Request(request.url, { method, headers, body }))`. Preserving `request.url` means the DO reads `url.origin` etc. **itself** — origin is *not* threaded as an RPC arg. And the DO owns its **error→Response** conversion in-process, so a typed error's `status`/`code` survive (the dropped-props gotcha below does NOT apply to this path). Canonical: `handleRegistryPath` → `forwardToRegistry` → the Registry DO's `fetch()`.
+- **Handle it in the Worker, with narrow RPC calls,** when the endpoint is an **HTTP/session concern** — cookie set/clear, `302` redirects, reading a token from the URL query, or a pure-KV read (the refresh path never touches the singleton). The Worker owns the `Response` and RPCs the DO only for the specific data it needs (`registry(env).requestMagicLink(...)`, `consumeMagicLink(...)`). Those RPC calls obey the dropped-props rule below: gate expected client-errors on the Worker *before* the RPC. Canonical: `handleInstancePath` → `worker-token.ts`.
+
+The dividing line is **where the endpoint's essence lives** — the DO's data (forward) vs HTTP/cookie/token mechanics (Worker).
+
+⚠️ **Forwarding does NOT expose the singleton to junk traffic.** The edge router matches the endpoint against its known set *before* forwarding, so an unknown path is a `404` at the edge — the DO never sees it (Turnstile additionally fronts the open endpoints). "Forward everything" is not "let the singleton absorb 404s."
+
 ## Raw Workers RPC
 Raw `stub.method()` is how non-mesh Workers and DOs talk to other DOs, WorkerEntrypoints, and RpcTargets. (Mesh code uses `this.lmz.call` instead — see [mesh.md](mesh.md).) Gotchas:
 - Synchronous DO methods become **async over RPC** — in tests use `await expect(...).rejects.toThrow()`, not `expect(() => ...).toThrow()`.
