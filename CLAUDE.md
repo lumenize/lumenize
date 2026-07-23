@@ -29,6 +29,7 @@ Detailed conventions live in **`.claude/rules/`** (auto-discovered — no refere
 | `packaging.md` | `package.json`, `wrangler.jsonc`, `tsconfig*`, `vitest.config.*`, `.dev.vars*` | package structure, global `Env`, env vars/secrets, self-ref bindings, cross-platform `cloudflare:workers` |
 | `security.md` | auth + nebula `*.ts` | secrets, test-mode flags, JWT/scope, permission checks, parameterized SQL, trust boundaries |
 | `documentation.md` | `website/**`, `*.mdx`, for-docs | hand-written docs, `@check-example`, skip-check annotations, admonitions, sidebars |
+| `ui-theming.md` | `apps/nebula-studio-ui/**`, generated-app scaffold, `*.vue` | color goes through the daisyUI theme on **both** surfaces; change the theme not the markup; warn-and-proceed, never refuse. ⚠️ mechanism only — design/taste is deliberately deferred |
 
 **Skills** (multi-step procedures you invoke) live in `.claude/skills/`. The task-file cycle pair (both `/task-management` tracks converge on it): **`/review-task`** fans out a reviewer panel over a task file before "go"; **`/build-task`** implements the reviewed task file phase-by-phase then fans out verifiers checking each phase against its own success criteria. Plus `/task-management`, `/refactor-efficiently`, `/release-workflow`. **Permissions** in `.claude/settings.json` (committed) and `.claude/settings.local.json` (gitignored, wins).
 

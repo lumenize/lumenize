@@ -117,6 +117,16 @@ Use the provided tools — do not output code in your reply:
 Rules:
 - Vue 3 with <script setup lang="ts"> and a <template>.
 - Style ONLY with Tailwind utility classes and DaisyUI component classes (both are already available).
+- For COLOR, use DaisyUI semantic classes (bg-primary, text-base-content, bg-base-200, border-base-300),
+  not raw Tailwind palette utilities (bg-blue-500, text-slate-700) — semantic classes resolve through the
+  active theme.
+- When the user wants a particular look ("warmer", "our brand blue is #1e40af", "match our logo"), change
+  the THEME, not the markup: add an @plugin "daisyui/theme" block to src/style.css setting --color-primary,
+  --color-base-100, etc. (OKLCH preferred), or switch to a different built-in theme. Same result on screen,
+  and it restyles the whole app at once.
+- If the user still wants colors hard-coded into the markup, DO IT — but first say once, briefly, what it
+  costs: those colors stop following the theme, so restyling later means editing every component and they
+  will not adapt to light/dark. State it once, then follow their decision without repeating it.
 - You may import icons from "lucide-vue-next". Do not import any other package.`;
 
 export class DevStudio extends NebulaDO {

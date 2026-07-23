@@ -1,173 +1,142 @@
-# Where does a Durable Object's ~1.5 s cold start go?
+# What a Worker's bundle costs every Durable Object in it
 
-**Date:** 2026-07-22 · **Status:** headline question answered; two follow-ups open
+**Date:** 2026-07-23
 
-## TL;DR
+A Durable Object is **not** a separate deployment — its class is exported from the Worker
+bundle. So every DO instance pays for the *whole* Worker's import graph, including code that
+call never touches. This measures how much.
 
-A fresh Durable Object in the Nebula worker costs **~1.5 s** before your code runs. It is
-**not** the data plane, **not** the Nebula scope guards, **not** a Registry lookup, and **not**
-a Galaxy/ontology hop — all four were measured and eliminated. It is:
+---
 
-| component | cost | notes |
-|---|---:|---|
-| irreducible fresh-DO creation | **~344 ms** | 130 KiB worker, no mesh/Gateway |
-| **module instantiation of the worker's import graph** | **~847 ms** | paid per fresh DO, for code the call never touches |
+# What?
 
-The second number is the finding. A DO is not a separate deployment — its class is exported
-from the Worker bundle, so **a new DO means a new isolate, and a new isolate must evaluate the
-entire module graph before the constructor runs.**
+## Method
 
-## The controlled A/B (the load-bearing result)
+Seven Workers projects, each deploying a **byte-identical Durable Object**: `EchoDO`, a
+`LumenizeDO` with one `echo` method, reached by raw Workers RPC from a plain `fetch` handler.
+No Gateway, no WebSocket, no auth — each layer removed is one fewer confounder.
 
-Two workers deployed simultaneously, **identical but for one import**, measured **interleaved
-with alternating order** so CF-side drift cannot load onto one arm. n=20 cold / 20 warm each.
+The arms differ in **exactly one thing**: which package the Worker additionally imports. All
+seven (source + wrangler config) are emitted from a single manifest by `gen-arms.mjs`, so they
+cannot drift apart. The `nebula-lite` arm is source-identical to `nebula`; its difference is
+applied at bundle time by a wrangler `alias` that substitutes a stub for the validator,
+yielding a faithful "nebula minus validator."
 
-| arm | bundle | `Worker Startup Time` | warm p50 | cold p50 | **cold − warm** |
-|---|---:|---:|---:|---:|---:|
-| light | 130 KiB | 5 ms | 40.2 ms | 383.8 ms | **343.6 ms** |
-| heavy | 11,826 KiB | 579 ms | 34.4 ms | 1,224.7 ms | **1,190.3 ms** |
+**10 rounds.** Each round: `create` → `warm` → **20 s idle** → `wake`. All arms are hit in
+lockstep within a round, so one idle wait serves all seven and Cloudflare-side drift hits every
+arm equally; arm order rotates each round so none is systematically measured first.
 
-**heavy − light = 846.7 ms**, attributable to `import * as nebula from '@lumenize/nebula'`.
+## Raw data
 
-The **warm rows are the control that makes it airtight**: 40.2 vs 34.4 ms — the heavy arm is if
-anything *faster* warm. The graph costs nothing once the isolate exists; it is purely a
-per-fresh-DO cost. The effect is an order of magnitude above the ~55 ms noise floor.
+| arm | additionally imports | bundle KiB | startup ms | **create ms** | warm ms | **wake ms** | wake−warm ms | observed |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| mesh | — (baseline) | 131 | 7 | **337.6** | 38.9 | **105.6** | 66.6 | do-rebuilt ×10 |
+| auth | `@lumenize/nebula-auth` | 218 | 6 | **367.4** | 41.2 | **103.0** | 61.7 | do-rebuilt ×10 |
+| shell | `@cloudflare/shell` | 241 | 19 | **388.3** | 40.8 | **113.8** | 73.0 | do-rebuilt ×10 |
+| git | `isomorphic-git` | 684 | 25 | **373.4** | 37.5 | **104.5** | 67.0 | do-rebuilt ×10 |
+| nebula-lite | `@lumenize/nebula`, validator aliased out | 2,704 | 35 | **357.1** | 39.2 | **89.8** | 50.5 | do-rebuilt ×9, isolate-rebuilt ×1 |
+| validator | `@lumenize/ts-runtime-parser-validator` | 9,241 | 583 | **1,306.1** | 40.2 | **120.4** | 80.2 | do-rebuilt ×10 |
+| nebula | `@lumenize/nebula` (full barrel) | 11,827 | 749 | **1,433.4** | 43.8 | **1,413.4** | 1,369.6 | do-rebuilt ×10 |
 
-## Create vs. wake — the ~847 ms is RECURRING, not one-time
+## What each column means, exactly
 
-Same two arms, four lifecycle states, both arms in lockstep per round (one idle wait serves
-both), order alternating. n=8 rounds, 20 s idle.
+| column | definition |
+|---|---|
+| **bundle KiB** | `Total Upload` reported by `wrangler deploy`, **uncompressed**. |
+| **startup ms** | `Worker Startup Time` reported by wrangler **at deploy** — Cloudflare booting ONE isolate of that script (load + parse/compile + evaluate top-level). A server-side number, *not* a client measurement. |
+| **create ms** | **p50 of the end-to-end round trip measured at the client** (Node, over the public internet), for a request naming a DO id that **has never existed**. Includes network RTT. |
+| **warm ms** | p50 end-to-end at the client, **same** DO id, immediately after `create`. |
+| **wake ms** | p50 end-to-end at the client, **same** DO id, after **20 s idle**. |
+| **wake−warm ms** | `wake` with the network + dispatch floor subtracted. |
+| **observed** | What the DO's two self-reported ids said happened on the `wake` call. `do-rebuilt` = the DO was reconstructed but the **isolate survived** (module graph already evaluated). `isolate-rebuilt` = both were rebuilt. |
 
-| state | light p50 | heavy p50 | **heavy − light** |
-|---|---:|---:|---:|
-| create | 382.4 ms | 1,237.9 ms | **855.5 ms** |
-| warm | 42.5 ms | 41.7 ms | **−0.8 ms** |
-| hibernate-wake (20 s idle) | 111.0 ms | 1,567.7 ms | **1,456.7 ms** |
-| eject-wake (`ctx.abort()`) | 309.2 ms | 608.3 ms | **299.1 ms** |
+All timings are **p50 over n=10 rounds**, end-to-end from the client unless stated otherwise.
 
-**`create` reproduces the A/B exactly** (855.5 vs 846.7 ms) — an independent replication.
-**`warm` is −0.8 ms**, re-confirming the graph costs nothing once the isolate exists.
+## Stability
 
-**The cost after idle is real and bundle-dependent:** the heavy arm pays ~1,228–1,568 ms on
-its next request after 20 s idle, vs ~105 ms for light. So an idle tenant's next request is
-expensive, and it scales with the bundle. That practical conclusion holds.
+`create` and `warm` **reproduce** across repeat runs. **`wake` on large bundles does not**: a
+repeat run measured `validator` wake at **1,255.8 ms** instead of 120.4 ms — a 10× swing on the
+identical worker. Small-bundle `wake` is stable across runs. This instability is a finding in
+its own right (see So-what #4), not just noise to average away.
 
-### ⚠️ CORRECTION: the *mechanism* is NOT module re-evaluation
+---
 
-A follow-up run instrumented the DO with two ids — `instanceId` (per DO construction) and
-`isolateId` (module scope, so it survives DO reconstruction *within* an isolate) — to
-**observe** the lifecycle state instead of inferring it from timing. n=10:
+# So what?
 
-| arm | state | p50 | what actually happened |
-|---|---|---:|---|
-| light | create | 340.3 ms | create ×10 |
-| light | warm | 40.0 ms | resident ×10 |
-| light | hibernate-wake | 104.6 ms | **do-rebuilt ×10** |
-| light | eject-wake | 564.8 ms | **do-rebuilt ×10** |
-| heavy | create | 1,193.3 ms | create ×10 |
-| heavy | warm | 40.8 ms | resident ×10 |
-| heavy | hibernate-wake | 1,228.5 ms | **do-rebuilt ×8, isolate-rebuilt ×2** |
-| heavy | eject-wake | 566.0 ms | **do-rebuilt ×10** |
+**1. Creating a DO and waking one are different costs. Always read both.**
 
-Three things this settles, and one it opens:
+- Small bundle → **create ~340–390 ms, wake ~90–115 ms.** Waking is **~3× cheaper**, because a
+  wake skips placement and first-time initialization.
+- Large bundle → **create ~1,430 ms, wake ~1,410 ms.** They converge: bundle cost swamps the
+  creation overhead.
 
-1. **The eject-wake anomaly is real, not a measurement artifact.** All 20 eject-wakes are
-   `do-rebuilt` — never `resident` — so `ctx.abort()` genuinely destroyed the instance before
-   we measured. **`ctx.abort()` tears down the DO but leaves the ISOLATE resident.**
-2. **eject-wake is bundle-INDEPENDENT: 564.8 (light) vs 566.0 ms (heavy).** Exactly what
-   isolate-reuse predicts — with the module graph already evaluated, bundle size stops
-   mattering. Clean confirmation.
-3. **The earlier claim "waking fully re-pays module instantiation" was WRONG.** It rested on
-   timing plus the bundle delta. The ids contradict it: in 8 of 10 heavy hibernate-wakes the
-   module-scope state **survived**, so the graph was *not* re-evaluated — yet the call still
-   cost ~1,228 ms.
-4. **Open: why is heavy's post-idle wake expensive when the module graph was reused?** It is
-   bundle-correlated but is *not* module evaluation. A heap snapshot/restore whose cost scales
-   with retained memory would fit (module-scope state preserved, big heap slower to restore),
-   but that is speculation — we have no evidence for the mechanism.
+**2. Bundle size is free until it isn't. Three tiers:**
 
-**Why this distinction matters practically:** if the post-idle cost tracks *retained heap*
-rather than *parse/evaluate work*, then shrinking what the module graph **allocates and holds**
-matters as much as shrinking what it parses — and the two are not the same lever.
+| tier | bundle | create | wake |
+|---|---|---:|---:|
+| **Small** | ≤ ~2.7 MB | ~340–390 ms | ~90–115 ms |
+| **Middle** | ~2.7–9 MB | *unmeasured* | *unpredictable* |
+| **Large** | ≥ ~9 MB | ~1,300–1,430 ms | unstable, up to ~1,410 ms |
 
-## Corroboration across four independently-built workers
+A **20× size range within the small tier** (131 KiB → 2,704 KiB) moves `create` by under 60 ms.
+Below ~2.7 MB, size effectively does not matter.
 
-| worker | bundle | startup | cold − warm |
-|---|---:|---:|---:|
-| light arm (fetch→RPC) | 130 KiB | 5 ms | 344 ms |
-| mesh-only `lumenize-mesh-browser-e2e` (Gateway+WS) | 232 KiB | 2–3 ms | ~490 ms |
-| heavy arm (fetch→RPC) | 11.8 MB | 579 ms | 1,190 ms |
-| real `nebula-browser-test` (Gateway+WS) | 13.8 MB | 647 ms | ~1,431 ms |
+**3. If you remove `ts-runtime-parser-validator`, you get almost all of the win.** That package
+alone (9.2 MB, create 1,306 ms) costs essentially what the entire nebula barrel costs (11.8 MB,
+create 1,433 ms). Aliasing it out — `nebula-lite`, 2.7 MB — yields **create 357 ms**,
+indistinguishable from the 131 KiB baseline. Everything else you might suspect
+(`nebula-auth`, `@cloudflare/shell`, `isomorphic-git`) sits inside the noise.
 
-## What was eliminated first (the composition ladder)
+**4. If your bundle lands in the middle tier, you cannot predict its wake latency.** `validator`
+wake measured 120 ms in one run and 1,256 ms in another with an identical bundle, and the
+isolate/instance ids do **not** predict which you get (both cases read `do-rebuilt`). Best
+hypothesis — **unproven**: eviction is memory-pressure driven and may preferentially reap the
+largest-footprint instances, so whether a 20 s idle evicts *deeply* varies with host conditions.
+This is consistent with reports in the Cloudflare Discord `#durable-objects` channel. Practical
+consequence: a middle-tier bundle may behave like the small tier or like the large tier
+depending on the host, and **no bench can tell you which you'll get in production.**
 
-Measured on the real Nebula worker via its marker-decomposed bench. Same client, same call
-path; only the callee's composition varied:
+**5. Warm calls cost nothing regardless of bundle** — 37–44 ms across a 90× size range. The
+bundle is paid at DO construction, never per request.
 
-| DO | composition | warm G-onward p50 | cold G-onward p50 | cold mean |
-|---|---|---:|---:|---:|
-| `Star` | NebulaDO + data plane | 18.6 ms | 1,448.5 ms | 1,541.5 ms |
-| `NebulaEchoDO` | NebulaDO, no data plane | 18.7 ms | 1,508.0 ms | 1,538.9 ms |
-| `MeshEchoDO` | bare `LumenizeDO` | 9.8 ms | 1,760.6 ms | 1,610.1 ms |
+---
 
-Cold means are statistically indistinguishable — **stripping the data plane and then the
-Nebula guards saved nothing.** The warm column proves the instrument *could* resolve
-composition differences (9.8 vs 18.6 ms), so the cold null is real, not insensitivity.
-Every rung shared one worker bundle, which is what pointed at the bundle as the variable.
+# Now what? (for Nebula)
 
-Also eliminated earlier, by static trace: a cold `echo` touches **no** Registry/Galaxy/
-singleton DO. All identity/scope decisions read in-memory JWT claims or local storage.
+**1. Move tsc into the container.** Every tsc user is build-side — `galaxy.ts` (compiles the
+`validatorBundle`), `codegen-gate.ts`, `dev-studio.ts`, `devstudio-resource-ontology.ts`. The
+request path only *loads* a precompiled bundle through the Worker Loader (`star.ts` →
+`getParserValidatorFacet(…, env.LOADER)`), which needs no tsc. The container already performs
+the user-developer's build, and compiling schema → validator is legitimately part of a build.
 
-## Negative result worth keeping: synthetic weight failed
+- Expected: **create 1,433 → ~357 ms**, moving the main Worker from the large tier to the small
+  tier, and taking `wake` out of the unstable regime.
+- **No DO class migration**, so none of the `transferred` one-way-door risk.
+- Bonus: retires the `bundle-tsc.mjs` machinery, which exists only because we compile in-Worker.
+- ⚠️ Only **four value exports** are imported from that 9.2 MB package (`checkTypeScript`,
+  `generateParseModule`, `getParserValidatorFacet`, `extractTypeMetadata`). Add a light subpath
+  afterward so tsc can't creep back in — but note a subpath **alone does not help** while the
+  tsc users share a Worker, because **cost is per-Worker-project, not per-DO.**
 
-A first attempt varied *synthetic* generated module weight instead of a real import. It was
-**inconclusive and nearly produced a false positive**:
+**2. Consider splitting out any DO whose presence puts the main Worker bundle into the middle
+tier.** Middle-tier behavior is unpredictable (So-what #4), so landing there is a latency risk
+no bench can retire. After the tsc move the main Worker should be ~2.7 MB — the top of the small
+tier — so this may not be needed at all. Let real user latency decide, one DO at a time.
 
-| units | startup | cold − warm |
-|---:|---:|---:|
-| 0 (run 1) | 2 ms | 490.5 ms |
-| 0 (run 2) | 3 ms | 545.7 ms |
-| 2,000 | 33 ms | 497.7 ms |
-| 8,000 | 143 ms | 681.0 ms |
-| 20,000 | 505 ms | timed out |
+**3. Do any splitting BEFORE the production wipe.** Moving a DO class between Workers projects
+is a `transferred` migration: cheap now, materially harder once live tenants exist. The *design*
+stays flexible either way, but the *migration cost is not flat over time*. If there is a strong
+prior on a specific DO — the Gateway is the candidate, since it is on every client connect —
+act during the wipe window rather than waiting for production data.
 
-The 2,000 dose landed *below* the 0 dose, and repeat runs of the identical bundle differed by
-55 ms. Pairing 0 with 8,000 alone would have "shown" a clean 1:1 relationship — cherry-picking.
-Three flaws: too few iterations against high variance; sequential blocks so drift confounded
-dose; and repetitive generated classes (5.4 MB → 434 KiB gzip) don't model heterogeneous real
-library init. **Lesson: use the real import, deploy both arms at once, and interleave.**
-
-A second false start: the "heavy" arm first imported only `isomorphic-git` +
-`@cloudflare/shell` (named in the nebula wrangler comment) and produced just 575 KiB / 27 ms —
-a 20 ms delta that would have tested nothing. The weight is elsewhere in the barrel; **typia/tsc
-and the agents SDK are the untested suspects.**
-
-## Honest limits
-
-- The A/B workers use `fetch`→raw RPC, not the Gateway/WS/mesh path. **Compare the deltas, not
-  the absolutes.**
-- The heavy arm reproduces 86% of the real graph (11.8 of 13.8 MB).
-- This proves the graph *as a whole* causes it; it does **not** decompose which parts dominate.
-- `Worker Startup Time` is a leading indicator, not the exact toll (579 ms reported vs ~847 ms
-  measured) — real per-isolate cost under load ran higher.
-- Whether Cloudflare amortizes *parse/compile* across isolates on a machine isn't observable
-  from outside. What cannot be shared is **evaluation**: each isolate builds its own objects.
-
-## Open questions
-
-1. ~~Creation vs. wake~~ **ANSWERED above: wake re-pays it.** Remaining sub-questions: why
-   `eject-wake` beat `hibernate-wake`, and directly *observing* hibernated-vs-evicted (via WS
-   survival) rather than inferring from timing. Both want a higher-n run.
-2. **Which part of the 13.8 MB dominates?** Bisect the barrel before doing import surgery.
-   Now the highest-value follow-up, since the cost is recurring rather than one-time.
-   `isomorphic-git` + `@cloudflare/shell` were measured at only 575 KiB / 27 ms, so the weight
-   is elsewhere — typia/tsc and the agents SDK are the untested suspects.
+---
 
 ## Reproduce
 
 ```
-npm run deploy      # deploys both arms
-npm run bench       # interleaved A/B
+node gen-arms.mjs      # emit all arms from the manifest
+npm run deploy         # deploy all seven
+npm run curve          # 10 rounds: create / warm / 20s idle / wake
 ```
 
-Deployed workers: `do-cold-start-light`, `do-cold-start-heavy`.
+Deployed workers are named `do-cs-<arm>`.
