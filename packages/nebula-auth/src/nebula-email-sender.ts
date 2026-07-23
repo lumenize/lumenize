@@ -3,7 +3,7 @@
  *
  * Extends `AuthEmailSenderBase` with Nebula branding; the provider is auto-detected
  * from the env (Cloudflare via the `EMAIL` binding in Nebula deployments).
- * Customize templates in follow-on work (see tasks/nebula-auth.md § Email Template Customization).
+ * Customize templates in follow-on work (see tasks/nebula-scratchpad.md § Email Template Customization).
  */
 import { AuthEmailSenderBase } from '@lumenize/auth';
 
