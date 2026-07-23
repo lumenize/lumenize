@@ -4,7 +4,8 @@
  * Slugs: lowercase letters, digits, and hyphens only (`[a-z0-9-]+`).
  * No periods within a slug. 1–3 dot-separated slugs determine the tier.
  *
- * @see tasks/nebula-auth.md § universeGalaxyStarId Format Constraints
+ * This module is the source of truth for the id format and wildcard-access matching;
+ * see tasks/archive/nebula-auth.md for the original (archived) design record.
  */
 
 import type { AccessEntry, ParsedId, Tier } from './types';

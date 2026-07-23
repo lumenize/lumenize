@@ -1,7 +1,8 @@
 /**
  * Nebula Auth types
  *
- * @see tasks/nebula-auth.md for the full architecture
+ * @see tasks/archive/nebula-auth.md — original auth architecture (archived design record;
+ *   the current identity model is per the inline citations below + ADR-013).
  */
 
 // Import + re-export shared types from @lumenize/auth

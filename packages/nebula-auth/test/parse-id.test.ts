@@ -1,8 +1,8 @@
 /**
  * Tests for universeGalaxyStarId parsing, validation, and access matching.
  *
- * @see tasks/nebula-auth.md § universeGalaxyStarId Format Constraints
- * @see tasks/nebula-auth.md § Wildcard Matching Examples
+ * The id format and wildcard-matching behavior are specified by the code under test —
+ * see ../src/parse-id.ts (module header for the id format; `matchAccess` JSDoc for wildcards).
  */
 import {
   parseId,
@@ -208,7 +208,7 @@ describe('buildAuthScopePattern', () => {
 });
 
 // ---------------------------------------------------------------------------
-// matchAccess — examples from tasks/nebula-auth.md § Wildcard Matching Examples
+// matchAccess — the canonical wildcard-matching cases for matchAccess() (../src/parse-id.ts)
 // ---------------------------------------------------------------------------
 
 describe('matchAccess', () => {
@@ -277,8 +277,8 @@ describe('matchAccess', () => {
     });
   });
 
-  describe('edge cases from task file', () => {
-    // All examples from tasks/nebula-auth.md § Wildcard Matching Examples
+  describe('canonical wildcard cases', () => {
+    // The canonical matchAccess() wildcard cases (a representative subset is in its JSDoc)
     it('matchAccess("*", "george-solopreneur") → true', () => {
       expect(matchAccess('*', 'george-solopreneur')).toBe(true);
     });
