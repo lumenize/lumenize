@@ -27,28 +27,83 @@ The rights model that makes it sound:
 
 ## Design
 
+### What a "founder" is
+
+**The identity minted by the claim, at the claimed scope, stamped `isAdmin` — the scope's first member.** It is a *registry* concept (an `Identities` row), created by the claim itself. Two clarifications, because the word carries weight in this file:
+
+- **NOT "the admin of the org-tree root."** That grant is downstream *and Star-specific*: the founder self-seeds `ROOT_NODE_ID` on their first authenticated touch (§The DAG root grant). Defining "founder" there would not generalize — a **Universe founder has no org-tree at all** (the DagTree lives on the Star, and the collapse adds one at `{u}.{g}`).
+- **NOT a persisted marker.** We deliberately build no founder flag (§The DAG root grant), so once other admins exist a founder is **indistinguishable** from any later admin. "Founder" is a role *at creation time*, not an attribute you can query later — don't go looking for a column.
+
 ### Who owns what — Option A (registry owns the mechanism)
 
 Star signup **reuses `claim-universe`'s machinery** — an open endpoint on the `nebula-auth` router that creates the `Scopes` row, mints the founder identity, and issues the emailed claim token. Every machine part already exists (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `InviteTokens`, the email path), so the flow adds no new mechanism. ⚠️ **That "no new mechanism" claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
 
-🚨 **"Reuses `claim-universe`'s machinery" is NOT "copy `claimUniverse` verbatim" — a verbatim copy ships real security holes.** `claim-universe` is **top-level**; `claim-star` **nests under an existing Galaxy**. It is also not a copy of `createStar` (the admin path to a star row) — it deliberately drops that path's admin gate. It is a specific blend; each divergence below is load-bearing security with its own Phase 2 criterion:
+**What "reuses" means, precisely: `claimStar` is a NEW sibling method on the registry that calls the same private helpers `claimUniverse` calls** — `isValidSlug`, `checkSlugAvailable`, `mintIdentity`, `createMagicLinkAndSend`. It does **not** call `claimUniverse`, and it is **not** a copy-paste of it. Same building blocks, different validation prologue.
+
+**The happy path:**
+1. A stranger POSTs `{ starId, email }` to the open `/auth/claim-star`. The Worker router verifies **Turnstile** first.
+2. The registry validates, in order, rejecting **before any state change or email**: email format → slug format → **not a reserved slug** → **parent Galaxy exists** → **slug unclaimed**.
+3. In one `transactionSync`: insert the `Scopes` row, **mint the founder** (`isAdmin: true`, `emailVerified: false`, **exact-star** pattern), and insert the magic-link token.
+4. Email the claim link. *(The only step outside the transaction — see the double-submit note below.)*
+5. The founder clicks it: the link is consumed, `emailVerified` flips, a refresh cookie is set, and they land on the app's own surface (**tier-derived redirect**, Phase 4b).
+6. Their **first authenticated touch** of the Star self-seeds the org-tree root grant (§The DAG root grant) — no extra step.
+
+```mermaid
+sequenceDiagram
+    participant U as Signer-upper (browser)
+    participant W as Auth Worker (router)
+    participant R as Registry DO
+    participant M as Email provider
+    U->>W: POST /auth/claim-star (starId, email)
+    W->>W: Turnstile verify
+    W->>R: claimStar(starId, email, origin)
+    Note over R,M: reject before any write
+    R->>R: transactionSync - Scopes, founder, link token
+    R->>M: send claim link
+    M-->>U: email
+    U->>W: GET magic-link (one_time_token)
+    W->>R: consume + verify identity
+    R-->>W: sub and scope, emailVerified flipped
+    W-->>U: 302 to the app surface, refresh cookie
+```
+
+⚠️ **Design consideration — keep the already-authenticated door open.** We may later let a *logged-in* user found a Star without the email round-trip. The mechanism allows it (`mintIdentity` already takes `emailVerified`, and the send is a separate final step), so simply **don't foreclose it**: let the endpoint tolerate an authenticated caller and branch (authenticated + verified email → mint verified, **skip step 4**, return success), and don't bake *"check your email"* into the response shape. That stays **claim** semantics — they are founding their *own* Star.
+
+🚨 **What it is NOT: a verbatim copy of `claimUniverse` — that would ship real security holes.** `claim-universe` is **top-level**; `claim-star` **nests under an existing Galaxy**. It is also not a copy of `createStar` (the admin path to a star row) — it deliberately drops that path's admin gate. It is a specific blend; each divergence below is load-bearing security with its own Phase 2 criterion:
 
 | Aspect | `claimUniverse` (top-level) | `createStar` (admin) | **`claim-star` (this task)** |
 |---|---|---|---|
 | **Admin gate** | none (open) | `#hasAdminOverGalaxy` (`registry:392`) | **none — open.** The pinned business decision; do NOT add one. |
 | **Parent-exists check** | none (a universe has no parent) | `if (checkSlugAvailable(parentGalaxy)) throw 'parent_not_found'` (`registry:395`) | **REQUIRED — mirror `createStar`.** Without it an open, unauthenticated mint creates an `isAdmin:true` founder + orphan `Scopes` row under **any** caller-supplied `{u}.{g}` prefix, incl. galaxies that don't exist. An orphan has **no covering admin**, so the pinned remediation backstop (*"a covering admin deletes the squatted Star"*) cannot clean it — only a platform `*` admin can. It also breaks Phase 6's `signupPolicy` read, which needs a real Galaxy `Scopes` row. |
-| **Consent flag** | `improveProductConsent = 1` (`registry:319`) | omitted → NULL (`registry:400`) | **OMIT — leave NULL, mirror `createStar`.** The flag is **Universe-only** (`schemas.ts:25`: *"unset on non-Universe scopes"*), and `listConsentedInstances` (`registry:281-284`) selects `WHERE improveProductConsent = 1` with **no tier filter** — so a copied `=1` silently enrolls the tenant's Star in the product-improvement corpus though they never opted in, honored the moment a consumer is built. |
-| **Reserved-slug list** | `PLATFORM_INSTANCE_NAME` | (n/a) | **`dev` + the collapse's env names** (§Slug), a different list. |
+| **Allowed slug** | any valid slug **except `nebula-platform`** (`PLATFORM_INSTANCE_NAME` — the reserved platform pseudo-Universe) | **`dev`** — the only slug any caller creates today (the client hardcodes `{galaxy}.dev`) | any valid, currently-**unclaimed** slug **except `dev`** (plus any env names the collapse later adds — today the `{u}.{g}.{env}` cast is just `dev`) |
 | **Turnstile** | in `TURNSTILE_ENDPOINTS` | (n/a — authenticated) | **must be registered** (Phase 2 — separate `Set` from the router). |
 | **Mint** | founder, `isAdmin:true`, `{u}` pattern | no founder | founder, `isAdmin:true`, **exact-star** pattern. |
 
-**Why an ordinary login cannot serve instead — LOGIN NEVER MINTS.** Identity mint is authority-point-only (the registry says outright *"NEVER call from a login path"*). A magic link for a scope with no identity is **issued and emailed**, then rejected on consumption: `consumeMagicLink` → `getAndVerifyIdentity` → null → `302 /app?error=invalid_token`, **no cookie** (the `'Magic link for non-member'` warn in `login` — [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)). So a Star with a `Scopes` row and no founder is not "log in and it works" — it is a scope nobody can ever enter. `claim-universe` is the **only** open founder-minting entry today. This is what makes Phase 2 non-optional rather than a convenience. (Documented at [email-login.ts:252-267](../apps/nebula/test/lib/email-login.ts).)
+**Why a plain login cannot replace step 1–3 — LOGIN NEVER MINTS.** Identity mint is authority-point-only (the registry says outright *"NEVER call from a login path"*). A magic link for a scope with no identity is **issued and emailed**, then rejected on consumption: `consumeMagicLink` → `getAndVerifyIdentity` → null → `302 /app?error=invalid_token`, **no cookie** (the `'Magic link for non-member'` warn in `login` — [nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)). So a Star with a `Scopes` row and no founder is not "log in and it works" — it is a scope nobody can ever enter. `claim-universe` is the **only** open founder-minting entry today. This is what makes Phase 2 non-optional rather than a convenience. (Documented at [email-login.ts:252-267](../apps/nebula/test/lib/email-login.ts).)
 
-**Keep `claimUniverse`'s ORDERING — every rejection lands BEFORE any state change or email.** With the deltas folded in, the `claim-star` order is: `isValidEmail` → `isValidSlug` → **reserved-slug** → **parent-galaxy-exists** → `checkSlugAvailable` → INSERT `Scopes` **(no consent flag)** → `#mintIdentity` → `#createMagicLinkAndSend`. ⇒ every reject — taken slug, reserved slug, **or phantom parent** — is a synchronous `RegistryError` with **no `Scopes` row written and no email sent to anyone**. That directly satisfies the pinned safety argument (*"the real intended Star owner gets an error and a path to pick a new slug"*), and it is the property the Phase 2 criteria assert per-reject. Do not "simplify" any reject into a post-INSERT catch.
+**Keep `claimUniverse`'s ORDERING — every rejection lands BEFORE any state change or email.** With the deltas folded in, the `claim-star` order is: `isValidEmail` → `isValidSlug` → **reserved-slug** → **parent-galaxy-exists** → `checkSlugAvailable` → INSERT `Scopes` → `#mintIdentity` → `#createMagicLinkAndSend`. ⇒ every reject — taken slug, reserved slug, **or phantom parent** — is a synchronous `RegistryError` with **no `Scopes` row written and no email sent to anyone**. That directly satisfies the pinned safety argument (*"the real intended Star owner gets an error and a path to pick a new slug"*), and it is the property the Phase 2 criteria assert per-reject. Do not "simplify" any reject into a post-INSERT catch.
 
 ⚠️ **Double-submit is not a corruption risk** — the DO serializes `checkSlugAvailable → INSERT → mint` (no `await` between) and `#mintIdentity` is idempotent, so a concurrent double-POST cleanly 409s the loser; do **not** add an idempotency key. Two real edges, both handled in Phase 2: wrap the writes in **`transactionSync`** (`checkSlugAvailable` inside it) against a partial write; and make the claim **resumable** — on a taken slug, if the founder's email == the caller's, re-send the link instead of 409 — against an incomplete claim (email fails/lost/expired) locking the owner out. Guaranteed *delivery* is a separate concern (our internal-email reliability, **not** the dev-user `nebula-outside-world` sandbox-escape) → [backlog](backlog.md) § internal email reliability.
 
 ⚠️ **The registry cannot reach platform DOs** — its own JSDoc says so — *"the registry can't reach platform DOs — dependency direction"*, above `executeScopeDeletion` ([nebula-auth-registry.ts](../packages/nebula-auth/src/nebula-auth-registry.ts)), and two prior files burned the idea ([archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md); [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) — *"a write with no reader"*). So the DAG grant is **not** the registry's job.
+
+### Naming — `claim` = self-signup, `create` = admin
+
+The convention holds across every scope-creation entry point once `claimStar` lands:
+
+| | **claim** — self-signup (open, mints a founder, emails) | **create** — admin (gated, founderless) |
+|---|---|---|
+| Universe | `claimUniverse` | — |
+| Galaxy | — | `createGalaxy` |
+| Star | **`claimStar`** *(this task)* | `createStar` |
+
+The two blanks are correct, not gaps: a Universe is top-level and only ever self-claimed (even the platform bootstrap goes through `claimUniverse` with the reserved slug), and a Galaxy *is* the user-developer's app — always created by the Universe founder.
+
+⚠️ **`createStar` stays — it is the ONLY founderless path**, which is exactly what `.dev` (and any later env Star) needs: no founder, administered by the covering admin's wildcard. `claimStar` cannot serve them (it mints a founder, emails, and *rejects* `dev` as reserved). The two partition cleanly by slug class.
+
+🚨 **But the CLIENT method breaks the convention and must be renamed** (Phase 2): `scopes.createStar(galaxy)` takes a **galaxy** and hardcodes `${galaxy}.dev` — every call site passes a galaxy. It is `createDevWorkspace(galaxy)`, and its current name promises a generality it does not have. Post-`claimStar` a reader could reasonably reach for it to make a *tenant* Star — which it cannot do, and which would be the wrong path anyway. (The registry-side `createStar` name is accurate; leave it.)
+
+⚠️ **The convention encodes two axes that merely correlate today** — *who may call* (open vs admin) and *whether a founder is minted*. If "an admin provisions a tenant Star **with** a founder" (managed onboarding) ever appears, `create` would be admin-gated *and* founder-minting, and the convention goes ambiguous. Fine now; just don't read `create` as permanently meaning founderless.
 
 ### The DAG root grant — the existing seed already covers it
 
@@ -68,7 +123,7 @@ The signer-upper picks the slug. The signup path **must reject reserved names**,
 
 That is the seam: the 80% case is free and identical across every app; the 20% we cannot yet specify has somewhere to go.
 
-🚨 **No write path exists yet.** `Scopes` has two columns (`universeGalaxyStarId`, `improveProductConsent` — [schemas.ts](../packages/nebula-auth/src/schemas.ts)), there is **zero** `UPDATE Scopes` in the package, and the endpoint surface is the seven in `REGISTRY_ENDPOINTS`. A writer needs an append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + tests — so "no new mechanism" (true of the signup *flow*) does **not** extend to `signupPolicy`.
+🚨 **No write path exists yet.** `Scopes` has exactly one column (`universeGalaxyStarId` — [schemas.ts](../packages/nebula-auth/src/schemas.ts)), there is **zero** `UPDATE Scopes` in the package, and the endpoint surface is the seven in `REGISTRY_ENDPOINTS`. A writer needs an append-only `REGISTRY_MIGRATIONS` entry + admin-gated endpoint + registry method + client method + tests — so "no new mechanism" (true of the signup *flow*) does **not** extend to `signupPolicy`.
 
 **`signupPolicy` is entirely Phase 6 (read + write); it does NOT gate Phase 2 — the flow ships open** (the pinned business decision). The field has zero consumers today; landing a closed-by-default read earlier would ship the primary flow dark.
 
@@ -153,7 +208,7 @@ The count + ≤25-email sample landed in Phase 1a. The richer step-2 (see-all / 
 ### Phase 2 — open signup endpoint on the registry router
 **Goal:** a stranger POSTs a slug + email and becomes the founder of that Star, with no admin involved.
 
-**Scope:** `Scopes` row **(no consent flag)** + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; **parent-galaxy-exists check**; **Turnstile registration (below)**; the writes in a **`transactionSync`** (`checkSlugAvailable` inside it); **resumable claim** (a taken slug re-sends the link to its owner rather than 409-ing) — see the delta table in §Who owns what for the five divergences from `claim-universe`, and §Who owns what's resolved double-submit note for the last two. ⛔ **NOT `signupPolicy`** — the whole field, read and write, is Phase 6 (§Signup policy). Phase 2 ships the flow **open**, which is the pinned business decision.
+**Scope:** `Scopes` row **(no consent flag)** + `#mintIdentity(email, starId, isAdmin: true)` + `InviteTokens` claim link; reserved-slug reject; **parent-galaxy-exists check**; **Turnstile registration (below)**; the writes in a **`transactionSync`** (`checkSlugAvailable` inside it); **resumable claim** (a taken slug re-sends the link to its owner rather than 409-ing); **rename the client's `scopes.createStar(galaxy)` → `createDevWorkspace(galaxy)`** (it takes a *galaxy* and hardcodes `{galaxy}.dev`, so post-`claim-star` its name invites exactly the wrong reach — see §Naming) — see the delta table in §Who owns what for the five divergences from `claim-universe`, and §Who owns what's resolved double-submit note for the last two. ⛔ **NOT `signupPolicy`** — the whole field, read and write, is Phase 6 (§Signup policy). Phase 2 ships the flow **open**, which is the pinned business decision.
 
 🔒 **`claim-star` must join TWO sets in [router.ts](../packages/nebula-auth/src/router.ts), and only one of them is needed for the route to work.** `REGISTRY_ENDPOINTS` routes it; **`TURNSTILE_ENDPOINTS`** gates it. They are separate `Set`s about ten lines apart, and today `TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'discover'])` — **no `claim-star`**. ⚠️ This is **one of three** places a verbatim `claimUniverse` copy misleads (the delta table in §Who owns what has all of them): `claimUniverse`'s own JSDoc says *"(open, Turnstile-gated at the Worker)"*, but the gate is registered somewhere the copied code does not live. An implementer who copies the registry method faithfully ships an **ungated open mutation endpoint that mints identities and sends email**, and nothing reds. This is a bound on a specific abuse (scripted mass slug-squatting + mail-send amplification), **not** an approval step — the flow stays open to any human.
 
@@ -163,7 +218,6 @@ The count + ≤25-email sample landed in Phase 1a. The richer step-2 (see-all / 
 - 🔒 **Turnstile gate fires — and this needs its OWN vitest project, because the test-mode lane cannot prove it.** `checkTurnstile` (`router.ts:269`) returns `null` on `NEBULA_AUTH_TEST_MODE === 'true'` **before** it ever reads `TURNSTILE_SECRET_KEY` or consults `TURNSTILE_ENDPOINTS`, and `nebula-auth`'s sole `main` project sets that binding (`vitest.config.js:35`) — the very lane the un-skip test below runs in. So "configure `TURNSTILE_SECRET_KEY`" is necessary but **not sufficient**: in test mode the gate is skipped regardless, and adding `claim-star` to `REGISTRY_ENDPOINTS`-alone would **not** flip a test-mode assertion. ⇒ Add a **separate vitest project** whose `miniflare.bindings` set `TURNSTILE_SECRET_KEY`, leave `NEBULA_AUTH_TEST_MODE` **unset**, and present no bypass token; assert a `claim-star` POST with no `cf-turnstile-response` gets **403 `turnstile_required`, no `Scopes` INSERT, no email**. The two criteria (this one, and the un-skip mint below) need **opposite env configs**, so they are different tests in different projects — do not try to make the un-skip test carry this.
 - A stranger signs up for a fresh slug and, after the claim link, holds `admin` with an **exact-star** `authScopePattern` — assert the pattern, not just that login worked. Reds if the mint ever widens to `{u}.*`.
 - 🔒 **Phantom parent is rejected.** A `claim-star` for `{u}.{g}.{s}` whose parent galaxy `{u}.{g}` has **no `Scopes` row** is rejected `parent_not_found` — **before** any INSERT, mint, or email. Reds if the `claimUniverse`-shaped body (which has no parent check) is copied. This is the orphan-star / namespace-squat case, and it is what keeps the remediation backstop and the Phase 6 policy read meaningful.
-- 🔒 **The star's `Scopes` row has `improveProductConsent` NULL after signup.** Reds if `claimUniverse`'s `INSERT … (universeGalaxyStarId, improveProductConsent) VALUES (?, 1)` is copied verbatim — which would silently enrol the tenant's Star in the product-improvement corpus (`listConsentedInstances` has no tier filter) though they never opted in.
 - 🔒 `{galaxy}.dev` is **rejected, with NO `Scopes` row created and NO email/claim link produced** (assert all three, matching the taken-slug "assert both" — the reject must land before any state change). The security-critical case: a squatter would 409 the user-developer's Studio forever *and* clear `resetDevData`'s `requireAdmin`. Extend to whatever env names the collapse pins.
 - **Taken-slug behavior is owner-aware** (resumable claim), two tests, opposite email: a re-claim **by a different email** gets `RegistryError(409, 'slug_taken')` with **no email sent** (assert both — a 409 that still emails breaks the pinned safety argument); a re-claim **by the founder's own email** instead **re-sends the magic link**, no 409 (idempotent resume).
 - **The claim writes are atomic.** `Scopes` + `Identities` (+ `MagicLinks`) commit in one `transactionSync`; force `#mintIdentity` to throw mid-sequence and assert **no orphan `Scopes` row** survives. Reds if the writes aren't wrapped.

@@ -22,7 +22,8 @@
     "experiments/container-node-phase0",
     "experiments/container-egress-catrust",
     "experiments/interim-dev-loop",
-    "experiments/container-cold-start-probe"
+    "experiments/container-cold-start-probe",
+    "experiments/do-cold-start-bundle-ab"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

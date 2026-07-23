@@ -1,0 +1,23 @@
+{
+  "name": "@lumenize/experiment-do-cold-start-bundle-ab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A/B: does a worker's import graph drive fresh-Durable-Object creation cost?",
+  "scripts": {
+    "gen": "node gen-arms.mjs",
+    "deploy": "for a in mesh auth shell git validator nebula; do npx wrangler deploy --config wrangler.$a.jsonc; done",
+    "curve": "node hibernate-curve.mjs"
+  },
+  "dependencies": {
+    "@lumenize/mesh": "*",
+    "@lumenize/nebula": "*",
+    "@lumenize/nebula-auth": "*",
+    "@lumenize/ts-runtime-parser-validator": "*",
+    "@cloudflare/shell": "^0.4.0",
+    "isomorphic-git": "^1.38.4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.111.0"
+  }
+}
