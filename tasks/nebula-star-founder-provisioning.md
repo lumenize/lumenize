@@ -38,7 +38,7 @@ The rights model that makes it sound:
 
 Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls** (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`), with a **different validation prologue**. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token.
 
-⚠️ **No new email template — but it inherits `claimUniverse`'s context-free copy, and that bites harder here.** `#createMagicLinkAndSend` sends `type: 'magic-link'` (the message is just `{ to, magicLinkUrl }`), so the founder gets the generic "**Sign in to Nebula**" email — no app/Star name, no signup signal. Tolerable for a *universe* claim (the user is already on the Nebula site); **disconnected for a Star self-signup**, where the user came from the **app-developer's** site and never asked about "Nebula" — a get-paid-path first impression. **Decide before F&F:** accept it, or land a distinct `claim`/welcome template carrying the app name. Mechanism is one subclass — `NebulaEmailSender extends AuthEmailSenderBase`, a `WorkerEntrypoint` with a **method per email type**, bound `AUTH_EMAIL_SENDER`; per-tier branded copy is the deferred work in [nebula-scratchpad.md](nebula-scratchpad.md) § Email Template Customization.
+⚠️ **No new email template — it reuses `claimUniverse`'s generic "Sign in to Nebula" copy.** `#createMagicLinkAndSend` sends `type: 'magic-link'` (`{ to, magicLinkUrl }` only) — no app/Star name, no signup signal. **Softened by serving signup only from the Galaxy landing page** (below): the user is on a Nebula-rendered page when they submit, so "Sign in to Nebula" is far less jarring, and it buys time for a distinct `claim`/welcome template (worth a look before F&F, not a blocker). Mechanism is one subclass — `NebulaEmailSender extends AuthEmailSenderBase`, a `WorkerEntrypoint` with a **method per email type**, bound `AUTH_EMAIL_SENDER`; per-tier branded copy is the deferred work in [nebula-scratchpad.md](nebula-scratchpad.md) § Email Template Customization.
 
 **The `claim-star` flow** (the validation order is enumerated below, under **Keep `claimUniverse`'s ORDERING**; the first-touch self-seed is in §The DAG root grant):
 
@@ -55,7 +55,7 @@ sequenceDiagram
         R-->>W: RegistryError 400/409 - no Scopes row, no email
         W-->>U: error (pick a new slug)
     else valid
-        R->>R: transactionSync - checkSlugAvailable, Scopes, founder, link token
+        R->>R: transactionSync - Scopes, founder, link token
         R->>M: send claim link
         M-->>U: email
         U->>W: GET magic-link (one_time_token)
@@ -64,6 +64,8 @@ sequenceDiagram
         W-->>U: 302 to the app surface, refresh cookie
     end
 ```
+
+⚠️ **Signup is served ONLY from a Galaxy-rendered landing page** (Phase 4) — never from the app-developer's own site. A simple `{u}.{g}` page prompts for email + slug, **retries until the slug is unique**, then POSTs `claim-star`. Payoffs: **CORS stays trivial** — pre-alpha is single-origin (`nebula.lumenize.com` serves auth + Galaxy pages together, per the collapse), so the POST is same-origin and the endpoint needs no cross-origin allowance; and the **`origin` param** (which builds the magic-link URL) is that Nebula-served page's origin, keeping the email in-context (§email note above). We do **not** accept signup POSTs from arbitrary third-party origins.
 
 ⚠️ **Design consideration — keep the already-authenticated door open.** We may later let a *logged-in* user found a Star without the email round-trip. The mechanism allows it (`mintIdentity` already takes `emailVerified`, and the send is a separate final step), so simply **don't foreclose it**: let the endpoint tolerate an authenticated caller and branch (authenticated + verified email → mint verified, **skip the email send**, return success), and don't bake *"check your email"* into the response shape. That stays **claim** semantics — they are founding their *own* Star.
 
@@ -81,7 +83,7 @@ sequenceDiagram
 
 **Keep `claimUniverse`'s ORDERING — every rejection lands BEFORE any state change or email.** With the deltas folded in, the `claim-star` order is: `isValidEmail` → `isValidSlug` → **reserved-slug** → **parent-galaxy-exists** → `checkSlugAvailable` → INSERT `Scopes` → `#mintIdentity` → `#createMagicLinkAndSend`. ⇒ every reject — taken slug, reserved slug, **or phantom parent** — is a synchronous `RegistryError` with **no `Scopes` row written and no email sent to anyone**. That directly satisfies the pinned safety argument (*"the real intended Star owner gets an error and a path to pick a new slug"*), and it is the property the Phase 2 criteria assert per-reject. Do not "simplify" any reject into a post-INSERT catch.
 
-⚠️ **Double-submit is not a corruption risk** — the DO serializes `checkSlugAvailable → INSERT → mint` (no `await` between) and `#mintIdentity` is idempotent, so a concurrent double-POST cleanly 409s the loser; do **not** add an idempotency key. Two real edges, both handled in Phase 2: wrap the writes in **`transactionSync`** (`checkSlugAvailable` inside it) against a partial write; and make the claim **resumable** — on a taken slug, if the founder's email == the caller's, re-send the link instead of 409 — against an incomplete claim (email fails/lost/expired) locking the owner out. Guaranteed *delivery* is a separate concern (our internal-email reliability, **not** the dev-user `nebula-outside-world` sandbox-escape) → [backlog](backlog.md) § internal email reliability.
+⚠️ **Double-submit is not a corruption risk** — the DO serializes `checkSlugAvailable → INSERT → mint` (no `await` between) and `#mintIdentity` is idempotent, so a concurrent double-POST cleanly 409s the loser; do **not** add an idempotency key. Two real edges, both handled in Phase 2: wrap the writes in **`transactionSync`** so a mint-throw can't orphan the `Scopes` row (multi-write atomicity — *not* a TOCTOU guard; the synchronous check→insert already has no slip-in). `checkSlugAvailable` + the taken-slug handling run **just before** the txn, so a taken slug re-sends or 409s without opening a write txn. and make the claim **resumable** — on a taken slug, if the founder's email == the caller's, re-send the link instead of 409 — against an incomplete claim (email fails/lost/expired) locking the owner out. Guaranteed *delivery* is a separate concern (our internal-email reliability, **not** the dev-user `nebula-outside-world` sandbox-escape) → [backlog](backlog.md) § internal email reliability.
 
 ⚠️ **The registry cannot reach platform DOs** (its own JSDoc — *"dependency direction"*; two prior files burned the idea — [archive/nebula-auth-surrogate-sub.md](archive/nebula-auth-surrogate-sub.md), [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) *"a write with no reader"*). So the DAG grant is **not** the registry's job — it's the lazy seed (§The DAG root grant).
 
