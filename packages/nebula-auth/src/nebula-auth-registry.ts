@@ -273,19 +273,6 @@ export class NebulaAuthRegistry extends DurableObject {
     return rows.length === 0;
   }
 
-  /**
-   * Consented-corpus pool: `universeGalaxyStarId`s of Universes whose user-developer consented to data
-   * use (`improveProductConsent = 1`), excluding the reserved platform pseudo-Universe. Internal RPC
-   * only; no live consumer yet (per tasks/nebula-consent-flag.md).
-   */
-  listConsentedInstances(): string[] {
-    const rows = this.#sql`
-      SELECT universeGalaxyStarId FROM Scopes
-      WHERE improveProductConsent = 1 AND universeGalaxyStarId != ${PLATFORM_INSTANCE_NAME}
-    `;
-    return rows.map(r => r.universeGalaxyStarId as string);
-  }
-
   // ============================================
   // Scope creation — claim (founder-minting self-signup) + create (admin, scope-only)
   // ============================================
@@ -311,13 +298,11 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
 
-    // Register the scope (consent opt-IN, Universe-level). No ON CONFLICT: checkSlugAvailable proved
-    // no row exists and there's no await between — surface a UNIQUE conflict loudly if that invariant
-    // is ever violated (slug is not secret).
+    // Register the scope. No ON CONFLICT: checkSlugAvailable proved no row exists and there's no
+    // await between — surface a UNIQUE conflict loudly if that invariant is ever violated (slug is
+    // not secret).
     try {
-      this.ctx.storage.sql.exec(
-        'INSERT INTO Scopes (universeGalaxyStarId, improveProductConsent) VALUES (?, 1)', slug,
-      );
+      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', slug);
     } catch (err) {
       log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
         slug, error: err instanceof Error ? err.message : String(err),

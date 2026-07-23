@@ -22,14 +22,21 @@
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 
 /** Scope-existence registry (was `Instances`). Existence is INDEPENDENT of membership — a
- *  wildcard-managed child scope has a row here and zero `Identities`. `improveProductConsent` is a
- *  Universe-level opt-IN flag (nullable; unset on non-Universe scopes). No `createdAt` (YAGNI). */
+ *  wildcard-managed child scope has a row here and zero `Identities`. No `createdAt` (YAGNI).
+ *  ⚠️ Migration 1 also created an `improveProductConsent` column; migration 8 DROPS it (the consent
+ *  feature was removed 2026-07-21 as YAGNI — zero consumers). This literal is migration 1's frozen
+ *  history, so the column stays here; the live table has only `universeGalaxyStarId`. */
 export const SCOPES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS Scopes (
   universeGalaxyStarId TEXT PRIMARY KEY,
   improveProductConsent INTEGER
 ) WITHOUT ROWID
 `;
+
+/** Drop the unused data-use-consent column (feature removed 2026-07-21 — YAGNI, no consumer ever
+ *  built). Append-only: migration 1's literal is left intact, so a fresh DB creates the column and
+ *  this immediately drops it, matching an existing DB's end state exactly. */
+export const SCOPES_DROP_CONSENT = `ALTER TABLE Scopes DROP COLUMN improveProductConsent`;
 
 /** Person-in-a-scope (merged `Emails` + `Subjects`), keyed by the registry-minted surrogate `sub`.
  *  `UNIQUE (email, universeGalaxyStarId)` is one identity per email per scope AND serves the
@@ -120,4 +127,5 @@ export const REGISTRY_MIGRATIONS: SQLSchemaMigration[] = [
   { idMonotonicInc: 5, description: 'MagicLinks table (login channel, hashed)', sql: MAGIC_LINKS_SCHEMA },
   { idMonotonicInc: 6, description: 'InviteTokens table (login channel, hashed, single-use)', sql: INVITE_TOKENS_SCHEMA },
   { idMonotonicInc: 7, description: 'Identities(profileId) index (profile-store reverse lookup)', sql: IDENTITIES_PROFILE_ID_INDEX },
+  { idMonotonicInc: 8, description: 'Drop Scopes.improveProductConsent (consent feature removed)', sql: SCOPES_DROP_CONSENT },
 ];

@@ -86,11 +86,9 @@ export interface NebulaJwtPayload {
 // Timestamps are ISO 8601 Zulu strings (ADR-011); bearer tokens stored HASHED (`tokenHash`).
 // ---------------------------------------------------------------------------
 
-/** `Scopes` row — scope existence + Universe consent (was `Instances`). */
+/** `Scopes` row — scope existence (was `Instances`). */
 export interface Scope {
   universeGalaxyStarId: string;
-  /** Universe-level data-use consent (opt-IN). Nullable/absent on non-Universe scopes. */
-  improveProductConsent?: boolean;
 }
 
 /** `Identities` row — person-in-a-scope (merged `Emails` + `Subjects`). */

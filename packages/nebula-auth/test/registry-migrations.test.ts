@@ -12,7 +12,7 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { REGISTRY_MIGRATIONS } from '../src/schemas';
 
 const MARKER_KEY = '__sql_migrations_lastID';
-const LAST_ID = REGISTRY_MIGRATIONS[REGISTRY_MIGRATIONS.length - 1]!.idMonotonicInc; // 7
+const LAST_ID = REGISTRY_MIGRATIONS[REGISTRY_MIGRATIONS.length - 1]!.idMonotonicInc; // 8
 
 /** Run `fn` with a virgin `ctx.storage` (a fresh BareStorageDO that runs no migrations of its own). */
 async function inVirginStorage<T>(fn: (storage: any) => T): Promise<T> {
@@ -31,23 +31,27 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
       new SQLSchemaMigrations({ doStorage: s, migrations: REGISTRY_MIGRATIONS }).runAll();
       const tables = s.sql.exec("SELECT name FROM sqlite_master WHERE type='table'").toArray().map((x: any) => x.name);
       const indexes = s.sql.exec("SELECT name FROM sqlite_master WHERE type='index'").toArray().map((x: any) => x.name);
-      return { tables, indexes, marker: s.kv.get(MARKER_KEY) };
+      const scopeCols = s.sql.exec("SELECT name FROM pragma_table_info('Scopes')").toArray().map((x: any) => x.name);
+      return { tables, indexes, scopeCols, marker: s.kv.get(MARKER_KEY) };
     });
     for (const t of EXPECTED_TABLES) expect(r.tables).toContain(t);
     expect(r.indexes).toContain('idx_RefreshTokenIndex_sub');
     expect(r.indexes).toContain('idx_Identities_profileId'); // profile-store reverse-lookup index (migration id 7)
+    // Migration 8 DROPs the consent column migration 1 created — assert it is actually gone, so a
+    // re-added column (or a silently-failing ALTER) reds here rather than resurrecting dead state.
+    expect(r.scopeCols).toEqual(['universeGalaxyStarId']);
     expect(r.marker).toBe(LAST_ID);
   });
 
   it('re-run is a no-op (marker gates it) — a seeded row survives a second construct', async () => {
     const survived = await inVirginStorage((s) => {
       new SQLSchemaMigrations({ doStorage: s, migrations: REGISTRY_MIGRATIONS }).runAll();
-      s.sql.exec("INSERT INTO Scopes (universeGalaxyStarId, improveProductConsent) VALUES ('acme', 1)");
+      s.sql.exec("INSERT INTO Scopes (universeGalaxyStarId) VALUES ('acme')");
       // A fresh runner re-reads the persisted marker and skips the already-applied migrations.
       new SQLSchemaMigrations({ doStorage: s, migrations: REGISTRY_MIGRATIONS }).runAll();
-      return s.sql.exec("SELECT improveProductConsent AS c FROM Scopes WHERE universeGalaxyStarId = 'acme'").toArray();
+      return s.sql.exec("SELECT universeGalaxyStarId AS id FROM Scopes").toArray();
     });
-    expect(survived).toEqual([{ c: 1 }]); // not dropped/recreated by the re-run
+    expect(survived).toEqual([{ id: 'acme' }]); // not dropped/recreated by the re-run
   });
 
   it('wake sweep: expired MagicLinks/InviteTokens are deleted, fresh ones kept (mirrors the constructor sweep)', async () => {
