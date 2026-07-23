@@ -10,6 +10,10 @@ A file moved to `tasks/archive/` is a point-in-time record — it starts going s
 
 `backlog.md` tracks only OPEN work. When a row is done, **delete it** — never leave it as `[x]` / "DONE" (a completed row checked-in-place re-reads as live every session = clutter). If finishing a row leaves *residual* open work, lift that into its own fresh `[ ]` row and delete the original. Capture the completed work's durable nuggets where they actually live — an archived task file, an ADR/rule, a memory, or a status note in the relevant master plan — never as a checked backlog row.
 
+## Cut/deferred phases: confirm the home, then DELETE — don't tombstone
+
+Same principle inside an active task file. When a phase or section is **cut** (won't be built) or **deferred** (built later, elsewhere), delete it — don't leave a `~~struck~~ ✅ CUT/DEFERRED` tombstone. A tombstone is decision-history: it re-reads every session as "there was a Phase 4," and the suffix scars it leaves (`1a`/`4b` with no sibling) are numbering-history of their own. **One-step safety check first: confirm the still-to-do part has a home somewhere else** — a backlog row, another task file, an ADR/rule — *then* delete; the reasoning for a cut (the rejected alternative + why) belongs in the file's Decisions table as a single line, not a dead phase. After deleting, **renumber to a clean sequence** and grep every cross-reference (in-file *and* other files/backlog) so nothing is stranded. (The reflex to keep a stub "so git-history references keep resolving" is wrong — commit messages are point-in-time records read in their own context; the live doc owes them no fidelity.)
+
 ## Templates
 
 ### Docs-First Task File
