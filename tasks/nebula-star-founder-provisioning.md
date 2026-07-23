@@ -53,7 +53,7 @@ sequenceDiagram
     W->>R: claimStar(starId, email, origin)
     alt validation fails (format, reserved, no parent, or taken slug)
         R-->>W: RegistryError 400/409 - no Scopes row, no email
-        W-->>U: error (pick a new slug)
+        W-->>U: error (pick a new slug, fix formatting, etc.)
     else valid
         R->>R: transactionSync - Scopes, founder, link token
         R->>M: send claim link
