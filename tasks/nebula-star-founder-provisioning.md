@@ -23,7 +23,7 @@ The rights model that makes it sound:
 
 ## Why the confinement makes this safe
 
-[nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) (COMPLETE) is the enabler: a star founder holds an **exact-star** pattern, and `hasAdminOverScope(access, <ancestor>)` is **false** for it at any Galaxy or Universe. So "no ability to affect anything above the Star" is enforced by construction, not by a guard this task adds.
+[nebula-confine-admin-bypass.md](archive/nebula-confine-admin-bypass.md) (COMPLETE) is the enabler: a star founder holds an **exact-star** pattern, and `hasAdminOverScope(access, <ancestor>)` is **false** for it at any Galaxy or Universe. So "no ability to affect anything above the Star" is enforced by construction, not by a guard this task adds.
 
 ## Design
 
@@ -31,10 +31,10 @@ The rights model that makes it sound:
 
 **The identity minted by the claim, at the claimed scope, stamped `isAdmin` — the scope's first member.** It is a *registry* concept (an `Identities` row), created by the claim itself. Two clarifications, because the word carries weight in this file:
 
-- **NOT "the admin of the org-tree root."** That grant is downstream *and Star-specific*: the founder self-seeds `ROOT_NODE_ID` on their first authenticated touch (§The DAG root grant). Defining "founder" there would not generalize — a **Universe founder has no org-tree at all** (the DagTree lives on the Star, and the collapse adds one at `{u}.{g}`).
+- **NOT "the admin of the org-tree root."** That grant is downstream *and Star-specific*: the founder self-seeds `ROOT_NODE_ID` on their first authenticated touch (§The DAG root grant). That gives it the maximum chance of the Star DO being geolocated close to the founder and hopefully most of that Star's users. Defining "founder" there would not generalize — a **Universe founder has no org-tree at all** (the DagTree lives on the Star, and the collapse adds one at `{u}.{g}`).
 - **NOT a persisted marker.** We deliberately build no founder flag (§The DAG root grant), so once other admins exist a founder is **indistinguishable** from any later admin. "Founder" is a role *at creation time*, not an attribute you can query later — don't go looking for a column.
 
-### Who owns what — Option A (registry owns the mechanism)
+### Who owns what — the registry owns the mechanism
 
 Star signup **reuses `claim-universe`'s machinery** — an open endpoint on the `nebula-auth` router that creates the `Scopes` row, mints the founder identity, and issues the emailed claim token. Every machine part already exists (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `InviteTokens`, the email path), so the flow adds no new mechanism. ⚠️ **That "no new mechanism" claim is scoped to the flow** — it is NOT true of `signupPolicy`, whose write path does not exist at all (§Signup policy). Do not carry it across.
 
@@ -163,14 +163,14 @@ A star-scoped caller is admitted to its ancestors by `enforceScopeReach`'s tenan
 | Decision | Rejected alternative — why |
 |---|---|
 | **Open self-signup, no admin in the loop** | An approval step / invite code — contradicts the business model. An approval gate is not a safer version of self-signup; it is a different product. |
-| **Option A — the registry owns scope-row + founder-mint + claim-token**, shape-identical to `claim-universe` | A new `apps/nebula` signup endpoint — builds a **second** signup mechanism for what is conceptually one operation, duplicating machinery that already exists, and makes signup an app-layer concern rather than a platform primitive the developer inherits. Also worse under the ossification lens: a second shape every future test anchors to. |
+| **The registry owns scope-row + founder-mint + claim-token** (shape-identical to `claim-universe`) | A new `apps/nebula` signup endpoint — builds a **second** signup mechanism for what is conceptually one operation, duplicating machinery that already exists, and makes signup an app-layer concern rather than a platform primitive the developer inherits. Also worse under the ossification lens: a second shape every future test anchors to. |
 | The founder's pattern is the **exact star id** | A `{u}.*` pattern — a universe admin wearing a star's name, and exactly what the gating task exists to prevent. It is also what makes open signup safe. |
 | The founder is the **signing-up user** | The Galaxy admin as founder — then it is not self-signup, and the signing-up user cannot administer their own Star. |
 | **DAG grant is lazy, on first authenticated touch**, via the existing seed gate | An eager stamp at signup — there is no authenticated principal yet, so it needs a token minted for someone who has not authenticated, or an `onBeforeCall` exemption. Both are standing backdoors. |
 | **Keep the `hasAdminOverScope` seed gate unchanged** | Narrowing it to "exact-star pattern only" — a strict subset that leaves every admin-created Star (incl. every `.dev` workspace, which has no exact-star identity) permanently root-adminless. |
 | **No "partially-stamped Star" phase** | Creating the Star in a pending state that only the founder can finish, protected by the slug — redundant *and* weaker. The founder's post-login JWT already carries an unguessable exact-star admin pattern, so the narrowed seed **is** "only the real founder can finish it"; a slug is guessable. Slug reservation is likewise already handled by the `Scopes` row + `checkSlugAvailable`. |
 | Caller-chosen slug + **reserved-slug reject** | A server-minted opaque slug — kills squatting and the enumeration surface, but star ids stop being human-friendly and vanity slugs become their own feature later. |
-| Signup policy as **registry data** on the Galaxy's `Scopes` row | A policy hook calling into `apps/nebula` — forbidden direction. App code owning the flow — see Option A above. |
+| Signup policy as **registry data** on the Galaxy's `Scopes` row | A policy hook calling into `apps/nebula` — forbidden direction. App code owning the flow — see the registry-owns-the-mechanism row above. |
 | **Authority trickles DOWN: a covering admin may delete any descendant; warn, never block** | (a) The status quo, where a Star's members *veto* an admin above them — inverts the tier model. (b) A narrow "only if the Star has a single founder" carve-out — treats the symptom; the block is wrong for every descendant, not just that case. Restraint belongs in the UI warning, not the authorization. |
 | **Founder marker: NOT built — the existing seed gate suffices** | A marker on `Identities` threaded into the JWT. an exact-star founder already satisfies `hasAdminOverScope` on their own Star, so the marker buys only the covering-admin-touches-first race — benign and doubly self-healing — at the cost of a migration and a JWT-payload change. |
 | **`signupPolicy` is Phase 6 in full (read + write)** | Landing the read in Phase 2. the field has **zero** consumers today, and a closed default with the write path in the last phase ships the primary flow dark, contradicting the Objective. The premise that shipping open "flips existing Galaxies" was false — `claim-star` does not exist, so nothing is being flipped. |
@@ -260,7 +260,7 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 **Success:** a Galaxy admin toggles the policy and a subsequent signup to that Galaxy is accepted/rejected accordingly, end-to-end.
 
 ## Relationships
-- ✅ **Gated by [nebula-confine-admin-bypass.md](nebula-confine-admin-bypass.md) — COMPLETE.** Not merely sequencing: the confinement is what makes open self-signup safe.
+- ✅ **Gated by [nebula-confine-admin-bypass.md](archive/nebula-confine-admin-bypass.md) — COMPLETE.** Not merely sequencing: the confinement is what makes open self-signup safe.
 - **Partially supersedes [on-hold/nebula-dataplane-root-admin.md](on-hold/nebula-dataplane-root-admin.md) Part 1** — answers its `TODO(self-signup)` (the founder is known at signup) but narrows rather than retires the latch. Part 2 (last-admin protection) unaffected. **Part 1b (placement) stays deferred there — not this task's decision.** DO location pins at **first instantiation** (whether by name or a random id) and never moves, so `claim-star` is the natural **geo-capture seam** — it's the one place we hold the signing-up user's own `request.cf`. But explicit `locationHint` threading isn't built, isn't pre-alpha-critical, and the **lazy seed already lands the Star near its founder** (the Star DO is first instantiated by the founder's own first authenticated touch). Grab it when Part 1b is built; nothing to do here.
 - **Overlaps [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** — star-tier admins by *invite* rather than self-signup. Same principal shape, different provenance; neither blocks the other.
 - **Retires the fixture interim** recorded in the gating task's Phase 0 (every `adminClientAt` call site — 78/39 files at time of writing; see Phase 3's grep). Not on the pre-alpha critical path — [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) does not reference this file.
