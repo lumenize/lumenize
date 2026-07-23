@@ -49,8 +49,8 @@ sequenceDiagram
     participant R as Registry DO
     participant M as Email provider
     U->>W: POST /auth/claim-star (starId = {u}.{g}.{s}, email)
-    W->>W: Turnstile verify
-    W->>R: claimStar(starId, email, origin)
+    W->>W: Turnstile verify (on a clone - body stays forwardable)
+    W->>R: forward the POST unmodified (DO reads url.origin)
     alt validation fails (format, reserved, no parent, or taken slug)
         R-->>W: RegistryError 400/409 - no Scopes row, no email
         W-->>U: error (pick a new slug, fix formatting, etc.)
@@ -65,7 +65,7 @@ sequenceDiagram
     end
 ```
 
-⚠️ **Signup is served ONLY from a Galaxy-rendered landing page** (Phase 4) — never from the app-developer's own site. A simple `{u}.{g}` page prompts for email + slug, **retries until the slug is unique**, then POSTs `claim-star`. Payoffs: **CORS stays trivial** — pre-alpha is single-origin (`nebula.lumenize.com` serves auth + Galaxy pages together, per the collapse), so the POST is same-origin and the endpoint needs no cross-origin allowance; and the **`origin` param** (which builds the magic-link URL) is that Nebula-served page's origin, keeping the email in-context (§email note above). We do **not** accept signup POSTs from arbitrary third-party origins.
+⚠️ **Signup is served ONLY from a Galaxy-rendered landing page** (Phase 4) — never from the app-developer's own site. A simple `{u}.{g}` page prompts for email + slug, **retries until the slug is unique**, then POSTs `claim-star`. Payoffs: **CORS stays trivial** — pre-alpha is single-origin (`nebula.lumenize.com` serves auth + Galaxy pages together, per the collapse), so the POST is same-origin and the endpoint needs no cross-origin allowance; and the DO reads **`url.origin`** off the forwarded request to build the magic-link URL, so the link carries that Nebula-served page's origin — keeping the email in-context (§email note above). We do **not** accept signup POSTs from arbitrary third-party origins.
 
 ⚠️ **Design consideration — keep the already-authenticated door open.** We may later let a *logged-in* user found a Star without the email round-trip. The mechanism allows it (`mintIdentity` already takes `emailVerified`, and the send is a separate final step), so simply **don't foreclose it**: let the endpoint tolerate an authenticated caller and branch (authenticated + verified email → mint verified, **skip the email send**, return success), and don't bake *"check your email"* into the response shape. That stays **claim** semantics — they are founding their *own* Star.
 
