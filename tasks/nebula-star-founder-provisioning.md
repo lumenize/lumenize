@@ -38,6 +38,8 @@ The rights model that makes it sound:
 
 Star signup is a **new sibling method on the registry — `claimStar` — that calls the same private helpers `claimUniverse` calls** (`isValidSlug`, `checkSlugAvailable`, `#mintIdentity`, `#createMagicLinkAndSend`), with a **different validation prologue**. So an open endpoint on the `nebula-auth` router creates the `Scopes` row, mints the founder identity, and issues the emailed claim token.
 
+⚠️ **The emailed claim link needs no new template.** `#createMagicLinkAndSend` sends `type: 'magic-link'` — the generic "Sign in to Nebula" email, same as `claimUniverse` and login, *not* a distinct signup/welcome email. (All auth email is one subclass — `NebulaEmailSender extends AuthEmailSenderBase`, a `WorkerEntrypoint` with a **method per email type**, bound as `AUTH_EMAIL_SENDER`; per-tier branded/welcome copy is deferred template work, [nebula-scratchpad.md](nebula-scratchpad.md) § Email Template Customization.)
+
 **The happy path** (full validation order below; first-touch self-seed in §The DAG root grant):
 
 ```mermaid
