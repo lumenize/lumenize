@@ -128,7 +128,12 @@ The remaining provisioning / capture / inspection work builds on these:
   act-as downscopes automatically because DAG checks key off the delegated token's `sub` (the test
   user), never `act` (the admin). For **all Universe/Galaxy admins editing their apps going forward**, not
   just pre-alpha. This is the **push** half; shares the subject/grant/scope core with
-  `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
+  `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork. **Buildable piece =
+  [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** (invite a peer as admin at the invited
+  scope). 🔓 It also closes a gap found 2026-07-25: **a Galaxy cannot currently be logged into** —
+  `create-galaxy` mints no founder and there is no `claim-galaxy`, so no `Identities` row (and thus no
+  refresh cookie at `/auth/{u}.{g}/`) can exist at a 2-segment scope. A Galaxy-admin invite mints that
+  row. Interim: authenticate at the universe, name the galaxy in `activeScope`.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
 - **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run

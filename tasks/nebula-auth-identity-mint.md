@@ -8,6 +8,7 @@
 
 **Objective — the `nebula-auth` identity-mint path.** Both changes are on the same call chain (`issueInvites` → `#mintIdentity`), so they are reviewed and built as one story:
 1. An admin can invite a peer who becomes an **admin at the invited scope**.
+   - 🔓 **This is also what makes a GALAXY-scoped login possible at all** (noted 2026-07-25). Today no `Identities` row can exist at a 2-segment scope — `create-galaxy` mints no founder and there is no `claim-galaxy` — so no refresh cookie can ever be set at `/auth/{u}.{g}/`, and any fixture asking to "log in at the galaxy" is asking for something the system cannot do. `issueInvites(universeGalaxyStarId, …)` is already generic on scope, so inviting a Galaxy admin mints exactly that missing row. Until then, callers authenticate at the **universe** and name the galaxy in `activeScope` (the shape prod uses); `apps/nebula/test/browser/auth-bootstrap.ts` `bootstrapUniverseAdmin` carries that and its JSDoc should be retired here.
 2. That mint gives one human **one `profileId`, forever**, wherever the server can see it (same email, any scope).
 
 The invitee then reaches everything through the **already-built scope-admin bypass** — no grant code, no new mechanism. Recognizing one human under *two different emails* is explicitly **out of scope** (see the on-hold file); the interim convention is **one email per human**, which is sufficient for every pre-alpha case.
