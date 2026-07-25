@@ -66,14 +66,18 @@ export async function bootstrapStarFounder(options: BootstrapAdminOptions): Prom
  * at `/auth/{universe}/`. Returns the universe scope, which callers pass as their client's
  * `authScope`. Reach is `{u}.*`, so the client targets any descendant via `activeScope`.
  *
- * ⚠️ **This exists because a galaxy cannot be logged into directly.** `create-galaxy` mints no
- * founder and there is no `claim-galaxy`, so no `Identities` row can ever exist at a 2-segment scope —
- * meaning no refresh cookie can ever be set at `/auth/{u}.{g}/`. The old helper POSTed
+ * ⚠️ **A galaxy cannot be AUTHENTICATED AT — which is not the same as "cannot be operated".** A
+ * universe admin's `{u}.*` matches `{u}.{g}` and everything beneath, so this client has full
+ * authority inside the galaxy; nothing is being worked around. What is impossible is a *refresh
+ * cookie* at `/auth/{u}.{g}/`, because no `Identities` row can exist at a 2-segment scope
+ * (`create-galaxy` mints no founder, and there is no `claim-galaxy`). The old helper POSTed
  * `email-magic-link` there and relied on login-time minting, which was removed as the
  * stranger-claims-a-child escalation; that is why every galaxy-scoped caller in this lane went red.
  *
- * Authenticating at the universe and naming the target in `activeScope` is not a workaround — it is
- * the shape production uses (`prodLogin` at `nebula-platform`, then refresh at the target).
+ * Authenticating at the universe and naming the target in `activeScope` is the shape production uses
+ * (`prodLogin` at `nebula-platform`, then refresh at the target). It stays correct even once
+ * galaxy-admin invites land — those add a galaxy-BOUNDED principal (least privilege), not a
+ * capability this helper is missing.
  */
 export async function bootstrapUniverseAdmin(options: BootstrapAdminOptions): Promise<string> {
   const { browser, baseUrl, scope, email, testToken } = options;

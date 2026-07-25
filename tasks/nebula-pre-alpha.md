@@ -130,10 +130,12 @@ The remaining provisioning / capture / inspection work builds on these:
   just pre-alpha. This is the **push** half; shares the subject/grant/scope core with
   `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork. **Buildable piece =
   [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** (invite a peer as admin at the invited
-  scope). 🔓 It also closes a gap found 2026-07-25: **a Galaxy cannot currently be logged into** —
-  `create-galaxy` mints no founder and there is no `claim-galaxy`, so no `Identities` row (and thus no
-  refresh cookie at `/auth/{u}.{g}/`) can exist at a 2-segment scope. A Galaxy-admin invite mints that
-  row. Interim: authenticate at the universe, name the galaxy in `activeScope`.
+  scope). 🔓 At the Galaxy tier what it adds is a **galaxy-BOUNDED**
+  principal — a collaborator on one app who is *not* an admin of the whole universe. ⚠️ Not missing
+  capability: a universe admin's `{u}.*` already covers `{u}.{g}` and everything beneath. The narrow
+  mechanical consequence is that nobody can *authenticate at* a Galaxy today (no founder row can exist
+  at a 2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope`
+  — which is the shape prod uses and stays correct afterward.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
 - **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run
