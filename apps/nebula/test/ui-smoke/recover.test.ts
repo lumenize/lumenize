@@ -106,8 +106,8 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('DevContainer recover route (wrangler 
   // `extends Container`). The `/dev-container/{scope}/…` route, the `_nebula/recover` endpoint, the
   // `#forceReset`/`#probeStuck` pair, and the `name=DevContainer` docker filter below are all in that
   // blast radius, so a fix now would be rewritten immediately. Distinct from this lane's OTHER skips
-  // (smoke/delete-scope), which are login-blocked pending `claim-star` — this one needs no login: it
-  // is an ungated GET, so `claim-star` will NOT revive it.
+  // (smoke/delete-scope), which are blocked on getting a logged-in identity into a `.dev` scope —
+  // this one needs no login at all: it is an ungated GET.
   // Assertions left INTACT (testing.md § Deferring ≠ deleting) — they encode the D6/D7 contract and
   // the live-confirmed numbers, which the collapsed Galaxy must still satisfy.
   // Un-skip: tasks/nebula-galaxy-collapse-and-chat.md (re-target the route + container names, then

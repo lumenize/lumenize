@@ -731,8 +731,14 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       /** Create a Galaxy `{universe}.{galaxySlug}` (admin over the universe). */
       createGalaxy: (universe: string, galaxySlug: string): Promise<{ instanceName: string }> =>
         post('create-galaxy', { universeGalaxyId: `${universe}.${galaxySlug}` }) as Promise<{ instanceName: string }>,
-      /** Create the `.dev` authoring Star under `{galaxy}` — in-session, no email. */
-      createStar: (galaxy: string): Promise<{ instanceName: string }> =>
+      /**
+       * Create the user-developer's `.dev` authoring workspace under `{galaxy}` — in-session, no email.
+       *
+       * ⚠️ Takes a **galaxy** and hardcodes `{galaxy}.dev`; it cannot create a tenant Star. Named for
+       * what it does, not for the endpoint it calls: a tenant Star is founded by the end user through
+       * the open `claim-star` self-signup, never minted here.
+       */
+      createDevWorkspace: (galaxy: string): Promise<{ instanceName: string }> =>
         post('create-star', { universeGalaxyStarId: `${galaxy}.dev` }) as Promise<{ instanceName: string }>,
       /** Read-only deletion plan for the confirm screen: the down-only cascade + a bounded
        *  `affectedUsers` warning. Attached users never refuse a delete (ADR-015). */

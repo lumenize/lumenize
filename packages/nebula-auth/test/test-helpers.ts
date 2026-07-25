@@ -43,6 +43,26 @@ export async function claimUniverse(self: Fetcher, slug: string, email: string):
 }
 
 /**
+ * Claim a Star (OPEN self-signup — mints the exact-star founder). Returns the whole response so
+ * callers can assert the reject codes; on success the test-mode body carries `magicLinkUrl`.
+ */
+export async function claimStar(self: Fetcher, universeGalaxyStarId: string, email: string): Promise<Response> {
+  return self.fetch(new Request(registryUrl('claim-star'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ universeGalaxyStarId, email }),
+  }));
+}
+
+/** Create a Galaxy (admin-gated, `Scopes` row only, NO founder). */
+export async function createGalaxy(self: Fetcher, universeGalaxyId: string, adminToken: string): Promise<Response> {
+  return self.fetch(new Request(registryUrl('create-galaxy'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ universeGalaxyId }),
+  }));
+}
+
+/**
  * Request a LOGIN magic link (`email-magic-link`) for an existing identity. Returns the whole response
  * so callers can assert status; in test mode a 200 body carries `magicLinkUrl` (find-and-flip still
  * rejects at CONSUME if no identity exists — a request never mints).

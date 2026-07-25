@@ -94,7 +94,7 @@ The gate lands in two places depending on the route shape:
 |---|---|
 | Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`) |
 | CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
-| Turnstile | `email-magic-link`, `claim-universe`, `discover` |
+| Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
 | JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScopePattern` | Authenticated instance + registry endpoints |
 | Scope match (`matchAccess(pattern, instanceName)`) | Instance-path authenticated endpoints only |
 | Per-`sub` rate limit | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
@@ -148,14 +148,32 @@ Registry paths are identified by exact match of the whole path remainder against
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
 | `/auth/discover` | POST | Turnstile | → registry `fetch()` | Email-based scope discovery. Returns `{ universeGalaxyStarId, isAdmin }[]` — deliberately `sub`-free |
-| `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` | Open self-signup: register the `Scopes` row, mint the founder identity, send a magic link |
+| `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` (raw) | Open self-signup: register the `Scopes` row, mint the founder identity, send a magic link |
+| `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the founder at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
 | `/auth/create-galaxy` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a galaxy — `Scopes` row only |
 | `/auth/create-star` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a star — `Scopes` row only |
 | `/auth/my-scopes` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | The caller's manageable scope tree, keyed on the verified admin scope (not email) |
 | `/auth/delete-scope-plan` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Read-only cascade plan for the confirm screen |
 | `/auth/delete-scope` | POST | JWT (+`verifiedAccess` + `callerSub` injected) + rate limit | → registry `fetch()` | Execute the cascade; returns the affected set for the caller's platform-DO teardown fan-out |
 
-> **Not yet built:** there is no `claim-star` endpoint. Star creation today is `create-star`, admin-gated over the parent galaxy, which mints no founder. Open Star self-signup is the pinned target, designed in [`tasks/nebula-star-founder-provisioning.md`](../../tasks/nebula-star-founder-provisioning.md) — document it here when it ships (it must join **both** `REGISTRY_ENDPOINTS` and `TURNSTILE_ENDPOINTS`).
+#### `claim-star` responses — first failure wins
+
+Validation is a fail-fast prologue in this exact order, so a request failing several checks reports only the first. Multi-error UX is the **client's** job: the signup page format-validates before it POSTs, which leaves `slug_taken` as the one realistic server-side error for a well-behaved client.
+
+| Order | Status | `error` | When |
+|---|---|---|---|
+| 1 | 400 | `invalid_email` | `email` fails `isValidEmail` |
+| 2 | 400 | `invalid_id` | `universeGalaxyStarId` is not 1–3 valid dot-separated slugs |
+| 3 | 400 | `invalid_tier` | parses, but is not 3 segments |
+| 4 | 400 | `reserved_slug` | the star slug is a reserved **environment** name (`dev`) — see `RESERVED_STAR_SLUGS` |
+| 5 | 400 | `parent_not_found` | the parent galaxy `{u}.{g}` has no `Scopes` row |
+| 6 | 409 | `slug_taken` | the full `{u}.{g}.{s}` is already claimed |
+| — | 400 | `invalid_request` | the body is not a JSON object |
+| — | 200 | — | `{ message }`, plus `magicLinkUrl` in test mode only |
+
+⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a founder who never verified their email, that founder is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified founder. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
+
+⚠️ **`claim-star` must be in `TURNSTILE_ENDPOINTS`, and that is a separate `Set` from `REGISTRY_ENDPOINTS`.** Only the latter is needed for the route to work, so an endpoint added to one and not the other is live and **ungated** — and `checkRateLimit` keys on a verified `sub`, so it never runs here. `checkTurnstile` also short-circuits under `NEBULA_AUTH_TEST_MODE`, which every test lane sets, so no end-to-end test can catch the omission; `isTurnstileGated()` is exported for that assertion.
 
 ---
 

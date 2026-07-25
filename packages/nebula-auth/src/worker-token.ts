@@ -25,7 +25,7 @@ import {
   hashString,
 } from '@lumenize/auth';
 import { buildNebulaJwtPayload } from './access-claims';
-import { buildAuthScopePattern, matchAccess } from './parse-id';
+import { buildAuthScopePattern, matchAccess, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
@@ -62,13 +62,50 @@ function registry(env: Env): any {
 
 function redirectUrl(env: Env): string { return (env as any).NEBULA_AUTH_REDIRECT; }
 
+/**
+ * The built-app surface a **star**-tier login lands on. Hardcoded, not an env var: `/app` is where a
+ * tenant's instance of the user-developer's app is served, and that is fixed by the routing scheme
+ * (`run_worker_first: ["/app/*", …]`), not by deployment.
+ */
+const STAR_LANDING_PREFIX = '/app';
+
+/**
+ * Where a login for `universeGalaxyStarId` lands, split by TIER.
+ *
+ * A **star** is an end user arriving at the app they signed up for. Every other tier is a
+ * user-developer arriving at their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which stays
+ * `/app` today and becomes `/studio` when the Galaxy collapse flips that env value. So the non-star
+ * branch is not new behavior; it is the existing one, named.
+ *
+ * ⚠️ **Derive the tier from a SERVER-TRUSTED id.** On the success path that is the scope the consumed
+ * token resolved to, never the URL's `instanceName`: `handleInstancePath` only *format*-validates that
+ * segment and never cross-checks it against the token (the registry keys on `tokenHash` alone), so
+ * keying off it would let a caller pick another tier's landing surface. The error path has no token to
+ * resolve, so it necessarily falls back to the URL segment — which is safe there precisely because it
+ * grants nothing: the response is a bare `?error=` redirect either way.
+ */
+function landingBase(env: Env, universeGalaxyStarId: string | undefined): string {
+  let tier: string | undefined;
+  if (universeGalaxyStarId) {
+    try { tier = parseId(universeGalaxyStarId).tier; } catch { /* unparseable → treat as non-star */ }
+  }
+  return tier === 'star' ? STAR_LANDING_PREFIX : redirectUrl(env).replace(/\/$/, '');
+}
+
 /** Path-scoped refresh cookie: `Path={prefix}/{scope}`, `Max-Age` = the FIXED refresh TTL (no slide). */
 function refreshCookie(scope: string, token: string): string {
   return `refresh-token=${token}; Path=${NEBULA_AUTH_PREFIX}/${scope}; HttpOnly; Secure; SameSite=Strict; Max-Age=${REFRESH_TOKEN_TTL}`;
 }
 
-function redirectWithError(env: Env, error: string): Response {
-  const redirect = redirectUrl(env);
+/**
+ * A failed login redirect, tier-split like the success path.
+ *
+ * ⚠️ The split matters most HERE. An **expired** claim link is the exact case the resumable claim
+ * exists for, and once the collapse flips `NEBULA_AUTH_REDIRECT` to `/studio`, an unsplit error branch
+ * lands a Star founder in the user-developer's control plane — the outcome the split prevents.
+ */
+function redirectWithError(env: Env, error: string, universeGalaxyStarId?: string): Response {
+  const redirect = landingBase(env, universeGalaxyStarId);
   const separator = redirect.includes('?') ? '&' : '?';
   return new Response(null, { status: 302, headers: { Location: `${redirect}${separator}error=${error}` } });
 }
@@ -146,6 +183,7 @@ async function consumeAndLogin(
   env: Env,
   rawLoginToken: string,
   consume: 'consumeMagicLink' | 'consumeInvite',
+  urlInstanceName?: string,
 ): Promise<Response> {
   const loginTokenHash = await hashString(rawLoginToken);
   const rawRefreshToken = generateRandomString(32);
@@ -154,11 +192,14 @@ async function consumeAndLogin(
 
   const result = await registry(env)[consume](loginTokenHash, refreshTokenHash, refreshExpiresAt) as
     { sub: string; universeGalaxyStarId: string } | null;
-  if (!result) return redirectWithError(env, 'invalid_token');
+  // No token resolved, so there is no server-trusted scope — fall back to the URL segment purely to
+  // pick a landing surface for the error page (it grants nothing; see `landingBase`).
+  if (!result) return redirectWithError(env, 'invalid_token', urlInstanceName);
 
   // Carry the scope on the redirect as a PATH segment (`/app/{scope}`) so the landing SPA auto-connects
-  // with no local state (the magic link opens a fresh tab; localStorage can't be relied on).
-  const redirect = redirectUrl(env).replace(/\/$/, '');
+  // with no local state (the magic link opens a fresh tab; localStorage can't be relied on). The base
+  // is tier-split off the TOKEN's scope, never the URL's.
+  const redirect = landingBase(env, result.universeGalaxyStarId);
   const location = `${redirect}/${encodeURIComponent(result.universeGalaxyStarId)}`;
   return new Response(null, {
     status: 302,
@@ -169,16 +210,16 @@ async function consumeAndLogin(
   });
 }
 
-export async function handleMagicLinkClick(request: Request, env: Env): Promise<Response> {
+export async function handleMagicLinkClick(request: Request, env: Env, instanceName?: string): Promise<Response> {
   const token = new URL(request.url).searchParams.get('one_time_token');
   if (!token) return errorResponse(400, 'invalid_request', 'Missing one_time_token');
-  return consumeAndLogin(env, token, 'consumeMagicLink');
+  return consumeAndLogin(env, token, 'consumeMagicLink', instanceName);
 }
 
-export async function handleAcceptInvite(request: Request, env: Env): Promise<Response> {
+export async function handleAcceptInvite(request: Request, env: Env, instanceName?: string): Promise<Response> {
   const token = new URL(request.url).searchParams.get('invite_token');
   if (!token) return errorResponse(400, 'invalid_request', 'Missing invite_token');
-  return consumeAndLogin(env, token, 'consumeInvite');
+  return consumeAndLogin(env, token, 'consumeInvite', instanceName);
 }
 
 // ── refresh-token (pure KV read → mint JWT) ──────────────────────────────────────────────────────

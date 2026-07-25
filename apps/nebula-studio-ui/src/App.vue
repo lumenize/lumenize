@@ -359,7 +359,7 @@ async function addGalaxy(universe: string) {
   busy.value = true;
   try {
     await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`); // its dev workspace, implicit
+    await nebula.value!.client.scopes.createDevWorkspace(`${universe}.${slug}`); // its dev workspace, implicit
     addChildFor.value = null;
     addChildSlug.value = "";
     await loadScopes();
@@ -378,7 +378,7 @@ async function develop(galaxy: string) {
   if (!hasDevStar(galaxy)) {
     busy.value = true;
     try {
-      await nebula.value!.client.scopes.createStar(galaxy);
+      await nebula.value!.client.scopes.createDevWorkspace(galaxy);
       await loadScopes();
     } catch (e) {
       log("error", `Could not start the development workspace: ${(e as Error).message}`);
@@ -437,7 +437,7 @@ async function createApp(name: string) {
   busy.value = true;
   try {
     await nebula.value!.client.scopes.createGalaxy(universe, slug);
-    await nebula.value!.client.scopes.createStar(`${universe}.${slug}`);
+    await nebula.value!.client.scopes.createDevWorkspace(`${universe}.${slug}`);
   } catch (e) {
     log("error", `Could not create app: ${(e as Error).message}`);
     busy.value = false;

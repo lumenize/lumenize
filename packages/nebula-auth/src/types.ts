@@ -161,6 +161,25 @@ export const PLATFORM_INSTANCE_NAME = 'nebula-platform';
 /** Singleton instance name for NebulaAuthRegistry */
 export const REGISTRY_INSTANCE_NAME = 'registry';
 
+/**
+ * Star slugs a stranger may NOT self-claim via `claim-star`.
+ *
+ * A star id's third segment is one slot holding two kinds of value: a **tenant** slug (self-claimed,
+ * founder-minted) or a reserved **environment** name (admin-created and founderless via `createStar`).
+ * There is no structural separator between them — this list is the only thing keeping the two apart.
+ *
+ * `dev` is reserved by structure, not by policy: `nebula-client` hardcodes `${galaxy}.dev` as the
+ * user-developer's authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and
+ * `#parseScope`'s `isDev` flags the same thing. Without the reject a stranger founds the
+ * user-developer's OWN Studio workspace as `isAdmin: true` — their Studio then 409s forever, and the
+ * squatter's exact-star admin clears `resetDevData`'s `requireAdmin`, i.e. they can wipe it.
+ *
+ * Reserved **per galaxy**, not globally: uniqueness is on the full `{u}.{g}.{s}`, so every galaxy has
+ * its own `{u}.{g}.dev`. Extend this with any environment name the Galaxy collapse pins for its
+ * `{u}.{g}.{env}` cast (`staging`/`prod`), for the same reason.
+ */
+export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
+
 /** Default URL prefix for all auth routes */
 export const NEBULA_AUTH_PREFIX = '/auth';
 

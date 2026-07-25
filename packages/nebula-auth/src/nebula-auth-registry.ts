@@ -30,7 +30,7 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { generateRandomString, generateUuid, hashString } from '@lumenize/auth';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
-  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME,
+  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, RefreshTokenKV } from './types';
@@ -307,6 +307,10 @@ export class NebulaAuthRegistry extends DurableObject {
   async claimUniverse(slug: string, email: string, origin: string):
     Promise<{ message: string; magicLinkUrl?: string }> {
     const log = debug('nebula-auth.Registry.claimUniverse');
+    // Hash FIRST — see the ordering pin above `#prepareMagicLink`. No `await` may sit between the
+    // checks below and the write.
+    const link = await this.#prepareMagicLink();
+
     if (!isValidEmail(email)) throw new RegistryError(400, 'invalid_email', 'Invalid email format');
     if (!isValidSlug(slug)) throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
     if (slug === PLATFORM_INSTANCE_NAME) {
@@ -316,40 +320,160 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
     }
 
-    // Register the scope. No ON CONFLICT: checkSlugAvailable proved no row exists and there's no
-    // await between — surface a UNIQUE conflict loudly if that invariant is ever violated (slug is
-    // not secret).
-    try {
-      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', slug);
-    } catch (err) {
-      log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
-        slug, error: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
-    }
+    const lc = normalizeEmail(email);
+    // Scope row + founder mint + claim link, atomically. ⚠️ Defence-in-depth, NOT a fix for a shipped
+    // bug: the orphan-`Scopes` row this guards is not currently reachable (`#mintIdentity` pre-checks
+    // its only UNIQUE and returns the existing `sub`; `sub`/`profileId` are fresh UUIDs), so there is
+    // no reachable throw between the writes. It is wrapped because the ordering split touches this
+    // path anyway, and leaving one of three sibling write-paths unwrapped is the inconsistency the
+    // design rejects.
+    this.ctx.storage.transactionSync(() => {
+      // No ON CONFLICT: checkSlugAvailable proved no row exists and there's no await between —
+      // surface a UNIQUE conflict loudly if that invariant is ever violated (slug is not secret).
+      try {
+        this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', slug);
+      } catch (err) {
+        log.error('Universe INSERT conflicted unexpectedly — checkSlugAvailable invariant violated', {
+          slug, error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+      // MINT the founder identity (authority point). A bootstrap email founding `nebula-platform` is
+      // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
+      this.#mintIdentity(email, slug, /* isAdmin */ true, /* emailVerified */ false);
+      this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
+    });
+    log.info('Universe claimed', { slug, email: lc });
 
-    // MINT the founder identity (authority point). A bootstrap email founding `nebula-platform` is
-    // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
-    this.#mintIdentity(email, slug, /* isAdmin */ true, /* emailVerified */ false);
-    log.info('Universe claimed', { slug, email: normalizeEmail(email) });
-
-    return this.#createMagicLinkAndSend(email, slug, origin);
+    return this.#deliverMagicLink(link.rawToken, lc, slug, origin);
   }
 
-  // NOTE: there is no open, founder-minting `claimStar` **yet**. Star creation today is
-  // {@link createStar} (admin-gated over the parent galaxy, `Scopes` row only, no founder).
-  //
-  // ⚠️ This is "not built", NOT "must never exist" — open Star self-signup is the pinned target
-  // (tasks/nebula-star-founder-provisioning.md). The objection this note used to carry — that an open
-  // star claim minting an `isAdmin=true` founder inside another user-developer's Universe is a
-  // "stranger-claims-a-child escalation" — is **OBSOLETE**. It was true only because the bare
-  // `access.admin` bit was authority anywhere; the confinement removed exactly that, so a star
-  // founder's exact-star pattern is now inert above its own Star (ADR-015: scope authority flows
-  // strictly downward). What made it an escalation was never "a stranger created a row" — it was that
-  // the founder became an admin of the PARENT.
-  //
-  // This note is the source the router comment and two registry/routes tests were echoing; if you
-  // change the model again, sweep all four together.
+  /**
+   * **Open Star self-signup** — a stranger becomes the founder of a Star inside someone else's Galaxy,
+   * with no admin in the loop. An AUTHORITY POINT: this is where a Star's founder identity is minted.
+   *
+   * That openness is the product, not a defect to engineer away. A star founder holds an **exact-star**
+   * `authScopePattern`, which `hasAdminOverScope` makes inert at every ancestor (ADR-015: authority
+   * flows strictly downward), so a squatter gains a slug and nothing else — and a covering admin can
+   * delete the squatted Star. **Do not add an approval step, invite code, or per-Galaxy on/off switch.**
+   *
+   * ⚠️ **Not a `claimUniverse` copy.** It is open and founder-minting like `claimUniverse`, but nests
+   * under an existing Galaxy like `createStar`. Three divergences are load-bearing security, each with
+   * its own test: the **parent-exists** check (without it, an unauthenticated caller writes founders
+   * under galaxies that never existed — including fully-orphan stars no covering admin can remediate);
+   * the **reserved-slug** reject (without it, a stranger founds the user-developer's own `.dev` Studio
+   * workspace and can wipe it); and minting at the **3-segment star id** (minting at the universe
+   * scope would derive `{u}.*` — a universe admin wearing a star's name; the confinement *enforces*
+   * a pattern, it does not *validate* it).
+   *
+   * ⚠️ Turnstile is NOT applied here — the gate is `TURNSTILE_ENDPOINTS` in `router.ts`, a separate
+   * `Set` this method never touches. Removing `claim-star` from it silently ships an ungated open
+   * mutation endpoint that mints identities and sends mail.
+   *
+   * @param origin  read off the forwarded request by `fetch()`, never client-supplied — it builds the
+   *                emailed link, so a client-controlled value would be an open-redirect vector.
+   * @throws RegistryError 400 `invalid_email` | `invalid_id` | `invalid_tier` | `reserved_slug` |
+   *         `parent_not_found`, 409 `slug_taken` — first failure wins, in that order.
+   */
+  async claimStar(universeGalaxyStarId: string, email: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
+    const log = debug('nebula-auth.Registry.claimStar');
+    // Hash FIRST — see the ordering pin above `#prepareMagicLink`. Keeping the only `await` ahead of
+    // the checks is what stops the input gate from opening between `checkSlugAvailable` and the
+    // INSERT, which would make the slug check a TOCTOU window on an unauthenticated endpoint.
+    const link = await this.#prepareMagicLink();
+
+    // ── Fail-fast validation, in the pinned order. First failure wins; the rest never run. ──
+    // Multi-error UX is the CLIENT's job (the signup page format-validates before it POSTs), which
+    // leaves `slug_taken` as the one realistic server-side error for a well-behaved client.
+    if (!isValidEmail(email)) throw new RegistryError(400, 'invalid_email', 'Invalid email format');
+
+    let parsed;
+    try { parsed = parseId(universeGalaxyStarId); }
+    catch { throw new RegistryError(400, 'invalid_id', 'Invalid universeGalaxyStarId format'); }
+    if (parsed.tier !== 'star') {
+      throw new RegistryError(400, 'invalid_tier', 'claim-star requires a 3-segment id (universe.galaxy.star)');
+    }
+
+    // Reserved BEFORE parent-exists: a reserved slug is reserved whether or not its parent is real,
+    // and reporting `reserved_slug` there tells the truth about why it can never be claimed.
+    if (RESERVED_STAR_SLUGS.has(parsed.star!)) {
+      throw new RegistryError(400, 'reserved_slug', `"${parsed.star}" is a reserved environment name`);
+    }
+
+    // Parent-exists — an integrity check, NOT an admin gate (mirrors `createStar`). Note the
+    // un-negated call: the slug being AVAILABLE is what proves the parent absent.
+    const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
+    if (this.checkSlugAvailable(parentGalaxy)) {
+      throw new RegistryError(400, 'parent_not_found', `Parent galaxy "${parentGalaxy}" does not exist`);
+    }
+
+    const lc = normalizeEmail(email);
+    if (!this.checkSlugAvailable(universeGalaxyStarId)) {
+      this.#resumeClaimIfOwner(universeGalaxyStarId, lc, link, origin, log);
+      throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
+    }
+
+    // Scope row + founder mint + claim link, atomically — no `await` inside.
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyStarId);
+      // MINT the founder at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
+      // stores none, and `buildAuthScopePattern` derives exact-star from a 3-segment scope at
+      // token-mint time. Passing `parsed.universe` here would silently yield `{u}.*`.
+      this.#mintIdentity(lc, universeGalaxyStarId, /* isAdmin */ true, /* emailVerified */ false);
+      this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
+    });
+    log.info('Star claimed', { universeGalaxyStarId, email: lc });
+
+    return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
+  }
+
+  /**
+   * The resumable claim: when the slug is taken by a founder who never finished (link lost, failed, or
+   * expired), re-send their link — **by email only**. Synchronous by construction; the caller throws
+   * `slug_taken` immediately after, whether or not this fired.
+   *
+   * ⚠️ **The response must be identical either way.** Answering a resume with a fresh-claim-shaped
+   * success would turn success-vs-`slug_taken` into an email-confirmation oracle: probe a slug with a
+   * throwaway address → `slug_taken`; probe with `victim@corp.com` → success proves the victim is that
+   * slug's unverified founder, and mails them. Keeping the body identical leaves the email as the only
+   * channel, and it reaches the real owner.
+   *
+   * ⚠️ **The send is fired, never awaited.** Only this branch would have an external hop to wait on, so
+   * awaiting it makes the resume a *timing* oracle recovering exactly the bit the identical body hides.
+   * Its rejection is caught here so it can't surface as an unhandled rejection. (Guaranteed delivery —
+   * outbox/retries — is deferred: `tasks/backlog.md` § internal email reliability.)
+   *
+   * ⚠️ **Writes ONLY a `MagicLinks` row — never `UPDATE Identities`.** The `isAdmin = 1` clause is
+   * load-bearing: `issueInvites` mints pending invitees as `(isAdmin 0, emailVerified 0)` at the same
+   * scope, so a looser predicate matches them — and "resuming" one by setting `isAdmin = 1` would
+   * promote an invitee to star admin through an unauthenticated endpoint.
+   */
+  #resumeClaimIfOwner(
+    universeGalaxyStarId: string,
+    lcEmail: string,
+    link: { rawToken: string; tokenHash: string; expiresAt: string },
+    origin: string,
+    log: ReturnType<typeof debug>,
+  ): void {
+    const founder = [...this.ctx.storage.sql.exec(
+      'SELECT sub FROM Identities WHERE email = ? AND universeGalaxyStarId = ? AND isAdmin = 1 AND emailVerified = 0',
+      lcEmail, universeGalaxyStarId,
+    )];
+    if (founder.length === 0) return; // not the unverified founder — an ordinary slug_taken, no mail
+
+    this.#insertMagicLinkRow(link.tokenHash, lcEmail, universeGalaxyStarId, link.expiresAt);
+    if (this.#isTestMode) return; // same short-circuit as #deliverMagicLink; never leak the URL here
+    void this.#sendEmail({
+      type: 'magic-link',
+      to: lcEmail,
+      magicLinkUrl: this.#magicLinkUrl(link.rawToken, universeGalaxyStarId, origin),
+    }).catch((err) => {
+      log.error('Resume magic-link send failed', {
+        universeGalaxyStarId, error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   /**
    * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO founder identity + NO email. The
@@ -455,31 +579,92 @@ export class NebulaAuthRegistry extends DurableObject {
     // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
     // scope-gated (§Blast radius).
     if (universeGalaxyStarId === PLATFORM_INSTANCE_NAME && this.#bootstrapEmails.includes(lc)) {
-      this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
-      this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true, /* emailVerified */ false);
+      // Hash FIRST, then all three writes atomically — the same ordering as the two claim paths.
+      // Both writes here are idempotent, so this branch self-heals either way; it is wrapped for
+      // consistency with its siblings, not to fix a live bug.
+      const link = await this.#prepareMagicLink();
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
+        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true, /* emailVerified */ false);
+        this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
+      });
+      return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
     }
+    // The normal login path — one write (the link row), trivially atomic, no transaction needed.
     return this.#createMagicLinkAndSend(lc, universeGalaxyStarId, origin);
   }
 
-  /** Insert a hashed `MagicLinks` row + send (or, in test mode, return) the magic link. */
-  async #createMagicLinkAndSend(email: string, universeGalaxyStarId: string, origin: string):
-    Promise<{ message: string; magicLinkUrl?: string }> {
-    const lc = normalizeEmail(email); // MUST match the Identities normalization (m1) or verify won't find the row
+  // ── The magic-link helper, split into three by await-ness ───────────────────────────────────
+  //
+  // `transactionSync` takes a SYNCHRONOUS closure, but hashing a token is `crypto.subtle` and thus
+  // async — so a naive "wrap the old #createMagicLinkAndSend in transactionSync" does not compose.
+  // Worse, it fails SILENTLY: `transactionSync<T>` infers `T = Promise<…>` from an async closure, so
+  // it type-checks and COMMITS BEFORE the link row is ever written.
+  //
+  // The split makes the correct ordering the only expressible one. Every caller that writes more than
+  // the link row follows it:
+  //   1. `#prepareMagicLink()`  — async (the hash), FIRST, before any check
+  //   2. validation             — synchronous
+  //   3. `transactionSync(… #insertMagicLinkRow …)` — no `await` inside
+  //   4. `#deliverMagicLink()`  — async, AFTER commit (a send inside a transaction is neither
+  //                               rollback-able nor gate-safe)
+  //
+  // ⚠️ Step 1 sits before validation on purpose: it guarantees no `await` ever lands between the
+  // checks and the write, which would open the input gate and make the slug check a TOCTOU window.
+  // (A synchronous digest would dissolve the whole constraint — see `tasks/backlog.md` § sync digest.)
+
+  /** Mint a link token + its hash. **Async** (`crypto.subtle`) — call BEFORE opening a transaction. */
+  async #prepareMagicLink(): Promise<{ rawToken: string; tokenHash: string; expiresAt: string }> {
     const rawToken = generateRandomString(32);
-    const tokenHash = await hashString(rawToken);
-    const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL * 1000).toISOString();
+    return {
+      rawToken,
+      tokenHash: await hashString(rawToken),
+      expiresAt: new Date(Date.now() + MAGIC_LINK_TTL * 1000).toISOString(),
+    };
+  }
+
+  /**
+   * INSERT the `MagicLinks` row. **Synchronous** — safe inside a `transactionSync` closure.
+   *
+   * `email` must already be `normalizeEmail`d: it has to match the `Identities` normalization or
+   * consume-time verification won't find the row.
+   */
+  #insertMagicLinkRow(tokenHash: string, lcEmail: string, universeGalaxyStarId: string, expiresAt: string): void {
     this.ctx.storage.sql.exec(
       'INSERT INTO MagicLinks (tokenHash, email, universeGalaxyStarId, expiresAt) VALUES (?, ?, ?, ?)',
-      tokenHash, lc, universeGalaxyStarId, expiresAt,
+      tokenHash, lcEmail, universeGalaxyStarId, expiresAt,
     );
-    const magicLinkUrl =
-      `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/magic-link?one_time_token=${rawToken}`;
+  }
 
+  /** The link a `rawToken` resolves to. Synchronous; the DO reads `origin` off the forwarded request. */
+  #magicLinkUrl(rawToken: string, universeGalaxyStarId: string, origin: string): string {
+    return `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/magic-link?one_time_token=${rawToken}`;
+  }
+
+  /** Send (or, in test mode, return) the link. **Async** — call AFTER the transaction commits. */
+  async #deliverMagicLink(rawToken: string, lcEmail: string, universeGalaxyStarId: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
+    const magicLinkUrl = this.#magicLinkUrl(rawToken, universeGalaxyStarId, origin);
     if (this.#isTestMode) {
       return { message: 'Magic link generated (test mode)', magicLinkUrl };
     }
-    await this.#sendEmail({ type: 'magic-link', to: lc, magicLinkUrl });
+    await this.#sendEmail({ type: 'magic-link', to: lcEmail, magicLinkUrl });
     return { message: 'Check your email for the magic link' };
+  }
+
+  /**
+   * Insert a hashed `MagicLinks` row + send the link — the single-write path.
+   *
+   * One row, so it is trivially atomic and needs no transaction. Callers that write a `Scopes` row or
+   * mint an identity alongside the link must NOT use this: they compose the three halves above inside
+   * a `transactionSync` themselves (see `claimUniverse` / `claimStar`).
+   */
+  async #createMagicLinkAndSend(email: string, universeGalaxyStarId: string, origin: string):
+    Promise<{ message: string; magicLinkUrl?: string }> {
+    const lc = normalizeEmail(email);
+    const link = await this.#prepareMagicLink();
+    this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
+    return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
   }
 
   /**
@@ -816,15 +1001,43 @@ export class NebulaAuthRegistry extends DurableObject {
     if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
     const endpoint = url.pathname.slice(prefix.length + 1); // after '/auth/'
 
+    // ⚠️ The three OPEN endpoints are forwarded RAW (`stub.fetch(request)`) — the Worker no longer
+    // rebuilds their body, so its `?? {}` no longer absorbs a malformed one. Without this guard
+    // `await request.json()` throws a `SyntaxError`, which is not a `RegistryError` and so falls to
+    // the 500 fallback below — turning a client's bad JSON into an internal error. Parse once, here,
+    // and answer in the same `{ error, error_description }` shape as the six sibling 400s.
+    // A non-object body (`null`, `"str"`, `[]`) is rejected the same way: every field read below would
+    // otherwise TypeError into the 500 fallback, which is the very shape this guard exists to prevent.
+    const OPEN_ENDPOINTS = new Set(['discover', 'claim-universe', 'claim-star']);
+    let openBody: Record<string, any> | undefined;
+    if (OPEN_ENDPOINTS.has(endpoint)) {
+      let parsedBody: unknown;
+      try { parsedBody = await request.json(); }
+      catch { parsedBody = undefined; }
+      if (typeof parsedBody !== 'object' || parsedBody === null || Array.isArray(parsedBody)) {
+        return Response.json(
+          { error: 'invalid_request', error_description: 'Request body must be JSON' },
+          { status: 400 },
+        );
+      }
+      openBody = parsedBody as Record<string, any>;
+    }
+
     try {
       switch (endpoint) {
         case 'discover': {
-          const { email } = await request.json() as { email: string };
+          const { email } = openBody as { email: string };
           return Response.json(this.discover(email));
         }
         case 'claim-universe': {
-          const { slug, email } = await request.json() as { slug: string; email: string };
+          const { slug, email } = openBody as { slug: string; email: string };
           return Response.json(await this.claimUniverse(slug, email, url.origin));
+        }
+        case 'claim-star': {
+          const { universeGalaxyStarId, email } = openBody as {
+            universeGalaxyStarId: string; email: string;
+          };
+          return Response.json(await this.claimStar(universeGalaxyStarId, email, url.origin));
         }
         case 'create-galaxy': {
           const { universeGalaxyId, verifiedAccess } = await request.json() as {

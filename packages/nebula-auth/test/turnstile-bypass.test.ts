@@ -9,7 +9,7 @@
  * equality check would red at least one.
  */
 import { describe, it, expect } from 'vitest';
-import { isTurnstileBypassed, TURNSTILE_BYPASS_HEADER } from '../src/router';
+import { isTurnstileBypassed, isTurnstileGated, TURNSTILE_BYPASS_HEADER } from '../src/router';
 
 const TOKEN = 'bypass-secret-3f9a2c8e1b7d4056a1c2e3f40506a7b8';
 const req = (headers: Record<string, string> = {}) =>
@@ -36,5 +36,30 @@ describe('Turnstile bypass token (isTurnstileBypassed)', () => {
     // Empty-string knob must NOT match an empty header (both empty would `constantTimeEqual` true —
     // the `if (!bypassToken) return false` guard prevents that footgun).
     expect(isTurnstileBypassed(req({ [TURNSTILE_BYPASS_HEADER]: '' }), { NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN: '' })).toBe(false);
+  });
+});
+
+/**
+ * 🔒 Which endpoints Turnstile GATES — asserted by set membership, because nothing else can.
+ *
+ * `checkTurnstile` returns `null` on `NEBULA_AUTH_TEST_MODE === 'true'` **before** it reads the secret
+ * or its caller consults the set, and this package's sole vitest project sets that binding. So no
+ * end-to-end assertion in the default lane can tell a gated endpoint from an ungated one — an ungated
+ * `claim-star` would pass every other test in the suite.
+ */
+describe('Turnstile gating (isTurnstileGated)', () => {
+  // Every UNAUTHENTICATED registry endpoint. These have no other bound: `checkRateLimit` keys on the
+  // verified `payload.sub`, so it never runs where there is no JWT.
+  it.each(['claim-star', 'claim-universe', 'discover', 'email-magic-link'])(
+    'gates the open endpoint %s', (endpoint) => {
+      expect(isTurnstileGated(endpoint)).toBe(true);
+    });
+
+  it('does NOT gate authenticated or unknown endpoints', () => {
+    // These carry a JWT, so they are bounded by verification + per-sub rate limiting instead.
+    for (const e of ['create-galaxy', 'create-star', 'my-scopes', 'delete-scope', 'refresh-token']) {
+      expect(isTurnstileGated(e), e).toBe(false);
+    }
+    expect(isTurnstileGated('not-an-endpoint')).toBe(false);
   });
 });

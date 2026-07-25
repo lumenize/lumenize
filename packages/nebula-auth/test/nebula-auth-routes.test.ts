@@ -6,11 +6,13 @@
  * endpoint/registry.
  */
 import { describe, it, expect } from 'vitest';
-import { SELF, env } from 'cloudflare:test';
+import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { signJwt, importPrivateKey, generateUuid } from '@lumenize/auth';
-import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER } from '../src/types';
+import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from '../src/types';
 import type { AccessEntry } from '../src/types';
-import { foundUniverse, requestMagicLink, clickLink } from './test-helpers';
+import {
+  foundUniverse, requestMagicLink, clickLink, claimStar, createGalaxy, refreshAndParse, claimUniverse,
+} from './test-helpers';
 
 const PREFIX = NEBULA_AUTH_PREFIX;
 const workerUrl = (path: string) => `http://localhost${PREFIX}/${path}`;
@@ -67,43 +69,247 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       expect((await dup.json() as any).error).toBe('slug_taken');
     });
 
-    // ⚠️ Asserts the TARGET, not today's 404. Blocker: the open star self-signup endpoint is not
-    // built — design pinned in tasks/nebula-star-founder-provisioning.md (phase 2). Un-skip when it
-    // lands; these assertions are the contract, not a scaffold.
+    // ── claim-star: OPEN Star self-signup ────────────────────────────────────────────────────────
     //
-    // Deliberately NOT written as "claim-star 404s today": that assertion was mechanically redundant
-    // (bare-instance fall-through is already covered above and by the `some-bare-instance` case), so
-    // its only content was a rationale — and the rationale argued the endpoint must never exist,
-    // which is the model we rejected. A skipped test carrying the real contract is strictly more
-    // useful than a green test documenting an obsolete prohibition.
+    // Every assertion here rides `SELF.fetch`, never a direct registry RPC: raw Workers RPC DROPS
+    // custom own properties (`raw-comm.md` § Errors), so a `status`/`error` assertion through an RPC
+    // helper sees nothing and passes vacuously.
+    describe('claim-star (open self-signup)', () => {
+      /** A universe + galaxy that really exist, plus an admin token over them. */
+      async function realGalaxy() {
+        const u = uni();
+        const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
+        const galaxy = `${u}.app`;
+        expect((await createGalaxy(SELF, galaxy, access_token)).status).toBe(201);
+        return { universe: u, galaxy, adminToken: access_token };
+      }
+      /** Rows the registry singleton holds for a scope — the observable "nothing was written" check. */
+      async function rowsFor(scope: string): Promise<{ scopes: number; links: number }> {
+        const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+        return (runInDurableObject as any)(stub, (_i: any, ctx: any) => ({
+          scopes: [...ctx.storage.sql.exec('SELECT 1 FROM Scopes WHERE universeGalaxyStarId = ?', scope)].length,
+          links: [...ctx.storage.sql.exec('SELECT 1 FROM MagicLinks WHERE universeGalaxyStarId = ?', scope)].length,
+        }));
+      }
+
+      it('a stranger founds a Star and holds an EXACT-STAR pattern — never {u}.*', async () => {
+        const { galaxy } = await realGalaxy();
+        const star = `${galaxy}.tenant`;
+
+        const resp = await claimStar(SELF, star, 'stranger@example.com');
+        expect(resp.status).toBe(200);
+        const { magicLinkUrl } = await resp.json() as { magicLinkUrl?: string };
+        expect(magicLinkUrl).toBeDefined();
+
+        // Through the real claim link → login → inspect the MINTED token. This is the assertion that
+        // makes open signup safe: an exact-star pattern is inert at every ancestor (ADR-015), so a
+        // squatter gains a slug and nothing else. Widen the mint to `{u}.*` and this reds.
+        const { refreshToken } = await clickLink(SELF, magicLinkUrl!);
+        const { parsed } = await refreshAndParse(SELF, star, refreshToken);
+        expect(parsed.access.authScopePattern).toBe(star);
+        expect(parsed.access.authScopePattern).not.toContain('*');
+        expect(parsed.access.admin).toBe(true);
+      });
+
+      it('a phantom parent galaxy is rejected BEFORE any write', async () => {
+        // The universe exists but the galaxy was never created — so this is precisely the
+        // orphan-star / namespace-squat case, not a malformed id.
+        const u = uni();
+        await foundUniverse(SELF, u, `owner-${u}@example.com`);
+        const star = `${u}.never-created.tenant`;
+
+        const resp = await claimStar(SELF, star, 'squatter@example.com');
+        expect(resp.status).toBe(400);
+        expect((await resp.json() as any).error).toBe('parent_not_found');
+        // Reds if the claimUniverse-shaped body (which has no parent check) is copied: without it an
+        // unauthenticated caller writes an isAdmin founder under a galaxy that never existed.
+        expect(await rowsFor(star)).toEqual({ scopes: 0, links: 0 });
+      });
+
+      it('the reserved `dev` slug is rejected FOR BEING RESERVED, with no write', async () => {
+        // ⚠️ The parent galaxy is created on purpose: without it `parent_not_found` fires first and
+        // produces IDENTICAL observables (400, no rows), so the test would pass whether or not the
+        // reserved list exists at all.
+        const { galaxy } = await realGalaxy();
+        const devStar = `${galaxy}.dev`;
+
+        const resp = await claimStar(SELF, devStar, 'squatter@example.com');
+        expect(resp.status).toBe(400);
+        // Assert the CODE, not just the status — that is what distinguishes this from the sibling
+        // rejects. A squatter here would 409 the user-developer's own Studio forever AND clear
+        // resetDevData's requireAdmin, i.e. they could wipe it.
+        expect((await resp.json() as any).error).toBe('reserved_slug');
+        expect(await rowsFor(devStar)).toEqual({ scopes: 0, links: 0 });
+      });
+
+      it('rejects run in the PINNED order — first failure wins', async () => {
+        const { galaxy } = await realGalaxy();
+        const star = `${galaxy}.order-test`;
+        await claimStar(SELF, star, 'first@example.com'); // now taken
+
+        // Format precedes registry data: both malformed AND taken → invalid_email.
+        const both = await claimStar(SELF, star, 'not-an-email');
+        expect((await both.json() as any).error).toBe('invalid_email');
+
+        // Reserved precedes parent-exists: reserved slug under a PHANTOM parent → reserved_slug.
+        const reservedPhantom = await claimStar(SELF, `${uni()}.nope.dev`, 'x@example.com');
+        expect((await reservedPhantom.json() as any).error).toBe('reserved_slug');
+
+        // ⚠️ Without these two, the cases are indistinguishable — both are 400s with no rows written.
+        const taken = await claimStar(SELF, star, 'second@example.com');
+        expect(taken.status).toBe(409);
+        expect((await taken.json() as any).error).toBe('slug_taken');
+      });
+
+      it('a taken slug is owner-aware but NOT observable in the response', async () => {
+        const { galaxy } = await realGalaxy();
+        const star = `${galaxy}.resume`;
+        const founder = 'founder@example.com';
+        expect((await claimStar(SELF, star, founder)).status).toBe(200);
+        const afterClaim = await rowsFor(star);
+
+        // (a) A DIFFERENT email → plain slug_taken, NO new link row.
+        const other = await claimStar(SELF, star, 'someone-else@example.com');
+        const otherBody = await other.text();
+        expect(other.status).toBe(409);
+        expect((await rowsFor(star)).links).toBe(afterClaim.links);
+
+        // (b) The founder's OWN email while emailVerified = 0 → the resume: a NEW link row, delivered
+        //     only by email — and a byte-identical response.
+        const resume = await claimStar(SELF, star, founder);
+        const resumeBody = await resume.text();
+        expect(resume.status).toBe(409);
+        expect((await rowsFor(star)).links).toBe(afterClaim.links + 1);
+
+        // 🔒 The anti-oracle property. Reds if the resume returns a fresh-claim-shaped success, which
+        // would confirm that a probed address is that slug's unverified founder (and mail them).
+        expect(resumeBody).toBe(otherBody);
+        expect(JSON.parse(resumeBody).magicLinkUrl).toBeUndefined();
+      });
+
+      it('the resume adds a link row ONLY — it never mutates the identity', async () => {
+        const { galaxy } = await realGalaxy();
+        const star = `${galaxy}.no-mutate`;
+        const founder = 'founder2@example.com';
+        expect((await claimStar(SELF, star, founder)).status).toBe(200);
+
+        const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+        const readIdentity = async (email: string) => (runInDurableObject as any)(stub, (_i: any, ctx: any) =>
+          [...ctx.storage.sql.exec(
+            'SELECT sub, profileId, isAdmin, emailVerified FROM Identities WHERE email = ? AND universeGalaxyStarId = ?',
+            email, star,
+          )][0]);
+
+        const before = await readIdentity(founder);
+        await claimStar(SELF, star, founder);
+        expect(await readIdentity(founder)).toEqual(before);
+
+        // A PENDING INVITEE at the same scope is (isAdmin 0, emailVerified 0) — exactly what a looser
+        // predicate would match. Resuming one must not promote it to star admin through an
+        // unauthenticated endpoint, and must send it nothing.
+        const invitee = 'invitee@example.com';
+        await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
+          ctx.storage.sql.exec(
+            'INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,0,0,?)',
+            generateUuid(), generateUuid(), star, invitee, '2026-01-01T00:00:00.000Z',
+          );
+        });
+        const linksBefore = (await rowsFor(star)).links;
+        const resp = await claimStar(SELF, star, invitee);
+        expect(resp.status).toBe(409);
+        expect((await readIdentity(invitee)).isAdmin).toBe(0);
+        expect((await rowsFor(star)).links).toBe(linksBefore); // no link row → nothing was sent
+      });
+
+      it('a malformed body is a clean 400 on every raw-forwarded endpoint, never a 500', async () => {
+        // ⚠️ A REGRESSION the raw forward introduces: the Worker used to `?? {}` a bad body, so the
+        // registry never saw one. Now `await request.json()` would throw a SyntaxError — not a
+        // RegistryError — and fall to the 500 fallback.
+        for (const endpoint of ['claim-star', 'claim-universe', 'discover']) {
+          const resp = await SELF.fetch(new Request(registryUrl(endpoint), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not json{',
+          }));
+          expect(resp.status, `${endpoint} must 400 on a malformed body`).toBe(400);
+          expect((await resp.json() as any).error, endpoint).toBe('invalid_request');
+        }
+      });
+    });
+
+    // ── Login redirect: the TIER SPLIT ───────────────────────────────────────────────────────────
     //
-    // Only pinned decisions are asserted here. The response SHAPE and the claim-token delivery
-    // details are NOT yet pinned, so nothing asserts them — adding guesses would make this the
-    // scaffold it is trying not to be.
-    it.skip('claim-star: open self-signup mints an exact-star founder and rejects reserved slugs', async () => {
-      const universe = `sf-${crypto.randomUUID().slice(0, 8)}`;
-      const galaxy = `${universe}.app`;
+    // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
+    // the fact. A **star** founder is an end user and lands on the built-app surface (`/app`, which is
+    // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
+    // their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which the Galaxy collapse flips from
+    // `/app` to `/studio`.
+    //
+    // ⚠️ The binding is `/app` project-wide (test/wrangler.jsonc), which would make both branches
+    // produce the SAME string and the test vacuous. Each test below mutates it to `/studio` for its
+    // duration and restores it, so the branches genuinely diverge. Do NOT flip it project-wide:
+    // `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` on 63 call sites across 8 files.
+    describe('login redirect tier split', () => {
+      async function withStudioRedirect<T>(fn: () => Promise<T>): Promise<T> {
+        const original = (env as any).NEBULA_AUTH_REDIRECT;
+        (env as any).NEBULA_AUTH_REDIRECT = '/studio';
+        try { return await fn(); } finally { (env as any).NEBULA_AUTH_REDIRECT = original; }
+      }
+      const locationOf = async (linkUrl: string) =>
+        (await SELF.fetch(new Request(linkUrl, { redirect: 'manual' }))).headers.get('Location');
 
-      // 1. The endpoint EXISTS — no longer a bare-instance fall-through.
-      const ok = await SELF.fetch(new Request(registryUrl('claim-star'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ universeGalaxyStarId: `${galaxy}.tenant`, email: 'founder@example.com' }),
-      }));
-      expect(ok.status).not.toBe(404);
+      it('a STAR founder lands on /app/{scope} even when the control plane has moved to /studio', async () => {
+        const u = uni();
+        const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
+        const galaxy = `${u}.app`;
+        await createGalaxy(SELF, galaxy, access_token);
+        const star = `${galaxy}.tenant`;
+        const { magicLinkUrl } = await (await claimStar(SELF, star, 'founder@example.com')).json() as any;
 
-      // 2. RESERVED SLUGS ARE REJECTED — the security-critical half. `${galaxy}.dev` is the
-      //    user-developer's own Studio workspace (nebula-client.ts hardcodes it); a stranger
-      //    founding it would 409 their Studio forever AND clear resetDevData's requireAdmin.
-      const reserved = await SELF.fetch(new Request(registryUrl('claim-star'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ universeGalaxyStarId: `${galaxy}.dev`, email: 'squatter@example.com' }),
-      }));
-      expect(reserved.status).toBe(400);
+        await withStudioRedirect(async () => {
+          expect(await locationOf(magicLinkUrl)).toBe(`/app/${encodeURIComponent(star)}`);
+        });
+      });
 
-      // 3. The founder's pattern is the EXACT STAR ID, never `{u}.*` — this is what makes open
-      //    signup safe (ADR-015: authority flows strictly downward, so an exact-star founder is
-      //    inert above its own Star). If this ever widens, open signup becomes an escalation.
-      //    (Resolve via the claim link → login → inspect the minted token's authScopePattern.)
+      it('a UNIVERSE founder rides NEBULA_AUTH_REDIRECT — /studio/{scope}', async () => {
+        const u = uni();
+        const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
+        await withStudioRedirect(async () => {
+          expect(await locationOf(magicLinkUrl)).toBe(`/studio/${u}`);
+        });
+      });
+
+      it('an EXPIRED/invalid star link errors to /app, not into the control plane', async () => {
+        // ⚠️ The case the split matters most for. MAGIC_LINK_TTL is 30 min and the resumable claim
+        // exists precisely because these expire — an unsplit error branch would drop a Star founder
+        // into the user-developer's Studio.
+        const u = uni();
+        const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
+        const galaxy = `${u}.app`;
+        await createGalaxy(SELF, galaxy, access_token);
+        const star = `${galaxy}.tenant`;
+
+        await withStudioRedirect(async () => {
+          const bad = `http://localhost${PREFIX}/${star}/magic-link?one_time_token=never-issued`;
+          expect(await locationOf(bad)).toBe('/app?error=invalid_token');
+          // The non-star tier still errors to the control plane.
+          const badUni = `http://localhost${PREFIX}/${u}/magic-link?one_time_token=never-issued`;
+          expect(await locationOf(badUni)).toBe('/studio?error=invalid_token');
+        });
+      });
+
+      it('the TOKEN decides the tier, not the URL path', async () => {
+        // A universe-scope token consumed through a STAR-shaped URL must still land where the TOKEN
+        // says. `handleInstancePath` only format-validates that path segment and never cross-checks it
+        // against the token (the registry keys on tokenHash alone), so keying the redirect off the URL
+        // would let a caller pick another tier's landing surface.
+        const u = uni();
+        const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
+        const token = new URL(magicLinkUrl).searchParams.get('one_time_token')!;
+        const starShapedUrl = `http://localhost${PREFIX}/${u}.fake.star/magic-link?one_time_token=${token}`;
+
+        await withStudioRedirect(async () => {
+          expect(await locationOf(starShapedUrl)).toBe(`/studio/${u}`);
+        });
+      });
     });
 
     it('create-galaxy: requires a JWT (401); succeeds (201) with an admin JWT', async () => {

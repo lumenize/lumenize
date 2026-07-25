@@ -35,13 +35,9 @@ export interface RouteNebulaAuthOptions {
 }
 
 // Registry endpoint suffixes (exact match after the prefix) — forwarded to the registry DO.
-// (No `claim-star` YET — star creation today is `create-star`, admin-gated over the parent galaxy.
-//  ⚠️ NOT a prohibition: open star self-signup is the pinned target, designed in
-//  tasks/nebula-star-founder-provisioning.md. The old "stranger-claims-a-child escalation" objection
-//  is OBSOLETE — that escalation was removed by the access.admin confinement (ADR-015: authority
-//  flows strictly downward, so a star founder's exact-star pattern is inert above its own Star).)
+// `claim-*` = open self-signup (mints a founder, emails); `create-*` = admin-gated and founderless.
 const REGISTRY_ENDPOINTS = new Set([
-  'discover', 'claim-universe', 'create-galaxy', 'create-star', 'my-scopes',
+  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
   'delete-scope-plan', 'delete-scope',
 ]);
 
@@ -52,7 +48,26 @@ const AUTH_FLOW_SUFFIXES = new Set(['email-magic-link', 'magic-link', 'accept-in
 const AUTHENTICATED_SUFFIXES = new Set(['invite', 'delegated-token']);
 
 // Turnstile-gated endpoints.
-const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'discover']);
+//
+// 🔒 Every UNAUTHENTICATED registry endpoint must be here. This `Set` is the ONLY bound on them:
+// `checkRateLimit` keys on the verified `payload.sub`, so it never runs on a path with no JWT. The
+// gate lives here and not in the registry method, so a method copied from an already-listed sibling
+// arrives UNGATED and nothing reds — for `claim-star` that would mean an open mutation endpoint that
+// mints `isAdmin` identities and sends mail. (Turnstile bounds scripted abuse — mass squatting, mail
+// amplification — it is not an approval step.)
+const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star', 'discover']);
+
+/**
+ * Whether `endpoint` is Turnstile-gated.
+ *
+ * Exported for the same reason as {@link isTurnstileBypassed}: the decision is otherwise unassertable.
+ * `checkTurnstile` short-circuits on `NEBULA_AUTH_TEST_MODE` **before** consulting this set, and every
+ * test lane sets that binding — so no end-to-end assertion in the default project can tell a gated
+ * endpoint from an ungated one. Set membership is the only thing that reds on the regression.
+ */
+export function isTurnstileGated(endpoint: string): boolean {
+  return TURNSTILE_ENDPOINTS.has(endpoint);
+}
 
 // ============================================
 // Response helpers
@@ -191,9 +206,13 @@ async function handleRegistryPath(request: Request, env: Env, endpoint: string):
     return forwardToRegistry(request, env, body);
   }
 
-  // discover / claim-universe — Turnstile only (or none); forward the body as-is.
-  const body = (await readJsonBody(request)) ?? {};
-  return forwardToRegistry(request, env, body);
+  // discover / claim-universe / claim-star — open (Turnstile only). These inject NOTHING, so forward
+  // the ORIGINAL request rather than rebuilding it: no parse, no re-serialize, every header survives,
+  // and the DO reads `url.origin` off it to build the emailed link. `checkTurnstile` clone()s for its
+  // body read, so the body is still intact here. (Rebuilding also silently dropped every header but
+  // Content-Type, and made a malformed body indistinguishable from an empty one — the registry's own
+  // JSON guard now owns that, returning 400 `invalid_request` instead of a 500.)
+  return env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
 }
 
 // ============================================
@@ -221,8 +240,10 @@ async function handleInstancePath(
       if (turnstileResult) return turnstileResult;
       return handleEmailMagicLink(request, env, instanceName);
     }
-    if (suffix === 'magic-link' && request.method === 'GET') return handleMagicLinkClick(request, env);
-    if (suffix === 'accept-invite' && request.method === 'GET') return handleAcceptInvite(request, env);
+    // `instanceName` is passed only so a FAILED consume can pick a landing surface for its error
+    // redirect — the success path derives that from the consumed token's scope instead.
+    if (suffix === 'magic-link' && request.method === 'GET') return handleMagicLinkClick(request, env, instanceName);
+    if (suffix === 'accept-invite' && request.method === 'GET') return handleAcceptInvite(request, env, instanceName);
     if (suffix === 'refresh-token' && request.method === 'POST') return handleRefreshToken(request, env);
     if (suffix === 'logout' && request.method === 'POST') return handleLogout(request, env, instanceName);
     return new Response('Method Not Allowed', { status: 405 });

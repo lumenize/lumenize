@@ -113,10 +113,15 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
   // bootstrap email, so it never fires for a star scope. Everything downstream (no cookie → refresh
   // 401 "No refresh token provided" → never `connected`) follows from that one fact.
   //
-  // UN-SKIP with `claim-star` — tasks/nebula-star-founder-provisioning.md **Phase 2**, which mints a
-  // founder at an unprovisioned Star in one open call. ⚠️ Do NOT "fix" this by provisioning through
-  // claim-universe → create-galaxy → create-star: that is the `provisionAndLogin` detour Phase 2
-  // exists to COLLAPSE, and rebuilding it here re-creates the interim we are removing.
+  // ⚠️ **CORRECTED 2026-07-25 while building Phase 2: `claim-star` does NOT unblock this.** The lane
+  // logs in AT `test-u0.test-g0.dev`, and `.dev` is on the RESERVED list `claim-star` itself adds —
+  // it refuses that slug by design (a stranger founding the user-developer's own Studio workspace is
+  // exactly what the list prevents). A `.dev` scope is founderless by construction, so an identity
+  // reaches it only by (a) logging in at an ANCESTOR the founder holds — but `refreshCookie` sets
+  // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
+  // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
+  // question, tracked in tasks/nebula-star-founder-provisioning.md § Phase 2.
+  // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
   it.skip('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
@@ -178,7 +183,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
   });
 
   // ⛔ SKIPPED — depends on the login step above (asserts `authed` is non-null). Same blocker,
-  // same un-skip: `claim-star` (nebula-star-founder-provisioning.md Phase 2).
+  // same lane-wide login blocker as above (NOT `claim-star` — see the correction there).
   it.skip('prompt → DevStudio.chat codegen loop updates the preview (env.AI + Docker)', async () => {
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;
@@ -220,7 +225,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
 
   // ⛔ SKIPPED — transitively blocked by the same break: this "rides the warm container the prompt
   // step spun up" (below), and that step is skipped, so the preview GET has no container to serve.
-  // Same un-skip: `claim-star` (nebula-star-founder-provisioning.md Phase 2).
+  // Same lane-wide login blocker as above (NOT `claim-star` — see the correction there).
   it.skip('preview ignores a request-supplied scope decoy + the command-port header (security)', async () => {
     // The public `/dev-container` GET injects the SERVER-DERIVED scope (from the URL path),
     // never a request-supplied one, and can't be redirected to the container command port.

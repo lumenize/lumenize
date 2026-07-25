@@ -111,13 +111,13 @@ describe('NebulaAuthRegistry', () => {
     });
   });
 
-  // No open founder-minting `claimStar` exists YET: a star is created by its parent-Galaxy admin via
-  // createStar (below). ⚠️ The old rationale — "that would mint an admin identity in another
-  // user-developer's Universe, a stranger-claims-a-child escalation" — is OBSOLETE. That escalation
-  // was removed by the access.admin confinement (ADR-015): a star founder holds an exact-star pattern
-  // and is inert above its own Star, so the create is just a create. Open star self-signup is the
-  // pinned target — tasks/nebula-star-founder-provisioning.md. The absence of `/auth/claim-star` is
-  // asserted at the router level (nebula-auth-routes.test.ts) as CURRENT behavior, not a prohibition.
+  // Two ways a star comes into being, and they partition cleanly by slug class:
+  //   claimStar   — OPEN self-signup. Mints an exact-star `isAdmin` founder + emails a claim link.
+  //                 Rejects reserved env names (`dev`). Tenant stars only.
+  //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO founder. The only
+  //                 founderless path, which is exactly what `{u}.{g}.dev` needs.
+  // The open claim is safe because a founder's exact-star pattern is inert above its own Star
+  // (ADR-015: authority flows strictly downward) — see tasks/nebula-star-founder-provisioning.md.
 
   // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
   describe('createGalaxy', () => {

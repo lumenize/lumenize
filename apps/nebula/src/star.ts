@@ -115,12 +115,12 @@ export class Star extends NebulaDO {
    * exactly once; a non-admin first caller leaves root adminless until an admin
    * connects.
    *
-   * TODO(self-signup): open Star self-signup will make the founder known at signup, so this gate
-   * gains a **founder preference** in front of it — the founder is seeded rather than whichever
-   * covering admin touches first. ⚠️ This gate itself STAYS as the fallback: `createStar` mints no
-   * founder, so admin-created Stars (including every `.dev` workspace) have no founder to prefer and
-   * must keep seeding from a covering admin. Design: tasks/nebula-star-founder-provisioning.md
-   * (supersedes the dangling `tasks/nebula-star-root-admin.md` pointer this comment used to carry).
+   * ⚠️ Open Star self-signup (`claim-star`) adds NO founder-specific machinery here — the gate below
+   * is the whole mechanism. A star founder holds an exact-star `authScopePattern`, which already
+   * satisfies `hasAdminOverScope` on their own Star, so they self-seed root on first authenticated
+   * touch with zero new code. A "founder preference" was considered and cut: it would buy only the
+   * covering-admin-touches-first race (benign and self-healing) at the cost of an `Identities`
+   * migration and a JWT-payload change. Design: tasks/nebula-star-founder-provisioning.md.
    */
   onBeforeCall() {
     super.onBeforeCall() // locks the active scope (aud) on first call

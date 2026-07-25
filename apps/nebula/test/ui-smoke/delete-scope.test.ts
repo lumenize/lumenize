@@ -27,18 +27,18 @@ const ADMIN_EMAIL = 'test@lumenize.io';
 /** The universe the admin owns — the parent under which the throwaway Galaxy is created. */
 const UNIVERSE = 'test-u0';
 /**
- * Both tests below are `it.skip` pending `claim-star`, so the `beforeAll` skips the expensive
+ * Both tests below are `it.skip` pending a login path into a `.dev` scope, so the `beforeAll` skips the expensive
  * browser + real-email login boot too (a failing hook would red the suite instead of showing
  * `↓ skipped`). Flip to `false` in the same commit that un-skips them.
  */
-const LANE_BLOCKED_ON_CLAIM_STAR = true;
+const LANE_BLOCKED_ON_DEV_SCOPE_LOGIN = true;
 
 describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler dev + Docker)', () => {
   let browser: Browser;
   let authed: { ctx: BrowserContext; page: Page } | null = null;
 
   beforeAll(async () => {
-    if (LANE_BLOCKED_ON_CLAIM_STAR) return;
+    if (LANE_BLOCKED_ON_DEV_SCOPE_LOGIN) return;
     browser = await chromium.launch({ executablePath: resolveChromiumExecutable() });
     authed = await loginToStudio({
       browser,
@@ -58,8 +58,16 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   // LOGIN NEVER MINTS (post-surrogate-sub) and nothing provisions `TEST_SCOPE`, so the magic-link
   // consume returns `302 /app?error=invalid_token` with no Set-Cookie and the Studio never reaches
   // `connected` (proven 2026-07-25 — see smoke.test.ts's skip comment for the full trace).
-  // UN-SKIP with `claim-star` (nebula-star-founder-provisioning.md Phase 2), together with the rest
-  // of this lane. The assertions below are the real Phase-1 UI contract and are left intact.
+  // ⚠️ **CORRECTED 2026-07-25 while building Phase 2: `claim-star` does NOT unblock this.** The lane
+  // logs in AT `test-u0.test-g0.dev`, and `.dev` is on the RESERVED list `claim-star` itself adds —
+  // it refuses that slug by design (a stranger founding the user-developer's own Studio workspace is
+  // exactly what the list prevents). A `.dev` scope is founderless by construction, so an identity
+  // reaches it only by (a) logging in at an ANCESTOR the founder holds — but `refreshCookie` sets
+  // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
+  // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
+  // question, tracked in tasks/nebula-star-founder-provisioning.md § Phase 2.
+  // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
+  // The assertions below are the real Phase-1 UI contract and are left intact.
   it.skip('an admin deletes a scope through the confirm screen — the button is LIVE and the row goes', async () => {
     const page = authed!.page;
     const slug = `del-${Date.now().toString(36)}`;
