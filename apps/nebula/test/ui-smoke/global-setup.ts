@@ -26,7 +26,7 @@ import { resolve as resolvePath } from 'node:path';
 import type { TestProject } from 'vitest/node';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
-import { HAS_DOCKER, HAS_AI_PATH } from './gates';
+import { HAS_DOCKER } from './gates';
 
 /** apps/nebula config — vitest cwd is the apps/nebula package dir. */
 const WRANGLER_CONFIG = './wrangler.jsonc';
@@ -64,7 +64,11 @@ let wranglerCleanup: (() => Promise<void>) | null = null;
 let vite: ViteDevServer | null = null;
 
 export default async function setup(project: TestProject) {
-  if (!HAS_DOCKER || !HAS_AI_PATH) {
+  // Boot on DOCKER alone. The stack itself (wrangler dev + vite + DevContainer) needs no model —
+  // only the codegen scenarios do, and they keep their own `HAS_AI_PATH` gate. Gating the whole
+  // stack on the AI path would make every non-AI scenario (e.g. scope deletion) unrunnable, and
+  // `inject('viteBaseUrl')` undefined for it.
+  if (!HAS_DOCKER) {
     project.provide('uiSmokeSkipped', true);
     return; // nothing booted → nothing to tear down
   }

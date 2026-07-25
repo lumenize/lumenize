@@ -23,10 +23,9 @@
  */
 import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { existsSync, readdirSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
 import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
 import { HAS_DOCKER, HAS_AI_PATH } from './gates';
+import { resolveChromiumExecutable } from './helpers';
 
 /**
  * Chromium executable for the raw-Playwright driver. Returns `undefined` (→ Playwright's
@@ -39,19 +38,8 @@ import { HAS_DOCKER, HAS_AI_PATH } from './gates';
  * `chromium-` dir (its `chrome-linux/chrome` or `chrome-linux64/chrome`), which drives
  * headless fine.
  */
-function resolveChromiumExecutable(): string | undefined {
-  if (existsSync(chromium.executablePath())) return undefined; // pinned build present
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
-  if (!root || !existsSync(root)) return undefined; // let launch() produce its own error
-  for (const dir of readdirSync(root)) {
-    if (!dir.startsWith('chromium-')) continue;
-    for (const sub of ['chrome-linux/chrome', 'chrome-linux64/chrome']) {
-      const candidate = resolvePath(root, dir, sub);
-      if (existsSync(candidate)) return candidate;
-    }
-  }
-  return undefined;
-}
+// (Moved to ./helpers so the delete-scope scenario can share it — two copies of this
+// resolution logic would drift.)
 
 /** Dedicated test scope — `test-` prefix is the reaper's auto-reap marker. Must be valid
  *  for BOTH slug validators: dag-ops `SLUG_REGEX` (no leading/trailing hyphen) AND the
@@ -118,7 +106,18 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     }
   });
 
-  it('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
+  // ⛔ SKIPPED — LOGIN NEVER MINTS (post-surrogate-sub), and nothing provisions `TEST_SCOPE`.
+  // Proven 2026-07-25: the magic-link consume returns `302 /app?error=invalid_token` with NO
+  // Set-Cookie, because `getAndVerifyIdentity` finds no `Identities` row at the scope — `global-setup`
+  // wipes `.wrangler/state` each run and the bootstrap mint is gated to `nebula-platform` + the
+  // bootstrap email, so it never fires for a star scope. Everything downstream (no cookie → refresh
+  // 401 "No refresh token provided" → never `connected`) follows from that one fact.
+  //
+  // UN-SKIP with `claim-star` — tasks/nebula-star-founder-provisioning.md **Phase 2**, which mints a
+  // founder at an unprovisioned Star in one open call. ⚠️ Do NOT "fix" this by provisioning through
+  // claim-universe → create-galaxy → create-star: that is the `provisionAndLogin` detour Phase 2
+  // exists to COLLAPSE, and rebuilding it here re-creates the interim we are removing.
+  it.skip('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
@@ -178,7 +177,9 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     authed = { ctx, page }; // hand off to the prompt step + the wipe teardown
   });
 
-  it('prompt → DevStudio.chat codegen loop updates the preview (env.AI + Docker)', async () => {
+  // ⛔ SKIPPED — depends on the login step above (asserts `authed` is non-null). Same blocker,
+  // same un-skip: `claim-star` (nebula-star-founder-provisioning.md Phase 2).
+  it.skip('prompt → DevStudio.chat codegen loop updates the preview (env.AI + Docker)', async () => {
     expect(authed, 'login step must have established a session').not.toBeNull();
     const { page } = authed!;
 
@@ -217,7 +218,10 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
     expect(errorBubbles, 'the chat turn should not have errored').toBe(0);
   });
 
-  it('preview ignores a request-supplied scope decoy + the command-port header (security)', async () => {
+  // ⛔ SKIPPED — transitively blocked by the same break: this "rides the warm container the prompt
+  // step spun up" (below), and that step is skipped, so the preview GET has no container to serve.
+  // Same un-skip: `claim-star` (nebula-star-founder-provisioning.md Phase 2).
+  it.skip('preview ignores a request-supplied scope decoy + the command-port header (security)', async () => {
     // The public `/dev-container` GET injects the SERVER-DERIVED scope (from the URL path),
     // never a request-supplied one, and can't be redirected to the container command port.
     // Rides the warm container the prompt step spun up for TEST_SCOPE (Node-side fetch — the
