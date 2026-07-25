@@ -1,38 +1,38 @@
 {
   "label": "local",
-  "baseUrl": "https://127.0.0.1:53541",
-  "instanceName": "bench-b5128bae",
+  "baseUrl": "https://127.0.0.1:58849",
+  "instanceName": "bench-588f6e00",
   "summaries": [
     {
       "N": 10,
       "commits": 5,
       "errors": 0,
       "span": {
-        "mean": 0.16580840000001446,
-        "p50": 0.09287500000004911,
-        "p75": 0.21087499999998727,
-        "p95": 0.38391699999999673,
-        "p99": 0.38391699999999673,
-        "min": 0.05995799999993778,
-        "max": 0.38391699999999673
+        "mean": 0.08837499999997363,
+        "p50": 0.07437499999991815,
+        "p75": 0.0749590000000353,
+        "p95": 0.1777909999999565,
+        "p99": 0.1777909999999565,
+        "min": 0.05045899999993253,
+        "max": 0.1777909999999565
       },
       "perSubscriberLatency": {
-        "mean": 4.511096740000005,
-        "p50": 4.758666999999946,
-        "p75": 4.892000000000053,
-        "p95": 5.018332999999984,
-        "p99": 5.075541999999928,
-        "min": 3.8414999999999964,
-        "max": 5.075541999999928
+        "mean": 3.407831719999997,
+        "p50": 3.305417000000034,
+        "p75": 3.3584170000000313,
+        "p95": 4.119250000000079,
+        "p99": 4.135208000000034,
+        "min": 2.997957999999926,
+        "max": 4.135208000000034
       },
       "endToEnd": {
-        "mean": 4.594230140000002,
-        "p50": 4.85979199999997,
-        "p75": 4.979125000000067,
-        "p95": 5.105374999999981,
-        "p99": 5.162583999999924,
-        "min": 3.934791999999902,
-        "max": 5.162583999999924
+        "mean": 3.4499153199999752,
+        "p50": 3.3411670000000413,
+        "p75": 3.3909589999999525,
+        "p95": 4.194792000000007,
+        "p99": 4.210749999999962,
+        "min": 3.0296249999998963,
+        "max": 4.210749999999962
       }
     },
     {
@@ -40,31 +40,31 @@
       "commits": 5,
       "errors": 0,
       "span": {
-        "mean": 0.8168916000000082,
-        "p50": 0.6225420000000668,
-        "p75": 1.0502079999999978,
-        "p95": 1.4540829999999687,
-        "p99": 1.4540829999999687,
-        "min": 0.4642079999999851,
-        "max": 1.4540829999999687
+        "mean": 0.43833319999996545,
+        "p50": 0.37133399999993344,
+        "p75": 0.5220829999999523,
+        "p95": 0.585207999999966,
+        "p99": 0.585207999999966,
+        "min": 0.3529159999999365,
+        "max": 0.585207999999966
       },
       "perSubscriberLatency": {
-        "mean": 3.9830621400000306,
-        "p50": 4.1076249999999845,
-        "p75": 4.3298750000000155,
-        "p95": 4.861333000000059,
-        "p99": 4.917333000000099,
-        "min": 2.894042000000013,
-        "max": 4.942625000000021
+        "mean": 2.6236391039999947,
+        "p50": 2.6367910000000165,
+        "p75": 2.759625000000028,
+        "p95": 2.9024590000000217,
+        "p99": 2.9252500000000055,
+        "min": 2.214625000000069,
+        "max": 2.936207999999965
       },
       "endToEnd": {
-        "mean": 4.056736939999988,
-        "p50": 4.197167000000036,
-        "p75": 4.419875000000047,
-        "p95": 4.949500000000057,
-        "p99": 5.005500000000097,
-        "min": 2.9362499999999727,
-        "max": 5.0307920000000195
+        "mean": 2.6716809039999823,
+        "p50": 2.675916999999913,
+        "p75": 2.824999999999932,
+        "p95": 2.9480409999999893,
+        "p99": 3.0034580000000233,
+        "min": 2.255459000000087,
+        "max": 3.011166000000003
       }
     },
     {
@@ -72,31 +72,31 @@
       "commits": 5,
       "errors": 0,
       "span": {
-        "mean": 3.2293499999999993,
-        "p50": 3.4096250000000055,
-        "p75": 3.5088329999999814,
-        "p95": 3.6942920000000186,
-        "p99": 3.6942920000000186,
-        "min": 2.2719169999999167,
-        "max": 3.6942920000000186
+        "mean": 1.8580251999999973,
+        "p50": 1.5409169999999222,
+        "p75": 1.7837920000000622,
+        "p95": 3.062958999999978,
+        "p99": 3.062958999999978,
+        "min": 1.3828750000000127,
+        "max": 3.062958999999978
       },
       "perSubscriberLatency": {
-        "mean": 4.916155210000008,
-        "p50": 5.1239590000000135,
-        "p75": 5.5861249999999245,
-        "p95": 6.428250000000048,
-        "p99": 6.565916000000016,
-        "min": 1.6833329999999478,
-        "max": 6.62766600000009
+        "mean": 2.2257250439999714,
+        "p50": 2.0867909999999483,
+        "p75": 2.494707999999946,
+        "p95": 4.226207999999929,
+        "p99": 4.3060409999999365,
+        "min": 0.5962499999999409,
+        "max": 4.320999999999913
       },
       "endToEnd": {
-        "mean": 5.0208136099999905,
-        "p50": 5.2326249999999845,
-        "p75": 5.7380829999999605,
-        "p95": 6.541083999999955,
-        "p99": 6.678749999999923,
-        "min": 1.7207499999999527,
-        "max": 6.740499999999997
+        "mean": 2.2521168440000046,
+        "p50": 2.113375000000019,
+        "p75": 2.5233749999999873,
+        "p95": 4.246708000000012,
+        "p99": 4.32654100000002,
+        "min": 0.6228340000000117,
+        "max": 4.341499999999996
       }
     }
   ],
@@ -107,245 +107,245 @@
       "commits": [
         {
           "commitIndex": 0,
-          "benchETag": "0203ba53-3e74-4d3d-8463-9168546c47c5",
-          "tBeforeTrigger": 552.930416,
-          "tAfterTrigger": 553.017458,
+          "benchETag": "8a9ab4e0-f9a6-4b07-b47e-fba032142268",
+          "tBeforeTrigger": 558.914291,
+          "tAfterTrigger": 558.989833,
           "arrivals": [
             {
               "subscriberIndex": 9,
-              "tArrived": 557.709083
+              "tArrived": 562.94725
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 557.804541
+              "tArrived": 562.98925
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 557.897916
+              "tArrived": 563.052791
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 557.931
+              "tArrived": 563.072
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 557.954333
+              "tArrived": 563.083625
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 557.976833
+              "tArrived": 563.092958
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 557.998833
+              "tArrived": 563.101041
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 558.035791
+              "tArrived": 563.109083
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 558.059833
+              "tArrived": 563.116708
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 558.093
+              "tArrived": 563.125041
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 1,
-          "benchETag": "80d27d09-b146-471b-8e16-089fe35d7cd6",
-          "tBeforeTrigger": 558.269166,
-          "tAfterTrigger": 558.362458,
+          "benchETag": "d2b004a1-33d4-4eba-93d0-ac3d94f754cc",
+          "tBeforeTrigger": 563.148916,
+          "tAfterTrigger": 563.183833,
           "arrivals": [
             {
               "subscriberIndex": 9,
-              "tArrived": 562.203958
+              "tArrived": 566.420458
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 562.226458
+              "tArrived": 566.438333
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 562.23775
+              "tArrived": 566.449583
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 562.244541
+              "tArrived": 566.45625
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 562.251416
+              "tArrived": 566.462333
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 562.258
+              "tArrived": 566.468291
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 562.264458
+              "tArrived": 566.477208
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 562.270958
+              "tArrived": 566.483125
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 562.277333
+              "tArrived": 566.489
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 562.285375
+              "tArrived": 566.494833
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 2,
-          "benchETag": "8f887d8c-55c1-41e1-a04f-67f8f881c224",
-          "tBeforeTrigger": 562.309583,
-          "tAfterTrigger": 562.356666,
+          "benchETag": "54d10857-c110-4b23-a92b-c9fec5e0c35c",
+          "tBeforeTrigger": 566.509166,
+          "tAfterTrigger": 566.541708,
           "arrivals": [
             {
               "subscriberIndex": 9,
-              "tArrived": 566.324708
+              "tArrived": 569.853
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 566.360625
-            },
-            {
-              "subscriberIndex": 6,
-              "tArrived": 566.378875
+              "tArrived": 569.865625
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 566.396416
+              "tArrived": 569.871791
+            },
+            {
+              "subscriberIndex": 6,
+              "tArrived": 569.877458
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 566.438166
+              "tArrived": 569.883083
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 566.4575
+              "tArrived": 569.888458
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 566.474875
+              "tArrived": 569.894083
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 566.501958
+              "tArrived": 569.900125
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 566.518958
+              "tArrived": 569.911291
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 566.535583
+              "tArrived": 569.917291
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 3,
-          "benchETag": "e4b49c4b-9dae-4b9a-b3b2-1f0a0f10d60a",
-          "tBeforeTrigger": 566.569208,
-          "tAfterTrigger": 566.670333,
+          "benchETag": "3369bac0-914f-460d-a350-7f66bf3784b5",
+          "tBeforeTrigger": 569.933291,
+          "tAfterTrigger": 569.964958,
           "arrivals": [
             {
               "subscriberIndex": 9,
-              "tArrived": 571.379208
+              "tArrived": 572.962916
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 571.399125
+              "tArrived": 572.972916
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 571.409791
+              "tArrived": 572.979916
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 571.419708
+              "tArrived": 572.985791
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 571.429
+              "tArrived": 572.99125
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 571.438208
+              "tArrived": 573.016041
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 571.447166
+              "tArrived": 573.021791
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 571.455583
+              "tArrived": 573.027208
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 571.463416
+              "tArrived": 573.032458
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 571.472083
+              "tArrived": 573.037875
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 4,
-          "benchETag": "a9279429-1f6e-4801-ac58-0f0ee9355e08",
-          "tBeforeTrigger": 571.528833,
-          "tAfterTrigger": 571.615958,
+          "benchETag": "f9949a18-3e83-4a31-ae8b-6284ce337653",
+          "tBeforeTrigger": 573.058416,
+          "tAfterTrigger": 573.094166,
           "arrivals": [
             {
               "subscriberIndex": 9,
-              "tArrived": 576.476625
-            },
-            {
-              "subscriberIndex": 7,
-              "tArrived": 576.490666
+              "tArrived": 576.365041
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 576.496541
+              "tArrived": 576.374166
+            },
+            {
+              "subscriberIndex": 7,
+              "tArrived": 576.379916
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 576.502333
+              "tArrived": 576.385
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 576.507958
+              "tArrived": 576.389833
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 576.5135
+              "tArrived": 576.394625
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 576.519791
+              "tArrived": 576.399583
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 576.525833
+              "tArrived": 576.404333
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 576.531375
+              "tArrived": 576.409041
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 576.536583
+              "tArrived": 576.4155
             }
           ],
           "missing": []
@@ -358,1045 +358,1045 @@
       "commits": [
         {
           "commitIndex": 0,
-          "benchETag": "9fa838a5-2f74-416d-9307-86d38f7d79fe",
-          "tBeforeTrigger": 576.933833,
-          "tAfterTrigger": 576.989291,
+          "benchETag": "877a8f18-d253-4e73-bed4-0fd48f4406ab",
+          "tBeforeTrigger": 576.799875,
+          "tAfterTrigger": 576.831,
           "arrivals": [
             {
               "subscriberIndex": 49,
-              "tArrived": 580.098041
+              "tArrived": 579.253541
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 580.117541
+              "tArrived": 579.264041
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 580.126291
+              "tArrived": 579.269458
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 580.133666
+              "tArrived": 579.2755
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 580.140541
+              "tArrived": 579.280583
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 580.146416
+              "tArrived": 579.285583
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 580.371916
+              "tArrived": 579.290416
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 580.379125
+              "tArrived": 579.29525
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 580.385083
+              "tArrived": 579.300166
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 580.390708
+              "tArrived": 579.306041
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 580.396416
+              "tArrived": 579.310875
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 580.402791
+              "tArrived": 579.321708
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 580.409041
+              "tArrived": 579.32725
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 580.414833
+              "tArrived": 579.332
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 580.421
+              "tArrived": 579.337666
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 580.426666
+              "tArrived": 579.442708
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 580.432833
+              "tArrived": 579.448958
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 580.438166
-            },
-            {
-              "subscriberIndex": 30,
-              "tArrived": 580.443958
-            },
-            {
-              "subscriberIndex": 29,
-              "tArrived": 580.44975
+              "tArrived": 579.454
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 580.455083
+              "tArrived": 579.458916
             },
             {
-              "subscriberIndex": 27,
-              "tArrived": 580.46075
+              "subscriberIndex": 30,
+              "tArrived": 579.463625
             },
             {
-              "subscriberIndex": 26,
-              "tArrived": 580.466041
-            },
-            {
-              "subscriberIndex": 25,
-              "tArrived": 580.472166
-            },
-            {
-              "subscriberIndex": 24,
-              "tArrived": 580.514375
+              "subscriberIndex": 29,
+              "tArrived": 579.469833
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 580.530291
+              "tArrived": 579.474916
+            },
+            {
+              "subscriberIndex": 27,
+              "tArrived": 579.479625
+            },
+            {
+              "subscriberIndex": 26,
+              "tArrived": 579.484333
+            },
+            {
+              "subscriberIndex": 25,
+              "tArrived": 579.489166
+            },
+            {
+              "subscriberIndex": 24,
+              "tArrived": 579.494958
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 580.538375
+              "tArrived": 579.49975
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 580.545041
+              "tArrived": 579.5045
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 580.551166
+              "tArrived": 579.509041
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 580.556916
+              "tArrived": 579.513875
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 580.562958
+              "tArrived": 579.518666
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 580.569083
+              "tArrived": 579.524166
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 580.57475
+              "tArrived": 579.529041
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 580.58075
+              "tArrived": 579.533791
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 580.591708
+              "tArrived": 579.538458
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 580.5975
+              "tArrived": 579.543458
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 580.6035
+              "tArrived": 579.547833
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 580.609458
+              "tArrived": 579.553416
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 580.616333
+              "tArrived": 579.558208
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 580.62275
+              "tArrived": 579.562791
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 580.667333
+              "tArrived": 579.567458
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 580.673375
+              "tArrived": 579.57225
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 580.679166
+              "tArrived": 579.577875
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 580.686458
+              "tArrived": 579.583375
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 580.69225
+              "tArrived": 579.588458
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 580.697833
+              "tArrived": 579.59325
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 580.7035
+              "tArrived": 579.609791
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 580.7095
+              "tArrived": 579.615541
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 580.715125
+              "tArrived": 579.620208
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 580.720583
+              "tArrived": 579.624875
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 1,
-          "benchETag": "8b712c1a-0d24-4fab-b539-2c168bbd9424",
-          "tBeforeTrigger": 580.748333,
-          "tAfterTrigger": 580.809041,
+          "benchETag": "666372b7-6bb3-4b67-8b97-66f5900e13b6",
+          "tBeforeTrigger": 579.638583,
+          "tAfterTrigger": 579.662625,
           "arrivals": [
             {
               "subscriberIndex": 49,
-              "tArrived": 584.674791
+              "tArrived": 582.013625
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 584.686583
+              "tArrived": 582.020041
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 584.692958
+              "tArrived": 582.257291
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 584.699
+              "tArrived": 582.262791
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 584.705666
+              "tArrived": 582.267708
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 584.734125
+              "tArrived": 582.272458
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 584.740875
+              "tArrived": 582.277291
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 584.746708
+              "tArrived": 582.281916
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 584.752083
-            },
-            {
-              "subscriberIndex": 40,
-              "tArrived": 584.898041
+              "tArrived": 582.286791
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 584.90475
+              "tArrived": 582.291625
+            },
+            {
+              "subscriberIndex": 40,
+              "tArrived": 582.296541
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 584.911083
+              "tArrived": 582.300958
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 584.916666
+              "tArrived": 582.3055
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 584.922666
+              "tArrived": 582.310166
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 584.928166
+              "tArrived": 582.3145
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 584.934166
-            },
-            {
-              "subscriberIndex": 32,
-              "tArrived": 584.939958
-            },
-            {
-              "subscriberIndex": 31,
-              "tArrived": 584.9455
+              "tArrived": 582.319166
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 584.951083
+              "tArrived": 582.323708
+            },
+            {
+              "subscriberIndex": 32,
+              "tArrived": 582.328208
+            },
+            {
+              "subscriberIndex": 31,
+              "tArrived": 582.332791
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 584.957208
+              "tArrived": 582.337625
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 584.962791
-            },
-            {
-              "subscriberIndex": 27,
-              "tArrived": 584.967958
-            },
-            {
-              "subscriberIndex": 26,
-              "tArrived": 584.974125
+              "tArrived": 582.34225
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 584.979666
+              "tArrived": 582.346708
+            },
+            {
+              "subscriberIndex": 27,
+              "tArrived": 582.351333
+            },
+            {
+              "subscriberIndex": 26,
+              "tArrived": 582.356458
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 584.985125
+              "tArrived": 582.361083
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 584.991166
-            },
-            {
-              "subscriberIndex": 22,
-              "tArrived": 584.996916
+              "tArrived": 582.365625
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 585.0025
+              "tArrived": 582.370041
+            },
+            {
+              "subscriberIndex": 22,
+              "tArrived": 582.37475
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 585.007666
-            },
-            {
-              "subscriberIndex": 20,
-              "tArrived": 585.013333
+              "tArrived": 582.491666
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 585.019083
+              "tArrived": 582.500125
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 585.024416
+              "tArrived": 582.505916
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 585.029833
+              "tArrived": 582.511166
+            },
+            {
+              "subscriberIndex": 20,
+              "tArrived": 582.515875
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 585.035166
+              "tArrived": 582.520458
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 585.0405
+              "tArrived": 582.525166
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 585.045916
+              "tArrived": 582.53
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 585.051833
+              "tArrived": 582.534791
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 585.100833
+              "tArrived": 582.539458
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 585.106791
+              "tArrived": 582.544166
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 585.113208
+              "tArrived": 582.548666
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 585.11925
+              "tArrived": 582.553166
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 585.1245
+              "tArrived": 582.557625
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 585.129625
-            },
-            {
-              "subscriberIndex": 5,
-              "tArrived": 585.134875
+              "tArrived": 582.562208
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 585.140416
+              "tArrived": 582.566708
             },
             {
-              "subscriberIndex": 4,
-              "tArrived": 585.145458
+              "subscriberIndex": 5,
+              "tArrived": 582.572041
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 585.15075
+              "tArrived": 582.576666
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 585.15625
+              "tArrived": 582.581375
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 585.163125
+              "tArrived": 582.585958
+            },
+            {
+              "subscriberIndex": 4,
+              "tArrived": 582.593916
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 585.168208
+              "tArrived": 582.598833
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 2,
-          "benchETag": "b25839b7-0e38-4d05-850e-841fc3dabc1b",
-          "tBeforeTrigger": 585.193875,
-          "tAfterTrigger": 585.315708,
+          "benchETag": "a025a72e-0759-4c14-b81d-ac844031f09b",
+          "tBeforeTrigger": 582.611125,
+          "tAfterTrigger": 582.697041,
           "arrivals": [
             {
               "subscriberIndex": 49,
-              "tArrived": 588.226625
+              "tArrived": 585.262166
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 588.240333
+              "tArrived": 585.269083
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 588.246708
+              "tArrived": 585.274666
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 588.260375
+              "tArrived": 585.279208
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 588.267125
+              "tArrived": 585.412875
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 589.368583
+              "tArrived": 585.41775
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 589.379375
+              "tArrived": 585.422291
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 589.386375
-            },
-            {
-              "subscriberIndex": 39,
-              "tArrived": 589.393375
-            },
-            {
-              "subscriberIndex": 40,
-              "tArrived": 589.400166
-            },
-            {
-              "subscriberIndex": 38,
-              "tArrived": 589.406625
-            },
-            {
-              "subscriberIndex": 37,
-              "tArrived": 589.412625
-            },
-            {
-              "subscriberIndex": 36,
-              "tArrived": 589.418708
-            },
-            {
-              "subscriberIndex": 35,
-              "tArrived": 589.424208
+              "tArrived": 585.426833
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 589.42975
+              "tArrived": 585.43175
+            },
+            {
+              "subscriberIndex": 40,
+              "tArrived": 585.435916
+            },
+            {
+              "subscriberIndex": 39,
+              "tArrived": 585.440375
+            },
+            {
+              "subscriberIndex": 38,
+              "tArrived": 585.444375
+            },
+            {
+              "subscriberIndex": 37,
+              "tArrived": 585.448541
+            },
+            {
+              "subscriberIndex": 36,
+              "tArrived": 585.452708
+            },
+            {
+              "subscriberIndex": 35,
+              "tArrived": 585.456666
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 589.435083
-            },
-            {
-              "subscriberIndex": 33,
-              "tArrived": 589.44025
+              "tArrived": 585.460583
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 589.445125
+              "tArrived": 585.464583
+            },
+            {
+              "subscriberIndex": 33,
+              "tArrived": 585.468708
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 589.450208
+              "tArrived": 585.472875
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 589.455166
+              "tArrived": 585.476916
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 589.460375
+              "tArrived": 585.481125
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 589.465583
+              "tArrived": 585.485166
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 589.471625
+              "tArrived": 585.489291
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 589.476666
+              "tArrived": 585.493291
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 589.481958
+              "tArrived": 585.497416
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 589.48775
+              "tArrived": 585.501416
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 589.493
+              "tArrived": 585.505541
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 589.498541
+              "tArrived": 585.509916
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 589.503625
+              "tArrived": 585.514041
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 589.508583
+              "tArrived": 585.5185
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 589.513916
-            },
-            {
-              "subscriberIndex": 18,
-              "tArrived": 589.518916
+              "tArrived": 585.522875
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 589.584375
+              "tArrived": 585.526958
+            },
+            {
+              "subscriberIndex": 18,
+              "tArrived": 585.530958
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 589.591083
-            },
-            {
-              "subscriberIndex": 14,
-              "tArrived": 589.596875
+              "tArrived": 585.534875
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 589.602208
+              "tArrived": 585.539166
+            },
+            {
+              "subscriberIndex": 14,
+              "tArrived": 585.543208
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 589.607666
+              "tArrived": 585.547166
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 589.612708
+              "tArrived": 585.55125
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 589.619208
+              "tArrived": 585.555291
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 589.624291
+              "tArrived": 585.559166
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 589.629916
+              "tArrived": 585.581916
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 589.635166
+              "tArrived": 585.586416
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 589.64025
+              "tArrived": 585.590666
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 589.645583
+              "tArrived": 585.595458
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 589.650833
-            },
-            {
-              "subscriberIndex": 4,
-              "tArrived": 589.658541
+              "tArrived": 585.5995
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 589.663541
-            },
-            {
-              "subscriberIndex": 2,
-              "tArrived": 589.669041
+              "tArrived": 585.605916
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 589.674208
+              "tArrived": 585.610208
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 589.680708
+              "tArrived": 585.614583
+            },
+            {
+              "subscriberIndex": 4,
+              "tArrived": 585.618583
+            },
+            {
+              "subscriberIndex": 2,
+              "tArrived": 585.622291
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 3,
-          "benchETag": "58d05ffd-95a5-4d77-9871-250639afd0ba",
-          "tBeforeTrigger": 589.696166,
-          "tAfterTrigger": 589.784333,
+          "benchETag": "7954d04c-452b-4b7a-beae-f1735bf12e06",
+          "tBeforeTrigger": 585.629291,
+          "tAfterTrigger": 585.670125,
           "arrivals": [
             {
               "subscriberIndex": 49,
-              "tArrived": 594.26275
+              "tArrived": 587.88475
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 594.275583
+              "tArrived": 587.891291
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 594.281166
+              "tArrived": 587.895958
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 594.2875
+              "tArrived": 587.900208
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 594.293666
-            },
-            {
-              "subscriberIndex": 44,
-              "tArrived": 594.300333
+              "tArrived": 587.904458
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 594.306791
+              "tArrived": 587.9085
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 594.313125
+              "tArrived": 587.912791
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 594.319083
+              "tArrived": 587.916666
+            },
+            {
+              "subscriberIndex": 44,
+              "tArrived": 587.920625
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 594.3245
-            },
-            {
-              "subscriberIndex": 39,
-              "tArrived": 594.330416
+              "tArrived": 587.9245
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 594.336875
+              "tArrived": 587.989083
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 594.342458
-            },
-            {
-              "subscriberIndex": 36,
-              "tArrived": 594.348083
+              "tArrived": 587.993958
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 594.353208
+              "tArrived": 587.998208
+            },
+            {
+              "subscriberIndex": 36,
+              "tArrived": 588.002625
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 594.359458
-            },
-            {
-              "subscriberIndex": 32,
-              "tArrived": 594.365958
+              "tArrived": 588.006375
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 594.371625
+              "tArrived": 588.010208
+            },
+            {
+              "subscriberIndex": 32,
+              "tArrived": 588.014125
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 594.377333
+              "tArrived": 588.018
+            },
+            {
+              "subscriberIndex": 39,
+              "tArrived": 588.022041
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 594.383083
+              "tArrived": 588.025791
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 594.389083
+              "tArrived": 588.029583
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 594.395791
-            },
-            {
-              "subscriberIndex": 27,
-              "tArrived": 594.401916
+              "tArrived": 588.033583
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 594.407958
+              "tArrived": 588.045916
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 594.415291
+              "tArrived": 588.050833
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 594.421791
+              "tArrived": 588.054791
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 594.46525
+              "tArrived": 588.059666
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 594.472375
+              "tArrived": 588.063666
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 594.567708
+              "tArrived": 588.067666
             },
             {
-              "subscriberIndex": 19,
-              "tArrived": 594.589333
-            },
-            {
-              "subscriberIndex": 18,
-              "tArrived": 594.600375
-            },
-            {
-              "subscriberIndex": 16,
-              "tArrived": 594.607375
-            },
-            {
-              "subscriberIndex": 17,
-              "tArrived": 594.614125
-            },
-            {
-              "subscriberIndex": 14,
-              "tArrived": 594.620583
-            },
-            {
-              "subscriberIndex": 12,
-              "tArrived": 594.627
-            },
-            {
-              "subscriberIndex": 13,
-              "tArrived": 594.634541
+              "subscriberIndex": 27,
+              "tArrived": 588.072166
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 594.64025
+              "tArrived": 588.085375
             },
             {
-              "subscriberIndex": 11,
-              "tArrived": 594.645666
+              "subscriberIndex": 18,
+              "tArrived": 588.092541
             },
             {
-              "subscriberIndex": 10,
-              "tArrived": 594.6515
+              "subscriberIndex": 17,
+              "tArrived": 588.096833
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 594.656916
+              "tArrived": 588.100791
+            },
+            {
+              "subscriberIndex": 19,
+              "tArrived": 588.105166
+            },
+            {
+              "subscriberIndex": 16,
+              "tArrived": 588.114875
+            },
+            {
+              "subscriberIndex": 14,
+              "tArrived": 588.226625
+            },
+            {
+              "subscriberIndex": 13,
+              "tArrived": 588.2535
+            },
+            {
+              "subscriberIndex": 12,
+              "tArrived": 588.267375
+            },
+            {
+              "subscriberIndex": 10,
+              "tArrived": 588.280041
+            },
+            {
+              "subscriberIndex": 11,
+              "tArrived": 588.292083
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 594.662541
+              "tArrived": 588.303875
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 594.667625
+              "tArrived": 588.315291
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 594.673375
+              "tArrived": 588.327083
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 594.678583
+              "tArrived": 588.338791
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 594.684541
+              "tArrived": 588.350541
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 594.690166
+              "tArrived": 588.362083
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 594.696083
-            },
-            {
-              "subscriberIndex": 1,
-              "tArrived": 594.701666
+              "tArrived": 588.373333
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 594.718416
+              "tArrived": 588.384416
+            },
+            {
+              "subscriberIndex": 1,
+              "tArrived": 588.39575
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 594.726958
+              "tArrived": 588.406833
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 4,
-          "benchETag": "0ca21258-4d89-4a09-ad24-90b8381fcfc2",
-          "tBeforeTrigger": 594.7445,
-          "tAfterTrigger": 594.786708,
+          "benchETag": "a8aa632a-2748-4512-b952-663ab350e2c1",
+          "tBeforeTrigger": 588.464458,
+          "tAfterTrigger": 588.52275,
           "arrivals": [
             {
               "subscriberIndex": 49,
-              "tArrived": 597.68075
+              "tArrived": 590.806625
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 597.695041
+              "tArrived": 590.945291
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 597.701666
+              "tArrived": 590.950166
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 597.70825
+              "tArrived": 590.955458
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 597.716791
+              "tArrived": 590.959458
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 597.725083
+              "tArrived": 590.963083
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 597.731958
+              "tArrived": 590.96675
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 597.738458
+              "tArrived": 590.970166
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 597.745416
+              "tArrived": 590.973708
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 597.751833
+              "tArrived": 590.978166
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 597.933458
-            },
-            {
-              "subscriberIndex": 37,
-              "tArrived": 597.940208
-            },
-            {
-              "subscriberIndex": 36,
-              "tArrived": 597.946666
-            },
-            {
-              "subscriberIndex": 35,
-              "tArrived": 597.952416
+              "tArrived": 590.981791
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 597.9585
+              "tArrived": 590.985375
+            },
+            {
+              "subscriberIndex": 37,
+              "tArrived": 590.988875
+            },
+            {
+              "subscriberIndex": 36,
+              "tArrived": 590.992541
+            },
+            {
+              "subscriberIndex": 35,
+              "tArrived": 590.996291
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 598.215458
+              "tArrived": 590.999791
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 598.240291
+              "tArrived": 591.003333
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 598.254333
+              "tArrived": 591.00675
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 598.268125
+              "tArrived": 591.010208
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 598.281375
+              "tArrived": 591.013625
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 598.293708
+              "tArrived": 591.017083
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 598.306791
+              "tArrived": 591.021
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 598.319916
+              "tArrived": 591.025416
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 598.333
+              "tArrived": 591.028791
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 598.346083
+              "tArrived": 591.03575
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 598.35875
+              "tArrived": 591.039458
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 598.371916
+              "tArrived": 591.043125
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 598.384458
-            },
-            {
-              "subscriberIndex": 21,
-              "tArrived": 598.3965
+              "tArrived": 591.046583
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 598.40925
+              "tArrived": 591.050208
+            },
+            {
+              "subscriberIndex": 21,
+              "tArrived": 591.05375
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 598.4225
+              "tArrived": 591.057291
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 598.435625
+              "tArrived": 591.060625
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 598.448333
+              "tArrived": 591.063958
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 598.461541
+              "tArrived": 591.067375
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 598.47425
+              "tArrived": 591.071625
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 598.486458
+              "tArrived": 591.075333
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 598.498666
+              "tArrived": 591.078708
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 598.510875
-            },
-            {
-              "subscriberIndex": 11,
-              "tArrived": 598.523291
+              "tArrived": 591.113166
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 598.54275
+              "tArrived": 591.117125
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 598.556416
+              "tArrived": 591.122125
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 598.569
+              "tArrived": 591.126
+            },
+            {
+              "subscriberIndex": 11,
+              "tArrived": 591.129791
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 598.581958
+              "tArrived": 591.133333
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 598.632625
+              "tArrived": 591.13675
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 598.645875
+              "tArrived": 591.140375
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 598.658166
+              "tArrived": 591.143875
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 598.670333
+              "tArrived": 591.147375
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 598.716625
+              "tArrived": 591.150916
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 598.723333
+              "tArrived": 591.154583
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 598.730958
+              "tArrived": 591.159541
             }
           ],
           "missing": []
@@ -1409,2045 +1409,2045 @@
       "commits": [
         {
           "commitIndex": 0,
-          "benchETag": "b549ecd4-d1ba-4a14-a8a0-76e1558f7065",
-          "tBeforeTrigger": 598.879541,
-          "tAfterTrigger": 598.916958,
+          "benchETag": "2e1df544-3233-4722-ad22-62bb281debda",
+          "tBeforeTrigger": 591.323375,
+          "tAfterTrigger": 591.350708,
           "arrivals": [
             {
               "subscriberIndex": 99,
-              "tArrived": 600.600291
+              "tArrived": 591.961041
             },
             {
               "subscriberIndex": 98,
-              "tArrived": 600.616458
-            },
-            {
-              "subscriberIndex": 96,
-              "tArrived": 600.623625
-            },
-            {
-              "subscriberIndex": 95,
-              "tArrived": 600.630833
-            },
-            {
-              "subscriberIndex": 94,
-              "tArrived": 600.637333
+              "tArrived": 592.001833
             },
             {
               "subscriberIndex": 97,
-              "tArrived": 600.6445
+              "tArrived": 592.056291
+            },
+            {
+              "subscriberIndex": 96,
+              "tArrived": 592.128125
+            },
+            {
+              "subscriberIndex": 95,
+              "tArrived": 592.167625
             },
             {
               "subscriberIndex": 93,
-              "tArrived": 600.76425
+              "tArrived": 592.2125
             },
             {
               "subscriberIndex": 92,
-              "tArrived": 601.141208
+              "tArrived": 592.21675
+            },
+            {
+              "subscriberIndex": 94,
+              "tArrived": 592.220708
             },
             {
               "subscriberIndex": 91,
-              "tArrived": 601.150708
+              "tArrived": 592.296416
             },
             {
               "subscriberIndex": 90,
-              "tArrived": 601.156916
+              "tArrived": 592.300416
             },
             {
               "subscriberIndex": 89,
-              "tArrived": 601.162458
+              "tArrived": 592.304166
             },
             {
               "subscriberIndex": 88,
-              "tArrived": 601.168291
+              "tArrived": 592.341625
             },
             {
               "subscriberIndex": 87,
-              "tArrived": 601.174083
+              "tArrived": 592.345625
             },
             {
               "subscriberIndex": 86,
-              "tArrived": 601.180083
+              "tArrived": 592.386958
             },
             {
               "subscriberIndex": 85,
-              "tArrived": 601.185833
-            },
-            {
-              "subscriberIndex": 84,
-              "tArrived": 601.191416
+              "tArrived": 592.391708
             },
             {
               "subscriberIndex": 83,
-              "tArrived": 601.196708
+              "tArrived": 592.397625
             },
             {
               "subscriberIndex": 82,
-              "tArrived": 601.202333
+              "tArrived": 592.401208
+            },
+            {
+              "subscriberIndex": 84,
+              "tArrived": 592.407041
             },
             {
               "subscriberIndex": 81,
-              "tArrived": 601.20775
+              "tArrived": 592.461375
             },
             {
               "subscriberIndex": 80,
-              "tArrived": 601.2135
+              "tArrived": 592.465458
             },
             {
               "subscriberIndex": 79,
-              "tArrived": 601.59925
-            },
-            {
-              "subscriberIndex": 78,
-              "tArrived": 601.608166
+              "tArrived": 592.469208
             },
             {
               "subscriberIndex": 77,
-              "tArrived": 601.614333
+              "tArrived": 592.579125
             },
             {
               "subscriberIndex": 76,
-              "tArrived": 601.620458
+              "tArrived": 592.583208
+            },
+            {
+              "subscriberIndex": 78,
+              "tArrived": 592.586791
             },
             {
               "subscriberIndex": 75,
-              "tArrived": 601.629041
+              "tArrived": 592.590416
             },
             {
               "subscriberIndex": 74,
-              "tArrived": 601.634875
+              "tArrived": 592.595
             },
             {
               "subscriberIndex": 73,
-              "tArrived": 601.64025
+              "tArrived": 592.598666
             },
             {
               "subscriberIndex": 72,
-              "tArrived": 601.645666
+              "tArrived": 592.666166
             },
             {
               "subscriberIndex": 71,
-              "tArrived": 601.651625
+              "tArrived": 592.670333
             },
             {
               "subscriberIndex": 70,
-              "tArrived": 601.658083
+              "tArrived": 592.708958
             },
             {
               "subscriberIndex": 69,
-              "tArrived": 602.694458
+              "tArrived": 592.712833
             },
             {
               "subscriberIndex": 68,
-              "tArrived": 602.72325
+              "tArrived": 592.716416
             },
             {
               "subscriberIndex": 67,
-              "tArrived": 602.739958
+              "tArrived": 592.719875
             },
             {
               "subscriberIndex": 66,
-              "tArrived": 602.755375
+              "tArrived": 592.723416
             },
             {
               "subscriberIndex": 65,
-              "tArrived": 602.812666
+              "tArrived": 592.807625
             },
             {
               "subscriberIndex": 64,
-              "tArrived": 602.829291
+              "tArrived": 592.8115
             },
             {
               "subscriberIndex": 63,
-              "tArrived": 602.844333
+              "tArrived": 592.815041
             },
             {
               "subscriberIndex": 62,
-              "tArrived": 602.858875
+              "tArrived": 592.818541
             },
             {
               "subscriberIndex": 61,
-              "tArrived": 602.873083
+              "tArrived": 592.821958
             },
             {
               "subscriberIndex": 60,
-              "tArrived": 602.887166
+              "tArrived": 592.825833
             },
             {
               "subscriberIndex": 59,
-              "tArrived": 602.90125
+              "tArrived": 592.829375
             },
             {
               "subscriberIndex": 58,
-              "tArrived": 602.91525
+              "tArrived": 592.832958
             },
             {
               "subscriberIndex": 57,
-              "tArrived": 603.331875
-            },
-            {
-              "subscriberIndex": 56,
-              "tArrived": 603.353208
+              "tArrived": 592.836333
             },
             {
               "subscriberIndex": 55,
-              "tArrived": 603.366958
+              "tArrived": 592.839791
             },
             {
               "subscriberIndex": 54,
-              "tArrived": 603.38075
+              "tArrived": 592.843291
             },
             {
               "subscriberIndex": 53,
-              "tArrived": 603.394833
+              "tArrived": 592.846416
+            },
+            {
+              "subscriberIndex": 56,
+              "tArrived": 592.851666
             },
             {
               "subscriberIndex": 52,
-              "tArrived": 603.408083
+              "tArrived": 592.930291
             },
             {
               "subscriberIndex": 51,
-              "tArrived": 603.421791
+              "tArrived": 592.93425
             },
             {
               "subscriberIndex": 50,
-              "tArrived": 603.436916
+              "tArrived": 593.096916
             },
             {
               "subscriberIndex": 49,
-              "tArrived": 603.451375
+              "tArrived": 593.102333
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 603.482083
+              "tArrived": 593.112166
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 603.497333
+              "tArrived": 593.117041
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 603.510791
+              "tArrived": 593.120666
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 603.525291
+              "tArrived": 593.124333
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 603.54
+              "tArrived": 593.127708
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 603.553291
+              "tArrived": 593.131125
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 603.566958
+              "tArrived": 593.2625
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 603.588791
+              "tArrived": 593.266791
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 603.601916
+              "tArrived": 593.2705
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 603.6165
+              "tArrived": 593.274375
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 603.630541
+              "tArrived": 593.277916
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 603.650458
+              "tArrived": 593.282791
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 603.664708
+              "tArrived": 593.286791
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 603.678958
+              "tArrived": 593.290291
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 603.692208
-            },
-            {
-              "subscriberIndex": 33,
-              "tArrived": 603.705875
+              "tArrived": 593.294041
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 603.719791
+              "tArrived": 593.297625
+            },
+            {
+              "subscriberIndex": 33,
+              "tArrived": 593.301333
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 603.73425
+              "tArrived": 593.355125
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 603.748416
+              "tArrived": 593.359166
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 603.762291
+              "tArrived": 593.362833
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 603.882291
+              "tArrived": 593.36675
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 603.8975
+              "tArrived": 593.3705
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 603.91075
+              "tArrived": 593.374041
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 603.924375
+              "tArrived": 593.380791
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 603.937708
+              "tArrived": 593.385
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 603.951291
+              "tArrived": 593.388708
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 603.964625
+              "tArrived": 593.392333
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 603.977708
+              "tArrived": 593.395916
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 603.990833
+              "tArrived": 593.399291
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 604.004458
+              "tArrived": 593.402833
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 604.017291
+              "tArrived": 593.406208
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 604.030708
+              "tArrived": 593.40975
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 604.044958
+              "tArrived": 593.41325
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 604.057958
+              "tArrived": 593.425666
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 604.071125
+              "tArrived": 593.449916
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 604.085333
+              "tArrived": 593.453791
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 604.09875
+              "tArrived": 593.457833
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 604.112166
+              "tArrived": 593.461333
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 604.125
+              "tArrived": 593.465
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 604.139041
+              "tArrived": 593.4685
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 604.152166
+              "tArrived": 593.472208
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 604.165958
+              "tArrived": 593.47575
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 604.179708
+              "tArrived": 593.479333
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 604.192833
-            },
-            {
-              "subscriberIndex": 4,
-              "tArrived": 604.206083
+              "tArrived": 593.482875
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 604.247166
+              "tArrived": 593.4865
+            },
+            {
+              "subscriberIndex": 4,
+              "tArrived": 593.490041
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 604.267208
+              "tArrived": 593.495083
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 604.2815
+              "tArrived": 593.498583
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 604.294583
+              "tArrived": 593.501958
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 1,
-          "benchETag": "6f54f7c7-6ce5-4748-a5d5-e63a4168e9fb",
-          "tBeforeTrigger": 604.343416,
-          "tAfterTrigger": 604.45625,
+          "benchETag": "49497d99-bd20-4996-b1e8-36d78f8ab991",
+          "tBeforeTrigger": 593.517125,
+          "tAfterTrigger": 593.537625,
           "arrivals": [
             {
-              "subscriberIndex": 99,
-              "tArrived": 607.821833
-            },
-            {
               "subscriberIndex": 98,
-              "tArrived": 607.857541
+              "tArrived": 594.795666
             },
             {
               "subscriberIndex": 97,
-              "tArrived": 607.913166
+              "tArrived": 594.816833
+            },
+            {
+              "subscriberIndex": 99,
+              "tArrived": 594.853041
             },
             {
               "subscriberIndex": 96,
-              "tArrived": 607.930083
+              "tArrived": 594.865541
             },
             {
               "subscriberIndex": 95,
-              "tArrived": 607.944708
+              "tArrived": 595.261958
             },
             {
               "subscriberIndex": 94,
-              "tArrived": 608.896916
+              "tArrived": 595.268291
             },
             {
               "subscriberIndex": 93,
-              "tArrived": 608.912541
+              "tArrived": 595.272583
             },
             {
               "subscriberIndex": 92,
-              "tArrived": 608.923583
+              "tArrived": 595.279708
             },
             {
               "subscriberIndex": 91,
-              "tArrived": 608.929291
+              "tArrived": 595.283625
             },
             {
               "subscriberIndex": 90,
-              "tArrived": 608.934791
+              "tArrived": 596.345041
             },
             {
               "subscriberIndex": 89,
-              "tArrived": 608.939833
+              "tArrived": 596.367625
             },
             {
               "subscriberIndex": 88,
-              "tArrived": 608.945666
+              "tArrived": 596.380958
             },
             {
               "subscriberIndex": 87,
-              "tArrived": 608.95075
+              "tArrived": 596.393333
             },
             {
               "subscriberIndex": 86,
-              "tArrived": 608.955583
+              "tArrived": 596.458333
             },
             {
               "subscriberIndex": 85,
-              "tArrived": 608.960791
+              "tArrived": 596.470875
             },
             {
               "subscriberIndex": 84,
-              "tArrived": 608.965833
+              "tArrived": 596.483125
             },
             {
               "subscriberIndex": 83,
-              "tArrived": 608.970666
+              "tArrived": 596.495625
             },
             {
               "subscriberIndex": 82,
-              "tArrived": 608.9765
+              "tArrived": 596.507833
             },
             {
               "subscriberIndex": 81,
-              "tArrived": 608.982208
+              "tArrived": 596.519791
             },
             {
               "subscriberIndex": 80,
-              "tArrived": 608.987625
+              "tArrived": 596.532125
             },
             {
               "subscriberIndex": 79,
-              "tArrived": 608.992666
+              "tArrived": 596.544
             },
             {
               "subscriberIndex": 78,
-              "tArrived": 608.997791
+              "tArrived": 596.555583
             },
             {
               "subscriberIndex": 77,
-              "tArrived": 609.002416
+              "tArrived": 596.948666
             },
             {
               "subscriberIndex": 76,
-              "tArrived": 609.007166
+              "tArrived": 596.971416
             },
             {
               "subscriberIndex": 75,
-              "tArrived": 609.835833
+              "tArrived": 596.983791
             },
             {
               "subscriberIndex": 74,
-              "tArrived": 609.860958
+              "tArrived": 596.995375
             },
             {
               "subscriberIndex": 73,
-              "tArrived": 609.875875
+              "tArrived": 597.006666
             },
             {
               "subscriberIndex": 72,
-              "tArrived": 609.889583
+              "tArrived": 597.017791
             },
             {
               "subscriberIndex": 71,
-              "tArrived": 609.902208
+              "tArrived": 597.029666
             },
             {
               "subscriberIndex": 70,
-              "tArrived": 609.915583
+              "tArrived": 597.040708
             },
             {
               "subscriberIndex": 69,
-              "tArrived": 609.928291
+              "tArrived": 597.051875
             },
             {
               "subscriberIndex": 68,
-              "tArrived": 609.940666
+              "tArrived": 597.06325
             },
             {
               "subscriberIndex": 67,
-              "tArrived": 609.953416
+              "tArrived": 597.075291
             },
             {
               "subscriberIndex": 66,
-              "tArrived": 609.966041
+              "tArrived": 597.087041
             },
             {
               "subscriberIndex": 65,
-              "tArrived": 610.1805
+              "tArrived": 597.103416
             },
             {
               "subscriberIndex": 64,
-              "tArrived": 610.196791
+              "tArrived": 597.114333
             },
             {
               "subscriberIndex": 63,
-              "tArrived": 610.210291
+              "tArrived": 597.12525
             },
             {
               "subscriberIndex": 62,
-              "tArrived": 610.2235
+              "tArrived": 597.138208
             },
             {
               "subscriberIndex": 61,
-              "tArrived": 610.236125
+              "tArrived": 597.239625
             },
             {
               "subscriberIndex": 60,
-              "tArrived": 610.249083
+              "tArrived": 597.251375
             },
             {
               "subscriberIndex": 59,
-              "tArrived": 610.261958
+              "tArrived": 597.263041
             },
             {
               "subscriberIndex": 58,
-              "tArrived": 610.274416
-            },
-            {
-              "subscriberIndex": 57,
-              "tArrived": 610.370458
+              "tArrived": 597.274791
             },
             {
               "subscriberIndex": 56,
-              "tArrived": 610.385833
+              "tArrived": 597.286291
             },
             {
               "subscriberIndex": 55,
-              "tArrived": 610.39925
+              "tArrived": 597.297958
             },
             {
               "subscriberIndex": 54,
-              "tArrived": 610.412833
+              "tArrived": 597.309166
             },
             {
               "subscriberIndex": 53,
-              "tArrived": 610.512541
+              "tArrived": 597.32075
             },
             {
               "subscriberIndex": 52,
-              "tArrived": 610.531
+              "tArrived": 597.332041
             },
             {
               "subscriberIndex": 51,
-              "tArrived": 610.545208
+              "tArrived": 597.343375
             },
             {
               "subscriberIndex": 50,
-              "tArrived": 610.55875
+              "tArrived": 597.354708
             },
             {
               "subscriberIndex": 49,
-              "tArrived": 610.572125
+              "tArrived": 597.366166
+            },
+            {
+              "subscriberIndex": 57,
+              "tArrived": 597.377833
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 610.585333
+              "tArrived": 597.388916
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 610.598583
+              "tArrived": 597.400625
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 610.612083
+              "tArrived": 597.412
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 610.654916
+              "tArrived": 597.423125
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 610.691375
+              "tArrived": 597.43475
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 610.706
+              "tArrived": 597.446083
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 610.719041
+              "tArrived": 597.667208
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 610.7345
+              "tArrived": 597.689208
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 610.763708
+              "tArrived": 597.694791
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 610.771583
+              "tArrived": 597.699416
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 610.781791
+              "tArrived": 597.704541
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 610.787291
+              "tArrived": 597.708958
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 610.793375
+              "tArrived": 597.713375
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 610.809291
+              "tArrived": 597.717583
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 610.827458
+              "tArrived": 597.721625
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 610.833958
+              "tArrived": 597.725875
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 610.839125
+              "tArrived": 597.730125
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 610.845041
+              "tArrived": 597.734
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 610.849916
+              "tArrived": 597.737791
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 610.854916
+              "tArrived": 597.74175
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 610.859916
+              "tArrived": 597.746416
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 610.865375
+              "tArrived": 597.750208
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 610.873875
+              "tArrived": 597.755708
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 610.879375
+              "tArrived": 597.759708
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 610.8845
+              "tArrived": 597.763833
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 610.889958
+              "tArrived": 597.767541
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 610.895125
+              "tArrived": 597.771458
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 610.900291
+              "tArrived": 597.775458
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 610.904666
-            },
-            {
-              "subscriberIndex": 19,
-              "tArrived": 610.909541
+              "tArrived": 597.779166
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 610.914541
+              "tArrived": 597.7855
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 610.935666
+              "tArrived": 597.789958
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 610.941333
+              "tArrived": 597.793875
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 610.946791
+              "tArrived": 597.797791
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 610.951875
+              "tArrived": 597.801916
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 610.957333
+              "tArrived": 597.805541
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 610.962958
+              "tArrived": 597.809416
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 610.968541
+              "tArrived": 597.813
             },
             {
               "subscriberIndex": 10,
-              "tArrived": 610.973208
+              "tArrived": 597.816541
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 610.978708
+              "tArrived": 597.8205
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 610.983833
+              "tArrived": 597.824625
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 610.989083
+              "tArrived": 597.828416
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 610.994416
+              "tArrived": 597.832416
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 610.999958
+              "tArrived": 597.836291
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 611.022166
+              "tArrived": 597.840166
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 611.029208
+              "tArrived": 597.843666
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 611.043083
+              "tArrived": 597.847166
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 611.048916
+              "tArrived": 597.850916
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 611.083916
+              "tArrived": 597.854875
+            },
+            {
+              "subscriberIndex": 19,
+              "tArrived": 597.858625
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 2,
-          "benchETag": "bf4c315e-2459-4c17-9989-e5f5f90b878a",
-          "tBeforeTrigger": 611.141708,
-          "tAfterTrigger": 611.201583,
+          "benchETag": "c2e4d3e3-580c-4a91-be6c-5defdcb889bb",
+          "tBeforeTrigger": 597.875,
+          "tAfterTrigger": 597.910125,
           "arrivals": [
             {
               "subscriberIndex": 99,
-              "tArrived": 614.047208
+              "tArrived": 598.650458
             },
             {
               "subscriberIndex": 98,
-              "tArrived": 614.077333
+              "tArrived": 598.831541
             },
             {
               "subscriberIndex": 97,
-              "tArrived": 614.093875
+              "tArrived": 598.836916
             },
             {
               "subscriberIndex": 96,
-              "tArrived": 614.108541
+              "tArrived": 598.841875
             },
             {
               "subscriberIndex": 95,
-              "tArrived": 614.123541
+              "tArrived": 598.845291
             },
             {
               "subscriberIndex": 94,
-              "tArrived": 614.137416
+              "tArrived": 598.88725
             },
             {
               "subscriberIndex": 93,
-              "tArrived": 614.15175
+              "tArrived": 598.96
             },
             {
               "subscriberIndex": 92,
-              "tArrived": 614.174125
+              "tArrived": 598.963875
             },
             {
               "subscriberIndex": 91,
-              "tArrived": 614.189208
+              "tArrived": 599.059208
             },
             {
               "subscriberIndex": 90,
-              "tArrived": 614.210791
+              "tArrived": 599.063291
             },
             {
               "subscriberIndex": 89,
-              "tArrived": 614.2255
+              "tArrived": 599.068208
             },
             {
               "subscriberIndex": 88,
-              "tArrived": 614.239708
+              "tArrived": 599.232166
             },
             {
               "subscriberIndex": 87,
-              "tArrived": 614.253875
+              "tArrived": 599.236375
             },
             {
               "subscriberIndex": 86,
-              "tArrived": 614.267833
+              "tArrived": 599.239916
             },
             {
               "subscriberIndex": 85,
-              "tArrived": 614.28225
+              "tArrived": 599.243666
             },
             {
               "subscriberIndex": 84,
-              "tArrived": 615.319291
+              "tArrived": 599.247208
             },
             {
               "subscriberIndex": 83,
-              "tArrived": 615.344916
+              "tArrived": 599.250791
             },
             {
               "subscriberIndex": 82,
-              "tArrived": 615.360416
+              "tArrived": 599.449791
             },
             {
               "subscriberIndex": 81,
-              "tArrived": 615.798291
+              "tArrived": 599.453958
             },
             {
               "subscriberIndex": 80,
-              "tArrived": 615.817791
+              "tArrived": 599.4575
             },
             {
               "subscriberIndex": 79,
-              "tArrived": 615.865375
+              "tArrived": 599.461166
             },
             {
               "subscriberIndex": 78,
-              "tArrived": 615.881958
+              "tArrived": 599.464625
             },
             {
               "subscriberIndex": 77,
-              "tArrived": 615.896791
+              "tArrived": 599.468333
             },
             {
               "subscriberIndex": 76,
-              "tArrived": 615.911916
+              "tArrived": 599.471916
             },
             {
               "subscriberIndex": 75,
-              "tArrived": 615.926625
+              "tArrived": 599.475125
             },
             {
               "subscriberIndex": 74,
-              "tArrived": 615.941041
+              "tArrived": 599.760625
             },
             {
               "subscriberIndex": 73,
-              "tArrived": 615.956625
+              "tArrived": 599.765541
             },
             {
               "subscriberIndex": 72,
-              "tArrived": 615.972166
-            },
-            {
-              "subscriberIndex": 71,
-              "tArrived": 615.986458
+              "tArrived": 599.7695
             },
             {
               "subscriberIndex": 70,
-              "tArrived": 616.002166
+              "tArrived": 599.773375
             },
             {
               "subscriberIndex": 69,
-              "tArrived": 616.016041
+              "tArrived": 599.77725
             },
             {
               "subscriberIndex": 68,
-              "tArrived": 616.02975
+              "tArrived": 599.78075
             },
             {
               "subscriberIndex": 67,
-              "tArrived": 616.044625
+              "tArrived": 599.783958
             },
             {
-              "subscriberIndex": 66,
-              "tArrived": 616.181708
+              "subscriberIndex": 71,
+              "tArrived": 599.787416
             },
             {
               "subscriberIndex": 65,
-              "tArrived": 616.214166
+              "tArrived": 599.791041
             },
             {
               "subscriberIndex": 64,
-              "tArrived": 616.231625
+              "tArrived": 599.794416
+            },
+            {
+              "subscriberIndex": 66,
+              "tArrived": 599.79775
             },
             {
               "subscriberIndex": 63,
-              "tArrived": 616.248375
+              "tArrived": 599.801041
             },
             {
               "subscriberIndex": 62,
-              "tArrived": 616.263458
+              "tArrived": 599.804583
             },
             {
               "subscriberIndex": 61,
-              "tArrived": 616.278625
+              "tArrived": 599.808041
             },
             {
               "subscriberIndex": 60,
-              "tArrived": 616.324166
+              "tArrived": 599.811416
             },
             {
               "subscriberIndex": 59,
-              "tArrived": 616.343625
+              "tArrived": 600.090083
             },
             {
               "subscriberIndex": 58,
-              "tArrived": 616.360333
+              "tArrived": 600.094375
             },
             {
               "subscriberIndex": 57,
-              "tArrived": 616.376208
+              "tArrived": 600.098
             },
             {
               "subscriberIndex": 56,
-              "tArrived": 616.391916
+              "tArrived": 600.101708
             },
             {
               "subscriberIndex": 55,
-              "tArrived": 616.407041
-            },
-            {
-              "subscriberIndex": 54,
-              "tArrived": 616.421958
+              "tArrived": 600.105458
             },
             {
               "subscriberIndex": 53,
-              "tArrived": 616.43775
+              "tArrived": 600.108875
             },
             {
               "subscriberIndex": 52,
-              "tArrived": 616.460291
+              "tArrived": 600.112625
             },
             {
               "subscriberIndex": 51,
-              "tArrived": 616.475958
+              "tArrived": 600.11675
             },
             {
               "subscriberIndex": 50,
-              "tArrived": 616.49175
+              "tArrived": 600.12025
             },
             {
               "subscriberIndex": 49,
-              "tArrived": 616.507791
-            },
-            {
-              "subscriberIndex": 48,
-              "tArrived": 616.524125
+              "tArrived": 600.123625
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 616.53775
+              "tArrived": 600.1275
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 616.5515
+              "tArrived": 600.131
+            },
+            {
+              "subscriberIndex": 48,
+              "tArrived": 600.134333
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 616.565583
+              "tArrived": 600.137541
             },
             {
-              "subscriberIndex": 44,
-              "tArrived": 616.580458
+              "subscriberIndex": 54,
+              "tArrived": 600.140833
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 616.729458
+              "tArrived": 600.144375
+            },
+            {
+              "subscriberIndex": 44,
+              "tArrived": 600.147916
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 616.746208
+              "tArrived": 600.251625
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 616.760125
+              "tArrived": 600.255416
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 616.773916
+              "tArrived": 600.258833
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 616.787708
+              "tArrived": 600.26225
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 616.800791
-            },
-            {
-              "subscriberIndex": 37,
-              "tArrived": 616.814541
+              "tArrived": 600.265833
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 616.829
+              "tArrived": 600.269125
+            },
+            {
+              "subscriberIndex": 37,
+              "tArrived": 600.27275
             },
             {
               "subscriberIndex": 35,
-              "tArrived": 616.843875
+              "tArrived": 600.276375
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 616.858291
+              "tArrived": 600.279666
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 616.872791
+              "tArrived": 600.282875
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 616.887875
-            },
-            {
-              "subscriberIndex": 31,
-              "tArrived": 616.902958
+              "tArrived": 600.286041
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 616.918541
+              "tArrived": 600.289416
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 616.932833
+              "tArrived": 600.292875
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 616.948041
+              "tArrived": 600.296125
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 616.963791
+              "tArrived": 600.2995
+            },
+            {
+              "subscriberIndex": 31,
+              "tArrived": 600.302583
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 616.978375
-            },
-            {
-              "subscriberIndex": 25,
-              "tArrived": 616.992666
+              "tArrived": 600.305916
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 617.007333
+              "tArrived": 600.309208
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 617.021541
+              "tArrived": 600.312625
+            },
+            {
+              "subscriberIndex": 25,
+              "tArrived": 600.315916
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 617.03625
+              "tArrived": 600.319
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 617.050833
+              "tArrived": 600.322416
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 617.082083
+              "tArrived": 600.325666
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 617.117125
+              "tArrived": 600.329083
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 617.133916
+              "tArrived": 600.3325
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 617.149291
+              "tArrived": 600.335875
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 617.165666
-            },
-            {
-              "subscriberIndex": 15,
-              "tArrived": 617.180833
+              "tArrived": 600.339375
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 617.195666
+              "tArrived": 600.342625
+            },
+            {
+              "subscriberIndex": 15,
+              "tArrived": 600.347625
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 617.218625
-            },
-            {
-              "subscriberIndex": 12,
-              "tArrived": 617.234791
+              "tArrived": 600.387791
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 617.258541
+              "tArrived": 600.391708
             },
             {
-              "subscriberIndex": 10,
-              "tArrived": 617.272958
+              "subscriberIndex": 12,
+              "tArrived": 600.3955
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 617.287625
+              "tArrived": 600.398791
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 617.301666
+              "tArrived": 600.4025
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 617.316291
+              "tArrived": 600.405791
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 617.372125
+              "tArrived": 600.409083
+            },
+            {
+              "subscriberIndex": 10,
+              "tArrived": 600.41225
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 617.38925
-            },
-            {
-              "subscriberIndex": 4,
-              "tArrived": 617.403791
-            },
-            {
-              "subscriberIndex": 3,
-              "tArrived": 617.417416
+              "tArrived": 600.415458
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 617.430833
+              "tArrived": 600.418666
+            },
+            {
+              "subscriberIndex": 4,
+              "tArrived": 600.423541
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 617.443708
+              "tArrived": 600.4275
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 617.456833
+              "tArrived": 600.430916
+            },
+            {
+              "subscriberIndex": 3,
+              "tArrived": 600.43425
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 3,
-          "benchETag": "8c98d7ee-3a2f-4deb-9829-176dde21ab6e",
-          "tBeforeTrigger": 617.508375,
-          "tAfterTrigger": 617.758666,
+          "benchETag": "2147f654-c0ab-4d7c-b49f-56054d1a7ac6",
+          "tBeforeTrigger": 600.451416,
+          "tAfterTrigger": 600.473833,
           "arrivals": [
             {
               "subscriberIndex": 99,
-              "tArrived": 621.007416
+              "tArrived": 601.697958
             },
             {
               "subscriberIndex": 98,
-              "tArrived": 621.792916
+              "tArrived": 601.707916
             },
             {
               "subscriberIndex": 97,
-              "tArrived": 621.824875
+              "tArrived": 601.712958
             },
             {
               "subscriberIndex": 96,
-              "tArrived": 621.840041
+              "tArrived": 601.716916
             },
             {
               "subscriberIndex": 95,
-              "tArrived": 621.854416
+              "tArrived": 601.720416
             },
             {
               "subscriberIndex": 94,
-              "tArrived": 621.8735
+              "tArrived": 601.724083
             },
             {
               "subscriberIndex": 93,
-              "tArrived": 621.888541
+              "tArrived": 601.727541
             },
             {
               "subscriberIndex": 92,
-              "tArrived": 621.901916
+              "tArrived": 601.731833
             },
             {
               "subscriberIndex": 91,
-              "tArrived": 621.915625
+              "tArrived": 601.735625
             },
             {
               "subscriberIndex": 90,
-              "tArrived": 621.928208
+              "tArrived": 601.738833
             },
             {
               "subscriberIndex": 89,
-              "tArrived": 621.942208
+              "tArrived": 601.742958
             },
             {
               "subscriberIndex": 88,
-              "tArrived": 622.291291
+              "tArrived": 601.971708
             },
             {
               "subscriberIndex": 87,
-              "tArrived": 622.307583
+              "tArrived": 602.396666
             },
             {
               "subscriberIndex": 86,
-              "tArrived": 622.320833
-            },
-            {
-              "subscriberIndex": 84,
-              "tArrived": 622.333791
+              "tArrived": 602.402458
             },
             {
               "subscriberIndex": 85,
-              "tArrived": 622.347416
+              "tArrived": 602.4065
+            },
+            {
+              "subscriberIndex": 84,
+              "tArrived": 602.410416
             },
             {
               "subscriberIndex": 83,
-              "tArrived": 622.360083
-            },
-            {
-              "subscriberIndex": 81,
-              "tArrived": 622.373875
+              "tArrived": 602.414333
             },
             {
               "subscriberIndex": 82,
-              "tArrived": 622.386958
+              "tArrived": 602.41825
+            },
+            {
+              "subscriberIndex": 81,
+              "tArrived": 602.422166
             },
             {
               "subscriberIndex": 80,
-              "tArrived": 622.399916
+              "tArrived": 602.426916
             },
             {
               "subscriberIndex": 79,
-              "tArrived": 622.420958
+              "tArrived": 602.430625
             },
             {
               "subscriberIndex": 78,
-              "tArrived": 622.434625
+              "tArrived": 602.437833
             },
             {
               "subscriberIndex": 77,
-              "tArrived": 622.448
+              "tArrived": 602.441416
             },
             {
               "subscriberIndex": 76,
-              "tArrived": 622.461375
+              "tArrived": 602.445208
             },
             {
               "subscriberIndex": 75,
-              "tArrived": 622.474416
+              "tArrived": 602.44875
             },
             {
               "subscriberIndex": 74,
-              "tArrived": 622.4905
+              "tArrived": 602.45225
             },
             {
               "subscriberIndex": 73,
-              "tArrived": 622.504291
+              "tArrived": 602.71625
             },
             {
               "subscriberIndex": 72,
-              "tArrived": 622.517416
+              "tArrived": 602.721791
             },
             {
               "subscriberIndex": 71,
-              "tArrived": 622.530041
+              "tArrived": 602.725541
             },
             {
               "subscriberIndex": 70,
-              "tArrived": 622.574333
-            },
-            {
-              "subscriberIndex": 69,
-              "tArrived": 622.592625
+              "tArrived": 602.729166
             },
             {
               "subscriberIndex": 68,
-              "tArrived": 622.606375
+              "tArrived": 602.732916
             },
             {
               "subscriberIndex": 67,
-              "tArrived": 622.619791
+              "tArrived": 602.7365
             },
             {
               "subscriberIndex": 66,
-              "tArrived": 622.633
+              "tArrived": 602.740875
+            },
+            {
+              "subscriberIndex": 69,
+              "tArrived": 602.744583
             },
             {
               "subscriberIndex": 65,
-              "tArrived": 622.645666
+              "tArrived": 602.747791
             },
             {
               "subscriberIndex": 64,
-              "tArrived": 622.657875
+              "tArrived": 602.751125
             },
             {
               "subscriberIndex": 63,
-              "tArrived": 622.670208
-            },
-            {
-              "subscriberIndex": 62,
-              "tArrived": 622.682416
+              "tArrived": 602.754708
             },
             {
               "subscriberIndex": 61,
-              "tArrived": 622.694875
-            },
-            {
-              "subscriberIndex": 59,
-              "tArrived": 622.707375
+              "tArrived": 602.758208
             },
             {
               "subscriberIndex": 60,
-              "tArrived": 622.719875
+              "tArrived": 602.762291
+            },
+            {
+              "subscriberIndex": 59,
+              "tArrived": 602.765666
+            },
+            {
+              "subscriberIndex": 62,
+              "tArrived": 602.769
             },
             {
               "subscriberIndex": 58,
-              "tArrived": 622.732291
+              "tArrived": 602.772
             },
             {
               "subscriberIndex": 57,
-              "tArrived": 622.744875
+              "tArrived": 602.775083
             },
             {
               "subscriberIndex": 56,
-              "tArrived": 622.756958
+              "tArrived": 602.77825
             },
             {
               "subscriberIndex": 55,
-              "tArrived": 622.769166
+              "tArrived": 602.781791
             },
             {
               "subscriberIndex": 54,
-              "tArrived": 622.782125
+              "tArrived": 602.785
             },
             {
               "subscriberIndex": 53,
-              "tArrived": 622.795625
+              "tArrived": 602.788375
             },
             {
               "subscriberIndex": 52,
-              "tArrived": 622.807916
+              "tArrived": 602.8755
             },
             {
               "subscriberIndex": 51,
-              "tArrived": 622.820208
+              "tArrived": 602.879291
             },
             {
               "subscriberIndex": 50,
-              "tArrived": 622.832291
+              "tArrived": 602.882916
             },
             {
               "subscriberIndex": 49,
-              "tArrived": 622.844791
+              "tArrived": 602.886458
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 622.857458
+              "tArrived": 602.889875
             },
             {
               "subscriberIndex": 47,
-              "tArrived": 622.8705
-            },
-            {
-              "subscriberIndex": 46,
-              "tArrived": 622.882625
+              "tArrived": 602.893208
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 622.926
+              "tArrived": 602.896375
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 622.939541
+              "tArrived": 602.899791
+            },
+            {
+              "subscriberIndex": 46,
+              "tArrived": 602.902833
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 622.947375
+              "tArrived": 602.906083
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 622.954458
+              "tArrived": 602.90925
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 622.9625
+              "tArrived": 602.912375
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 622.972541
+              "tArrived": 602.9165
             },
             {
               "subscriberIndex": 39,
-              "tArrived": 622.979375
-            },
-            {
-              "subscriberIndex": 38,
-              "tArrived": 622.986041
+              "tArrived": 602.919833
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 622.991958
+              "tArrived": 602.923333
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 622.99875
-            },
-            {
-              "subscriberIndex": 35,
-              "tArrived": 623.004
+              "tArrived": 602.926791
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 623.009916
+              "tArrived": 602.929916
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 623.015125
+              "tArrived": 602.933083
             },
             {
               "subscriberIndex": 32,
-              "tArrived": 623.020791
+              "tArrived": 602.936291
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 623.026833
+              "tArrived": 602.939625
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 623.032958
+              "tArrived": 602.942833
             },
             {
-              "subscriberIndex": 28,
-              "tArrived": 623.039458
+              "subscriberIndex": 35,
+              "tArrived": 602.946083
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 623.048958
+              "tArrived": 602.949083
+            },
+            {
+              "subscriberIndex": 28,
+              "tArrived": 602.952458
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 623.109541
+              "tArrived": 602.955791
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 623.115458
+              "tArrived": 602.958958
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 623.121375
+              "tArrived": 602.962041
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 623.1275
+              "tArrived": 602.965333
             },
             {
               "subscriberIndex": 23,
-              "tArrived": 623.1335
+              "tArrived": 602.968541
             },
             {
               "subscriberIndex": 22,
-              "tArrived": 623.139416
+              "tArrived": 602.971583
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 623.145208
+              "tArrived": 602.974791
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 623.15125
-            },
-            {
-              "subscriberIndex": 19,
-              "tArrived": 623.156541
+              "tArrived": 602.978041
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 623.163125
-            },
-            {
-              "subscriberIndex": 17,
-              "tArrived": 623.169208
+              "tArrived": 602.981416
             },
             {
               "subscriberIndex": 16,
-              "tArrived": 623.174791
+              "tArrived": 602.985
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 623.181291
+              "tArrived": 602.98875
+            },
+            {
+              "subscriberIndex": 19,
+              "tArrived": 602.991875
+            },
+            {
+              "subscriberIndex": 38,
+              "tArrived": 602.994833
+            },
+            {
+              "subscriberIndex": 17,
+              "tArrived": 602.999791
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 623.186333
+              "tArrived": 603.029166
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 623.203833
-            },
-            {
-              "subscriberIndex": 11,
-              "tArrived": 623.210333
-            },
-            {
-              "subscriberIndex": 9,
-              "tArrived": 623.217083
-            },
-            {
-              "subscriberIndex": 10,
-              "tArrived": 623.22425
-            },
-            {
-              "subscriberIndex": 8,
-              "tArrived": 623.229541
+              "tArrived": 603.033666
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 623.234833
+              "tArrived": 603.037541
+            },
+            {
+              "subscriberIndex": 10,
+              "tArrived": 603.040833
+            },
+            {
+              "subscriberIndex": 9,
+              "tArrived": 603.044666
+            },
+            {
+              "subscriberIndex": 8,
+              "tArrived": 603.048083
+            },
+            {
+              "subscriberIndex": 11,
+              "tArrived": 603.051416
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 623.240625
+              "tArrived": 603.054791
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 623.246458
+              "tArrived": 603.058208
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 623.253375
+              "tArrived": 603.061458
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 623.258375
+              "tArrived": 603.064583
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 623.263416
+              "tArrived": 603.069458
             },
             {
               "subscriberIndex": 1,
-              "tArrived": 623.269
+              "tArrived": 603.073041
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 623.274833
+              "tArrived": 603.077291
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 623.279333
+              "tArrived": 603.080833
             }
           ],
           "missing": []
         },
         {
           "commitIndex": 4,
-          "benchETag": "476da4d4-5234-42fd-b810-bd08f88c4dea",
-          "tBeforeTrigger": 623.301666,
-          "tAfterTrigger": 623.364541,
+          "benchETag": "5237d548-1b83-4d9e-9050-fc9123e170dd",
+          "tBeforeTrigger": 603.093541,
+          "tAfterTrigger": 603.120125,
           "arrivals": [
             {
               "subscriberIndex": 99,
-              "tArrived": 625.8685
+              "tArrived": 603.716375
             },
             {
               "subscriberIndex": 98,
-              "tArrived": 625.882708
+              "tArrived": 603.724833
             },
             {
               "subscriberIndex": 97,
-              "tArrived": 625.888708
-            },
-            {
-              "subscriberIndex": 96,
-              "tArrived": 625.893791
+              "tArrived": 603.751958
             },
             {
               "subscriberIndex": 95,
-              "tArrived": 625.899041
+              "tArrived": 603.849666
+            },
+            {
+              "subscriberIndex": 96,
+              "tArrived": 603.853458
             },
             {
               "subscriberIndex": 94,
-              "tArrived": 625.954083
+              "tArrived": 603.934458
             },
             {
               "subscriberIndex": 93,
-              "tArrived": 626.153208
+              "tArrived": 603.937916
             },
             {
               "subscriberIndex": 92,
-              "tArrived": 626.660208
+              "tArrived": 603.941083
             },
             {
               "subscriberIndex": 91,
-              "tArrived": 626.686
+              "tArrived": 604.046666
             },
             {
               "subscriberIndex": 90,
-              "tArrived": 626.700583
-            },
-            {
-              "subscriberIndex": 88,
-              "tArrived": 626.713333
+              "tArrived": 604.050458
             },
             {
               "subscriberIndex": 89,
-              "tArrived": 626.727125
+              "tArrived": 604.053916
+            },
+            {
+              "subscriberIndex": 88,
+              "tArrived": 604.057166
             },
             {
               "subscriberIndex": 87,
-              "tArrived": 627.334916
+              "tArrived": 604.060541
             },
             {
               "subscriberIndex": 86,
-              "tArrived": 627.349916
+              "tArrived": 604.063625
             },
             {
               "subscriberIndex": 85,
-              "tArrived": 627.358333
+              "tArrived": 604.179541
             },
             {
               "subscriberIndex": 84,
-              "tArrived": 627.364833
-            },
-            {
-              "subscriberIndex": 83,
-              "tArrived": 627.371583
+              "tArrived": 604.183083
             },
             {
               "subscriberIndex": 82,
-              "tArrived": 627.378541
+              "tArrived": 604.186458
             },
             {
               "subscriberIndex": 81,
-              "tArrived": 627.38875
+              "tArrived": 604.189708
             },
             {
               "subscriberIndex": 80,
-              "tArrived": 627.39575
+              "tArrived": 604.193125
             },
             {
               "subscriberIndex": 79,
-              "tArrived": 627.402666
+              "tArrived": 604.196291
+            },
+            {
+              "subscriberIndex": 83,
+              "tArrived": 604.214791
             },
             {
               "subscriberIndex": 78,
-              "tArrived": 627.408666
+              "tArrived": 604.378583
             },
             {
               "subscriberIndex": 77,
-              "tArrived": 627.41425
+              "tArrived": 604.383583
             },
             {
               "subscriberIndex": 76,
-              "tArrived": 627.4205
+              "tArrived": 604.386916
             },
             {
               "subscriberIndex": 75,
-              "tArrived": 627.426083
-            },
-            {
-              "subscriberIndex": 74,
-              "tArrived": 627.431541
-            },
-            {
-              "subscriberIndex": 73,
-              "tArrived": 627.437916
+              "tArrived": 604.39
             },
             {
               "subscriberIndex": 72,
-              "tArrived": 627.443291
+              "tArrived": 604.39325
+            },
+            {
+              "subscriberIndex": 73,
+              "tArrived": 604.398208
+            },
+            {
+              "subscriberIndex": 74,
+              "tArrived": 604.401333
             },
             {
               "subscriberIndex": 71,
-              "tArrived": 627.448458
+              "tArrived": 604.67925
             },
             {
               "subscriberIndex": 70,
-              "tArrived": 627.454083
+              "tArrived": 604.68375
             },
             {
               "subscriberIndex": 69,
-              "tArrived": 628.062375
+              "tArrived": 604.687458
             },
             {
               "subscriberIndex": 68,
-              "tArrived": 628.069666
+              "tArrived": 604.691708
             },
             {
               "subscriberIndex": 67,
-              "tArrived": 628.075041
+              "tArrived": 604.69525
             },
             {
               "subscriberIndex": 66,
-              "tArrived": 628.08375
+              "tArrived": 604.699375
             },
             {
               "subscriberIndex": 65,
-              "tArrived": 628.1005
+              "tArrived": 604.702708
             },
             {
               "subscriberIndex": 63,
-              "tArrived": 628.107791
-            },
-            {
-              "subscriberIndex": 62,
-              "tArrived": 628.115
-            },
-            {
-              "subscriberIndex": 61,
-              "tArrived": 628.120083
-            },
-            {
-              "subscriberIndex": 60,
-              "tArrived": 628.125916
-            },
-            {
-              "subscriberIndex": 59,
-              "tArrived": 628.131666
+              "tArrived": 604.706041
             },
             {
               "subscriberIndex": 64,
-              "tArrived": 628.136791
+              "tArrived": 604.709416
+            },
+            {
+              "subscriberIndex": 62,
+              "tArrived": 604.714458
+            },
+            {
+              "subscriberIndex": 60,
+              "tArrived": 604.718791
+            },
+            {
+              "subscriberIndex": 59,
+              "tArrived": 604.722208
+            },
+            {
+              "subscriberIndex": 61,
+              "tArrived": 604.726875
             },
             {
               "subscriberIndex": 58,
-              "tArrived": 628.141541
+              "tArrived": 604.925708
             },
             {
               "subscriberIndex": 57,
-              "tArrived": 628.147208
+              "tArrived": 604.929541
             },
             {
               "subscriberIndex": 56,
-              "tArrived": 628.15275
+              "tArrived": 604.932791
             },
             {
               "subscriberIndex": 55,
-              "tArrived": 628.158083
+              "tArrived": 604.936166
             },
             {
               "subscriberIndex": 54,
-              "tArrived": 628.163291
+              "tArrived": 604.93975
             },
             {
               "subscriberIndex": 53,
-              "tArrived": 628.423291
+              "tArrived": 604.943083
             },
             {
               "subscriberIndex": 52,
-              "tArrived": 628.451583
+              "tArrived": 604.947041
             },
             {
               "subscriberIndex": 51,
-              "tArrived": 628.465125
+              "tArrived": 604.950416
             },
             {
               "subscriberIndex": 50,
-              "tArrived": 628.477916
-            },
-            {
-              "subscriberIndex": 49,
-              "tArrived": 628.490791
+              "tArrived": 604.953666
             },
             {
               "subscriberIndex": 48,
-              "tArrived": 628.50275
+              "tArrived": 604.95675
             },
             {
-              "subscriberIndex": 47,
-              "tArrived": 628.514416
+              "subscriberIndex": 49,
+              "tArrived": 604.960375
             },
             {
               "subscriberIndex": 46,
-              "tArrived": 628.526583
+              "tArrived": 604.963666
+            },
+            {
+              "subscriberIndex": 47,
+              "tArrived": 604.9675
             },
             {
               "subscriberIndex": 45,
-              "tArrived": 628.538291
+              "tArrived": 604.97075
             },
             {
               "subscriberIndex": 44,
-              "tArrived": 628.549875
+              "tArrived": 605.071791
             },
             {
               "subscriberIndex": 43,
-              "tArrived": 628.56175
+              "tArrived": 605.076
             },
             {
               "subscriberIndex": 42,
-              "tArrived": 628.57375
+              "tArrived": 605.079541
             },
             {
               "subscriberIndex": 41,
-              "tArrived": 628.585541
-            },
-            {
-              "subscriberIndex": 39,
-              "tArrived": 628.597666
+              "tArrived": 605.083
             },
             {
               "subscriberIndex": 40,
-              "tArrived": 628.609625
+              "tArrived": 605.087166
+            },
+            {
+              "subscriberIndex": 39,
+              "tArrived": 605.090375
             },
             {
               "subscriberIndex": 38,
-              "tArrived": 628.624208
+              "tArrived": 605.093625
             },
             {
               "subscriberIndex": 37,
-              "tArrived": 628.699208
+              "tArrived": 605.096541
             },
             {
               "subscriberIndex": 36,
-              "tArrived": 628.715583
-            },
-            {
-              "subscriberIndex": 35,
-              "tArrived": 628.729958
+              "tArrived": 605.099625
             },
             {
               "subscriberIndex": 34,
-              "tArrived": 628.743083
+              "tArrived": 605.10275
             },
             {
               "subscriberIndex": 33,
-              "tArrived": 628.756
-            },
-            {
-              "subscriberIndex": 32,
-              "tArrived": 628.769041
+              "tArrived": 605.106625
             },
             {
               "subscriberIndex": 31,
-              "tArrived": 628.782083
+              "tArrived": 605.10975
+            },
+            {
+              "subscriberIndex": 35,
+              "tArrived": 605.112833
             },
             {
               "subscriberIndex": 30,
-              "tArrived": 628.795375
+              "tArrived": 605.115875
             },
             {
               "subscriberIndex": 29,
-              "tArrived": 628.807416
+              "tArrived": 605.118916
             },
             {
               "subscriberIndex": 28,
-              "tArrived": 628.820375
+              "tArrived": 605.123708
+            },
+            {
+              "subscriberIndex": 32,
+              "tArrived": 605.126833
             },
             {
               "subscriberIndex": 27,
-              "tArrived": 628.841166
+              "tArrived": 605.1305
             },
             {
               "subscriberIndex": 26,
-              "tArrived": 628.854375
+              "tArrived": 605.13375
             },
             {
               "subscriberIndex": 25,
-              "tArrived": 628.867583
+              "tArrived": 605.136791
             },
             {
               "subscriberIndex": 24,
-              "tArrived": 628.880833
-            },
-            {
-              "subscriberIndex": 23,
-              "tArrived": 628.893458
-            },
-            {
-              "subscriberIndex": 22,
-              "tArrived": 628.907125
+              "tArrived": 605.140125
             },
             {
               "subscriberIndex": 21,
-              "tArrived": 628.920333
+              "tArrived": 605.143375
+            },
+            {
+              "subscriberIndex": 22,
+              "tArrived": 605.147666
             },
             {
               "subscriberIndex": 20,
-              "tArrived": 628.93375
+              "tArrived": 605.15075
             },
             {
               "subscriberIndex": 19,
-              "tArrived": 628.945833
+              "tArrived": 605.154
             },
             {
               "subscriberIndex": 18,
-              "tArrived": 629.13375
+              "tArrived": 605.157
             },
             {
               "subscriberIndex": 17,
-              "tArrived": 629.150333
-            },
-            {
-              "subscriberIndex": 16,
-              "tArrived": 629.164541
+              "tArrived": 605.160083
             },
             {
               "subscriberIndex": 15,
-              "tArrived": 629.178041
+              "tArrived": 605.163291
+            },
+            {
+              "subscriberIndex": 16,
+              "tArrived": 605.167208
+            },
+            {
+              "subscriberIndex": 23,
+              "tArrived": 605.170125
             },
             {
               "subscriberIndex": 14,
-              "tArrived": 629.190791
+              "tArrived": 605.188833
             },
             {
               "subscriberIndex": 13,
-              "tArrived": 629.204291
+              "tArrived": 605.192166
             },
             {
               "subscriberIndex": 12,
-              "tArrived": 629.218333
+              "tArrived": 605.195208
             },
             {
               "subscriberIndex": 11,
-              "tArrived": 629.232041
-            },
-            {
-              "subscriberIndex": 10,
-              "tArrived": 629.245708
+              "tArrived": 605.198333
             },
             {
               "subscriberIndex": 9,
-              "tArrived": 629.258916
+              "tArrived": 605.20375
             },
             {
               "subscriberIndex": 8,
-              "tArrived": 629.271375
+              "tArrived": 605.206916
             },
             {
               "subscriberIndex": 7,
-              "tArrived": 629.283875
+              "tArrived": 605.21
             },
             {
               "subscriberIndex": 6,
-              "tArrived": 629.297041
+              "tArrived": 605.213083
             },
             {
               "subscriberIndex": 5,
-              "tArrived": 629.310041
+              "tArrived": 605.215875
             },
             {
               "subscriberIndex": 4,
-              "tArrived": 629.324583
+              "tArrived": 605.219
             },
             {
               "subscriberIndex": 3,
-              "tArrived": 629.337958
+              "tArrived": 605.222958
             },
             {
               "subscriberIndex": 2,
-              "tArrived": 629.351291
-            },
-            {
-              "subscriberIndex": 1,
-              "tArrived": 629.364708
+              "tArrived": 605.226125
             },
             {
               "subscriberIndex": 0,
-              "tArrived": 629.377333
+              "tArrived": 605.229
+            },
+            {
+              "subscriberIndex": 10,
+              "tArrived": 605.231875
+            },
+            {
+              "subscriberIndex": 1,
+              "tArrived": 605.235958
             }
           ],
           "missing": []

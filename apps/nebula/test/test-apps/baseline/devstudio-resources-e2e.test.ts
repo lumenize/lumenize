@@ -21,7 +21,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
-import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // A DevStudio sandbox is the `{u}.{g}.dev` star-tier instance.
@@ -29,8 +29,12 @@ const uniqueDevScope = () => `acme-${generateUuid().slice(0, 8)}.app.dev`;
 
 // Admin (scope-admin) client bound to DEV_STUDIO. appVersion is irrelevant to
 // DevStudio (no version-gate, D8) — default 'v1'.
+  // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
+  // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
+  // is administered by the covering admin's wildcard. That is how it works in production, not a test
+  // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
 function devAdmin(scope: string, appVersion = 'v1') {
-  return adminClientAt(
+  return universeAdminClient(
     NebulaClientTest, new Browser(), scope, scope, 'admin@example.com', appVersion,
     { resourceHostBinding: 'DEV_STUDIO' },
   );

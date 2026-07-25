@@ -10,7 +10,7 @@ import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, TransactionError, OntologyState } from '@lumenize/nebula';
-import { adminClientAt, browserLogin, createSubject } from '../../test-helpers';
+import { adminClientAt, universeAdminClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -41,9 +41,26 @@ async function waitForError(client: NebulaClientTest) {
   return client.lastError!;
 }
 
+/** A real STAR founder — exact-star pattern, inert at every ancestor. The default here. */
 async function adminClient(star: string) {
   const browser = new Browser();
   return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
+}
+
+/**
+ * A client that can write the GALAXY's ontology.
+ *
+ * ⚠️ `appendOntologyVersion` is `@mesh(requireAdmin)` **on the Galaxy**, so a star founder is
+ * correctly refused ("Admin access required for …") — its exact-star pattern is inert at every
+ * ancestor (ADR-015). This is the real model, not a fixture detail: the app developer publishes the
+ * ontology from the tier that owns it; a tenant only consumes it.
+ *
+ * The old universe-admin-for-everything fixture hid this distinction entirely — every one of these
+ * tests passed a *star* scope while silently exercising *galaxy* authority.
+ */
+async function galaxyOntologyAdmin(star: string) {
+  const browser = new Browser();
+  return universeAdminClient(NebulaClientTest, browser, star, star, 'admin@example.com');
 }
 
 const TODO_TYPES = `
@@ -68,7 +85,7 @@ describe('Galaxy ontology', () => {
   it('appendOntologyVersion + getLatestOntologyVersion round-trip', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
+    const { client } = await galaxyOntologyAdmin(star);
 
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
@@ -87,7 +104,7 @@ describe('Galaxy ontology', () => {
   it('append-only enforcement — duplicate version label throws', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
+    const { client } = await galaxyOntologyAdmin(star);
 
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
@@ -107,7 +124,7 @@ describe('Galaxy ontology', () => {
   it('eager validation — unparseable TypeScript throws', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
+    const { client } = await galaxyOntologyAdmin(star);
 
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: 'interface Bad {' });
     const error = await waitForError(client);
@@ -119,7 +136,7 @@ describe('Galaxy ontology', () => {
   it('multiple versions appended in order', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
+    const { client } = await galaxyOntologyAdmin(star);
 
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
@@ -143,7 +160,7 @@ describe('Galaxy ontology', () => {
   it('invalid version label rejected', async () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
-    const { client } = await adminClient(star);
+    const { client } = await galaxyOntologyAdmin(star);
 
     client.callGalaxyAppendOntologyVersion(galaxy, { version: 'has spaces', types: TODO_TYPES });
     const error = await waitForError(client);

@@ -1,4 +1,4 @@
-**Status:** 🚧 **Phases 1, 2, 2b + 3 ✅ BUILT + green 2026-07-25** — `nebula-auth` 211 tests pass (was 195), `apps/nebula` baseline+frontend 531 pass, type-check clean. All 7 security branches in Phase 2 are **mutation-verified** (each reds exactly its own test). **Phases 3–6 are DESIGN PINNED, not built.** ⚠️ Phase 2's `ui-smoke` un-skip criterion was found FALSE while building and is corrected in place — `claim-star` refuses `.dev` by design, so it does not unblock that lane.
+**Status:** 🚧 **Phases 1, 2, 2b, 3 + 4 ✅ BUILT + green 2026-07-25** — only Phases 5 (signup UI, needs the collapse's serving surface) and 6 (upward-visibility audit) remain. — `nebula-auth` 211 tests pass (was 195), `apps/nebula` baseline+frontend 531 pass, type-check clean. All 7 security branches in Phase 2 are **mutation-verified** (each reds exactly its own test). **Phases 3–6 are DESIGN PINNED, not built.** ⚠️ Phase 2's `ui-smoke` un-skip criterion was found FALSE while building and is corrected in place — `claim-star` refuses `.dev` by design, so it does not unblock that lane.
 
 ## The business decision (pinned by Larry)
 
@@ -330,7 +330,7 @@ The refusal is locked in by `scope-binding.test.ts` § *adminClientAt tier preco
 
 ⚠️ **The moves are behavioral no-ops TODAY** — both helpers still delegate to the same `createAuthenticatedClient`, so nothing about them can red yet. That is the nature of a pure sort: its capable-of-failing evidence is the precondition (demonstrated above), and the moved sites become meaningful only when Phase 4 changes the body underneath them.
 
-### Phase 4 — re-ground the fixtures onto real star founders
+### Phase 4 — re-ground the fixtures onto real star founders ✅ BUILT 2026-07-25
 **Goal:** retire the interim where a fixture asking for "an admin at this star" receives a universe admin.
 
 ⛔ **Depends on Phase 2** (nothing but `claim-star` mints a star founder) **and Phase 3** (the intent-split).
@@ -344,6 +344,17 @@ The refusal is locked in by `scope-binding.test.ts` § *adminClientAt tier preco
 - **No PRE-EXISTING `universeAdminClient` call site changes behavior** — the re-grounding edits none of them. (Phase 3 only *adds* sites: 13 before, more after.)
 - A fixture asserting an **exact-star** pattern now passes where it previously would have seen `{u}.*`, and the baseline lane is green.
 - 🔒 **Every `/live` harness scenario still boots and passes**, enumerated — each 3-segment scenario either re-verified on the star path or explicitly kept on the universe path. Reds if the `provisionAndLogin` collapse strands the harness on a reserved `dev` slug.
+
+**✅ Landed 2026-07-25.** `adminClientAt` now mints a real star founder via `claim-star` (`foundStarAndLogin`), so it returns an **exact-star** `authScopePattern`. Mutation-verified: restoring the old universe-admin body reds the new pattern assertion in `scope-binding.test.ts`. Final counts `adminClientAt` **72 → 67**, `universeAdminClient` **19 → 27**.
+
+🚨 **Phase 3's sort was NECESSARY BUT NOT SUFFICIENT — segment count is the wrong (well, incomplete) discriminator, and only the re-grounding could reveal it.** 46 tests reddened; three distinct causes, none findable by the Phase-3 precondition:
+1. **Fixture composition (28).** The first cut provisioned the universe under a separate `owner-…` identity, so a later `foundAndLogin(browser, scope, email)` in the same test found the universe taken and could not log in. Fixed by using **one email and one Browser** — the two cookies are Path-scoped (`/auth/{u}` vs `/auth/{u}.{g}.{s}`) and RFC-6265 matched, so they cannot be confused, and the star row is still its own identity. (The separate-browser guard was protecting against something cookie matching already prevents.)
+2. **Reserved ENV stars (13).** `{u}.{g}.dev` is **3 segments and still founderless** — `create-star` mints no founder, `claim-star` refuses the slug — so it needs the covering admin, exactly as in production. `adminClientAt` gained a **second precondition** rejecting `RESERVED_ENV_STAR_SLUGS` with test-authoring advice; the 7 `devClient`/`devAdmin` helpers moved to `universeAdminClient`.
+3. **Star scope, GALAXY authority (5).** Every `star-ontology.test.ts` galaxy test passed a *star* scope while exercising `appendOntologyVersion`, which is `@mesh(requireAdmin)` **on the Galaxy** — refused for an exact-star founder, correctly. Split into `adminClient` (star, 14 sites) and `galaxyOntologyAdmin` (galaxy, 5). ⚠️ **The old fixture hid the app-developer-publishes / tenant-consumes distinction entirely.**
+
+⇒ The durable lesson: the tier a fixture *names* and the authority it *exercises* are independent axes. Phase 3 could only sort the first.
+
+🔒 **`/live` harness — enumerated, all four kept on the universe path, and that is correct not a concession.** `message-roundtrip` (`claude.sandbox.dev`), `studio-chat-reload` (`claude.browser.dev`), `turnstile-canary` (`claude.sandbox.dev`), `superadmin-reach` (`claude-reach.sandbox.dev`) — **every scenario scope is `.dev`**, i.e. founderless by construction, so none can move to `claim-star`. `provisionAndLogin` is therefore **unchanged** (verified: zero deleted lines in `email-login.ts`; `harness/` untouched), and the scenarios were not re-run because nothing they depend on changed.
 
 ### Phase 5 — the signup UI (minimal), served from Galaxy
 **Goal:** a stranger can actually sign up — a real page, on the app's own surface, not a curl command.

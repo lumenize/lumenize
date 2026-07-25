@@ -9,7 +9,7 @@ import { generateUuid, parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
-import { requestUniverseClaim, requestMagicLink } from './lib/email-login';
+import { requestUniverseClaim, requestStarClaim, requestMagicLink } from './lib/email-login';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 export const ORIGIN = 'http://localhost';
@@ -62,6 +62,14 @@ export function uniqueGalaxyScope(): {
  * `claim-universe` accepts (`isValidSlug` rejects dots), and therefore the only tier at
  * which a *founder admin* identity can be minted.
  */
+/**
+ * Star slugs that are reserved ENVIRONMENT names, mirroring `RESERVED_STAR_SLUGS` in
+ * `@lumenize/nebula-auth`. Kept as a local copy on purpose: this guards a *fixture-choice* mistake
+ * and must throw with test-authoring advice before any request is made, whereas the registry's copy
+ * is the security control. Extend both together.
+ */
+const RESERVED_ENV_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
+
 export function universeOf(scope: string): string {
   return scope.split('.')[0];
 }
@@ -88,6 +96,79 @@ export async function claimUniverse(
   if (magicLinkUrl === null) return null;
   expect(magicLinkUrl).toBeDefined();
   return magicLinkUrl!;
+}
+
+/**
+ * Claim a tenant Star (open self-signup) and return its test-mode claim link.
+ *
+ * `null` on 409 — already claimed, so the caller falls through to an ordinary login. Unlike a
+ * `create-star` scope that IS possible here: the claim minted an identity to log in as.
+ */
+export async function claimStar(
+  browser: Browser,
+  universeGalaxyStarId: string,
+  email: string,
+): Promise<string | null> {
+  const magicLinkUrl = await requestStarClaim({
+    baseUrl: ORIGIN, universeGalaxyStarId, email, fetchImpl: browser.fetch,
+  });
+  if (magicLinkUrl === null) return null;
+  expect(magicLinkUrl).toBeDefined();
+  return magicLinkUrl!;
+}
+
+/**
+ * Found a Star **as its own founder** and capture the refresh cookie AT the star.
+ *
+ * The counterpart to {@link bootstrapAdmin}, and the difference is the whole point of the
+ * star-founder change: this yields an **exact-star** `authScopePattern`, inert at every ancestor
+ * (ADR-015), where `bootstrapAdmin` yields a universe founder whose `{u}.*` merely *covers* the star.
+ *
+ * ⚠️ **The cookie lands at `/auth/{star}`** — so refreshes for this identity target the star, not the
+ * universe. That is only possible because `claim-star` mints an identity there; a `create-star` scope
+ * has none.
+ *
+ * The universe and galaxy above must exist and only their own admin may create them, so those two
+ * hops remain a climb — performed by a SEPARATE owner identity, since the star founder is by
+ * construction a stranger to them.
+ */
+export async function foundStarAndLogin(
+  browser: Browser,
+  star: string,
+  email: string,
+  activeScope?: string,
+): Promise<{ accessToken: string; payload: NebulaJwtPayload; authScope: string }> {
+  const [universe, galaxySlug] = star.split('.');
+  const galaxy = `${universe}.${galaxySlug}`;
+
+  // 1–2. Universe + galaxy. Provisioned under the SAME email and the SAME Browser, deliberately:
+  //   • same email — a separate `owner-…` identity would claim the universe first, so a later
+  //     `foundAndLogin(browser, scope, email)` in the same test would find it taken and then fail to
+  //     log in (that email has no universe identity). 28 tests do exactly that.
+  //   • same Browser — the two cookies cannot be confused. They are Path-scoped (`/auth/{universe}`
+  //     vs `/auth/{star}`) and RFC-6265 matched, so a refresh at the star sends only the star's.
+  // The star identity is still its own `Identities` row at the star scope, so the minted token is
+  // exact-star regardless of who owns the universe — which is the fidelity this change is about.
+  await bootstrapAdmin(browser, universe, email);
+  const { accessToken: ownerToken } = await refreshToken(browser, universe, universe);
+  const galaxyResp = await browser.fetch(authUrl('create-galaxy'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerToken}` },
+    body: JSON.stringify({ universeGalaxyId: galaxy }),
+  });
+  // 409 = already exists, which is success for provisioning purposes.
+  expect([201, 409]).toContain(galaxyResp.status);
+
+  // 3. Claim the star as the tenant — open, no admin in the loop.
+  const claimLink = await claimStar(browser, star, email);
+  const link = claimLink ?? (await requestMagicLink({
+    baseUrl: ORIGIN, authScope: star, email, fetchImpl: browser.fetch,
+  }));
+  expect(link).toBeDefined();
+  await browser.fetch(link!);
+
+  const { accessToken, payload } = await refreshToken(browser, star, activeScope ?? star);
+  return { accessToken, payload, authScope: star };
 }
 
 /**
@@ -277,12 +358,14 @@ async function connectClient<T extends NebulaClient>(
  * lives two indirections away, so no static sweep can find the tier-mismatched ones. This throws on
  * exactly those, and keeps throwing on any that get added later.
  *
- * 🔶 **INTERIM — today this still mints a UNIVERSE admin (`{u}.*`) even for a star.**
- * [nebula-star-founder-provisioning.md](../../../tasks/nebula-star-founder-provisioning.md) Phase 4
- * retires that: a star scope will yield a real **star founder** with an **exact-star** pattern,
- * inert above its own Star. **When it lands, only this function body changes**, not the call sites —
- * which is the entire reason for the split, and why the precondition above has to hold first (a body
- * minting an exact-star founder cannot serve a galaxy or universe `scope` at all).
+ * ✅ **Mints a REAL star founder** (2026-07-25) — `claim-star` self-signup, `authScopePattern` =
+ * the exact star id, inert at every ancestor (ADR-015). It used to hand back a universe admin
+ * (`{u}.*`) regardless of what you asked for; that interim is gone.
+ *
+ * ⚠️ **This principal cannot act ABOVE its star.** If a test needs to write the Galaxy's ontology,
+ * read a Universe config, or otherwise reach an ancestor, it needs {@link universeAdminClient} —
+ * and under the old body it got that by accident. A test that breaks on this change is telling you
+ * it was relying on authority the scenario never described.
  *
  * ⚠️ If your assertion depends on the pattern being a wildcard (cross-tier reach, `{u}.*` widening,
  * "an admin with no DAG grant on this node"), you want {@link universeAdminClient} — this one's
@@ -297,13 +380,28 @@ export async function adminClientAt<T extends NebulaClient>(
   appVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
-  if (scope.split('.').length !== 3) {
+  const segments = scope.split('.');
+  if (segments.length !== 3) {
     throw new Error(
       `adminClientAt is star-tier only — got "${scope}". Use universeAdminClient for a galaxy or ` +
       'universe scope (it guarantees the `{u}.*` wildcard your assertion depends on).',
     );
   }
-  return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
+  // ⚠️ Segment count is NOT sufficient. A reserved ENVIRONMENT star (`{u}.{g}.dev`) is 3 segments
+  // and still has no founder of its own: it is created by `create-star` (founderless by design) and
+  // administered by the covering admin's wildcard, and `claim-star` refuses the slug outright. So it
+  // needs `universeAdminClient` for the same reason a galaxy does — which is also exactly how it
+  // works in production, not a test concession.
+  if (RESERVED_ENV_STAR_SLUGS.has(segments[2])) {
+    throw new Error(
+      `adminClientAt cannot serve the reserved environment star "${scope}" — a "${segments[2]}" ` +
+      'star is founderless by construction (create-star, no founder; claim-star refuses the slug). ' +
+      'Use universeAdminClient: the covering admin is how it is administered in production too.',
+    );
+  }
+  const { accessToken, payload, authScope } = await foundStarAndLogin(browser, scope, email, activeScope);
+  const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
+  return { client, payload, accessToken };
 }
 
 /**

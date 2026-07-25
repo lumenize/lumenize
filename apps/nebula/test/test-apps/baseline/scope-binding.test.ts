@@ -158,14 +158,23 @@ describe('structural tier-DO scope binding', () => {
       ).rejects.toThrow(/star-tier only/);
     });
 
-    it('accepts a star scope (the precondition is not refusing everything)', async () => {
-      // The discriminator: without this, deleting the `!== 3` and hardcoding `throw` would still
-      // pass every case above.
+    it('accepts a star scope, and mints a REAL star founder — exact-star, never {u}.*', async () => {
+      // Two jobs. (1) Discriminator for the precondition: without a passing case, deleting the
+      // segment check and hardcoding `throw` would satisfy every refusal above.
       const { starA } = uniqueGalaxyScope();
-      const { client } = await adminClientAt(
+      const { client, payload } = await adminClientAt(
         NebulaClientTest, new Browser(), starA, starA, 'admin@example.com',
       );
       expect(client.connectionState).toBe('connected');
+
+      // (2) 🔒 The star-founder re-grounding itself. This is the assertion the whole intent-split
+      // was built to make possible — under the old body it returned `{u}.*` and reds here. An
+      // exact-star pattern is what makes the founder inert at every ancestor (ADR-015); if the mint
+      // ever widens, open self-signup silently becomes an escalation.
+      expect(payload.access?.authScopePattern).toBe(starA);
+      expect(payload.access?.authScopePattern).not.toContain('*');
+      expect(payload.access?.admin).toBe(true);
+      expect(payload.aud).toBe(starA);
     });
   });
 
