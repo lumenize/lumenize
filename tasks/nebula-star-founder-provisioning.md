@@ -1,4 +1,4 @@
-**Status:** 🚧 **Phases 1, 2 + 2b ✅ BUILT + green 2026-07-25** — `nebula-auth` 211 tests pass (was 195), `apps/nebula` baseline+frontend 531 pass, type-check clean. All 7 security branches in Phase 2 are **mutation-verified** (each reds exactly its own test). **Phases 3–6 are DESIGN PINNED, not built.** ⚠️ Phase 2's `ui-smoke` un-skip criterion was found FALSE while building and is corrected in place — `claim-star` refuses `.dev` by design, so it does not unblock that lane.
+**Status:** 🚧 **Phases 1, 2, 2b + 3 ✅ BUILT + green 2026-07-25** — `nebula-auth` 211 tests pass (was 195), `apps/nebula` baseline+frontend 531 pass, type-check clean. All 7 security branches in Phase 2 are **mutation-verified** (each reds exactly its own test). **Phases 3–6 are DESIGN PINNED, not built.** ⚠️ Phase 2's `ui-smoke` un-skip criterion was found FALSE while building and is corrected in place — `claim-star` refuses `.dev` by design, so it does not unblock that lane.
 
 ## The business decision (pinned by Larry)
 
@@ -310,7 +310,7 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 
 🚨 **It also exposed a SECOND, unrelated blocker: the prod ontology pull (Star ← Galaxy) is NOT BUILT.** A test appends the ontology to the Galaxy and transacts on the Star, and nothing carries it across — `grep -rn 'getLatestOntologyVersion' apps packages --include='*.ts'` matches only `galaxy.ts` and test code, and `Star` makes no `lmz.call('GALAXY', …)` at all. The only built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`), whose own JSDoc calls itself *"the dev analog of the prod lazy-pull from Galaxy (Flow 2b)"*. 6 tests are `it.skip`'d on it (5 benchmarks + the chromium conflict-modal), assertions intact, blocker named at each site. ⚠️ **This was masked by the auth breakage** — those tests never got far enough to reach it — and is masked *again* in the baseline lane, where `adminClientAt` hands out a universe admin. Worth its own task file.
 
-### Phase 3 — intent-split the `adminClientAt` fixtures
+### Phase 3 — intent-split the `adminClientAt` fixtures ✅ BUILT 2026-07-25
 **Goal:** every *remaining* `adminClientAt` call site genuinely wants "an admin **at this star**" — the non-star sites move to `universeAdminClient` — so Phase 4 can swap one helper body and touch nothing else.
 
 🔀 **Independent of `claim-star`** — pure test-fixture sorting, so it can run before or after Phase 2. It **must** precede Phase 4.
@@ -321,6 +321,14 @@ Each phase carries a **Goal** and **capable-of-failing success criteria** — `/
 - 🔒 **`adminClientAt` REFUSES a non-star scope** — Phase 3 adds a hard precondition to the helper: `if (scope.split('.').length !== 3) throw new Error('adminClientAt is star-tier only — use universeAdminClient')`. That is the mechanizable form: **it reds today** (the tier-named sites still pass 1- and 2-segment scopes) and keeps reding for any leftover, where a grep cannot — all 78 sites pass *identifiers*, never dotted literals, and 7+ pass a wrapper param whose 3-segment-ness lives two indirections away. ⚠️ This refusal is **exempt** from the no-tier-branch criterion below: it *rejects* non-star scopes rather than *serving* them differently.
 - 🔒 **`adminClientAt`'s body contains NO tier/segment-count branch** — asserted by reading the helper, not inferred from a green lane. ⚠️ This is the criterion that makes the ban real: a segment-count branch inside the helper would satisfy every *other* bullet here and in Phase 4 (nothing edited, lane green) while hiding exactly the tier special-case this file bans.
 - The baseline lane is green after the moves, and each moved site still asserts the same wildcard cross-tier reach it did before (a move, not a behavior change).
+
+**✅ Landed 2026-07-25.** The precondition worked exactly as designed — it found **6** mis-tiered sites, not the 5 a single pass would have: one was **masked by another failure in the same test**, so it only surfaced on the second run. A grep could not have found any of them (all 78 pass identifiers, never dotted literals). Counts: `adminClientAt` **78 → 72**, `universeAdminClient` **13 → 19**.
+
+Every moved site was self-identifying — its own comment already said *"Galaxy-level founder admin"* / *"Universe-level founder admin"*, and `scope-binding.test.ts`'s galaxy case had **already** moved its positive controls to `universeAdminClient` while leaving the negative control behind, which is precisely the unfinished-sweep tell this phase predicted.
+
+The refusal is locked in by `scope-binding.test.ts` § *adminClientAt tier precondition* — three refuse cases **plus a star case that must still pass**, so hardcoding the throw cannot satisfy it. Mutation-verified: disabling the check reds exactly the three refuse cases. `adminClientAt`'s body is the refusal and one delegation — no tier branch.
+
+⚠️ **The moves are behavioral no-ops TODAY** — both helpers still delegate to the same `createAuthenticatedClient`, so nothing about them can red yet. That is the nature of a pure sort: its capable-of-failing evidence is the precondition (demonstrated above), and the moved sites become meaningful only when Phase 4 changes the body underneath them.
 
 ### Phase 4 — re-ground the fixtures onto real star founders
 **Goal:** retire the interim where a fixture asking for "an admin at this star" receives a universe admin.

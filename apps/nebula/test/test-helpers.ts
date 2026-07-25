@@ -268,15 +268,25 @@ async function connectClient<T extends NebulaClient>(
  * just needs "an authenticated admin who can operate here" and does **not** depend on the admin's
  * tier or pattern shape.
  *
- * 🔶 **INTERIM — today this is a UNIVERSE admin (`{u}.*`), even when you ask for a star.**
- * `claim-universe` is currently the only founder-minting path, so a star has no governing admin of
- * its own. [nebula-star-founder-provisioning.md](../../../tasks/nebula-star-founder-provisioning.md)
- * retires that: a star scope will yield a real **star founder** with an **exact-star** pattern —
- * inert above its own Star. **When it lands, only this function body changes**, not the ~70 call
- * sites, which is the entire reason for the split.
+ * 🔒 **STAR-TIER ONLY.** `scope` must be 3 segments; anything else throws. A non-star caller is
+ * asking for a wildcard admin whether it says so or not, and must say so — use
+ * {@link universeAdminClient}.
  *
- * ⚠️ If your assertion depends on the pattern being a wildcard (cross-tier reach, `{u}.*` widening),
- * you want {@link universeAdminClient} instead — this one's guarantee will change under you.
+ * That refusal is deliberately a runtime precondition and not a grep: all 78 call sites pass
+ * *identifiers*, never dotted literals, and several pass a wrapper parameter whose segment count
+ * lives two indirections away, so no static sweep can find the tier-mismatched ones. This throws on
+ * exactly those, and keeps throwing on any that get added later.
+ *
+ * 🔶 **INTERIM — today this still mints a UNIVERSE admin (`{u}.*`) even for a star.**
+ * [nebula-star-founder-provisioning.md](../../../tasks/nebula-star-founder-provisioning.md) Phase 4
+ * retires that: a star scope will yield a real **star founder** with an **exact-star** pattern,
+ * inert above its own Star. **When it lands, only this function body changes**, not the call sites —
+ * which is the entire reason for the split, and why the precondition above has to hold first (a body
+ * minting an exact-star founder cannot serve a galaxy or universe `scope` at all).
+ *
+ * ⚠️ If your assertion depends on the pattern being a wildcard (cross-tier reach, `{u}.*` widening,
+ * "an admin with no DAG grant on this node"), you want {@link universeAdminClient} — this one's
+ * guarantee will change under you.
  */
 export async function adminClientAt<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
@@ -287,6 +297,12 @@ export async function adminClientAt<T extends NebulaClient>(
   appVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
 ): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+  if (scope.split('.').length !== 3) {
+    throw new Error(
+      `adminClientAt is star-tier only — got "${scope}". Use universeAdminClient for a galaxy or ` +
+      'universe scope (it guarantees the `{u}.*` wildcard your assertion depends on).',
+    );
+  }
   return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
 }
 

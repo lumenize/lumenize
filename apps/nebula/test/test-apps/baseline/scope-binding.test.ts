@@ -131,7 +131,7 @@ describe('structural tier-DO scope binding', () => {
       // A different galaxy's aud reaching this Galaxy → rejected.
       const otherGalaxy = uniqueGalaxyScope().galaxy;
       const browserOther = new Browser();
-      const { client: clientOther } = await adminClientAt(
+      const { client: clientOther } = await universeAdminClient(
         NebulaClientTest, browserOther, otherGalaxy, otherGalaxy, 'carol@example.com',
       );
       clientOther.callGalaxyGetConfig(galaxy);
@@ -141,13 +141,41 @@ describe('structural tier-DO scope binding', () => {
     });
   });
 
+  // 🔒 The star-tier precondition on `adminClientAt` is what keeps the intent-split honest, and it is
+  // load-bearing for the star-founder change: once that helper mints a real exact-star founder, a
+  // galaxy or universe `scope` becomes unservable, not merely mis-tiered. It is a runtime check
+  // rather than a grep because every call site passes an identifier, never a dotted literal — some
+  // via a wrapper param two indirections away. It found 6 mis-tiered sites when introduced (one of
+  // them masked by another in the same test, which a single-pass grep would also have missed).
+  describe('adminClientAt tier precondition', () => {
+    it.each([
+      ['universe', 'uni-abc'],
+      ['galaxy', 'uni-abc.app'],
+      ['4-segment', 'uni-abc.app.star.extra'],
+    ])('refuses a %s scope', async (_label, scope) => {
+      await expect(
+        adminClientAt(NebulaClientTest, new Browser(), scope, scope, 'admin@example.com'),
+      ).rejects.toThrow(/star-tier only/);
+    });
+
+    it('accepts a star scope (the precondition is not refusing everything)', async () => {
+      // The discriminator: without this, deleting the `!== 3` and hardcoding `throw` would still
+      // pass every case above.
+      const { starA } = uniqueGalaxyScope();
+      const { client } = await adminClientAt(
+        NebulaClientTest, new Browser(), starA, starA, 'admin@example.com',
+      );
+      expect(client.connectionState).toBe('connected');
+    });
+  });
+
   describe('universe-level', () => {
     it('accepts the matching universe aud, rejects a foreign universe', async () => {
       const universe = `uni-${generateUuid().slice(0, 8)}`;
       const otherUniverse = `other-${generateUuid().slice(0, 8)}`;
 
       const browser = new Browser();
-      const { client: clientA } = await adminClientAt(
+      const { client: clientA } = await universeAdminClient(
         NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
       clientA.callUniverseGetConfig(universe);
@@ -158,7 +186,7 @@ describe('structural tier-DO scope binding', () => {
 
       // A different universe's aud reaching this Universe → rejected.
       const browserB = new Browser();
-      const { client: clientB } = await adminClientAt(
+      const { client: clientB } = await universeAdminClient(
         NebulaClientTest, browserB, otherUniverse, otherUniverse, 'bob@example.com',
       );
       clientB.callUniverseGetConfig(universe);

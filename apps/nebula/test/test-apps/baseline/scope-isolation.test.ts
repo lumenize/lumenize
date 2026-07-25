@@ -145,7 +145,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const galaxyY = uniqueGalaxyScope().galaxy; // a different Galaxy DO
 
     // Founder admin at galaxy X (aud = galaxyX, admin = true).
-    const { client } = await adminClientAt(
+    const { client } = await universeAdminClient(
       NebulaClientTest, browser, galaxyX, galaxyX, 'admin@example.com',
     );
 
@@ -176,7 +176,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const { galaxy, starA: star } = uniqueGalaxyScope();
 
     // Galaxy-level founder admin (aud = galaxy, admin) addressing a descendant Star.
-    const { client: galaxyClient } = await adminClientAt(
+    const { client: galaxyClient } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, galaxy, 'admin@example.com',
     );
     galaxyClient.callStarWhoAmI(star);
@@ -206,7 +206,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const { universe, galaxy, starA: star } = uniqueGalaxyScope();
 
     // Universe-level founder admin (aud = universe, admin).
-    const { client } = await adminClientAt(
+    const { client } = await universeAdminClient(
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
 
