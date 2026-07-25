@@ -2,6 +2,7 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
 import { createNebulaClient } from "@lumenize/nebula/frontend";
+import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
 
@@ -45,9 +46,10 @@ type Scope = { instanceName: string; tier: string; isDev: boolean };
 const scopes = ref<Scope[]>([]);
 const addChildFor = ref<string | null>(null); // a Universe row whose "name a Galaxy" input is open
 const addChildSlug = ref("");
-type DeletionPlan = { affected: Scope[]; blockedBy: { instanceName: string; email: string }[] };
+// The SHARED wire type — never hand-copy it: this package has no `vue-tsc` and is the sole
+// `SKIP_PACKAGES` entry, so a drifted copy reds in no gate and surfaces as a runtime TypeError.
 const deleteTarget = ref<string | null>(null);
-const deletePlan = ref<DeletionPlan | null>(null);
+const deletePlan = ref<ScopeDeletionPlan | null>(null);
 
 const log = (role: Msg["role"], text: string) => messages.value.push({ role, text });
 
@@ -466,7 +468,8 @@ function cancelDelete() {
 async function confirmDelete() {
   const target = deleteTarget.value;
   const plan = deletePlan.value;
-  if (!target || !plan || plan.blockedBy.length > 0 || busy.value) return;
+  // Warn-don't-block (ADR-015): attached users never gate the delete — only a missing plan does.
+  if (!target || !plan || busy.value) return;
   busy.value = true;
   try {
     const { affected } = await nebula.value!.client.scopes.delete(target);
@@ -690,13 +693,16 @@ async function logout() {
                 <span class="opacity-50">({{ a.tier }}{{ a.isDev ? " · dev" : "" }})</span>
               </li>
             </ul>
-            <p v-if="deletePlan.blockedBy.length" class="text-sm text-error">
-              Blocked — other users are attached to {{ deletePlan.blockedBy.map((b) => `${b.instanceName} (${b.email})`).join(", ") }}.
+            <p v-if="deletePlan.affectedUsers.total" class="text-sm text-warning">
+              Warning — {{ deletePlan.affectedUsers.total }}
+              other {{ deletePlan.affectedUsers.total === 1 ? "user" : "users" }} will lose access:
+              {{ deletePlan.affectedUsers.sample.map((b) => `${b.instanceName} (${b.email})`).join(", ")
+              }}{{ deletePlan.affectedUsers.total > deletePlan.affectedUsers.sample.length ? ", …" : "" }}.
             </p>
             <p v-else class="text-sm text-success">No other users — safe to wipe.</p>
             <div class="flex gap-2">
               <button class="btn btn-sm" :disabled="busy" @click="cancelDelete">Cancel</button>
-              <button class="btn btn-sm btn-error" :disabled="busy || deletePlan.blockedBy.length > 0" @click="confirmDelete">
+              <button class="btn btn-sm btn-error" :disabled="busy" @click="confirmDelete">
                 <Loader2 v-if="busy" class="size-4 animate-spin" /><Trash2 v-else class="size-4" /> Delete permanently
               </button>
             </div>

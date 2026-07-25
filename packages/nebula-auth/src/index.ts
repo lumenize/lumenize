@@ -20,7 +20,9 @@ export { NebulaAuthRegistry } from './nebula-auth-registry';
 // instead: `import { Profile } from '@lumenize/nebula-auth/profile'` (tasks/nebula-profile-store.md).
 
 // Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
-export type { AffectedScope, ScopeDeletionBlocker, ScopeDeletionPlan } from './nebula-auth-registry';
+export type {
+  AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan,
+} from './nebula-auth-registry';
 
 // Email sender (WorkerEntrypoint for service binding)
 export { NebulaEmailSender } from './nebula-email-sender';

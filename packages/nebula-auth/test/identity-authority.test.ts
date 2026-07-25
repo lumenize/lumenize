@@ -243,24 +243,41 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'founder@example.com');
     const registry = getRegistry();
-    // A callerSub with no Identity row → the #otherUsers exclusion can't be computed → refuse.
+    // A callerSub with no Identity row → the caller-exclusion in `affectedUsers` can't be computed,
+    // so the warning would silently under-count → refuse rather than return a lying plan.
     await expect(
       registry.executeScopeDeletion(uni, 'ghost-sub-with-no-identity', admin.parsed.access),
     ).rejects.toThrow(/not found|forbidden/i);
   });
 
-  it('blocks (409) a genuinely shared scope; the guard counts only real members', async () => {
+  // Was "blocks (409) a genuinely shared scope". Under ADR-015 authority flows DOWNWARD and is
+  // non-vetoable: a covering admin may delete a scope other users are attached to. The attached
+  // members are surfaced as a WARNING on the plan, never as a refusal.
+  it('a genuinely shared scope is deleted, not refused — members surface as a warning', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'founder@example.com');
     // Invite a second member into the universe → shared.
     await inviteAndLogin(SELF, uni, admin.access_token, 'member@example.com');
+
+    // The plan reports the other member (bounded warning) …
+    const planResp = await SELF.fetch(new Request(registryUrl('delete-scope-plan'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: uni }),
+    }));
+    expect(planResp.status).toBe(200);
+    const plan = await planResp.json() as any;
+    expect(plan.affectedUsers.total).toBe(1);
+    expect(plan.affectedUsers.sample).toEqual([{ instanceName: uni, email: 'member@example.com' }]);
+
+    // … and the delete SUCCEEDS. Reds against the removed `409 scope_in_use`.
     // Drive the real Worker path (router injects the verified caller `sub`; registry resolves it → email).
     const resp = await SELF.fetch(new Request(registryUrl('delete-scope'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ target: uni }),
     }));
-    expect(resp.status).toBe(409); // shared scope blocks the delete
+    expect(resp.status).toBe(200);
   });
 });
 

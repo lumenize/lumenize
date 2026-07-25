@@ -122,7 +122,7 @@ describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
     const resp = await post('delete-scope-plan', { target: scope }, { Authorization: `Bearer ${admin.access_token}` });
     expect(resp.status).toBe(200);
     const plan = await resp.json() as any;
-    expect(plan.blockedBy).toEqual([]);
+    expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
     expect(plan.affected.map((a: any) => a.instanceName)).toContain(scope);
   });
   it('my-scopes for a platform admin lists every scope (`*` branch)', async () => {

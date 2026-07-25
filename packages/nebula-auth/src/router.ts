@@ -178,7 +178,8 @@ async function handleRegistryPath(request: Request, env: Env, endpoint: string):
   }
 
   // delete-scope(-plan) — inject BOTH the verified access claim AND the verified caller `sub` (the
-  // registry's cross-scope `#otherUsers` guard needs a TRUSTED caller identity — never client-supplied;
+  // registry's caller-exclusion in the bounded `affectedUsers` warning needs a TRUSTED caller identity —
+  // never client-supplied;
   // `sub`, resolved to email inside the registry, replaces the retired JWT `email` claim).
   if (endpoint === 'delete-scope-plan' || endpoint === 'delete-scope') {
     const jwtResult = await checkJwtForRegistry(request, env);

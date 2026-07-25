@@ -734,7 +734,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       /** Create the `.dev` authoring Star under `{galaxy}` — in-session, no email. */
       createStar: (galaxy: string): Promise<{ instanceName: string }> =>
         post('create-star', { universeGalaxyStarId: `${galaxy}.dev` }) as Promise<{ instanceName: string }>,
-      /** Read-only deletion plan for the confirm screen (cascade down + prune up + blockers). */
+      /** Read-only deletion plan for the confirm screen: the down-only cascade + a bounded
+       *  `affectedUsers` warning. Attached users never refuse a delete (ADR-015). */
       deletePlan: (target: string): Promise<ScopeDeletionPlan> =>
         post('delete-scope-plan', { target }) as Promise<ScopeDeletionPlan>,
       /** Execute the cascade delete; returns the affected set for the platform-DO teardown fan-out. */

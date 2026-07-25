@@ -182,24 +182,29 @@ describe('NebulaAuthRegistry', () => {
 
   // ── scope deletion (cascade teardown — sub-first) ───────────────────────────────────────────────
   describe('scope deletion (cascade teardown)', () => {
-    it('plan: a solo `.dev` star → affected is just that star, no blockers (carries tier + isDev)', async () => {
+    it('plan: a solo `.dev` star → affected is just that star, no attached users (carries tier + isDev)', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d1.app.dev'], [{ sub: owner, scope: 'd1.app.dev', email: 'o@x.com', isAdmin: true }]);
       const plan = await r.planScopeDeletion('d1.app.dev', owner, ADMIN_OVER('d1'));
-      expect(plan.blockedBy).toEqual([]);
+      expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
       expect(plan.affected).toEqual([{ instanceName: 'd1.app.dev', tier: 'star', isDev: true }]);
     });
 
-    it('plan: prune-up wipes a registered ancestor left empty + user-less; STOPS at one with a live child', async () => {
+    // Deletion cascades DOWN only — the prune-up was REMOVED. This test used to assert the opposite
+    // ("prune-up wipes a registered ancestor left empty + user-less"); it now pins that an emptied
+    // ancestor SURVIVES. Case 1 is the one that reds against the old prune-up code.
+    it('plan: an EMPTY ancestor left behind is NOT wiped — the cascade never climbs', async () => {
       const r1 = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r1, ['d3', 'd3.app.dev'], [
         { sub: owner, scope: 'd3', email: 'o@x.com', isAdmin: true },
         { sub: crypto.randomUUID(), scope: 'd3.app.dev', email: 'o@x.com', isAdmin: true },
       ]);
+      // `d3` is the only-parent of the only-child being deleted, holds no OTHER user, and the caller
+      // admins it — every condition the prune-up used to fire on. It must still survive.
       const plan = await r1.planScopeDeletion('d3.app.dev', owner, ADMIN_OVER('d3'));
-      expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d3', 'd3.app.dev']);
+      expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d3.app.dev']);
 
       const r2 = freshRegistry();
       const owner2 = crypto.randomUUID();
@@ -209,7 +214,28 @@ describe('NebulaAuthRegistry', () => {
         { sub: crypto.randomUUID(), scope: 'd4.app.other', email: 'o@x.com', isAdmin: true },
       ]);
       const plan2 = await r2.planScopeDeletion('d4.app.dev', owner2, ADMIN_OVER('d4'));
-      expect(plan2.affected.map((a: any) => a.instanceName)).toEqual(['d4.app.dev']); // sibling survives → no prune
+      expect(plan2.affected.map((a: any) => a.instanceName)).toEqual(['d4.app.dev']);
+    });
+
+    it('plan and execute agree — a vanished identity cannot enlarge the wipe set', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const otherSub = crypto.randomUUID();
+      await seed(r, ['d9', 'd9.app.dev'], [
+        { sub: owner, scope: 'd9', email: 'o@x.com', isAdmin: true },
+        { sub: otherSub, scope: 'd9.app.dev', email: 'other@x.com', isAdmin: false },
+      ]);
+      const planned = await r.planScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'));
+      expect(planned.affectedUsers.total).toBe(1);
+
+      // The attached identity disappears between confirm and execute — the window the removed 409
+      // used to mask. With the prune-up gone, `affected` is `down` and cannot grow.
+      await (runInDurableObject as any)(r, (_i: any, ctx: any) => {
+        ctx.storage.sql.exec('DELETE FROM Identities WHERE sub = ?', otherSub);
+      });
+
+      const executed = await r.executeScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'));
+      expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 
     it('plan: deleting a higher node cascades DOWN to descendants', async () => {
@@ -220,7 +246,9 @@ describe('NebulaAuthRegistry', () => {
       expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d2', 'd2.app.dev']);
     });
 
-    it('guard: another user on the target blocks the delete (plan reports who/where)', async () => {
+    // Renamed from "another user on the target BLOCKS the delete": under ADR-015 an attached user is
+    // a WARNING, never a refusal. The old title asserted the opposite of the shipped behavior.
+    it('warning: another user on the target is reported, and the delete still succeeds', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d5.app.dev'], [
@@ -228,7 +256,29 @@ describe('NebulaAuthRegistry', () => {
         { sub: crypto.randomUUID(), scope: 'd5.app.dev', email: 'other@x.com', isAdmin: false },
       ]);
       const plan = await r.planScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'));
-      expect(plan.blockedBy).toEqual([{ instanceName: 'd5.app.dev', email: 'other@x.com' }]);
+      expect(plan.affectedUsers).toEqual({
+        total: 1, sample: [{ instanceName: 'd5.app.dev', email: 'other@x.com' }],
+      });
+      // Reds against the removed `409 scope_in_use`: the attached user no longer refuses the delete.
+      const executed = await r.executeScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'));
+      expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d5.app.dev']);
+    });
+
+    it('warning is BOUNDED — >25 attached users yield a full count and a <=25 sample', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      const members = [{ sub: owner, scope: 'd8.app.dev', email: 'owner@x.com', isAdmin: true }];
+      for (let i = 0; i < 30; i++) {
+        members.push({
+          sub: crypto.randomUUID(), scope: 'd8.app.dev',
+          email: `u${String(i).padStart(2, '0')}@x.com`, isAdmin: false,
+        });
+      }
+      await seed(r, ['d8.app.dev'], members);
+      const plan = await r.planScopeDeletion('d8.app.dev', owner, ADMIN_OVER('d8'));
+      expect(plan.affectedUsers.total).toBe(30);                 // the full count, not the sample size
+      expect(plan.affectedUsers.sample).toHaveLength(25);        // reds if the plan carries every email
+      expect(plan.affectedUsers.sample.every((b: any) => b.instanceName === 'd8.app.dev')).toBe(true);
     });
 
     it('execute: solo delete removes the rows (discover empty, slug free)', async () => {
@@ -250,7 +300,10 @@ describe('NebulaAuthRegistry', () => {
       await expect(r.planScopeDeletion('nebula-platform', owner, { authScopePattern: '*', admin: true })).rejects.toThrow(/cannot be deleted/);
     });
 
-    it('prune-up authz: a star-only admin deletes their star but does NOT prune the universe', async () => {
+    // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
+    // duplicate of the cascade-never-climbs test above. What this uniquely covers is the AUTHZ shape —
+    // an exact-star (non-wildcard) pattern satisfying `#hasAdminOverScope` on its own star.
+    it('authz: an exact-star (non-wildcard) pattern can delete its own star', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d9', 'd9.app.dev'], [

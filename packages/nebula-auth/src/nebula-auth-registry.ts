@@ -34,7 +34,7 @@ import {
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, RefreshTokenKV } from './types';
-import { parseId, isValidSlug, matchAccess, getParentId, hasAdminOverScope } from './parse-id';
+import { parseId, isValidSlug, matchAccess, hasAdminOverScope } from './parse-id';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
@@ -46,18 +46,36 @@ export interface AffectedScope {
   isDev: boolean;
 }
 
-/** A reason a scope can't be deleted: another user is attached to an affected scope. */
+/** One other user attached to an affected scope: a warning entry, NOT a blocker. */
 export interface ScopeDeletionBlocker {
   instanceName: string;
   email: string;
 }
 
+/**
+ * Who else loses access, for the confirm screen's warning. **Bounded** — deleting an active Star must
+ * never shuttle every attached user's email across the wire.
+ *
+ * `total` and `sample` count the SAME population (distinct other-user emails across `affected`), so
+ * `sample.length <= min(total, 25)`: a person attached to several affected scopes appears once, under
+ * one representative scope.
+ */
+export interface ScopeDeletionAffectedUsers {
+  /** Distinct other-user emails across every affected scope. */
+  total: number;
+  /** At most 25 of them, each with one scope they are attached to. */
+  sample: ScopeDeletionBlocker[];
+}
+
 /** The read-only deletion plan that feeds the confirm screen. */
 export interface ScopeDeletionPlan {
-  /** The full cascade set (target + descendants + pruned-up empty ancestors), wipe order. */
+  /** The cascade set: target + descendants, wipe order. Deletion cascades DOWN only. */
   affected: AffectedScope[];
-  /** Non-empty → deletion is refused (a shared scope); each entry names who/where. */
-  blockedBy: ScopeDeletionBlocker[];
+  /**
+   * Who else is attached — a **warning, never a refusal**. Authority flows downward (ADR-015): a
+   * covering admin may delete any descendant, and restraint is the UI's job, not authorization's.
+   */
+  affectedUsers: ScopeDeletionAffectedUsers;
 }
 
 /** Result of a login-channel consume: the identity + scope the Worker needs to mint the JWT. */
@@ -645,9 +663,12 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Read-only deletion PLAN (feeds the confirm screen). `callerSub` is the caller's VERIFIED surrogate
-   * sub (from the JWT — never client-supplied); the registry resolves it → email internally for the
-   * cross-scope `#otherUsers` guard. Throws 403 if the caller isn't admin over the target, or if
-   * `callerSub → email` resolves empty (fail CLOSED — M2). Mutates nothing.
+   * sub (from the JWT — never client-supplied); the registry resolves it → email internally to exclude
+   * the caller from the `affectedUsers` warning. Throws 403 if the caller isn't admin over the target,
+   * or if `callerSub → email` resolves empty (fail CLOSED — M2). Mutates nothing.
+   *
+   * `affected` is the target + its descendants — deletion cascades DOWN only, never up into emptied
+   * ancestors. `affectedUsers` is a bounded warning, never a refusal.
    */
   planScopeDeletion(target: string, callerSub: string, callerAccess: AccessEntry): ScopeDeletionPlan {
     return this.#computeDeletionPlan(target, callerSub, callerAccess);
@@ -662,13 +683,9 @@ export class NebulaAuthRegistry extends DurableObject {
   async executeScopeDeletion(
     target: string, callerSub: string, callerAccess: AccessEntry,
   ): Promise<{ affected: AffectedScope[] }> {
+    // No `scope_in_use` refusal: authority flows downward (ADR-015), so a covering admin may delete any
+    // descendant regardless of who else is attached. `affectedUsers` is a UI warning, never a gate.
     const plan = this.#computeDeletionPlan(target, callerSub, callerAccess);
-    if (plan.blockedBy.length > 0) {
-      throw new RegistryError(
-        409, 'scope_in_use',
-        `Cannot delete: other users are attached to ${plan.blockedBy.map(b => b.instanceName).join(', ')}`,
-      );
-    }
 
     const log = debug('nebula-auth.Registry.executeScopeDeletion');
     for (const scope of plan.affected) {
@@ -721,34 +738,21 @@ export class NebulaAuthRegistry extends DurableObject {
     `.map(r => r.universeGalaxyStarId as string);
 
     if (!down.includes(target)) {
-      return { affected: [], blockedBy: [] };
+      return { affected: [], affectedUsers: { total: 0, sample: [] } };
     }
 
-    const blockedBy = this.#otherUsers(down, callerEmailLc);
-    if (blockedBy.length > 0) {
-      return { affected: down.map(n => this.#toAffected(n)), blockedBy };
-    }
-
-    // Prune up: wipe an ancestor iff the caller admins it AND it has no remaining registered
-    // descendants outside the wipe set AND no other users. Admin coverage is monotonic up the tree.
-    const wipe = new Set(down);
-    let ancestor = getParentId(parsed);
-    while (ancestor) {
-      if (!this.#hasAdminOverScope(callerAccess, ancestor)) break;
-      const isRegistered = !this.checkSlugAvailable(ancestor);
-      if (isRegistered) {
-        const childrenRemaining = this.#sql`
-          SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId LIKE ${ancestor + '.%'}
-        `.map(r => r.universeGalaxyStarId as string).filter(n => !wipe.has(n));
-        if (childrenRemaining.length > 0) break;
-        if (this.#otherUsers([ancestor], callerEmailLc).length > 0) break;
-        wipe.add(ancestor);
-      }
-      ancestor = getParentId(parseId(ancestor));
-    }
-
-    const ancestors = [...wipe].filter(n => !down.includes(n));
-    return { affected: [...down, ...ancestors].map(n => this.#toAffected(n)), blockedBy: [] };
+    // Deletion cascades DOWN only — `affected` is exactly `down`. There is deliberately NO prune-up
+    // of emptied ancestors: it destroyed scopes the admin never named (a solo user-developer deleting
+    // one tenant Star also lost their Galaxy and Universe, since `createGalaxy` mints no identities so
+    // both read as "empty"), and it made `affected` depend on mutable state — which, with the
+    // `scope_in_use` refusal gone, is a data-loss path: `executeScopeDeletion` RECOMPUTES the plan, so
+    // an identity disappearing between confirm and execute would silently enlarge the wipe set. Now
+    // plan and execute cannot disagree, so no plan-currency token is needed. To remove a whole tree,
+    // delete its TOP scope — the down-cascade handles the rest.
+    return {
+      affected: down.map(n => this.#toAffected(n)),
+      affectedUsers: this.#affectedUsers(down, callerEmailLc),
+    };
   }
 
   #toAffected(universeGalaxyStarId: string): AffectedScope {
@@ -756,16 +760,34 @@ export class NebulaAuthRegistry extends DurableObject {
     return { instanceName: universeGalaxyStarId, tier: p.tier, isDev: p.tier === 'star' && p.star === 'dev' };
   }
 
-  /** Identities in any of `scopes` whose email differs from the caller's — blockers to a delete. */
-  #otherUsers(scopes: string[], callerEmailLc: string): ScopeDeletionBlocker[] {
-    const out: ScopeDeletionBlocker[] = [];
-    for (const name of scopes) {
-      const rows = this.#sql`
-        SELECT DISTINCT email FROM Identities WHERE universeGalaxyStarId = ${name} AND email != ${callerEmailLc}
-      `;
-      for (const r of rows) out.push({ instanceName: name, email: r.email as string });
-    }
-    return out;
+  /**
+   * Who else is attached across `scopes`, **bounded**: a COUNT plus at most 25 rows. Never materializes
+   * one row per attached user — deleting an active Star must not shuttle every attached email over the
+   * wire. `total` and `sample` count the same population (distinct emails), so they stay commensurable.
+   *
+   * The caller is excluded by email. ⚠️ That exclusion is why `#emailForSub` fails CLOSED upstream: a
+   * null there would silently under-count and make the warning lie.
+   */
+  #affectedUsers(scopes: string[], callerEmailLc: string): ScopeDeletionAffectedUsers {
+    if (scopes.length === 0) return { total: 0, sample: [] };
+    // Scope names come from our own `Scopes` table, but bind them anyway — never concatenate into SQL.
+    const placeholders = scopes.map(() => '?').join(',');
+    const args = [...scopes, callerEmailLc];
+
+    const totalRows = [...this.ctx.storage.sql.exec(
+      `SELECT COUNT(DISTINCT email) AS total FROM Identities
+       WHERE universeGalaxyStarId IN (${placeholders}) AND email != ?`,
+      ...args,
+    )];
+
+    const sample = [...this.ctx.storage.sql.exec(
+      `SELECT email, MIN(universeGalaxyStarId) AS instanceName FROM Identities
+       WHERE universeGalaxyStarId IN (${placeholders}) AND email != ?
+       GROUP BY email ORDER BY email LIMIT 25`,
+      ...args,
+    )].map(r => ({ instanceName: r.instanceName as string, email: r.email as string }));
+
+    return { total: Number(totalRows[0]?.total ?? 0), sample };
   }
 
   // ============================================
@@ -898,7 +920,7 @@ function isValidEmail(email: string): boolean {
  * Canonical email normalization — lowercase AND trim. The single source of truth for the m1 invariant
  * (§The schema: "casing drift splits identities or fail-blocks a delete"). EVERY email that is stored,
  * looked up, or compared must pass through this: the registry compares email BINARY (UNIQUE(email,
- * scope), the getAndVerifyIdentity/discover WHERE clauses, the delete-scope #otherUsers exclusion), so
+ * scope), the getAndVerifyIdentity/discover WHERE clauses, the delete-scope caller-exclusion), so
  * a stray leading/trailing space at mint that a trimmed login can't match would silently split an
  * identity and lock the founder out. Lowercasing alone is not enough — trim too.
  */
