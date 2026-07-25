@@ -1,6 +1,6 @@
 /**
  * Scope deletion through the RENDERED Studio — the Vue half of
- * `tasks/nebula-star-founder-provisioning.md` Phase 1 (warn-don't-block, ADR-015).
+ * `tasks/archive/nebula-star-founder-provisioning.md` Phase 1 (warn-don't-block, ADR-015).
  *
  * ⚠️ Why this must exist at the UI level, not as a registry test: `apps/nebula-studio-ui` has **zero
  * test files, no test script, no `vue-tsc`**, and is the sole `SKIP_PACKAGES` entry in
@@ -65,7 +65,7 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   // reaches it only by (a) logging in at an ANCESTOR the founder holds — but `refreshCookie` sets
   // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
   // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
-  // question, tracked in tasks/nebula-star-founder-provisioning.md § Phase 2.
+  // question, tracked in tasks/archive/nebula-star-founder-provisioning.md § Phase 2.
   // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
   // The assertions below are the real Phase-1 UI contract and are left intact.
   it.skip('an admin deletes a scope through the confirm screen — the button is LIVE and the row goes', async () => {

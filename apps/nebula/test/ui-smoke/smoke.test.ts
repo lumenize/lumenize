@@ -120,7 +120,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
   // reaches it only by (a) logging in at an ANCESTOR the founder holds — but `refreshCookie` sets
   // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
   // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
-  // question, tracked in tasks/nebula-star-founder-provisioning.md § Phase 2.
+  // question, tracked in tasks/archive/nebula-star-founder-provisioning.md § Phase 2.
   // ⛔ Do NOT unblock by dropping `dev` from the reserved list.
   it.skip('real-email login via the in-UI form → Studio reaches connected + shell renders', async () => {
     const ctx = await browser.newContext();

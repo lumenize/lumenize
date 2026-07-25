@@ -138,7 +138,7 @@ flowchart LR
 3. **Mesh envelopes** (inside the WS): `callee {STAR/GALAXY, scope}` — where `galaxy`/`star` addressing lives. Unchanged.
 
 - **`run_worker_first`:** `["/app/*", "/gateway/*", "/auth/*", "/_version"]`; everything else → Assets → Studio. `/app/*` is Galaxy-served, so the built app does its **own** SPA fallback for its client routes.
-- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds here:** `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`, prod + test), the routing-contract test, Studio's vite `base`.
+- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds here:** `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`, prod + test), the routing-contract test, Studio's vite `base`.
 - **`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, [entrypoint.ts:61](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
 - **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
@@ -240,6 +240,36 @@ Chat's old Phase 3, **simplified**. Streaming is **already built and stays**: `s
 - **Cancel lives on the streaming response**, not the compose box. **Who** may cancel?
 - How does the model handle **messages arriving mid-stream** (likelier multi-user than in Claude Code)?
 - **Who may TRIGGER a Nebula reply/codegen** (M4) — **any chat participant** (uniform; it spends the *owner's* AI+build). Owner/admin inherently; invited participants via the invite (detour). *Distinct* from the deferred respond-or-not **policy** (LLM judgment on whether to reply) — this is the **authz** to trigger at all; a per-participant budget/rate-limit is a later concern.
+
+### Phase 7 — the Star-signup page, served from Galaxy
+*(Adopted 2026-07-25 from `tasks/archive/nebula-star-founder-provisioning.md`, whose Phases 1–4 shipped. Its remaining two phases were gated on **this** task, so they moved here rather than leaving a mostly-done file open. Everything server-side is BUILT — `claim-star`, the reserved-slug reject, the Turnstile registration, and the star-tier redirect all landed 2026-07-25.)*
+
+**Goal:** a stranger can actually sign up — a real page, on the app's own surface, not a curl command.
+
+⛔ **After Phase 3** (build-box + container-less serving), which is what gives Galaxy a serving surface at all: Galaxy has **no `fetch` handler** today (the only HTTP surfaces in `apps/nebula/src` are `entrypoint.ts` and `dev-container.ts`). Building signup first would mean standing up a serving surface *for signup alone* — the interim this repo keeps paying to unlearn.
+
+**Where, and why it is load-bearing:** the page is served from **Galaxy**, at **`/app/{u}.{g}`**. Signup is necessarily galaxy-scoped (the star does not exist yet), and under this task's pinned routing (`run_worker_first: ["/app/*", "/gateway/*", "/auth/*", "/_version"]`) a **bare** `{u}.{g}` matches no worker-first prefix — it falls through to Assets and renders the **Studio SPA**, the control plane a stranger must never reach. Two segments under the existing `/app/*` prefix needs no new route: `/app/{u}.{g}` = signup/landing · `/app/{u}.{g}.{s}` = a tenant's instance · `/studio/{u}.{g}` = authoring. ⚠️ **Do NOT build it inside `nebula-studio-ui`** — that is the user-developer control plane.
+
+🔒 **The star-tier redirect is already built and tested** (`consumeAndLogin` branches on the *token's* tier: star → `/app/{scope}`, every other tier rides `NEBULA_AUTH_REDIRECT`). It had to ship with `claim-star` because it bakes into every emailed link and no later UI work can correct a link already sent. It matters *here* because without it a founder clicks their claim link and lands in the Studio control plane instead of their own app. This phase builds only the **rendered page** at that destination.
+
+**Success (capable-of-failing)** — rendered-page assertions only:
+- **(`ui-smoke`)** A stranger completes signup **through the rendered page at `/app/{u}.{g}`** and lands authenticated on the Galaxy-served app surface — **not** the Studio SPA. Assert the concrete path, since a bare `{u}.{g}` falling through to Assets is exactly the failure.
+- **(`ui-smoke`)** The Turnstile widget is present and enforced on the rendered form (the server-side gate is already in `TURNSTILE_ENDPOINTS`). ⚠️ Provisioning the real widget is a Cloudflare-dashboard human step owned by [on-hold/turnstile-on-in-prod.md](on-hold/turnstile-on-in-prod.md) Phase 0; **locally this passes now** — `turnstile-canary` injects the `1x0000…AA` test key.
+- ⚠️ **Both criteria need the lane shown to have RUN, not `↓ skipped`** — record real `npx vitest run --project ui-smoke` output.
+
+### Phase 8 — audit upward visibility (LAST)
+*(Also adopted from the archived star-founder file. Deliberately last: run it before the collapse and it audits the **5** bare `@mesh()` methods on `galaxy.ts` + `universe.ts`, marks itself done, and leaves the **12** this task folds in from `dev-studio.ts` unaudited — with nothing left to re-trigger it.)*
+
+**Goal:** every non-admin `@mesh()` on the collapsed Galaxy/Universe is deliberately reachable by an untrusted descendant, with the reason written down **in the code**.
+
+**Background.** A Star sees only what it needs, and the control is the `@mesh` guard per method — `@mesh()` vs `@mesh(requireAdmin)`. No new gating mechanism. A star-scoped caller is admitted to its ancestors by `enforceScopeReach`'s tenant branch. Today's allocation is **incidental, not deliberate**: those methods were marked `@mesh()` when "non-admin" meant *another member of the same org*, not *a stranger who self-signed-up five minutes ago*. The ontology reads (`getLatestOntologyVersion` / `getOntologyVersion` / `listOntologyVersions`) are **not a risk** — the app's ontology is what every tenant gets by signing up anyway. The two needing a **content** audit are `getGalaxyConfig` and `getUniverseConfig`: confirm nothing app-developer- or universe-owner-private lives there, and that nothing is *expected* to later. If something is, move that field or split the method — do **not** narrow the tenant branch.
+
+**Success (capable-of-failing):**
+- ⚠️ **Regenerate the inventory** (`grep -rn '@mesh()' apps/nebula/src/galaxy.ts apps/nebula/src/universe.ts`) — do not trust any table.
+- ⚠️ **The question is "may an untrusted descendant INVOKE this?", not only "may it read this?"** The 12 methods folded in from `dev-studio.ts` include data-plane **writes** — `transaction`, `subscribe`, `subscribeQuery`, `dagTree()`, and three broadcast handlers that delete subscriber rows — gated not by the decorator but by the **per-op DAG check**. Forcing a read-shaped label onto those produces a false justification; refusing them with `requireAdmin` breaks the pinned chat-participant model.
+- **Mechanized so it cannot be rubber-stamped: the justification goes ON THE DECORATOR LINE** — `@mesh() // tenant-readable: <reason>` or `@mesh() // dag-gated: per-op authorization in DagTree` — so `grep -rn '@mesh()' <files> | grep -vE 'tenant-readable:|dag-gated:'` **prints nothing**. ⚠️ A JSDoc line *above* the decorator is not checkable: a bare `grep '@mesh()'` matches every site unconditionally, so any output satisfies it, and no fixed-context grep works either (some sites carry a 5-line JSDoc, others none).
+- So `dag-gated:` isn't a rubber stamp either: **a star-tier caller holding no Galaxy DAG grant is REJECTED by `Galaxy.transaction` / `subscribeQuery`** post-collapse.
+- Discharges **ADR-015 clause (3)** (admission ≠ authority) honestly, with two marker forms rather than one forced label.
 
 ### Phase 6 (cleanup) — retire the container node type + docs + ADR (AFTER green)
 **Sequenced LAST — do not start until Phases 1–5 are green:** don't rip out the old container stack until the plain-`NebulaDO` Galaxy is proven.

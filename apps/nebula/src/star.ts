@@ -120,7 +120,7 @@ export class Star extends NebulaDO {
    * satisfies `hasAdminOverScope` on their own Star, so they self-seed root on first authenticated
    * touch with zero new code. A "founder preference" was considered and cut: it would buy only the
    * covering-admin-touches-first race (benign and self-healing) at the cost of an `Identities`
-   * migration and a JWT-payload change. Design: tasks/nebula-star-founder-provisioning.md.
+   * migration and a JWT-payload change. Design: tasks/archive/nebula-star-founder-provisioning.md.
    */
   onBeforeCall() {
     super.onBeforeCall() // locks the active scope (aud) on first call

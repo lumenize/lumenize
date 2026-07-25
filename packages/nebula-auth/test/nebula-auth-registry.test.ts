@@ -117,7 +117,7 @@ describe('NebulaAuthRegistry', () => {
   //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO founder. The only
   //                 founderless path, which is exactly what `{u}.{g}.dev` needs.
   // The open claim is safe because a founder's exact-star pattern is inert above its own Star
-  // (ADR-015: authority flows strictly downward) — see tasks/nebula-star-founder-provisioning.md.
+  // (ADR-015: authority flows strictly downward) — see tasks/archive/nebula-star-founder-provisioning.md.
 
   // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
   describe('createGalaxy', () => {

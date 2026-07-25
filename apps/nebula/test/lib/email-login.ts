@@ -368,7 +368,7 @@ export async function refreshAccessToken(
  * ⚠️ Logging in *directly* at a fresh star is a different thing, and `create-star` cannot get you
  * there — it writes a `Scopes` row with no founder, so there is no identity to log in as. The path
  * that can is the open `claim-star` self-signup, which mints an `isAdmin` founder at the star scope
- * and emails it a claim link (`tasks/nebula-star-founder-provisioning.md`). Re-ground this helper
+ * and emails it a claim link (`tasks/archive/nebula-star-founder-provisioning.md`). Re-ground this helper
  * onto it rather than climbing from the universe (that task's Phase 4).
  *
  * @param scope 1–3 dot-separated segments (`u`, `u.g`, or `u.g.s`). Each level below the
