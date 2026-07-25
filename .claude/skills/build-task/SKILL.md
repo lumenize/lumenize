@@ -9,6 +9,8 @@ The fan-out at "go". Its reliable win is **verification**, not parallelizing the
 
 **No parallel implementation, no worktrees.** An earlier draft offered worktree-isolated parallel implementation for "independent" phases. Deliberately removed: in this repo's solo, long-running-branch workflow, merge/conflict cost exceeds any transcription speedup. Don't reintroduce it. (Worktree isolation remains fine for self-contained *experiments* whose results are captured in documents and won't have conflicts if merged — see `workflow.md` § Experiments.)
 
+> ⏳ **TEMPORARY — remove when pre-alpha ships.** Until pre-alpha ships there is **one wipe+redeploy gate at the very end**, not a per-task one (see the `task-files-neednt-be-deployable` memory). So do **not** fail a phase or task for leaving the system non-deployable, or for depending on a later pre-alpha task file. We still test our work — but **testing may be staged across files**: a file may land most of its coverage and defer the rest to a later (still pre-alpha) file, **provided that later file carries explicit acceptance criteria for the deferred coverage** (an `it.skip` + pointer, or a named criterion there). When pre-alpha ships, delete this block and restore full per-task deployable-and-tested expectations.
+
 ## Usage
 `/build-task <path-to-task-file>` (defaults to the active task file).
 
@@ -59,7 +61,7 @@ const verdicts = await parallel(PHASES.map(p => () =>
     `capable-of-failing and correctness by READING the code (and the recorded mutation-validation results in ` +
     `the task file), not by executing. If a criterion is only confirmable by execution, say so in your verdict. ` +
     `Pass ONLY if it satisfies its success criteria: ${p.successCriteria}. Also flag any .claude/rules/ violations ` +
-    `and any divergence from the task file. Default conforms=false if uncertain.\n\nPhase goal: ${p.goal}\n\n` +
+    `and any divergence from the task file. ⏳ PRE-ALPHA EXCEPTION: do NOT flag the phase for leaving the system non-deployable, for depending on a later pre-alpha task file, or for coverage deliberately deferred to a later file that carries acceptance criteria for it — those conform. Default conforms=false if uncertain.\n\nPhase goal: ${p.goal}\n\n` +
     `TASK FILE (+ linked docs):\n${TASK}`,
     { label: `verify:${p.id}`, phase: 'Verify', schema: VERDICT }).then(v => ({ phase: p.id, verdict: v }))))
 return {

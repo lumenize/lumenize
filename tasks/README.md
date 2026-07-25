@@ -95,6 +95,14 @@ If you need a count for scoping ("this is small, ~5 files"), include it as comme
 
 > "Migrate all files matching `grep -l 'X' test/` (\~5 files at time of writing)."
 
+**Anchor the inventory on the STRUCTURE you are changing, not on a string literal today's implementation happens to contain.** A string-keyed grep silently misses every site that expresses the same behavior a different way — and it misses them *invisibly*, so the inventory reads complete. Bit three times in one session (2026-07-25):
+
+- `grep blockedBy` (renaming a deletion-plan field) missed a test asserting the removed behavior **by HTTP status** (`expect(resp.status).toBe(409)`) — no occurrence of the field name anywhere in it. Caught only because the test went red during the build.
+- `grep error_description` (converting an error shape) missed **plain-text** `new Response('Not Found', {status:404})` bodies, a **bodyless 302** redirect carrying `?error=`, and a **cross-package** CORS 403 — i.e. three of the carriers the task existed to unify.
+- `grep "error_description\|error:"` over a test dir returned **exactly one path** — a generated `.d.ts` with no assertions — because every real assertion was dot-access (`body.error`). The bullet written to prevent a false-confidence trap *was* the trap.
+
+⇒ Prefer a criterion phrased over the construct: *"every `Response` constructed in `src/` with a 4xx/5xx status either carries `issues[]` or is one of the named carve-outs"* beats *"`grep -rn 'error_description' src/` returns nothing."* When only a string grep is practical, pair it with a second inventory over the **behavior** (statuses asserted, constructors called) and say what each one cannot see.
+
 ### Anchor code citations on symbol + quoted fragment, NOT line numbers
 
 Same failure mode as counts, one level down. A `file.ts:734` reference into source **rots before `/build-task` runs** — and worse than a stale count, a wrong line number can point at *different, plausible* code, turning a "pin this, don't delete it" instruction into a booby trap. (Bit 2026-07-21: a 🚨 safety pin read `registry:735-737`; a sweep commit **in the same session** shifted the real target to `:742-745`, and `:735-737` had become the tail of an unrelated SQL query. A cold implementer would pin the decoy and delete the guard the pin existed to protect — the exact catastrophic regression it warned against. The drift was **not uniform** — `+8`, `+10`, `+3`, `+1`, and two *exact* — so there is no mechanical "add N" fix either.)
