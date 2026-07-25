@@ -3,7 +3,7 @@
 **Date**: 2026-07-21
 **Status**: Proposed — pending Larry's read
 **Deciders**: Larry
-**Evidence**: `hasAdminOverScope` (`packages/nebula-auth/src/parse-id.ts`) — the single expression of both halves; the guards that consume it (`apps/nebula/src/nebula-do.ts` `requireAdmin`/`enforceScopeReach`, `dag-tree.ts` `requirePermission`, the subscribe-time writers); the deletion plan (`packages/nebula-auth/src/nebula-auth-registry.ts` `#computeDeletionPlan`/`#otherUsers`); the two violations and their fixes in `tasks/nebula-confine-admin-bypass.md` and `tasks/nebula-star-founder-provisioning.md`.
+**Evidence**: `hasAdminOverScope` (`packages/nebula-auth/src/parse-id.ts`) — the single expression of both halves; the guards that consume it (`apps/nebula/src/nebula-do.ts` `requireAdmin`/`enforceScopeReach`, `dag-tree.ts` `requirePermission`, the subscribe-time writers); the deletion plan (`packages/nebula-auth/src/nebula-auth-registry.ts` `#computeDeletionPlan`/`#affectedUsers`). Two violations motivated it, both since fixed: an **upward** leak, where the bare `access.admin` bit was treated as authority anywhere rather than only where the pattern covers; and a **downward veto**, where the deletion plan let a descendant scope's members refuse an admin above them.
 
 ## Context
 

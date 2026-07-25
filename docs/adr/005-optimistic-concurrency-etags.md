@@ -3,7 +3,7 @@
 **Date**: 2026-06-11 (records the concurrency commitment, in force since Resources shipped)
 **Status**: Accepted
 **Deciders**: Larry
-**Evidence**: `apps/nebula/src/resources.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), `tasks/nebula-frontend.md` § 5.3.7 + `tasks/archive/factory-conflict-outcome.md` (client outcome state machine)
+**Evidence**: `apps/nebula/src/resources.ts` (eTag checks, monotonic pre-checks, in-transaction idempotency), `website/docs/nebula/resources.md` (conflict handlers), the frontend conflict-outcome work (archived) (client outcome state machine)
 
 ## Context
 
@@ -36,6 +36,6 @@ Writers are browsers with debounced auto-submit (and LLM agents) that disconnect
 - User-developers see outcomes and handlers; eTags stay under the hood of the frontend factory.
 
 ### Negative
-- Replay idempotency is load-bearing on every write path; a path that misses the `newETag` short-circuit turns honest retries into spurious "already exists"/conflict errors. Create-replay is test-verified, and the full replay matrix is tracked in `tasks/nebula-frontend.md` § Phase 5.3.8.
+- Replay idempotency is load-bearing on every write path; a path that misses the `newETag` short-circuit turns honest retries into spurious "already exists"/conflict errors. Create-replay is test-verified; the full replay matrix is tracked with the frontend work.3.8.
 - Replay detection recognizes "the same transaction, retried" but not "two writers creating the same resource" — distinct concurrent creates carry different `newETag`s, so the loser surfaces as a failure the client surface must disambiguate. An inherent limit of eTag-as-idempotency, not a bug.
 - Replay protection depends on `newETag` *stability*: the same value must be reused across retry attempts. Regenerating per attempt downgrades a would-be replay into a conflict/already-exists outcome — still safe (forward-only eTags prevent silent double-commit), just noisier. The TS signature makes omission fail fast at compile time; the frontend factory owns stability for Nebula UIs.

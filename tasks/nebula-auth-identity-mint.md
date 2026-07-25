@@ -15,6 +15,22 @@
 
 The invitee then reaches everything through the **already-built scope-admin bypass** — no grant code, no new mechanism. Recognizing one human under *two different emails* is explicitly **out of scope** (see the on-hold file); the interim convention is **one email per human**, which is sufficient for every pre-alpha case.
 
+## Closing sweep — review every `it.skip` in the Nebula suite
+
+**Do this at the END of this file, before the collapse starts** (Larry, 2026-07-25). The suite should be as clean as possible going in, and this file is the one that moves the needle: **inventory taken 2026-07-25 — 14 skipped tests, of which this file unblocks 5.**
+
+| Blocker | Count | Where |
+|---|---|---|
+| **An identity inside a `.dev` scope** — ⬅️ **THIS FILE** | **5** | `ui-smoke/smoke.test.ts` (3), `ui-smoke/delete-scope.test.ts` (2) |
+| The Galaxy collapse | 8 | 5 browser benchmarks + `chromium/conflict-modal` (all on the unbuilt prod ontology pull); `ui-smoke/recover.test.ts`; `baseline/confine-dag-plane.test.ts` (needs a non-leaf DagTree host) |
+| Independent | 1 | `nebula-auth/identity-authority.test.ts` — the m6 `claimUniverse` single-flight |
+
+**Why this file clears the 5:** the ui-smoke lane logs in *at* `test-u0.test-g0.dev`, and a `.dev` star is founderless by construction — `create-star` mints no founder and `claim-star` refuses the reserved slug, so no `Identities` row (and therefore no refresh cookie at `/auth/{u}.{g}.dev/`) can exist there. `issueInvites` is already generic on scope, so inviting an admin **into the `.dev` scope** mints exactly that row. Un-skip all 5, delete `delete-scope.test.ts`'s `LANE_BLOCKED_ON_DEV_SCOPE_LOGIN` flag, and record real `npx vitest run --project ui-smoke` output showing they **ran** (not `↓ skipped`).
+
+⚠️ **Take the inventory with a STRUCTURAL grep, not a string one** (`tasks/README.md` § Inventories): `grep -rnE '^\s*(it|test|describe)\.skip\('`. A plain `grep 'it.skip'` reports 21, because four matches are the words *"no `it.skip` placeholders remain here"* inside comments — the exact trap that rule exists for, and it caught us on our own rule.
+
+⚠️ **A skip that survives must have its blocker RE-CONFIRMED, not just re-read.** Several comments here were accurate when written and wrong later (the ui-smoke lane's said `claim-star` would unblock it; `claim-star` refuses `.dev`). Re-derive each blocker against current code before leaving it skipped.
+
 ## Frame — what exists, what's missing
 Built already:
 - **`/invite`** → `handleInvite` ([worker-token.ts:277](../packages/nebula-auth/src/worker-token.ts)) → `issueInvites` ([nebula-auth-registry.ts:475](../packages/nebula-auth/src/nebula-auth-registry.ts)): an admin issues invites into a scope — mints the invitee `Identity` + a single-use hashed `InviteTokens` row + emails an `accept-invite` link (test mode returns the raw link). **Admin-over-scope gated** at [worker-token.ts:283](../packages/nebula-auth/src/worker-token.ts), after the router's JWT + `matchAccess(pattern, instanceName)` check ([router.ts:319](../packages/nebula-auth/src/router.ts)).
