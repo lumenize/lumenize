@@ -31,7 +31,7 @@ import { Browser } from '@lumenize/testing';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
@@ -115,11 +115,11 @@ describe('echo latency (cold-start anatomy)', () => {
     const label = process.env.BENCH_BASE_URL ? 'deployed' : 'local';
     console.log(`[echo-bench] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
     const ctx = browser.context(baseUrl);
     const client = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       activeScope: galaxyScope,
       appVersion: 'v1',
       fetch: browser.fetch,

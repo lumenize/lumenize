@@ -23,7 +23,7 @@
 
 import { Browser, type Context } from '@lumenize/testing';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 export interface MultiClientSetupArgs {
   browser: Browser;
@@ -66,13 +66,13 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
   if (M < 1) throw new Error(`setupMultiClient: M must be ≥ 1, got ${M}`);
 
   // Step 1: Bootstrap auth once. Cookies land on the Browser.
-  await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email, testToken });
+  const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email, testToken });
 
   // Step 2: Mint one access JWT via the same refresh endpoint NebulaClient
   // uses internally. We extract `sub` from the JWT payload so we can build
   // explicit instanceNames for each client.
   const refreshResponse = await browser.fetch(
-    `${baseUrl}/auth/${galaxyScope}/refresh-token`,
+    `${baseUrl}/auth/${universeScope}/refresh-token`,
     {
       method: 'POST',
       credentials: 'include',
@@ -99,7 +99,7 @@ export async function setupMultiClient(args: MultiClientSetupArgs): Promise<Mult
     const tabId = crypto.randomUUID().slice(0, 8);
     const client = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       activeScope,
       appVersion: 'v1',
       fetch: browser.fetch,

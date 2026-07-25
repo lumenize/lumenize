@@ -37,7 +37,7 @@
 import { describe, it, inject, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const DELAY_MS = 200;
@@ -92,7 +92,7 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
     const galaxyScope = uniqueGalaxy();
 
     // Step 1: bootstrap auth
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     // Step 2: discover the Worker's colo (= Gateway colo for our consistent client)
     const coloRes = await browser.fetch(`${baseUrl}/bench/colo`);
@@ -119,7 +119,7 @@ describe.runIf(process.env.BENCH_BASE_URL)('Phase 6 cross-region: same-DC vs EU 
     const ctx = browser.context(baseUrl);
     const client = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       activeScope: galaxyScope,
       appVersion: 'v1',
       fetch: browser.fetch,

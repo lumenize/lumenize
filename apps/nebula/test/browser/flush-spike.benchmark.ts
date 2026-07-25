@@ -52,7 +52,7 @@
 import { describe, it, inject, expect } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { HarnessNebulaClient } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const DELAY_MS = 200;
@@ -86,12 +86,12 @@ describe('flush-spike', () => {
 
     console.log(`[flush-spike] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     const ctx = browser.context(baseUrl);
     const client = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       // Operate at the star (aud must equal it — structural guard, T6), not the galaxy.
       activeScope: star,
       appVersion: 'v1',

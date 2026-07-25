@@ -175,6 +175,110 @@ export async function requestMagicLink(options: {
 }
 
 /**
+ * POST `claim-star` — the open Star self-signup. Mints an `isAdmin` founder AT the star scope and
+ * issues its claim link in one call, so unlike `create-star` there IS an identity to log in as
+ * afterwards. Returns the link in test mode, `undefined` in email mode, or `null` on 409 (already
+ * claimed — fall through to an ordinary login for the existing identity).
+ *
+ * ⚠️ Requires the parent galaxy to exist, and refuses reserved environment slugs (`dev`). A
+ * `{u}.{g}.dev` workspace is founderless by construction — provision that with `create-star` and
+ * drive it from a covering admin instead.
+ */
+export async function requestStarClaim(options: {
+  baseUrl: string; universeGalaxyStarId: string; email: string;
+  fetchImpl?: FetchLike; bypassToken?: string;
+}): Promise<string | null | undefined> {
+  const { baseUrl, universeGalaxyStarId, email, fetchImpl = fetch, bypassToken } = options;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (bypassToken) headers[BYPASS_HEADER] = bypassToken;
+  const res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/auth/claim-star`, {
+    method: 'POST', headers, body: JSON.stringify({ universeGalaxyStarId, email }),
+  });
+  if (res.status === 409) return null;
+  if (!res.ok) {
+    throw new Error(`claim-star ${res.status} for ${universeGalaxyStarId}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return ((await res.json()) as { magicLinkUrl?: string }).magicLinkUrl;
+}
+
+/**
+ * Provision a tenant Star and log in AS ITS FOUNDER — a real, star-scoped session whose refresh
+ * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScopePattern`.
+ *
+ * This is what {@link provisionAndLogin} cannot give you. That helper climbs: it claims the
+ * *universe* and returns a universe-founder token whose `{u}.*` reach merely *covers* the star. The
+ * difference is not cosmetic — a universe founder is admin everywhere above the star too, so any test
+ * asserting confinement passes vacuously under it (ADR-015). Use this wherever the fixture means "an
+ * admin **at** this star".
+ *
+ * The universe and galaxy above still have to exist, and only their own admin may create them, so
+ * steps 1–2 remain the climb. Step 3 is the new capability: `claim-star` mints the founder and emails
+ * the link in one open call.
+ *
+ * ⚠️ `star` must NOT be a reserved environment slug (`dev`) — see {@link requestStarClaim}.
+ */
+export async function provisionStarFounder(
+  options: Omit<EmailLoginOptions, 'authScope'> & { scope: string },
+): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
+  const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout } = options;
+  const email = options.email ?? uniqueTestEmail();
+  const origin = baseUrl.replace(/\/$/, '');
+  const parts = scope.split('.');
+  if (parts.length !== 3) {
+    throw new Error(`provisionStarFounder needs a 3-segment star scope, got "${scope}"`);
+  }
+  const [universe, galaxy] = parts;
+  const useEmail = (options.channel ?? 'email') === 'email';
+
+  // 1–2. The universe + galaxy above the star, provisioned by the universe founder (a DIFFERENT
+  //      identity from the star founder — which is the point: the star founder is a stranger).
+  await provisionAndLogin({ ...options, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
+
+  // 3. Claim the star as the tenant. Open — no admin in the loop, no token needed.
+  const waiter = useEmail
+    ? waitForEmail({ testToken, instance: scope, to: email, timeout: timeout ?? 60_000 })
+    : undefined;
+  let session: EmailSession;
+  try {
+    const claimed = await requestStarClaim({
+      baseUrl: origin, universeGalaxyStarId: scope, email, fetchImpl, bypassToken,
+    });
+    // 409 — already claimed (a second Browser for the same founder). An ordinary login works,
+    // because unlike a `create-star` scope this one HAS an identity.
+    const rawLink = claimed === null
+      ? await requestMagicLink({ baseUrl: origin, authScope: scope, email, fetchImpl, bypassToken })
+      : claimed;
+
+    let link: string;
+    if (useEmail) {
+      link = pointLinkAt(origin, extractMagicLink(await waiter!.emailPromise));
+    } else {
+      if (!rawLink) {
+        throw new Error(
+          "channel 'test-mode' but no magicLinkUrl came back — " +
+          'NEBULA_AUTH_TEST_MODE must be "true" on the worker for this channel',
+        );
+      }
+      link = pointLinkAt(origin, rawLink);
+    }
+    const linkRes = await fetchImpl(link, { redirect: 'manual' });
+    const refreshToken = cookieValue(setCookieHeaders(linkRes), 'refresh-token');
+    if (!refreshToken) {
+      throw new Error(
+        `claim-star magic-link GET (${linkRes.status}) set no refresh-token cookie — ` +
+        `Location=${linkRes.headers.get('Location') ?? '(none)'}`,
+      );
+    }
+    session = { refreshToken, authScope: scope, email, savedAt: new Date().toISOString() };
+  } finally {
+    waiter?.cleanup();
+  }
+
+  const { accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl);
+  return { accessToken, sub, session };
+}
+
+/**
  * Log in for real: POST the magic-link request → catch the email via the
  * email-test Worker → GET the link → capture the `refresh-token` cookie.
  *

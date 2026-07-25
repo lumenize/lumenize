@@ -34,7 +34,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient } from './harness-client';
 import { setupMultiClient } from './multi-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
@@ -107,7 +107,21 @@ function fmt(n: number, digits = 2): string {
 }
 
 describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
-  it('measures M=2 push delivery (one originator, one subscriber)', async () => {
+  // ⏭️ SKIPPED 2026-07-25 — blocked on an UNBUILT production capability, not on auth and not on
+  // anything in this benchmark. The auth half of this lane was fixed the same day (re-grounded onto
+  // `claim-star`), which is what lets it now run for seconds and fail at the ontology step instead of
+  // dying in bootstrap.
+  //
+  // The setup appends the ontology to the GALAXY, then transacts on the STAR — and nothing carries it
+  // across: `grep -rn 'getLatestOntologyVersion' apps packages --include='*.ts'` matches only
+  // `galaxy.ts` (the definition) and test code, and `Star` makes no `lmz.call('GALAXY', …)` at all.
+  // The one built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`), whose JSDoc
+  // calls itself "the dev analog of the prod lazy-pull from Galaxy (Flow 2b)". So the Star's index
+  // stays empty and the warmup gets `{kind:'ontology-stale', currentVersion:''}` — correctly.
+  // `echo.benchmark.ts` still runs because it touches no ontology.
+  //
+  // Un-skip when the prod lazy-pull lands. Assertions intact.
+  it.skip('measures M=2 push delivery (one originator, one subscriber)', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const browser = new Browser();
@@ -117,13 +131,13 @@ describe('fanout latency — Phase 1 (single-subscriber baseline)', () => {
 
     console.log(`[fanout-bench Phase 1] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     // Register ontology + warm up the bundle via a one-off transaction.
     const ctx = browser.context(baseUrl);
     const setupClient = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       activeScope: galaxyScope,
       appVersion: ONTOLOGY_VERSION,
       fetch: browser.fetch,
@@ -473,7 +487,21 @@ function summarizeRampStep(step: RampStepResult): {
 }
 
 describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)', () => {
-  it('measures fanout shape across N values', async () => {
+  // ⏭️ SKIPPED 2026-07-25 — blocked on an UNBUILT production capability, not on auth and not on
+  // anything in this benchmark. The auth half of this lane was fixed the same day (re-grounded onto
+  // `claim-star`), which is what lets it now run for seconds and fail at the ontology step instead of
+  // dying in bootstrap.
+  //
+  // The setup appends the ontology to the GALAXY, then transacts on the STAR — and nothing carries it
+  // across: `grep -rn 'getLatestOntologyVersion' apps packages --include='*.ts'` matches only
+  // `galaxy.ts` (the definition) and test code, and `Star` makes no `lmz.call('GALAXY', …)` at all.
+  // The one built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`), whose JSDoc
+  // calls itself "the dev analog of the prod lazy-pull from Galaxy (Flow 2b)". So the Star's index
+  // stays empty and the warmup gets `{kind:'ontology-stale', currentVersion:''}` — correctly.
+  // `echo.benchmark.ts` still runs because it touches no ontology.
+  //
+  // Un-skip when the prod lazy-pull lands. Assertions intact.
+  it.skip('measures fanout shape across N values', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const browser = new Browser();
@@ -488,12 +516,12 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
       `[fanout-bench Phase 3] ${label} — ${baseUrl} — galaxy ${galaxyScope} — N values [${RAMP_N_VALUES.join(',')}] — pre-creating ${M_MAX} clients`,
     );
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     // Inline the multi-client bootstrap (mirroring throughput-multi.benchmark.ts)
     // so we can pre-create M_MAX clients and slice subsets per N step.
     const refreshResponse = await browser.fetch(
-      `${baseUrl}/auth/${galaxyScope}/refresh-token`,
+      `${baseUrl}/auth/${universeScope}/refresh-token`,
       {
         method: 'POST',
         credentials: 'include',
@@ -513,7 +541,7 @@ describe('fanout latency — Phase 3 (N-subscriber ramp, Lumenize Gateway 1:1)',
       const tabId = crypto.randomUUID().slice(0, 8);
       const client = new HarnessNebulaClient({
         baseUrl,
-        authScope: galaxyScope,
+        authScope: universeScope,
         activeScope: galaxyScope,
         appVersion: ONTOLOGY_VERSION,
         fetch: browser.fetch,

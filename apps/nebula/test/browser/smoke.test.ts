@@ -28,7 +28,7 @@
 import { describe, it, expect, inject, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapStarFounder } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
@@ -98,7 +98,7 @@ describe('browser harness', () => {
     const browser = new Browser();
     const scope = uniqueStar();
 
-    await bootstrapAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarFounder({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     expect(browser.getCookie('refresh-token'), 'refresh cookie should be set').toBeDefined();
 
@@ -123,7 +123,7 @@ describe('browser harness', () => {
     const scope = uniqueStar();
 
     // 1. Bootstrap admin via real magic-link → cookie captured
-    await bootstrapAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarFounder({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     // 2. Construct NebulaClient — its internal refresh() uses browser.fetch
     //    (carries the cookie) to mint access JWTs. WebSocket comes from

@@ -15,7 +15,7 @@
  * NEBULA_AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
  */
 
-import { waitForEmail, extractMagicLink } from '@lumenize/email-test/client';
+import { provisionAndLogin, provisionStarFounder } from '../lib/email-login';
 import type { Browser } from '@lumenize/testing';
 
 interface BootstrapAdminOptions {
@@ -32,67 +32,52 @@ interface BootstrapAdminOptions {
 }
 
 /**
- * End-to-end magic-link bootstrap. After this resolves, the Browser's cookie
- * jar holds the refresh cookie scoped to `/auth/${scope}/`, and the caller
- * can construct a `NebulaClient({ baseUrl, fetch: browser.fetch, ... })`
- * which will mint access JWTs via the real refresh-token flow.
+ * End-to-end bootstrap. After this resolves, the Browser's cookie jar holds the refresh cookie
+ * scoped to `/auth/${scope}/`, and the caller can construct a
+ * `NebulaClient({ baseUrl, fetch: browser.fetch, … })` which mints access JWTs via the real
+ * refresh-token flow.
  *
- * ⚠️ **STALE PREMISE — this no longer bootstraps anything on its own (2026-07-21).** It used to rely
- * on "the first email registered at a NebulaAuth instance becomes that instance's founder/admin",
- * but that founder-minting-on-login path was DELIBERATELY REMOVED: it was the stranger-claims-a-child
- * escalation, and identity mint is now authority-point-only (Universe/Star claim + invite issuance) —
- * `nebula-auth-registry.ts` says outright "NEVER call from a login path". So at a scope with no
- * pre-existing identity, the magic link is minted and emailed fine and then REJECTED on consumption:
- * `getAndVerifyIdentity` returns null → `302 /app?error=invalid_token`, no cookie.
+ * **Re-grounded onto `claim-star` (2026-07-25).** It used to POST `email-magic-link` and rely on
+ * "the first email registered at a scope becomes its founder" — a founder-minting-on-login path that
+ * was deliberately removed (identity mint is authority-point-only; the registry says outright *"NEVER
+ * call from a login path"*). Between that removal and `claim-star` landing, this helper was simply
+ * broken: the link was issued and emailed fine, then rejected on consumption — `getAndVerifyIdentity`
+ * → null → `302 /app?error=invalid_token`, **no cookie** — which is what reddened this whole lane.
  *
- * The replacement (open Star self-signup with a real founder) is designed and pinned but NOT BUILT —
- * `tasks/nebula-star-founder-provisioning.md`. Until it lands, a local real login only works where an
- * identity already exists. This is the same "expectedly red mid-turnover" state the baseline test-app
- * header notes. (8th site of the stale-signup-design family swept in `0c2989d`.)
+ * `provisionStarFounder` closes it by walking the path a real tenant walks: the universe + galaxy are
+ * provisioned by their own founder, then the **open** `claim-star` mints this email as the star's
+ * founder and emails the claim link. Still ADR-009 rung 1 — a real send, received by the deployed
+ * `email-test` Worker, no test-mode bypass.
+ *
+ * ⚠️ The resulting identity is an **exact-star** founder, not a universe admin with `{u}.*` reach.
+ * That is deliberate and is the higher-fidelity fixture (a confinement assertion passes vacuously
+ * under a universe admin), but it means this helper cannot bootstrap a scope ABOVE the star, and it
+ * cannot bootstrap a reserved `{u}.{g}.dev` workspace — those are founderless by construction.
+ *
+ * For a galaxy- or universe-scoped fixture use {@link bootstrapUniverseAdmin} instead.
  */
-export async function bootstrapAdmin(options: BootstrapAdminOptions): Promise<void> {
+export async function bootstrapStarFounder(options: BootstrapAdminOptions): Promise<void> {
   const { browser, baseUrl, scope, email, testToken } = options;
+  await provisionStarFounder({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
+}
 
-  // 1. Set up email listener BEFORE triggering the send.
-  //    `instance: scope` makes the email-test DO route only this test's
-  //    magic-link email to this listener (via the `X-Lumenize-Auth-Instance`
-  //    header that `NebulaEmailSender.magicLinkHeaders` stamps on every
-  //    magic-link email). Concurrent tests with different scopes don't collide.
-  const waiter = waitForEmail({ testToken, instance: scope });
-
-  try {
-    // 2. Request magic link
-    const magicLinkResponse = await browser.fetch(
-      `${baseUrl}/auth/${scope}/email-magic-link`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      },
-    );
-    if (!magicLinkResponse.ok) {
-      throw new Error(`email-magic-link request failed: ${magicLinkResponse.status} ${await magicLinkResponse.text()}`);
-    }
-
-    // 3. Wait for the email to arrive at the deployed email-test Worker
-    const receivedEmail = await waiter.emailPromise;
-    if (receivedEmail.to?.[0]?.address !== email) {
-      throw new Error(`Email recipient mismatch: expected '${email}', got '${receivedEmail.to?.[0]?.address}'`);
-    }
-
-    // 4. Extract magic link URL from the email HTML
-    const magicLinkUrl = extractMagicLink(receivedEmail);
-
-    // 5. Click the magic link — NebulaAuth sets the refresh cookie and 302s
-    //    to NEBULA_AUTH_REDIRECT (e.g. '/app'). We stop at the 302 because
-    //    `/app` is a frontend route that doesn't exist on wrangler-dev (the
-    //    real frontend would handle it). Browser captures Set-Cookie from
-    //    the 302 response itself, so the cookie jar is populated either way.
-    const clickResponse = await browser.fetch(magicLinkUrl, { redirect: 'manual' });
-    if (clickResponse.status !== 302) {
-      throw new Error(`Magic-link click expected 302, got ${clickResponse.status} for ${magicLinkUrl}`);
-    }
-  } finally {
-    waiter.cleanup();
-  }
+/**
+ * Bootstrap a **universe founder** and provision the tree down to `scope`, leaving the refresh cookie
+ * at `/auth/{universe}/`. Returns the universe scope, which callers pass as their client's
+ * `authScope`. Reach is `{u}.*`, so the client targets any descendant via `activeScope`.
+ *
+ * ⚠️ **This exists because a galaxy cannot be logged into directly.** `create-galaxy` mints no
+ * founder and there is no `claim-galaxy`, so no `Identities` row can ever exist at a 2-segment scope —
+ * meaning no refresh cookie can ever be set at `/auth/{u}.{g}/`. The old helper POSTed
+ * `email-magic-link` there and relied on login-time minting, which was removed as the
+ * stranger-claims-a-child escalation; that is why every galaxy-scoped caller in this lane went red.
+ *
+ * Authenticating at the universe and naming the target in `activeScope` is not a workaround — it is
+ * the shape production uses (`prodLogin` at `nebula-platform`, then refresh at the target).
+ */
+export async function bootstrapUniverseAdmin(options: BootstrapAdminOptions): Promise<string> {
+  const { browser, baseUrl, scope, email, testToken } = options;
+  const universe = scope.split('.')[0];
+  await provisionAndLogin({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
+  return universe;
 }

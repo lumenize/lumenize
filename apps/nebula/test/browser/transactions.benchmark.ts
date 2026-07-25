@@ -56,7 +56,7 @@ import { withCommitStamp } from './bench-commit-stamp';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { OperationDescriptor } from '@lumenize/nebula/client';
 import { HarnessNebulaClient, type DecomposedCallResult } from './harness-client';
-import { bootstrapAdmin } from './auth-bootstrap';
+import { bootstrapUniverseAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
@@ -232,7 +232,21 @@ async function runSequentialBlock(
 }
 
 describe('transactions latency (decomposed)', () => {
-  it('measures ping / warm / cold blocks with hop decomposition', async () => {
+  // ⏭️ SKIPPED 2026-07-25 — blocked on an UNBUILT production capability, not on auth and not on
+  // anything in this benchmark. The auth half of this lane was fixed the same day (re-grounded onto
+  // `claim-star`), which is what lets it now run for seconds and fail at the ontology step instead of
+  // dying in bootstrap.
+  //
+  // The setup appends the ontology to the GALAXY, then transacts on the STAR — and nothing carries it
+  // across: `grep -rn 'getLatestOntologyVersion' apps packages --include='*.ts'` matches only
+  // `galaxy.ts` (the definition) and test code, and `Star` makes no `lmz.call('GALAXY', …)` at all.
+  // The one built install path is the dev-loop PUSH (`DevStudio` → `Star.setOntology`), whose JSDoc
+  // calls itself "the dev analog of the prod lazy-pull from Galaxy (Flow 2b)". So the Star's index
+  // stays empty and the warmup gets `{kind:'ontology-stale', currentVersion:''}` — correctly.
+  // `echo.benchmark.ts` still runs because it touches no ontology.
+  //
+  // Un-skip when the prod lazy-pull lands. Assertions intact.
+  it.skip('measures ping / warm / cold blocks with hop decomposition', async () => {
     const baseUrl = inject('wranglerBaseUrl');
     const testToken = inject('emailTestToken');
     const browser = new Browser();
@@ -243,12 +257,12 @@ describe('transactions latency (decomposed)', () => {
 
     console.log(`[transactions-bench] ${label} — ${baseUrl} — galaxy ${galaxyScope}`);
 
-    await bootstrapAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
+    const universeScope = await bootstrapUniverseAdmin({ browser, baseUrl, scope: galaxyScope, email: ADMIN_EMAIL, testToken });
 
     const ctx = browser.context(baseUrl);
     const client = new HarnessNebulaClient({
       baseUrl,
-      authScope: galaxyScope,
+      authScope: universeScope,
       activeScope: galaxyScope,
       appVersion: 'v1',
       fetch: browser.fetch,
