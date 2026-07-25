@@ -63,12 +63,18 @@ export function uniqueGalaxyScope(): {
  * which a *founder admin* identity can be minted.
  */
 /**
- * Star slugs that are reserved ENVIRONMENT names, mirroring `RESERVED_STAR_SLUGS` in
- * `@lumenize/nebula-auth`. Kept as a local copy on purpose: this guards a *fixture-choice* mistake
- * and must throw with test-authoring advice before any request is made, whereas the registry's copy
- * is the security control. Extend both together.
+ * Star slugs the platform reserves — mirrors `RESERVED_STAR_SLUGS` in `@lumenize/nebula-auth`, same
+ * name on purpose. **Exactly one today: `dev`.**
+ *
+ * A star id's third segment is one slot holding either a tenant slug or a reserved name. The design
+ * anticipates more (`staging`/`prod`) once the collapse formalizes `{u}.{g}.{env}`, but do not write
+ * as if they exist — today this is "the `.dev` star", singular.
+ *
+ * Kept as a local copy deliberately: this guards a *fixture-choice* mistake and must throw with
+ * test-authoring advice before any request is made, whereas the registry's copy is the security
+ * control. Extend both together.
  */
-const RESERVED_ENV_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
+const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 
 export function universeOf(scope: string): string {
   return scope.split('.')[0];
@@ -387,15 +393,15 @@ export async function adminClientAt<T extends NebulaClient>(
       'universe scope (it guarantees the `{u}.*` wildcard your assertion depends on).',
     );
   }
-  // ⚠️ Segment count is NOT sufficient. A reserved ENVIRONMENT star (`{u}.{g}.dev`) is 3 segments
-  // and still has no founder of its own: it is created by `create-star` (founderless by design) and
-  // administered by the covering admin's wildcard, and `claim-star` refuses the slug outright. So it
-  // needs `universeAdminClient` for the same reason a galaxy does — which is also exactly how it
-  // works in production, not a test concession.
-  if (RESERVED_ENV_STAR_SLUGS.has(segments[2])) {
+  // ⚠️ Segment count is NOT sufficient. The reserved `.dev` star is 3 segments and still has no
+  // founder of its own: `create-star` makes it (founderless by design), the covering admin's
+  // wildcard administers it, and `claim-star` refuses the slug outright. So it needs
+  // `universeAdminClient` for the same reason a galaxy does — which is how it works in production,
+  // not a test concession.
+  if (RESERVED_STAR_SLUGS.has(segments[2])) {
     throw new Error(
-      `adminClientAt cannot serve the reserved environment star "${scope}" — a "${segments[2]}" ` +
-      'star is founderless by construction (create-star, no founder; claim-star refuses the slug). ' +
+      `adminClientAt cannot serve the reserved star "${scope}" — a "${segments[2]}" star is ` +
+      'founderless by construction (create-star, no founder; claim-star refuses the slug). ' +
       'Use universeAdminClient: the covering admin is how it is administered in production too.',
     );
   }
