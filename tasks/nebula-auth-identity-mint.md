@@ -143,7 +143,7 @@ Only **B** needs the promote step, and it is the only case that touches KV at is
    |---|---|---|
    | **THIS FILE** — blocked *only* on a `.dev` identity | **3** | `ui-smoke/delete-scope.test.ts` (2), `ui-smoke/smoke.test.ts` (the real-email-login test) |
    | The Galaxy collapse | 10 | 5 browser benchmarks + `chromium/conflict-modal` (the unbuilt prod ontology pull); `ui-smoke/recover.test.ts`; `baseline/confine-dag-plane.test.ts` (needs a non-leaf DagTree host); **and 2 more `ui-smoke/smoke.test.ts` tests** that drive `/dev-container/*`, the `cf-container-target-port` header and `DevStudio.chat` — surfaces that task **deletes or rewrites** |
-   | Independent — no owning task | 1 | `nebula-auth/identity-authority.test.ts`, the m6 `claimUniverse` single-flight → give it a [backlog.md](backlog.md) row so it has a home (`testing.md` § Deferring ≠ deleting) |
+   | Neither — homed in the backlog | 1 | `nebula-auth/identity-authority.test.ts`, the m6 `claimUniverse` single-flight → [backlog.md](backlog.md) § Nebula Auth (*"Pending-signup single-flight"*, re-homed 2026-07-26). Also an empty stub; stays skipped, now with an owner. |
 
    ⚠️ **Do not green a test whose surface the next task deletes.** The two smoke tests handed to the collapse are login-blocked *and* apparatus-blocked; un-skipping them here buys green that gets unlearned next week (`workflow.md` § unlearning tax). They also depend on the login test's session, so they cannot run before it regardless.
 
