@@ -43,11 +43,13 @@ That single split determines nearly every answer below: a Profile is display-onl
 
 | | Decision | Rejected / why |
 |---|---|---|
-| **D1** | **A membership is keyed on the `(email, scope)` pair** — unchanged from today, and now load-bearing rather than incidental. `sub` is minted per `(email, scope)`. | Per-*person* membership — it severs access from the mailbox, which is the whole revocation mechanism (D3). ⚠️ The objection that one human with two addresses in one scope would "render as two people" was **wrong**: both resolve to the same `profileId`, so name and picture are identical. The only real consequence is that the **subscriber roster is keyed by `sub`** and should dedupe by `profileId` for presence — a one-line roster fix, not a model change. |
+| **D1** | **A membership is keyed on the email, not the person** — one per `(emailId, scope)`, which is today's shape made load-bearing rather than incidental. `sub` stays the membership key (S6). | Per-*person* membership — it severs access from the mailbox, which is the whole revocation mechanism (D3). ⚠️ The objection that one human with two addresses in one scope would "render as two people" was **wrong**: both resolve to the same `profileId`, so name and picture are identical. The only real consequence is that the **subscriber roster is keyed by `sub`** and should dedupe by `profileId` for presence — a one-line roster fix, not a model change. |
 | **D2** | **`profileId` hangs off the EMAIL row, not the membership row.** | On the membership — that is today's shape, and it is what makes "one human, one profile" an *emergent* property of N rows agreeing, hence derived canonical-ness, a first-mover race, and the join hazard that consumed two review passes. See § What this buys. |
 | **D3** | **A verified email cannot reach another email's memberships.** Authentication into a scope runs through the address that holds the membership there, full stop. **Losing access to a company mailbox therefore removes access to that scope**, even when the person still holds other emails on the same Profile. | "Any verified email on the Profile authenticates anywhere" — that is precisely GitHub's hole (§ The bet). It also widens each membership's authentication surface to every address the person ever proved. |
 | **D4** | **Multiple emails per Profile are modelled NOW**, while the schema is open — even though the flow that *attaches* a second email stays deferred (F1). | Deferring the modelling too. Storage is nearly free and we are already opening the table; retrofitting later costs a migration. The hard part was always *proving control of both*, which is a flow problem, not a modelling one. |
 | **D5** | **A Profile DO needs no existence question** — it is addressable for any `profileId`, and first access creates it (empty fields, seeded eTag). The real question is *allocation*, which is a registry-side concern → D6. | Framing it as "does a Profile exist before verification" — a category error about DO lifecycle. |
+| **D7** | **"Act as" is bounded by the actor's authority over the acted-for MEMBERSHIP's scope.** `/delegated-token` must require `hasAdminOverScope(caller.access, <target membership's scope>)` before minting. The `profileId` stamp then **stays** — it becomes safe, because you can only obtain the `profileId` of someone in a scope you already administer, which is exactly the population that could act for them legitimately. | (b) Dropping the `profileId` stamp — it has a designed consumer (LLM-as-owner writing a person's own `privateNotes`; `profile.ts` annotates that branch), so this would break a feature to fix a defect that is not in the stamp. (d) Leaving it — today `actFor` is unbounded across the whole registry (`getIdentityScope` resolves by `sub` globally), so any admin can act for any identity in any universe. ⚠️ Under D1 the target is a *membership*, so it has exactly one scope and the predicate is well-defined: you may act as the membership you administer, not as the human across all of theirs. ⚠️ `packages/nebula-auth/test/profile-id-claim.test.ts` currently encodes the unbounded behaviour as intended — it needs a reachable target (a fixture change, not an assertion change). Bug row: [backlog.md](backlog.md) § Nebula Auth. |
+| **D12** | **Every `Emails` row has an opaque surrogate PK (`emailId`); the address is a mutable attribute.** Memberships FK on `emailId`, **never on the address**. Emails genuinely change — marriage/legal-name change, a vendor move — so an address can never be a PK or an FK (S3, ADR-010). Consequence: changing an email is a **one-row, one-column `UPDATE`** with no cascade anywhere. | Email as the PK/FK — every change becomes a re-key across memberships, which is the shape that caused two prod wipes (S7). |
 
 ---
 
@@ -58,8 +60,20 @@ The registry-side allocation question that D5 replaced. Under D2 a `profileId` i
 
 Under D2 this is no longer a *race* — allocation is deterministic, not derived by `ORDER BY` — so the residual is dull: an attacker's `claim-star` for your address creates the `Emails` row, so your eventual `profileId` is one they caused to be minted. They never learn its value, and the dangling membership in their scope is one only **you** could ever authenticate into. **Decide whether that is simply accepted** (the lean) or whether an unverified address should hold a provisional allocation.
 
-### D7 · Is "act as this person" a capability bounded by scope?
-The `/delegated-token` finding as a **model rule** rather than a patch: that endpoint bounds `activeScope` to the caller's reach but places **no bound on `actFor`**, and stamps the target's `profileId` into the minted token — which S1's carve-out makes a write capability over that person's profile. Bug filed at [backlog.md](backlog.md) § Nebula Auth; the *rule* belongs here, because "who may act as whom" is a property of the identity model, not of one endpoint.
+### D13 · Who may change `Emails.email`, and what proof is required? ⬅️ D12's companion — it re-opens D3
+D12 makes the **row** the stable access anchor and the address a mutable attribute. That is what makes an email change cheap — and it means **a stable handle the user can re-point to any mailbox they control is functionally a GitHub account** (§ The bet). Jane's Acme membership hangs off her `emailId`; if she can re-point that row from `jane@acme.com` to `jane@gmail.com`, she keeps Acme access and deactivating the mailbox no longer removes it. The hole D3 closes comes back in through the *mutability* rather than through the key.
+
+**Lean: a change requires FRESH proof of the OLD address, plus proof of the new one.** That separates the legitimate cases from the leak with no domain heuristics (which break the moment a company rebrands):
+
+| Case | Old address still reachable? | Outcome |
+|---|---|---|
+| Marriage / legal-name change (`jane.smith@acme.com` → `jane.jones@acme.com`) | yes — IT provisions the new one while the old still delivers | ✅ change allowed, membership preserved |
+| Vendor move (gmail → fastmail) | yes | ✅ allowed |
+| Departing employee (`jane@acme.com` → personal) | **no** — the company killed it | ❌ cannot re-point; access dies with the mailbox, D3 holds |
+
+⚠️ **"Fresh" is load-bearing — a live session is NOT proof.** Sessions outlive mailbox control by up to the 30-day refresh TTL (§ The bet), so authorising the change off the current session would hand a departing employee a 30-day escape hatch converting bounded access into permanent access. The proof must be a magic link delivered to the old address **at change time**.
+
+**Open sub-question:** does the two-proof flow fit the existing shape here? It is a *weaker* problem than F1's — both addresses sit on **one row of one Profile**, whereas F1 must prove control of two addresses belonging to different Profiles across differently-path-scoped cookies (which that file calls "the core problem to solve"). Likely yes; confirm rather than assume.
 
 ### D8 · Which address receives the magic link for a given scope?
 Under D3 the answer is presumably "the address that holds the membership" — confirm, and decide what `MagicLinks`/`InviteTokens` store: a bare `email` (today) or a reference.
@@ -84,7 +98,7 @@ With `profileId` on the email row, **"same email, any scope → same `profileId`
 - no deterministic-tiebreak problem (`createdAt` comes from a clock pinned within an invocation — [[cf-clock-traps]])
 - no row able to compete with **itself** for canonical status, which is the defect the second review panel caught in the join-at-verification design
 
-And `email` lives in exactly one row, so `changeEmail` becomes a single-row update that is *correct* rather than one-of-N ([backlog.md](backlog.md) § Nebula Auth). `sub` stays per `(email, scope)`, so nothing re-keys (S6).
+And `email` lives in exactly one row keyed by an opaque id (D12), so `changeEmail` becomes a single-row, single-column update that is *correct* rather than one-of-N ([backlog.md](backlog.md) § Nebula Auth). `sub` stays per `(email, scope)`, so nothing re-keys (S6).
 
 ```mermaid
 erDiagram
@@ -96,8 +110,8 @@ erDiagram
 Shape only — column lists follow from § Still open:
 
 - **Profile** — display identity. PK is the `profileId` (random opaque, ADR-010). The Profile DO is addressed by it (D5).
-- **Email** — surrogate PK, `email UNIQUE`, FK → Profile, verification state. **Email lives here once** (S3, S7).
-- **Membership** — the renamed `Identities`: `sub` PK (S6, unchanged), FK → Email, FK → Scope, `isAdmin`, `createdAt`. This is what `Identities` already *is* — a join table — which is why the name stopped describing it.
+- **Email** — **opaque surrogate PK (`emailId`)**, `email UNIQUE` as a *mutable attribute*, FK → Profile, verification state. **Email lives here once** (S3, S7, D12), and changing it is a one-row single-column `UPDATE` (D12) gated by D13.
+- **Membership** — the renamed `Identities`: `sub` PK (S6, unchanged), **FK → `emailId`** (never the address — D12), FK → Scope, `isAdmin`, `createdAt`. This is what `Identities` already *is* — a join table — which is why the name stopped describing it.
 - **Scope** — unchanged, deliberately. Hierarchy-in-the-string works, the `LIKE 'prefix.%'` descendant scan is fine at this scale, and ADR-006 already defers FK integrity. **No `parentId`, no `tier`, no `founderSub`** — the last was explicitly rejected 2026-07-21 (at signup there is no authenticated principal, so an eager founder stamp needs a backdoor).
 
 Worth folding in while the schema is open, low priority: `MagicLinks` and `InviteTokens` are byte-identical four-column tables, and [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md) wants **one** `Contexts(tokenHash → payload)` keyed against "the flow's already-minted token" — awkward with two token tables to key against. Also add `CHECK (col IN (0,1))` to every boolean-ish column *at creation*: SQLite has no `ALTER TABLE ADD CONSTRAINT`, so it is cheap only now (pre-alpha wipe item 4, which should apply to the tables this produces).
