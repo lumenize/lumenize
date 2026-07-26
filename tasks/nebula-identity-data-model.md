@@ -6,6 +6,12 @@
 
 📥 **Absorbed:** the `profileId`-join half of [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) (its former §3). That task keeps the per-invitee admin mint.
 
+## The invariant
+
+> **Anchor access to the mailbox. Anchor identity to the person.**
+
+Every decision in this file is that one sentence applied to a different surface — D3 to authentication, D12/D13 to mutation, D7 to delegation. If a proposed rule cannot be derived from it, that is the signal to look harder.
+
 ## The bet, as a comparison
 
 **GitHub's model: your *account* determines access.** Email is a contact detail, so organisation membership survives your leaving — removing you takes an explicit admin action, and if nobody performs it, access persists **indefinitely**. (Observed first-hand: Larry still held repo access at a former employer more than a year after leaving, reported to them at the time and not promptly resolved.)
@@ -50,6 +56,7 @@ That single split determines nearly every answer below: a Profile is display-onl
 | **D5** | **A Profile DO needs no existence question** — it is addressable for any `profileId`, and first access creates it (empty fields, seeded eTag). The real question is *allocation*, which is a registry-side concern → D6. | Framing it as "does a Profile exist before verification" — a category error about DO lifecycle. |
 | **D7** | **"Act as" is bounded by the actor's authority over the acted-for MEMBERSHIP's scope.** `/delegated-token` must require `hasAdminOverScope(caller.access, <target membership's scope>)` before minting. The `profileId` stamp then **stays** — it becomes safe, because you can only obtain the `profileId` of someone in a scope you already administer, which is exactly the population that could act for them legitimately. | (b) Dropping the `profileId` stamp — it has a designed consumer (LLM-as-owner writing a person's own `privateNotes`; `profile.ts` annotates that branch), so this would break a feature to fix a defect that is not in the stamp. (d) Leaving it — today `actFor` is unbounded across the whole registry (`getIdentityScope` resolves by `sub` globally), so any admin can act for any identity in any universe. ⚠️ Under D1 the target is a *membership*, so it has exactly one scope and the predicate is well-defined: you may act as the membership you administer, not as the human across all of theirs. ⚠️ `packages/nebula-auth/test/profile-id-claim.test.ts` currently encodes the unbounded behaviour as intended — it needs a reachable target (a fixture change, not an assertion change). Bug row: [backlog.md](backlog.md) § Nebula Auth. |
 | **D12** | **Every `Emails` row has an opaque surrogate PK (`emailId`); the address is a mutable attribute.** Memberships FK on `emailId`, **never on the address**. Emails genuinely change — marriage/legal-name change, a vendor move — so an address can never be a PK or an FK (S3, ADR-010). Consequence: changing an email is a **one-row, one-column `UPDATE`** with no cascade anywhere. | Email as the PK/FK — every change becomes a re-key across memberships, which is the shape that caused two prod wipes (S7). |
+| **D13** | **Changing an email requires FRESH proof of the OLD address plus proof of the new — and *requesting* the change immediately revokes every refresh record anchored to that `emailId`.** The request must itself be authenticated (a live session). Effect: the legitimate cases pass (marriage/legal-name change and vendor moves — the person still holds the old address while moving), and a departing employee whose work mailbox is dead **cannot** re-point the row. Better still, the attempt is **self-defeating**: requesting the change revokes them, so trying to convert bounded access into permanent access instead costs them the remainder of the window — at zero UX cost to a legitimate user, who was about to re-authenticate anyway. | Authorising off the **live session** — sessions outlive mailbox control by up to the 30-day refresh TTL, so that is a 30-day escape hatch. Domain heuristics ("did it leave the company's domain?") — they break the moment a company rebrands. An **unauthenticated** change request — that is a denial-of-service: a stranger typing your address would kill your sessions. ⚠️ **Precision on "revoke":** access tokens are stateless JWTs with no revocation list, so they cannot be revoked, only **starved** — delete the KV refresh record **and** its `RefreshTokenIndex` row (both, KV-first; the refresh handler's KV-miss self-heal rebuilds from the index otherwise), after which outstanding access tokens die within `ACCESS_TOKEN_TTL`. The window collapses from ~30 days to **≤15 minutes**, not to zero. Revoke across **every** `sub` anchored to that `emailId` (a person may hold memberships in several scopes through one address). ⚠️ Same machinery as `setIdentityAdmin`'s KV convergence and the deferred demote/revoke endpoints (F5) — **three consumers, one helper.** |
 
 ---
 
@@ -59,21 +66,6 @@ That single split determines nearly every answer below: a Profile is display-onl
 The registry-side allocation question that D5 replaced. Under D2 a `profileId` is allocated **when an email is first seen** — but the open part is *which paths may do that*. Two of the four mint paths are open and unauthenticated (Turnstile-only), so a row bearing anyone's address can be created before that person acts.
 
 Under D2 this is no longer a *race* — allocation is deterministic, not derived by `ORDER BY` — so the residual is dull: an attacker's `claim-star` for your address creates the `Emails` row, so your eventual `profileId` is one they caused to be minted. They never learn its value, and the dangling membership in their scope is one only **you** could ever authenticate into. **Decide whether that is simply accepted** (the lean) or whether an unverified address should hold a provisional allocation.
-
-### D13 · Who may change `Emails.email`, and what proof is required? ⬅️ D12's companion — it re-opens D3
-D12 makes the **row** the stable access anchor and the address a mutable attribute. That is what makes an email change cheap — and it means **a stable handle the user can re-point to any mailbox they control is functionally a GitHub account** (§ The bet). Jane's Acme membership hangs off her `emailId`; if she can re-point that row from `jane@acme.com` to `jane@gmail.com`, she keeps Acme access and deactivating the mailbox no longer removes it. The hole D3 closes comes back in through the *mutability* rather than through the key.
-
-**Lean: a change requires FRESH proof of the OLD address, plus proof of the new one.** That separates the legitimate cases from the leak with no domain heuristics (which break the moment a company rebrands):
-
-| Case | Old address still reachable? | Outcome |
-|---|---|---|
-| Marriage / legal-name change (`jane.smith@acme.com` → `jane.jones@acme.com`) | yes — IT provisions the new one while the old still delivers | ✅ change allowed, membership preserved |
-| Vendor move (gmail → fastmail) | yes | ✅ allowed |
-| Departing employee (`jane@acme.com` → personal) | **no** — the company killed it | ❌ cannot re-point; access dies with the mailbox, D3 holds |
-
-⚠️ **"Fresh" is load-bearing — a live session is NOT proof.** Sessions outlive mailbox control by up to the 30-day refresh TTL (§ The bet), so authorising the change off the current session would hand a departing employee a 30-day escape hatch converting bounded access into permanent access. The proof must be a magic link delivered to the old address **at change time**.
-
-**Open sub-question:** does the two-proof flow fit the existing shape here? It is a *weaker* problem than F1's — both addresses sit on **one row of one Profile**, whereas F1 must prove control of two addresses belonging to different Profiles across differently-path-scoped cookies (which that file calls "the core problem to solve"). Likely yes; confirm rather than assume.
 
 ### D8 · Which address receives the magic link for a given scope?
 Under D3 the answer is presumably "the address that holds the membership" — confirm, and decide what `MagicLinks`/`InviteTokens` store: a bare `email` (today) or a reference.
@@ -115,6 +107,20 @@ Shape only — column lists follow from § Still open:
 - **Scope** — unchanged, deliberately. Hierarchy-in-the-string works, the `LIKE 'prefix.%'` descendant scan is fine at this scale, and ADR-006 already defers FK integrity. **No `parentId`, no `tier`, no `founderSub`** — the last was explicitly rejected 2026-07-21 (at signup there is no authenticated principal, so an eager founder stamp needs a backdoor).
 
 Worth folding in while the schema is open, low priority: `MagicLinks` and `InviteTokens` are byte-identical four-column tables, and [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md) wants **one** `Contexts(tokenHash → payload)` keyed against "the flow's already-minted token" — awkward with two token tables to key against. Also add `CHECK (col IN (0,1))` to every boolean-ish column *at creation*: SQLite has no `ALTER TABLE ADD CONSTRAINT`, so it is cheap only now (pre-alpha wipe item 4, which should apply to the tables this produces).
+
+### Why D13's proof rule is the one that works
+
+** a change requires FRESH proof of the OLD address, plus proof of the new one.** That separates the legitimate cases from the leak with no domain heuristics (which break the moment a company rebrands):
+
+| Case | Old address still reachable? | Outcome |
+|---|---|---|
+| Marriage / legal-name change (`jane.smith@acme.com` → `jane.jones@acme.com`) | yes — IT provisions the new one while the old still delivers | ✅ change allowed, membership preserved |
+| Vendor move (gmail → fastmail) | yes | ✅ allowed |
+| Departing employee (`jane@acme.com` → personal) | **no** — the company killed it | ❌ cannot re-point; access dies with the mailbox, D3 holds |
+
+⚠️ **"Fresh" is load-bearing — a live session is NOT proof.** Sessions outlive mailbox control by up to the 30-day refresh TTL (§ The bet), so authorising the change off the current session would hand a departing employee a 30-day escape hatch converting bounded access into permanent access. The proof must be a magic link delivered to the old address **at change time**.
+
+**Open sub-question:** does the two-proof flow fit the existing shape here? It is a *weaker* problem than F1's — both addresses sit on **one row of one Profile**, whereas F1 must prove control of two addresses belonging to different Profiles across differently-path-scoped cookies (which that file calls "the core problem to solve"). Likely yes; confirm rather than assume.
 
 ---
 
