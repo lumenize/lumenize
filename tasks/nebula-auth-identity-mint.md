@@ -136,5 +136,5 @@ Only **B** needs the promote step, and it is the only case that touches KV at is
 - 📤 **The `profileId` join moved out** → [nebula-identity-data-model.md](nebula-identity-data-model.md) (2026-07-26), which also inherits the different-email linking pointer ([on-hold/nebula-profile-link-breadcrumb.md](on-hold/nebula-profile-link-breadcrumb.md)) and the no-backfill decision. ⚠️ The frozen [profile-store archive](archive/nebula-profile-store.md) still points at a dead `icebox/` path; archived files are never edited, so the model file is the live home.
 - **Deferred:** varied per-collaborator tiers → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md). Self-signup is that carrier's consumer #2.
 - **Modifies shipped code** — §4 touches [archive/nebula-profile-store.md](archive/nebula-profile-store.md) Phases 1–3 and deletes some of its tests.
-- **Also here:** Profile-DO teardown on scope deletion (tracked in [backlog.md](backlog.md) § Profile store follow-ons) — under unification the rule becomes *delete the Profile DO when `Identities WHERE profileId` is empty*, folded into the scope-deletion cascade.
+
 - **F&F invites** ([nebula-pre-alpha.md](nebula-pre-alpha.md) § Invite-gated) ride the **same `/invite`** as non-admin invites (flag defaulted `false`).
