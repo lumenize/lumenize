@@ -1,6 +1,6 @@
 # Task File Templates & Conventions
 
-**Process lives in the `/task-management` skill** (`.claude/skills/task-management/SKILL.md`) — workflow selection, review → go, phase retros. Folder structure is in `.claude/rules/workflow.md`. This file holds only the **templates** and **phrasing conventions** for the task files themselves.
+**Process lives in the `/task-management` skill** (routing) and **`/write-task`** (drafting — design intent first, hand-reviewed, then phases). Review → go and phase retros are in `/review-task` and `/build-task`. Folder structure is in `.claude/rules/workflow.md`. This file holds only the **templates** and **phrasing conventions** for the task files themselves.
 
 ## Archive is frozen
 

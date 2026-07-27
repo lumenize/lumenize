@@ -165,6 +165,23 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Studio self-improvement loop — the arc these rungs build toward** *(design captured; full loop gated on usage density → post-pre-alpha expansion)*. The Wave-2 eval/GLM-5.2 judge and the automated digest above are **rungs 1–2** of [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md): evolve Studio's generation *scaffold* (prompts / skills / exemplars) from outcome signal — frozen base model, **no training** (the Ornith idea, lifted from weights to orchestration). **Part A — the reward function / eval (absorbed from the old eval-suite) — is the first buildable piece and un-parks in Wave 2**; the full loop (scaffold store + Vectorize retrieval-augmented generation + human-gated promotion) needs density, so it's the **post-invite expansion**, governed by [`docs/vision/self-improving-platform.md`](../docs/vision/self-improving-platform.md) (the compounding-moat vision) and kept **separate** from the code-review [`nebula-nightly-loop.md`](nebula-nightly-loop.md). *Larry's stated primary next-big track.*
 
 ### Close-out
+- 👤 **LARRY HAND-REVIEW — ADR-011 onward, then restructure/merge/split wholesale.** Scheduled **after the Galaxy
+  collapse ships** (Larry, 2026-07-27). ADR-010 was the last one carefully hand-reviewed, so **011 through 015 plus
+  whatever lands in the interim have never had a careful pass.** Reviewing and restructuring them all is a bigger job
+  than is worth doing mid-flight, so the interim is: land the access-model ADR + its ADR-012/013 knock-ons now, and
+  reorganize the whole set here. **Known inputs for that pass:**
+  - **The access-control model was never written down anywhere** until `tasks/nebula-identity-data-model.md`, which is
+    exactly why it drifted for a week unnoticed. Its § *The invariant* + § *Settled* are the best statement of the
+    coarse-grained model (`{u}.{g}.{s}`) we have; decide how much of it stays a task file vs becomes an ADR, and
+    whether ADR-012 shrinks back to being about *visibility* once an access ADR owns "a profile is never an authz
+    input."
+  - **Candidates to merge or split:** 008 (intra-scope visibility) / 012 (global profile visibility) / 013 (identity
+    keying) / 015 (authority direction) each cover one facet of one model. That may be four ADRs or one.
+  - ⚠️ **Three ADRs violate the README's own forward-facing discipline** (*"don't accrete dated 'Amended …' notes —
+    git is the record"*): **008** and **013** carry dated amendment notes, and **009** carries a whole amendment
+    blockquote. Decide per-file — 009's may **earn** its place, since it exists to stop sessions citing a withdrawn
+    latency figure to justify shortcuts, and git is *not* loaded into context. If a carve-out is warranted, write it
+    into `docs/adr/README.md` rather than leaving three silent exceptions.
 - ⏳ **npm publish — NOT done, deferred to `pre-alpha`'s close-out** (Larry 2026-06-30 — not in a rush).
   No packages published (`/release-workflow`); `main` carries merged-but-unreleased package changes. Release
   then from merged `main`, not per-commit.
