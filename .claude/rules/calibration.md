@@ -46,8 +46,6 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 | Internal, non-exported | A little — type-checked and mechanically fixable. |
 | **Public API** | Counts — but still **less than training suggests.** |
 
-⚠️ **The same mis-weighting resists RENAMES, and there the uncounted cost is larger.** A rename's cost is a one-time mechanical sweep. A confusing name's cost is the reviewer **re-deriving it every session it comes up** — unbounded, and paid by the bottleneck. `actFor` / "delegated" / "act as" cost Larry the same conversation **3–4 times**, and a rename he proposed earlier was talked down on call-site grounds. When a name is being explained for the second time, that is the signal: rename it.
-
 "This would require updating 40 tests" is **not** an argument against a change here. Two things back that up: CLAUDE.md's release policy is *"favor breaking changes over technical debt — they bump major semver"*, and `/refactor-efficiently` exists specifically to make wide test churn cheap (the `.only` pattern). The machinery is already built; the bias is under-using it.
 
 ## 4. A justification expiring is a trigger to re-derive, not a verdict
@@ -61,6 +59,25 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 - *Deleting on a dead justification* — `tasks/archive/nebula-confine-admin-bypass.md` has to warn *"do NOT 'fix' this by tightening `enforceScopeReach`'s tenant branch"*: the comment defending it was wrong, the branch was right.
 
 **The generalized form is that file's own encoded lesson:** *a guard justified by an incidental property, rather than an enforced invariant, is a guard that silently expires.* When you re-derive, name the **invariant** — never the incidental property that happens to hold today.
+
+## 5. Name for the reader — and rename the FIRST time a name needs explaining
+
+**The reflex:** two of them. Name a thing from the *implementation's* point of view rather than the caller's. Then resist renaming it, because you count call sites, tests and docs — the same mis-weighting as §3(c).
+
+**The correction:**
+
+- **Parameters and endpoints name what the caller is asking for**, not what the implementation does with it. Derived values are not parameters at all.
+- **Rename the first time you have to explain a name — not the second.** Explaining it once *is* the evidence.
+
+**The asymmetry that settles it:** a rename costs a one-time mechanical sweep, and §3(c) already says you over-weight that. A confusing name costs the reviewer **re-deriving it every session it comes up** — unbounded, compounding, and paid by the bottleneck. There is no version of this arithmetic where waiting wins.
+
+**Where it bit (2026-07-27):** `actFor` / `/delegated-token` / "act as" cost Larry the same conversation **3–4 times**. `actFor` *is* the minted token's `sub` (`mintAccessToken({ sub: body.actFor, … })`), so the name forced every reader to hold a mapping. He proposed a rename in an earlier round; it was talked down on call-site grounds and he relented — and the confusion recurred, at his expense, until he insisted.
+
+**The fix, as a model of good naming:** `/mint-narrower-token` with `{ sub, activeScope }` — each parameter is literally the token field the caller wants, and `act.sub` is derived from the Bearer token so it is not a parameter and cannot be misnamed. ⚠️ **A good name is a falsifiable claim, and that is a feature:** "narrower" asserted something the code had to satisfy, and checking it exposed **two** real violations (an unbounded target scope, and a `profileId` stamp granting write access the caller did not hold). The bad name asserted nothing, so nothing could be checked against it.
+
+**The tell:** you are writing a glossary entry, a mapping table, or a sentence of the form *"X is really Y"* — in a task file, a comment, or a reply. That is the rename signal, not a documentation task.
+
+*(Choosing a name well in the first place: `naming-judgment` — minimize new vocabulary, flag a new term before coining it, prefer dominant-ecosystem syntax.)*
 
 ---
 
