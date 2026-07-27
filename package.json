@@ -23,7 +23,8 @@
     "experiments/container-egress-catrust",
     "experiments/interim-dev-loop",
     "experiments/container-cold-start-probe",
-    "experiments/do-cold-start-bundle-ab"
+    "experiments/do-cold-start-bundle-ab",
+    "experiments/wrangler-test-harness"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

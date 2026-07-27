@@ -1,0 +1,14 @@
+{
+  "name": "experiment-wrangler-test-harness",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "spike": "tsx spike.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.114.0"
+  }
+}
