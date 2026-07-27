@@ -46,6 +46,8 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 | Internal, non-exported | A little — type-checked and mechanically fixable. |
 | **Public API** | Counts — but still **less than training suggests.** |
 
+⚠️ **The same mis-weighting resists RENAMES, and there the uncounted cost is larger.** A rename's cost is a one-time mechanical sweep. A confusing name's cost is the reviewer **re-deriving it every session it comes up** — unbounded, and paid by the bottleneck. `actFor` / "delegated" / "act as" cost Larry the same conversation **3–4 times**, and a rename he proposed earlier was talked down on call-site grounds. When a name is being explained for the second time, that is the signal: rename it.
+
 "This would require updating 40 tests" is **not** an argument against a change here. Two things back that up: CLAUDE.md's release policy is *"favor breaking changes over technical debt — they bump major semver"*, and `/refactor-efficiently` exists specifically to make wide test churn cheap (the `.only` pattern). The machinery is already built; the bias is under-using it.
 
 ## 4. A justification expiring is a trigger to re-derive, not a verdict
