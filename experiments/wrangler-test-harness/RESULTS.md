@@ -126,8 +126,38 @@ Also verified in a scratch monorepo, and worth knowing but *not* the mechanism h
   and `--package-lock-only` alike. Only deleting `package-lock.json` re-resolves it. Set-once is
   fine; bumping it is a lockfile regeneration.
 
-## Recommendation
+## Outcome (2026-07-27, after `/review-task` Stage 1)
 
-Re-implement `spawnWranglerDev`'s **internals** over `createTestHarness` rather than migrating five
-call sites — it is already the boot abstraction, and the new capabilities surface as extra fields on
-what it returns. See `tasks/wrangler-test-harness-adoption.md`.
+The spike's own first recommendation — re-implement `spawnWranglerDev`'s internals over
+`createTestHarness` — was **evaluated and CUT.** Recorded here rather than deleted so it is not
+re-proposed off the same reasoning.
+
+**Why it was cut:** the premise was "one file changes, all consumers keep working." That rests on
+`spawnWranglerDev`'s options mapping onto `TestHarnessOptions`, and they don't — the harness type is
+`{root?, workers}` and nothing else. The swap would have to reimplement **five** capabilities the
+current utility already provides:
+
+| Capability | Used by | Harness equivalent |
+|---|---|---|
+| `--local` / no-remote | hosted Claude-web sandbox | none — and the inline-config fallback is a **union branch carrying `{config}` alone**: no `vars`, no `secrets`, both of which every lane passes |
+| `--persist-to` | chromium lane | none — `root` resolves config paths, not state dirs |
+| `--local-protocol https` | browser lane | none |
+| `onStdio` | `/live`, ui-smoke | `getLogs()` is **pull-based** — cannot stream during a hang, which is when it matters |
+| `readyTimeoutMs` + SIGINT-to-workerd teardown | all five | none — `listen()` has no timeout, and the teardown is inherently subprocess-specific |
+
+That last row is the heaviest: orphaned workerd wedging the machine is a known, already-experienced
+failure here, and the teardown exists because of it.
+
+Two premises in the original write-up were also **wrong**, corrected above: the no-creds lane is the
+**hosted sandbox, not CI** (both GHA workflows set `CLOUDFLARE_API_TOKEN`), and it is **20**
+workspaces declaring the wrangler + pool-workers pair, not 13 (`doc-test/*/*` was missed).
+
+**What survives**, both now tracked in `tasks/backlog.md`:
+1. **§ Testing & Quality** — use `evictDurableObject` in a `/live` scenario to verify **ADR-003**'s
+   traveling-handler claim against the running stack, which nothing has ever forced. Runs on our
+   current 4.111.0. This is the one capability worth having, and it needs no engine swap: boot via
+   `createTestHarness` **alongside** the existing path, not through it.
+2. **§ Immediate work backlog** — the root-hoisted 4.86.0 wrangler, whose real cause (six
+   workspace-listed experiments with no pool-workers to pin them forward) this spike identified.
+
+The version mechanics are now a standing rule in `.claude/rules/workflow.md` § Toolchain bumps.

@@ -110,6 +110,15 @@ Empirical confirmation (§5.3.7 Nebula-frontend, the largest single-batch build)
 ## No build during development
 Source runs directly — **never add or run a build step in the dev loop.** vitest transpiles Workers TypeScript on the fly; Node tooling is JS + JSDoc (no compile). A build happens **only at publish**. Reaching for a build during development is a recurring failure mode: it spawns doom loops chasing build caches, `dist/`-vs-`src/` confusion, and stale output. If something isn't working, the fix is never "build it."
 
+## Toolchain bumps — `@cloudflare/vitest-pool-workers` is the knob, never `wrangler` alone
+**`@cloudflare/vitest-pool-workers` depends on `wrangler` EXACTLY, 1:1, and drags `miniflare` with it** (0.18.5→4.111.0, 0.18.6→4.112.0, 0.18.7→4.113.0, 0.18.8→4.114.0). Every workspace here that declares `wrangler` also declares pool-workers — never one alone — so the repo is uniform **because pool-workers hard-pinned it** and npm deduped our `^` ranges onto that exact version. The declared `wrangler` range is therefore *documentation of a floor*, **not** the mechanism.
+
+⇒ **Bumping `wrangler` on its own splits the tree**: our caret resolves to the newer version while pool-workers' nested dep stays pinned to the old one — two copies, the exact hazard the version-uniformity work exists to prevent (and the root-hoist footgun in `durable-objects.md` § DO class registration is what it feels like). Bump the pair together, and treat it as a **toolchain-triple** change: miniflare is the workerd runtime under every pool-workers test, so behavior can shift — budget a full-suite run and treat an unexplained new failure as signal, not flake.
+
+⚠️ **Don't reach for root `package.json` `overrides` to force uniformity.** It *does* pin one version everywhere, but a **changed** override is silently ignored by `npm install`, `npm update`, `npm dedupe`, `--force`, and `--package-lock-only` alike — only deleting `package-lock.json` re-resolves it, so every bump becomes a full lockfile regeneration. Set-once is fine; maintaining it is worse than the problem. (Both behaviors verified in a scratch monorepo, 2026-07-27.)
+
+**Enumerate over the `workspaces` list, not a `packages/*` glob** — `doc-test/*/*` is a workspaces entry and is easy to miss (`npm ls @cloudflare/vitest-pool-workers --all`). An experiment that declares `wrangler` *without* pool-workers has nothing pinning it forward, which is how stale experiments hoist an ancient wrangler to the repo root.
+
 ## Releases
 All packages publish together with synchronized versions (Lerna); publish scripts repoint `package.json` from `src/` to `dist/`, then revert (the only time a build runs). Favor breaking changes over technical debt — they bump major semver and need the next release flagged. Use `/release-workflow`.
 
