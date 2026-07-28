@@ -1,7 +1,7 @@
 /**
  * Worker router — routing correctness + gating through the full Worker (SELF.fetch) over the registry
  * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). The surviving authenticated
- * instance endpoints are `invite` + `delegated-token`; the router NO LONGER runs an `adminApproved`
+ * instance endpoints are `invite` + `mint-narrower-token`; the router NO LONGER runs an `adminApproved`
  * edge gate (M5 — enforced at mint), so a valid token is forwarded and admin-ness is checked at the
  * endpoint/registry.
  */

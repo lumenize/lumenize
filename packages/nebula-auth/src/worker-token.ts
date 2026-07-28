@@ -9,7 +9,7 @@
  *  - `refresh-token` → **pure KV read**, then mint the JWT here. The registry is NEVER on this path.
  *  - `logout` → registry deletes the KV record + index entry.
  *  - `invite` (admin) → registry mints invitee identities + invite tokens + sends the emails.
- *  - `delegated-token` (admin) → mint a scope-bounded delegated token here.
+ *  - `mint-narrower-token` (admin) → mint a scope-bounded narrower token here.
  *
  * The JWT is minted HERE (the Worker holds the signing keys); `email` never enters it. All bearer
  * tokens (magic-link/invite/refresh) are stored HASHED — the Worker hashes the raw refresh token and
@@ -25,7 +25,7 @@ import {
   hashString,
 } from '@lumenize/auth';
 import { buildNebulaJwtPayload } from './access-claims';
-import { buildAuthScopePattern, matchAccess, parseId } from './parse-id';
+import { buildAuthScopePattern, hasAdminOverScope, matchAccess, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
@@ -126,8 +126,9 @@ export async function mintAccessToken(
     activeScope: string;
     /** The bearer's PUBLIC profile address → the bare `profileId` claim (omitted when absent). */
     profileId?: string;
-    actorSub?: string;
-    /** Override the derived pattern (delegated mint binds to the caller's covered scope). */
+    /** RFC 8693 delegation actor pair → the `act` claim (omitted when absent). */
+    actor?: { sub: string; profileId?: string };
+    /** Override the derived pattern (the narrower mint binds to the requested scope). */
     authScopePattern?: string;
   },
 ): Promise<string> {
@@ -144,7 +145,7 @@ export async function mintAccessToken(
     activeScope: opts.activeScope,
     isAdmin: opts.isAdmin,
     profileId: opts.profileId,
-    actorSub: opts.actorSub,
+    actor: opts.actor,
     authScopePattern: opts.authScopePattern,
   });
   return signJwt(payload as any, privateKey, activeKey);
@@ -343,85 +344,154 @@ export async function handleInvite(
   return Response.json(result);
 }
 
-// ── delegated-token (admin branch) ───────────────────────────────────────────────────────────────
+// ── mint-narrower-token (admin branch) ───────────────────────────────────────────────────────────
 
 /**
- * Mint a scope-bounded delegated (act-for) token. The `AuthorizedActor` non-admin branch is CUT
- * (tasks/nebula-auth-surrogate-sub.md) — only the ADMIN branch survives: a root-identity admin caller
- * mints a token for `actFor`, bound to the CALLER's covered scope + the CALLER's admin bit (never the
- * target's `isAdmin` nor the issuing scope's pattern — security.md § Delegation, mint-side).
+ * Mint a scope-bounded narrower token for another person: `sub` = the subject, `act.sub` = the caller.
+ * The `AuthorizedActor` non-admin branch is CUT (tasks/nebula-auth-surrogate-sub.md) — only the ADMIN
+ * branch survives. The request parameters ARE the token fields the caller is asking for
+ * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + the source of its pattern);
+ * the actor is always the caller, taken from the Bearer token, so it is never a parameter.
+ *
+ * **Two rules, and a consequence that falls out of them** (tasks/nebula-mint-narrower-token.md):
+ *
+ *  1. **Eligibility** — you may only impersonate someone you already administer *entirely*:
+ *     `hasAdminOverScope(caller.access, subjectIdentity.universeGalaxyStarId)`. A caller narrower than
+ *     the subject in *either* scope or the `admin` bit is refused outright, and the subject must be
+ *     somebody else.
+ *  2. **Faithfulness** — the minted token mirrors THAT PERSON's access, not the caller's: the
+ *     subject's `admin` bit, the subject's reach, bounded to the requested `activeScope`.
+ *
+ *  ⇒ Therefore no minted token can exceed the caller. Eligibility has already placed the subject's
+ *  entire scope inside the caller's authority, so the mirror faithfulness produces can only ever be
+ *  narrower than the caller's own token. **Escalation-safety is a consequence of the two rules, not a
+ *  third property to maintain separately.** Faithfulness is the property the use case needs: mirroring
+ *  the subject's `admin` bit is what puts `resolvePermission` back in the decision, so an admin can
+ *  actually observe the denial they came to debug (`dag-tree.ts`'s scope-admin bypass would otherwise
+ *  fire off the caller's bit and the denial would never happen).
  *
  * @param payload the caller's already-verified access token (router verifies the Bearer + scope).
  */
-export async function handleDelegatedToken(
+export async function mintNarrowerToken(
   request: Request, env: Env, payload: NebulaJwtPayload,
 ): Promise<Response> {
-  // Delegate from a ROOT identity only (a token carrying no `act` chain) — never re-delegate.
+  // Mint from a ROOT identity only (a token carrying no `act` chain) — never re-narrow.
   if (payload.act) {
-    return errorResponse(403, 'forbidden', '/delegated-token requires a root identity (a token carrying no `act` chain)');
+    return errorResponse(403, 'forbidden', '/mint-narrower-token requires a root identity (a token carrying no `act` chain)');
   }
   const contentType = request.headers.get('Content-Type');
   if (!contentType?.includes('application/json')) {
     return errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
   }
-  let body: { actFor?: string; activeScope?: string };
+  let body: { subOfNarrowerToken?: string; activeScope?: string };
   try { body = await request.json() as typeof body; }
   catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
-  if (!body.actFor) return errorResponse(400, 'invalid_request', 'actFor required');
+  if (!body.subOfNarrowerToken) return errorResponse(400, 'invalid_request', 'subOfNarrowerToken required');
   if (!body.activeScope) return errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
 
+  // Reject SELF-NARROWING, before the registry read. There is no second party, so `act: { sub: X }` on
+  // a token whose `sub` is X records nothing: it pollutes attribution, muddies `!claims.act` (the
+  // Profile owner guard), and leaves a token re-narrowable past the root-identity gate above.
+  // ⚠️ The invariant is *an admin-driven session is never an owner*, NOT "the two subs are different
+  // people": `#mintIdentity` keys on (email, scope), so one human legitimately holds several `sub`s.
+  if (body.subOfNarrowerToken === payload.sub) {
+    return errorResponse(400, 'invalid_request', 'subOfNarrowerToken must be a different sub than the caller');
+  }
+
   // activeScope must be within the CALLER's own verified reach (the escalation fix — never derive the
-  // grant from the acted-for target or the issuing scope).
+  // grant from the subject or the issuing scope).
   //
   // ⚠️ **This is an UPPER bound, and that is CORRECT — do not "fix" it.** It stops widening; it
   // deliberately permits NARROWING, which is the endpoint's entire purpose (the mint below binds the
   // new token to the REQUESTED scope, not the caller's — see `authScopePattern` at the mint, and the
   // test "binds the minted token to the REQUESTED scope, not the caller pattern"). Forbidding
-  // narrowing would break least-privilege delegation; re-checking that the minted pattern is a
+  // narrowing would break least-privilege minting; re-checking that the minted pattern is a
   // subset of the caller's would be redundant, since narrowing already implies subset.
   //
   // Narrowing is nevertheless how the `access.admin` escalation was reachable: a `{u}.*` admin can
   // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `enforceScopeReach`'s tenant branch then
   // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
   // never here; it was downstream, and it is fixed there** (`hasAdminOverScope` in `requireAdmin` /
-  // `requirePermission` / the subscribe-time writers). Post-fix the delegated token is denied on the
+  // `requirePermission` / the subscribe-time writers). Post-fix the narrower token is denied on the
   // ancestor and nothing is residual. See tasks/nebula-confine-admin-bypass.md § Decisions.
+  //
+  // ⚠️ **This gate is implied by eligibility + the scope mirror below** (together they bound
+  // `activeScope` inside the subject's scope, which eligibility has already placed inside the
+  // caller's). It survives for its `insufficient_scope` code and its caller-facing reach message,
+  // and because it is the site that implements `security.md` rule (2)'s first invariant.
   if (!matchAccess(payload.access.authScopePattern, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
       `Requested scope "${body.activeScope}" exceeds the caller's reach "${payload.access.authScopePattern}"`);
   }
 
-  // The ADMIN branch is the only surviving delegation path (the AuthorizedActor path is cut).
-  // ✅ CONFINED — by the `:334` gate immediately above, not by this bare read: the requested scope is
-  // already proven to be within the caller's reach, so `admin` here only asks "is the caller an admin
-  // at all". The pair is the `security.md` delegation rule-(2) site: bind the mint to the CALLER's
-  // covered scope + the CALLER's admin bit, never the acted-for target's.
+  // The ADMIN branch is the only surviving mint path (the AuthorizedActor path is cut).
+  //
+  // ⚠️ **This gate is NOT the authority check** — the bare `admin` bit is never authority by itself
+  // (ADR-015 §2); eligibility below is. It stays for three narrow reasons, none of them subsumable:
+  //   (a) ORDERING — it fires BEFORE the registry read, so a non-admin never reaches the
+  //       subject-existence check and cannot probe which `sub`s exist;
+  //   (b) its `denied` log line;
+  //   (c) its distinct `forbidden` code and caller-facing message.
+  // Eligibility strictly subsumes this gate's *verdict*, so do not read a pass here as authority.
   if (!payload.access.admin) {
-    debug('nebula-auth.worker.delegated.denied').warn('Non-admin delegation attempt', {
-      sub: payload.sub, targetSub: body.actFor,
+    debug('nebula-auth.worker.narrower.denied').warn('Non-admin narrower-token attempt', {
+      sub: payload.sub, subOfNarrowerToken: body.subOfNarrowerToken,
     });
-    return errorResponse(403, 'forbidden', 'Not authorized to act for this subject');
+    return errorResponse(403, 'forbidden', 'Admin access required to mint a narrower token');
   }
 
-  // The principal (actFor) must be a real identity — 404 otherwise (parity + traceability).
-  const principal = await registry(env).getIdentityScope(body.actFor) as
+  // The subject (`subOfNarrowerToken`) must be a real identity — 404 otherwise (parity + traceability).
+  const subjectIdentity = await registry(env).getIdentityScope(body.subOfNarrowerToken) as
     { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null;
-  if (!principal) return errorResponse(404, 'not_found', 'Subject not found');
+  if (!subjectIdentity) return errorResponse(404, 'not_found', 'Subject not found');
 
-  // Bind the minted token to the CALLER's covered scope + the CALLER's admin bit. The `profileId` claim
-  // is the acted-for TARGET's (the token acts AS them — owner-authz on their own profile is correct).
+  // ── (1) ELIGIBILITY — run BEFORE the scope mirror ────────────────────────────────────────────────
+  // You may only impersonate someone you already administer ENTIRELY. Its uniquely load-bearing case
+  // is UPWARD: caller pattern `{u}.{g}.*`, subject scope `{u}`, `activeScope = {u}.{g}` satisfies every
+  // other check, and only this stops a lower admin wearing a superior's identity (ADR-015 §2).
+  //
+  // ⚠️ **ORDER MATTERS, and it is a disclosure decision.** A faithfulness bound can pass while
+  // eligibility fails, so running the mirror first would tell a caller who is about to be refused
+  // WHERE the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
+  // 403 body may name the subject's scope; echo the caller's own pattern or nothing. (Subject
+  // EXISTENCE is disclosed either way by the 404 above — pre-existing and unchanged.)
+  if (!hasAdminOverScope(payload.access, subjectIdentity.universeGalaxyStarId)) {
+    return errorResponse(403, 'forbidden',
+      `Caller pattern "${payload.access.authScopePattern}" does not administer this subject`);
+  }
+
+  // ── (2) FAITHFULNESS — the scope mirror ──────────────────────────────────────────────────────────
+  // `activeScope` must also sit within the SUBJECT's own reach, so the token is a mirror of that
+  // person rather than merely something inside the caller's authority. Without it, a subject scoped at
+  // `{u}.{g}.{s1}` would get a token admin over all of `{u}.{g}` — not an escalation (eligibility
+  // already bounded it), but not that person's access either, which is the property the use case needs.
+  const subjectPattern = buildAuthScopePattern(subjectIdentity.universeGalaxyStarId);
+  if (!matchAccess(subjectPattern, body.activeScope)) {
+    return errorResponse(403, 'insufficient_scope',
+      `Requested scope "${body.activeScope}" is outside the subject's own reach`);
+  }
+
+  // Bind the minted token to the REQUESTED scope, mirroring the SUBJECT's `admin` bit.
+  //
+  // ⚠️ `caller.admin && subject.isAdmin` is an INTERSECTION, never either side's copy. Under
+  // eligibility the conjunction EQUALS the subject's bit, so the `&&` is belt-and-braces against a
+  // future caller reaching this line without eligibility having run (`security.md` rule (2) forbids
+  // copying the subject's bit alone, because a bare copy can exceed the caller). The `profileId` claim
+  // is the SUBJECT's — top-level `sub` and top-level `profileId` always describe the same person.
   const accessToken = await mintAccessToken(env, {
-    sub: body.actFor,
+    sub: body.subOfNarrowerToken,
     universeGalaxyStarId: body.activeScope,
-    isAdmin: payload.access.admin === true,
-    profileId: principal.profileId,
+    isAdmin: payload.access.admin === true && subjectIdentity.isAdmin,
+    profileId: subjectIdentity.profileId,
     activeScope: body.activeScope,
-    actorSub: payload.sub,
+    // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to
+    // resolve it live; it is omitted when the caller's own token carries no `profileId` claim.
+    actor: { sub: payload.sub, profileId: payload.profileId },
     authScopePattern: buildAuthScopePattern(body.activeScope),
   });
 
-  debug('nebula-auth.worker.delegated.issued').info('Delegated token issued', {
-    targetSub: body.actFor, actorSub: payload.sub,
+  debug('nebula-auth.worker.narrower.issued').info('Narrower token issued', {
+    subOfNarrowerToken: body.subOfNarrowerToken, actorSub: payload.sub,
   });
   return Response.json({ access_token: accessToken, token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL });
 }

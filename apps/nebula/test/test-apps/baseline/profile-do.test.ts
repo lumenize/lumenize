@@ -23,6 +23,7 @@ import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import { FAIL_CLOSED_PROFILE_ID } from './index';
+import { foundAndLogin, createSubject, browserLogin, mintNarrowerToken } from '../../test-helpers';
 
 const ORIGIN = 'http://localhost';
 class MeshProbe extends LumenizeClient {}
@@ -46,6 +47,26 @@ async function makeClient(opts: {
       profileId: opts.profileId,
       sub: uuid(),
     }),
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  });
+  await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
+  return client;
+}
+
+/**
+ * A connected mesh client carrying a VERBATIM bearer token — the rung-1 counterpart to
+ * {@link makeClient}, for the endpoint-minted narrower token (which no local mint can reproduce).
+ */
+async function clientWithToken(accessToken: string, sub: string): Promise<MeshProbe> {
+  const browser = new Browser();
+  const ctx = browser.context(ORIGIN);
+  const client = new MeshProbe({
+    baseUrl: ORIGIN,
+    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    refresh: async () => ({ access_token: accessToken, sub }),
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage,
@@ -163,6 +184,44 @@ describe('Profile DO — Phase 2', () => {
     // ProfileTest.lookupProfileScopes throws for FAIL_CLOSED_PROFILE_ID → #requireOwnerOrAdmin must catch + deny.
     using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
     await expect(write(admin, FAIL_CLOSED_PROFILE_ID, { name: 'X' })).rejects.toThrow(/authz check failed/i);
+  });
+
+  // ── A NARROWER token is never an OWNER (tasks/nebula-mint-narrower-token.md Phase 3) ────────────
+  // ⚠️ **This test is ADR-009 RUNG 1 and does NOT inherit this file's rung-3 header.** The whole
+  // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
+  // are a real founder and a real invited member, and the token under test is the endpoint's own
+  // output handed verbatim to the client's `refresh` hook.
+  //
+  // Independent of ADR-012's pending amendment: with a NON-admin subject the mirrored `admin` bit is
+  // absent, so `#requireOwnerOrAdmin` branch (2) rejects and branch (4) is never reached — the only
+  // thing that can let this through is the owner branch, which is exactly what `!claims.act` closes.
+  it('a NARROWER token is NOT the owner — the admin driving it can neither write nor read privateNotes', async () => {
+    const universe = `pdo-${uuid().slice(0, 8)}`;
+    const star = `${universe}.app.tenant`;
+    const browser = new Browser();
+    const { accessToken: adminToken } = await foundAndLogin(browser, star, 'admin@example.com', star);
+    await createSubject(browser, star, adminToken, 'member@example.com');
+    const { accessToken: memberToken, payload: member } =
+      await browserLogin(new Browser(), star, 'member@example.com', star);
+    const pid = member.profileId!;
+    expect(pid).toBeDefined();
+
+    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
+    // Fixture guards. The token carries the SUBJECT's `profileId` — so the owner branch's zero-read
+    // equality DOES match, and `!claims.act` is the only thing standing between it and ownership.
+    expect(narrower.payload.profileId).toBe(pid);
+    expect(narrower.payload.act?.sub).toBeDefined();
+    expect(narrower.payload.access.admin).toBeUndefined(); // non-admin subject → branch (2) rejects
+
+    using impersonating = await clientWithToken(narrower.accessToken, member.sub);
+    // Mutation: drop `!claims.act` from the owner branch → both of these succeed → this reds.
+    await expect(write(impersonating, pid, { name: 'X' })).rejects.toThrow(/owner or admin/i);
+    await expect(readNotes(impersonating, pid)).rejects.toThrow(/owner or admin/i);
+
+    // Control: the member's OWN token (same `profileId`, no `act`) IS the owner — proving the denial
+    // above is the `act` clause and not a broken fixture or an unreachable DO.
+    using owner = await clientWithToken(memberToken, member.sub);
+    await expect(write(owner, pid, { name: 'X' })).resolves.toBeUndefined();
   });
 
   it('LWW + forward-only eTag: a second write REPLACES fields and advances the eTag; no OCC (#9)', async () => {

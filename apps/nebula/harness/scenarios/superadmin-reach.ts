@@ -22,7 +22,8 @@
  * `aud ⊆ authScopePattern`, so a token whose pattern misses its own aud is unmintable. The shape
  * that IS denied is a pattern covering the token's own `aud` but **not the node it calls** — reach
  * it by setting `issuerInstanceName` strictly below the node under test. That escalation shape is
- * covered by scope-isolation.test.ts's `/delegated-token` tests, not here.
+ * covered by scope-isolation.test.ts's `access.admin` confinement tests (whose principal is a real
+ * exact-star founder), not here.
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';

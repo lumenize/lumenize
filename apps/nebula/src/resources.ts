@@ -8,6 +8,12 @@
 
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+// ⚠️ **The NARROW `ActClaim`, deliberately — do NOT swap this to `@lumenize/nebula-auth`'s.** That one
+// is widened with an optional `profileId` (the JWT carries an actor PAIR); this type is the
+// `Snapshots.changedBy` PERSISTENCE boundary, which must not declare a field it does not store
+// (ADR-001). The widened shape is structurally assignable to this one, so **the type system will not
+// catch the swap** — `projectActClaim` below is the sole enforcement, and a widened import would make
+// its narrowing look redundant to the next reader.
 import type { ActClaim } from '@lumenize/auth';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError } from './errors';
@@ -56,6 +62,33 @@ export type TransactionError =
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
   | { ok: false; errors: Record<string, TransactionError> };
+
+/**
+ * Narrow an `act` chain to `{ sub, act? }` — dropping `profileId` at **every** depth.
+ *
+ * ⏳ **An INTERIM with a scheduled end, not the target model.** `nebula-auth`'s JWT `act` claim carries
+ * the actor's `profileId` (an actor pair — the claims describe two people); `Snapshots.changedBy` must
+ * not, because it is (a) typed as `@lumenize/auth`'s NARROW `ActClaim`, which cannot declare the field
+ * (ADR-001), and (b) doubling as the same-actor coalesce key at `#writeSnapshot`, where a widened
+ * record would change the compare. `tasks/nebula-pre-alpha.md`'s schema-surgery item 6 replaces that
+ * column with the full acting claims and derives the key from `sub` + `act` — at which point **this
+ * function is deleted, not adjusted** (ADR-016 says the widened claim is then exactly what should be
+ * stored). Whoever builds item 6: this is the line to remove.
+ *
+ * ⚠️ **RECURSIVE deliberately.** A one-level projection (`{ sub, ...(a.act && { act: a.act }) }`)
+ * passes every fixture `/mint-narrower-token` can produce — its root-identity gate caps that mint at
+ * depth 1 — and still leaks `profileId` at depth ≥ 2, which a platform prepending itself as an
+ * additional actor will produce. Spreading a variable means TypeScript runs no excess-property check,
+ * so nothing would catch it. The recursive form costs the same; a guard that rests on today's
+ * producers is a guard that silently expires (`calibration.md` §4).
+ *
+ * Exported (rather than inlined in the `#`-private `#buildChangedBy`, which is zero-parameter and
+ * reads its input from `callContext`) purely so a unit test can hand it a hand-built depth-2 chain —
+ * no mint can produce one.
+ */
+export function projectActClaim(act: ActClaim): ActClaim {
+  return { sub: act.sub, ...(act.act && { act: projectActClaim(act.act) }) };
+}
 
 // ─── Resources Class ───────────────────────────────────────────────
 
@@ -164,7 +197,7 @@ export class Resources {
   #buildChangedBy(): ActClaim {
     const cc = this.#getCallContext();
     const payload = cc.originAuth?.claims as unknown as NebulaJwtPayload;
-    return { sub: payload.sub, ...(payload.act && { act: payload.act }) };
+    return { sub: payload.sub, ...(payload.act && { act: projectActClaim(payload.act) }) };
   }
 
   #writeSnapshot(

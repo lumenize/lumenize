@@ -28,7 +28,7 @@ conversations** as they build — to generate valuable feedback and build stakeh
 - **THE GATE** = the turn-recorder capturing behavioral signals **live BEFORE the first invite** — else day-1 data is lost forever.
 - **Pre-alpha users are Universe admins** (Larry invites, pre-picks slug + name). This is the decision
   that shrinks the security story: acting-as anyone isn't an escalation. The **mint privilege-escalation is
-  ✅ FIXED** — `/delegated-token` now gates `activeScope` on the *caller's own* pattern and binds the minted
+  ✅ FIXED** — `/mint-narrower-token` (then named `/delegated-token`) now gates `activeScope` on the *caller's own* pattern and binds the minted
   pattern + `admin` to the caller (never the target's `isAdmin` or the instance's), plus rejects refresh-cookie
   auth: [archive/rfc-act-chains.md](archive/rfc-act-chains.md) NOW-1, **+ the `{ sub }` root-identity guard**
   (reject act-bearing tokens). What's LEFT is a single **non-security cleanup** — drop `AuthorizedActors` →
@@ -41,7 +41,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Super-admin `*`** — login at the reserved `nebula-platform` instance with `NEBULA_AUTH_BOOTSTRAP_EMAIL`
   → `access { authScopePattern:'*', admin:true }`; `matchAccess('*', …)` always true; bootstrap admin is
   modify-protected. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
-- **Act-as / delegation core** — `POST {prefix}/delegated-token` (RFC-8693 `act.sub`, recursive chain,
+- **Impersonation core** — `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain,
   `actorsAuthorized`, audited). NEW piece still needed = **synthetic-subject provisioning**.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index; `discover` /
   `claimUniverse` / `createGalaxy`).
@@ -62,7 +62,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - ✅ **Self-correcting codegen loop** — `DevStudio.chat` tool-loop → compile gate → Vue SFC → preview. [archive/nebula-codegen-loop.md](archive/nebula-codegen-loop.md)
 - ✅ **Recorder — generation capture** — `Galaxy.recordTurn`/`getTurns` (`TurnRecord` = replayable fixture). *The behavioral-UI-events **extension** is still LEFT → THE GATE below.*
 - ✅ **Auth gap — `onBeforeCall` higher-admin reach** (2026-06-23) — see Building blocks above. [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)
-- ✅ **`/delegated-token` escalation fix** (2026-07-07) — scope-bounded mint (gate `activeScope` on the *caller's* pattern; bind minted pattern + `admin` to the caller, never the target/instance) + refresh-cookie rejection + `{ sub }` root-identity guard (reject act-bearing tokens); delegation authz invariant (read + mint side) pinned in `.claude/rules/security.md`. Surfaced by the act-chain `/review-task` detour (whose model settled the chat `actAs` too). [archive/rfc-act-chains.md](archive/rfc-act-chains.md)
+- ✅ **`/mint-narrower-token` escalation fix** (2026-07-07, when the endpoint was named `/delegated-token`) — scope-bounded mint (gate `activeScope` on the *caller's* pattern; bind minted pattern + `admin` to the caller, never the target/instance) + refresh-cookie rejection + `{ sub }` root-identity guard (reject act-bearing tokens); delegation authz invariant (read + mint side) pinned in `.claude/rules/security.md`. Surfaced by the act-chain `/review-task` detour (whose model settled the chat `actAs` too). [archive/rfc-act-chains.md](archive/rfc-act-chains.md)
 - ✅ **Wave-1 ① Studio UI single-origin serving** (vite proxy + the prefix contract ③ transcribed). [archive/nebula-studio-vite-proxy.md](archive/nebula-studio-vite-proxy.md) · **Durable gotcha:** keep two-terminal vite+`wrangler dev`; **avoid the CF Vite plugin** (workerd-in-vite can't construct a `Container` → breaks the DevContainer preview).
 - ✅ **Wave-1 ② Local UI smoke + zero `it.skip`** (the `ui-smoke` Playwright lane; real-email login → shell → prompt → preview → wipe). [archive/nebula-local-smoke.md](archive/nebula-local-smoke.md)
 - ✅ **Wave-1 ③ First prod deploy** (2026-06-26; custom domain `nebula.lumenize.com`, migrations v1 frozen, `/_version` compare-only, `deploy.sh`). [archive/nebula-release-process.md](archive/nebula-release-process.md) · deferred CI/headless hardening → [on-hold/nebula-release-hardening.md](on-hold/nebula-release-hardening.md).
@@ -119,7 +119,7 @@ The remaining provisioning / capture / inspection work builds on these:
    (`tasks/on-hold/nebula-offline-prompt-harness.md`). NOT a transcribable spec — capable-of-failing checks
    + captured findings (build-task exploratory rule).
 2. **UX-exploratory** — *the act-as / persona UI.* Open, prototype-and-react, NOT pinnable up front;
-   the tight loop is **Larry's own dogfooding**: the `delegated-token` consent UX; persona switching;
+   the tight loop is **Larry's own dogfooding**: the `mint-narrower-token` consent UX; persona switching;
    multi-tab use; preview-panel tabs coupled to the act-as UI.
 
 - **Provision-a-subject-into-{scope, role}** — the unification: Universe-admin invite (pre-provisioned

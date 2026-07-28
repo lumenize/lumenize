@@ -33,7 +33,7 @@ import {
   NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
-import type { AccessEntry, DiscoveryEntry, RefreshTokenKV } from './types';
+import type { AccessEntry, DiscoveryEntry, NebulaJwtPayload, RefreshTokenKV } from './types';
 import { parseId, isValidSlug, matchAccess, hasAdminOverScope } from './parse-id';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
@@ -205,7 +205,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /** Resolve a `sub` → its scope + admin bit + `profileId`. `null` if unknown. Used by the refresh
-   *  KV-miss self-heal, the `isAdmin` convergence re-put, and delegated-token (actFor) — each threads
+   *  KV-miss self-heal, the `isAdmin` convergence re-put, and mint-narrower-token — each threads
    *  `profileId` into the record it rebuilds so the `profileId` claim survives (Phase 1). */
   getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
     const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin, profileId FROM Identities WHERE sub = ${sub}`;
@@ -864,9 +864,19 @@ export class NebulaAuthRegistry extends DurableObject {
    * `Scopes` row, its `Identities`, their `RefreshTokenIndex` entries + KV refresh records, and the
    * scope's `MagicLinks` / `InviteTokens`. Returns the affected set so the Worker fans out platform-DO
    * `teardown()` (the registry can't reach platform DOs — dependency direction). Throws 403 / 409.
+   *
+   * ⚠️ `callerClaims` is the **acting** principal (ADR-016) and is **recorded, never consulted**.
+   * Authorization keys off `callerAccess`/`callerSub` exactly as before — the stored `access` is
+   * *asserted* authority, immutable history, and reading it back as an authz input would be the
+   * stored-scope-set ADR-013 rejects. `planScopeDeletion` writes no record, so it does not carry it.
+   *
+   * ⚠️ **REQUIRED, not optional — and that is the whole point of it being a parameter.** An optional
+   * one lets a future dispatch branch omit it, emit a record with no acting principal, and signal
+   * nothing; required makes that a compile error at every call site plus a 400 at the `fetch` guard.
+   * ADR-016's contents are not retrofittable, so a silent under-record is unrecoverable history.
    */
   async executeScopeDeletion(
-    target: string, callerSub: string, callerAccess: AccessEntry,
+    target: string, callerSub: string, callerAccess: AccessEntry, callerClaims: NebulaJwtPayload,
   ): Promise<{ affected: AffectedScope[] }> {
     // No `scope_in_use` refusal: authority flows downward (ADR-015), so a covering admin may delete any
     // descendant regardless of who else is attached. `affectedUsers` is a UI warning, never a gate.
@@ -885,7 +895,25 @@ export class NebulaAuthRegistry extends DurableObject {
       this.ctx.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', name);
     }
 
-    log.info('Scope deleted', { target, callerSub, affected: plan.affected.map(a => a.instanceName) });
+    // ADR-016 — the FULL verified claims of the ACTING token, write-time-pinned. All four elements:
+    // the authority `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
+    // impersonation `sub` is the person acted UPON, so `act` is what names who actually drove this;
+    // a `sub`-only record is affirmatively wrong, not merely incomplete.
+    log.info('Scope deleted', {
+      target,
+      callerSub,
+      // ⚠️ **NOT named `actor`.** Its `sub` is the AUTHORITY principal — under impersonation, the
+      // person acted UPON — and the actor is `actingClaims.act.sub`. A field called `actor` whose
+      // `.sub` names the wrong human is the exact misreading ADR-016 exists to prevent, and it would
+      // be believed. The object is the whole acting TOKEN's claims; `act` inside it carries the actor.
+      actingClaims: {
+        sub: callerClaims.sub,
+        act: callerClaims.act,
+        profileId: callerClaims.profileId,
+        access: callerClaims.access,
+      },
+      affected: plan.affected.map(a => a.instanceName),
+    });
     return { affected: plan.affected };
   }
 
@@ -908,9 +936,15 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(403, 'forbidden', `Caller is not an admin of "${target}"`);
     }
 
-    // Resolve the caller's own email (sub → email). ⚠️ Fail CLOSED on empty (M2): a just-removed admin
-    // still inside their access-token window must not be able to wipe a shared scope by having their
-    // exclusion match zero rows (→ "no other users" → wipe). Refuse rather than proceed.
+    // Resolve the caller's own email (sub → email) — it exists to compute `#affectedUsers`' caller
+    // EXCLUSION, not to gate.
+    //
+    // ⚠️ **Fail CLOSED on empty (M2), for WARNING INTEGRITY.** `#affectedUsers`' own JSDoc has the
+    // real reason: a null here would silently under-count and make the warning lie ("no other users
+    // affected" → the admin wipes a shared scope believing it empty). ADR-015 §1 makes that warning
+    // the restraint on a destructive action, so a lying warning is the failure this prevents.
+    // This is NOT a revocation gate — a 15-minute post-revocation access-token window is the accepted
+    // posture repo-wide (`security.md`), and tightening this to act as one would be a downward veto.
     const callerEmailLc = this.#emailForSub(callerSub);
     if (!callerEmailLc) {
       throw new RegistryError(403, 'forbidden', 'Caller identity not found');
@@ -936,6 +970,11 @@ export class NebulaAuthRegistry extends DurableObject {
     // delete its TOP scope — the down-cascade handles the rest.
     return {
       affected: down.map(n => this.#toAffected(n)),
+      // ⚠️ **Accepted residual under impersonation.** The exclusion is the token's principal — which,
+      // for a narrower token, is the SUBJECT — so an admin acting as someone else sees a warning that
+      // omits the very person they are acting as from "who else is affected." Self-consistent with
+      // keying off `sub` (`security.md` rule (1)), and ADR-015 §1 makes this warning the restraint on
+      // a destructive action, so it is worth naming rather than silently leaving.
       affectedUsers: this.#affectedUsers(down, callerEmailLc),
     };
   }
@@ -1074,13 +1113,16 @@ export class NebulaAuthRegistry extends DurableObject {
           return Response.json(this.planScopeDeletion(target, callerSub, verifiedAccess));
         }
         case 'delete-scope': {
-          const { target, verifiedAccess, callerSub } = await request.json() as {
+          const { target, verifiedAccess, callerSub, callerClaims } = await request.json() as {
             target: string; verifiedAccess?: AccessEntry; callerSub?: string;
+            callerClaims?: NebulaJwtPayload;
           };
-          if (!verifiedAccess || !callerSub) {
+          // `callerClaims` is in the fail-closed guard deliberately: ADR-016's record is not
+          // retrofittable, so a branch that forgets to inject it must 400, never under-record.
+          if (!verifiedAccess || !callerSub || !callerClaims) {
             return Response.json({ error: 'invalid_request', error_description: 'Missing verified caller identity' }, { status: 400 });
           }
-          return Response.json(await this.executeScopeDeletion(target, callerSub, verifiedAccess));
+          return Response.json(await this.executeScopeDeletion(target, callerSub, verifiedAccess, callerClaims));
         }
         default:
           return new Response('Not Found', { status: 404 });

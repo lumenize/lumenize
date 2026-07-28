@@ -75,8 +75,11 @@ export interface CreateNebulaTestTokenOptions {
    * (`claims.profileId === instanceName`) from a rung-3 mint. tasks/nebula-profile-store.md.
    */
   profileId?: string;
-  /** RFC 8693 delegation actor sub (`act.sub`). */
-  actorSub?: string;
+  /**
+   * RFC 8693 delegation **actor pair** → the `act` claim. Mirrors the claim shape the production
+   * `/mint-narrower-token` emits: `{ sub, profileId? }`, where `profileId` is the ACTOR's.
+   */
+  actor?: { sub: string; profileId?: string };
   /** Token TTL in seconds. Default: nebula-auth's `ACCESS_TOKEN_TTL`. */
   ttlSeconds?: number;
 }
@@ -98,7 +101,7 @@ export function createNebulaTestToken(
     sub = generateUuid(),
     isAdmin = true,
     profileId,
-    actorSub,
+    actor,
     ttlSeconds,
   } = options;
 
@@ -110,7 +113,7 @@ export function createNebulaTestToken(
       activeScope,
       isAdmin,
       profileId,
-      actorSub,
+      actor,
       ttlSeconds,
     });
     const access_token = await signJwt(payload as any, privateKey, activeKey);

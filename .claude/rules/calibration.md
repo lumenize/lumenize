@@ -35,6 +35,8 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 
 **(a) A green test can encode a bug as intended.** A passing suite feels like evidence. It is evidence that behaviour is *unchanged*, which is a different claim.
 > **Where it bit (2026-07-26):** `packages/nebula-auth/test/profile-id-claim.test.ts` asserts *"a delegated (act-for) token carries the TARGET identity profileId"* — the exact unbounded behaviour that lets any admin write any person's profile cross-universe. The test is green and the behaviour is a hole. When you find a defect whose behaviour is asserted somewhere, **fix the policy and the test together** — do not let the green suite settle the question.
+>
+> **Resolved 2026-07-28 — and the resolution is the more interesting half.** That test still asserts the subject's `profileId` and is still green, **because it was right about the CLAIM.** Top-level `sub` and top-level `profileId` must describe the same person (the `QuerySubscribers` roster persists that pair), so the token *should* carry the subject's. The hole was on the **read** side: `profile.ts`'s owner branch treated that claim as ownership. The fix is `&& !claims.act` there ([ADR-012](../../docs/adr/012-global-profile-visibility.md)), plus an actor pair in `act`. ⇒ **"Fix the policy and the test together" does not mean the test's assertion is the thing to invert** — re-derive *which side* the defect is on first. Here the green test was load-bearing and only its framing was wrong.
 
 **(b) A test that must change is often evidence the change is RIGHT.** It was encoding the old behaviour; that is what makes it red.
 

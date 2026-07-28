@@ -44,7 +44,7 @@ REGISTRY_ENDPOINTS  = { discover, claim-universe, create-galaxy, create-star,
                         my-scopes, delete-scope-plan, delete-scope }
 // Handled in the Worker (worker-token.ts)
 AUTH_FLOW_SUFFIXES  = { email-magic-link, magic-link, accept-invite, refresh-token, logout }
-AUTHENTICATED_SUFFIXES = { invite, delegated-token }
+AUTHENTICATED_SUFFIXES = { invite, mint-narrower-token }
 TURNSTILE_ENDPOINTS = { email-magic-link, claim-universe, discover }
 ```
 
@@ -85,7 +85,7 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 The gate lands in two places depending on the route shape:
 
-- **Instance-path authenticated endpoints** (`invite`, `delegated-token`): the Worker verifies the Bearer/WebSocket token and requires `matchAccess(pattern, instanceName)` before dispatching. `handleInvite` then checks the bare `admin` bit — safe *only* because the router already proved scope coverage, which is why that line must never be copied to a site lacking the router's check.
+- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the Worker verifies the Bearer/WebSocket token and requires `matchAccess(pattern, instanceName)` before dispatching. `handleInvite` then checks the bare `admin` bit — safe *only* because the router already proved scope coverage, which is why that line must never be copied to a site lacking the router's check.
 - **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasAdminOverScope` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — every query branch is bounded by the caller's own `authScopePattern`, so the result set can never exceed their reach.
 
 ### Worker gating pipeline
@@ -141,7 +141,7 @@ Registry paths are identified by exact match of the whole path remainder against
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
 | `/auth/{scope}/invite` | POST | JWT + scope match + `admin` + rate limit | Worker | Mint invitee identities + single-use invite tokens, send the emails |
-| `/auth/{scope}/delegated-token` | POST | JWT + scope match + rate limit | Worker | Mint a scope-bounded act-for token. Requires `{ actFor, activeScope }`. Admin branch only |
+| `/auth/{scope}/mint-narrower-token` | POST | JWT + scope match + rate limit | Worker | Mint a scope-bounded narrower token for another person (`sub` = the subject, `act.sub` = the caller). Requires `{ subOfNarrowerToken, activeScope }`. Admin branch only |
 
 ### Registry endpoints
 

@@ -9,7 +9,7 @@ Nebula uses [nebula-auth](/docs/auth) for passwordless authentication with a two
 
 :::info[Where the pieces live]
 
-There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer); the login/token flows (`email-magic-link`, `magic-link`, `accept-invite`, `refresh-token`, `logout`, `invite`, `delegated-token`) run in the **default Worker** (`routeNebulaAuthRequest`); and the refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh with **no Registry round-trip**. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
+There is **no per-scope auth DO**. Identity and all durable auth state live in one **singleton Registry DO** (the identity authority + single writer); the login/token flows (`email-magic-link`, `magic-link`, `accept-invite`, `refresh-token`, `logout`, `invite`, `mint-narrower-token`) run in the **default Worker** (`routeNebulaAuthRequest`); and the refresh record lives in **Workers KV** (`refresh:{tokenHash}`), read at the edge on refresh with **no Registry round-trip**. Identity is keyed by a registry-minted surrogate **`sub`** (never the email). Diagrams reference `NebulaClient`, the client-side class that manages connections.
 
 :::
 
@@ -246,7 +246,7 @@ sequenceDiagram
 
 :::note[Switching scope ≠ acting as another user]
 
-Activating a Star gives the admin a token whose **`aud`** is that Star, but the **`sub` stays the admin's own** — actions are attributed to the admin, with their admin rights cascading. "Act as another user" (carry a different `sub`) is a **separate** mechanism — the admin-only `delegated-token` endpoint with an `actFor` subject, whose minted token is bound to the **caller's** own reach — not active-scope switching.
+Activating a Star gives the admin a token whose **`aud`** is that Star, but the **`sub` stays the admin's own** — actions are attributed to the admin, with their admin rights cascading. Impersonating another user (carrying a different `sub`) is a **separate** mechanism — the admin-only `mint-narrower-token` endpoint, which takes `{ subOfNarrowerToken, activeScope }` and mints a token whose `sub` is that person and whose `act.sub` is the caller — not active-scope switching.
 
 :::
 

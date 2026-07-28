@@ -19,7 +19,7 @@ export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from '.
 export { compileOntologyVersion } from './galaxy';
 
 // Resources
-export { Resources, END_OF_TIME } from './resources';
+export { Resources, END_OF_TIME, projectActClaim } from './resources';
 export type { SnapshotMeta, Snapshot, TransactionResult, TransactionError } from './resources';
 // The server-internal wire op shape (eTag-required put/move/delete, no typeName
 // on those — the server reads it from the current snapshot). Distinct from the

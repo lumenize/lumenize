@@ -1,11 +1,11 @@
 # Delegation hardening (on-hold — designed, awaiting triggers)
 
-**Status**: ON HOLD. Two *designed* pieces of the act-chain work, each waiting on a concrete trigger. Model + decision record: [rfc-act-chains.md](../archive/rfc-act-chains.md) (archived on its completion — read it for vocabulary, the two-operation table, and the authz invariant). The `/delegated-token` **escalation** fix + the `security.md` invariant pin were done *now* in that file; everything below stayed deferred.
+**Status**: ON HOLD. Two *designed* pieces of the act-chain work, each waiting on a concrete trigger. Model + decision record: [rfc-act-chains.md](../archive/rfc-act-chains.md) (archived on its completion — read it for vocabulary, the two-operation table, and the authz invariant). The `/mint-narrower-token` **escalation** fix + the `security.md` invariant pin were done *now* in that file; everything below stayed deferred.
 
-## A — `actFor` residual
+## A — subject-of-narrower-token residual
 The security-critical part — the scope-bounded mint + refresh-cookie rejection — **SHIPPED** ([rfc-act-chains.md](../archive/rfc-act-chains.md) NOW-1). Working the rest of this list with Larry (2026-07-07):
 
-- ✅ **Plain-`{ sub }` root-identity guard** — **DONE** (shipped alongside the escalation fix). `/delegated-token` now rejects a caller presenting an `act`-bearing token — chained re-delegation is unsupported by design (a delegated token's top-level `sub` is the *principal*, not the real actor, so re-delegating would mis-attribute). `#handleDelegatedToken` + a capable-of-failing test (`esc-chained`).
+- ✅ **Plain-`{ sub }` root-identity guard** — **DONE** (shipped alongside the escalation fix). `/mint-narrower-token` now rejects a caller presenting an `act`-bearing token — chained re-delegation is unsupported by design (a delegated token's top-level `sub` is the *principal*, not the real actor, so re-delegating would mis-attribute). `mintNarrowerToken` + a capable-of-failing test (`esc-chained`).
 - **Drop `AuthorizedActors` → admins-only** — the ONE item left. **Not as simple as it sounds**: a clean removal spans `#handleAddActor`/`#handleRemoveActor` + their routes, the `AuthorizedActors` table (`schemas.ts`), ~5 tests, and **3 published docs** (`delegation.mdx` / `getting-started.md` / `testing.mdx`, incl. `@check-example` blocks). Safe to keep (the escalation fix neutered it — a non-admin authorized-actor now gets **no** `admin`); dropping it is surface-reduction with no consumer. Do it when touching the delegation docs anyway.
 - ~~**Star-root-node-admin + consent eligibility**~~ — **DROPPED** (Larry, 2026-07-07: not foreseen). If a consent-based support-session is ever built ([backlog.md](../backlog.md)), it defines its own auth-layer eligibility then — nothing to carry here.
 

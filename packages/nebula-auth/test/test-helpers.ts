@@ -12,7 +12,7 @@
  */
 import { expect } from 'vitest';
 import { parseJwtUnsafe } from '@lumenize/auth';
-import { NEBULA_AUTH_PREFIX } from '../src/types';
+import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from '../src/types';
 
 export const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -127,6 +127,66 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
   const { refreshToken, setCookie } = await clickLink(self, link!);
   const { parsed, access_token } = await refreshAndParse(self, scope, refreshToken);
   return { link, refreshToken, setCookie, parsed, access_token };
+}
+
+/**
+ * Found a Star end-to-end **as its own founder** → an `isAdmin=1` identity at the full 3-segment id
+ * with an EXACT-STAR `authScopePattern` (`claimStar` stamps it — `nebula-auth-registry.ts`).
+ *
+ * This is the only real (ADR-009 rung 1) path to a **sub-universe admin** identity, which is what any
+ * test needing a token that actually carries `access.admin` under the `mint-narrower-token` `admin`
+ * mirror requires. `inviteAndLogin` yields `isAdmin=0`, so it cannot stand in.
+ *
+ * ⚠️ **Non-obvious prerequisite: the parent galaxy must exist first** or `claim-star` 400s
+ * `parent_not_found` — hence the `createGalaxy` hop, which needs the universe admin's token.
+ */
+export async function foundStarAndLogin(
+  self: Fetcher, star: string, email: string, universeAdminToken: string, activeScope?: string,
+) {
+  const [universe, galaxySlug] = star.split('.');
+  const galaxyResp = await createGalaxy(self, `${universe}.${galaxySlug}`, universeAdminToken);
+  expect([201, 409]).toContain(galaxyResp.status); // 409 = already exists, fine for provisioning
+
+  const resp = await claimStar(self, star, email);
+  expect(resp.status).toBe(200);
+  const { magicLinkUrl } = await resp.json() as { magicLinkUrl?: string };
+  expect(magicLinkUrl).toBeDefined();
+  const { refreshToken, setCookie } = await clickLink(self, magicLinkUrl!);
+  const { parsed, access_token } = await refreshAndParse(self, star, refreshToken, activeScope);
+  return { refreshToken, setCookie, parsed, access_token };
+}
+
+/**
+ * Log in the configured **platform bootstrap admin** at `nebula-platform` → an `authScopePattern: '*'`
+ * identity, the widest principal there is.
+ *
+ * The bootstrap mint at `nebula-platform` is the ONLY email-magic-link mint, so this is a real rung-1
+ * login. Keyed to an email bound in `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL`; passing an
+ * unlisted address mints nothing and the login is rejected.
+ */
+export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, activeScope?: string) {
+  const ml = await requestMagicLink(self, PLATFORM_INSTANCE_NAME, email);
+  expect(ml.status).toBe(200);
+  const { magicLinkUrl } = await ml.json() as { magicLinkUrl?: string };
+  expect(magicLinkUrl).toBeDefined();
+  const { refreshToken } = await clickLink(self, magicLinkUrl!);
+  return refreshAndParse(self, PLATFORM_INSTANCE_NAME, refreshToken, activeScope);
+}
+
+/** The first entry of `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL` list. */
+export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
+
+/**
+ * Invite `email` into `scope` and log them in **at a galaxy-tier scope**, returning a subject whose
+ * own scope is `{u}.{g}`. Thin wrapper over {@link inviteAndLogin} that first ensures the galaxy row
+ * exists — `issueInvites` targets an instance path, so the scope must be registered.
+ */
+export async function inviteIntoGalaxy(
+  self: Fetcher, galaxy: string, universeAdminToken: string, email: string,
+) {
+  const galaxyResp = await createGalaxy(self, galaxy, universeAdminToken);
+  expect([201, 409]).toContain(galaxyResp.status);
+  return inviteAndLogin(self, galaxy, universeAdminToken, email);
 }
 
 /** Make an authenticated request to an instance endpoint. Returns the Response. */

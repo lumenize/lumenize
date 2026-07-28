@@ -246,7 +246,7 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
     // A callerSub with no Identity row → the caller-exclusion in `affectedUsers` can't be computed,
     // so the warning would silently under-count → refuse rather than return a lying plan.
     await expect(
-      registry.executeScopeDeletion(uni, 'ghost-sub-with-no-identity', admin.parsed.access),
+      registry.executeScopeDeletion(uni, 'ghost-sub-with-no-identity', admin.parsed.access, admin.parsed),
     ).rejects.toThrow(/not found|forbidden/i);
   });
 

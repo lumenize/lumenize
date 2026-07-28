@@ -35,7 +35,7 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * caller's `authScopePattern` covers. `enforceScopeReach`'s tenant branch deliberately admits a
  * caller whose `aud` sits *below* this node (a member of a child may reach its parent), so a bare
  * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
- * narrowing a `/delegated-token` mint. See tasks/nebula-confine-admin-bypass.md.
+ * narrowing a `/mint-narrower-token` mint. See tasks/nebula-confine-admin-bypass.md.
  *
  * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
  * `LumenizeWorker`, and a node type could compose this guard *without* `enforceScopeReach`. Never

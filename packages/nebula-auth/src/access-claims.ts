@@ -4,7 +4,7 @@
  *
  * Reused by BOTH mint paths so a token minted anywhere is byte-for-byte the shape the
  * server issues:
- *   - the production Worker mint — `worker-token.mintAccessToken` (refresh / delegated-token);
+ *   - the production Worker mint — `worker-token.mintAccessToken` (refresh / mint-narrower-token);
  *   - the test-util mint — {@link createNebulaTestToken} (a Node harness with the `.dev.vars` key).
  *
  * `email` and `adminApproved` are NOT claims (tasks/nebula-auth-surrogate-sub.md): `email` is a
@@ -40,13 +40,20 @@ export interface NebulaAccessClaimInput {
   /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. Omitted when
    *  absent (a pre-rollout KV record mints gracefully without it). tasks/nebula-profile-store.md. */
   profileId?: string;
-  /** RFC 8693 delegation actor sub (`act.sub`) — omitted when absent. */
-  actorSub?: string;
+  /**
+   * RFC 8693 delegation **actor pair** → the `act` claim. Omitted entirely when absent.
+   *
+   * The claims of a narrower token describe two people: the top-level `sub`/`profileId` pair is the
+   * SUBJECT (whose access this is) and `act` is the ACTOR (who is driving). `actor.profileId` is
+   * omitted from the emitted claim when the actor's own token carries none.
+   */
+  actor?: { sub: string; profileId?: string };
   /**
    * Override the minted `access.authScopePattern` (default: {@link buildAuthScopePattern} of `instanceName`).
-   * Set ONLY by the `/delegated-token` mint, to bind the token to the **caller's** covered scope
-   * (scope-bounded delegation) — never the issuing instance's pattern nor the target's. MUST still cover
-   * `activeScope` (the internal-consistency self-check below enforces it).
+   * Set ONLY by the `/mint-narrower-token` mint, to bind the token to the **requested** `activeScope`
+   * — never the issuing instance's pattern. That scope is separately bounded by BOTH the caller's
+   * reach and the subject's (`worker-token.mintNarrowerToken`), so the derived pattern can exceed
+   * neither. MUST still cover `activeScope` (the internal-consistency self-check below enforces it).
    */
   authScopePattern?: string;
   /** Token TTL in seconds. Default {@link ACCESS_TOKEN_TTL}. */
@@ -60,8 +67,8 @@ export interface NebulaAccessClaimInput {
  * plus `admin: true` iff `isAdmin`.
  *
  * `authScopePatternOverride` bounds the pattern to something other than the issuing instance's
- * (the `/delegated-token` scope-bounded mint passes the caller's covered scope); default derives
- * from `instanceName`, the shape every non-delegated mint keeps.
+ * (the `/mint-narrower-token` scope-bounded mint passes the requested `activeScope`); default derives
+ * from `instanceName`, the shape every ordinary mint keeps.
  *
  * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `admin` and
  * `authScopePattern` are produced together, so `admin` is never emitted without a pattern — which
@@ -111,6 +118,11 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     jti: generateUuid(),
     access,
     ...(input.profileId ? { profileId: input.profileId } : {}),
-    ...(input.actorSub ? { act: { sub: input.actorSub } } : {}),
+    // ⚠️ The `profileId` key is spread CONDITIONALLY inside `act`, never `act` itself conditionally:
+    // `!claims.act` (the Profile owner guard) keys on the presence of `act`, so an `act` that
+    // disappeared when the actor had no `profileId` would silently defeat that guard.
+    ...(input.actor
+      ? { act: { sub: input.actor.sub, ...(input.actor.profileId ? { profileId: input.actor.profileId } : {}) } }
+      : {}),
   };
 }

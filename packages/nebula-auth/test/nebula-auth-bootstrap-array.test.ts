@@ -11,23 +11,17 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { requestMagicLink, clickLink, refreshAndParse } from './test-helpers';
+import { requestMagicLink, platformLogin } from './test-helpers';
 import { PLATFORM_INSTANCE_NAME } from '../src/types';
 
 const SECOND_BOOTSTRAP = 'second-bootstrap@example.com'; // the config entry is mixed-case + leading space
 
-/** Log in at nebula-platform via the bootstrap mint → parsed JWT payload. */
-async function platformLogin(email: string) {
-  const ml = await requestMagicLink(SELF, PLATFORM_INSTANCE_NAME, email);
-  expect(ml.status).toBe(200);
-  const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
-  const { refreshToken } = await clickLink(SELF, magicLinkUrl);
-  return refreshAndParse(SELF, PLATFORM_INSTANCE_NAME, refreshToken);
-}
+// `platformLogin` was the file-local helper here; it is now shared (test-helpers.ts) because
+// tasks/nebula-mint-narrower-token.md needs the same rung-1 `*` principal for its widest-path case.
 
 describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
   it('the SECOND listed bootstrap email → a `*` platform admin (array membership, per-element normalized)', async () => {
-    const { parsed } = await platformLogin(SECOND_BOOTSTRAP);
+    const { parsed } = await platformLogin(SELF, SECOND_BOOTSTRAP);
     // Reds if the getter honors only index 0, or does a raw String.includes on the joined value
     // ('…, Second-Bootstrap@Example.com' does NOT contain 'second-bootstrap@example.com').
     expect(parsed.access.authScopePattern).toBe('*');
@@ -35,7 +29,7 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
   });
 
   it('the FIRST listed bootstrap email → a `*` platform admin', async () => {
-    const { parsed } = await platformLogin('bootstrap-admin@example.com');
+    const { parsed } = await platformLogin(SELF, 'bootstrap-admin@example.com');
     expect(parsed.access.authScopePattern).toBe('*');
     expect(parsed.access.admin).toBe(true);
   });

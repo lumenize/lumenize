@@ -7,8 +7,37 @@
 
 // Import + re-export shared types from @lumenize/auth
 // (import makes them available locally; export passes them to consumers)
-import type { ActClaim, ResolvedEmail, EmailMessage } from '@lumenize/auth';
-export type { ActClaim, ResolvedEmail, EmailMessage };
+import type { ResolvedEmail, EmailMessage } from '@lumenize/auth';
+export type { ResolvedEmail, EmailMessage };
+
+/**
+ * RFC 8693 §4.1 delegation actor — a LOCAL widening of `@lumenize/auth`'s `ActClaim` that adds the
+ * actor's `profileId`, because the claims of a narrower token must describe **two people**: top-level
+ * claims pertain to the subject, `act` to the actor who is driving.
+ *
+ * `profileId` is **optional**, matching every source of it (`NebulaJwtPayload.profileId` is optional at
+ * every layer, and ADR-013 makes it display-only).
+ *
+ * ⚠️ **Local, deliberately.** `@lumenize/auth` is a separate package with its own consumers; widening
+ * its type is out of scope (and one more divergence for
+ * `tasks/on-hold/auth-token-core-compose-not-fork.md` to reconcile). ⚠️ `apps/nebula/src/resources.ts`
+ * keeps importing the **narrow** `@lumenize/auth` type: its `changedBy` is a persistence boundary, and
+ * declaring an optional `profileId` there is the ADR-001 divergence `projectActClaim` exists to
+ * prevent. **The type system is not a guard across that seam** — the widened shape is structurally
+ * assignable to the narrow one, so nothing errors if the wrong import is chosen; the projection is the
+ * sole enforcement.
+ *
+ * Recursive per RFC 8693, outermost = current. This endpoint's mint never nests (the root-identity gate
+ * refuses an act-bearing caller and the builder writes a flat actor), but depth ≤ 1 is a property of
+ * THAT mint, not of the system — a platform prepending itself as an additional actor does nest.
+ */
+export interface ActClaim {
+  sub: string;
+  /** The actor's PUBLIC profile address — display-only (ADR-013). Omitted when the actor's own token
+   *  carries no `profileId` claim. */
+  profileId?: string;
+  act?: ActClaim;
+}
 
 // ---------------------------------------------------------------------------
 // Tiers
@@ -59,7 +88,7 @@ export interface NebulaJwtPayload {
   /** Issuer — always NEBULA_AUTH_ISSUER */
   iss: string;
   /** Audience — the active universeGalaxyStarId this token is scoped to.
-   *  Set from the required `activeScope` field in the refresh/delegation request body. */
+   *  Set from the required `activeScope` field in the refresh / mint-narrower-token request body. */
   aud: string;
   /** Subject — the registry-minted surrogate `sub` (one per email-in-a-scope). */
   sub: string;

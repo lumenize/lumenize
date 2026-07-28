@@ -11,7 +11,7 @@ Scopes form a strict tree: universe → galaxy → star. Every principal carries
 
 The authority model this implies was **assumed everywhere and written down nowhere** — and unwritten invariants are the ones that get violated. Two independent violations shipped, in opposite directions:
 
-- **Upward leak.** `requireAdmin`, `requirePermission`, and the subscribe-time writers keyed on the bare `access.admin` bit with no reference to which node they were running in. Since `enforceScopeReach`'s tenant branch deliberately *admits* a caller whose `aud` sits below a node, an admin of a child scope acted as admin on its ancestors — reachable by narrowing a `/delegated-token` mint.
+- **Upward leak.** `requireAdmin`, `requirePermission`, and the subscribe-time writers keyed on the bare `access.admin` bit with no reference to which node they were running in. Since `enforceScopeReach`'s tenant branch deliberately *admits* a caller whose `aud` sits below a node, an admin of a child scope acted as admin on its ancestors — reachable by narrowing a `/mint-narrower-token` mint.
 - **Downward veto.** `#computeDeletionPlan` refused a covering admin's deletion whenever any identity with a different email was attached to the target, letting a scope's own members overrule an admin above them.
 
 Both passed review repeatedly because each looked locally reasonable. The upward leak read as "an admin is an admin." The downward veto read as "don't let an admin wipe a scope real people are using." Neither reviewer had a stated invariant to check against.

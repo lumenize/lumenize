@@ -77,24 +77,24 @@ describe('logout edge cases', () => {
   });
 });
 
-describe('delegated-token edge cases (after the Bearer gate)', () => {
+describe('mint-narrower-token edge cases (after the Bearer gate)', () => {
   // These need a valid Bearer to pass the router's verifyInstanceJwt; use a founder token.
-  it('missing actFor → 400; missing activeScope → 400; invalid JSON → 400', async () => {
+  it('missing subOfNarrowerToken → 400; missing activeScope → 400; invalid JSON → 400', async () => {
     const { foundUniverse, adminRequest } = await import('./test-helpers');
     const scope = u();
     const admin = await foundUniverse(SELF, scope, 'admin@example.com');
 
-    const noActFor = await adminRequest(SELF, scope, 'delegated-token', admin.access_token, {
+    const noSubject = await adminRequest(SELF, scope, 'mint-narrower-token', admin.access_token, {
       method: 'POST', body: { activeScope: scope },
     });
-    expect(noActFor.status).toBe(400);
+    expect(noSubject.status).toBe(400);
 
-    const noScope = await adminRequest(SELF, scope, 'delegated-token', admin.access_token, {
-      method: 'POST', body: { actFor: 'x' },
+    const noScope = await adminRequest(SELF, scope, 'mint-narrower-token', admin.access_token, {
+      method: 'POST', body: { subOfNarrowerToken: 'x' },
     });
     expect(noScope.status).toBe(400);
 
-    const badJson = await SELF.fetch(new Request(url(`${scope}/delegated-token`), {
+    const badJson = await SELF.fetch(new Request(url(`${scope}/mint-narrower-token`), {
       method: 'POST',
       headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
       body: 'not json{',

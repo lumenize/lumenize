@@ -1,0 +1,187 @@
+/**
+ * `/mint-narrower-token` — **the payoff**, asserted as a DAG VERDICT rather than a claim.
+ *
+ * Every other criterion for this endpoint reads claims off the mint response. This one asserts what
+ * the feature is actually *for*: mirroring the subject's `admin` bit puts `resolvePermission` back in
+ * the decision, so an admin can observe the denial they came to debug. With the caller's bit instead,
+ * `dag-tree.ts`'s scope-admin bypass fires and the denial never happens — the token wears the
+ * subject's name while acting with admin-derived authority they do not have.
+ *
+ * **Vehicle: a plain `LumenizeClient` whose `refresh` hook returns the endpoint-minted token**, driven
+ * through the REAL `NebulaClientGateway`. `NebulaClient` cannot be the vehicle — its config `Omit`s
+ * `refresh` and builds its own from the Path-scoped cookie, so it can only carry a token the cookie
+ * mints. That is ADR-009 **rung 1** end to end: real founding, real invite, real login, and the token
+ * under test comes from the production endpoint.
+ *
+ * @see tasks/nebula-mint-narrower-token.md Phase 2
+ */
+import { describe, it, expect, vi } from 'vitest';
+import { LumenizeClient } from '@lumenize/mesh';
+import { Browser } from '@lumenize/testing';
+import { generateUuid } from '@lumenize/auth';
+import { env, runInDurableObject } from 'cloudflare:test';
+import { ROOT_NODE_ID, projectActClaim } from '@lumenize/nebula';
+import type { Star, TransactionResult } from '@lumenize/nebula';
+import {
+  universeAdminClient, createInvitedClient, createSubject, mintNarrowerToken,
+} from '../../test-helpers';
+import { NebulaClientTest } from './index';
+
+const ORIGIN = 'http://localhost';
+const VERSION = 'v1';
+const TYPES = 'interface Note { label: string }';
+
+class MeshProbe extends LumenizeClient {}
+
+/** A connected mesh client carrying a verbatim bearer token (the endpoint's mint). */
+async function clientCarrying(accessToken: string, sub: string): Promise<MeshProbe> {
+  const browser = new Browser();
+  const ctx = browser.context(ORIGIN);
+  const client = new MeshProbe({
+    baseUrl: ORIGIN,
+    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
+    refresh: async () => ({ access_token: accessToken, sub }),
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  });
+  await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
+  return client;
+}
+
+describe('/mint-narrower-token — the DAG verdict', () => {
+  it('a narrower token for a NON-admin member is DENIED a write the caller is allowed', async () => {
+    const universe = `mnt-${generateUuid().slice(0, 8)}`;
+    const star = `${universe}.app.tenant`;
+    const browser = new Browser();
+
+    // Caller: a `{u}.*` universe admin — administers the whole star, so eligible for the mint.
+    const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
+      NebulaClientTest, browser, star, star, 'admin@example.com',
+    );
+    admin.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+    await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+    // A private node — the member holds no grant anywhere on it.
+    admin.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
+    await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+    const priv = admin.lastResult as string;
+
+    // Subject: a real invited NON-admin member of the star.
+    await createSubject(browser, star, adminToken, 'member@example.com');
+    const { client: memberClient, payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'member@example.com',
+    );
+    expect(member.access.admin).toBeUndefined(); // fixture guard: the subject really is non-admin
+
+    // The mint, through the production endpoint.
+    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
+    expect(narrower.payload.sub).toBe(member.sub);
+    expect(narrower.payload.act?.sub).toBe(adminPayload.sub);
+    // The mirror: the subject is non-admin, so the token carries NO admin bit. This is the operand
+    // the assertion below actually turns on.
+    expect(narrower.payload.access.admin).toBeUndefined();
+
+    // ── The verdict ──────────────────────────────────────────────────────────────────────────────
+    using impersonating = await clientCarrying(narrower.accessToken, member.sub);
+    const denied = await impersonating.lmz.callAsync('STAR', star,
+      impersonating.ctn<Star>().transaction(VERSION, generateUuid(), {
+        [generateUuid()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
+      })) as TransactionResult;
+    expect(denied.ok).toBe(false);
+    expect(Object.values((denied as { ok: false; errors: Record<string, any> }).errors)[0].type)
+      .toBe('permission');
+
+    // Control: the SAME write with the caller's OWN token commits — so the path is reachable and the
+    // denial above is the `admin` mirror, not a plumbing failure.
+    admin.callStarTransaction(star, VERSION, {
+      [generateUuid()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'yes' } },
+    });
+    await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+    expect((admin.lastResult as TransactionResult).ok).toBe(true);
+
+    admin[Symbol.dispose](); memberClient[Symbol.dispose]();
+  });
+
+  // ── `changedBy` is unchanged in SHAPE ───────────────────────────────────────────────────────────
+  // The widened `act` claim (now an actor PAIR) must not reach the persisted `Snapshots.changedBy`
+  // column: it is typed as `@lumenize/auth`'s NARROW `ActClaim` (which cannot declare `profileId` —
+  // ADR-001) and its `JSON.stringify` IS the same-actor coalesce key.
+  //
+  // **Principal, pinned:** the subject is granted an explicit `write` tier on the node FIRST. Without
+  // it a narrower token for a non-admin subject holds no DAG grant in a fresh Star and the write is
+  // denied for an unrelated reason (the very denial the test above asserts).
+  it('persists changedBy = { sub, act: { sub } } with NO profileId, and still coalesces', async () => {
+    const universe = `mnt-${generateUuid().slice(0, 8)}`;
+    const star = `${universe}.app.tenant`;
+    const browser = new Browser();
+
+    const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
+      NebulaClientTest, browser, star, star, 'admin@example.com',
+    );
+    admin.callStarApplyOntology(star, { version: VERSION, types: TYPES });
+    await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+    admin.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
+    await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
+    const node = admin.lastResult as string;
+
+    await createSubject(browser, star, adminToken, 'writer@example.com');
+    const { client: memberClient, payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'writer@example.com',
+    );
+    admin.callStarSetPermission(star, node, member.sub, 'write');
+    await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
+
+    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
+    using impersonating = await clientCarrying(narrower.accessToken, member.sub);
+    expect(narrower.payload.act?.profileId).toBe(adminPayload.profileId); // the claim DOES carry it
+
+    const rid = generateUuid();
+    const commit = (label: string) => impersonating.lmz.callAsync('STAR', star,
+      impersonating.ctn<Star>().transaction(VERSION, generateUuid(),
+        { [rid]: { op: 'create', typeName: 'Note', nodeId: node, value: { label } } }));
+    const first = await commit('one') as TransactionResult;
+    expect(first.ok).toBe(true);
+
+    // Assert the PERSISTED column — its `JSON.stringify` is the coalesce key, so this is the
+    // mechanism the invariant governs, not a value echoed into a payload.
+    const rows = () => (runInDurableObject as any)(
+      (env as any).STAR.getByName(star),
+      (inst: any) => [...inst.ctx.storage.sql.exec(
+        'SELECT changedBy, validFrom FROM Snapshots WHERE resourceId = ?', rid)]
+        .map((r: any) => ({ changedBy: r.changedBy as string, validFrom: r.validFrom as string })),
+    );
+    const after1 = await rows();
+    expect(after1).toHaveLength(1);
+    // Mutation: spread the raw `payload.act` → `act` carries `profileId` → this reds.
+    expect(JSON.parse(after1[0].changedBy)).toEqual({ sub: member.sub, act: { sub: adminPayload.sub } });
+
+    // ...and two same-actor writes inside the window still coalesce to ONE row.
+    const second = await impersonating.lmz.callAsync('STAR', star,
+      impersonating.ctn<Star>().transaction(VERSION, generateUuid(),
+        { [rid]: { op: 'put', eTag: (first as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'two' } } })) as TransactionResult;
+    expect(second.ok).toBe(true);
+    expect(await rows()).toHaveLength(1);
+
+    admin[Symbol.dispose](); memberClient[Symbol.dispose]();
+  });
+});
+
+// ── The recursive projection, at a depth NO MINT CAN PRODUCE ──────────────────────────────────────
+// `/mint-narrower-token`'s root-identity gate caps its own output at depth 1 and its builder writes a
+// flat actor, so no end-to-end fixture can distinguish a one-level projection from a recursive one —
+// which is exactly why this is a unit test on a hand-built chain. `#buildChangedBy` cannot be the
+// vehicle: it is `#`-private AND zero-parameter (it reads `callContext`), so nothing can hand it a
+// payload, and `coding-style.md` forbids downgrading `#` to TS `private` to make it testable.
+describe('projectActClaim', () => {
+  it('drops profileId at EVERY depth, preserving the chain', () => {
+    const chain = {
+      sub: 'a', profileId: 'pa',
+      act: { sub: 'b', profileId: 'pb', act: { sub: 'c', profileId: 'pc' } },
+    };
+    // Mutation: replace the recursive call with `{ sub: a.sub, ...(a.act && { act: a.act }) }` →
+    // depths 2 and 3 keep their `profileId` → this reds. (Nothing else in the repo can red it.)
+    expect(projectActClaim(chain)).toEqual({ sub: 'a', act: { sub: 'b', act: { sub: 'c' } } });
+  });
+});

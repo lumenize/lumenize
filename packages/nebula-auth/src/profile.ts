@@ -232,8 +232,31 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     const claims = this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
     const profileId = this.#profileId();
 
-    // (1) Owner — the JWT's own profileId equals this instance. NO read. (LLM-as-owner passes here.)
-    if (claims?.profileId && claims.profileId === profileId) return;
+    // (1) Owner — the JWT's own profileId equals this instance, AND the token is not delegated.
+    // NO read. (LLM-as-owner passes here.)
+    //
+    // ⚠️ **`!claims.act` is a deliberate EXCEPTION to `security.md`'s read-side rule, not an
+    // application of it** — it is the one place where the presence of `act` changes an authz outcome,
+    // and ADR-012 licenses it explicitly. Under impersonation the token carries the SUBJECT's
+    // `profileId`, so without this clause the admin driving it would own that person's profile:
+    // writing their public fields and reading their `privateNotes`. What licenses the exception is
+    // *global*: a profile sits outside the scope tree, and scope authority over one can be
+    // MANUFACTURED (claim a Universe, invite any address), so a manufactured scope contains nothing
+    // of the victim's except this global object.
+    //
+    // ⚠️ The invariant is **an admin-driven session is never an owner** — NOT "the two subs are
+    // different people". `#mintIdentity` keys on (email, scope), so one human legitimately holds
+    // several `sub`s. Do NOT "improve" this to `!claims.act || claims.act.sub === claims.sub` or
+    // `|| claims.act.profileId === claims.profileId`: both read the chain's IDENTITY to decide authz,
+    // which rule (1) forbids. This tests only that the token IS delegated, never who the actor is.
+    //
+    // ⚠️ **A known, accepted consequence of presence-only** — do not "fix" it with the variants above.
+    // If a future `prependActor` ever stamps the platform onto a TOKEN (it is planned only for a
+    // `changedBy` RECORD), a person's own session would carry `act` and lose the owner branch on their
+    // OWN profile. The remedy then is to keep such a token out of this path — or to re-open ADR-012 —
+    // never to start comparing `act.sub` to `claims.sub`, which is precisely the manufacture the
+    // exception exists to defeat.
+    if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
     // (2) Not an admin → reject. NO read.
     if (!claims?.access?.admin) throw new Error('Forbidden: profile write requires owner or admin');
     // (3) Super-admin (pattern '*') covers every scope → pass. NO read.

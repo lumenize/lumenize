@@ -105,19 +105,19 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
   });
 });
 
-describe('Phase 1 — delegated token carries the acted-for TARGET profileId (getIdentityScope path)', () => {
-  it('a delegated (act-for) token carries the TARGET identity profileId, never the caller', async () => {
+describe('Phase 1 — a narrower token carries the SUBJECT profileId (getIdentityScope path)', () => {
+  it('a narrower token carries the SUBJECT identity profileId, never the caller', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'admin@example.com');
     const user = await inviteAndLogin(SELF, uni, admin.access_token, 'user@example.com');
 
-    const resp = await adminRequest(SELF, uni, 'delegated-token', admin.access_token, {
-      method: 'POST', body: { actFor: user.parsed.sub, activeScope: uni },
+    const resp = await adminRequest(SELF, uni, 'mint-narrower-token', admin.access_token, {
+      method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: uni },
     });
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
 
-    expect(parsed.profileId).toBe(user.parsed.profileId);        // the TARGET's profile (the token acts AS them)
+    expect(parsed.profileId).toBe(user.parsed.profileId);        // the SUBJECT's profile (the token acts AS them)
     expect(parsed.profileId).not.toBe(admin.parsed.profileId);   // NOT the caller's — reds if the wrong sub is used
   });
 });

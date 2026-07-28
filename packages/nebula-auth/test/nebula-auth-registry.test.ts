@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import type { AccessEntry } from '@lumenize/nebula-auth';
+import type { AccessEntry, NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /** A fresh, isolated registry stub (unique name → own migrated storage). */
 function freshRegistry(): any {
@@ -35,6 +35,11 @@ async function seed(
 }
 
 const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+
+/** The ADR-016 acting-principal argument for a direct-RPC `executeScopeDeletion` call. Recorded,
+ *  never consulted — authorization keys off the separate `callerSub`/`callerAccess` arguments. */
+const ACTING = (sub: string, u: string) =>
+  ({ sub, access: ADMIN_OVER(u) } as unknown as NebulaJwtPayload);
 
 describe('NebulaAuthRegistry', () => {
   // ── discover ──────────────────────────────────────────────────────────────────────────────────
@@ -234,7 +239,7 @@ describe('NebulaAuthRegistry', () => {
         ctx.storage.sql.exec('DELETE FROM Identities WHERE sub = ?', otherSub);
       });
 
-      const executed = await r.executeScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'));
+      const executed = await r.executeScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'), ACTING(owner, 'd9'));
       expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 
@@ -260,7 +265,7 @@ describe('NebulaAuthRegistry', () => {
         total: 1, sample: [{ instanceName: 'd5.app.dev', email: 'other@x.com' }],
       });
       // Reds against the removed `409 scope_in_use`: the attached user no longer refuses the delete.
-      const executed = await r.executeScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'));
+      const executed = await r.executeScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'), ACTING(owner, 'd5'));
       expect(executed.affected.map((a: any) => a.instanceName)).toEqual(['d5.app.dev']);
     });
 
@@ -285,7 +290,7 @@ describe('NebulaAuthRegistry', () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', isAdmin: true }]);
-      const result = await r.executeScopeDeletion('d6.app.dev', owner, ADMIN_OVER('d6'));
+      const result = await r.executeScopeDeletion('d6.app.dev', owner, ADMIN_OVER('d6'), ACTING(owner, 'd6'));
       expect(result.affected.map((a: any) => a.instanceName)).toEqual(['d6.app.dev']);
       expect(await r.discover('solo@x.com')).toEqual([]);
       expect(await r.checkSlugAvailable('d6.app.dev')).toBe(true);

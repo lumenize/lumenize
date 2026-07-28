@@ -11,7 +11,7 @@ Claude iterates **drive → observe → fix → re-drive** in a long-running loo
 ## Deferred pieces (Exploratory — no acceptance pinned; these are spikes, not specs)
 
 - **Long background iterate-loops** — sustained unattended drive/observe/fix cycles (prior-art: the harness's driver + `run_in_background`; a loop controller TBD).
-- **act-as synthetic users** — act as provisioned synthetic subjects to exercise multi-user flows from one identity (builds on `delegated-token` + the Phase-3 `*` reach).
+- **act-as synthetic users** — act as provisioned synthetic subjects to exercise multi-user flows from one identity (builds on `mint-narrower-token` + the Phase-3 `*` reach).
 - **The "name the missing capability" proposal format** — a structured output for "here's the wall I hit, here's the framework capability I propose, here's how far I got without it."
 
 ## Un-park when

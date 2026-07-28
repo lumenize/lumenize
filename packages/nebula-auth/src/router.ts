@@ -22,7 +22,7 @@ import {
   handleRefreshToken,
   handleLogout,
   handleInvite,
-  handleDelegatedToken,
+  mintNarrowerToken,
 } from './worker-token';
 
 /** Options for {@link routeNebulaAuthRequest}. */
@@ -45,7 +45,7 @@ const REGISTRY_ENDPOINTS = new Set([
 const AUTH_FLOW_SUFFIXES = new Set(['email-magic-link', 'magic-link', 'accept-invite', 'refresh-token', 'logout']);
 
 // Instance-path authenticated endpoints (JWT verified here, then handled in the Worker).
-const AUTHENTICATED_SUFFIXES = new Set(['invite', 'delegated-token']);
+const AUTHENTICATED_SUFFIXES = new Set(['invite', 'mint-narrower-token']);
 
 // Turnstile-gated endpoints.
 //
@@ -201,8 +201,18 @@ async function handleRegistryPath(request: Request, env: Env, endpoint: string):
     if ('error' in jwtResult) return jwtResult.error;
     const body = await readJsonBody(request);
     if (!body) return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    // ⚠️ **Trust boundary — ASSIGN, never merge.** The carrier is a client-supplied JSON body this
+    // router mutates, and the registry's guards are presence-only, so they cannot tell an injected
+    // value from a client-supplied one. Assign unconditionally (no `??=`, no spread-merge), and note
+    // that `executeScopeDeletion` takes the claims as an explicit PARAMETER rather than reading a body
+    // key — so a future branch that forgets this line fails closed instead of silently trusting input.
     body.verifiedAccess = jwtResult.payload.access;
     body.callerSub = jwtResult.payload.sub;
+    // ADR-016: a destructive action records the FULL verified claims of the ACTING token — the
+    // authority `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
+    // impersonation `callerSub` alone is the person acted UPON, so a `sub`-only record names them as
+    // the person who acted. (`delete-scope-plan` writes no record and ignores this field.)
+    body.callerClaims = jwtResult.payload;
     return forwardToRegistry(request, env, body);
   }
 
@@ -254,7 +264,7 @@ async function handleInstancePath(
     const authResult = await verifyInstanceJwt(request, env, instanceName);
     if ('error' in authResult) return authResult.error;
     if (suffix === 'invite') return handleInvite(request, env, instanceName, authResult.payload.access);
-    return handleDelegatedToken(request, env, authResult.payload);
+    return mintNarrowerToken(request, env, authResult.payload);
   }
 
   return new Response('Not Found', { status: 404 });
