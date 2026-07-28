@@ -1,6 +1,6 @@
 # HTTP Transport
 
-> 🧊 **Iceboxed 2026-06-22.** Complete spec, no consumer — the demo (and current product) runs entirely over Mesh/WebSocket. Revive as a v2 item if a REST consumer appears.
+> 📋 **Moved to on-hold 2026-07-28**, promoted from icebox alongside its sibling [`mcp-transport.md`](mcp-transport.md) — the MCP Streamable-HTTP transport is the first HTTP-side consumer of the resource layer (JSON-RPC + SSE `subscriptions/listen`, not REST). This REST-transport spec stays deferred but adjacent; the two share the resource-operation dispatch.
 
 **Status**: On Hold — post-demo (the demo runs entirely over Mesh/WebSocket; REST transport is not on the critical path)
 
