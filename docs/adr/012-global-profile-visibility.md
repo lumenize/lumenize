@@ -21,9 +21,18 @@ This **generalizes** ADR-008's principle from within-a-Star to a global public-a
 
 **A profile is never an authz input.** A `Profile` is purely display: it is never an input to an admin or any other permission decision **outside the Profile DO itself**, and conversely no *scope-derived* authority confers rights over a profile. Concretely, `requireOwnerOrAdmin` qualifies **only** the owner and a super-admin; the original scoped-admin branch — pass if the caller is admin of any scope in `getScopesForProfile(profileId)` — is **retired**, and with it the reverse `profileId → scopes` lookup as an authz input (`getScopesForProfile` survives only as a non-authz utility, if at all).
 
-Two independent reasons, either sufficient:
+Three independent reasons, any one sufficient:
 1. **Direction.** A `profileId` is global and scope-free by this ADR's own decision; a scope admin's authority is scope-local (ADR-015: authority flows strictly downward *within a scope tree*). Deriving authority over a global object from a scope-local grant is a category error — and it points *sideways*, across the tree, which no ADR licenses.
 2. **Reach.** One profile per person means a profile touches **every scope that person belongs to** — so the retired branch handed every admin of every one of those scopes the ability to read `privateNotes` and rewrite that person's global name and picture.
+3. **Scope authority over a profile can be MANUFACTURED — so it bounds nothing.** Universe self-signup is open *by design*, and `issueInvites` mints the invitee's membership immediately (`emailVerified=0`, **no acceptance required**). Because `profileId` hangs off the email row, *"same email, any scope → same `profileId`"* is a structural fact. So **anyone** can claim a Universe, invite any address, and thereby become "an admin of a scope that person's profile touches" — unilaterally, in seconds, for a stranger. Any rule of the form *admin-of-a-scope-the-profile-touches ⇒ rights over the profile* therefore grants those rights to **everyone**, not to a trusted population. This is the reason that survives contact with the open-signup product decision, and it is why no *amount* of narrowing the scope predicate can rescue the branch.
+
+**A delegated token is not the owner.** The same manufacture defeats any bound keyed on impersonation eligibility. `/mint-narrower-token` mints a token whose `sub` — and whose `profileId` claim — are a member's, and the owner branch is a zero-read equality on that claim, so it would fire. The caller can manufacture the eligibility that lets them mint (claim a Universe, invite the address), so the owner branch must additionally require that the token is **not** delegated:
+
+```typescript
+if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
+```
+
+⚠️ This is the **one** place where the presence of `act` changes an authz outcome, and it is a deliberate exception to `security.md`'s read-side rule rather than an application of it. The exception is licensed by *global*: for scope-tree resources an impersonating token is correctly treated as the subject, because a manufactured scope contains nothing of the victim's. A global object is the only thing an attacker can drag into a scope they invented.
 
 **Blast radius, stated so the severity is not overread:** the profile holds display fields plus `privateNotes` and nothing else — never Universe/Galaxy/Star contents. This is a correctness boundary, not a data-plane one.
 

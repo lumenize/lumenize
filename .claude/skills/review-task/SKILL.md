@@ -25,6 +25,22 @@ Also read `docs/vision/*.md` (product strategy — `strategy.md` is the canonica
 
 If the user pasted "already caught" findings from a prior loop, collect them as `priorFindings` so reviewers don't repeat them.
 
+### 1.5 Self-review before you spend the panel — especially after heavy edits
+
+**Read the file yourself first, in one pass, hunting for internal inconsistency.** Late edits break
+cross-references far faster than they break prose, and cross-references are what a builder follows:
+a cut phase leaves stale references in criteria, a renumber leaves stale pointers, a restructure
+leaves a paragraph arguing the previous design. In one instance a single self-review pass found seven
+defects — **five of them introduced by that same session's edits**, including a success criterion
+naming a site the cut phase had removed and a code change specified by line range that captured three
+methods which must not be changed. Every one would have cost panel budget to rediscover.
+
+Then **tell the panel what you did to the file.** If it has been heavily edited, say so in the
+`spec`/`priorFindings` and instruct the lenses to **verify every cross-reference, count, phase number
+and line reference against the code on disk** rather than trusting the prose. That instruction — not
+the model, not the lens list — is what turns a design-level pass into a build-readiness pass, so use
+it deliberately when the file is close to build and not before, when it would only produce nits.
+
 ### 2. Stage 1 — Framing & scope (Workflow), resolved BEFORE conformance
 Run the Workflow below with `args.stage = 'framing'`. This is the altitude pass: **spec-hygiene** (write-for-a-cold-implementer; reversed-decision archaeology → positive rewrite; goals-not-step-lists; spec-density; single-source-of-truth), **scope-discipline** (YAGNI / premature generalization; intermediate-goal alignment; correct deferral; build-order / prerequisites), and **product-vision** (walled-garden, footguns, ergonomics). Its output is dominated by **structural** findings — "rewrite this section/file positively", "cut or defer this scope" — not line-nits.
 
@@ -165,6 +181,26 @@ return {
   synthesis,
 }
 ```
+
+### 4.5 Read the SHAPE of the result set before you process it
+
+A synthesis is not a work queue until you have asked what its shape says. Two cheap reads, both from
+numbers the Workflow already returns:
+
+- **Refutation rate is the FRAME signal — not the count.** `raised` vs `survived` is the diagnostic.
+  A high drop rate (**~30%**) means the reviewers are guessing at a design they lack the frame for:
+  **stop, fix the framing with the user, and re-run — do NOT work the findings one by one.** A low
+  rate (**~5%**) means they verified against source, and the list is worth processing item by item.
+  Empirically in one file: pass 1 dropped 9 of 30 and its surviving findings were mostly false
+  premises about a design that then changed; pass 4 dropped 2 of 44 and every survivor was actionable.
+- **All-design findings with FEW mechanical ones usually means UNDER-SPECIFIED, not sound.** You
+  cannot have a wrong line number until you have written a line number. A quiet mechanical layer in
+  an early pass is not a clean bill — it is the absence of surface. Expect a second wave once the
+  file gets precise, and do not let a low first count argue against re-reviewing later.
+
+⚠️ **Raw count is nearly meaningless on its own.** It tracks the file's specification density and the
+sharpness of your lens prompts, not its risk. A *rising* count across passes on a stabilising design
+is normal and healthy.
 
 ### 5. Resolve in conversation
 Present each stage's synthesized list as it lands (Stage 1 at the gate, Stage 2 at the end). Also surface the `dropped` list briefly — the verify pass errs toward keeping, so anything it dropped was a clear false positive, but a quick scan lets the user veto an over-eager refutation. Work through blockers/majors with the user, propose task-file edits, and re-run a tighter panel (or a fresh human pass) if the design shifted materially. Findings are structured so a follow-up fresh-context pass can quickly see "here's what the panel caught — focus on what they missed."
