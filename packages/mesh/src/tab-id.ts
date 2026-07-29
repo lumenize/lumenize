@@ -9,6 +9,23 @@
  *
  * Dependencies (sessionStorage, BroadcastChannel) are injected so
  * tests can pass Context properties directly without mocking globals.
+ *
+ * ⚠️ **Why the id is PERSISTED rather than random per page load — the non-obvious part.**
+ * A client's `instanceName` (`${sub}.${tabId}`) names a Gateway Durable Object, and **a DO
+ * name reservation is permanent**: it cannot be deleted, by us or from the dashboard. So a
+ * fresh random id on every page load would reserve a new name on every reload, forever.
+ * Persisting the id in sessionStorage is what makes a reload reuse the *same* Gateway DO —
+ * which also preserves subscription continuity across a refresh. Unused reservations cost
+ * nothing ONLY because the Gateway is deliberately zero-storage (see `LumenizeClientGateway`,
+ * which extends `DurableObject` directly for exactly this reason); keeping it storage-less is
+ * therefore load-bearing, not an implementation detail.
+ *
+ * ⇒ **Any new client-side `instanceName` must be DETERMINISTIC for a given (identity, tab),
+ * never random-per-construction.** A random suffix looks harmless and leaks names for the
+ * lifetime of the account. If you need a *second* client in one tab (e.g. an impersonation
+ * session), derive its name from this tabId plus something stable that distinguishes it —
+ * do not generate a fresh one, and do not call this function from the second client, which
+ * would make it look like a duplicated tab and rewrite the stored id out from under the first.
  */
 
 /** Timeout for the duplicate-tab probe (ms) */
