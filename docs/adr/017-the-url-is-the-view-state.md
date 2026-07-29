@@ -3,7 +3,7 @@
 **Date**: 2026-07-29
 **Status**: Proposed — the *principle* is Larry's, stated 2026-07-29 and held as a hard UI requirement for a decade+; the boundary and scope clauses below are new and pending his read.
 **Deciders**: Larry
-**Evidence**: `apps/nebula-studio-ui/src/App.vue` — `/app/{scope}` supplies `authScope`, `activeScope` starts equal to it and then diverges when a user "opens" a Star, and that divergence never reaches the URL; discovered 2026-07-29 while designing the admin-debug flow in `tasks/archive/nebula-mint-narrower-token.md`, where it breaks the support use case outright. [ADR-008](008-full-org-tree-visibility.md) (visibility ≠ capability — enforcement at the point of action) is what makes the decision safe; [ADR-012](012-global-profile-visibility.md) is the one place it is in tension.
+**Evidence**: `apps/nebula-studio-ui/src/App.vue` — `/app/{scope}` supplies `authScope`, `activeScope` starts equal to it and then diverges when a user "opens" a Star, and that divergence never reaches the URL; discovered 2026-07-29 while designing the admin-debug flow in `tasks/archive/nebula-mint-narrower-token.md`, where it breaks the support use case outright. [ADR-008](008-full-org-tree-visibility.md) (visibility ≠ capability — enforcement at the point of action) is what makes the decision safe; [ADR-012](012-global-profile-visibility.md) is the worked example of where the boundary is *permissive*.
 
 ## Context
 
@@ -19,9 +19,9 @@ Nebula multiplies it. Studio does not just *have* a UI — it **generates** them
 
 The test, when it is unclear: **would the sender be surprised that the recipient did not see it?** If yes, it is view state.
 
-⚠️ **The URL names WHAT you are looking at. It never grants permission to look.** Authorization is re-evaluated for the recipient on arrival, exactly as for any other request — so a shared URL is safe to paste into a ticket, and a recipient without access simply gets denied. Concretely, the URL carries **no credentials, no tokens, no personal data, and no identifier that functions as a bearer capability**. This is [ADR-008](008-full-org-tree-visibility.md)'s "visibility ≠ capability" applied to addressing: naming a resource is not access to it, and enforcement stays at the point of action.
+⚠️ **The URL names WHAT you are looking at. It never grants permission to look.** Authorization is re-evaluated for the recipient on arrival, exactly as for any other request — so a shared URL is safe to paste into a ticket, and a recipient without access simply gets denied. Concretely, the URL carries **no credentials, no tokens, and no personal data**. This is [ADR-008](008-full-org-tree-visibility.md)'s "visibility ≠ capability" applied to addressing: naming a resource is not access to it, and enforcement stays at the point of action.
 
-⚠️ **The one live tension is [ADR-012](012-global-profile-visibility.md)**, where holding an unguessable `profileId` **is** the capability. Such a handle is a credential for the purposes of this ADR, so where a view is addressed by one, this principle yields — the URL addresses the view by something non-capability-bearing, or that view is not shareable. Do not resolve the tension the other way.
+⚠️ **The boundary is narrower than the reflex wants, and [ADR-012](012-global-profile-visibility.md) is the case that proves it.** A `profileId` in a URL is **fine**, even though it is an unguessable handle that grants something: what it grants is a person's PUBLIC display fields (`name`/`nickname`/`picture`) to an already-authenticated caller — the same tier `github.com/{user}` serves, which we say openly is public. `privateNotes` and email are not reachable with it; they sit behind `requireOwnerOrAdmin`, which a URL never confers. **Do not "harden" this** by inventing a non-capability alias to address profile views: that is friction against a deliberately-open surface (`.claude/rules/calibration.md` §1) and buys nothing real. The test is not *"does holding this value reveal anything?"* — it is ***"does it reveal anything that is not already public?"***
 
 **Scope:** Studio, the Nebula UI, and **the codegen scaffold** — a generated app inherits this, so the scaffold and the docs Studio's LLM reads must produce URL-reflected view state by default.
 
@@ -33,8 +33,8 @@ The test, when it is unclear: **would the sender be surprised that the recipient
 |---|---|
 | **Component-local state only** (status quo) | Cheapest to write and it never fails for the author — which is exactly the defect. The breakage is only visible to the person who receives the link, so it is never caught by the person who caused it. This is the state that produced the `activeScope` bug. |
 | **`localStorage` / `sessionStorage` restore** | Solves a different problem — *your own* reload — and does nothing for sharing. Worse, it actively **hides** the defect: your scope survives your refresh, so nobody notices it was never in the URL. Complementary at best; never a substitute. |
-| **Server-side view state behind a share id** | Works, but buys storage, a lifetime, and a permission question to solve what the URL solves for free — and the share id is itself a bearer capability, the one thing the boundary above forbids. |
-| **Put everything in the URL, including drafts and identifiers** | Violates the boundary: credentials and personal data must not ride a URL (they leak via logs, referrers, and history — `.claude/rules/security.md` already forbids logging `request.url` for exactly this reason). Unsaved drafts are also not view state; they are unsaved work. |
+| **Server-side view state behind a share id** | Works, but buys storage, a lifetime, and a garbage-collection question to solve what the URL solves for free — and it inverts the safety story: a share id is a *new* credential to protect, where a plain URL is safe precisely because it grants nothing. |
+| **Put everything in the URL, including drafts and credentials** | Violates the boundary: credentials and personal data must not ride a URL (they leak via logs, referrers, and history — `.claude/rules/security.md` already forbids logging `request.url` for exactly this reason). Unsaved drafts are also not view state; they are unsaved work. |
 
 ## Consequences
 
@@ -46,4 +46,4 @@ The test, when it is unclear: **would the sender be surprised that the recipient
 
 ### Negative / mitigations
 - URLs get longer, and every new piece of view state becomes a small API decision (a name that must stay stable). That cost is real and is the point — it is paid once, by the author, instead of repeatedly by everyone who receives a link.
-- The boundary needs judgment at the margin (is this identifier a capability?). The rule of thumb: **if knowing the value is sufficient to see the data, it is a credential** — and it does not go in a URL.
+- The boundary needs judgment at the margin. **An opaque identifier is not automatically a secret** — ask what holding it actually gets you, and compare that against what is already public, rather than reasoning from unguessability. The genuine exclusions are narrow and mostly obvious: session/refresh tokens, magic-link and invite tokens (which already ride URLs today as one-time *login channels*, not view state), API keys, and personal data.
