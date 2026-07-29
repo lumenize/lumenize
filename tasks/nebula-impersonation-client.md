@@ -60,7 +60,7 @@ The gain is fidelity, not tidiness: those helpers construct a raw `LumenizeClien
 - [ADR-009](../docs/adr/009-real-auth-path.md) — the adopted tests stay rung 1; the token under test comes from the real endpoint via a real admin's real session.
 - [ADR-016](../docs/adr/016-record-the-acting-principal.md) — already satisfied by the endpoint and the registry record; this task adds no new destructive action.
 - `.claude/rules/security.md` delegation rules (1) and (2) — both hold unchanged (above).
-- `.claude/rules/mesh.md` — the child is an ordinary client; `impersonate` is an HTTP call over `authedFetch`, matching how `scopes` reaches nebula-auth.
+- `.claude/rules/mesh.md` — the child is an ordinary client; `impersonate()` reaches the `/mint-narrower-token` **endpoint** over `authedFetch`, matching how `scopes` reaches nebula-auth's registry routes. The two names sit at different levels on purpose: the endpoint mints a **token** and asserts a checkable property of it; the client method returns a **client** and names the use case.
 - CLAUDE.md § package feedback — the `Omit` that closed a footgun also closed the capability; the resolution keeps the `Omit` and adds a factory, so callers never supply a token and scope that can disagree.
 
 ### Future state
