@@ -8,7 +8,7 @@
 
 **Built already.**
 
-- **The endpoint.** `/auth/{callerScope}/mint-narrower-token` (`mintNarrowerToken`, `worker-token.ts`) mints a token whose `sub` is the subject and whose `act` is the caller, under an ordered gate chain — root identity, self-narrow rejection, caller reach, admin bit, subject exists, eligibility, subject-reach mirror, in that order (the ordering is itself a disclosure decision, ADR-008). It is the only producer of a JWT `act` claim. Fully tested; see `tasks/archive/nebula-mint-narrower-token.md`.
+- **The endpoint.** `/auth/{callerScope}/mint-narrower-token` (`mintNarrowerToken`, `worker-token.ts`) mints a token whose `sub` is the subject and whose `act` is the caller, under an ordered gate chain — root identity, self-narrow rejection, caller reach, admin bit, subject exists, eligibility, subject-reach mirror, in that order (the ordering is itself a disclosure decision, ADR-008). It is the only producer of a JWT `act` claim — **the qualifier is load-bearing**: the planned `prependActor` ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)) composes an `act` chain onto a `changedBy` **record**, never onto a signed token, so `claims.act` remains an exact signal for *this is an impersonation session*. Fully tested; see `tasks/archive/nebula-mint-narrower-token.md`.
 - **The record.** `executeScopeDeletion` stamps `actingToken` — the full verified claims including the `act` chain — on scope deletion ([ADR-016](../docs/adr/016-record-the-acting-principal.md)), so a destructive action taken under impersonation already names both parties.
 - **The transport.** `LumenizeClient.authedFetch` is `protected` and already carries the Bearer for nebula-auth HTTP endpoints — `NebulaClient`'s `scopes` namespace is built on it, keeping the JWT inside the client.
 - **The disposal seam.** `LumenizeClient[Symbol.dispose]` exists, so `using` works on a client today.
@@ -72,6 +72,8 @@ This is the client capability the admin-debug UI needs; the UI itself is out of 
 ⚠️ **Design consideration:** a hard cap on impersonation duration is deliberately absent. Should one ever be wanted, the re-mint is the single place it would live.
 
 ⚠️ **Design consideration:** `#mintedFrom` / `#minted` are private with no public accessor, which keeps the option of changing the parent-child representation later without a public break.
+
+⚠️ **Design consideration:** two things here rest on `claims.act` being an exact signal for an impersonation session — the refusal to chain, and the self-awareness story that adds no new API. Keeping `prependActor` on the record side preserves that. Were an `act` chain ever composed onto a **token**, this file's chain refusal would reject a legitimate call from a person whose own session carried a prepended platform actor, and the Profile owner branch would deny them their own profile (already noted at `profile.ts`). That is a reason to keep the prepend on records, not a constraint this task enforces.
 
 ### Open questions
 
