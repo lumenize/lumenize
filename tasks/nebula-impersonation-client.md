@@ -10,7 +10,7 @@
 
 - **The endpoint.** `/auth/{callerScope}/mint-narrower-token` (`mintNarrowerToken`, `worker-token.ts`) mints a token whose `sub` is the subject and whose `act` is the caller, under an ordered gate chain — root identity, self-narrow rejection, caller reach, admin bit, subject exists, eligibility, subject-reach mirror, in that order (the ordering is itself a disclosure decision, ADR-008). It is the only producer of a JWT `act` claim — **the qualifier is load-bearing**: the planned `prependActor` ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)) composes an `act` chain onto a `changedBy` **record**, never onto a signed token, so `claims.act` remains an exact signal for *this is an impersonation session*. Fully tested; see `tasks/archive/nebula-mint-narrower-token.md`.
 - **The record.** `executeScopeDeletion` stamps `actingToken` — the full verified claims including the `act` chain — on scope deletion ([ADR-016](../docs/adr/016-record-the-acting-principal.md)), so a destructive action taken under impersonation already names both parties.
-- **The transport.** `LumenizeClient.authedFetch` is `protected` and already carries the Bearer for nebula-auth HTTP endpoints — `NebulaClient`'s `scopes` namespace is built on it, keeping the JWT inside the client.
+- **The transport.** `LumenizeClient.authedFetch` is `protected`, injects the in-memory token as `Authorization: Bearer`, refreshes when it is missing or near expiry, and retries once on a 401 — `NebulaClient`'s `scopes` namespace is built on it, keeping the JWT inside the client. ⚠️ **It has no test coverage, direct or indirect.** ✅ *Checkable:* no test file references `authedFetch`, and nothing outside `apps/nebula-studio-ui/src/App.vue` drives `client.scopes.*` — so its refresh-on-expiry, its retry branch, and its de-duplication with the WS-connect refresh are today exercised only by a human clicking through Studio. This task makes `impersonate()` its second caller and its first tested one, and the paths it leans on are exactly the untested ones.
 - **The disposal seam.** `LumenizeClient[Symbol.dispose]` exists, so `using` works on a client today.
 
 **Missing.**
@@ -25,7 +25,7 @@
 
 ### The parent is the credential
 
-The returned client holds a private `#mintedFrom` handle to the client that produced it, and its `refresh` re-mints through that handle's `authedFetch`. Five properties follow from that one fact, and they are the reason this shape was chosen over holding a fixed token:
+The returned client holds a private `#mintedFrom` handle to the client that produced it, and re-mints by calling **the same private mint helper on that handle that `impersonate()` itself calls**. One mint path, so the first mint and every re-mint cannot drift on body shape, URL, or error handling — and the child depends on the parent's *capability to mint*, never on how the parent talks to the endpoint. Five properties follow from that one fact, and they are the reason this shape was chosen over holding a fixed token:
 
 - **No new durable credential exists anywhere.** The child's ability to act is derived entirely from the parent's in-memory session; nothing is written, cookied, or independently stealable.
 - **Revocation propagates.** Every re-mint re-runs the endpoint's full gate chain, so a demoted admin, a moved subject, or a deleted subject ends the session at the next token boundary rather than at term.
