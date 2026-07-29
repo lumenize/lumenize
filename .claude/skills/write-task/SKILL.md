@@ -80,6 +80,7 @@ Only after the intent is approved:
   - ⚠️ **This is in tension with "the work lives in the phase that causes it"** — which is right for *code* and for a rule that merely renames. Enumerations are the exception, because their correctness is a property of the whole task's end state, not of one phase's diff. Prefer a **structural** claim over a counted one where you can (*"every ADR-016 site is on this list"* survives a later phase; *"one CONTENTS reader"* does not).
 - **Inventories over structure, never a bare count.** "Every `Response` in `src/` with a 4xx status carries `issues[]`" beats "`grep 'error_description'` returns nothing." Counts go stale or are wrong on entry; a count-based criterion passes silently when the count was wrong. Scope any grep the same way the criterion is scoped, or the two disagree.
 - **Relationships is load-bearing, not bookkeeping.** Every drift untangled on 2026-07-26 was cross-file: a backlog row asserting the opposite of a decision, a sibling task's premise invalidated, an un-skip obligation with no owner. If this task changes what another file says, say so here.
+- **Give every section a meaningful NAME, and expect it to be cited by that name** — a sibling file will refer to it, and a bare `§N` there is opaque and rots the moment a section is inserted or moves out. Number for order where order is load-bearing (phases); otherwise the name is the handle. See `workflow.md` § *Referring to things across files*.
 - Keep inline `//` comment lines ≤ ~85 chars — Larry reviews these in Typora.
 
 ## Finally

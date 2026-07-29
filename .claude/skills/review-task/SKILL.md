@@ -41,6 +41,22 @@ and line reference against the code on disk** rather than trusting the prose. Th
 the model, not the lens list — is what turns a design-level pass into a build-readiness pass, so use
 it deliberately when the file is close to build and not before, when it would only produce nits.
 
+### 1.6 After any cross-cutting reframe, re-sweep the Decisions table
+
+When a review or a conversation changes the file's *organising idea*, walk **every** Decisions row and
+ask: **did a LATER decision make this one moot?** Not "is its reasoning still true against reality" —
+that is `calibration.md` §4 — but "has a sibling decision in this same file stranded it?"
+
+A panel cannot catch this: each pass reviews a snapshot, and the defect lives in the **delta between
+passes**. Bit 2026-07-28 on `/mint-narrower-token` — a `star.ts` guard row was written when the minted
+token carried the *caller's* `admin` bit; a later decision made the token mirror the *subject's*,
+which rendered the guard unreachable (any token that could trip it belonged to a subject whose own
+token would trip it too). Three conformance passes missed it; the user asking *"is that still a valid
+decision?"* found it, and a whole phase was cut.
+
+⚠️ The same sweep applies to **enumerations and counts** the file states about itself ("the N sites",
+"exactly one test breaks") — a cut or added phase falsifies them silently.
+
 ### 2. Stage 1 — Framing & scope (Workflow), resolved BEFORE conformance
 Run the Workflow below with `args.stage = 'framing'`. This is the altitude pass: **spec-hygiene** (write-for-a-cold-implementer; reversed-decision archaeology → positive rewrite; goals-not-step-lists; spec-density; single-source-of-truth), **scope-discipline** (YAGNI / premature generalization; intermediate-goal alignment; correct deferral; build-order / prerequisites), and **product-vision** (walled-garden, footguns, ergonomics). Its output is dominated by **structural** findings — "rewrite this section/file positively", "cut or defer this scope" — not line-nits.
 
