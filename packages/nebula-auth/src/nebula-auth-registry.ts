@@ -902,11 +902,15 @@ export class NebulaAuthRegistry extends DurableObject {
     log.info('Scope deleted', {
       target,
       callerSub,
-      // ⚠️ **NOT named `actor`.** Its `sub` is the AUTHORITY principal — under impersonation, the
-      // person acted UPON — and the actor is `actingClaims.act.sub`. A field called `actor` whose
-      // `.sub` names the wrong human is the exact misreading ADR-016 exists to prevent, and it would
-      // be believed. The object is the whole acting TOKEN's claims; `act` inside it carries the actor.
-      actingClaims: {
+      // ⚠️ **Named for the TOKEN, not for a role — deliberately.** This object is ADR-016's own
+      // phrase: "the FULL verified claims of the acting token". So `actingToken.sub` reads as *the
+      // token's subject*, which is what it is; nobody expects a token's `sub` to be its actor.
+      // A ROLE name inverts and misleads here: `actor.sub` reads as "the actor", but under
+      // impersonation `sub` is the person acted UPON — the actor is `act.sub`. That is the exact
+      // misreading ADR-016 exists to prevent, and it would be believed. (`actingClaims` was the same
+      // defect one step removed — "the acting claims" still invites "the acting sub".) Let the
+      // structure carry the meaning: a token has a subject and an actor, and `act` names the actor.
+      actingToken: {
         sub: callerClaims.sub,
         act: callerClaims.act,
         profileId: callerClaims.profileId,

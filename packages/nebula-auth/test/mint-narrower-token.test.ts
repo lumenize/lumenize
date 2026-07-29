@@ -422,17 +422,17 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     expect(record).toBeDefined();
 
     // (1) The authority `sub` — the person acted upon. Mutation: drop `sub` from the record → reds.
-    expect(record.data.actingClaims.sub).toBe(founder.parsed.sub);
+    expect(record.data.actingToken.sub).toBe(founder.parsed.sub);
     // (2) The complete `act` chain — WHO ACTUALLY DROVE IT. This is the element whose absence makes
     // the record affirmatively wrong. Mutation: drop `act` → reds.
-    expect(record.data.actingClaims.act).toEqual({
+    expect(record.data.actingToken.act).toEqual({
       sub: admin.parsed.sub, profileId: admin.parsed.profileId,
     });
     // (3) `profileId` — display-only, write-time-pinned, so a departed actor is nameable with no
     // registry hop. Mutation: drop `profileId` → reds.
-    expect(record.data.actingClaims.profileId).toBe(founder.parsed.profileId);
+    expect(record.data.actingToken.profileId).toBe(founder.parsed.profileId);
     // (4) The `access` entry — what authority was ASSERTED. Immutable history; never read back as an
     // authz input (that would be ADR-013's stored scope-set). Mutation: drop `access` → reds.
-    expect(record.data.actingClaims.access).toEqual({ authScopePattern: star, admin: true });
+    expect(record.data.actingToken.access).toEqual({ authScopePattern: star, admin: true });
   });
 });
