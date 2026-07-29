@@ -264,6 +264,19 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
 
     // (4) Scoped admin — the ONE registry read. Fail CLOSED on error (raw-RPC drops custom error props,
     // so a thrown registry error would arrive shapeless — deny rather than trust it).
+    //
+    // ⏳ **THIS BRANCH IS SCHEDULED FOR DELETION — do not harden, extend, or optimize it.**
+    // ADR-012 retires it: `requireOwnerOrAdmin` is to qualify **owner + super-admin ONLY**, because
+    // scope authority over a profile can be MANUFACTURED (claim a Universe, invite any address), so
+    // "admin of some scope this profile touches" confers nothing over a *global* object. The removal
+    // is `tasks/nebula-auth-identity-mint.md` §4 *Drop the Profile's scoped-admin branch*, which also
+    // deletes this file's `lookupProfileScopes` seam and leaves `getScopesForProfile` unused for
+    // authz. Target asserted by the `it.skip` in `apps/nebula/test/.../profile-do.test.ts`
+    // ("SCOPED-admin ... is REFUSED"); un-skipping it is that section's acceptance criterion.
+    //
+    // ⚠️ It is still LIVE and load-bearing until then — deleting it here without §4's analysis
+    // removes a Galaxy admin's ability to fix a member's display name with no replacement path
+    // (§4 accepts that cost deliberately, escalating moderation to super-admin).
     let scopes: string[];
     try {
       // Marker: the ONLY place a Profile authz check reads the registry (the read-counter the

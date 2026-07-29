@@ -157,6 +157,26 @@ describe('Profile DO — Phase 2', () => {
       expect(registryReads()).toBe(1);                              // proves the counter is genuinely wired (not vacuous)
     });
 
+    // ⏳ SKIPPED — this asserts ADR-012's committed TARGET, which the code has not reached yet.
+    // ADR-012 retires the scoped-admin branch (`requireOwnerOrAdmin` qualifies owner + super-admin
+    // ONLY), but the branch is still live: `#requireOwnerOrAdmin` step (4) + `lookupProfileScopes`.
+    // BLOCKER: tasks/nebula-auth-identity-mint.md §4 *Drop the Profile's scoped-admin branch*.
+    // Un-skipping is that section's acceptance criterion — and it also DELETES the positive control
+    // above and the fail-closed test below, whose whole subject is the branch being removed.
+    //
+    // ⚠️ Asserts only what ADR-012 + §4 have PINNED: refusal, and zero registry reads (§4's stated
+    // consequence — the branch is the file's one read, and removing it leaves `getScopesForProfile`
+    // unused for authz). The rejection MESSAGE is deliberately unasserted: §4 does not pin one, and
+    // guessing it here would make this a scaffold rather than a contract (testing.md).
+    it.skip('SCOPED-admin covering the profile scope is REFUSED — owner + super-admin ONLY (ADR-012)', async () => {
+      const pid = uuid();
+      await seedIdentity(pid, 'acme.app.tenant');
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() }); // pattern acme.*
+      await expect(write(admin, pid, { name: 'X' })).rejects.toThrow();
+      await expect(readNotes(admin, pid)).rejects.toThrow();
+      expect(registryReads()).toBe(0);                              // branch gone → the ONE read goes with it
+    });
+
     it('SCOPED-admin covering NONE of the profile scopes is rejected (cross-Galaxy admin) — one read, then deny', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant');
