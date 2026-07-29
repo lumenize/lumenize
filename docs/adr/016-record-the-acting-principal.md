@@ -3,7 +3,7 @@
 **Date**: 2026-07-28
 **Status**: Proposed — pending Larry's read
 **Deciders**: Larry
-**Evidence**: the registry's destructive/authority ops and what each records today — `nebula-auth-registry.ts:888` (`Scope deleted { target, callerSub }` — a caller identity, but the authority principal only), `:501` (`Galaxy created { callerAccessId: authScopePattern }` — a *pattern*, not an identity), `:346`/`:426` (universe/star claimed — `email`, no `sub`), `setIdentityAdmin:827` (**no record at all**); the one path that already carries the chain, `apps/nebula/src/resources.ts:164` `#buildChangedBy` → `Snapshots.changedBy`; `.claude/rules/security.md` delegation rule (1); [ADR-008](008-full-org-tree-visibility.md), which names an audit log as load-bearing but not-yet-built; the impersonation design in `tasks/nebula-mint-narrower-token.md`.
+**Evidence**: the registry's destructive/authority ops and what each records today — `nebula-auth-registry.ts:888` (`Scope deleted { target, callerSub }` — a caller identity, but the authority principal only), `:501` (`Galaxy created { callerAccessId: authScopePattern }` — a *pattern*, not an identity), `:346`/`:426` (universe/star claimed — `email`, no `sub`), `setIdentityAdmin:827` (**no record at all**); the one path that already carries the chain, `apps/nebula/src/resources.ts:164` `#buildChangedBy` → `Snapshots.changedBy`; `.claude/rules/security.md` delegation rule (1); [ADR-008](008-full-org-tree-visibility.md), which names an audit log as load-bearing but not-yet-built; the impersonation design in `tasks/archive/nebula-mint-narrower-token.md`.
 
 ## Context
 

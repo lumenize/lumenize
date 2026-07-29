@@ -1,6 +1,12 @@
 # Mint-narrower-token — rename `/delegated-token`, and make "narrower" true
 
-**Status:** ✅ **BUILT 2026-07-28** — all four phases, uncommitted in `pre-alpha`. Suites green
+**Status:** ✅ **DONE — archived 2026-07-29** (`036132b` on `pre-alpha`, undeployed; the pre-alpha wipe
+gate is the deploy). All four phases built and verified. ⚠️ **Two things left this file alive for someone
+else:** (1) the vocabulary-ban contradiction in Build-notes defect 1 needs Larry's call — the ban as
+written is unsatisfiable and this file violates it in its own canonical sentence; (2) the endpoint has
+**no consumer that can consume it** — `NebulaClient` structurally cannot carry a bearer-minted token
+(`backlog.md` § Nebula Auth). Neither blocks the release gate, which this satisfies.
+Originally: ✅ **BUILT 2026-07-28** — all four phases. Suites green
 (`packages/nebula-auth` 223 pass · `apps/nebula` baseline 350 pass); every "capable of failing"
 criterion was mutation-validated (self-narrow, eligibility, the `hasAdminOverScope`-vs-prefix swap,
 the scope mirror, the `admin` mirror, the DAG verdict, `projectActClaim`'s recursion,

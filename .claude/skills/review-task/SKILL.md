@@ -133,7 +133,16 @@ const reviewed = await pipeline(
     `Read ${l.rules} and use it as your checklist. Your lens: ${l.lens}\n` +
     (STAGE === 'conformance'
       ? `The spec ends with the repo's ADRs (architecture commitments) — flag any conflict with an ADR as a ` +
-        `blocker unless the task file explicitly proposes superseding it.\n`
+        `blocker unless the task file explicitly proposes superseding it.\n` +
+        `ALSO check STANDING-GUIDANCE SELF-CONSISTENCY ACROSS PHASES, which no single-phase reader catches: ` +
+        `if any phase rewrites an ENUMERATION whose worth is that it is exhaustive (a reader list, a ` +
+        `call-site table, "the N sites that do X", a stated grep/count) inside a rule / ADR / README, check ` +
+        `whether a LATER phase in the same file adds a member to it. If so that is a MAJOR finding — the ` +
+        `guidance ships wrong in exactly the way it was rewritten to stop being wrong, always-loaded, and no ` +
+        `test can red it. Suggest either moving the edit to the last phase that changes what it counts, or ` +
+        `restating the claim STRUCTURALLY ("every X site is on this list") instead of by count. Bit ` +
+        `2026-07-28 on tasks/nebula-mint-narrower-token.md (Phase 3 wrote "one CONTENTS reader" into ` +
+        `security.md; Phase 4 added the second).\n`
       : `This is the FRAMING stage — judge the file as an artifact: is it the right shape, the right scope, ` +
         `free of reversed-decision noise? Favor a few high-leverage structural findings over many nits.\n`) +
     `The LINKED SPEC below has the task file + key excerpts; ALSO read the cited source files from disk ` +
