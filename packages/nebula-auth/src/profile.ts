@@ -232,7 +232,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     const claims = this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined;
     const profileId = this.#profileId();
 
-    // (1) Owner — the JWT's own profileId equals this instance, AND the token is not delegated.
+    // (1) Owner — the JWT's own profileId equals this instance, AND the token carries no `act` chain.
     // NO read. (LLM-as-owner passes here.)
     //
     // ⚠️ **`!claims.act` is a deliberate EXCEPTION to `security.md`'s read-side rule, not an
@@ -248,7 +248,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // different people". `#mintIdentity` keys on (email, scope), so one human legitimately holds
     // several `sub`s. Do NOT "improve" this to `!claims.act || claims.act.sub === claims.sub` or
     // `|| claims.act.profileId === claims.profileId`: both read the chain's IDENTITY to decide authz,
-    // which rule (1) forbids. This tests only that the token IS delegated, never who the actor is.
+    // which rule (1) forbids. This tests only that an `act` chain is PRESENT, never who the actor is.
     //
     // ⚠️ **A known, accepted consequence of presence-only** — do not "fix" it with the variants above.
     // If a future `prependActor` ever stamps the platform onto a TOKEN (it is planned only for a

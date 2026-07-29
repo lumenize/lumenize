@@ -1,11 +1,22 @@
 # Mint-narrower-token — rename `/delegated-token`, and make "narrower" true
 
 **Status:** ✅ **DONE — archived 2026-07-29** (`036132b` on `pre-alpha`, undeployed; the pre-alpha wipe
-gate is the deploy). All four phases built and verified. ⚠️ **Two things left this file alive for someone
-else:** (1) the vocabulary-ban contradiction in Build-notes defect 1 needs Larry's call — the ban as
-written is unsatisfiable and this file violates it in its own canonical sentence; (2) the endpoint has
-**no consumer that can consume it** — `NebulaClient` structurally cannot carry a bearer-minted token
-(`backlog.md` § Nebula Auth). Neither blocks the release gate, which this satisfies.
+gate is the deploy). All four phases built and verified.
+
+⚠️ **BANNER 2026-07-29 — Build-notes defect 1 is RESOLVED and was never a real contradiction.** Larry's
+call: the ban means what it says, and the replacement is **"narrower token"** — his own coinage, not the
+"act-bearing token" the defect proposes. It works because *"narrower token"* is **exactly co-extensive**
+with *"token carrying an `act` chain"*: this endpoint is the only producer of a JWT `act` claim, and the
+one future case that would break that (`prependActor`) is pinned to the `changedBy` **record**, never a
+token. So "delegated" was swept from prose too — ADR-012's heading, the `workflow.md` ADR-012 one-liner,
+`security.md`, and `profile.ts` now say *narrower token* / *carries no `act` chain*. The defect's body
+below is left as written (archives are frozen); read it as a record of a wrong turn, not an open
+question. **"Act as" is no better than "act for"** — both read directionally symmetric, which is why
+neither stuck; "impersonate" does not have that problem and is the word to use.
+
+⚠️ **Still open:** the endpoint has **no consumer that can consume it** — `NebulaClient` structurally
+cannot carry a bearer-minted token. Being fixed next (`backlog.md` § Nebula Auth); does not block the
+release gate, which this satisfies.
 Originally: ✅ **BUILT 2026-07-28** — all four phases. Suites green
 (`packages/nebula-auth` 223 pass · `apps/nebula` baseline 350 pass); every "capable of failing"
 criterion was mutation-validated (self-narrow, eligibility, the `hasAdminOverScope`-vs-prefix swap,
