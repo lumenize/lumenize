@@ -10,14 +10,17 @@ The reflexes below are not hypothetical. Every one is drawn from a real, dated f
 
 **The reflex:** treat any exposure of data as a risk to be minimized; add a gate, narrow a read, hide a field. Reach for confidentiality as the safe default.
 
-**The correction:** users need access to data to do their work, and low-risk information should flow freely. Two distinctions do the work:
+**The correction:** users need access to data to do their work, and low-risk information should flow freely. Three distinctions do the work:
 
 - **Visibility ≠ capability.** Within a Star the full org tree — nodes, edges, grants, grantee identity, presence — is visible to every member *by design*. Enforcement is at the point of action, never secrecy of the structure, which was never a control ([ADR-008](../../docs/adr/008-full-org-tree-visibility.md)).
 - **The wedge is security *without* friction.** Secure-by-default means the substrate carries it, so a user-developer pays nothing. Bolting on a gate disproportionate to the *real* (not theoretical) risk is therefore **anti-wedge** — especially a gate that fights a core feature like self-provisioning (`docs/vision/_review-lens.md`).
+- **Unguessable ≠ secret.** Unguessability is a property of the *value*; sensitivity is a property of *what it reaches*. An opaque random identifier is not automatically a credential — ask what holding it actually gets you, and compare that against what is **already public**. `profileId` is the canonical case: it is random and unguessable, and it reaches a person's public display fields and nothing more ([ADR-012](../../docs/adr/012-global-profile-visibility.md)), so it may ride a URL freely ([ADR-017](../../docs/adr/017-the-url-is-the-view-state.md)). The test is *"does it reveal anything **not already public**?"* — never *"does it reveal anything?"*
 
 ⚠️ **This does not weaken the substrate.** Non-overridable secure-by-default stays non-overridable; the correction is about not piling friction on top of it. When a low-probability, fixable-under-the-covers risk is in genuine tension with velocity or growth, ship — and fix it quietly.
 
 **Where it bit:** open Star self-signup. `claimStar`'s own JSDoc has to say *"that openness is the product, not a defect to engineer away — do not add an approval step, invite code, or per-Galaxy on/off switch"* — because the reflex kept proposing exactly those.
+
+**Where it bit again (2026-07-29), and this instance is about the TRIGGER, not the correction.** Drafting [ADR-017](../../docs/adr/017-the-url-is-the-view-state.md), a clause was written making the URL-shareability principle *yield* wherever a view is addressed by a `profileId`, on the grounds that an unguessable handle "is the capability" — friction invented against a surface ADR-012 had deliberately opened, to protect a display name. ⚠️ **This file was in context and had been cited two turns earlier**, so re-reading the correction was not enough to stop it: the reflex fired on the word *unguessable* before the question *"what does holding it actually get you?"* was ever asked. ⇒ Treat **"this identifier is opaque/random/unguessable"** as the trigger phrase — the moment you write it, you owe the what-does-it-reach check before any gate.
 
 ## 2. Deleting a problem beats hardening it
 
