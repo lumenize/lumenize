@@ -42,6 +42,10 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // isolated-DO norm) so its cross-DO `lmz.call` effects PROPAGATE callContext. Returns the {$ack};
 // the result travels via fire-back, so observe the durable cross-DO EFFECT with `inDO` + vi.waitFor.
 // This is the @lumenize/mesh feasibility-test pattern (drive → {$ack} → poll the effect).
+// ⚠️ Every such poll passes an explicit `{ timeout: 15000 }`. vitest's 1s default loses to
+// full-suite parallel load (85 files sharing the box), and the symptom is a MOVING failure — a
+// different one of these times out each run, which reads as an unrelated flake. Raising the
+// ceiling weakens nothing: an effect that never lands still reds, just later.
 // ⚠️ `authScopePattern` is REQUIRED in the default claims, not decoration: `requireAdmin` confines
 // the admin bit to the callee node (`hasAdminOverScope`), so a pattern-less admin claim is denied —
 // and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
@@ -81,7 +85,7 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
       const index = (await inDO(env.STAR, dev, (s) => s.inspectOntologyIndex())) as string[];
       expect(index.length).toBe(1);
       expect(index[0]).toMatch(OID_RE);
-    });
+    }, { timeout: 15000 });
   });
 
   it('the version is CONTENT-ADDRESSED — changing the ontology yields a new version', async () => {
@@ -93,7 +97,7 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
       const index = (await inDO(env.STAR, dev, (s) => s.inspectOntologyIndex())) as string[];
       expect(index.length).toBe(1);
       v1 = index[0];
-    });
+    }, { timeout: 15000 });
     // Edit → a DIFFERENT compiled version (git.hashBlob of the source). A constant label would
     // silently reuse the cached validator bundle → the index would stay at 1 (this reds).
     await inDO(env.DEV_STUDIO, dev, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
@@ -102,7 +106,7 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
       const index = (await inDO(env.STAR, dev, (s) => s.inspectOntologyIndex())) as string[];
       expect(index).toContain(v1);  // v1 still present (no wipe)
       expect(index.length).toBe(2); // + a distinct v2
-    });
+    }, { timeout: 15000 });
   });
 
   it('{ wipe: true } wipes the .dev Star BEFORE installing (Flow 1b wipe path)', async () => {
@@ -114,7 +118,7 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
       const index = (await inDO(env.STAR, dev, (s) => s.inspectOntologyIndex())) as string[];
       expect(index.length).toBe(1);
       vA = index[0];
-    });
+    }, { timeout: 15000 });
     // Change + apply WITH wipe. resetDevData (deleteAll) must run BEFORE setOntology, so only the new
     // version remains. Capable-of-failing on the WIPE: a no-op / after-setOntology wipe → [vA, vB].
     await inDO(env.DEV_STUDIO, dev, (s) => s.writeSource(ONTOLOGY_PATH, TODO_V2));
@@ -124,7 +128,7 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
       expect(index.length).toBe(1);
       expect(index).not.toContain(vA);
       expect(index[0]).toMatch(OID_RE);
-    });
+    }, { timeout: 15000 });
   });
 });
 

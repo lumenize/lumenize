@@ -357,7 +357,10 @@ describe('Phase 2/3 integration — real DevStudio loop (probe replays a script)
       expect(t.validate).toEqual({ ok: true }); // final gate result
       expect(t.error).toBeUndefined();           // clean finish → no error tail
       expect(t.applied).toBe(true);
-    });
+      // The default 1s waitFor loses to the full-suite parallel load — the codegen turn plus the
+      // cross-DO getTurns roundtrip runs long when 85 files share the box. Raising it does NOT
+      // weaken the assertion: a turn that never lands still reds, just 15s later.
+    }, { timeout: 15000 });
   });
 
   it('m4: a turn that ENDS on a failing gate persists validate.ok=false + a populated error tail (getTurns)', async () => {
@@ -383,7 +386,7 @@ const n: number = 'not a number';
       expect(t.error).toBeTruthy();
       expect(t.error).toBe(t.validate.errorTail);
       expect(t.applied).toBe(true); // the broken file was still written to the Workspace
-    });
+    }, { timeout: 15000 });         // see the sibling m4 above — default 1s loses to full-suite load
   });
 
   // (The `response_format: json_schema` Workers-AI capability probe was a one-off
