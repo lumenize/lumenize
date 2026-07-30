@@ -220,3 +220,48 @@ export function childrenOf(parent: object): object[] {
 export function childCount(parent: object): number {
   return CHILDREN.get(parent)?.size ?? 0;
 }
+
+// ── teardown ─────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Clients whose session has been deliberately ended, and which may therefore no longer mint.
+ *
+ * ⚠️ **This is NEW STATE, not a consequence of disposal, and that is the whole point.** No teardown
+ * door revokes minting on its own: `dispose()` is engine-teardown plus `disconnect()`,
+ * `[Symbol.dispose]()` is just `disconnect()`, and `disconnect()` deliberately KEEPS the token so a
+ * reconnect succeeds — while `authedFetch` needs only a `fetch` and a token, no connection. Without
+ * this latch a disposed parent keeps minting for its full remaining token life, and "ending my
+ * session ends impersonation" would be true only by timing.
+ */
+const TORN_DOWN = new WeakSet<object>();
+
+export function isTornDown(client: object): boolean {
+  return TORN_DOWN.has(client);
+}
+
+/**
+ * The single teardown hook. Called from `NebulaClient.disconnect()` — which is **touchpoint 2 of 2**
+ * and is one site rather than three, because every teardown door routes through it: `dispose()`
+ * calls it, `logout()` calls it, and `[Symbol.dispose]()` *is* it.
+ *
+ * ⚠️ **`logout()` is NOT exempt from the marking**, though it looks like it closes minting already.
+ * `clearAccessToken()` does not close minting — it makes the next mint REFRESH first, since a
+ * missing token sets `#needsTokenRefresh()` true and `authedFetch` refreshes before every request.
+ * And `logout()`'s revoke is explicitly best-effort with a swallowed catch, so an offline or 5xx
+ * logout never clears the cookie and the parent could keep minting for the **30-day cookie life**,
+ * not one token lifetime.
+ *
+ * ⚠️ **Nothing here may fire on a transient disconnect.** A blip goes `#handleClose` →
+ * `#scheduleReconnect()` → `'reconnecting'`; it never calls `disconnect()` and never reaches
+ * `'disconnected'`. Hooking a connection-STATE transition instead of this seam would silently end an
+ * admin's impersonation session on a network blip.
+ */
+export function onClientTornDown(
+  client: { disconnect(): void },
+  parent: { disconnect(): void } | undefined,
+): void {
+  TORN_DOWN.add(client);
+  // Snapshot, because each child's own teardown deregisters it from this set as we go.
+  for (const child of childrenOf(client)) (child as { disconnect(): void }).disconnect();
+  if (parent) deregisterChild(parent, client);
+}

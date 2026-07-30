@@ -22,7 +22,8 @@ import { isOntologyStaleError } from './errors';
 // on the package barrel, and Node/browser-safe like the rest of this file.
 import {
   INTERNAL_REFRESH, INTERNAL_PARENT, assertCanImpersonate, childInstanceName, parentTabIdFrom,
-  mintNarrowerToken, registerChild, deregisterChild,
+  mintNarrowerToken, registerChild, deregisterChild, onClientTornDown, isTornDown,
+  ImpersonationMintError,
   type ChildConfigBase, type ImpersonateOptions, type RefreshFn,
 } from './impersonation';
 import {
@@ -707,6 +708,23 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   }
 
   /**
+   * ── TOUCHPOINT 2 of 2: the impersonation teardown seam ──────────────────────────────────────────
+   *
+   * ONE site rather than three, because every teardown door routes through here: `dispose()` calls
+   * it, `logout()` calls it, and `[Symbol.dispose]()` *is* it. It marks this client un-mintable,
+   * tears down any impersonated children, and deregisters this client from its own parent.
+   *
+   * ⚠️ **Deliberately NOT a connection-state listener.** A transient drop goes
+   * `#handleClose → #scheduleReconnect()` and reaches `'reconnecting'`, never `'disconnected'`, and
+   * never calls this — which is exactly the distinction that keeps a network blip from silently
+   * ending an admin's impersonation session. Disposal is intentional end-of-session; a blip is not.
+   */
+  override disconnect(): void {
+    super.disconnect();
+    onClientTornDown(this, this.#mintedFrom);
+  }
+
+  /**
    * User-initiated sign-out. Revokes + clears the (HttpOnly, path-scoped) refresh
    * cookie via the nebula-auth `POST /auth/{authScope}/logout` endpoint, drops the
    * in-memory access token + claims ({@link LumenizeClient.clearAccessToken}), and
@@ -725,6 +743,22 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
    */
   async logout(): Promise<void> {
+    // ⚠️ On an IMPERSONATED CHILD this is child-only teardown, and that is the faithful reading of
+    // the method rather than a weakening of it: `logout()` is revoke + clear + disconnect, and a
+    // child holds NO refresh cookie (the whole design is that no new durable credential exists), so
+    // the revoke half is vacuous and the remainder IS dispose.
+    //
+    // Inheriting the parent's behaviour here would be actively harmful. `authScope` IS the
+    // refresh-cookie path (`security.md` § two-scope model) and `logout()` is its only reader, so
+    // the POST below would go to a path whose cookie belongs to the ADMIN — revoking the admin's
+    // 30-day refresh token because someone ended an impersonation session. ⚠️ Pinning the child's
+    // `authScope` to the impersonated scope is NOT a sufficient guard on its own: it diverges from
+    // the parent's path only while the two scopes differ, and an admin who logged in AT the scope
+    // they impersonate into gets an exact cookie-path match — the ordinary support shape.
+    if (this.#mintedFrom) {
+      await this.dispose();
+      return;
+    }
     const baseUrl = this.#baseUrl
       ?? (typeof window !== 'undefined' ? window.location.origin : '');
     try {
@@ -781,10 +815,21 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // lets a parent holding an expired token still mint.
     const authedFetch = (url: string, init?: RequestInit) => this.authedFetch(url, init);
     // ONE mint path, captured LEXICALLY — never via the child's `#mintedFrom`, which does not exist
-    // yet while the child's `refresh` may already be running inside `super()`.
-    const mint = () => mintNarrowerToken(authedFetch, base, this.#authScope, {
-      subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,
-    });
+    // yet while the child's `refresh` may already be running inside `super()`. `opts` is captured
+    // too, so every re-mint replays the same `ttlSeconds` and the session keeps its cadence.
+    const parent = this;
+    // Assigned immediately after construction; see the TDZ note in the terminal branch below.
+    let childRef: NebulaClient | undefined;
+    const mint = async () => {
+      // The latch, checked on every mint including the first. Ending the admin's session ends
+      // impersonation BY CONSTRUCTION rather than by waiting for the token to lapse.
+      if (isTornDown(parent)) {
+        throw new ImpersonationMintError(0, 'The client that created this impersonation session has been torn down');
+      }
+      return mintNarrowerToken(authedFetch, base, parent.#authScope, {
+        subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,
+      });
+    };
 
     // MINT FIRST, then seed. Doing it the other way round — constructing tokenless and letting the
     // child's own connect be the single mint — moves this failure inside `super()`, where it becomes
@@ -800,10 +845,38 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       activeScope,
       accessToken: minted.access_token,
       instanceName: childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope),
-      [INTERNAL_REFRESH]: (async () => await mint()) as RefreshFn,
+      [INTERNAL_REFRESH]: (async () => {
+        try {
+          return await mint();
+        } catch (e) {
+          // TERMINAL vs TRANSIENT, stated structurally (4xx / everything else) rather than as a
+          // status list, so a status the endpoint gains later inherits the right behaviour.
+          //
+          // ⚠️ Terminal reuses `LoginRequiredError` DELIBERATELY. It is the only signal mesh's
+          // reconnect catch treats as terminal — its comment names the transient default as the
+          // safe one — so a bespoke class would leave the child reconnect-looping forever instead of
+          // ending. What protects the admin is NOT the error class but the inheritance contract:
+          // a child never receives `onLoginRequired`, so mesh's terminal path has nothing to call
+          // and the admin is never bounced to login because someone else's session ended.
+          if (e instanceof ImpersonationMintError && e.terminal) {
+            // The child is ending here and `disconnect()` will not run, so deregister explicitly.
+            // ⚠️ Via a mutable holder, NOT the `const child` below: this closure can run inside
+            // `super()` (a seeded token already inside the refresh-ahead window refreshes during
+            // construction), where `child` is still in its temporal dead zone and touching it would
+            // throw a ReferenceError *instead of* the terminal signal. Undefined here simply means
+            // the child was never registered — registration happens after the first mint resolves.
+            if (childRef) deregisterChild(parent, childRef);
+            throw new LoginRequiredError(
+              `Impersonation session ended: ${e.message}`, e.status, 'impersonation_ended',
+            );
+          }
+          throw e; // transient (5xx, network) → mesh schedules a reconnect and the session survives
+        }
+      }) as RefreshFn,
       [INTERNAL_PARENT]: this,
     } as NebulaClientConfig);
 
+    childRef = child;
     // AFTER the mint resolves, so a refused mint leaves no half-registered child holding a socket.
     registerChild(this, child);
     return child;
