@@ -57,11 +57,12 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
 async function inviteAndLogin(
   stack: DevStack, browser: Browser, scope: string, adminToken: string, email: string, testToken: string,
 ): Promise<{ accessToken: string; sub: string }> {
-  // ⚠️ NO `instance` filter. `NebulaEmailSender` overrides `magicLinkHeaders` ONLY, so an invite
-  // carries no `X-Lumenize-Auth-Instance` header and lands in the catch-all bucket — an
-  // `instance: scope` filter silently never matches (it cost one 60s timeout to find). The unique
-  // `to` address is the documented no-sender-cooperation filter, and it also skips the bucket
-  // `clear`, so this stays safe beside a concurrently-waiting listener.
+  // NO `instance` filter — deliberately, and the reason has CHANGED. It used to be that it could
+  // not work (`NebulaEmailSender` stamped `X-Lumenize-Auth-Instance` on magic links only, so an
+  // invite landed in the catch-all bucket and an `instance: scope` filter silently never matched —
+  // one 60s timeout to find). `inviteNewHeaders` now stamps it too, so the filter WOULD match. We
+  // still use `to`: a unique recipient skips the shared-bucket `clear` that `instance` performs, so
+  // this stays safe beside a concurrently-waiting listener.
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
     const res = await browser.fetch(`${stack.baseUrl}/auth/${scope}/invite`, {
