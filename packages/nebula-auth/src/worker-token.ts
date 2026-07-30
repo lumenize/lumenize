@@ -29,7 +29,7 @@ import { buildAuthScopePattern, hasAdminOverScope, matchAccess, parseId } from '
 import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
-  ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL,
+  ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
 } from './types';
 import type { NebulaJwtPayload, RefreshTokenKV } from './types';
 
@@ -113,9 +113,64 @@ function redirectWithError(env: Env, error: string, universeGalaxyStarId?: strin
 // ── JWT mint ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Validate a caller-supplied `ttlSeconds`. Returns `undefined` when absent (use the default), or a
+ * message naming what is wrong — callers turn that into `400 invalid_request`.
+ *
+ * ⚠️ **An ACCEPT-LIST over type AND range, not a rejection of the obvious bad case, and that is
+ * load-bearing.** `buildNebulaJwtPayload` computes `exp: now + (ttlSeconds ?? ACCESS_TOKEN_TTL)`, so
+ * a non-numeric value yields `exp: NaN` — which slips through *both* naive guards, since `NaN <= 0`
+ * is `false` and `Math.min(NaN, ceiling)` is `NaN`. `signJwt` serializes with `JSON.stringify`,
+ * which writes `NaN` as `null`; `verifyJwt`'s check is `if (payload.exp && payload.exp < now)`, and
+ * a null `exp` is FALSY — so the token skips expiry and verifies **forever**. The client never
+ * refreshes it either (`typeof exp !== 'number'`). A short access-TTL is what bounds a revoked or
+ * demoted token while KV propagates (`security.md`), so an `exp`-less token deletes that bound.
+ */
+export function validateTtlSeconds(value: unknown): { error: string } | { ok: true } {
+  if (value === undefined) return { ok: true };
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    return { error: '"ttlSeconds" must be an integer' };
+  }
+  if (value < 1) return { error: '"ttlSeconds" must be at least 1' };
+  // ⚠️ NO upper bound here — the ceiling is CLAMPED, not rejected. Asking for more than
+  // `ACCESS_TOKEN_TTL` is a preference the server shortens, and `expires_in` then reports what was
+  // actually minted, which is what that field means. Only shapes that could produce an unbounded or
+  // absent `exp` are refusals.
+  return { ok: true };
+}
+
+/**
+ * The ONE clamp, so the two mint endpoints cannot diverge on the ceiling or on the advisory warn.
+ * Returns the EFFECTIVE lifetime, which is what a caller reports as `expires_in` — a handler that
+ * re-derived the clamp itself would be the divergence this exists to prevent.
+ *
+ * Assumes {@link validateTtlSeconds} already passed; the clamp is belt-and-braces against a future
+ * caller reaching this without validating.
+ */
+function clampTtlSeconds(requested: number | undefined, context: Record<string, unknown>): number {
+  const effective = Math.min(requested ?? ACCESS_TOKEN_TTL, ACCESS_TOKEN_TTL);
+  if (effective < RECOMMENDED_MIN_TTL_SECONDS) {
+    debug('nebula-auth.worker.ttl.short').warn(
+      'Requested token TTL is below the recommended minimum — honoured, but read both hazards', {
+        ...context,
+        requestedTtlSeconds: requested,
+        effectiveTtlSeconds: effective,
+        recommendedMinTtlSeconds: RECOMMENDED_MIN_TTL_SECONDS,
+        hazards: [
+          'a TTL at or below the client refresh-ahead window (30s) is born already due, so it re-mints continuously',
+          'a shorter TTL bounds the SUBJECT side only — a demoted caller is still bounded by their own token lifetime plus KV propagation',
+        ],
+      });
+  }
+  return effective;
+}
+
+/**
  * Mint a Nebula access token (the JWT). Resolves BLUE/GREEN from env and composes the shared
  * {@link buildNebulaJwtPayload} claim-builder so this Worker mint and the Node test-util mint can
  * never drift. `email` is not a claim.
+ *
+ * Returns the token **and its effective lifetime** — the latter because the clamp lives here and a
+ * handler needs the post-clamp value for `expires_in`.
  */
 export async function mintAccessToken(
   env: Env,
@@ -130,8 +185,14 @@ export async function mintAccessToken(
     actor?: { sub: string; profileId?: string };
     /** Override the derived pattern (the narrower mint binds to the requested scope). */
     authScopePattern?: string;
+    /**
+     * Requested token lifetime. Clamped to {@link ACCESS_TOKEN_TTL} (it can only ever SHORTEN) and
+     * warned about below {@link RECOMMENDED_MIN_TTL_SECONDS}. Validate with
+     * {@link validateTtlSeconds} at the request boundary first — see its warning about `NaN`.
+     */
+    ttlSeconds?: number;
   },
-): Promise<string> {
+): Promise<{ accessToken: string; effectiveTtlSeconds: number }> {
   const activeKey = ((env as any).PRIMARY_JWT_KEY || 'BLUE') as 'BLUE' | 'GREEN';
   const privateKeyPem = activeKey === 'GREEN'
     ? (env as any).JWT_PRIVATE_KEY_GREEN
@@ -139,6 +200,9 @@ export async function mintAccessToken(
   if (!privateKeyPem) throw new Error(`JWT private key not configured for ${activeKey}`);
 
   const privateKey = await importPrivateKey(privateKeyPem);
+  const effectiveTtlSeconds = clampTtlSeconds(opts.ttlSeconds, {
+    sub: opts.sub, activeScope: opts.activeScope,
+  });
   const payload = buildNebulaJwtPayload({
     sub: opts.sub,
     instanceName: opts.universeGalaxyStarId,
@@ -147,8 +211,9 @@ export async function mintAccessToken(
     profileId: opts.profileId,
     actor: opts.actor,
     authScopePattern: opts.authScopePattern,
+    ttlSeconds: effectiveTtlSeconds,
   });
-  return signJwt(payload as any, privateKey, activeKey);
+  return { accessToken: await signJwt(payload as any, privateKey, activeKey), effectiveTtlSeconds };
 }
 
 // ── email-magic-link (request) ─────────────────────────────────────────────────────────────────
@@ -256,10 +321,15 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   if (!contentType?.includes('application/json')) {
     return errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
   }
-  let body: { activeScope?: string };
+  let body: { activeScope?: string; ttlSeconds?: unknown };
   try { body = await request.json() as typeof body; }
   catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
   if (!body.activeScope) return errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
+  // ⚠️ Validate BEFORE the mint, and by accept-list — a truthiness check (the shape of the
+  // `activeScope` guard above) would pass `'abc'` straight through to an `exp: NaN`, which verifies
+  // forever. This endpoint is gated by the refresh cookie ALONE, so it is the reachable one.
+  const ttlCheck = validateTtlSeconds(body.ttlSeconds);
+  if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
 
   // M1: derive the pattern from the KV record's scope (server-trusted), never the client body/path.
   const authScopePattern = buildAuthScopePattern(record.universeGalaxyStarId);
@@ -268,12 +338,13 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
       `Requested scope "${body.activeScope}" not covered by access pattern "${authScopePattern}"`);
   }
 
-  const accessToken = await mintAccessToken(env, {
+  const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: record.sub,
     universeGalaxyStarId: record.universeGalaxyStarId,
     isAdmin: record.isAdmin,
     profileId: record.profileId,
     activeScope: body.activeScope,
+    ttlSeconds: body.ttlSeconds as number | undefined,
   });
 
   // No rotation, no slide (security.md): the refresh token keeps its fixed TTL from login. We do NOT
@@ -281,7 +352,9 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   return Response.json({
     access_token: accessToken,
     token_type: 'Bearer',
-    expires_in: ACCESS_TOKEN_TTL,
+    // The EFFECTIVE (post-clamp) lifetime, not the constant — a client that trusted a constant here
+    // while the JWT carried a shorter `exp` would mis-schedule its own refresh.
+    expires_in: effectiveTtlSeconds,
     sub: record.sub,
   });
 }
@@ -383,11 +456,14 @@ export async function mintNarrowerToken(
   if (!contentType?.includes('application/json')) {
     return errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
   }
-  let body: { subOfNarrowerToken?: string; activeScope?: string };
+  let body: { subOfNarrowerToken?: string; activeScope?: string; ttlSeconds?: unknown };
   try { body = await request.json() as typeof body; }
   catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
   if (!body.subOfNarrowerToken) return errorResponse(400, 'invalid_request', 'subOfNarrowerToken required');
   if (!body.activeScope) return errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
+  // Accept-list, before the mint — see `validateTtlSeconds` on why a non-positive check is not enough.
+  const ttlCheck = validateTtlSeconds(body.ttlSeconds);
+  if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
 
   // Reject SELF-NARROWING, before the registry read. There is no second party, so `act: { sub: X }` on
   // a token whose `sub` is X records nothing: it pollutes attribution, muddies `!claims.act` (the
@@ -478,7 +554,7 @@ export async function mintNarrowerToken(
   // future caller reaching this line without eligibility having run (`security.md` rule (2) forbids
   // copying the subject's bit alone, because a bare copy can exceed the caller). The `profileId` claim
   // is the SUBJECT's — top-level `sub` and top-level `profileId` always describe the same person.
-  const accessToken = await mintAccessToken(env, {
+  const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: body.subOfNarrowerToken,
     universeGalaxyStarId: body.activeScope,
     isAdmin: payload.access.admin === true && subjectIdentity.isAdmin,
@@ -488,12 +564,13 @@ export async function mintNarrowerToken(
     // resolve it live; it is omitted when the caller's own token carries no `profileId` claim.
     actor: { sub: payload.sub, profileId: payload.profileId },
     authScopePattern: buildAuthScopePattern(body.activeScope),
+    ttlSeconds: body.ttlSeconds as number | undefined,
   });
 
   debug('nebula-auth.worker.narrower.issued').info('Narrower token issued', {
     subOfNarrowerToken: body.subOfNarrowerToken, actorSub: payload.sub,
   });
-  return Response.json({ access_token: accessToken, token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL });
+  return Response.json({ access_token: accessToken, token_type: 'Bearer', expires_in: effectiveTtlSeconds });
 }
 
 export { verifyNebulaAccessToken };

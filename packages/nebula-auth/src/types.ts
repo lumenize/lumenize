@@ -212,8 +212,28 @@ export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 /** Default URL prefix for all auth routes */
 export const NEBULA_AUTH_PREFIX = '/auth';
 
-/** Access token lifetime in seconds (15 minutes) */
+/** Access token lifetime in seconds (15 minutes) — the DEFAULT and the enforced ceiling. */
 export const ACCESS_TOKEN_TTL = 900;
+
+/**
+ * Below this, a requested `ttlSeconds` is warned about but **still honoured** — advisory, never
+ * enforced. Contrast {@link ACCESS_TOKEN_TTL}, which IS enforced as the ceiling; the name carries
+ * that distinction on purpose.
+ *
+ * ⚠️ **This is 4× `@lumenize/mesh`'s token refresh-ahead window**, and the relation has to live in
+ * prose because mesh does not *export* that window — it is an inline `exp - 30` literal in
+ * `LumenizeClient`. Keep the two in step by hand, or export it from mesh and make the relation
+ * checkable. A token at or below that window is *born* already due for refresh, so it re-mints
+ * continuously; 4× leaves most of a token's life outside it.
+ *
+ * ⚠️ Deliberately NOT a floor. A floor would make an expiring-token test unreachable without a
+ * test-mode bypass, and it would not address the second hazard at all — which is semantic, not a
+ * range problem: a shorter TTL shortens only the SUBJECT-side revocation leash. The caller-side
+ * gates on `/mint-narrower-token` read the caller's own token, never the registry, so a demoted
+ * admin stays bounded by their parent token's lifetime plus KV propagation regardless of how short
+ * the minted token is.
+ */
+export const RECOMMENDED_MIN_TTL_SECONDS = 120;
 
 /** Refresh token lifetime in seconds (30 days) */
 export const REFRESH_TOKEN_TTL = 2592000;
