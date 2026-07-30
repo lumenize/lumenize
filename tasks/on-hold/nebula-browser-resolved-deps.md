@@ -58,6 +58,13 @@ Load-bearing claims, stated so review can falsify them:
   specifier does not have this property — it resolves from `node_modules` and hard-fails when absent.
 - **The container therefore needs no egress for dependencies.** Its `node_modules` is frozen at the baked set,
   permanently rather than for the demo, and the deferred `interceptHttps`/CA-trust work is not needed for this.
+- **Dependency count leaves the codegen loop entirely.** Nothing installs, and rollup does not bundle an
+  external — so neither half of the growth from one dependency to many (the install, *or* the build, which is
+  70–90% of the time) scales with how many packages the user-developer adds. The loop stays on the `dep=0` path
+  at any count. This is the claim the task rests on, and it is qualitatively different from saving seconds: it
+  removes a variable rather than shrinking one. ⚠️ The cost moves to the end user's page load — paid once per
+  browser and then cached, but real. The old model *disciplined* dependency count by making it painful, so
+  removing the pain removes the discipline; that is why payload guidance (Phase 4) matters more here, not less.
 - **The compile gate is the only surface that hard-fails a CDN import** — not vite, which is the permissive one.
 - **Third-party runtime code in the page is attacker-authorable**, because anyone may publish to npm. The
   containment for that is **origin separation**, not CSP: an origin-allowlist CSP naming a public CDN is close to
@@ -204,7 +211,14 @@ Load-bearing claims, stated so review can falsify them:
   whether it should own them before building a parallel path.
 - **`tasks/nebula-studio-self-improvement.md`** — a dependency the model reaches for and gets wrong is outcome
   signal for the scaffold; this task produces that signal but does not consume it.
-- **Measurement to cite, not re-derive:** `experiments/container-cold-start-probe` measured on real CF that
-  `vite build` is **70–90%** of every scenario, the baked path is **8–10 s** and the user-dep path **11–33 s**,
-  with `npm install` only ~2–6 s of it. ⚠️ **Do not argue this task on install time** — the defensible claim is
-  that every app stays on the baked path, plus the egress deletion.
+- **Measurement — and the gap in it.** `experiments/container-cold-start-probe` measured on real CF that
+  `vite build` is **70–90%** of every scenario, the baked path is **8–10 s**, and the user-dep path is
+  **11–33 s**. ⚠️ **Every user-dep number there and in `tasks/backlog.md` is `n=1`** — the probe's `dep=1` arm
+  adds a single package (`echarts`), and the backlog's 1–4 s figures are six *separate* one-dep measurements.
+  **No experiment has measured a realistic multi-dependency tree.** The only multi-package anchor is
+  `container-dep-install-bench`: the curated tree at **62 packages cost 20.1 s** cold at ½ vCPU — and CF has no
+  persistent volume, so every cold start is that cold path, never the 5.1 s warm one. Since **package count
+  beats bytes** (tiptap alone is 52 packages), a user-developer with three or four real libraries plausibly
+  exceeds the whole curated tree. ⇒ **do not cite ~2–6 s as the install cost**; it is the `n=1` figure and
+  understates the case this task rests on. An `n=4` arm is cheap and would replace the extrapolation with a
+  number.
