@@ -104,8 +104,12 @@ Load-bearing claims, stated so review can falsify them:
   restore cost at a *realistic* tree — 200 MB+, not the 84 MB curated one; is there **per-tenant storage
   billing**, which the browser-resolved path does not have at all; and does any of it engage under local
   `wrangler dev` (the question `experiments/container-egress-catrust` had to ask about interception, with the
-  same stakes for the dev loop). ⚠️ Re-derive rather than reverting on reflex — a snapshot restores *state*, and
-  the argument this task rests on is that dependency count leaves the loop, which restoration does not deliver.
+  same stakes for the dev loop). ⚠️ **Re-measure the build share on the current toolchain before running any of
+  that** — the 70–90% figure is Vite 6 + Rollup, the container is still pinned at `vite ^6.0.7`, and a Rust
+  bundler moves the registry pull to the long pole, which is precisely the term snapshots address. Get that
+  number first or the snapshot comparison is run against a stale baseline. ⚠️ Then re-derive rather than
+  reverting on reflex: a snapshot restores *state*, and what this task rests on is that dependency count leaves
+  the loop — restoration does not deliver that, and the egress surface stays either way.
 - ⚠️ **Design consideration:** the whole reason a container exists is `node_modules` and the build chain. This
   removes dependency egress and per-tenant mutation from that list, which sharpens the "stateless build-box"
   direction in the `keep-container-native-tide` memory. Do not build toward container removal here; just avoid
@@ -131,7 +135,7 @@ Load-bearing claims, stated so review can falsify them:
 
 | Decision | Rejected alternative — why |
 |---|---|
-| Runtime deps resolve in the browser from an ESM CDN | `npm install` in the container. **Durable reasons:** it needs runtime egress (`interceptHttps` + CA trust + an npm-registry allow-list), and an installed dependency still gets **bundled**, which is the 70–90% of the time. **Conditional reason:** CF containers have no persistent volume today, so every cold start pays the full cold path — ⚠️ this half expires if disk snapshots ship (see *Future state*) |
+| Runtime deps resolve in the browser from an ESM CDN | `npm install` in the container. **Durable reason:** it needs runtime egress (`interceptHttps` + CA trust + an npm-registry allow-list), which is a security surface and a maintenance surface, not a speed one. **Durable in direction, shrinking in magnitude:** an installed dependency still gets **bundled**, and an external does zero work — but the *"bundling is 70–90% of the time"* figure measures Vite 6 + Rollup, and a Rust bundler (Rolldown) compresses it, so do not carry that number forward as if it were an invariant. **Conditional:** CF containers have no persistent volume today, so every cold start pays the full cold path — ⚠️ expires if disk snapshots ship (see *Future state*) |
 | The set is open — any npm package | A curated catalog — friction against a surface the user-developer already trusts at npm's level; per-package curation does not scale, and a user-developer tests before publishing |
 | esm.sh or jsDelivr `/+esm` as the source | cdnjs — a curated ~4k list (narrower than npm, so *worse* for an open set) that serves files verbatim, leaving an ESM file's bare-specifier sub-dependencies unresolvable in the browser |
 | ESM imports | `<script>` tags with UMD globals — forces per-package global names into the model's head, and `window.X` is untyped, so the gate checks none of the least-familiar code |
