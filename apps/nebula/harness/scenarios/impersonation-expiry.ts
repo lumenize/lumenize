@@ -1,13 +1,27 @@
 /**
- * Impersonation across a REAL token expiry — the half of
- * `tasks/nebula-impersonation-client.md` that pool-workers cannot honestly reach.
+ * Impersonation across a REAL token expiry, on a real clock and a real server.
  *
  * **Why this belongs in `/live` and not the baseline lane.** Everything deterministic about
  * `impersonate()` — the naming rule, the registry, the chain refusal, the cascade, two children
  * coexisting — is already covered in `test/test-apps/baseline/impersonate*.test.ts`, faster and in
- * CI. What that lane cannot do is let time pass. Its re-mint tests lean on a sub-30s token being
- * *born* inside the client's refresh-ahead window, which is a real trigger but a contrived one: it
- * proves the re-mint path runs, not that a session survives its token actually lapsing.
+ * CI. What that lane's re-mint tests actually do is lean on a sub-30s token being *born* inside the
+ * client's refresh-ahead window: a real trigger, but a contrived one that proves the re-mint path
+ * runs rather than that a session survives its token lapsing.
+ *
+ * ⚠️ **This header used to say pool-workers "cannot let time pass". THAT IS FALSE — measured, not
+ * assumed (2026-07-30, `packages/nebula-auth`).** `vi.useFakeTimers({ shouldAdvanceTime: true })` +
+ * `vi.setSystemTime(+1 day)` moves the clock the **Worker** sees: a subsequent `/refresh-token` mint
+ * came back with `iat` advanced ~86400s, and a token minted `ttlSeconds: 60` then used ten (fake)
+ * minutes later got a **401** — with a no-jump control on the identical request returning something
+ * other than 401, so the 401 is the expiry and not the deliberately-bogus subject in the body.
+ * (Unverified, and it is the interesting boundary: whether a **DO's** isolate follows the same fake
+ * clock. The JWT verify that answered here lives in the Worker.)
+ *
+ * ⇒ **The honest justification is fidelity, not capability.** A fake clock proves the server rejects
+ * an `exp` it computes against a patched `Date`; this proves a session survives a lapse against a
+ * clock nobody patched, through a real socket and a real cookie jar. Both mutations produced a real
+ * 401 from a real server. Keep the claim on that ground — and note the corollary the false version
+ * was suppressing: the baseline lane COULD drive a genuine expiry if it ever wants one.
  *
  * ⚠️ **The task file deferred `/live` for the wrong reason, and this scenario is the correction.**
  * It reasoned that rung 1 "adds only the email transport, which nothing asserted here depends on" —
