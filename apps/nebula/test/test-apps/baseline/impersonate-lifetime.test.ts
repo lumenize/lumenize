@@ -187,6 +187,42 @@ describe('lifetime — child logout() is child-only teardown', () => {
   });
 });
 
+describe('lifetime — readiness follows the CREDENTIAL, not the CONNECTION', () => {
+  // ⚠️ **This is the direct regression guard for a bug that shipped**, which is why it earns its
+  // keep beyond restating the design intent. The teardown was first hooked on `disconnect()` — on
+  // the true observation that all three end-of-session doors route through it. But `disconnect()`
+  // has a FOURTH caller they do not share: application code pausing a connection, which is
+  // REVERSIBLE (the base keeps the token so a later `connect()` succeeds). That made
+  // `disconnect()` + `connect()` permanently kill impersonation for a session nobody ended, and
+  // NOTHING caught it — because this criterion, which the task file states twice, had no test.
+  it('a DISCONNECTED parent still mints, and still mints after it reconnects', async () => {
+    const { star, admin, member } = await adminAndMember();
+
+    // A deliberate, reversible pause — not a teardown door.
+    admin.disconnect();
+    expect(admin.connectionState).toBe('disconnected');
+    expect(isTornDown(admin), 'a bare disconnect() must NOT mark the parent torn down').toBe(false);
+
+    // Mutation: hook the impersonation teardown on `disconnect()` instead of on the three
+    // end-of-session doors → the latch fires here → this rejects with /torn down/ → reds.
+    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+    expect(child.claims.sub).toBe(member.sub);
+
+    // ⚠️ `authedFetch` obtains its token on its own path, so minting never required the socket. The
+    // one real precondition is that the parent already HAS a name — it connected once above — since
+    // the child's Gateway name derives from the parent's tabId.
+    admin.connect();
+    await vi.waitFor(() => expect(admin.connectionState).toBe('connected'));
+    const second = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    await vi.waitFor(() => expect(second.connectionState).toBe('connected'));
+
+    child.disconnect();
+    second.disconnect();
+    admin.disconnect();
+  });
+});
+
 describe('lifetime — re-minting through the parent', () => {
   it('re-mints through the parent, and the re-mint never changes who the child is', async () => {
     const { star, admin, member } = await adminAndMember();
