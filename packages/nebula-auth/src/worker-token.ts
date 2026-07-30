@@ -113,8 +113,10 @@ function redirectWithError(env: Env, error: string, universeGalaxyStarId?: strin
 // ── JWT mint ─────────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Validate a caller-supplied `ttlSeconds`. Returns `undefined` when absent (use the default), or a
- * message naming what is wrong — callers turn that into `400 invalid_request`.
+ * Validate a caller-supplied `ttlSeconds`. Returns `{ ok: true }` when absent (use the default) or
+ * acceptable, and `{ error }` naming what is wrong otherwise — callers narrow with `'error' in …`
+ * and turn it into `400 invalid_request`. ⚠️ Both branches are truthy objects, so a truthiness test
+ * would reject every request.
  *
  * ⚠️ **An ACCEPT-LIST over type AND range, not a rejection of the obvious bad case, and that is
  * load-bearing.** `buildNebulaJwtPayload` computes `exp: now + (ttlSeconds ?? ACCESS_TOKEN_TTL)`, so
@@ -143,11 +145,17 @@ export function validateTtlSeconds(value: unknown): { error: string } | { ok: tr
  * Returns the EFFECTIVE lifetime, which is what a caller reports as `expires_in` — a handler that
  * re-derived the clamp itself would be the divergence this exists to prevent.
  *
- * Assumes {@link validateTtlSeconds} already passed; the clamp is belt-and-braces against a future
- * caller reaching this without validating.
+ * ⚠️ **Non-integers fall back to the default rather than being clamped**, which makes the `exp: NaN`
+ * class structurally impossible here rather than merely guarded elsewhere: `Math.min(NaN, ceiling)`
+ * is `NaN`, so a future third mint site that skipped {@link validateTtlSeconds} would otherwise mint
+ * a token that never expires. The 400 still belongs at the request boundary — a throw from in here
+ * would surface as a 500 through the router's catch — but the value that reaches the payload builder
+ * is now safe on every path.
  */
 function clampTtlSeconds(requested: number | undefined, context: Record<string, unknown>): number {
-  const effective = Math.min(requested ?? ACCESS_TOKEN_TTL, ACCESS_TOKEN_TTL);
+  const effective = Number.isInteger(requested)
+    ? Math.min(requested as number, ACCESS_TOKEN_TTL)
+    : ACCESS_TOKEN_TTL;
   if (effective < RECOMMENDED_MIN_TTL_SECONDS) {
     debug('nebula-auth.worker.ttl.short').warn(
       'Requested token TTL is below the recommended minimum — honoured, but read both hazards', {

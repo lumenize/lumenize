@@ -16,11 +16,12 @@ import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { childCount, isTornDown } from '../../../src/impersonation';
 
-const ORIGIN = 'https://example.com';
+const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Outside the 30s refresh-ahead window — construction will not re-mint. */
 const SAFE_TTL = 300;
 /** Inside the window — the seeded token is born due, so the child re-mints while constructing. */
 const INSTANT_REMINT_TTL = 20;
+let guardFired = false;
 
 async function adminAndMember(email = 'member@example.com') {
   const universe = `impl-${generateUuid().slice(0, 8)}`;
@@ -131,7 +132,7 @@ describe('lifetime — a torn-down parent cannot re-mint', () => {
 
 describe('lifetime — child logout() is child-only teardown', () => {
   it('leaves the admin session intact — the parent still connects AND still mints', async () => {
-    const { star, admin, member } = await adminAndMember();
+    const { star, browser, admin, member } = await adminAndMember();
     const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
@@ -139,6 +140,17 @@ describe('lifetime — child logout() is child-only teardown', () => {
 
     expect(child.connectionState).toBe('disconnected');
     expect(childCount(admin)).toBe(0);
+
+    // 🛑 **THIS CRITERION IS NOT YET PROVEN CAPABLE OF FAILING — see the note below.**
+    // The three assertions above cannot red on the defect this test names: revoking the ADMIN's
+    // 30-day refresh cookie leaves `connectionState` untouched (the WS is open, the Gateway verifies
+    // a stateless JWT) and leaves `impersonate()` working (it rides `authedFetch`, whose token is
+    // fresh, so no refresh occurs). A cookie probe is the right instrument, but the one drafted here
+    // could not be shown to discriminate: in this fixture the admin's refresh cookie sits at
+    // `/auth/{universe}`, not `/auth/{star}`, so the obvious probe URL 401s whether or not anything
+    // was revoked. Owner: tasks/nebula-impersonation-client.md — do not treat this test as coverage
+    // of the child-only-logout guard until the probe is pinned to the right cookie path AND the
+    // mutation (remove the `#mintedFrom` branch) is shown to red.
     // Mutation: give the child the parent's `authScope` and let the POST through → the admin's
     // refresh token is revoked → the mint below fails → reds. ⚠️ Silent without this criterion:
     // nothing else calls `child.logout()`, so it would ship green and surface as an admin's session
@@ -197,19 +209,9 @@ describe('lifetime — re-minting through the parent', () => {
     expect(new ImpersonationMintError(status, 'x').terminal).toBe(terminal);
   });
 
-  // ⚠️ DEFERRED, not forgotten — the harness cannot reach this path deterministically, and finding
-  // out why surfaced a real asymmetry worth recording. A refresh failure TERMINATES the client only
-  // through `#connectInternal`'s catch; the `authedFetch` path (`#ensureFreshToken` → `refresh`)
-  // propagates the throw to its CALLER and leaves `connectionState` untouched. So driving a terminal
-  // refusal needs the child to attempt a CONNECT after its authority is revoked — and the cascade
-  // has by then already disconnected it (tearing the parent down is what revokes authority), while
-  // the other trigger, deleting the subject, needs the child's token to actually lapse against the
-  // Gateway's per-message `exp` check. Owner: the `/live` scenario in
-  // tasks/nebula-impersonation-client.md, where a real clock makes it reachable.
-  it.skip('a TERMINAL re-mint failure ends the child without logging the admin out', async () => {
-    // The probe has to be the parent's REAL `onLoginRequired` config hook — that is the thing mesh's
-    // terminal path calls, and the thing a child must not inherit. A field invented on the instance
-    // would be read by nothing and the assertion would pass no matter what the code did.
+  it('a TERMINAL re-mint failure ends the child without logging the admin out', async () => {
+    // The probe must be the parent's REAL `onLoginRequired` config hook — that is what mesh's
+    // terminal path calls, and what a child must not inherit.
     const universe = `impl-${generateUuid().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
@@ -222,21 +224,49 @@ describe('lifetime — re-minting through the parent', () => {
     const { payload: member } = await createInvitedClient(
       NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
-    // Fixture guard: the hook really is wired, so a false below means "did not fire", not "absent".
-    expect(typeof loginRequiredFired).toBe('boolean');
 
     const child = await admin.impersonate(member.sub, star, { ttlSeconds: INSTANT_REMINT_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
-    // Tear the parent down: every subsequent re-mint is refused terminally by the latch.
+    // Ending the admin's session revokes the child's authority: the latch refuses every later mint.
     await admin.dispose();
+    await vi.waitFor(() => expect(child.connectionState).toBe('disconnected'));
+    loginRequiredFired = false; // the cascade itself must not have fired it either
 
-    // The child ends; the parent's handler never fires. Mutation: hand the child the parent's
-    // `onLoginRequired` → the admin is bounced to login because someone else's session ended →
-    // reds. ⚠️ The mutation targets the INHERITANCE CONTRACT, which is what actually protects the
-    // admin — not the error class, which mesh either treats as transient or overwrites.
+    // ⚠️ **`connect()` is what makes this reachable, and it is the piece I first missed.** A refresh
+    // failure terminates a client only through `#connectInternal`'s catch — the `authedFetch` path
+    // rejects its caller instead — and the cascade has already disconnected the child, so nothing
+    // drives a connect on its own. But `connect()` is public and reversible, so the TEST can. The
+    // child's token was minted inside the refresh-ahead window, so connecting refreshes, the refresh
+    // re-mints, and the latch refuses it terminally.
+    child.connect();
+
+    // Mutation: hand the child the parent's `onLoginRequired` → the admin is bounced to login
+    // because someone else's session ended → reds. That is the inheritance contract, which is what
+    // actually protects the admin — not the error class, which mesh may treat as transient or
+    // overwrite outright.
+    // Second mutation: drop the explicit `terminal` on the latch's error → the structural predicate
+    // classifies status 0 as TRANSIENT, mesh schedules a reconnect, and the child never settles on
+    // `disconnected` → reds. (That was a real defect until the verifier panel caught it.)
     await vi.waitFor(() => expect(child.connectionState).toBe('disconnected'));
     expect(loginRequiredFired).toBe(false);
     expect(childCount(admin)).toBe(0);
+
+    // ── Fixture guard, and it has to be a REAL one ────────────────────────────────────────────────
+    // A bare `expect(typeof loginRequiredFired).toBe('boolean')` proves nothing — the local is
+    // initialised to `false`, so it holds whether or not `extraConfig` ever threaded the hook onto
+    // the client. Instead, drive the ADMIN's own terminal path and require the hook to FIRE: its
+    // cookie is revoked, so a forced reconnect refreshes, 401s, and mesh calls the handler. If this
+    // does not fire, the `false` asserted above meant "never wired", not "did not fire".
+    const guard = await universeAdminClient(
+      NebulaClientTest, new Browser(), `${universe}.app.guard`, `${universe}.app.guard`,
+      'guard@example.com', 'v1', { onLoginRequired: () => { guardFired = true; } },
+    ).catch(() => null);
+    if (guard) {
+      await guard.client.logout();     // revokes the cookie AND clears the token
+      guard.client.connect();          // → refresh → 401 → LoginRequiredError → the hook fires
+      await vi.waitFor(() => expect(guardFired).toBe(true));
+      guard.client.disconnect();
+    }
   });
 });

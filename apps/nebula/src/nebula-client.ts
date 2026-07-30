@@ -705,22 +705,33 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   async dispose(): Promise<void> {
     await this.#engine.dispose();
     this.disconnect();
+    this.#tearDownImpersonation();
+  }
+
+  /** `using` support — an end-of-session door, so it carries the impersonation teardown too. */
+  override [Symbol.dispose](): void {
+    super[Symbol.dispose]();
+    this.#tearDownImpersonation();
   }
 
   /**
    * ── TOUCHPOINT 2 of 2: the impersonation teardown seam ──────────────────────────────────────────
    *
-   * ONE site rather than three, because every teardown door routes through here: `dispose()` calls
-   * it, `logout()` calls it, and `[Symbol.dispose]()` *is* it. It marks this client un-mintable,
-   * tears down any impersonated children, and deregisters this client from its own parent.
+   * Marks this client un-mintable, tears down any impersonated children, and deregisters this client
+   * from its own parent. Called from the three END-OF-SESSION doors — `dispose()`, `logout()` and
+   * `[Symbol.dispose]()`.
    *
-   * ⚠️ **Deliberately NOT a connection-state listener.** A transient drop goes
-   * `#handleClose → #scheduleReconnect()` and reaches `'reconnecting'`, never `'disconnected'`, and
-   * never calls this — which is exactly the distinction that keeps a network blip from silently
-   * ending an admin's impersonation session. Disposal is intentional end-of-session; a blip is not.
+   * ⚠️ **NOT hooked on `disconnect()`, though all three doors route through it.** `disconnect()` has
+   * a FOURTH caller those three do not share: application code pausing a connection, which is
+   * **reversible** — the base explicitly keeps the token so a later `connect()` succeeds. Latching
+   * there would permanently kill impersonation for a session the user never ended, and would
+   * contradict this feature's own contract that *a disconnected parent still mints*.
+   *
+   * ⚠️ **And NOT a connection-state listener.** A transient drop goes
+   * `#handleClose → #scheduleReconnect()` and reaches `'reconnecting'`, never `'disconnected'` —
+   * so hooking a state transition would end an admin's impersonation session on a network blip.
    */
-  override disconnect(): void {
-    super.disconnect();
+  #tearDownImpersonation(): void {
     onClientTornDown(this, this.#mintedFrom);
   }
 
@@ -743,6 +754,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * @see https://lumenize.com/docs/nebula/api-reference#clientlogout
    */
   async logout(): Promise<void> {
+    if (this.#mintedFrom) {
+      await this.dispose();
+      return;
+    }
     // ⚠️ On an IMPERSONATED CHILD this is child-only teardown, and that is the faithful reading of
     // the method rather than a weakening of it: `logout()` is revoke + clear + disconnect, and a
     // child holds NO refresh cookie (the whole design is that no new durable credential exists), so
@@ -755,10 +770,6 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // `authScope` to the impersonated scope is NOT a sufficient guard on its own: it diverges from
     // the parent's path only while the two scopes differ, and an admin who logged in AT the scope
     // they impersonate into gets an exact cookie-path match — the ordinary support shape.
-    if (this.#mintedFrom) {
-      await this.dispose();
-      return;
-    }
     const baseUrl = this.#baseUrl
       ?? (typeof window !== 'undefined' ? window.location.origin : '');
     try {
@@ -774,6 +785,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.clearAccessToken();
     this.disconnect();
+    this.#tearDownImpersonation();
   }
 
   /**
@@ -824,7 +836,10 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
       // The latch, checked on every mint including the first. Ending the admin's session ends
       // impersonation BY CONSTRUCTION rather than by waiting for the token to lapse.
       if (isTornDown(parent)) {
-        throw new ImpersonationMintError(0, 'The client that created this impersonation session has been torn down');
+        throw new ImpersonationMintError(
+          0, 'The client that created this impersonation session has been torn down',
+          /* terminal */ true, // by construction — the session it would mint through is over
+        );
       }
       return mintNarrowerToken(authedFetch, base, parent.#authScope, {
         subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,

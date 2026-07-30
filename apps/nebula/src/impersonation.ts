@@ -75,13 +75,18 @@ export class ImpersonationMintError extends Error {
   readonly status: number;
   /** True when retrying cannot help: the gate chain now refuses this pairing. */
   readonly terminal: boolean;
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, terminal?: boolean) {
     super(message);
     this.status = status;
     // 4xx is terminal, 5xx and network failures are transient. Stated STRUCTURALLY rather than as a
     // status list so a status the endpoint gains later inherits the right behaviour instead of
     // falling into whichever default this happened to pick.
-    this.terminal = status >= 400 && status < 500;
+    //
+    // ⚠️ The explicit override exists for failures that never had an HTTP status at all — chiefly
+    // the torn-down-parent latch, which is terminal BY CONSTRUCTION (the session it would re-mint
+    // through is over). Leaving that to the structural rule would classify it transient, and mesh
+    // would then reconnect-loop the child forever on the one signal that can never succeed.
+    this.terminal = terminal ?? (status >= 400 && status < 500);
   }
 }
 
@@ -261,7 +266,16 @@ export function onClientTornDown(
   parent: { disconnect(): void } | undefined,
 ): void {
   TORN_DOWN.add(client);
-  // Snapshot, because each child's own teardown deregisters it from this set as we go.
-  for (const child of childrenOf(client)) (child as { disconnect(): void }).disconnect();
+  for (const child of childrenOf(client)) {
+    // Mark the child too: its own `disconnect()` is REVERSIBLE and therefore carries no teardown,
+    // so without this a caller could `child.connect()` its way back into a session whose parent has
+    // ended. The parent's latch already refuses the re-mint, but marking the child makes the end of
+    // the session a property of the child as well, not only of what it can obtain.
+    TORN_DOWN.add(child);
+    (child as { disconnect(): void }).disconnect();
+  }
+  // The whole set goes with the parent. ⚠️ Deregistration cannot ride the child's `disconnect()` any
+  // more — that is a reversible pause, not an end-of-session — so the parent clears it here.
+  CHILDREN.delete(client);
   if (parent) deregisterChild(parent, client);
 }
