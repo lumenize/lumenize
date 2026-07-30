@@ -1,5 +1,13 @@
 # Container egress + CA-trust — RESULTS (2026-06-19)
 
+> **2026-07-30 — half of this experiment's motivation is retired; the other half stands.** Container egress is
+> no longer the path to **user-supplied npm dependencies**: those resolve in the *browser* from an ESM CDN, and
+> the container's `node_modules` stays frozen at the baked set — see
+> [`tasks/on-hold/nebula-browser-resolved-deps.md`](../../tasks/on-hold/nebula-browser-resolved-deps.md).
+> The **Artifacts/git** motivation below is untouched — `*.artifacts.cloudflare.net` was always the real target,
+> and the CA-trust recipe still serves the future Artifacts `git pull` that `apps/nebula/container/Dockerfile`
+> anticipates. Results below are point-in-time and unedited.
+
 **Question:** Phase 3 (`tasks/nebula-container-dev-loop.md`) proved `enableInternet=false` blocks all egress, but **deferred** opening an *allow-listed HTTPS host*: `interceptHttps` MITMs the connection, so the in-container TLS client must trust the interceptor's CA — node/git/curl don't by default → cert error. Does the documented CA-trust recipe (copy the ephemeral `/etc/cloudflare/certs/cloudflare-containers-ca.crt` + `update-ca-certificates`) make an allow-listed HTTPS host reachable by a **real git/curl client** — and does any of it engage under **local `wrangler dev` on Docker Desktop**? Stand-in host = `github.com`; the real target is `*.artifacts.cloudflare.net` (same mechanism).
 
 **Verdict: YES — fully resolved, locally.** The Phase-3 deferred CA-trust egress blocker is closed.
