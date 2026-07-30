@@ -253,6 +253,55 @@ describe('lifetime — re-minting through the parent', () => {
     } finally { clearDebugSink(); }
   });
 
+  // ⚠️ **This test exists because a claim I wrote was false.** The `/live` expiry scenario justified
+  // itself with "this lane cannot let time pass", so the test above settles for a token born INSIDE
+  // the refresh-ahead window — a real trigger, but one that proves the re-mint path runs rather than
+  // that a session survives its token actually lapsing. Measured 2026-07-30: `vi.setSystemTime` moves
+  // the clock BOTH the Worker and the DO see (a magic link consumed past `MAGIC_LINK_TTL` is rejected,
+  // with an un-jumped control accepted), so a genuine expiry is reachable here after all.
+  //
+  // The `/live` scenario still earns its place — it runs against a clock nobody patched — but this is
+  // the fast local signal that was being left on the table.
+  it('survives a GENUINE expiry: the token lapses on the clock, not in the refresh-ahead window', async () => {
+    const { star, admin, member } = await adminAndMember();
+    const sink: any[] = [];
+    setDebugSink((e) => sink.push(e));
+    const issuedCount = () => sink.filter((e) =>
+      e.namespace === 'nebula-auth.worker.narrower.issued'
+      && e.data?.subOfNarrowerToken === member.sub).length;
+    try {
+      // SAFE_TTL, so construction does NOT re-mint — otherwise the jump below would be redundant and
+      // the test would pass without the expiry ever mattering.
+      const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+      await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+      expect(issuedCount(), 'precondition: exactly one mint so far').toBe(1);
+
+      // Past the child's 300s token, but well inside the admin's 900s one — so the child MUST
+      // re-mint while the parent's `authedFetch` still works. A jump past both would prove nothing
+      // about which credential did the work.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.setSystemTime(new Date(Date.now() + (SAFE_TTL + 60) * 1000));
+
+      // `disconnect()` is reversible and carries no teardown, so `connect()` really re-runs the
+      // refresh — and now `#needsTokenRefresh()` is true because the token is genuinely past `exp`.
+      child.disconnect();
+      child.connect();
+
+      // Mutation: give the child a `refresh` that returns its seeded token unchanged → no second
+      // marker, and the server rejects the lapsed token → reds.
+      await vi.waitFor(() => expect(issuedCount()).toBeGreaterThanOrEqual(2), { timeout: 15_000 });
+      await vi.waitFor(() => expect(child.connectionState).toBe('connected'), { timeout: 15_000 });
+
+      // Mutation: route the re-mint through the parent's cookie path → the fresh token is the
+      // ADMIN's → reds. Identity preservation is the property a real lapse could silently break.
+      expect(child.claims.sub).toBe(member.sub);
+      expect(child.claims.act?.sub).toBeDefined();
+
+      child.disconnect();
+      admin.disconnect();
+    } finally { vi.useRealTimers(); clearDebugSink(); }
+  });
+
   // ── the terminal/transient classification ──────────────────────────────────────────────────────
   // Asserted at the unit level because that is where it is deterministic. The rule is structural
   // (4xx terminal, everything else transient) rather than a status list, so a status the endpoint

@@ -14,14 +14,17 @@
  * came back with `iat` advanced ~86400s, and a token minted `ttlSeconds: 60` then used ten (fake)
  * minutes later got a **401** — with a no-jump control on the identical request returning something
  * other than 401, so the 401 is the expiry and not the deliberately-bogus subject in the body.
- * (Unverified, and it is the interesting boundary: whether a **DO's** isolate follows the same fake
- * clock. The JWT verify that answered here lives in the Worker.)
+ * The **DO** isolate follows it too — a magic link consumed past `MAGIC_LINK_TTL` (computed and
+ * gated inside the registry DO) is rejected, with an un-jumped control accepted. So the technique
+ * reaches both isolates, not just the Worker where the JWT verify lives.
  *
  * ⇒ **The honest justification is fidelity, not capability.** A fake clock proves the server rejects
  * an `exp` it computes against a patched `Date`; this proves a session survives a lapse against a
  * clock nobody patched, through a real socket and a real cookie jar. Both mutations produced a real
- * 401 from a real server. Keep the claim on that ground — and note the corollary the false version
- * was suppressing: the baseline lane COULD drive a genuine expiry if it ever wants one.
+ * 401 from a real server. Keep the claim on that ground — and the corollary the false version was
+ * suppressing is now BUILT: `impersonate-lifetime.test.ts` § *survives a GENUINE expiry* drives a
+ * real lapse in-lane. Its jump is load-bearing, not decorative — removing it reds the test (one mint
+ * instead of two), which is the check that separates this from a fixture shaped to stay green.
  *
  * ⚠️ **The task file deferred `/live` for the wrong reason, and this scenario is the correction.**
  * It reasoned that rung 1 "adds only the email transport, which nothing asserted here depends on" —
