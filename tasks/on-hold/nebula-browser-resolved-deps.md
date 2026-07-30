@@ -92,6 +92,20 @@ Load-bearing claims, stated so review can falsify them:
 - ⚠️ **Design consideration:** esm.sh returns an `X-TypeScript-Types` header pointing at a package's real `.d.ts`.
   That would upgrade the gate from permissive-shim to genuine checking **on an open set, with no curation**. Shape
   the gate's shim path so that swap does not require re-deciding the gate's structure.
+- ⚠️ **Design consideration — CF Container disk snapshots may reopen this, and settling it needs an experiment,
+  not a reading of the announcement.** Snapshots (announced in CF Discord #containers-beta 2026-06-18, unshipped
+  as of 2026-07-20 — see the row in `tasks/backlog.md`) persist a container's disk across sleep/wake, which would
+  make a user's `node_modules` survive and reduce `npm install` to once per dependency change rather than once
+  per cold start. That kills the *conditional* half of the rejection above. **It does not touch the durable
+  half:** dependencies must be installed *somewhere* before there is anything to snapshot, so container egress is
+  still required, and an installed dependency still gets bundled by rollup. Nobody can predict the shape from the
+  announcement, so an experiment must answer: is persistence per-directory or whole-disk; does a **baked-image
+  bump invalidate a snapshot** (if so, every user-developer re-installs on every platform deploy); what does
+  restore cost at a *realistic* tree — 200 MB+, not the 84 MB curated one; is there **per-tenant storage
+  billing**, which the browser-resolved path does not have at all; and does any of it engage under local
+  `wrangler dev` (the question `experiments/container-egress-catrust` had to ask about interception, with the
+  same stakes for the dev loop). ⚠️ Re-derive rather than reverting on reflex — a snapshot restores *state*, and
+  the argument this task rests on is that dependency count leaves the loop, which restoration does not deliver.
 - ⚠️ **Design consideration:** the whole reason a container exists is `node_modules` and the build chain. This
   removes dependency egress and per-tenant mutation from that list, which sharpens the "stateless build-box"
   direction in the `keep-container-native-tide` memory. Do not build toward container removal here; just avoid
@@ -117,7 +131,7 @@ Load-bearing claims, stated so review can falsify them:
 
 | Decision | Rejected alternative — why |
 |---|---|
-| Runtime deps resolve in the browser from an ESM CDN | `npm install` in the container — needs runtime egress (`interceptHttps` + CA trust), and CF containers have no persistent volume, so every cold start pays the full cold path, never a warm one |
+| Runtime deps resolve in the browser from an ESM CDN | `npm install` in the container. **Durable reasons:** it needs runtime egress (`interceptHttps` + CA trust + an npm-registry allow-list), and an installed dependency still gets **bundled**, which is the 70–90% of the time. **Conditional reason:** CF containers have no persistent volume today, so every cold start pays the full cold path — ⚠️ this half expires if disk snapshots ship (see *Future state*) |
 | The set is open — any npm package | A curated catalog — friction against a surface the user-developer already trusts at npm's level; per-package curation does not scale, and a user-developer tests before publishing |
 | esm.sh or jsDelivr `/+esm` as the source | cdnjs — a curated ~4k list (narrower than npm, so *worse* for an open set) that serves files verbatim, leaving an ESM file's bare-specifier sub-dependencies unresolvable in the browser |
 | ESM imports | `<script>` tags with UMD globals — forces per-package global names into the model's head, and `window.X` is untyped, so the gate checks none of the least-familiar code |
@@ -200,8 +214,12 @@ Load-bearing claims, stated so review can falsify them:
   its own pickup trigger is *"we're about to host untrusted multi-tenant apps."* This task is what fires it: the
   preview page moves from code our LLM wrote to code anyone on npm wrote, while still on the control plane's
   registrable domain. Its summary calls the work "pure edge translation," so this is a dependency, not a blocker.
-- **`tasks/backlog.md`** — the container-disk-snapshots row loses its dependency-install premise (the row already
-  concluded snapshots are not worth adopting; this narrows it to source persistence). The **missing-lockfile row
+- **`tasks/backlog.md`** — the container-disk-snapshots row and this task point at each other, in **both**
+  directions. If this ships first, that row loses its dependency-install premise and narrows to source
+  persistence (it had already concluded snapshots are not worth adopting on the numbers). If **snapshots ship
+  first**, they are the single most likely reason to reopen this task — so whoever picks up either one should
+  read the other's *Future state* before deciding, and run the experiment described there rather than reasoning
+  from the announcement. The **missing-lockfile row
   is strengthened, not obsoleted** — the baked set becomes permanent, so version float between image builds
   matters more, and the reflex reading ("deps are moving to a CDN, so who cares") is backwards.
 - **`experiments/container-egress-catrust`** — kept, not deleted. This task retires only its *npm-registry*
