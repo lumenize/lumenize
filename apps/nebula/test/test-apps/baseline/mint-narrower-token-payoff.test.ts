@@ -7,48 +7,30 @@
  * `dag-tree.ts`'s scope-admin bypass fires and the denial never happens — the token wears the
  * subject's name while acting with admin-derived authority they do not have.
  *
- * **Vehicle: a plain `LumenizeClient` whose `refresh` hook returns the endpoint-minted token**, driven
- * through the REAL `NebulaClientGateway`. `NebulaClient` cannot be the vehicle — its config `Omit`s
- * `refresh` and builds its own from the Path-scoped cookie, so it can only carry a token the cookie
- * mints. That is ADR-009 **rung 1** end to end: real founding, real invite, real login, and the token
- * under test comes from the production endpoint.
+ * **Vehicle: `admin.impersonate(subjectSub, scope)`** — the production client capability, driven
+ * through the REAL `NebulaClientGateway`. It mints through the same `/mint-narrower-token` endpoint
+ * and hands the result to a full `NebulaClient`, so this exercises the path the Studio actually
+ * takes rather than a hand-rolled `LumenizeClient` no product code can reach.
  *
- * @see tasks/nebula-mint-narrower-token.md Phase 2
+ * ADR-009 **rung 2**, like the whole `baseline` lane: real founding, real invite, real
+ * server-issued login (test-mode issuance — the magic link is read from the response, gated by the
+ * `NEBULA_AUTH_TEST_MODE` binding), and the token under test comes from the production endpoint.
+ * The earlier "rung 1" label here was wrong: rung 1 is the real email transport, which this lane
+ * does not use.
+ *
+ * @see tasks/nebula-impersonation-client.md Phase 4
  */
 import { describe, it, expect, vi } from 'vitest';
-import { LumenizeClient } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { ROOT_NODE_ID, projectActClaim } from '@lumenize/nebula';
 import type { Star, TransactionResult } from '@lumenize/nebula';
-import {
-  universeAdminClient, createInvitedClient, createSubject, mintNarrowerToken,
-} from '../../test-helpers';
+import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const ORIGIN = 'http://localhost';
 const VERSION = 'v1';
 const TYPES = 'interface Note { label: string }';
-
-class MeshProbe extends LumenizeClient {}
-
-/** A connected mesh client carrying a verbatim bearer token (the endpoint's mint). */
-async function clientCarrying(accessToken: string, sub: string): Promise<MeshProbe> {
-  const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
-  const client = new MeshProbe({
-    baseUrl: ORIGIN,
-    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
-    refresh: async () => ({ access_token: accessToken, sub }),
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
-    sessionStorage: ctx.sessionStorage,
-    BroadcastChannel: ctx.BroadcastChannel,
-  });
-  await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
-  return client;
-}
 
 describe('/mint-narrower-token — the DAG verdict', () => {
   it('a narrower token for a NON-admin member is DENIED a write the caller is allowed', async () => {
@@ -75,16 +57,16 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     );
     expect(member.access.admin).toBeUndefined(); // fixture guard: the subject really is non-admin
 
-    // The mint, through the production endpoint.
-    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
-    expect(narrower.payload.sub).toBe(member.sub);
-    expect(narrower.payload.act?.sub).toBe(adminPayload.sub);
+    // The mint, through the production endpoint — via the production client capability.
+    using impersonating = await admin.impersonate(member.sub, star);
+    await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
+    expect(impersonating.claims.sub).toBe(member.sub);
+    expect(impersonating.claims.act?.sub).toBe(adminPayload.sub);
     // The mirror: the subject is non-admin, so the token carries NO admin bit. This is the operand
     // the assertion below actually turns on.
-    expect(narrower.payload.access.admin).toBeUndefined();
+    expect(impersonating.claims.access.admin).toBeUndefined();
 
     // ── The verdict ──────────────────────────────────────────────────────────────────────────────
-    using impersonating = await clientCarrying(narrower.accessToken, member.sub);
     const denied = await impersonating.lmz.callAsync('STAR', star,
       impersonating.ctn<Star>().transaction(VERSION, generateUuid(), {
         [generateUuid()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
@@ -133,9 +115,9 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     admin.callStarSetPermission(star, node, member.sub, 'write');
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
 
-    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
-    using impersonating = await clientCarrying(narrower.accessToken, member.sub);
-    expect(narrower.payload.act?.profileId).toBe(adminPayload.profileId); // the claim DOES carry it
+    using impersonating = await admin.impersonate(member.sub, star);
+    await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
+    expect(impersonating.claims.act?.profileId).toBe(adminPayload.profileId); // the claim DOES carry it
 
     const rid = generateUuid();
     const commit = (label: string) => impersonating.lmz.callAsync('STAR', star,

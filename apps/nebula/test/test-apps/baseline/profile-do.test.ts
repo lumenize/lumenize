@@ -22,8 +22,10 @@ import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Profile } from '@lumenize/nebula-auth/profile';
-import { FAIL_CLOSED_PROFILE_ID } from './index';
-import { foundAndLogin, createSubject, browserLogin, mintNarrowerToken } from '../../test-helpers';
+import {
+  foundAndLogin, createSubject, browserLogin, universeAdminClient, createInvitedClient,
+} from '../../test-helpers';
+import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
 const ORIGIN = 'http://localhost';
 class MeshProbe extends LumenizeClient {}
@@ -56,26 +58,6 @@ async function makeClient(opts: {
   return client;
 }
 
-/**
- * A connected mesh client carrying a VERBATIM bearer token — the rung-1 counterpart to
- * {@link makeClient}, for the endpoint-minted narrower token (which no local mint can reproduce).
- */
-async function clientWithToken(accessToken: string, sub: string): Promise<MeshProbe> {
-  const browser = new Browser();
-  const ctx = browser.context(ORIGIN);
-  const client = new MeshProbe({
-    baseUrl: ORIGIN,
-    gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
-    refresh: async () => ({ access_token: accessToken, sub }),
-    fetch: browser.fetch,
-    WebSocket: browser.WebSocket,
-    sessionStorage: ctx.sessionStorage,
-    BroadcastChannel: ctx.BroadcastChannel,
-  });
-  await vi.waitFor(() => expect(client.connectionState).toBe('connected'));
-  return client;
-}
-
 /** Seed a registry `Identities` row so `getScopesForProfile(profileId)` → `[scope]` (scoped-admin fixture). */
 async function seedIdentity(profileId: string, scope: string): Promise<void> {
   const registry: any = (env as any).NEBULA_AUTH_REGISTRY.getByName('registry');
@@ -96,11 +78,11 @@ const registryReads = () => sink.filter((e) => e.namespace === 'nebula-auth.Prof
 beforeEach(() => { sink = []; setDebugSink((e) => sink.push(e)); });
 afterEach(() => clearDebugSink());
 
-const read = (c: MeshProbe, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().read());
-const write = (c: MeshProbe, pid: string, f: { name?: string; nickname?: string; picture?: string }) =>
+const read = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().read());
+const write = (c: LumenizeClient<any>, pid: string, f: { name?: string; nickname?: string; picture?: string }) =>
   c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writeProfile(f));
-const readNotes = (c: MeshProbe, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
-const writeNotes = (c: MeshProbe, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
+const readNotes = (c: LumenizeClient<any>, pid: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().readPrivateNotes());
+const writeNotes = (c: LumenizeClient<any>, pid: string, n: string) => c.lmz.callAsync('PROFILE', pid, c.ctn<Profile>().writePrivateNotes(n));
 
 describe('Profile DO — Phase 2', () => {
   it('public read is OPEN — a cross-scope non-admin caller reads, firing ZERO registry reads (#3)', async () => {
@@ -207,10 +189,12 @@ describe('Profile DO — Phase 2', () => {
   });
 
   // ── A NARROWER token is never an OWNER (tasks/nebula-mint-narrower-token.md Phase 3) ────────────
-  // ⚠️ **This test is ADR-009 RUNG 1 and does NOT inherit this file's rung-3 header.** The whole
+  // ⚠️ **This test is ADR-009 RUNG 2 and does NOT inherit this file's rung-3 header.** The whole
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
-  // are a real founder and a real invited member, and the token under test is the endpoint's own
-  // output handed verbatim to the client's `refresh` hook.
+  // are a real founder and a real invited member, and the token under test comes from the endpoint
+  // via the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
+  // Phase 4 of tasks/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
+  // transport, which the `baseline` lane does not use.)
   //
   // Independent of ADR-012's pending amendment: with a NON-admin subject the mirrored `admin` bit is
   // absent, so `#requireOwnerOrAdmin` branch (2) rejects and branch (4) is never reached — the only
@@ -219,29 +203,38 @@ describe('Profile DO — Phase 2', () => {
     const universe = `pdo-${uuid().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
-    const { accessToken: adminToken } = await foundAndLogin(browser, star, 'admin@example.com', star);
+    const { client: admin, accessToken: adminToken } = await universeAdminClient(
+      NebulaClientTest, browser, star, star, 'admin@example.com',
+    );
     await createSubject(browser, star, adminToken, 'member@example.com');
-    const { accessToken: memberToken, payload: member } =
-      await browserLogin(new Browser(), star, 'member@example.com', star);
+    // The owner CONTROL is a real cookie-login client — see the note at the control below for why it
+    // cannot be an `impersonate()` product.
+    const { client: ownerClient, payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'member@example.com',
+    );
     const pid = member.profileId!;
     expect(pid).toBeDefined();
 
-    const narrower = await mintNarrowerToken(browser, universe, adminToken, member.sub, star);
+    using impersonating = await admin.impersonate(member.sub, star);
+    await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
     // Fixture guards. The token carries the SUBJECT's `profileId` — so the owner branch's zero-read
     // equality DOES match, and `!claims.act` is the only thing standing between it and ownership.
-    expect(narrower.payload.profileId).toBe(pid);
-    expect(narrower.payload.act?.sub).toBeDefined();
-    expect(narrower.payload.access.admin).toBeUndefined(); // non-admin subject → branch (2) rejects
+    expect(impersonating.claims.profileId).toBe(pid);
+    expect(impersonating.claims.act?.sub).toBeDefined();
+    expect(impersonating.claims.access.admin).toBeUndefined(); // non-admin subject → branch (2) rejects
 
-    using impersonating = await clientWithToken(narrower.accessToken, member.sub);
     // Mutation: drop `!claims.act` from the owner branch → both of these succeed → this reds.
     await expect(write(impersonating, pid, { name: 'X' })).rejects.toThrow(/owner or admin/i);
     await expect(readNotes(impersonating, pid)).rejects.toThrow(/owner or admin/i);
 
-    // Control: the member's OWN token (same `profileId`, no `act`) IS the owner — proving the denial
+    // Control: the member's OWN login (same `profileId`, no `act`) IS the owner — proving the denial
     // above is the `act` clause and not a broken fixture or an unreachable DO.
-    using owner = await clientWithToken(memberToken, member.sub);
-    await expect(write(owner, pid, { name: 'X' })).resolves.toBeUndefined();
+    //
+    // ⚠️ **This one deliberately does NOT use `impersonate()`, and cannot.** Every token that method
+    // mints carries `act`, which is precisely the clause under test — so an impersonated "control"
+    // would assert a DENIAL, and a builder chasing its red would be one edit from deleting the
+    // `!claims.act` guard this test exists to protect. It is a real cookie-login client instead.
+    await expect(write(ownerClient, pid, { name: 'X' })).resolves.toBeUndefined();
   });
 
   it('LWW + forward-only eTag: a second write REPLACES fields and advances the eTag; no OCC (#9)', async () => {

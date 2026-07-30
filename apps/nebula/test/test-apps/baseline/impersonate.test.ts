@@ -105,35 +105,41 @@ describe('impersonate() — the mint', () => {
   });
 
   it('refuses to chain — before any network call', async () => {
-    const { star, admin, member } = await adminAndMember();
+    // ⚠️ The counter must be on the PARENT's `fetch`, because the child INHERITS it — that is the
+    // transport `child.impersonate()` would use. Counting on a separate client built alongside would
+    // count nothing, and the "no network call" assertion would pass no matter what the guard did.
+    const universe = `imp-${generateUuid().slice(0, 8)}`;
+    const star = `${universe}.app.tenant`;
+    const browser = new Browser();
+    let mintRequests = 0;
+    const counting = ((input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : (input?.url ?? '');
+      if (String(url).includes('/mint-narrower-token')) mintRequests++;
+      return browser.fetch(input, init);
+    }) as typeof fetch;
+    const { client: admin, accessToken: adminToken } = await universeAdminClient(
+      NebulaClientTest, browser, star, star, 'admin@example.com', 'v1', { fetch: counting },
+    );
+    await createSubject(browser, star, adminToken, 'member@example.com');
+    const { payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'member@example.com',
+    );
+
     const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+    // Fixture guard: the counter really is wired — the FIRST mint went through it. Without this, a
+    // zero below would be indistinguishable from a counter attached to nothing.
+    expect(mintRequests).toBeGreaterThanOrEqual(1);
+    const afterFirstMint = mintRequests;
 
     // The instrument has to be a REQUEST COUNTER, not the debug sink: the endpoint's root-identity
     // gate returns a bare errorResponse with NO marker (unlike the non-admin branch, which emits
     // `narrower.denied`), so the sink cannot tell "never called" from "called and refused".
-    let mintRequests = 0;
-    const browser = new Browser();
-    const counting = ((input: any, init?: any) => {
-      const url = typeof input === 'string' ? input : input.url;
-      if (String(url).includes('/mint-narrower-token')) mintRequests++;
-      return browser.fetch(input, init);
-    }) as typeof fetch;
-    const ctx = browser.context(ORIGIN);
-    const chained = new NebulaClientTest({
-      baseUrl: ORIGIN, authScope: star, activeScope: star, appVersion: 'v1',
-      accessToken: (child as any).lmzTestAccessToken ?? undefined,
-      instanceName: child.lmz.instanceName,
-      fetch: counting, WebSocket: browser.WebSocket,
-      sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
-    });
-
-    // Mutation: delete the guard → the call reaches the endpoint → the count is 1 → reds.
+    // Mutation: delete the guard → the call reaches the endpoint → the count rises → reds.
     await expect(child.impersonate(member.sub, star)).rejects.toThrow(ImpersonationChainError);
     await expect(child.impersonate(member.sub, star)).rejects.toThrow(/does not chain/i);
-    expect(mintRequests).toBe(0);
+    expect(mintRequests).toBe(afterFirstMint);
 
-    chained.disconnect();
     child.disconnect();
     admin.disconnect();
   });

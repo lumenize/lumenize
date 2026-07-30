@@ -474,38 +474,6 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   return { client, payload, accessToken };
 }
 
-/**
- * Mint a **narrower** token for another person through the production `/mint-narrower-token` endpoint
- * (`sub` = `subOfNarrowerToken`, `act.sub` = the caller).
- *
- * The minted pattern is derived from the REQUESTED `activeScope` (`buildAuthScopePattern`), not the
- * caller's — but `activeScope` is bounded on BOTH sides: it must lie within the caller's own reach
- * AND within `buildAuthScopePattern(the subject's scope)`. The caller must additionally hold
- * `hasAdminOverScope` over the subject's scope (eligibility), and the subject must be a different
- * `sub`. So this is **not** "any scope at or below the caller's reach" — see
- * `tasks/nebula-mint-narrower-token.md` § *Design intent*.
- *
- * ADR-009 rung 1–2: real issuance through the real endpoint, no test-mode client mint.
- */
-export async function mintNarrowerToken(
-  browser: Browser,
-  callerAuthScope: string,
-  callerAccessToken: string,
-  subOfNarrowerToken: string,
-  activeScope: string,
-): Promise<{ accessToken: string; payload: NebulaJwtPayload }> {
-  const resp = await browser.fetch(authUrl(`${callerAuthScope}/mint-narrower-token`), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${callerAccessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subOfNarrowerToken, activeScope }),
-  });
-  expect(resp.status).toBe(200);
-  const { access_token } = await resp.json() as any;
-  expect(access_token).toBeDefined();
-  const { payload } = parseJwtUnsafe(access_token)!;
-  return { accessToken: access_token, payload: payload as unknown as NebulaJwtPayload };
-}
-
 /** The reserved platform scope, and the bootstrap email bound in `vitest.config.js` miniflare.bindings. */
 export const PLATFORM_SCOPE = 'nebula-platform';
 export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
