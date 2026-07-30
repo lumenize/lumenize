@@ -104,12 +104,16 @@ Load-bearing claims, stated so review can falsify them:
   restore cost at a *realistic* tree — 200 MB+, not the 84 MB curated one; is there **per-tenant storage
   billing**, which the browser-resolved path does not have at all; and does any of it engage under local
   `wrangler dev` (the question `experiments/container-egress-catrust` had to ask about interception, with the
-  same stakes for the dev loop). ⚠️ **Re-measure the build share on the current toolchain before running any of
-  that** — the 70–90% figure is Vite 6 + Rollup, the container is still pinned at `vite ^6.0.7`, and a Rust
-  bundler moves the registry pull to the long pole, which is precisely the term snapshots address. Get that
-  number first or the snapshot comparison is run against a stale baseline. ⚠️ Then re-derive rather than
-  reverting on reflex: a snapshot restores *state*, and what this task rests on is that dependency count leaves
-  the loop — restoration does not deliver that, and the egress surface stays either way.
+  same stakes for the dev loop). ⚠️ **The experiment must include a Rolldown-Vite upgrade arm — not as a side
+  quest, but because it is what keeps the comparison honest.** The 70–90% build share is Vite 6 + Rollup and the
+  container is still pinned at `vite ^6.0.7`; a Rust bundler shrinks the build and promotes the registry pull to
+  the long pole, which is precisely the term snapshots address. Measuring snapshots against the *old* baseline
+  therefore understates them and flatters the decision already made in this file — the bias runs toward
+  confirming ourselves, so the arm is the guard against it. Two things fall out for free: the vite bump doubles
+  as the **image-bump-invalidates-a-snapshot** probe listed above, and a large Rolldown win is adoptable on its
+  own however the snapshot question lands. ⚠️ Then re-derive rather than reverting on reflex: a snapshot restores
+  *state*, and what this task rests on is that dependency count leaves the loop — restoration does not deliver
+  that, and the egress surface stays either way.
 - ⚠️ **Design consideration:** the whole reason a container exists is `node_modules` and the build chain. This
   removes dependency egress and per-tenant mutation from that list, which sharpens the "stateless build-box"
   direction in the `keep-container-native-tide` memory. Do not build toward container removal here; just avoid
