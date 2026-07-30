@@ -2,8 +2,11 @@
  * Impersonation — an admin's client producing a working client that acts as another person.
  *
  * **Everything this feature knows lives here.** `NebulaClient` gets exactly TWO touchpoints: the
- * internal construction seam ({@link INTERNAL_REFRESH}) and, in the lifetime phase, one hook in
- * `disconnect()`. The only reason a `NebulaClient` would otherwise know `/mint-narrower-token`
+ * internal construction seam — {@link INTERNAL_REFRESH} plus its companion {@link INTERNAL_PARENT},
+ * two symbols but one seam, both read in the same constructor — and one teardown hook, reached from
+ * the three end-of-session doors (`dispose()`, `logout()`, `[Symbol.dispose]()`). ⚠️ Deliberately NOT
+ * `disconnect()`, which those doors route through but which application code also calls to pause a
+ * connection reversibly. The only reason a `NebulaClient` would otherwise know `/mint-narrower-token`
  * exists is this feature, so the endpoint's URL, its body shape, its error mapping, the child's
  * naming rule, the chain refusal and the parent↔child registry are all here rather than smeared
  * across the client.

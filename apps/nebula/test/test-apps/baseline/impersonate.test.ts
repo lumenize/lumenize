@@ -23,7 +23,7 @@ import {
 } from '../../test-helpers';
 import { ImpersonationChainError, ImpersonationMintError, childCount } from '../../../src/impersonation';
 
-const ORIGIN = 'https://example.com';
+const ORIGIN = 'http://localhost'; // must match test-helpers.ts's ORIGIN — the clients' real baseUrl
 /** Comfortably outside the client's 30s refresh-ahead window, so construction does not re-mint. */
 const SAFE_TTL = 300;
 
@@ -60,9 +60,11 @@ describe('impersonate() — identity', () => {
     // Authority-REDUCING: the child carries the subject's (absent) admin bit, not the caller's.
     expect(child.claims.access.admin).toBeUndefined();
 
-    // `ready` still holds — claims are populated by the time the caller has the object, which is
-    // what lets the blessed examples write `client.claims.sub` unguarded.
-    expect(child.claims).not.toBeNull();
+    // ⚠️ `ready` is asserted by the UNGUARDED dereferences above, not by a separate null check: a
+    // `expect(child.claims).not.toBeNull()` here could never red on its own, since `child.claims.sub`
+    // three lines up would already have thrown. Mint-then-seed is what makes it hold — the seeded
+    // token is parsed synchronously in the constructor, so claims exist before the caller has the
+    // object.
     child.disconnect();
     admin.disconnect();
   });

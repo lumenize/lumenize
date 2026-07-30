@@ -268,6 +268,59 @@ describe('lifetime — re-minting through the parent', () => {
     expect(new ImpersonationMintError(status, 'x').terminal).toBe(terminal);
   });
 
+  it('a NON-TERMINAL re-mint failure does NOT end the session', async () => {
+    // The mirror of the terminal test, and the direction that actually protects a live session: a
+    // build that classifies EVERY mint failure as terminal passes the terminal test and then kills
+    // an impersonation session on a transient 5xx — inverting the blip invariant this file states
+    // three times. testing.md requires each operand of a terminal-vs-transient condition to be
+    // mutated independently rather than toggling the branch as a whole.
+    const universe = `impl-${generateUuid().slice(0, 8)}`;
+    const star = `${universe}.app.tenant`;
+    const browser = new Browser();
+    let failMints = false;
+    const flaky = ((input: any, init?: any) => {
+      const url = typeof input === 'string' ? input : (input?.url ?? '');
+      if (failMints && String(url).includes('/mint-narrower-token')) {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'server_error' }), {
+          status: 500, headers: { 'content-type': 'application/json' },
+        }));
+      }
+      return browser.fetch(input, init);
+    }) as typeof fetch;
+
+    const { client: admin, accessToken: adminToken } = await universeAdminClient(
+      NebulaClientTest, browser, star, star, 'admin@example.com', 'v1', { fetch: flaky },
+    );
+    await createSubject(browser, star, adminToken, 'member@example.com');
+    const { payload: member } = await createInvitedClient(
+      NebulaClientTest, new Browser(), star, star, 'member@example.com',
+    );
+
+    // A token inside the refresh-ahead window, so any connect drives a re-mint.
+    const child = await admin.impersonate(member.sub, star, { ttlSeconds: INSTANT_REMINT_TTL });
+    await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
+
+    // Now make the mint fail TRANSIENTLY, and drive a reconnect. `disconnect()` is reversible and
+    // carries no teardown, so `connect()` really does re-run the refresh.
+    failMints = true;
+    child.disconnect();
+    child.connect();
+
+    // Mutation: classify every mint failure as terminal (drop the `e.terminal` check, or make
+    // ImpersonationMintError always terminal) → the child converts to LoginRequiredError, mesh sets
+    // 'disconnected' and stops → this reds, because it never returns to 'reconnecting'/'connected'.
+    await vi.waitFor(() => expect(child.connectionState).toBe('reconnecting'));
+
+    // And it really is transient — the session recovers once the endpoint does, which is the whole
+    // point of NOT ending it.
+    failMints = false;
+    await vi.waitFor(() => expect(child.connectionState).toBe('connected'), { timeout: 15_000 });
+    expect(child.claims.sub).toBe(member.sub);
+
+    child.disconnect();
+    admin.disconnect();
+  });
+
   it('a TERMINAL re-mint failure ends the child without logging the admin out', async () => {
     // The probe must be the parent's REAL `onLoginRequired` config hook — that is what mesh's
     // terminal path calls, and what a child must not inherit.

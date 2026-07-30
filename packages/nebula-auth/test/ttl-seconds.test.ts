@@ -182,8 +182,11 @@ describe('ttlSeconds — the advisory short-TTL warn', () => {
     expect(warns()).toEqual([]);
   });
 
-  // The warn fires on the EFFECTIVE value, so an over-ceiling request (clamped UP to 900) must not
-  // warn — a warn keyed on the requested value instead would fire on every long request.
+  // ⚠️ This does NOT discriminate effective-keyed from requested-keyed, and an earlier comment here
+  // wrongly claimed it did: the clamp only ever shortens and the ceiling (900) sits far above the
+  // threshold (120), so `effective < 120` and `requested < 120` agree on every possible input. What
+  // it does pin is that the warn is CONDITIONAL — it reds if the warn is made unconditional or the
+  // comparison is inverted.
   it('does not warn for an over-ceiling request, which clamps to a long lifetime', async () => {
     for (const resp of Object.values(await bothEndpoints(ACCESS_TOKEN_TTL * 4))) {
       expect(resp.status).toBe(200);

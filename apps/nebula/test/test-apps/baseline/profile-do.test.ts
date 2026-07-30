@@ -23,7 +23,7 @@ import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import type { Profile } from '@lumenize/nebula-auth/profile';
 import {
-  foundAndLogin, createSubject, browserLogin, universeAdminClient, createInvitedClient,
+  createSubject, universeAdminClient, createInvitedClient,
 } from '../../test-helpers';
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
@@ -188,7 +188,7 @@ describe('Profile DO — Phase 2', () => {
     await expect(write(admin, FAIL_CLOSED_PROFILE_ID, { name: 'X' })).rejects.toThrow(/authz check failed/i);
   });
 
-  // ── A NARROWER token is never an OWNER (tasks/nebula-mint-narrower-token.md Phase 3) ────────────
+  // ── A NARROWER token is never an OWNER (tasks/archive/nebula-mint-narrower-token.md Phase 3) ────────────
   // ⚠️ **This test is ADR-009 RUNG 2 and does NOT inherit this file's rung-3 header.** The whole
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
   // are a real founder and a real invited member, and the token under test comes from the endpoint
@@ -235,6 +235,12 @@ describe('Profile DO — Phase 2', () => {
     // would assert a DENIAL, and a builder chasing its red would be one edit from deleting the
     // `!claims.act` guard this test exists to protect. It is a real cookie-login client instead.
     await expect(write(ownerClient, pid, { name: 'X' })).resolves.toBeUndefined();
+
+    // Every other client in this file is `using`-scoped; these two are plain consts because
+    // `impersonate()` needs a live parent. Dispose explicitly so they do not hold Gateway sockets
+    // open for the rest of the run.
+    admin.disconnect();
+    ownerClient.disconnect();
   });
 
   it('LWW + forward-only eTag: a second write REPLACES fields and advances the eTag; no OCC (#9)', async () => {
