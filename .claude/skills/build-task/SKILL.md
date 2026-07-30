@@ -30,6 +30,33 @@ Phase by phase, sequentially, in the current branch, following `.claude/rules/` 
 
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
 
+🛑 **A phase is not done until every new test has been mutation-checked.** Not "you should"; the
+phase report is blocked on it. Four mechanical checks, in order — they cost minutes and they are the
+only things that have ever caught this class:
+
+1. **Mutate every new assertion.** Break the code it targets, confirm THAT test reds, restore with a
+   reverse `Edit`. ⚠️ A mutation that reds EVERYTHING proves nothing — it just broke construction.
+   Narrow it until exactly the intended test fails.
+2. **Treat first-run-green as a SIGNAL, not a result.** A batch of new tests passing on first write
+   is the strongest available predictor that some of them assert nothing. Measured 2026-07-30: a
+   phase passed 8/8 on first write and three of the eight were vacuous.
+3. **Grep every non-standard symbol a new test touches** (`git grep -c '\bsymbolName\b'`). Three
+   vacuous tests in that build asserted against methods that DO NOT EXIST — `lmzTestDropSocket`,
+   `__onLoginRequiredProbe`, `lmzTestAccessToken`. Each was a silent no-op: an optional call on
+   `undefined` does nothing, assigning an unread property always succeeds, reading a missing field
+   yields `undefined`. Type-checking cannot help — the access is behind `as any` — and neither can
+   a different runtime, since all three are no-ops everywhere.
+4. **When a mutation does NOT red, suspect the FIXTURE before the mutation.** Twice in that build the
+   conclusion "this cannot be tested here" was wrong; the truth was "my fixture is the safe shape."
+   Both times the fix was to construct the *dangerous* shape the design docs already named — one
+   subject at two scopes rather than two subjects; an admin logged in AT the scope they impersonate
+   into rather than above it.
+
+⚠️ **Mutation is necessary and NOT sufficient** — it proves an assertion CAN fail, never that the
+thing asserted against resembles production. It is structurally blind to fidelity: mutate the code
+and an unfaithful fixture still reds, because it faithfully reports the mutated wrong behaviour. That
+is what `/live` is for, and why both are required rather than either.
+
 **Phase gating**: default to asking "Ready to proceed with [next phase]?" after each phase — but roughly half the time the user authorizes running unattended through multiple phases up front (more likely for experiments, isolated changes, or when they're away from the desk but reachable). Honor that for the phases it covers; between phases, still post a brief status so the transcript shows where each phase ended. The authorization doesn't carry over to the next task.
 
 ### 3. Verify (the always-worth-it fan-out)

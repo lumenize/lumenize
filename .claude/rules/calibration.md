@@ -89,6 +89,35 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 
 *(Choosing a name well in the first place: `naming-judgment` — minimize new vocabulary, flag a new term before coining it, prefer dominant-ecosystem syntax.)*
 
+## 6. You will argue for the CHEAPER test tier, and call it calibration
+
+**The reflex:** prefer the fast, isolated, in-CI tier; treat a running-system test as a luxury needing
+justification. Frame the preference as engineering judgment ("calibrate — don't reach for it for a
+one-liner") rather than as the cost-avoidance it is.
+
+**The correction:** this repo's recorded experience runs the other way, and it is written down —
+`testing.md`: *"historically `for-docs/` tests have found more bugs than all other tests combined."*
+There is no comparable record for any isolated tier. Since we build an app rather than libraries we
+no longer write for-docs mini-apps, so **`/live` is their successor and that coverage lapses unless
+someone writes it**. `live.md` § *`/live` is the DEFAULT tier* is the standing instruction.
+
+⚠️ **Two things make this reflex especially misleading here.**
+1. **"Must go red" feels like it closes the gap. It does not.** Mutation proves an assertion CAN
+   fail; it is structurally blind to fidelity, because mutating the code makes an *unfaithful*
+   fixture red too. The two checks catch disjoint classes and both are required.
+2. **The wall-clock cost is not the reviewer's.** A `/live` boot costs the AGENT's time; Larry is
+   typically away or in another session while it runs. Optimising a cost he does not pay, against
+   coverage he does, is backwards — and if slowness bites, that is the signal to make the harness
+   faster, not to write a weaker test.
+
+**Where it bit (2026-07-30, `nebula-impersonation-client`):** the recommendation was `/live` "as an
+exception, not a default", written into a section literally headed *What I'd resist* — while the same
+session had produced **seven** pool-workers tests that could not fail and **one** `/live` scenario with
+none. Larry overrode it, and separately overrode the same reflex an hour earlier (recommending that a
+one-line cross-package constant be *filed* rather than fixed). Both overrides were right. ⇒ When you
+catch yourself writing "worth it but not as a default", check whether the argument is about evidence
+or about your own convenience.
+
 ---
 
 ## Adding an entry

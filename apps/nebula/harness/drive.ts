@@ -17,6 +17,7 @@ import * as superadminReach from './scenarios/superadmin-reach';
 import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
 import * as impersonationExpiry from './scenarios/impersonation-expiry';
+import * as impersonationLifecycle from './scenarios/impersonation-lifecycle';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -37,6 +38,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
+  'impersonation-lifecycle': impersonationLifecycle, // impersonate() end-to-end: identity → refusals → teardown
 };
 
 async function main(): Promise<void> {

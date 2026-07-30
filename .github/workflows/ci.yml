@@ -87,6 +87,50 @@ jobs:
           path: packages/*/coverage/lcov.info
           if-no-files-found: warn
 
+  run-live-scenarios:
+    # The `/live` harness, which since 2026-07-30 is the DEFAULT tier for behavioural coverage
+    # (`.claude/rules/live.md`). Its own job rather than folded into the tests job so a boot failure
+    # is legible on sight, and so the wall-clock stays off the coverage job's critical path.
+    #
+    # ⚠️ NO Docker step, and that is the point. `ui-smoke.yml` needs one because the DevContainer
+    # image builds at `wrangler dev` boot (~2.5 min); scenarios that declare `needsContainer = false`
+    # boot against a config derived per run with the `containers` block commented out, so they skip
+    # the build entirely. Only add container-needing scenarios here with a `docker info` step and a
+    # much larger timeout — or leave them in the ui-smoke lane where that cost already lives.
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: ''
+
+      - name: Install + setup (shared scripts/ci-install.sh)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          TEST_TOKEN: ${{ secrets.TEST_TOKEN }}
+        # --dev-vars is REQUIRED: the harness reads JWT_PRIVATE_KEY_BLUE and TEST_TOKEN out of
+        # .dev.vars at boot. No --chromium (these scenarios are API-level, not Playwright) and no
+        # --bundle (nothing here imports the parser-validator dist).
+        run: ./scripts/ci-install.sh --cache-clean --dev-vars
+
+      - name: Run container-free /live scenarios
+        working-directory: apps/nebula
+        # Each boots its own fresh wrangler dev and exits non-zero on failure. Listed explicitly
+        # rather than globbed, so adding a scenario is a deliberate decision about CI cost —
+        # `impersonation-expiry` alone spends ~50s waiting for a real token to lapse, which is the
+        # thing it exists to prove and is not worth optimising away.
+        run: |
+          set -e
+          npx tsx harness/drive.ts impersonation-lifecycle
+          npx tsx harness/drive.ts impersonation-expiry
+
   run-doc-tests:
     runs-on: ubuntu-latest
     steps:
