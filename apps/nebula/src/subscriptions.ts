@@ -200,11 +200,27 @@ export class Subscriptions {
   }
 
   /**
-   * Drop a single subscriber row. Called by `Star.#onFanoutDelivered` when a
-   * fanout `lmz.call` returns a `ClientDisconnectedError` — the Gateway has
-   * confirmed the client is gone past its grace period, so the row's a leak.
-   * This is the **reactive** half of the "user closed the tab" cleanup story
-   * (Phase 5.3.5); push-on-clear (5.3.4b) catches the rest on next deploy.
+   * Drop a single subscriber row. Called by the host's broadcast-result handler
+   * (`Star.onBroadcastResult` / `DevStudio.onBroadcastResult`) when a broadcast
+   * `lmz.call` returns a `ClientDisconnectedError`. This is the **reactive** half
+   * of the "user closed the tab" cleanup story (Phase 5.3.5); push-on-clear
+   * (5.3.4b) catches the rest on next deploy.
+   *
+   * ⚠️ **`ClientDisconnectedError` does NOT mean "gone past the grace period"** —
+   * the Gateway raises it for three conditions, and only two are a dead client:
+   * no socket + no grace alarm, grace expired mid-wait, **and a live socket whose
+   * token has expired** (`lumenize-client-gateway.ts` `__executeOperation`, which
+   * closes 4401 and reports disconnected *before* any grace window exists). That
+   * third client is about to reconnect with a fresh token, so the row it drops was
+   * not a leak.
+   *
+   * The invariant that makes dropping correct anyway is **client-side**, not
+   * Gateway-side: `NebulaClient` re-issues every subscription unconditionally on
+   * the `reconnecting → connected` transition (`nebula-client.ts` `#resubscribeAll`),
+   * so a prematurely-dropped row self-heals on the next connect. Do NOT "optimize"
+   * that into a `subscriptionRequired`-gated resubscribe — the flag is computed from
+   * the Gateway's grace alarm and cannot see this delete (backlog: *`subscriptionRequired`
+   * is broken*).
    *
    * PK-targeted delete — single billed write, no index gymnastics needed.
    */
