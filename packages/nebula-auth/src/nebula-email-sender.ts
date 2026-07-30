@@ -5,7 +5,7 @@
  * from the env (Cloudflare via the `EMAIL` binding in Nebula deployments).
  * Customize templates in follow-on work (see tasks/nebula-scratchpad.md § Email Template Customization).
  */
-import { AuthEmailSenderBase } from '@lumenize/auth';
+import { AuthEmailSenderBase, type EmailMessage } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from './types';
 
 /**
@@ -25,27 +25,27 @@ const INSTANCE_HEADER = 'X-Lumenize-Auth-Instance';
 const INSTANCE_BEARING_ROUTES = new Set(['magic-link', 'accept-invite']);
 
 /**
- * Parse the `instanceName` out of a Nebula auth URL and return it as the routing header.
+ * The `instanceName` a Nebula auth URL identifies, or `undefined` if `value` is not one.
  *
- * Expected URL shape: `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}?…`, where
+ * Expected shape: `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}?…`, where
  * `instanceName` is a 1-3 dot-separated slug like `acme.app.tenant-a`.
  *
- * Returns `{}` for anything else — an unparseable URL or a route that carries no instance —
- * so the email still sends, just without the routing tag.
+ * Total by design — every non-URL string a message carries (`to`, `type`, `subjectEmail`)
+ * fails `new URL` and returns `undefined`, so callers may hand it anything.
  */
-function instanceHeaders(url: string): Record<string, string> {
+function parseInstanceName(value: string): string | undefined {
   let pathname: string;
   try {
-    pathname = new URL(url).pathname;
+    pathname = new URL(value).pathname;
   } catch {
-    return {};
+    return undefined;
   }
-  if (!pathname.startsWith(`${NEBULA_AUTH_PREFIX}/`)) return {};
+  if (!pathname.startsWith(`${NEBULA_AUTH_PREFIX}/`)) return undefined;
   const segments = pathname.slice(NEBULA_AUTH_PREFIX.length + 1).split('/');
-  if (segments.length !== 2) return {};
+  if (segments.length !== 2) return undefined;
   const [instanceName, route] = segments;
-  if (!instanceName || !INSTANCE_BEARING_ROUTES.has(route!)) return {};
-  return { [INSTANCE_HEADER]: instanceName };
+  if (!instanceName || !INSTANCE_BEARING_ROUTES.has(route!)) return undefined;
+  return instanceName;
 }
 
 export class NebulaEmailSender extends AuthEmailSenderBase {
@@ -70,27 +70,29 @@ export class NebulaEmailSender extends AuthEmailSenderBase {
   }
 
   /**
-   * Tag the magic-link email with the originating instance, making it addressable by
-   * downstream Email Routing consumers (test rigs, log filters) without parsing the body.
-   */
-  override magicLinkHeaders(message: { magicLinkUrl: string }): Record<string, string> {
-    return instanceHeaders(message.magicLinkUrl);
-  }
-
-  /**
-   * Same tag on the invite email — it is the second (and only other) mail Nebula sends,
-   * and it is equally something a test lane needs to wait for by instance.
+   * Tag every outbound mail with the instance its URL identifies, making the originating
+   * instance addressable by downstream Email Routing consumers (test rigs, log filters)
+   * without parsing the body.
    *
-   * ⚠️ Its absence was a silent failure, not a missing nicety: an untagged email lands in
-   * the email-test catch-all bucket, so `waitForEmail({ instance })` never matches and the
-   * caller dies on its timeout with nothing pointing at the sender. Any new instance-bearing
-   * mail needs its header hook overridden here too.
+   * ⚠️ **The message type is deliberately never consulted.** The rule is a property of the
+   * URL, not of the mail: *if a message carries a Nebula auth URL, that URL names the
+   * instance.* So `invite-existing`, `admin-notification` and `approval-confirmation` need
+   * no decision here — today they carry app-redirect URLs with no instance segment and come
+   * out untagged, and the day one of them carries an instance-bearing URL it is tagged with
+   * no change to this file. That totality is the point: the previous per-type shape shipped
+   * magic-link tagged and invite untagged, and the failure was silent — an untagged mail
+   * lands in the email-test catch-all bucket, so `waitForEmail({ instance })` never matches
+   * and the caller dies on its timeout with nothing pointing at the sender.
    *
-   * `inviteExistingHeaders` deliberately stays unoverridden: Nebula never sends that type
-   * (only `@lumenize/auth`'s own `LumenizeAuth` DO does), and its `redirectUrl` is the app
-   * redirect — it has no `/auth/{instanceName}/…` segment to parse.
+   * First match wins. Each `EmailMessage` variant carries exactly one URL, so there is
+   * nothing to disambiguate; a variant with two would need this revisited.
    */
-  override inviteNewHeaders(message: { inviteUrl: string }): Record<string, string> {
-    return instanceHeaders(message.inviteUrl);
+  override headers(message: EmailMessage): Record<string, string> {
+    for (const value of Object.values(message)) {
+      if (typeof value !== 'string') continue;
+      const instanceName = parseInstanceName(value);
+      if (instanceName !== undefined) return { [INSTANCE_HEADER]: instanceName };
+    }
+    return {};
   }
 }

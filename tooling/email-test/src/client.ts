@@ -34,10 +34,11 @@ export interface WaitForEmailOptions {
    * Scope this listener to emails carrying `X-Lumenize-Auth-Instance: <instance>`,
    * so concurrent tests don't race each other for the next-arriving email.
    * Maps 1:1 to NebulaAuth's `instanceName` URL segment (a 1-3 dot-separated slug
-   * like `acme-abc.app.tenant-a`), stamped by `NebulaEmailSender` on the mails whose
-   * URL carries it (`magicLinkHeaders` + `inviteNewHeaders`). ⚠️ A mail type whose
-   * hook is NOT overridden there lands in the catch-all bucket and this filter
-   * silently never matches — check the sender before reaching for it.
+   * like `acme-abc.app.tenant-a`). `NebulaEmailSender.headers` stamps it on any mail
+   * whose URL carries that segment — magic-link and invite today — regardless of
+   * message type, so a new instance-bearing mail is filterable here with no change
+   * to the sender. A mail whose URL has no instance segment stays untagged and lands
+   * in the catch-all bucket; use `to` with `uniqueTestEmail()` for those.
    *
    * Omit to subscribe to ALL emails. Prefer `uniqueTestEmail()` for isolation
    * where no instance is in play — it needs no cooperation from the sender.

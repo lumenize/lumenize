@@ -58,11 +58,12 @@ async function inviteAndLogin(
   stack: DevStack, browser: Browser, scope: string, adminToken: string, email: string, testToken: string,
 ): Promise<{ accessToken: string; sub: string }> {
   // NO `instance` filter — deliberately, and the reason has CHANGED. It used to be that it could
-  // not work (`NebulaEmailSender` stamped `X-Lumenize-Auth-Instance` on magic links only, so an
-  // invite landed in the catch-all bucket and an `instance: scope` filter silently never matched —
-  // one 60s timeout to find). `inviteNewHeaders` now stamps it too, so the filter WOULD match. We
-  // still use `to`: a unique recipient skips the shared-bucket `clear` that `instance` performs, so
-  // this stays safe beside a concurrently-waiting listener.
+  // not work (`NebulaEmailSender` stamped `X-Lumenize-Auth-Instance` per message TYPE and covered
+  // magic-link only, so an invite landed in the catch-all bucket and an `instance: scope` filter
+  // silently never matched — one 60s timeout to find). The tag is now derived from the URL for
+  // every type, so the filter WOULD match. We still use `to`: a unique recipient skips the
+  // shared-bucket `clear` that `instance` performs, so this stays safe beside a concurrently-
+  // waiting listener.
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
     const res = await browser.fetch(`${stack.baseUrl}/auth/${scope}/invite`, {
