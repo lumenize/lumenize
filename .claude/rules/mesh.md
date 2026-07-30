@@ -34,6 +34,20 @@ The call path validates the binding against its actual shape **synchronously, be
 ## Node identity is stamped on every first-contact entry (not just mesh calls)
 The framework populates a node's persistent identity — `this.lmz.bindingName` / `this.lmz.instanceName`, the basis for return addresses, tracing, and anything derived server-side from *which instance this is* — from routing metadata on **every** entry that can be first-contact, not only the mesh receive path. If a node serves its **own** HTTP/WebSocket `fetch()` surface, identity is stamped from the `x-lumenize-do-*` headers `routeDORequest` sets, at `fetch()`/accept time — because hibernation `webSocketMessage`/`webSocketClose` handlers can't re-derive routing metadata. So `instanceName` is populated on the non-mesh path too; relying on the mesh path alone leaves it `undefined` on a cold non-mesh entry (e.g. a container node injecting its server-derived scope into the shell it serves — an empty value mis-routes silently). First-write-wins keeps the paths consistent. (Rationale: ADR-007.)
 
+## A client's `instanceName` MUST start with its `sub` — the Gateway enforces it
+`LumenizeClientGateway.onBeforeAccept` (`packages/mesh/src/lumenize-client-gateway.ts`) validates the
+name before accepting the socket, in two steps: it rejects a name with **no `.`** (403 *"invalid
+instance name format (expected sub.tabId)"*), then requires `instanceName.substring(0, indexOf('.'))`
+to equal the `sub` of the **verified JWT** (403 *"identity mismatch"*). `NebulaClientGateway` does
+**not** override it, so this binds every Nebula client too.
+
+⇒ **The subject's `sub` comes FIRST; everything after the first `.` is free.** Put a tab id, a scope,
+or anything else in the leading segment and you get a 403 that reads as a *token* problem — the
+message says "identity mismatch", so the natural next move is to go debug minting, which is the wrong
+file. ⚠️ This works at all only because a surrogate `sub` is a **dotless** UUID; a `sub` containing a
+dot would break the parse rather than the comparison. Canonical: `childInstanceName` in
+`apps/nebula/src/impersonation.ts`, which appends `${tabId}.${scope}` after the subject's `sub`.
+
 ## Passing data to the callee
 **Default: pass whatever the callee needs as arguments to the continuation method.** The callee declares them as ordinary parameters and they cross the wire — explicit, typed, and visible at the call site:
 ```typescript

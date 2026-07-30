@@ -79,6 +79,27 @@ When the unit under test is **client-side state** (auto-resubscribe walks, pendi
 
 Also: initiator methods call `resetResults()`, which **zeroes** capture fields (`resourceUpdateCount`, `lastResourceUpdate`, `lastResult`, …). When asserting "did the count go up?", capture the baseline immediately before the action under test, not before setup helpers that call initiators.
 
+## You CAN make time pass under pool-workers — both isolates follow the fake clock
+`vi.useFakeTimers({ shouldAdvanceTime: true })` + `vi.setSystemTime(...)` moves the clock the **Worker
+AND the Durable Object** see, so a token, a magic link, or an invite really expires in-lane. Measured
+2026-07-30: after a `+1 day` jump a `/refresh-token` mint returned `iat` advanced ~86400s and a
+`ttlSeconds: 60` token 401'd; separately, a magic link consumed past `MAGIC_LINK_TTL` — computed *and*
+gated **inside the registry DO** — was rejected. (Alarms were not probed; a scheduled `alarm()` firing
+is a different mechanism from a timestamp comparison.)
+
+⚠️ **Do not confuse this with the runtime's own clock behaviour** — on real Cloudflare `Date.now()` is
+pinned *within* an invocation (see the `cf-clock-traps` memory). Both hold at once: fake timers move
+the baseline; inside one invocation the value still doesn't advance.
+
+⚠️ **A time jump is only worth writing if the test REDS without it.** The failure mode is a token
+that was already going to refresh for some other reason (born inside a refresh-ahead window, say), so
+the jump is decorative and the test proves nothing about expiry. Mutate the **test** — delete the
+jump — and confirm it goes red; that is a different check from mutating the code, and it is the one
+that catches a fixture shaped to stay green. Canonical: `impersonate-lifetime.test.ts` § *survives a
+GENUINE expiry*. This does **not** retire `/live` (`live.md`): a fake clock proves the server rejects
+an `exp` it computed against a patched `Date`; only a real run proves a session survives a lapse on a
+clock nobody patched.
+
 ## `vi.waitFor`, never `setTimeout`
 Wait for async state changes with `vi.waitFor` (retries until the assertion passes). Never use `setTimeout` / arbitrary delays.
 ```typescript

@@ -120,6 +120,34 @@ one-line cross-package constant be *filed* rather than fixed). Both overrides we
 catch yourself writing "worth it but not as a default", check whether the argument is about evidence
 or about your own convenience.
 
+## 7. Agreeing with a conclusion is what stops you checking its premises
+
+**The reflex:** review a decision by evaluating its *verdict*. When the verdict is right, move on. The
+supporting clauses ride along unexamined — they are not what you were assessing.
+
+**The correction:** **a correct conclusion is the condition under which a false premise survives**, so
+agreement is the trigger to check the argument, not the licence to skip it. A wrong conclusion gets
+argued with, and its premises get dragged into the light by the argument. A right one never does.
+Distinct from §4, which is about a justification that *was* true and expired; these were **never**
+true and were never checked.
+
+**Where it bit — twice in one file, both surviving `/review-task` Stage 1 (×2), Stage 2, and a
+`/build-task` verifier panel (2026-07-30, `nebula-impersonation-client`):**
+
+| Conclusion (correct, agreed) | Premise (false, unchecked) |
+|---|---|
+| Drop the client-side TTL warn | *"the client cannot import the constant"* — `types.ts` imports one **type-only** symbol and one value from `@lumenize/mesh/client`; it is Node-safe today, and a `./types` export is one line |
+| Write a `/live` expiry scenario | *"pool-workers cannot let time pass"* — `vi.setSystemTime` moves the clock **both** the Worker and the DO see, measured |
+
+Both conclusions still stand on their *other* reason — which is precisely why nobody looked. The
+second premise had also **suppressed real coverage**: it kept a genuine in-lane expiry test unwritten
+for as long as it went unchallenged.
+
+**The tell:** you are writing a *supporting* clause — the sentence after "because", the parenthetical
+that heads off an objection — for a decision you have already made. Especially one asserting that
+something **can't** be done, since §3's cost-weighting and this entry both push you to accept it
+cheaply. Ask of that clause alone: *if the conclusion were wrong, would I still believe this?*
+
 ---
 
 ## Adding an entry
