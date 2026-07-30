@@ -130,6 +130,18 @@ export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'dis
  * - No token was provided (WebSocket close code 4400)
  * - Token signature is invalid (WebSocket close code 4403)
  */
+/**
+ * How far AHEAD of a token's `exp` the client refreshes, in seconds.
+ *
+ * ⚠️ **Exported because it is a cross-package coupling, not an implementation detail.** A token whose
+ * whole lifetime is at or under this window is *born* already due for refresh, so it re-mints
+ * continuously — which makes this value the floor under any caller-chosen token TTL. `nebula-auth`'s
+ * `RECOMMENDED_MIN_TTL_SECONDS` is defined as a multiple of it; before this was exported that
+ * relation could only be asserted in prose, so changing the number here would silently falsify a
+ * constant in another package.
+ */
+export const TOKEN_REFRESH_AHEAD_SECONDS = 30;
+
 export class LoginRequiredError extends Error {
   name = 'LoginRequiredError';
 
@@ -1100,7 +1112,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     if (!this.#accessToken) return true;
     const exp = (this.#claims as { exp?: number } | null)?.exp;
     if (typeof exp !== 'number') return false;
-    return exp - 30 <= Math.floor(Date.now() / 1000);
+    return exp - TOKEN_REFRESH_AHEAD_SECONDS <= Math.floor(Date.now() / 1000);
   }
 
   /**

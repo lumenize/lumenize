@@ -8,6 +8,10 @@
 // Import + re-export shared types from @lumenize/auth
 // (import makes them available locally; export passes them to consumers)
 import type { ResolvedEmail, EmailMessage } from '@lumenize/auth';
+// ⚠️ The Node/browser-safe `/client` subpath, deliberately — this module is re-exported from
+// `@lumenize/nebula-auth/testing`, which must load outside Workers. The main `@lumenize/mesh`
+// barrel would drag `cloudflare:workers` in.
+import { TOKEN_REFRESH_AHEAD_SECONDS } from '@lumenize/mesh/client';
 export type { ResolvedEmail, EmailMessage };
 
 /**
@@ -220,11 +224,11 @@ export const ACCESS_TOKEN_TTL = 900;
  * enforced. Contrast {@link ACCESS_TOKEN_TTL}, which IS enforced as the ceiling; the name carries
  * that distinction on purpose.
  *
- * ⚠️ **This is 4× `@lumenize/mesh`'s token refresh-ahead window**, and the relation has to live in
- * prose because mesh does not *export* that window — it is an inline `exp - 30` literal in
- * `LumenizeClient`. Keep the two in step by hand, or export it from mesh and make the relation
- * checkable. A token at or below that window is *born* already due for refresh, so it re-mints
- * continuously; 4× leaves most of a token's life outside it.
+ * **4× `@lumenize/mesh`'s {@link TOKEN_REFRESH_AHEAD_SECONDS}**, and DERIVED from it rather than
+ * restated — a token at or below that window is *born* already due for refresh, so it re-mints
+ * continuously; 4× leaves most of a token's life outside it. Deriving is the point: the relation was
+ * previously prose against an inline `exp - 30` literal in another package, so changing that number
+ * would have silently falsified this one.
  *
  * ⚠️ Deliberately NOT a floor. A floor would make an expiring-token test unreachable without a
  * test-mode bypass, and it would not address the second hazard at all — which is semantic, not a
@@ -233,7 +237,7 @@ export const ACCESS_TOKEN_TTL = 900;
  * admin stays bounded by their parent token's lifetime plus KV propagation regardless of how short
  * the minted token is.
  */
-export const RECOMMENDED_MIN_TTL_SECONDS = 120;
+export const RECOMMENDED_MIN_TTL_SECONDS = 4 * TOKEN_REFRESH_AHEAD_SECONDS;
 
 /** Refresh token lifetime in seconds (30 days) */
 export const REFRESH_TOKEN_TTL = 2592000;

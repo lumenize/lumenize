@@ -22,7 +22,7 @@
  */
 
 // LumenizeClient and related error types
-export { LumenizeClient, LoginRequiredError } from './lumenize-client';
+export { LumenizeClient, LoginRequiredError, TOKEN_REFRESH_AHEAD_SECONDS } from './lumenize-client';
 export type {
   LumenizeClientConfig,
   ConnectionState,
