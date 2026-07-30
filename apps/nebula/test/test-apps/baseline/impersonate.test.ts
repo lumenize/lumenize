@@ -144,23 +144,41 @@ describe('impersonate() — the mint', () => {
     admin.disconnect();
   });
 
-  it('a failed FIRST mint rejects cleanly and leaves no half-registered child', async () => {
-    const { star, admin, member } = await adminAndMember();
-    expect(childCount(admin)).toBe(0);
+  // TWO different refusals, on purpose. Asserting one status could be satisfied by a build that
+  // hard-codes it; two prove the mapping TRANSPORTS `res.status` and `error_description` rather than
+  // coinciding with a constant. Nothing else exercises that mapping — the classification test builds
+  // `ImpersonationMintError` by hand, so it covers the predicate, not the extraction.
+  //
+  // Both are reachable and their gate order is why: the endpoint checks caller reach and the admin
+  // bit BEFORE it looks the subject up, so an out-of-reach scope 403s while an in-reach scope with a
+  // nonexistent subject reaches the 404.
+  it.each([
+    ['403 — activeScope outside the caller\'s reach', 403, /exceeds the caller's reach/],
+    ['404 — no such subject', 404, /Subject not found/],
+  ])('a failed FIRST mint (%s) rejects cleanly and leaves no half-registered child',
+    async (_label, expectedStatus, expectedMessage) => {
+      const { star, admin, member } = await adminAndMember();
+      expect(childCount(admin)).toBe(0);
 
-    // An activeScope outside the subject's reach. Not an edge case: the design deliberately does NO
-    // client-side activeScope validation, so a wrong scope is an EXPECTED caller error.
-    const wrong = `imp-${generateUuid().slice(0, 8)}.app.other`;
-    const rejected = admin.impersonate(member.sub, wrong, { ttlSeconds: SAFE_TTL });
-    await expect(rejected).rejects.toThrow(ImpersonationMintError);
-    await expect(rejected).rejects.toMatchObject({ status: expect.any(Number) });
+      const target = expectedStatus === 404
+        ? { sub: generateUuid(), scope: star }                                  // in reach, absent subject
+        : { sub: member.sub, scope: `imp-${generateUuid().slice(0, 8)}.app.other` }; // foreign universe
 
-    // Mutation: register the child before the mint resolves → a failed mint leaves it in the
-    // registry → reds. A half-registered child would hold an open socket, which is the exact leak
-    // the `Set<WeakRef>` rejection argues GC cannot close.
-    expect(childCount(admin)).toBe(0);
-    admin.disconnect();
-  });
+      const rejected = admin.impersonate(target.sub, target.scope, { ttlSeconds: SAFE_TTL });
+      await expect(rejected).rejects.toThrow(ImpersonationMintError);
+      // Mutation: map every failure to a fixed status, or drop `error_description` from the message
+      // → one of these two rows reds. (The previous `status: expect.any(Number)` could not: the
+      // constructor assigns a number unconditionally, so it restated the class's own invariant.)
+      await expect(rejected).rejects.toMatchObject({ status: expectedStatus });
+      await expect(rejected).rejects.toThrow(expectedMessage);
+
+      // ⚠️ Not an edge case: the design deliberately does NO client-side `activeScope` validation, so
+      // a wrong scope is an EXPECTED caller error. A half-registered child would hold an open socket,
+      // the exact leak the `Set<WeakRef>` rejection argues GC cannot close.
+      // Mutation: register the child before the mint resolves → a failed mint leaves it → reds.
+      expect(childCount(admin)).toBe(0);
+      admin.disconnect();
+    });
 });
 
 describe('impersonate() — two children coexist', () => {
