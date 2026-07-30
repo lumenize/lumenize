@@ -16,13 +16,27 @@ import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as superadminReach from './scenarios/superadmin-reach';
 import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
+import * as impersonationExpiry from './scenarios/impersonation-expiry';
+
+/**
+ * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
+ * default: a scenario that quietly declares `false` and then touches `ctx.container` fails at the
+ * point of use rather than at the precheck. Declare `false` only when the scenario genuinely never
+ * drives a build (auth, impersonation, resources, subscriptions), which then removes the Docker
+ * requirement for that boot entirely.
+ */
+interface Scenario {
+  run: (stack: Awaited<ReturnType<typeof bootDevStack>>) => Promise<void>;
+  needsContainer?: boolean;
+}
 
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
-const SCENARIOS: Record<string, { run: (stack: Awaited<ReturnType<typeof bootDevStack>>) => Promise<void> }> = {
+const SCENARIOS: Record<string, Scenario> = {
   'message-roundtrip': messageRoundtrip,   // Phase 1 — API driver round-trip + negative control
   'superadmin-reach': superadminReach,     // Phase 3a B2-(i) — * admin bypass vs non-admin denied
   'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
+  'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
 };
 
 async function main(): Promise<void> {
@@ -33,14 +47,17 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  if (!HAS_DOCKER) {
+  const needsContainer = scenario.needsContainer ?? true;
+  if (needsContainer && !HAS_DOCKER) {
     console.error('[harness] Docker Desktop is not reachable — the DevContainer builds at boot. Start Docker and retry.');
     process.exitCode = 3;
     return;
   }
 
-  console.error('[harness] booting a fresh local wrangler dev (cold DevContainer build can take a few minutes)…');
-  const stack = await bootDevStack();
+  console.error(needsContainer
+    ? '[harness] booting a fresh local wrangler dev (cold DevContainer build can take a few minutes)…'
+    : '[harness] booting a fresh local wrangler dev WITHOUT the DevContainer (no Docker needed)…');
+  const stack = await bootDevStack({ withContainer: needsContainer });
   const t0 = Date.now();
   try {
     console.error(`[harness] booted at ${stack.baseUrl} — running scenario "${name}"…`);

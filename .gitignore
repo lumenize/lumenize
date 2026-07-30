@@ -40,6 +40,9 @@ dist-ssr
 
 # Cloudflare
 .wrangler
+# Derived per harness boot from apps/nebula/wrangler.jsonc (container build commented out).
+# Must sit beside the original because wrangler resolves relative paths against the config's dir.
+wrangler.harness-no-container.jsonc
 .dev.vars
 
 # node-localstorage

@@ -18,7 +18,7 @@
  * via audited login / stored-refresh, never this local mint (Phase 3 security boundary).
  */
 import { execSync } from 'node:child_process';
-import { readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnWranglerDev } from '@lumenize/testing/wrangler';
@@ -33,6 +33,54 @@ const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
 const STUDIO_UI_DIR = resolve(NEBULA_DIR, '../nebula-studio-ui');
 /** apps/nebula config — the only one with DEV_STUDIO / DEV_CONTAINER / the AI binding. */
 const WRANGLER_CONFIG = './wrangler.jsonc';
+/**
+ * A derived, container-free copy of the config, for scenarios that never touch the DevContainer.
+ *
+ * ⚠️ **Must live beside the original**: wrangler resolves `main`, `assets.directory` and every other
+ * relative path against the CONFIG FILE's directory, so putting this under `.wrangler/` would break
+ * all of them. Generated per boot and gitignored — never edit it, and never commit it.
+ */
+const WRANGLER_CONFIG_NO_CONTAINER = './wrangler.harness-no-container.jsonc';
+
+/**
+ * Comment out the `containers` block so `wrangler dev` does not build the image — the ONLY thing in
+ * this stack that needs Docker.
+ *
+ * ⚠️ **Derived from the real config on every boot, never a second committed file.** A parallel config
+ * would drift silently the first time someone edits bindings in one and not the other; deriving keeps
+ * a single source of truth. It is a line-level comment-out rather than a JSONC re-serialisation
+ * because no JSONC parser is available here and a regex comment-strip would corrupt any `//` inside a
+ * string (an https URL, say).
+ *
+ * ⚠️ The `DEV_CONTAINER` binding and the `DevContainer` DO export are LEFT IN PLACE — only the image
+ * build is removed. So the class still registers and `env.DEV_CONTAINER` still resolves; what a
+ * scenario loses is `ctx.container`, which is exactly the capability it declared it does not need.
+ *
+ * Throws loudly if the config's shape has changed, rather than silently emitting a config that
+ * differs from the original in ways nobody asked for.
+ */
+function deriveContainerFreeConfig(): string {
+  const src = readFileSync(resolve(NEBULA_DIR, 'wrangler.jsonc'), 'utf8');
+  const lines = src.split('\n');
+  const start = lines.findIndex((l) => /^\s*"containers"\s*:\s*\[\s*$/.test(l));
+  if (start === -1) {
+    throw new Error(
+      'deriveContainerFreeConfig: no `"containers": [` line in apps/nebula/wrangler.jsonc. The config '
+      + 'shape changed — update this derivation instead of letting it emit a config nobody reviewed.',
+    );
+  }
+  let end = -1;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\],?\s*$/.test(lines[i])) { end = i; break; }
+  }
+  if (end === -1) {
+    throw new Error('deriveContainerFreeConfig: unterminated `containers` array in apps/nebula/wrangler.jsonc.');
+  }
+  for (let i = start; i <= end; i++) lines[i] = `// [harness: container build disabled] ${lines[i]}`;
+  const out = resolve(NEBULA_DIR, WRANGLER_CONFIG_NO_CONTAINER);
+  writeFileSync(out, lines.join('\n'));
+  return WRANGLER_CONFIG_NO_CONTAINER;
+}
 
 /** A Docker daemon is reachable (`docker info` exits 0). Required to boot the DevContainer. */
 export const HAS_DOCKER: boolean = (() => {
@@ -83,11 +131,27 @@ export interface DevStack {
  * bindings, which Phase-1 resource-plane driving doesn't need). Signs with BLUE by default;
  * pins `PRIMARY_JWT_KEY:BLUE` so the worker verifies BLUE-minted tokens.
  */
-export async function bootDevStack(opts: { readyTimeoutMs?: number } = {}): Promise<DevStack> {
-  if (!HAS_DOCKER) {
+export async function bootDevStack(
+  opts: {
+    readyTimeoutMs?: number;
+    /**
+     * Whether this boot needs the DevContainer. Default `true` — the historical behaviour, and
+     * correct for anything driving Studio codegen or a build.
+     *
+     * Pass `false` for a scenario that never touches `ctx.container` (auth, impersonation, resources,
+     * subscriptions): the image build is the ONLY thing in this stack that needs Docker, so skipping
+     * it removes the Docker requirement entirely — and with it a per-operation approval prompt on a
+     * machine where Docker is gated.
+     */
+    withContainer?: boolean;
+  } = {},
+): Promise<DevStack> {
+  const withContainer = opts.withContainer ?? true;
+  if (withContainer && !HAS_DOCKER) {
     throw new Error(
       'bootDevStack: Docker Desktop is not reachable (`docker info` failed). The apps/nebula ' +
-        'DevContainer builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry.',
+        'DevContainer builds at `wrangler dev` boot, so Docker is required. Start Docker Desktop and retry, ' +
+        'or pass `withContainer: false` if this scenario never touches `ctx.container`.',
     );
   }
   const signingKey = readDevVar('JWT_PRIVATE_KEY_BLUE');
@@ -108,8 +172,9 @@ export async function bootDevStack(opts: { readyTimeoutMs?: number } = {}): Prom
   // PRIMARY_JWT_KEY:BLUE so the worker verifies with the same key the local mint signs with. Broad
   // `DEBUG` is opt-in (HARNESS_WORKER_DEBUG) — flooding every DO onStart slows startup.
   const localMode = process.env.HARNESS_LOCAL === '1';
+  const configPath = withContainer ? WRANGLER_CONFIG : deriveContainerFreeConfig();
   const { baseUrl, cleanup } = await spawnWranglerDev({
-    configPath: WRANGLER_CONFIG,
+    configPath,
     cwd: NEBULA_DIR,
     // Cold DevContainer image build can be slow; give generous headroom.
     readyTimeoutMs: opts.readyTimeoutMs ?? 300_000,
