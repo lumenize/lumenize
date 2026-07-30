@@ -17,6 +17,14 @@ import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/clien
 import type { NebulaJwtPayload, AffectedScope, ScopeDeletionPlan } from '@lumenize/nebula-auth';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
+// Impersonation's own knowledge lives in its module — this client keeps only the two touchpoints
+// (the construction seam below, and one hook in `disconnect()`). Relative import: deliberately not
+// on the package barrel, and Node/browser-safe like the rest of this file.
+import {
+  INTERNAL_REFRESH, INTERNAL_PARENT, assertCanImpersonate, childInstanceName, parentTabIdFrom,
+  mintNarrowerToken, registerChild, deregisterChild,
+  type ChildConfigBase, type ImpersonateOptions, type RefreshFn,
+} from './impersonation';
 import {
   createConflictOutcomeEngine,
   type ConflictOutcomeEngine,
@@ -336,6 +344,15 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
   // current origin in that case.
   #baseUrl?: string;
   #fetchFn: typeof fetch;
+  /** Exactly what a child from `impersonate()` inherits — see {@link impersonate}. */
+  #childConfigBase!: ChildConfigBase;
+  /**
+   * The parent this client was minted from, when it IS an impersonated child; `undefined` on an
+   * ordinary client. Post-construction users only (the child's `logout()` branch and deregistration)
+   * — the re-mint path uses a lexically captured reference instead, because a `refresh` closure can
+   * run during `super()`, before this field exists.
+   */
+  #mintedFrom?: NebulaClient;
 
   /**
    * Decoded JWT payload — **non-null on NebulaClient**.
@@ -488,7 +505,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     super({
       ...baseConfig,
       gatewayBindingName: 'NEBULA_CLIENT_GATEWAY',
-      refresh: async () => {
+      // ── TOUCHPOINT 1 of 2: the impersonation construction seam ──────────────────────────────────
+      // A child from `impersonate()` renews through its parent's mint helper, not off a cookie it
+      // does not have. `refresh` is `Omit`ted from `NebulaClientConfig` AND overwritten here, so it
+      // cannot be supplied even by casting — which is exactly the footgun we keep closed (a caller
+      // could otherwise build a client whose token and `authScope` disagree). The symbol is the
+      // narrow exception: unreachable from the public config type, and not exported from the barrel.
+      refresh: (config as unknown as Record<symbol, unknown>)[INTERNAL_REFRESH] as RefreshFn | undefined ?? (async () => {
         const fetchFn = config.fetch ?? fetch;
         const res = await fetchFn(
           `${config.baseUrl}/auth/${authScope}/refresh-token`,
@@ -519,7 +542,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         }
         const data = await res.json() as { access_token: string; sub: string };
         return { access_token: data.access_token, sub: data.sub };
-      },
+      }),
       onConnectionStateChange: (state) => {
         // Phase 5.3.4a: re-subscribe everything on reconnect. The
         // `reconnecting → connected` transition is the precise signal that
@@ -568,6 +591,22 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     this.#activeScope = activeScope;
     this.#appVersion = appVersion;
     this.#resourceHostBinding = resourceHostBinding ?? 'STAR';
+    // The inheritance contract for a child from `impersonate()`, captured as ONE field because a
+    // method cannot reach the constructor's `config` (see `#baseUrl` above) and `LumenizeClient`'s
+    // own `#config` is private. Deliberately EXCLUDES `onLoginRequired`: a child must not hold the
+    // admin's handler, or someone else's session ending would bounce the admin to login.
+    this.#childConfigBase = {
+      baseUrl: config.baseUrl,
+      appVersion,
+      fetch: config.fetch,
+      // Passed THROUGH, `undefined` included — the `/live` harness supplies no `WebSocket` and
+      // relies on the Node global, so requiring one here would break that path.
+      WebSocket: config.WebSocket,
+      sessionStorage: config.sessionStorage,
+      BroadcastChannel: config.BroadcastChannel,
+      resourceHostBinding: this.#resourceHostBinding,
+    };
+    this.#mintedFrom = (config as unknown as Record<symbol, unknown>)[INTERNAL_PARENT] as NebulaClient | undefined;
     this.#onShouldRefreshUI = onShouldRefreshUI;
     this.#onReload = onReload;
     this.#onPreviewReady = onPreviewReady;
@@ -701,6 +740,73 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     this.clearAccessToken();
     this.disconnect();
+  }
+
+  /**
+   * Produce a working client that acts as another person — the admin-debug capability behind
+   * *"why can't this user do X?"*.
+   *
+   * Authority-**reducing**: the returned client carries the subject's permissions, which are
+   * narrower than the caller's. It is a full `NebulaClient` — `resources`, `orgTree`, `subscribe`
+   * all work unchanged — and `claims` answers both questions structurally: top-level `sub` /
+   * `profileId` are the person being acted as, and the presence of `act` is what makes it an
+   * impersonation session.
+   *
+   * **The parent is the credential.** No durable credential is created anywhere: the child renews by
+   * re-minting through this client, so revocation propagates at the next token boundary and the
+   * session dies with this client rather than at term.
+   *
+   * ⚠️ **Precondition:** this client must already have an `instanceName` — it has connected at least
+   * once, or was constructed with one — because the child's Gateway name derives from this one's
+   * tabId. A *disconnected* or *expired-token* parent is fine (the mint refreshes its own token
+   * first); a never-connected one is not.
+   *
+   * @param sub The subject's surrogate `sub` — the person to act as.
+   * @param activeScope The scope to act in. Required and explicit: it is the token's `aud`, bounded
+   *   by the subject's reach rather than equal to it, so deriving it would pick the WIDEST valid
+   *   value — the wrong end of the range for a debug session, which wants the specific star where
+   *   the trouble is.
+   * @throws {ImpersonationChainError} when this client is itself impersonating — before any network
+   *   call. Impersonation does not chain.
+   * @throws {ImpersonationMintError} when the endpoint refuses, carrying its status and message.
+   */
+  async impersonate(sub: string, activeScope: string, opts?: ImpersonateOptions): Promise<NebulaClient> {
+    // Local, decidable, and enforced independently by the endpoint's root-identity gate. `?.` is
+    // required rather than defensive: `claims` is genuinely nullable on the base class.
+    assertCanImpersonate(this.claims as { act?: unknown } | null | undefined);
+
+    const base = this.#baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '');
+    // Bound, because `authedFetch` is `protected` — that stops a free function from CALLING it, not
+    // from receiving it. It also refreshes this client's own token first when needed, which is what
+    // lets a parent holding an expired token still mint.
+    const authedFetch = (url: string, init?: RequestInit) => this.authedFetch(url, init);
+    // ONE mint path, captured LEXICALLY — never via the child's `#mintedFrom`, which does not exist
+    // yet while the child's `refresh` may already be running inside `super()`.
+    const mint = () => mintNarrowerToken(authedFetch, base, this.#authScope, {
+      subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,
+    });
+
+    // MINT FIRST, then seed. Doing it the other way round — constructing tokenless and letting the
+    // child's own connect be the single mint — moves this failure inside `super()`, where it becomes
+    // a scheduled reconnect and the caller gets no error at all.
+    const minted = await mint();
+
+    const child = new NebulaClient({
+      ...this.#childConfigBase,
+      // `authScope` is INERT on a child: it names a refresh-cookie path and a child has no cookie.
+      // It is set to the impersonated scope rather than this client's so that nothing inherited can
+      // address the admin's cookie path by accident.
+      authScope: activeScope,
+      activeScope,
+      accessToken: minted.access_token,
+      instanceName: childInstanceName(sub, parentTabIdFrom(this.lmz.instanceName), activeScope),
+      [INTERNAL_REFRESH]: (async () => await mint()) as RefreshFn,
+      [INTERNAL_PARENT]: this,
+    } as NebulaClientConfig);
+
+    // AFTER the mint resolves, so a refused mint leaves no half-registered child holding a socket.
+    registerChild(this, child);
+    return child;
   }
 
   // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────
