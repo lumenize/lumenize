@@ -24,7 +24,8 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
-import { provisionStarFounder, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
+import { provisionStarFounder, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
+import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childCount, isTornDown,
 } from '../../src/impersonation';
@@ -41,6 +42,51 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`did not connect within ${timeoutMs}ms (state: ${client.connectionState})`);
+}
+
+/**
+ * Invite a second identity INTO an existing scope, through the real email loop.
+ *
+ * ⚠️ This is what makes the dangerous SAME-SCOPE shape reachable, and its absence was the reason I
+ * wrongly concluded the harness could not build it: I looked for an exported helper, found none, and
+ * stopped — rather than checking whether the primitives existed. They do. Every `@lumenize.io`
+ * address is routed by the catch-all to the email-test Worker, so the invite mail is catchable
+ * exactly like a magic link, and login alone never mints an identity — an invite is the only way to
+ * put a SECOND person inside a scope someone else founded.
+ */
+async function inviteAndLogin(
+  stack: DevStack, browser: Browser, scope: string, adminToken: string, email: string, testToken: string,
+): Promise<{ accessToken: string; sub: string }> {
+  // ⚠️ NO `instance` filter. `NebulaEmailSender` overrides `magicLinkHeaders` ONLY, so an invite
+  // carries no `X-Lumenize-Auth-Instance` header and lands in the catch-all bucket — an
+  // `instance: scope` filter silently never matches (it cost one 60s timeout to find). The unique
+  // `to` address is the documented no-sender-cooperation filter, and it also skips the bucket
+  // `clear`, so this stays safe beside a concurrently-waiting listener.
+  const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
+  try {
+    const res = await browser.fetch(`${stack.baseUrl}/auth/${scope}/invite`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: [email] }),
+    });
+    assert.equal(res.status, 200, `invite to ${scope} failed`);
+    // `extractMagicLink` matches the magic-link route specifically; an invite is a different
+    // endpoint (`accept-invite?invite_token=`), so pull the href here rather than widen a shared
+    // helper that other callers rely on to be magic-link-specific.
+    const html = (await waiter.emailPromise).html ?? '';
+    const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
+    assert.ok(href, `invite email carried no accept-invite link (subject: ${html.slice(0, 60)})`);
+    const link = pointLinkAt(stack.baseUrl, href.replace(/&amp;/g, '&'));
+    const clicked = await browser.fetch(link, { redirect: 'manual' });
+    const setCookie = clicked.headers.getSetCookie?.() ?? [clicked.headers.get('set-cookie') ?? ''];
+    const refreshToken = setCookie
+      .map((c) => /(?:^|;\s*)refresh-token=([^;]*)/.exec(c)?.[1])
+      .find(Boolean);
+    assert.ok(refreshToken, `accept-invite (${clicked.status}) set no refresh-token cookie`);
+    return refreshAccessToken(stack.baseUrl, { refreshToken, authScope: scope }, scope, browser.fetch);
+  } finally {
+    waiter.cleanup();
+  }
 }
 
 async function until(what: string, fn: () => boolean, timeoutMs = 20_000): Promise<void> {
@@ -158,21 +204,32 @@ export async function run(stack: DevStack): Promise<void> {
   );
   assert.ok(childCount(adminClient) >= 2, 'the parent must hold its live children');
 
-  // ── 6. child.logout() tears down only the child ────────────────────────────────────────────────
-  // ⚠️ **The cookie-survival half of this criterion is NOT asserted here, deliberately, and that is a
-  // rule-conformant drop-down rather than an omission** (`live.md`: drop to pool-workers when you can
-  // say why). The guard only becomes load-bearing when the parent's `authScope` EQUALS the child's
-  // `activeScope` — otherwise the child's `authScope: activeScope` pin already prevents the cookie
-  // from being sent, since `/auth/{universe}` does not path-match `/auth/{universe}.app.tenant`. This
-  // harness cannot build that shape: it provisions a universe owner and a star founder, and has no
-  // invite path to create a SECOND identity inside an existing scope. Confirmed empirically —
-  // deleting the `#mintedFrom` branch leaves this scenario GREEN.
-  // ⇒ that assertion lives in `test-apps/baseline/impersonate-lifetime.test.ts`, which builds the
-  // same-scope shape via `createSubject` + `createInvitedClient` at the universe, and where the same
-  // mutation DOES red. Adding an invite helper here would let it move; until then, do not "restore"
-  // a cookie probe to this file — it would pass unconditionally.
-  await secondChild.logout();
-  assert.equal(secondChild.connectionState, 'disconnected', 'a child logout must tear the child down');
+  // ── 6. child.logout() is CHILD-ONLY teardown — the admin's cookie must survive ─────────────────
+  // 🛑 **The SAME-SCOPE shape, which is the only one where the guard is load-bearing.** With the
+  // admin at the universe and a child at the star, the child's `authScope: activeScope` pin already
+  // stops the cookie being sent (`/auth/{universe}` does not path-match
+  // `/auth/{universe}.app.tenant/logout` — first uncovered char is `.`, not `/`), so deleting the
+  // branch changes nothing and the test proves nothing. Confirmed: it stayed green that way.
+  // An invited identity AT THE UNIVERSE gives a subject the admin can impersonate at its OWN
+  // authScope, so the paths match exactly and only the branch stands between a child logout and the
+  // admin's 30-day refresh token.
+  const peerEmail = `peer-${suffix}@lumenize.io`;
+  const peer = await inviteAndLogin(stack, browser, universe, admin.accessToken, peerEmail, testToken);
+  const sameScopeChild = await adminClient.impersonate(peer.sub, universe, { ttlSeconds: SAFE_TTL });
+  await connected(sameScopeChild);
+  assert.equal(sameScopeChild.claims.sub, peer.sub, 'the same-scope child must be the invited peer');
+
+  await sameScopeChild.logout();
+  assert.equal(sameScopeChild.connectionState, 'disconnected', 'a child logout must tear the child down');
+
+  // ⚠️ THE discriminating assertion. Revoking the admin's cookie is invisible to connectionState
+  // (socket open, stateless JWT) and to impersonate() (rides a still-fresh access token) — so probe
+  // the cookie itself, at the parent's REAL authScope.
+  const probe = await browser.fetch(`${stack.baseUrl}/auth/${universe}/refresh-token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeScope: universe }),
+  });
+  assert.equal(probe.status, 200, "a child logout must NOT revoke the admin's refresh cookie");
   assert.equal(adminClient.connectionState, 'connected', 'the admin must stay connected');
 
   // ── 7. Disposing the parent tears the children down, and closes minting ─────────────────────────
