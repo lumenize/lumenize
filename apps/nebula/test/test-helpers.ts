@@ -423,12 +423,18 @@ export async function adminClientAt<T extends NebulaClient>(
 export async function universeAdminClient<T extends NebulaClient>(
   ClientClass: new (config: NebulaClientConfig) => T,
   browser: Browser,
+  /**
+   * The scope you want to WORK IN (typically a star). ⚠️ **Not where the login happens** — the
+   * universe above it is founded and logged into, so the returned client's `authScope`, and its
+   * Path-scoped refresh cookie, are the UNIVERSE. Read `authScope` off the result rather than
+   * assuming this value.
+   */
   scope: string,
   activeScope: string,
   email: string,
   appVersion: string = 'v1',
   extraConfig?: Partial<NebulaClientConfig>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
   return createAuthenticatedClient(ClientClass, browser, scope, activeScope, email, appVersion, extraConfig);
 }
 
@@ -468,10 +474,17 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   /** Optional extra config to pass through to the client constructor —
    *  e.g. `{ onShouldRefreshUI: fn }` for Phase 5.3.3d staleness tests. */
   extraConfig?: Partial<NebulaClientConfig>,
-): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string; authScope: string }> {
   const { accessToken, payload, authScope } = await foundAndLogin(browser, scope, email, activeScope);
   const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
-  return { client, payload, accessToken };
+  // ⚠️ `authScope` is RETURNED because it is NOT the `scope` you passed — `foundAndLogin` founds the
+  // UNIVERSE above it, so that is where the login happens and where the refresh cookie is Path-scoped
+  // (`/auth/{universe}`). Pass `star` and you get a `{u}.*` admin whose cookie is at the universe.
+  // A caller that needs the cookie path — anything asserting on `/auth/{…}/refresh-token` or
+  // `/logout` — must use THIS value, never the argument. Re-deriving it cost a wrong conclusion
+  // during tasks/nebula-impersonation-client.md: a probe aimed at `/auth/{star}` 401s whether or not
+  // the thing under test revoked anything, which makes the assertion look un-dischargeable.
+  return { client, payload, accessToken, authScope };
 }
 
 /** The reserved platform scope, and the bootstrap email bound in `vitest.config.js` miniflare.bindings. */

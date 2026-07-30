@@ -27,14 +27,13 @@ async function adminAndMember(email = 'member@example.com') {
   const universe = `impl-${generateUuid().slice(0, 8)}`;
   const star = `${universe}.app.tenant`;
   const browser = new Browser();
-  const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
-    NebulaClientTest, browser, star, star, 'admin@example.com',
-  );
+  const { client: admin, accessToken: adminToken, payload: adminPayload, authScope } =
+    await universeAdminClient(NebulaClientTest, browser, star, star, 'admin@example.com');
   await createSubject(browser, star, adminToken, email);
   const { payload: member } = await createInvitedClient(
     NebulaClientTest, new Browser(), star, star, email,
   );
-  return { universe, star, browser, admin, adminToken, adminPayload, member };
+  return { universe, star, authScope, browser, admin, adminToken, adminPayload, member };
 }
 
 describe('lifetime — the cascade', () => {
@@ -131,9 +130,31 @@ describe('lifetime — a torn-down parent cannot re-mint', () => {
 });
 
 describe('lifetime — child logout() is child-only teardown', () => {
-  it('leaves the admin session intact — the parent still connects AND still mints', async () => {
-    const { star, browser, admin, member } = await adminAndMember();
-    const child = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+  it('leaves the admin session intact — cookie, connection and the ability to mint', async () => {
+    // 🛑 **SAME-SCOPE ON PURPOSE — this is the only shape in which the guard is load-bearing.**
+    // With a universe admin impersonating into a STAR, the child's `authScope: activeScope` pin
+    // already saves the admin: RFC-6265 will not send a `/auth/{universe}` cookie to
+    // `/auth/{universe}.app.tenant/logout` (the first uncovered character is `.`, not `/`). So in
+    // that shape removing the child-only branch changes nothing and the test proves nothing — I
+    // wrote it that way first and the mutation stayed green.
+    //
+    // An admin who logged in AT the scope they impersonate into is the dangerous case the Decisions
+    // table names, and it is reachable: found at a UNIVERSE (so `authScope` === that universe) and
+    // impersonate a universe-scoped subject there. Now the cookie paths match EXACTLY, the pin is
+    // inert, and the branch is the only thing standing between a child logout and the admin's
+    // 30-day refresh token.
+    const universe = `impl-${generateUuid().slice(0, 8)}`;
+    const browser = new Browser();
+    const { client: admin, accessToken: adminToken, authScope } = await universeAdminClient(
+      NebulaClientTest, browser, universe, universe, 'admin@example.com',
+    );
+    expect(authScope, 'fixture guard: the dangerous same-scope shape').toBe(universe);
+    await createSubject(browser, universe, adminToken, 'wide@example.com');
+    const { payload: subject } = await createInvitedClient(
+      NebulaClientTest, new Browser(), universe, universe, 'wide@example.com',
+    );
+
+    const child = await admin.impersonate(subject.sub, universe, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(child.connectionState).toBe('connected'));
 
     await child.logout();
@@ -141,23 +162,25 @@ describe('lifetime — child logout() is child-only teardown', () => {
     expect(child.connectionState).toBe('disconnected');
     expect(childCount(admin)).toBe(0);
 
-    // 🛑 **THIS CRITERION IS NOT YET PROVEN CAPABLE OF FAILING — see the note below.**
-    // The three assertions above cannot red on the defect this test names: revoking the ADMIN's
-    // 30-day refresh cookie leaves `connectionState` untouched (the WS is open, the Gateway verifies
-    // a stateless JWT) and leaves `impersonate()` working (it rides `authedFetch`, whose token is
-    // fresh, so no refresh occurs). A cookie probe is the right instrument, but the one drafted here
-    // could not be shown to discriminate: in this fixture the admin's refresh cookie sits at
-    // `/auth/{universe}`, not `/auth/{star}`, so the obvious probe URL 401s whether or not anything
-    // was revoked. Owner: tasks/nebula-impersonation-client.md — do not treat this test as coverage
-    // of the child-only-logout guard until the probe is pinned to the right cookie path AND the
-    // mutation (remove the `#mintedFrom` branch) is shown to red.
-    // Mutation: give the child the parent's `authScope` and let the POST through → the admin's
-    // refresh token is revoked → the mint below fails → reds. ⚠️ Silent without this criterion:
-    // nothing else calls `child.logout()`, so it would ship green and surface as an admin's session
-    // dying for no visible reason.
+    // ⚠️ **THE discriminating assertion — the other three cannot red on this defect.** The harm is
+    // revocation of the ADMIN's 30-day refresh cookie, invisible to all of them: the admin's socket
+    // is already open and the Gateway verifies a stateless JWT, and `admin.impersonate()` rides
+    // `authedFetch`, whose token is a fresh 900s one, so it mints without refreshing and succeeds
+    // either way. Probe the cookie directly — 200 intact, 401 revoked — at the parent's REAL
+    // `authScope`, which is why the helper now returns it.
+    // Mutation: delete the `#mintedFrom` branch from `logout()` → the child POSTs
+    // `/auth/{universe}/logout` on the shared browser, the paths match exactly, the admin's refresh
+    // token is revoked → this 401s → reds.
+    const probe = await browser.fetch(`${ORIGIN}/auth/${authScope}/refresh-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activeScope: universe }),
+    });
+    expect(probe.status, "the admin's refresh cookie must survive a child logout").toBe(200);
+
     expect(admin.connectionState).toBe('connected');
     expect(isTornDown(admin)).toBe(false);
-    const again = await admin.impersonate(member.sub, star, { ttlSeconds: SAFE_TTL });
+    const again = await admin.impersonate(subject.sub, universe, { ttlSeconds: SAFE_TTL });
     await vi.waitFor(() => expect(again.connectionState).toBe('connected'));
     again.disconnect();
     admin.disconnect();
