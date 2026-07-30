@@ -32,6 +32,8 @@ The reflexes below are not hypothetical. Every one is drawn from a real, dated f
 
 **The tell:** you are adding the *second* guard to the same mechanism, or a guard whose justification is "so that X cannot happen" where X is an artifact of the design rather than of the domain.
 
+⚠️ **Knowing the tell does not fire it — a SCOPE-WIDENING QUESTION does. (2026-07-30.)** `NebulaEmailSender` stamped its routing header via a per-message-type hook and covered magic-link but not invite, so invite mail went untagged and `waitForEmail({ instance })` died on a 60s timeout. The fix added the *second* per-type override — literally this entry's tell — with a JSDoc paragraph reasoning about why a *third* type didn't need one. What broke it open was Larry asking **"why not also X? are there others? can the base class do it?"**: the enumeration was the bug, and the header is a property of the *URL*, not of the mail. Collapsing five hooks to one and deriving the tag from whatever URL the message carries deleted the class — `invite-existing` needs no decision, and a future type is covered without touching the file. ⇒ Treat **"which other cases need this same treatment?"** as the trigger to re-derive; if the honest answer is a per-case table, you are enumerating where you should be deriving. Corollary: **writing a comment that justifies a case you are NOT handling** is the same smell as the second guard.
+
 ## 3. Tests are not a vote on correctness
 
 Two failure modes, opposite directions, same root — treating the suite as an oracle rather than as an encoding of past intent.
