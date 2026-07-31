@@ -6,7 +6,7 @@
  * Customize templates in follow-on work (see tasks/nebula-scratchpad.md § Email Template Customization).
  */
 import { AuthEmailSenderBase, type EmailMessage } from '@lumenize/auth';
-import { NEBULA_AUTH_PREFIX } from './types';
+import { NEBULA_AUTH_PREFIX, INSTANCE_BEARING_ROUTES } from './types';
 
 /**
  * Routing tag downstream Email Routing consumers bucket by — `tooling/email-test`'s
@@ -15,14 +15,7 @@ import { NEBULA_AUTH_PREFIX } from './types';
  */
 const INSTANCE_HEADER = 'X-Lumenize-Auth-Instance';
 
-/**
- * The auth routes whose URL carries the `instanceName` segment. Both are built by the
- * registry — `#magicLinkUrl` and `issueInvites` in `nebula-auth-registry.ts`.
- *
- * ⚠️ Matching the route EXACTLY is what makes `#instanceHeaders` safe: without it, any
- * two-segment path under the prefix would have its first segment read as an instance.
- */
-const INSTANCE_BEARING_ROUTES = new Set(['magic-link', 'accept-invite']);
+
 
 /**
  * The `instanceName` a Nebula auth URL identifies, or `undefined` if `value` is not one.
@@ -44,7 +37,7 @@ function parseInstanceName(value: string): string | undefined {
   const segments = pathname.slice(NEBULA_AUTH_PREFIX.length + 1).split('/');
   if (segments.length !== 2) return undefined;
   const [instanceName, route] = segments;
-  if (!instanceName || !INSTANCE_BEARING_ROUTES.has(route!)) return undefined;
+  if (!instanceName || !(INSTANCE_BEARING_ROUTES as readonly string[]).includes(route!)) return undefined;
   return instanceName;
 }
 

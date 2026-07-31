@@ -30,7 +30,7 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { generateRandomString, generateUuid, hashString } from '@lumenize/auth';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
-  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS,
+  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, NebulaJwtPayload, RefreshTokenKV } from './types';
@@ -638,7 +638,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /** The link a `rawToken` resolves to. Synchronous; the DO reads `origin` off the forwarded request. */
   #magicLinkUrl(rawToken: string, universeGalaxyStarId: string, origin: string): string {
-    return `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/magic-link?one_time_token=${rawToken}`;
+    return instanceAuthUrl(origin, universeGalaxyStarId, 'magic-link', { one_time_token: rawToken });
   }
 
   /** Send (or, in test mode, return) the link. **Async** — call AFTER the transaction commits. */
@@ -700,7 +700,7 @@ export class NebulaAuthRegistry extends DurableObject {
           tokenHash, email, universeGalaxyStarId, expiresAt,
         );
         const inviteUrl =
-          `${origin}${NEBULA_AUTH_PREFIX}/${universeGalaxyStarId}/accept-invite?invite_token=${rawToken}`;
+          instanceAuthUrl(origin, universeGalaxyStarId, 'accept-invite', { invite_token: rawToken });
 
         if (this.#isTestMode) {
           links[email] = inviteUrl;

@@ -216,6 +216,36 @@ export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 /** Default URL prefix for all auth routes */
 export const NEBULA_AUTH_PREFIX = '/auth';
 
+/**
+ * The auth routes whose URL carries the `instanceName` segment — the SINGLE source for both
+ * *building* those URLs (`instanceAuthUrl`) and *recognizing* them (`NebulaEmailSender.headers`).
+ *
+ * ⚠️ **One list, deliberately, because the two ends fail apart silently.** The sender tags an
+ * outgoing mail with `X-Lumenize-Auth-Instance` by matching the URL's route against this list; an
+ * instance-bearing route missing from it ships **untagged**, and every `waitForEmail({ instance })`
+ * listener then never matches — no error, just a 60s timeout in whatever test used it (that is how
+ * the invite mail shipped untagged, 2026-07-30). Splitting build-side from recognize-side is what
+ * made that possible, so adding a route here is now the only way to build one.
+ */
+export const INSTANCE_BEARING_ROUTES = ['magic-link', 'accept-invite'] as const;
+export type InstanceBearingRoute = typeof INSTANCE_BEARING_ROUTES[number];
+
+/**
+ * Build an instance-bearing auth URL: `${origin}/auth/${instanceName}/${route}?${query}`.
+ *
+ * ⚠️ Use this rather than interpolating the path by hand — the type of `route` is what forces a new
+ * instance-bearing route to be declared above, which is what keeps the sender able to tag it.
+ */
+export function instanceAuthUrl(
+  origin: string,
+  instanceName: string,
+  route: InstanceBearingRoute,
+  query: Record<string, string>,
+): string {
+  const qs = new URLSearchParams(query).toString();
+  return `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}${qs ? `?${qs}` : ''}`;
+}
+
 /** Access token lifetime in seconds (15 minutes) — the DEFAULT and the enforced ceiling. */
 export const ACCESS_TOKEN_TTL = 900;
 
