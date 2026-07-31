@@ -95,6 +95,13 @@ function dynamicEnvProxyPlugin({
 // Without this, `@mesh()` decorators survive Vite's default esbuild transform and V8 can't parse them.
 // See: https://github.com/evanw/esbuild/issues/104
 const swcPlugin = swc.vite({
+  // unplugin-swc's default filter is /\.m?[jt]sx?$/ — END-ANCHORED, so it skips
+  // any id carrying a query string. Coverage's uncovered-file pass requests
+  // `foo.ts?cache=…&vitest-uncovered-coverage=true`, which therefore bypasses
+  // SWC entirely; the decorator survives to istanbul's Babel instrumenter and
+  // the run dies with "Support for the experimental syntax 'decorators' isn't
+  // currently enabled". Tolerate the query so those ids transform too.
+  include: /\.m?[jt]sx?(\?.*)?$/,
   jsc: {
     parser: {
       syntax: 'typescript',
