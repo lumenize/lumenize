@@ -1,10 +1,11 @@
 # Every published code example is proof that the code it teaches runs
 
-**Status:** 🟡 **DRAFT — design intent only** (`/write-task` pass 1), written 2026-07-31 on
-`pre-alpha`. Phases not yet written; awaiting a hand read, then `/review-task` Stage 1.
+**Status:** ⏸️ **ON HOLD — design intent only** (`/write-task` pass 1), written 2026-07-31 on
+`pre-alpha`, paused before the hand read. No phases and no mechanism are chosen; resuming means
+reading the intent below, settling the two open questions, then `/review-task` Stage 1 → phases.
 
 Prompted by a defect found during `/build-task` on
-[archive/nebula-auth-decouple-from-auth.md](archive/nebula-auth-decouple-from-auth.md): `mesh/test/for-docs/security/`
+[nebula-auth-decouple-from-auth.md](../archive/nebula-auth-decouple-from-auth.md): `mesh/test/for-docs/security/`
 sat at 60% function coverage with four doc-taught functions at **zero hits**, three of them behind
 green `@check-example` blocks. Fixed for that one mini-app in `6df027b`; the class is untouched.
 
@@ -43,9 +44,10 @@ none.**
    sharpest illustration of the gap sits in a package that has not: `routing`'s include is `src/**`
    alone, while `packages/routing/test/integration/test-worker-and-dos.ts` carries four live
    annotations.
-4. **The audit itself.** One corner of one package has been measured. `calls` (76.7% funcs),
-   `getting-started` (91.7%) and `alarms` (94.1%) have twelve zero-hit functions between them; the
-   other four target classes across twelve published packages are unmeasured.
+4. **The audit itself.** Part of one kind in one package has been measured — mesh's for-docs
+   fixtures, where `calls` (76.7% funcs), `getting-started` (91.7%) and `alarms` (94.1%) hold twelve
+   zero-hit functions between them. The remaining fixtures and the other three kinds are unmeasured
+   across every package.
 5. **A gate.** Nothing fails when a doc teaches code that never runs.
 
 ## Design intent, constraints, and future state
@@ -59,7 +61,8 @@ different claim, and it is the only claim any tooling makes. The defect is struc
 local: a fixture whose sole purpose is to be exercised is the one place where dead code leaves no
 trace, because nothing else references it and nothing measures it.
 
-**Evidence is per target kind.** This split is the contract the phases conform to:
+**Evidence is per target kind.** What counts as evidence differs by kind, so the contract is a split
+rather than a single rule:
 
 | Target kind | What "it executes" means | Where the evidence comes from | Count |
 |---|---|---|---|
@@ -106,48 +109,66 @@ coverage evidence, the *kind* is what changes, never the individual case.
   `/website/docs/`; no build in the dev loop, so the gate runs from source).
 - **ADR-001** binds the type-declaration row: mirroring a TS declaration is the intended use of the
   mechanism, because the type *is* the schema and there is nothing to execute.
-- **Coverage targets in CLAUDE.md** (Branch >80%, Statement >90%) are a *different* metric from the
-  per-file function floor this task introduces, and the two must not be conflated in either
-  direction — a package can meet the former while a fixture file sits at zero.
-- **Some targets live in lanes CI does not cover.** `apps/nebula/test/chromium/*-browser.test.ts` is
-  a `@check-example` target today, and the browser and `wrangler dev` lanes produce no coverage.
-  Evidence for those is the test-not-skipped row, and extending coverage to those lanes is out of
-  scope by decision, not oversight.
-- **`/nightly-pass`** already carries the `TODO`-in-for-docs tripwire, so the nightly and the gate
-  must not both report the same finding.
+- **Coverage targets in CLAUDE.md** (Branch >80%, Statement >90%) are whole-package aggregates and
+  answer a different question from "was this particular example exercised?" — a package can meet both
+  while a fixture file sits at zero. Whatever per-example measure this settles on must not be
+  conflated with them in either direction.
+- **Some targets live in lanes that produce no coverage.** `apps/nebula/test/chromium/*-browser.test.ts`
+  is a `@check-example` target today, and neither the browser nor the `wrangler dev` lane emits a
+  coverage report (`live.md`, `testing.md` § What a skipped test needs to run). See the open questions.
+- **`/nightly-pass`** already carries the `TODO`-in-for-docs tripwire, so the same defect must not
+  surface twice under two names.
 
-**Future state.** Once the join exists, `check-examples` knows the set of files the docs depend on and
-CI knows what ran — which is the substrate for anything later that wants to reason about doc
-freshness. This task must not foreclose a **published-example inventory** (which page teaches which
-symbol) by hard-coding the gate's output to a pass/fail exit code with nothing machine-readable
-behind it.
+**Future state.** Knowing which files the docs depend on, joined to what actually ran, is the
+substrate for anything later that wants to reason about documentation freshness — which page teaches
+which symbol, what a rename breaks, which examples a release note must mention. Nothing here should
+foreclose that by making the outcome a bare pass/fail with no readable record of what was classified
+and why.
 
-⚠️ **Design consideration:** the gate is deliberately **file-and-function granular**, not
-region-precise. Mapping a matched doc block back to a line range requires threading an offset map
-through normalization, which strips comments and imports; for-docs fixtures are small enough that
-file-granularity function coverage catches the same defects. Keep the evidence format able to carry a
-finer locator later without changing its consumers.
+⚠️ **Design consideration — granularity.** Region-precise mapping (matched doc block → line range →
+intersect with coverage) requires threading an offset map through normalization, which strips
+comments and imports. File-and-function granularity is far cheaper and catches the same defects at
+the sizes these fixtures actually are. Worth revisiting only if a fixture grows large enough that a
+whole file passing stops implying the taught region ran.
 
-⚠️ **Design consideration:** a file-level *orphan* check — flagging fixture files no doc block
-references — was measured and rejected. It flags six files, four of which are worker entries or
-client fixtures that correctly have no doc block, and it would not have caught `updateDocument`,
-whose file *is* referenced. Method-level orphan detection is the region-precise problem above.
+⚠️ **Design consideration — orphan detection was measured and rejected.** Flagging fixture files no
+doc block references sounds like the cheap inverse of this problem. It flags six files, four of which
+are worker entries or client fixtures that correctly have no doc block, and it would not have caught
+`updateDocument`, whose file *is* referenced. The useful version is method-level, which is the
+region-precise problem above.
 
-**Open questions — each gates something in the phases:**
+## What done looks like
 
-1. **Does `apps/nebula` fall in scope?** Twenty-four annotations back `website/docs/nebula/`, which is
-   published on lumenize.com, but Nebula is `UNLICENSED` and is not a published package. The stated
-   scope is "all published packages." If Nebula is out, a quarter of the public doc surface keeps the
-   guarantee it has today. *Gates:* the audit's size and whether the gate runs against `apps/`.
-2. **Does the gate land after the repairs, or alongside a burn-down list?** The end state is
-   allowlist-free either way; this decides whether enforcement is the last phase or the first. *Gates:*
-   phase ordering, and whether the branch is red between phases.
-3. **Where does the gate live — a CI job, or inside `check-examples` itself?** The plugin already
-   resolves target paths and would need to read a coverage report; a separate job keeps the plugin a
-   pure text-matcher and joins the two artifacts outside it. *Gates:* phase decomposition, and whether
-   `check-examples` gains a runtime dependency on a coverage run.
+Observable properties of the finished state — not steps, and deliberately silent on mechanism:
+
+- **Every `@check-example` annotation in the repo has a known evidence kind**, recorded somewhere a
+  person can read rather than inferred afresh each time someone asks.
+- **No annotation whose kind requires execution evidence lacks it.** Concretely: no function a
+  published doc teaches sits at zero hits.
+- **Publishing an example with nothing behind it fails before merge**, with no human needing to
+  notice. Today that is true of neither the execution claim nor the text match.
+- **A failure names the annotation and the doc page it backs**, so the reader knows which published
+  sentence is unsupported — not merely that some file's coverage dropped.
+- **No allowlist of known-failing annotations exists.** A gate shipped with its own failures excluded
+  is an interim, and interims are the expensive kind (`workflow.md` § Evaluating alternatives). Where
+  that forces repair before enforcement, the repair is in scope; where a target genuinely cannot
+  carry evidence, its *kind* is what changes, never the individual case.
+- **The repairs meet the repair standard**, not merely the metric: a guard is demonstrated over the
+  real mesh path with both halves asserted and the mutation named (`testing.md` § `for-docs/` tests
+  are mini-apps). This is the half no gate can check, which is why claim 3 above matters.
+
+**Open questions — decisions that must be made, each changing what "done" covers:**
+
+1. **Does `apps/nebula` fall in scope?** Twenty-four of the 233 annotations back
+   `website/docs/nebula/`, which is published on lumenize.com, but Nebula is `UNLICENSED` and is not a
+   published package. The stated scope is "all published packages"; taken literally, a quarter of the
+   public documentation surface keeps the guarantee it has today.
+2. **Is "the test runs and isn't skipped" sufficient evidence for an example whose lane emits no
+   coverage?** The browser and `wrangler dev` lanes produce none, and at least one `@check-example`
+   target lives there. Either that weaker evidence is accepted for those examples — in which case the
+   contract has a tier — or such examples must move to a lane that can carry the stronger evidence.
 
 ---
 
-*Pass 2 (Decisions, Phases, Non-goals, Relationships) is not written. Per `/write-task`, phases follow
-the hand read and `/review-task` Stage 1.*
+*Pass 2 (Decisions, Phases, Non-goals, Relationships) is unwritten, and deliberately so: per
+`/write-task`, phases are written only after the intent above has had a hand read.*
