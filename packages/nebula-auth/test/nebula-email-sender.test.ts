@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import type { EmailMessage } from '@lumenize/auth';
+import type { EmailMessage } from '../src/types';
 import { NebulaEmailSender } from '../src/nebula-email-sender';
 
 /** Captures what `send()` resolved instead of handing it to a transport. */

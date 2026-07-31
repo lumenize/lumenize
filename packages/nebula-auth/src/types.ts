@@ -5,14 +5,37 @@
  *   the current identity model is per the inline citations below + ADR-013).
  */
 
-// Import + re-export shared types from @lumenize/auth
-// (import makes them available locally; export passes them to consumers)
-import type { ResolvedEmail, EmailMessage } from '@lumenize/auth';
+// ⚠️ `ResolvedEmail` is imported from `@lumenize/email`, NEVER copied. That package declares it
+// (`@lumenize/auth` merely re-exported it), and `NebulaEmailSender` feeds it straight to
+// `EmailTransport.sendEmail` — so it is the one member of the 2026-07-31 copy set that must stay in
+// lockstep with its owner, and therefore carries no free-to-diverge licence.
+import type { ResolvedEmail } from '@lumenize/email';
 // ⚠️ The Node/browser-safe `/client` subpath, deliberately — this module is re-exported from
 // `@lumenize/nebula-auth/testing`, which must load outside Workers. The main `@lumenize/mesh`
 // barrel would drag `cloudflare:workers` in.
 import { TOKEN_REFRESH_AHEAD_SECONDS } from '@lumenize/mesh/client';
-export type { ResolvedEmail, EmailMessage };
+export type { ResolvedEmail };
+
+/**
+ * Discriminated union for email messages sent by Nebula auth.
+ *
+ * ⚠️ **COPIED from `packages/auth/src/types.ts` on 2026-07-31 — a DELIBERATE DIVERGENCE, not to be
+ * re-synced** (`tasks/nebula-auth-decouple-from-auth.md`). Nebula-specific templates are wanted
+ * soon, and each would otherwise be an override fighting a shared default, or Nebula vocabulary
+ * pushed into the MIT package.
+ *
+ * All five variants were copied **verbatim** even though Nebula emits only `magic-link` and
+ * `invite-new` today: at least one of the other three is wanted soon, so pruning them is not a
+ * YAGNI question.
+ *
+ * Subject lines are controlled by `NebulaEmailSender` via overridable methods — not part of this type.
+ */
+export type EmailMessage =
+  | { type: 'magic-link'; to: string; magicLinkUrl: string }
+  | { type: 'admin-notification'; to: string; subjectEmail: string; approveUrl: string }
+  | { type: 'approval-confirmation'; to: string; redirectUrl: string }
+  | { type: 'invite-existing'; to: string; redirectUrl: string }
+  | { type: 'invite-new'; to: string; inviteUrl: string };
 
 /**
  * RFC 8693 §4.1 delegation actor — a LOCAL widening of `@lumenize/crypto`'s `ActClaim` that adds the

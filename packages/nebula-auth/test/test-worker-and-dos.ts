@@ -6,7 +6,7 @@ import { routeNebulaAuthRequest } from '../src/router';
 import { NebulaEmailSender as ProdNebulaEmailSender } from '../src/nebula-email-sender';
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
-import type { ResolvedEmail } from '@lumenize/auth';
+import type { ResolvedEmail } from '@lumenize/email';
 
 // Re-export the singleton registry DO for wrangler bindings (the per-scope NebulaAuth DO is dissolved).
 export { NebulaAuthRegistry } from '../src/nebula-auth-registry';

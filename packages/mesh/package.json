@@ -44,7 +44,6 @@
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7",
-    "@lumenize/auth": "^0.26.0",
     "@lumenize/crypto": "^0.26.0",
     "@lumenize/debug": "^0.26.0",
     "@lumenize/routing": "^0.26.0",
@@ -54,6 +53,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@lumenize/auth": "^0.26.0",
     "@lumenize/debug": "*",
     "@lumenize/email-test": "*",
     "@lumenize/testing": "^0.26.0",

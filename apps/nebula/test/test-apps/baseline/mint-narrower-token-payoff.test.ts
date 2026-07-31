@@ -87,7 +87,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
   // ── `changedBy` is unchanged in SHAPE ───────────────────────────────────────────────────────────
   // The widened `act` claim (now an actor PAIR) must not reach the persisted `Snapshots.changedBy`
-  // column: it is typed as `@lumenize/auth`'s NARROW `ActClaim` (which cannot declare `profileId` —
+  // column: it is typed as `@lumenize/crypto`'s NARROW `ActClaim` (which cannot declare `profileId` —
   // ADR-001) and its `JSON.stringify` IS the same-actor coalesce key.
   //
   // **Principal, pinned:** the subject is granted an explicit `write` tier on the node FIRST. Without

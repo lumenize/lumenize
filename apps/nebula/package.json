@@ -69,7 +69,6 @@
   },
   "dependencies": {
     "@cloudflare/shell": "^0.4.0",
-    "@lumenize/auth": "*",
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",

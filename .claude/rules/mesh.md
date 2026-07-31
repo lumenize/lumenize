@@ -139,7 +139,7 @@ For Gateway-originated cleanup, prefer **reactive** patterns (e.g. drop-on-faile
 ## Nebula platform code never drops to raw primitives
 `apps/nebula` business logic (Galaxy, Star, Universe, Resources) stays on the Mesh surface — never raw Workers RPC, raw `acceptWebSocket`, or `extends DurableObject`. When a raw-level capability is genuinely needed, solve it **architecturally, not inline**:
 - **Add a hook at the mesh layer** and have the Nebula subclass use only the hook. Canonical: `NebulaClientGateway` adds no raw DO code — it overrides `LumenizeClientGateway` hooks (`onBeforeCallToMesh`, instance-name validation, …).
-- **Factor the raw-DO part into an infrastructure package.** Canonical: `nebula-auth` was forked from `auth` (both raw-DO infra, sharing code — see [raw-comm.md](raw-comm.md)) rather than embedding raw auth DOs in the platform.
+- **Factor the raw-DO part into an infrastructure package.** Canonical: `nebula-auth` was forked from `auth` (both raw-DO infra — see [raw-comm.md](raw-comm.md)) rather than embedding raw auth DOs in the platform. ⚠️ **They no longer share code**: `nebula-auth` dropped `@lumenize/auth` from its manifest entirely on 2026-07-31, and the two are now free to diverge. What they share is *extracted* (`@lumenize/crypto`), never a dependency on the auth product — any future sharing must follow that shape.
 
 If neither fits, that's a signal to extend Mesh itself — ask before dropping down. **Ergonomic friction counts too**: Nebula is Mesh's first (and only) consumer, so "this API is awkward to use from Nebula" is Mesh product feedback — flag it (backlog item or proposal), don't silently absorb it with app-side contortions.
 

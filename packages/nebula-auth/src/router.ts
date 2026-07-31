@@ -9,7 +9,7 @@
  * @see tasks/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
-import { verifyTurnstileToken } from '@lumenize/auth';
+import { verifyNebulaTurnstileToken } from './turnstile';
 // ⚠️ The `/client` subpath, deliberately — this module is re-exported from `@lumenize/nebula-auth`'s
 // widely-imported index, so a root-barrel import would drag `cloudflare:workers` through it (the
 // bare-`SyntaxError` failure `packaging.md` documents). mesh owns this wire protocol: it PRODUCES
@@ -328,7 +328,7 @@ async function checkTurnstile(request: Request, env: Env): Promise<Response | nu
   const turnstileToken = body['cf-turnstile-response'] ?? body['turnstileToken'];
   if (!turnstileToken) return jsonError(403, 'turnstile_required', 'Turnstile verification token is required');
 
-  const result = await verifyTurnstileToken(secretKey, turnstileToken);
+  const result = await verifyNebulaTurnstileToken(secretKey, turnstileToken);
   if (!result.success) return jsonError(403, 'turnstile_failed', 'Turnstile verification failed');
   return null;
 }

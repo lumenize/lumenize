@@ -50,9 +50,9 @@
     "wrangler": "^4.111.0"
   },
   "dependencies": {
-    "@lumenize/auth": "*",
     "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
+    "@lumenize/email": "*",
     "@lumenize/mesh": "*",
     "@lumenize/routing": "*",
     "@lumenize/sql-migrations": "*",

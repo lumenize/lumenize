@@ -388,12 +388,33 @@ executed coverage in its new home is worse than the shared one it replaced — s
 proving it, using an instrument that already exists.
 
 - **Success criteria (capable of failing):**
-  - `npm ls @lumenize/auth` resolves nothing from `packages/nebula-auth` or `apps/nebula`.
+  - Neither `packages/nebula-auth` nor `apps/nebula` **declares** `@lumenize/auth`, and `mesh`
+    declares it only as a `devDependency`:
+    `node -p "require('./packages/nebula-auth/package.json').dependencies['@lumenize/auth'] ?? 'ABSENT'"`
+    (likewise `apps/nebula`, and `packages/mesh` for `dependencies` vs `devDependencies`).
+    - ⚠️ **CORRECTED DURING BUILD (2026-07-31): `npm ls @lumenize/auth` CANNOT FAIL here** —
+      measured, exactly as Phase 3's identical defect predicted. With the entry gone from all three
+      `dependencies` blocks, `npm ls @lumenize/auth -w @lumenize/nebula-auth` **still prints it and
+      exits 0**, because mesh's surviving `devDependency` is hoisted and npm traverses it in a
+      workspace install. `npm ls` answers *"is it resolvable"*; the commitment is *"is it declared"*.
   - `grep -rln "@lumenize/auth" --include="*.ts" --exclude-dir=dist --exclude-dir=node_modules packages apps`
     returns only `packages/auth/**` and `packages/mesh/test/**`. ⚠️ This matches **prose as well as
     imports**, and `packages/email/src/types.ts` is allowed residue — triage every other hit rather
     than explaining it away; it is the only source-side detector of a missed import, since npm
     hoisting keeps `import '@lumenize/auth'` resolving after the manifest entry is gone.
+    - **Triage result (2026-07-31).** It caught **two real imports** that would otherwise have kept
+      resolving forever: `nebula-auth/test/nebula-email-sender.test.ts` (`type EmailMessage`) and
+      `nebula-auth/test/test-worker-and-dos.ts` (`type ResolvedEmail`), now pointing at
+      `../src/types` and `@lumenize/email`. It also caught one **stale** prose line
+      (`mint-narrower-token-payoff.test.ts:90` still calling `ActClaim` auth's after Phase 3 moved
+      it to `@lumenize/crypto`).
+    - The surviving out-of-scope hits are **prose that is accurate and worth keeping** — `crypto`
+      and `mesh/src` legitimately name `@lumenize/auth` when explaining whose access gate reads the
+      flat claims, `nebula-auth/src` carries the three deliberate-divergence headers, and
+      `apps/nebula/test/test-helpers.ts` documents auth's two-factor test-mode contrast. ⇒ **The
+      import-only form is the tripwire to re-run**
+      (`grep -rln "from '@lumenize/auth'" --include="*.ts" --exclude-dir=dist --exclude-dir=node_modules packages apps`);
+      it returns exactly `packages/auth/**` + `packages/mesh/test/**` with no allow-list needed.
   - Every copied file's header names its origin, the date, and that it is a deliberate divergence not
     to be re-synced.
   - **The copied turnstile actually runs:**
