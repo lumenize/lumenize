@@ -32,7 +32,7 @@
  * const client = new NebulaClient({ baseUrl, authScope, activeScope, refresh, ... });
  * ```
  */
-import { signJwt, importPrivateKey, generateUuid } from '@lumenize/auth/client';
+import { signJwt, importPrivateKey } from '@lumenize/auth/client';
 import { buildNebulaJwtPayload } from './access-claims';
 
 /** Options for {@link createNebulaTestToken}. */
@@ -98,7 +98,7 @@ export function createNebulaTestToken(
     activeKey = 'BLUE',
     activeScope,
     instanceName = activeScope,
-    sub = generateUuid(),
+    sub = crypto.randomUUID(),
     isAdmin = true,
     profileId,
     actor,

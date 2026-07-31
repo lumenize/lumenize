@@ -27,7 +27,7 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
-import { generateRandomString, generateUuid, hashString } from '@lumenize/auth';
+import { generateRandomString, hashString } from '@lumenize/auth';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
   NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,
@@ -154,10 +154,10 @@ export class NebulaAuthRegistry extends DurableObject {
     `;
     if (existing.length > 0) return existing[0].sub as string; // idempotent: existing sub AND profileId preserved
 
-    const sub = generateUuid();
+    const sub = crypto.randomUUID();
     // Mint the PUBLIC `profileId` in the SAME INSERT as `sub` (one write, not a second row). ADR-010:
     // both are random opaque UUIDs, minted without coordination. tasks/nebula-profile-store.md Phase 1.
-    const profileId = generateUuid();
+    const profileId = crypto.randomUUID();
     this.ctx.storage.sql.exec(
       `INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,

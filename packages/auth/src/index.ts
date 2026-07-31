@@ -21,7 +21,6 @@ export {
   importPrivateKey,
   importPublicKey,
   generateRandomString,
-  generateUuid,
   hashString,
   createJwtPayload,
   parseJwtUnsafe

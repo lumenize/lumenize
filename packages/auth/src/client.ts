@@ -33,7 +33,6 @@ export {
   importPrivateKey,
   importPublicKey,
   createJwtPayload,
-  generateUuid,
   generateRandomString,
   hashString,
 } from './jwt';

@@ -4,7 +4,6 @@ import { ALL_SCHEMAS } from './schemas';
 import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage } from './types';
 import {
   generateRandomString,
-  generateUuid,
   hashString,
   signJwt,
   verifyJwt,
@@ -805,7 +804,7 @@ export class LumenizeAuth extends DurableObject {
           // Exists but not verified — generate invite token and send
         } else {
           // Create new subject with adminApproved=true, emailVerified=false
-          const sub = generateUuid();
+          const sub = crypto.randomUUID();
           const now = Date.now();
           this.#sql`
             INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
@@ -1218,7 +1217,7 @@ export class LumenizeAuth extends DurableObject {
       sub = existingRows[0].sub;
     } else {
       // Create new subject
-      sub = generateUuid();
+      sub = crypto.randomUUID();
       this.#sql`
         INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
         VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, ${now}, ${now})

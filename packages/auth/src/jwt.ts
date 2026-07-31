@@ -109,13 +109,6 @@ export function generateRandomString(length: number = 32): string {
 }
 
 /**
- * Generate a UUID v4
- */
-export function generateUuid(): string {
-  return crypto.randomUUID();
-}
-
-/**
  * Hash a string using SHA-256
  */
 export async function hashString(str: string): Promise<string> {
@@ -271,7 +264,7 @@ export function createJwtPayload(options: {
     sub: options.subject,
     exp: now + options.expiresInSeconds,
     iat: now,
-    jti: generateUuid(),
+    jti: crypto.randomUUID(),
     emailVerified: options.emailVerified,
     adminApproved: options.adminApproved,
     ...(options.isAdmin ? { isAdmin: true } : {}),

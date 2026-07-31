@@ -15,7 +15,6 @@
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
 import type { Snapshot } from '@lumenize/nebula/client';
-import { generateUuid } from '@lumenize/auth/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver, mintDegradedToken, assertTokenRejected } from '../lib/harness';
 
@@ -23,13 +22,13 @@ import { connectDriver, mintDegradedToken, assertTokenRejected } from '../lib/ha
 export const SCOPE = 'claude.sandbox.dev';
 
 export async function run(stack: DevStack): Promise<void> {
-  const marker = `harness-marker-${generateUuid()}`;
+  const marker = `harness-marker-${crypto.randomUUID()}`;
   const driver = await connectDriver(stack, { scope: SCOPE });
 
   try {
     // ── POSITIVE: create Session + Message (ADR-006 by-id FK, client UUIDs) atomically ──
-    const sessionId = generateUuid();
-    const messageId = generateUuid();
+    const sessionId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
     const out = await driver.client.resources.transaction({
       [sessionId]: { op: 'create', typeName: 'Session', nodeId: ROOT_NODE_ID, value: { title: 'harness chat' } },
       [messageId]: {

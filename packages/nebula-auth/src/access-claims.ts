@@ -22,7 +22,6 @@
  * into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
  * (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
-import { generateUuid } from '@lumenize/auth/client';
 import type { AccessEntry, NebulaJwtPayload } from './types';
 import { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER } from './types';
 import { buildAuthScopePattern, matchAccess } from './parse-id';
@@ -115,7 +114,7 @@ export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtP
     sub: input.sub,
     exp: now + (input.ttlSeconds ?? ACCESS_TOKEN_TTL),
     iat: now,
-    jti: generateUuid(),
+    jti: crypto.randomUUID(),
     access,
     ...(input.profileId ? { profileId: input.profileId } : {}),
     // ⚠️ The `profileId` key is spread CONDITIONALLY inside `act`, never `act` itself conditionally:

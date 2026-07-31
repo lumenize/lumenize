@@ -27,7 +27,6 @@
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
-import { generateUuid } from '@lumenize/auth/client';
 import type { DevStack } from '../lib/harness';
 import { connectDriver } from '../lib/harness';
 
@@ -61,11 +60,11 @@ export async function run(stack: DevStack): Promise<void> {
 
   try {
     const adminOut = await admin.client.resources.transaction({
-      [generateUuid()]: {
+      [crypto.randomUUID()]: {
         op: 'create',
         typeName: 'Message',
         nodeId: ROOT_NODE_ID,
-        value: { session: generateUuid(), role: 'user', content: '* super-admin reach' },
+        value: { session: crypto.randomUUID(), role: 'user', content: '* super-admin reach' },
       },
     });
     assert.equal(
@@ -75,11 +74,11 @@ export async function run(stack: DevStack): Promise<void> {
     );
 
     const controlOut = await control.client.resources.transaction({
-      [generateUuid()]: {
+      [crypto.randomUUID()]: {
         op: 'create',
         typeName: 'Message',
         nodeId: ROOT_NODE_ID,
-        value: { session: generateUuid(), role: 'user', content: 'should be denied' },
+        value: { session: crypto.randomUUID(), role: 'user', content: 'should be denied' },
       },
     });
     assert.equal(
