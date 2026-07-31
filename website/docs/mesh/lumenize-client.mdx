@@ -96,12 +96,16 @@ using client = new EditorClient({
 ```typescript @skip-check-approved('conceptual')
 const userId = client.claims?.sub;        // JWT subject (the user's stable ID)
 const tenant = client.claims?.aud;        // JWT audience
-const isAdmin = client.claims?.isAdmin;   // Lumenize-auth admin flag
+
+// A CUSTOM claim is not on `JwtPayload`, so declare the shape your provider mints —
+// `LumenizeClient` is generic over it — and the access is typed:
+//   class MyClient extends LumenizeClient<JwtPayload & { isAdmin?: boolean }> {}
+const isAdmin = client.claims?.isAdmin;   // typed via the client's own claim shape
 ```
 
 `claims` is `null` until the first successful token refresh or until an initial `accessToken` is parsed at construction time. Use the optional chain (`client.claims?.sub`) for any code that may run before a token is available.
 
-`@lumenize/auth` issues the JWT and defines the [`JwtPayload`](../auth/) shape — the registered claims. Anything beyond those is a first-party custom claim: pass it as `customClaims` at mint and it is spread **flat** onto the token, so it arrives on `client.claims` under its own name alongside `sub` and `aud`. Declare the shape your provider mints as its own interface (that is what `AuthClaims` is for `@lumenize/auth`) and narrow to it where you read the claims.
+`@lumenize/auth` issues the JWT; [`JwtPayload`](../auth/#jwt-claims) — the registered claims — is defined in `@lumenize/crypto`. Anything beyond those is a first-party custom claim: pass it as `customClaims` at mint and it is spread **flat** onto the token, so it arrives on `client.claims` under its own name alongside `sub` and `aud`. Declare the shape your provider mints as its own interface (that is what `AuthClaims` is for `@lumenize/auth`) and narrow to it where you read the claims.
 
 ## Mesh API
 

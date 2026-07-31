@@ -1,4 +1,4 @@
-import type { JwtHeader, JwtPayload } from './types';
+import type { ActClaim, JwtHeader, JwtPayload } from './types';
 
 /**
  * Base64URL encode a string or ArrayBuffer
@@ -247,8 +247,8 @@ export function parseJwtUnsafe(token: string): { header: JwtHeader; payload: Jwt
  * Create a JWT payload: the registered claims, plus any first-party custom claims spread
  * FLAT at the payload's top level.
  *
- * Carries no auth policy — the caller supplies whatever custom claims its layer defines
- * (see `AuthClaims` for this package's).
+ * Carries no auth policy — the caller supplies whatever custom claims its layer defines.
+ * (`@lumenize/auth`'s are its `AuthClaims`; this package declares none, deliberately.)
  *
  * ⚠️ **Registered claims win.** `customClaims` is spread FIRST, so a bag carrying `sub` or
  * `exp` cannot shadow the computed values — a *custom* claim is by definition not a
@@ -259,7 +259,7 @@ export function createJwtPayload(options: {
   audience: string;
   subject: string;
   expiresInSeconds: number;
-  act?: { sub: string; act?: any };
+  act?: ActClaim;
   /** Spread flat into the token — never nested under a `customClaims` key on the wire. */
   customClaims?: Record<string, unknown>;
 }): JwtPayload {

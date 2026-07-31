@@ -231,10 +231,23 @@ reshape and it depends on the bag being optional.
     payload's **top level**, and `originAuth.claims.isAdmin` is `true` end to end through the Gateway.
   - **Precedence:** `createJwtPayload({ subject: 'a', …, customClaims: { sub: 'b', exp: 9e9 } })`
     yields `sub === 'a'` and the computed `exp`.
-  - **The gate stays typed, symmetrically:** `grep -nE 'as any|as unknown as' packages/auth/src/hooks.ts`
-    returns nothing, **and** `grep -n 'signJwt(payload as any' packages/nebula-auth/src/worker-token.ts`
+  - **The gate stays typed, symmetrically:**
+    `grep -nE '(payload|claims)[^;]*\bas (any|unknown as)' packages/auth/src/hooks.ts` returns
+    nothing, **and** `grep -n 'signJwt(payload as any' packages/nebula-auth/src/worker-token.ts`
     returns nothing. ⚠️ The earlier one-sided criterion (banning casts in `nebula-auth/src` while
     silent on `auth/src`) let the phase claim credit for deleting one cast while creating another.
+    - ⚠️ **CORRECTED DURING BUILD (2026-07-31) — the FOURTH uncheckable criterion in this file, and
+      the only one caught by the `/build-task` verifier panel rather than by building.** The
+      unscoped form (`grep -nE 'as any|as unknown as' packages/auth/src/hooks.ts`) can never return
+      nothing: `hooks.ts:221` and `:232` hold two **pre-existing** `Env`-binding casts
+      (`env as unknown as Record<string, unknown>` for the rate-limiter and optional-var reads),
+      unrelated to the JWT payload and present before this task started. So its expected output was
+      known-false, and an instrument nobody can gate on is worse than none — a future *payload* cast
+      would arrive as hit #3 in a check everyone has learned returns hits, which is precisely the
+      hole this criterion was added to close. Scoped to the payload path, it returns nothing and
+      reds on the regression it exists for. (Widening `Env` per `critical.md`'s `Env & { X?: T }`
+      allowance would also satisfy the unscoped form, but that is an unrelated edit to auth's
+      binding reads, not this task's business.)
   - `npm run type-check` clean; auth, nebula-auth and mesh suites green; `/live impersonation-lifecycle`
     passes (it is in CI, so it is free — `message-roundtrip` is not).
 - **Mutation notes:** (a) rename the bag key at the mint site (`emailVerifed`) → `type-check` reds,
@@ -316,9 +329,12 @@ the subpath deletion specifically; the phase bundles the rest by choice, for one
     - ⚠️ **CORRECTED DURING BUILD (2026-07-31). The originally-specified `npm ls @lumenize/crypto -w …`
       instrument CANNOT FAIL here** — measured. With `@lumenize/crypto` deleted from
       `packages/mesh/package.json`, `npm ls` still prints it and **exits 0**, because it is reached
-      transitively via `@lumenize/auth` (which declares it); `--depth=0` does not help either. Since
-      `auth`, `nebula-auth` and `apps/nebula` all sit on that same transitive path, the check was
-      vacuous for three of the four. `npm ls` answers *"is it resolvable"*; the commitment here is
+      transitively via `@lumenize/auth` (which declares it); `--depth=0` does not help either. ⚠️ **Re-measured
+      after the verifier panel challenged it: vacuous for THREE of the four, not all four.**
+      `mesh`, `nebula-auth` and `apps/nebula` all reach crypto transitively **through `auth`**, so
+      the check cannot fail for them; for `packages/auth` itself there is no such path and
+      `npm ls` correctly prints `(empty)`. The instrument is therefore not useless — it is
+      unreliable in exactly the three places that matter most, which is worse. `npm ls` answers *"is it resolvable"*; the commitment here is
       *"is it declared"*, and only reading the manifest answers that.
     - The second half of the old mutation note was right and is why this matters: mesh's `tsc`
       **passes** with the entry missing (root `node_modules/@lumenize/*` symlinks resolve an
@@ -352,7 +368,7 @@ the subpath deletion specifically; the phase bundles the rest by choice, for one
 
 ### 4. The WebSocket subprotocol token is defined once on the Nebula path, in the package that produces it
 
-`extractWebSocketToken` and the `lmz.access-token.` prefix move into **`packages/mesh/src/client-index.ts`**
+`extractWebSocketToken` and the `lmz.access-token.` prefix move into **`@lumenize/mesh/client`**
 (not the root barrel — `nebula-auth/src/router.ts` is re-exported from `nebula-auth`'s widely-imported
 index, so a root-barrel import drags `cloudflare:workers` through it, the bare-`SyntaxError` failure
 `packaging.md` documents; precedent is `nebula-auth/src/types.ts:14` already importing from
@@ -399,10 +415,13 @@ executed coverage in its new home is worse than the shared one it replaced — s
 proving it, using an instrument that already exists.
 
 - **Success criteria (capable of failing):**
-  - Neither `packages/nebula-auth` nor `apps/nebula` **declares** `@lumenize/auth`, and `mesh`
-    declares it only as a `devDependency`:
-    `node -p "require('./packages/nebula-auth/package.json').dependencies['@lumenize/auth'] ?? 'ABSENT'"`
-    (likewise `apps/nebula`, and `packages/mesh` for `dependencies` vs `devDependencies`).
+  - Neither `packages/nebula-auth` nor `apps/nebula` **declares** `@lumenize/auth` in `dependencies`
+    **or `devDependencies`**, and `mesh` declares it only as a `devDependency`. Read BOTH blocks —
+    a `devDependencies` entry restores the accidental-import hazard for every test file, which is
+    most of the surface this task repointed:
+    `node -p "const p=require('./packages/nebula-auth/package.json'); (p.dependencies?.['@lumenize/auth'] ?? p.devDependencies?.['@lumenize/auth']) ?? 'ABSENT'"`
+    (likewise `apps/nebula`; for `packages/mesh`, `dependencies` must be ABSENT and
+    `devDependencies` present).
     - ⚠️ **CORRECTED DURING BUILD (2026-07-31): `npm ls @lumenize/auth` CANNOT FAIL here** —
       measured, exactly as Phase 3's identical defect predicted. With the entry gone from all three
       `dependencies` blocks, `npm ls @lumenize/auth -w @lumenize/nebula-auth` **still prints it and
@@ -413,6 +432,15 @@ proving it, using an instrument that already exists.
     imports**, and `packages/email/src/types.ts` is allowed residue — triage every other hit rather
     than explaining it away; it is the only source-side detector of a missed import, since npm
     hoisting keeps `import '@lumenize/auth'` resolving after the manifest entry is gone.
+    - ⚠️ **CORRECTED DURING BUILD (2026-07-31), for consistency with the `npm ls` bullet above.**
+      As written this criterion **cannot pass and is not meant to**: the prose-matching form
+      legitimately returns ~8 further paths (deliberate-divergence headers in `nebula-auth/src`,
+      accurate explanatory prose in `crypto/src` and `mesh/src`, `apps/nebula/test/test-helpers.ts`'s
+      contrast with auth's two-factor test mode). Those are the hits it exists to make you *triage*,
+      not hits to eliminate. ⇒ **The prose form is the one-time triage pass; the re-runnable
+      tripwire is the import-only form**, which needs no allow-list:
+      `grep -rln "from '@lumenize/auth'" --include="*.ts" --exclude-dir=dist --exclude-dir=node_modules packages apps`
+      returns exactly `packages/auth/**` + `packages/mesh/test/**`.
     - **Triage result (2026-07-31).** It caught **two real imports** that would otherwise have kept
       resolving forever: `nebula-auth/test/nebula-email-sender.test.ts` (`type EmailMessage`) and
       `nebula-auth/test/test-worker-and-dos.ts` (`type ResolvedEmail`), now pointing at

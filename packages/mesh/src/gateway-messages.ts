@@ -34,7 +34,7 @@ export const WS_CLOSE_SUPERSEDED = 4409;
  * ⚠️ **A PUBLISHED WIRE CONVENTION, not an internal detail.** `website/docs/mesh/security.mdx`
  * teaches third parties to hand-write `new WebSocket(url, ['lmz', \`lmz.access-token.${'${token}'}\`])`,
  * and deployed clients already send this exact string — so changing the value is a breaking
- * protocol change, not a rename. `mesh/test/gateway-messages.test.ts` pins the literal for
+ * protocol change, not a rename. `mesh/test/ws-token-subprotocol.test.ts` pins the literal for
  * that reason; a producer→consumer round-trip cannot catch it, being true by construction once
  * both ends share this constant.
  *

@@ -17,9 +17,9 @@
  * ([`tasks/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
- * PURE by construction: imports only `./parse-id`, `./types`, and the Node-safe
- * `@lumenize/crypto` JWT primitives — no `cloudflare:workers` anywhere in that package's graph —
- * so it is safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
+ * PURE by construction: imports only `./parse-id` and `./types` — no `cloudflare:workers`, and as of
+ * 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so it is
+ * safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
  * (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
 import type { AccessEntry, NebulaJwtPayload } from './types';

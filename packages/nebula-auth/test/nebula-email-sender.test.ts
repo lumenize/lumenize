@@ -50,6 +50,11 @@ describe('the instance tag is stamped from the field, for every message variant'
       magicLinkUrl: `http://localhost/auth/${SCOPE}/magic-link?one_time_token=abc` }],
     ['invite-new', { type: 'invite-new', to: 'a@lumenize.io', instanceName: SCOPE,
       inviteUrl: `http://localhost/auth/${SCOPE}/accept-invite?invite_token=abc` }],
+    // ⚠️ THE CASE THE CHANGE EXISTS FOR. Its URL (`/app`) carries no instance segment, so under
+    // URL derivation this shipped UNTAGGED even though its instance was known — and
+    // `invite-existing` is exactly that shape and a variant wanted soon. The failure was silent:
+    // an untagged mail lands in the email-test catch-all bucket, so `waitForEmail({ instance })`
+    // never matches and the caller dies on a 60s timeout with nothing pointing at the sender.
     ['invite-existing', { type: 'invite-existing', to: 'a@lumenize.io', instanceName: SCOPE,
       redirectUrl: 'http://localhost/app' }],
     ['approval-confirmation', { type: 'approval-confirmation', to: 'a@lumenize.io', instanceName: SCOPE,
@@ -62,19 +67,8 @@ describe('the instance tag is stamped from the field, for every message variant'
 });
 
 describe('the correctness gap this closed', () => {
-  // ⚠️ THE WHOLE POINT OF THE CHANGE. Under URL derivation this shipped UNTAGGED even though its
-  // instance was known, because `/app` carries no instance segment — and `invite-existing` is
-  // exactly that shape and is a variant wanted soon. The failure was silent: an untagged mail lands
-  // in the email-test catch-all bucket, so `waitForEmail({ instance })` never matches and the
-  // caller dies on a 60s timeout with nothing pointing at the sender.
-  it('tags mail whose URL carries NO instance segment', async () => {
-    expect(await headersFor({
-      type: 'invite-existing',
-      to: 'a@lumenize.io',
-      instanceName: SCOPE,
-      redirectUrl: 'http://localhost/app',
-    })).toEqual(TAG);
-  });
+  // (The "URL carries no instance segment" case is the `invite-existing` row in the table above —
+  // asserting it twice would add prose, not coverage.)
 
   // A newly-possible failure class, and therefore worth pinning: URL derivation could not disagree
   // with the URL, but a caller-supplied field can. The field wins — the URL is not consulted.

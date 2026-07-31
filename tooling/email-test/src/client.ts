@@ -44,10 +44,9 @@ export interface WaitForEmailOptions {
    *
    * Omit to subscribe to ALL emails. ⚠️ **`uniqueTestEmail()` + `to` is still the better isolation
    * default**, and the reason has changed: not because mail might be untagged, but because two
-   * listeners on the SAME instance still race each other — and a listener that omits `to` first
-   * issues a `clear` (scoped by `instance` when given), which destroys a concurrently-waiting
-   * sibling's stored mail. Supplying `to` skips the clear entirely, so a unique recipient needs no
-   * cooperation from the sender and cannot collide.
+   * listeners on the SAME instance race for the next-arriving mail. Supplying `to` also skips the
+   * startup `clear` this helper otherwise issues (see `emailPromise` below), which a unique
+   * recipient never needs — so it requires no cooperation from the sender and cannot collide.
    */
   instance?: string;
   /**

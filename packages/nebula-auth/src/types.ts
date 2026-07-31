@@ -16,6 +16,13 @@ import type { ResolvedEmail } from '@lumenize/email';
 import { TOKEN_REFRESH_AHEAD_SECONDS } from '@lumenize/mesh/client';
 export type { ResolvedEmail };
 
+/** Fields every `EmailMessage` variant carries. Internal — the union below is the public shape. */
+type EmailMessageBase = {
+  to: string;
+  /** The `universeGalaxyStarId` this mail is about — stamped as the routing header, never derived. */
+  instanceName: string;
+};
+
 /**
  * Discriminated union for email messages sent by Nebula auth.
  *
@@ -40,12 +47,6 @@ export type { ResolvedEmail };
  * bucket, so `waitForEmail({ instance })` never matches and the caller dies on a timeout with
  * nothing pointing at the sender.)
  */
-type EmailMessageBase = {
-  to: string;
-  /** The `universeGalaxyStarId` this mail is about — stamped as the routing header, never derived. */
-  instanceName: string;
-};
-
 export type EmailMessage =
   | (EmailMessageBase & { type: 'magic-link'; magicLinkUrl: string })
   | (EmailMessageBase & { type: 'admin-notification'; subjectEmail: string; approveUrl: string })
@@ -62,8 +63,10 @@ export type EmailMessage =
  * every layer, and ADR-013 makes it display-only).
  *
  * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
- * its type is out of scope (and one more divergence for
- * `tasks/nebula-auth-decouple-from-auth.md` to reconcile). ⚠️ `apps/nebula/src/resources.ts`
+ * its type is out of scope. ⚠️ **Not a pending reconciliation** — `nebula-auth-decouple-from-auth.md`
+ * considered folding this widening into the shared package and REJECTED it (widening now buys a shape
+ * about to change); ADR-016 / `nebula-pre-alpha.md` schema-surgery item 6 is where `projectActClaim`'s
+ * deletion actually lives, as `resources.ts` already cites. ⚠️ `apps/nebula/src/resources.ts`
  * keeps importing the **narrow** `@lumenize/crypto` type: its `changedBy` is a persistence boundary, and
  * declaring an optional `profileId` there is the ADR-001 divergence `projectActClaim` exists to
  * prevent. **The type system is not a guard across that seam** — the widened shape is structurally
@@ -257,8 +260,8 @@ export const NEBULA_AUTH_PREFIX = '/auth';
 
 /**
  * The auth routes whose URL carries the `instanceName` segment. Its job is to type
- * `instanceAuthUrl`'s `route` parameter, so a route that does not exist cannot be interpolated
- * into an auth URL — a typo is a compile error rather than a silently-404ing link in an email.
+ * `instanceAuthUrl`'s `route` parameter: adding a route here is a deliberate one-line act, while
+ * mistyping one at a call site is a compile error rather than a silently-404ing link in an email.
  *
  * ⚠️ **Re-derived 2026-07-31, and the old rationale is DEAD — do not restore it.** This used to be
  * the single source for *building* those URLs **and** for *recognizing* them: `NebulaEmailSender`

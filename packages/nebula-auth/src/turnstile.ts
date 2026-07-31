@@ -7,9 +7,9 @@
  * A future session diffing them and "unifying" them would look diligent while silently restoring
  * the coupling this file exists to delete. Don't.
  *
- * **Renamed on arrival** (`verifyTurnstileToken` → `verifyNebulaTurnstileToken`): the original
- * stays live in `packages/auth` and five website docs, so an identically-named copy would be
- * ambiguous at every call site repo-wide. Removing the manifest entry only closes the
+ * **Renamed on arrival** (`verifyTurnstileToken` → `verifyNebulaTurnstileToken`): the original stays
+ * live in `packages/auth` (`turnstile.ts`, `create-auth-routes.ts`, `index.ts`), so an
+ * identically-named copy would be ambiguous at every call site repo-wide. Removing the manifest entry only closes the
  * accidental-*import* hazard inside this package, not the reader-ambiguity one everywhere else.
  *
  * @see https://developers.cloudflare.com/turnstile/get-started/server-side-validation/

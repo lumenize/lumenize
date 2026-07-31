@@ -562,7 +562,7 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 
 ⚠️ `NEBULA_AUTH_TEST_MODE` has **no second factor** — unlike `@lumenize/auth`, the decision is made inside the registry DO with no request URL to sniff, so a leak on a deployed Worker would hand magic links to ordinary traffic. Its absence from every deployable surface *is* the control, enforced by `scripts/audit-test-mode.sh`.
 
-Email provider selection is delegated to `@lumenize/auth` / `@lumenize/email` (the `EMAIL` binding selects Cloudflare; otherwise Resend).
+Email provider selection is delegated to `@lumenize/email` (the `EMAIL` binding selects Cloudflare; otherwise Resend).
 
 ### Hardcoded constants
 
