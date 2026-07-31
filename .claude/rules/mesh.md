@@ -145,3 +145,24 @@ If neither fits, that's a signal to extend Mesh itself — ask before dropping d
 
 ## Package dependency direction
 `@lumenize/mesh` is the MIT foundation. Nebula packages extend mesh but **never the reverse** — mesh must not import nebula/nebula-auth/apps. When deciding where code belongs: generic DO/Worker mesh plumbing → `mesh`; product/ontology/resource logic → `nebula`; auth/identity → `auth`/`nebula-auth`. Flag any import that points "up" the graph (mesh → nebula).
+
+⚠️ **Carve-out — mesh owns the WIRE PROTOCOL; auth owns what the token MEANS.** The
+"auth/identity → `auth`/`nebula-auth`" clause is about verification, gating and key handling, not
+about the bytes on the socket. **Producing and parsing the `lmz.access-token.` WebSocket
+subprotocol lives in `mesh`** (`src/gateway-messages.ts`, exported from `@lumenize/mesh/client` —
+`WS_TOKEN_PREFIX`, `extractWebSocketToken`), because mesh's `LumenizeClient` is the **producer**:
+splitting the two ends across packages made them a never-re-sync copy of a live protocol, whose
+failure mode is a silent 401 on upgrade. Verification of the extracted token stays in
+`auth`/`nebula-auth`. Without this note a future session helpfully moves it back.
+
+- Nebula consumers import from **`@lumenize/mesh/client`, not the root barrel** — `nebula-auth`'s
+  `router.ts` is re-exported from a widely-imported index, so the barrel would drag
+  `cloudflare:workers` through it (`packaging.md`'s bare-`SyntaxError`).
+- ⚠️ **`packages/auth/src/hooks.ts` keeps a KNOWN second copy, deliberately.** `auth` must not
+  depend on `mesh`, yet mesh routes its own e2e WebSocket upgrades through auth's hooks — so the
+  property is "defined once **on the Nebula path**", never "defined once repo-wide". Both sites
+  carry reciprocal comments; `mesh/test/browser/ws-roundtrip-browser.test.ts` covers that coupling
+  in CI. The prefix is additionally a **published wire convention**
+  (`website/docs/mesh/security.mdx` teaches third parties to hand-write it), so its value is pinned
+  as a literal in `mesh/test/ws-token-subprotocol.test.ts` — changing it is a breaking protocol
+  change, not a rename.

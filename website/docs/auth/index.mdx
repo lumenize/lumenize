@@ -129,10 +129,11 @@ sequenceDiagram
 ## JWT Claims
 
 Access tokens contain standard JWT claims plus status and role information. The two are declared
-separately: `JwtPayload` is the registered claims and carries no auth policy, while this package's
-own status and role flags live in `AuthClaims`.
+separately, in two packages: **`JwtPayload` is the registered claims and is imported from
+`@lumenize/crypto`**, carrying no auth policy — while this package's own status and role flags are
+`AuthClaims`, imported from `@lumenize/auth` (as is `AuthJwtPayload`, the two combined).
 
-```typescript @check-example('packages/auth/src/types.ts')
+```typescript @check-example('packages/crypto/src/types.ts')
 interface JwtPayload {
   // Standard claims (RFC 7519)
   iss: string;          // Issuer

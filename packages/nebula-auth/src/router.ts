@@ -9,7 +9,12 @@
  * @see tasks/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
-import { extractWebSocketToken, verifyTurnstileToken } from '@lumenize/auth';
+import { verifyTurnstileToken } from '@lumenize/auth';
+// ⚠️ The `/client` subpath, deliberately — this module is re-exported from `@lumenize/nebula-auth`'s
+// widely-imported index, so a root-barrel import would drag `cloudflare:workers` through it (the
+// bare-`SyntaxError` failure `packaging.md` documents). mesh owns this wire protocol: it PRODUCES
+// the subprotocol in `lumenize-client.ts` and parses it here.
+import { extractWebSocketToken } from '@lumenize/mesh/client';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
 import { matchAccess, parseId } from './parse-id';
 import { NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME } from './types';

@@ -46,6 +46,8 @@ export {
   GatewayMessageType,
   ClientDisconnectedError,
   WS_CLOSE_SUPERSEDED,
+  WS_TOKEN_PREFIX,
+  extractWebSocketToken,
 } from './gateway-messages';
 export type {
   CallMessage,

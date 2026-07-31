@@ -75,6 +75,7 @@ function buildClientOutgoingContext(
 }
 import {
   GatewayMessageType,
+  WS_TOKEN_PREFIX,
   type CallMessage,
   type CallResponseMessage,
   type IncomingCallMessage,
@@ -794,7 +795,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
       // Build protocols array with token
       const protocols = ['lmz'];
       if (this.#accessToken) {
-        protocols.push(`lmz.access-token.${this.#accessToken}`);
+        protocols.push(`${WS_TOKEN_PREFIX}${this.#accessToken}`);
       }
 
       // Create WebSocket

@@ -21,7 +21,7 @@ import { env } from 'cloudflare:workers';
 import { debug } from '@lumenize/debug';
 import { routeNebulaAuthRequest, verifyNebulaAccessToken } from '@lumenize/nebula-auth';
 import { routeDORequest, type CorsOptions } from '@lumenize/routing';
-import { extractWebSocketToken } from '@lumenize/auth';
+import { extractWebSocketToken } from '@lumenize/mesh/client';
 
 /**
  * Parse the `LUMENIZE_APPROVED_ORIGINS` env var into a `CorsOptions` allowlist.

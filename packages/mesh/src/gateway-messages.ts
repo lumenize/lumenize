@@ -25,6 +25,53 @@ import type { NodeIdentity, OriginAuth } from './types.js';
 export const WS_CLOSE_SUPERSEDED = 4409;
 
 // ============================================
+// Access-token subprotocol
+// ============================================
+
+/**
+ * Subprotocol prefix carrying the access token on a WebSocket upgrade.
+ *
+ * ⚠️ **A PUBLISHED WIRE CONVENTION, not an internal detail.** `website/docs/mesh/security.mdx`
+ * teaches third parties to hand-write `new WebSocket(url, ['lmz', \`lmz.access-token.${'${token}'}\`])`,
+ * and deployed clients already send this exact string — so changing the value is a breaking
+ * protocol change, not a rename. `mesh/test/gateway-messages.test.ts` pins the literal for
+ * that reason; a producer→consumer round-trip cannot catch it, being true by construction once
+ * both ends share this constant.
+ *
+ * Lives here because this module is the Workers-free wire-protocol home: the PRODUCER
+ * (`lumenize-client.ts` `#connect`) and the `@lumenize/mesh/client` entry both reach it without
+ * dragging `cloudflare:workers` into a browser bundle.
+ *
+ * ⚠️ `packages/auth/src/hooks.ts` keeps its own copy of this prefix and of
+ * {@link extractWebSocketToken}, deliberately — `auth` must not depend on `mesh`. See the
+ * reciprocal note there.
+ */
+export const WS_TOKEN_PREFIX = 'lmz.access-token.';
+
+/**
+ * Pull the access token out of a WebSocket upgrade's `Sec-WebSocket-Protocol` header.
+ *
+ * Returns `null` when the header is absent or carries no token protocol — callers decide
+ * whether that is a rejection, since some upgrades are legitimately unauthenticated.
+ */
+export function extractWebSocketToken(request: Request): string | null {
+  const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');
+  if (!protocolHeader) {
+    return null;
+  }
+
+  const protocols = protocolHeader.split(',').map((p) => p.trim());
+
+  for (const protocol of protocols) {
+    if (protocol.startsWith(WS_TOKEN_PREFIX)) {
+      return protocol.slice(WS_TOKEN_PREFIX.length);
+    }
+  }
+
+  return null;
+}
+
+// ============================================
 // Wire Protocol Message Types
 // ============================================
 
