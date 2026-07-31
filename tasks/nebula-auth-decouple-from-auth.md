@@ -1,214 +1,209 @@
 # Decouple `nebula-auth` from `@lumenize/auth` — extract the crypto core, copy the rest
 
-**Status:** 📝 **DRAFTED 2026-07-31**, design intent under hand review. Every number below was checked
-against disk. **Deliberately has no phases yet** — write them with `/write-task` after `/review-task`
-Stage 1, before Stage 2.
+**Status:** 📝 **DRAFTED 2026-07-31.** Hand-reviewed + `/review-task` **Stage 1** resolved (20 findings,
+all applied). **Phases next** — `/write-task` pass 2, then Stage 2.
 
 ## Objective
 
-**`packages/nebula-auth` stops depending on `@lumenize/auth` — no entry in its `package.json` at
-all.** Two moves get there, and the split between them — by **security weight** — is the whole design:
+**`packages/nebula-auth` stops depending on `@lumenize/auth` — no entry in its `package.json` at all.**
+Three moves, split by **security weight**:
 
-1. **Extract** the JWT/crypto core into `@lumenize/crypto`. Shared, one owner, security fixes land once.
-2. **Copy** the email-sender base and two small utilities into `nebula-auth`. Deliberately forked,
-   free to diverge, never re-synced.
+1. **Extract** the JWT/crypto core into `@lumenize/crypto` — a *generic* primitive package carrying no
+   auth policy (see Decisions). Shared, one owner, security fixes land once.
+2. **Copy** the email sender and turnstile into `nebula-auth`. Deliberately forked, free to diverge,
+   never re-synced.
+3. **Spend the freedom immediately**, as a late phase: **stamp a required `instanceName` on
+   `EmailMessage` and delete the URL re-parse**. Impossible before the copy, cheap right after, and
+   what makes this task deliver a working improvement rather than only preventing future drift.
 
-**Then a third move that spends the freedom immediately**, as a late phase rather than a backlog
-entry: **stamp `instanceName` on `EmailMessage` and delete the URL re-parse** (see *What the copy
-unblocks*). It is impossible before the copy and cheap right after it, and it is what makes this task
-deliver a working improvement rather than only preventing future drift.
-
-**The consequence that makes it worth doing: `packages/auth` ends with zero `src` consumers anywhere
-in the repo.** `mesh` and `apps/nebula` both drop it too (see *What is actually coupled*), so it
-becomes a leaf — still published, still documented, but no longer load-bearing in Nebula's production
-graph and therefore free to go dormant whenever that is the right call.
+**The consequence that makes it worth doing: `packages/auth` ends with zero `src` consumers anywhere in
+the repo** — `mesh` and `apps/nebula` drop it too. It becomes a leaf: still published, still documented,
+no longer load-bearing in Nebula's production graph, free to go dormant whenever that is the right call.
 
 ## Why this exists
 
-`nebula-auth` was **forked** from `@lumenize/auth`, not composed with it, and the two have been
-quietly diverging on policy ever since. The forcing example is a live `security.md` **conformance
-gap**: `packages/auth/src/lumenize-auth.ts:358` still revokes-and-reissues on refresh — *"Revoke old
-refresh token (rotation)"* — a month after that decision was recorded as **dropped, do not
-re-introduce**. It landed in `nebula-auth` only, and nobody noticed, because sharing a package
-manufactures an impression of shared ownership that is not true.
+`nebula-auth` was **forked** from `@lumenize/auth`, not composed with it, and the two have been quietly
+diverging on policy ever since. The forcing example is a live `security.md` **conformance gap**:
+`packages/auth/src/lumenize-auth.ts:358` still revokes-and-reissues on refresh — *"Revoke old refresh
+token (rotation)"* — a month after that was recorded as **dropped, do not re-introduce**. It landed in
+`nebula-auth` only, and nobody noticed, because sharing a package manufactures an impression of shared
+ownership that is not true. ⚠️ **Reliability, not vulnerability** — the failure mode is a spurious
+logout when two refreshes race a single-use token, and nobody consumes base `@lumenize/auth` but us.
 
-⚠️ **Reliability, not vulnerability.** The failure mode is a spurious logout when two refreshes race
-a single-use token, and nobody consumes base `@lumenize/auth` but us.
-
-The day-to-day cost is ceremony disproportionate to the change. A 2026-07-30 refactor of the email
+The day-to-day cost is ceremony disproportionate to the change: a 2026-07-30 refactor of the email
 sender's header hook — code with **exactly one real consumer** — required a `BREAKING` commit, a
 repo-wide override sweep, and a release-notes flag against a package with 25 npm downloads a month.
 
-⚠️ **This does NOT deprecate `@lumenize/auth`.** It stays published and stays documented at
-`website/docs/auth`. The question this file answers is only *what should depend on it*.
+This does **not** deprecate `@lumenize/auth` (see Decisions); it makes deprecating it *possible* later.
 
 ## What is actually coupled — measured 2026-07-30/31
 
-`nebula-auth/src` imports **13** symbols from `@lumenize/auth`. They split cleanly by security weight,
-and that split is the design:
+`nebula-auth/src` imports **13** symbols from `@lumenize/auth`, and they split cleanly by security weight:
 
 | Piece | Lines | Consumers outside `packages/auth` | Security weight | Verdict |
 |---|---|---|---|---|
-| `jwt.ts` — sign/verify/importKeys + `parseJwtUnsafe`, `createJwtPayload`, and the `JwtPayload` / `JwtHeader` / `ActClaim` types | 281 | mesh (`src`), nebula-auth (`src` + tests), apps/nebula (`src`, `ActClaim` type-only) | **HIGH** — crypto, incl. BLUE/GREEN key rotation (`verifyJwtWithRotation`) | **Extract** → `@lumenize/crypto` |
-| `auth-email-sender-base.ts` + `EmailMessage` / `ResolvedEmail` | 217 | **nebula-auth only** — mesh touches it in `test/browser/` + `test/for-docs/`, never `src` | none | **Copy** |
+| `jwt.ts` — Ed25519 sign/verify/importKeys, `hashString`, `generateRandomString`, `parseJwtUnsafe`, `createJwtPayload` + the `JwtPayload` / `JwtHeader` / `ActClaim` types | 281 | mesh (`src`), nebula-auth (`src` + tests), apps/nebula (`src` type-only, + harness) | **HIGH** — crypto, incl. BLUE/GREEN key rotation (`verifyJwtWithRotation`) | **Extract** → `@lumenize/crypto`, reshaped |
+| `auth-email-sender-base.ts` + `EmailMessage` | 217 | **nebula-auth only** — mesh touches it in `test/browser/` + `test/for-docs/`, never `src` | none | **Copy**, collapsed into `NebulaEmailSender` |
 | `turnstile.ts` (`verifyTurnstileToken`) | 47 | nebula-auth | low — a thin API call | **Copy** |
-| `extractWebSocketToken` (of `hooks.ts`'s 416) | 13 | nebula-auth, apps/nebula | low | **Copy**, re-exported for apps/nebula |
+| `extractWebSocketToken` (of `hooks.ts`'s 416) | 13 | nebula-auth, apps/nebula | low | **Move to `@lumenize/mesh`** — not copied |
 
-Copied total ≈ 280 lines.
+**The other consumers**, all of which also lose their `@lumenize/auth` manifest entry:
 
-**The other two consumers**, both of which also lose their `@lumenize/auth` manifest entry:
-
-- **`mesh/src`** — four crypto symbols across two files: `parseJwtUnsafe` (`lumenize-client.ts:3`,
-  already via the `/client` subpath) and `signJwt` / `importPrivateKey` / `createJwtPayload`
-  (`create-test-refresh-function.ts:1`, via the barrel). All four move to `@lumenize/crypto`.
-- **`apps/nebula/src`** — `type ActClaim` (`resources.ts:17`) → `@lumenize/crypto`;
-  `extractWebSocketToken` (`entrypoint.ts:24`) → `@lumenize/nebula-auth`, which it already depends on.
+- **`mesh/src`** — `parseJwtUnsafe` + `JwtPayload` (`lumenize-client.ts`, via the `/client` subpath) and
+  `signJwt` / `importPrivateKey` / `createJwtPayload` (`create-test-refresh-function.ts`, via the
+  barrel). All move to `@lumenize/crypto`. ⚠️ **This is the reason the package exists** —
+  `createTestRefreshFunction` is mesh **public API** (`index.ts:83`, documented in getting-started), it
+  needs real Ed25519 signing, and `mesh.md` § dependency direction forbids `mesh → nebula-*`.
+- **`apps/nebula`** — `src` is 2 imports (`type ActClaim`, `extractWebSocketToken`), but `test` is **50**
+  and `harness` **3**, and `@lumenize/auth` is a `dependency`, so there is no devDependency escape hatch.
+  ⚠️ All 50 test imports are `generateUuid`, which is **deleted rather than repointed** (Decisions).
+- **`apps/nebula/harness/`** — imports `@lumenize/auth/client` and runs under plain Node/tsx. It is the
+  shared boot for all six `/live` scenarios, so it must move in the **same phase** as the subpath
+  deletion or the `/live` gate below stops booting. It is also the surface that actually proves
+  `@lumenize/crypto` is Node-safe.
 
 ## Design intent
 
 ### The manifest is the guard, not a comment
 
-Leaving `"@lumenize/auth": "*"` in `nebula-auth`'s `dependencies` while merely *preferring* the local
-copies would not hold. A future session writing `import { AuthEmailSenderBase } from '@lumenize/auth'`
-would be **adding one line to a file** — no manifest change, no review signal, and it reads as tidying
-away a duplicate. Removing the entry makes re-coupling require a deliberate dependency addition,
-which is visible in review. Same reasoning as `instanceAuthUrl`'s compile-time guard beating a
-warning comment: a structural guard cannot rot.
+A future session writing `import { AuthEmailSenderBase } from '@lumenize/auth'` would be **adding one
+line to a file** — no manifest change, no review signal, and it reads as tidying away a duplicate.
+Removing the entry makes re-coupling cost a deliberate dependency addition, visible in review.
+⇒ **Success is measured on the manifest, not on import counts.**
 
-⇒ **Success is measured on the manifest**, not on import counts.
+### The copies are renamed and collapsed, not mirrored
 
-### A copy that is not marked as deliberate will be "cleaned up"
+`AuthEmailSenderBase` + `NebulaEmailSender` become **one `NebulaEmailSender`**: after the copy there is
+exactly one consumer, so the base/subclass split has nothing left to abstract, and the originals stay
+live in `mesh/test/**`, `packages/auth/test/**` and five website docs — where an identically-named copy
+would be ambiguous at every call site. Each copied file still carries a header naming its origin, the
+date, and that it is a **deliberate divergence not to be re-synced**; without it, a future session
+diffing the two and unifying them looks diligent while silently restoring the coupling.
 
-Each copied file must say, at the top, that it is a **deliberate divergence from `@lumenize/auth`,
-not to be re-synced**, and why. Without that, a future session diffing the two and unifying them looks
-diligent while silently restoring the coupling this file exists to remove.
+### The copy unblocks Nebula-specific email
 
-### What the copy unblocks
+Today `NebulaEmailSender` overrides no template and no subject — it sets `appName`, a `from`, and
+`headers()`, inheriting all five templates verbatim, so Nebula's mail is the generic MIT templates with
+a name substituted in. Nebula-specific templates are wanted soon, and each would otherwise be either an
+override fighting a shared default or Nebula vocabulary pushed into the MIT package.
 
-**The affirmative case for forking the email seam is that its templates are about to diverge.** Today
-`NebulaEmailSender` overrides no template and no subject at all — it sets `appName = 'Nebula'`, a
-`from`, and `headers()`, and inherits all five templates verbatim, so Nebula's mail is currently the
-generic MIT templates with a name substituted in. Nebula-specific templates are wanted soon, and
-every one of them would otherwise be either an override fighting a shared default or Nebula
-vocabulary pushed into the MIT package. The copy is what makes them ordinary edits.
+### The `instanceName` stamp, and what it actually costs
 
-**Owning `EmailMessage` locally unblocks the better fix for the instance-tagging bug, and that fix is
-IN SCOPE as a late phase.** The registry currently builds a URL and the sender **re-parses the
-instance back out of it** (`nebula-email-sender.ts` `parseInstanceName`), guarded by `instanceAuthUrl`'s
-typed route union. The direct design — the registry *passing* the `instanceName` it already holds, on
-the message — was rejected only because it would push Nebula vocabulary into the shared MIT type.
-After the copy that reason is gone.
+The registry builds a URL and the sender **re-parses the instance back out of it**
+(`nebula-email-sender.ts` `parseInstanceName`). The direct design — passing the `instanceName` the
+registry already holds — was rejected only because it would push Nebula vocabulary into the shared MIT
+type. After the copy that reason is gone.
 
-**It closes a correctness gap, not just a smell — and the gap arrives with the very feature that is
-imminent.** Tagging off the URL can only tag mail whose URL happens to carry an instance segment, so
-mail that *is* about an instance but links to `/app` would ship **untagged although its instance was
-known** — the registry holds `universeGalaxyStarId` the whole time and discards it. ⚠️ **Latent
-today, not live:** Nebula emits only `magic-link` and `invite-new`, both instance-bearing, so nothing
-is currently mistagged. `invite-existing` is exactly the app-redirect shape that would trip it, and
-it is one of the variants wanted soon (see Decisions) — so the fix lands *before* the bug rather
-than after, which is the whole reason to do it here instead of filing it.
+**It closes a correctness gap.** Tagging off the URL can only tag mail whose URL carries an instance
+segment, so mail that *is* about an instance but links to `/app` would ship untagged though its
+instance was known. ⚠️ **Latent today** — Nebula emits only `magic-link` and `invite-new`, both
+instance-bearing — but `invite-existing` is exactly the app-redirect shape that trips it and is one of
+the variants wanted soon. The fix lands *before* the bug.
 
-⚠️ **`instanceName` must be REQUIRED on every `EmailMessage` variant, and the whole value of the
-refactor rests on that one modifier.** Required means the compiler forces every send site to supply
-it — compile-time totality, strictly stronger than today's runtime derivation, and semantically honest
-because every Nebula mail *is* about an instance even when its URL does not say so. **Optional would
-rebuild the exact silent enumeration that already shipped once** (`types.ts` `INSTANCE_BEARING_ROUTES`
-documents that incident) and would leave this worse than the status quo. Expect "make it optional so
-the three unused variants don't need it" to look reasonable; it is the wrong move.
+⚠️ **`instanceName` is REQUIRED, and the phase must EARN that — today it would buy nothing.** The claim
+"required means the compiler forces every send site to supply it" is false as the code stands:
+`nebula-auth-registry.ts:1025` is `#sendEmail(message: any)` reading `(this.env as any).AUTH_EMAIL_SENDER`,
+so `EmailMessage` is type-erased twice, and CI runs vitest only — `type-check` is separate and manual.
+Adding the field today produces **zero** diagnostics. ⇒ **Typing the choke point is part of the phase**:
+`#sendEmail(message: EmailMessage)`, a typed `AUTH_EMAIL_SENDER` binding if it can be typed,
+`npm run type-check` in the phase's success criteria, and a capable-of-failing check (deleting
+`instanceName` from one send site must error). There are **three** send sites, not two —
+`#resumeClaimIfOwner` (~`:467`) is the third and sits behind `if (this.#isTestMode) return`, so no
+vitest test reaches it.
 
-⚠️ **`INSTANCE_BEARING_ROUTES`'s stated rationale expires with this change** — *"the two ends fail
-apart silently"* stops being true once there are no two ends. The list keeps a separate job (it types
-`instanceAuthUrl`'s `route`). Re-derive whether that alone earns its keep and rewrite the comment
-either way; do not trust the emphatic conclusion, and do not delete the list because its reason died
-(`calibration.md` §4).
+⚠️ **Three pieces of standing guidance expire with this phase and it owns rewriting all three:**
+`nebula-email-sender.ts`'s `headers()` JSDoc argues in bold for the URL derivation being deleted;
+`calibration.md` §2 cites that same derivation as its dated 2026-07-30 *derive-don't-enumerate* worked
+example, and is **always loaded**; `INSTANCE_BEARING_ROUTES`'s *"the two ends fail apart silently"*
+rationale stops being true once there are no two ends (the list keeps a separate job — it types
+`instanceAuthUrl`'s `route` — so re-derive whether that alone earns its keep rather than deleting it;
+`calibration.md` §4). Leave these and the next reader re-derives this change as a *reversal* to the
+enumeration that shipped the untagged-invite bug.
 
 ## What "done" looks like
 
-⚠️ **Deliberately NOT phases** — write them with `/write-task` after `/review-task` Stage 1. What
-follows is what done *means*, plus the hazards a plan must respect.
+⚠️ **Not phases** — `/write-task` pass 2 writes those. This is what done *means*, plus the hazards.
 
-- **The decoupling criterion is the MANIFEST, and the instrument is `npm ls`.** `@lumenize/auth` in
-  neither `dependencies` nor `devDependencies` of `packages/nebula-auth/package.json`, verified by
-  `npm ls @lumenize/auth` resolving nothing from that package. ⚠️ **A grep for the import string is
-  the weaker form and must not be the criterion** — it passes while the affordance remains, which is
-  the whole thing *The manifest is the guard* argues against.
+- **The criterion is the MANIFEST, and it is self-verifying.** `@lumenize/auth` in neither
+  `dependencies` nor `devDependencies` of `packages/nebula-auth/package.json` or `apps/nebula/package.json`
+  (neither has a devDependency escape hatch), verified by `npm ls @lumenize/auth`. ⚠️ **A grep for the
+  import string is the weaker form and must not be the criterion** — it passes while the affordance
+  remains.
+- **Repo-wide sweep criterion, not a count.** `grep -rln "@lumenize/auth" --include="*.ts" packages apps`
+  returns only `packages/auth/**` and `mesh/test/**`. Counts rot; this does not. *(Scale, so the phase
+  is not surprised: nebula-auth 11 test files · apps/nebula 2 src + 50 test + 3 harness · mesh 2 src.)*
+- **`grep -rn "@lumenize/auth/client" packages apps` returns nothing** — the subpath is deleted, not
+  merely unused. Six live importers, plus four JSDoc/prose sites naming it as the canonical Node-safe
+  pattern (`nebula-auth/src/testing.ts`, `access-claims.ts`, `create-nebula-test-token.ts`,
+  `harness/lib/harness.ts`) and `backlog.md`.
 - **The manifest change is one entry out and one entry IN.** `auth-email-sender-base.ts:2` imports
-  `createEmailTransport` from `@lumenize/email`, which `nebula-auth` gets *transitively* today and
-  does not declare. Copying the base means **adding `@lumenize/email`** to `nebula-auth`'s manifest.
-- **`mesh` and `apps/nebula` also lose their `@lumenize/auth` entry**, per *What is actually coupled*.
-  `packages/auth` then has zero `src` consumers repo-wide — the checkable form of the objective.
-  ⚠️ **`mesh` may legitimately keep a `devDependency`, and that is not a failure.**
-  `AuthEmailSenderBase` appears in `mesh/test/browser/worker/` and `mesh/test/for-docs/getting-started/`.
-  A for-docs mini-app is a **real consumer**, not a stray to be swept — `testing.md` records that
-  those tests historically found more bugs than all other tiers combined.
-- **The `packages/auth` sweep touches 4 files, but only 2 are swaps.** `hooks.ts` and
-  `lumenize-auth.ts` swap `./jwt` → `@lumenize/crypto`. `client.ts` and `index.ts` are **re-export
-  barrels**, and since the ten symbols leave `auth`'s public API (Decisions), those blocks are
-  **deleted, not repointed**. `@lumenize/crypto` depends on nothing, so there is no cycle and no Lerna
-  publish-order problem.
-- ⚠️ **Deleting those re-exports EMPTIES `client.ts`, so the `@lumenize/auth/client` subpath itself
-  goes away.** Its entire body is the ten-symbol re-export plus `JwtPayload` / `JwtHeader` / `ActClaim`
-  — nothing else — so the `"./client"` entry comes out of `packages/auth/package.json`'s `exports` map
-  and `client.ts` is deleted. This is a larger public-API removal than "ten symbols," and it is
-  load-bearing for `mesh`: `lumenize-client.ts` imports from that subpath today and must move to
-  `@lumenize/crypto` in the same phase or `mesh` breaks. (Nothing is lost — `@lumenize/crypto` *is*
-  the Node/browser-safe entry point that subpath existed to provide.)
-- ⚠️ **Extraction is a TYPE SPLIT, not a file move — the seam most likely to be under-estimated.**
-  `jwt.ts` has one type-only import, but it points at `packages/auth/src/types.ts` (164 lines), which
-  mixes `ActClaim` / `JwtPayload` / `JwtHeader` in with `Subject` / `MagicLink` / `InviteToken` /
-  `RefreshToken` / `EmailMessage` / `AuthRoutesOptions` / `CorsOptions` / `LoginResponse` / `AuthError`.
-  That file gets cut three ways: JWT types → `@lumenize/crypto`; `EmailMessage` / `ResolvedEmail` →
-  copied into `nebula-auth` (and kept in `auth`); the rest stays. Confirm the seam is as clean as it
-  looks before any code moves.
-- **11 `nebula-auth` test files import `@lumenize/auth`, and all of them move.** The manifest criterion
-  admits no `devDependency`, so the code move is not `src`-only. Mechanical, and per `calibration.md`
-  §3(c) test churn is ≈zero-weight — named here only so it is not discovered mid-build.
-- ⚠️ **`nebula-email-sender.test.ts` is the ONE test that does not move mechanically.** Its whole
-  subject is that `headers()` derives the instance tag from the URL without enumerating message types
-  — the mechanism the `instanceName` phase deletes. That phase must **rewrite** it to assert the new
-  contract (every variant carries `instanceName`; the tag is stamped from it), not merely repoint its
-  imports. Treat "this test still passes unchanged" as a signal the phase did not actually land.
-- **Nothing regresses:** `packages/auth` (160 tests) and `packages/nebula-auth` (255 passed / 1
-  skipped, as of 2026-07-31) stay green, and the `/live` `impersonation-lifecycle` scenario — which
-  drives a real invite email end to end through the copied sender — still passes.
-- **Every copied file carries a do-not-re-sync header** naming its origin, the date, and the reason.
-  Per *A copy that is not marked as deliberate will be "cleaned up"*, this is the deliverable of the
-  copy work; the code move itself is mechanical.
+  `createEmailTransport` from `@lumenize/email`, which `nebula-auth` gets transitively today and does
+  not declare. Copying the sender means **adding `@lumenize/email`**.
+- **`@lumenize/crypto` carries its own tests** — its own vitest project and a `test` script, or
+  `scripts/test-code.sh` (which tests a workspace *iff* its `package.json` has one) silently skips it
+  and `scripts/release.sh` publishes it untested. Today there is no `jwt.test.ts`: coverage lives in
+  `packages/auth/test/auth.test.ts`, which stays behind, and `verifyJwtWithRotation` has **zero** direct
+  tests. Shipping the repo's highest-security-weight code with no owned tests would gut this file's own
+  *one owner, fixes land once* premise. Also repoint `website/docs/auth/index.mdx` (a `@check-example`
+  on `JwtPayload`, which hard-breaks under the type split) and `website/docs/mesh/lumenize-client.mdx`.
+- ⚠️ **Extraction is a TYPE SPLIT, not a file move.** `jwt.ts`'s one type-only import points at
+  `packages/auth/src/types.ts`, which mixes `ActClaim` / `JwtPayload` / `JwtHeader` in with `Subject` /
+  `MagicLink` / `InviteToken` / `RefreshToken` / `EmailMessage` / `AuthRoutesOptions` / `CorsOptions` /
+  `LoginResponse` / `AuthError`. `index.ts:58-72` likewise exports the three JWT types inside one block
+  alongside ten that stay — so that edit is a **split, not a delete**. `hooks.ts:3` has a second
+  `import type { JwtPayload }` the "two swaps" framing misses.
+- **The `packages/auth` sweep is 2 swaps + 2 deletions.** `hooks.ts` and `lumenize-auth.ts` repoint
+  `./jwt` → `@lumenize/crypto`; `client.ts` and `index.ts` are re-export barrels whose crypto blocks are
+  **deleted**, which empties `client.ts` entirely and removes the `"./client"` entry from
+  `packages/auth/package.json`. Dropping the symbols also breaks `for-docs/test-helpers.test.ts` and
+  `endpoints.test.ts` on the auth side.
+- ⚠️ **`nebula-email-sender.test.ts` is the ONE test that does not move mechanically.** Its whole subject
+  is that `headers()` derives the tag from the URL without enumerating types — the mechanism the
+  `instanceName` phase deletes. That phase **rewrites** it to assert the new contract. Treat "this test
+  still passes unchanged" as a signal the phase did not land.
+- **Nothing regresses:** `packages/auth` and `packages/nebula-auth` suites stay green *after* accounting
+  for the split (state the post-move split, not a raw count), and the `/live` `impersonation-lifecycle`
+  scenario — a real invite email end to end through the copied sender — still passes.
 
 ## Decisions
 
 | Decision | Rejected alternative — why |
 |---|---|
-| **Extract the JWT/crypto core as `@lumenize/crypto`; `auth`, `mesh`, `nebula-auth` and `apps/nebula` all consume it** | *Copy it into `nebula-auth` too and leave `auth`'s copy in place — no new package.* `mesh/src` needs four crypto symbols and cannot depend on `nebula-*`, so `packages/auth` would stay permanently load-bearing in Nebula's production graph and could never go dormant. Two copies also means a verify or key-handling fix lands twice, and the rotation drift is proof the second landing gets missed. |
-| **Extract the crypto core; copy the rest** | *Share everything (status quo).* Keeps manufacturing false shared ownership over code that is already forked in policy, and taxes every email-template change with breaking-change ceremony. |
-| **Extract only if `packages/auth` consumes the result** | *Extract while `auth` keeps its own copy.* Pays the full price of a new package and still leaves two copies, so the one-owner property it was bought for is gone. Incoherent; do not propose it. |
-| **A subpath is not a substitute for extraction** | *Point `mesh/src` at `@lumenize/auth/client` and stop there.* ⚠️ **The near-miss most likely to be re-proposed in review** — and its premise is correct: `client.ts` exports exactly these ten symbols with a `./jwt` → `./types` type-only import chain and no `cloudflare:workers`, and its JSDoc says the split is *"by intent, not by runtime"*, so it is designed API. It genuinely fixes module-graph reachability for one line — ⇒ **do not argue for extraction on reachability grounds.** What it cannot do is leave one copy of the crypto core, or free `mesh` from depending on the auth product. |
-| **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
-| **Stamp `instanceName` on `EmailMessage` here, as a late phase** | *File it in `backlog.md` and do it later.* A backlog entry carries a re-reading cost that grows daily, and the context is loaded now. Doing it in-file also makes the split deliver a working improvement instead of only preventing drift. ⚠️ Rejected as an *objection*: "it reshapes `EmailMessage`, so a green suite no longer proves the copy was faithful" — true of one commit, not of a **separate late phase**, which keeps its own success criteria. |
-| **`instanceName` is REQUIRED on every `EmailMessage` variant** | *Make it optional so the three variants Nebula does not emit need not supply it.* Optional rebuilds the silent per-type enumeration that already shipped untagged invite mail once; required gets compile-time totality, which is stronger than the runtime URL derivation it replaces. |
-| **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. ⚠️ **A second reason applied only until the `instanceName` phase and is now spent** — they were also the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the tag from the **URL** rather than enumerating types, and that phase deletes URL derivation. The decision stands on the near-term consumer alone; do not re-cite the fixture argument. |
-| **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them from `auth` for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim would be a second reference to the code that extraction exists to give one owner. |
+| **Extract the crypto core as `@lumenize/crypto`; `auth`, `mesh`, `nebula-auth` and `apps/nebula` all consume it** | *Copy it into `nebula-auth` and skip the package.* `mesh/src` needs real Ed25519 signing for `createTestRefreshFunction` (public API, `index.ts:83`) and cannot depend on `nebula-*`, so it would grow a **third** copy — worse than the two being collapsed. Relocating that helper to `@lumenize/testing` does not escape it either: `testing` depends only on `routing` + `rpc`, so the same need reappears there. Two packages that cannot depend on each other both need Ed25519; that is what a shared primitive package is for. |
+| **`@lumenize/crypto` carries NO auth policy: `JwtPayload` is registered claims (`iss`/`aud`/`sub`/`exp`/`iat`/`jti`/`act`) plus a `claims` bag** | *Move `createJwtPayload` as-is.* It **requires** `emailVerified` + `adminApproved` — policy Nebula retired, which is why `verify.ts:40` double-casts today — so moving it verbatim would put auth's dead policy shape into the shared package and re-manufacture the false shared ownership this file exists to delete. `auth` and `nebula-auth` each layer their own flags on top. The general form costs the same or less than the narrow one (`workflow.md` § YAGNI), and it deletes the double-cast. |
+| **Delete `generateUuid` entirely; call `crypto.randomUUID()` directly** | *Repoint its imports to `@lumenize/crypto`.* Its whole body is `return crypto.randomUUID()`, and `coding-style.md` § IDs says to call that directly. Deleting removes 50 `apps/nebula` test imports plus ~14 source sites from the sweep and conforms a rule instead of carrying a wrapper. |
+| **`extractWebSocketToken` moves to `@lumenize/mesh`** | *Copy it into `nebula-auth` and re-export for `apps/nebula`.* It is the consumer half of a mesh wire protocol whose producer is `lumenize-client.ts:797` (`lmz.access-token.`); a never-re-sync header between two ends of a live protocol instructs the next session not to reconcile them, and the failure mode is a silent 401 on WS upgrade. Both consumers already depend on mesh, so importing costs less than the 13-line copy. Precedent: `nebula-auth/src/types.ts:14` already imports `TOKEN_REFRESH_AHEAD_SECONDS` from `@lumenize/mesh/client`. |
+| **`ResolvedEmail` is imported from `@lumenize/email`, never copied** | *Copy it with the sender.* It is declared in `packages/email/src/types.ts` and merely re-exported by auth; copying makes a third declaration of a type the transport package owns. It is also the one member of the copy set that must stay in lockstep (the sender feeds it straight to `EmailTransport.sendEmail`), so it cannot carry a free-to-diverge header. `@lumenize/email` is becoming a direct dependency anyway. |
+| **Collapse `AuthEmailSenderBase` + `NebulaEmailSender` into one `NebulaEmailSender`; rename the other copies on arrival** | *Copy the names verbatim.* The originals stay live in `mesh/test/**`, four `packages/auth/test/**` harnesses and five website docs, so identical names are ambiguous repo-wide — and the manifest removal only closes the accidental-*import* hazard inside `nebula-auth`, not the reader-ambiguity one everywhere else. With one consumer the base/subclass split abstracts nothing. |
+| **`@lumenize/crypto` is published + MIT and joins the Lerna train** | *Mark it `private`.* Not rejected on preference — **unavailable**: published `@lumenize/mesh` takes it as a real `dependency`, and npm cannot resolve a private dep from a published package. Recorded because "a package named *crypto* should be private" is the predictable reflex (`calibration.md` §1) and acting on it would silently break external `npm i @lumenize/mesh`. Root `workspaces` is a `packages/*` glob, so it auto-enrols. |
+| **Stamp `instanceName` on `EmailMessage` here, as a late phase** | *File it in `backlog.md`.* A backlog entry carries a re-reading cost that grows daily and the context is loaded now; doing it in-file makes the split deliver a working improvement instead of only preventing drift. ⚠️ Rejected as an *objection*: "it reshapes `EmailMessage`, so a green suite no longer proves the copy faithful" — true of one commit, not of a separate late phase with its own criteria. |
+| **`instanceName` is REQUIRED on every `EmailMessage` variant** | *Make it optional so the three unemitted variants need not supply it.* Optional rebuilds the silent per-type enumeration that already shipped untagged invite mail once. ⚠️ Required only buys compile-time totality if the phase also types `#sendEmail` and runs `type-check` — see *Design intent*. |
+| **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today, so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. ⚠️ A second reason (they were the fixtures proving URL-derived tagging) is **spent** — the `instanceName` phase deletes that mechanism. Do not re-cite it. |
+| **The `ActClaim` narrow/wide split survives extraction unchanged** | *Fold `nebula-auth`'s widening into `@lumenize/crypto` now that we own it.* ADR-016 / `nebula-pre-alpha.md` schema surgery deletes `projectActClaim` anyway, so widening now buys a shape about to change. ⚠️ Two JSDoc blocks assert the old home and sit adjacent to import lines this task already edits — `nebula-auth/src/types.ts:25-32` (which names *this file* as the reconciler) and `apps/nebula/src/resources.ts:11-17,71`. The phase owns both. |
+| **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim is a second reference to the code extraction exists to give one owner. Apply the same no-shim rule to the three JWT types. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
-| **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name such as `jwt-plus-utils`.* All ten symbols wrap the same `crypto` global — `crypto.subtle` for Ed25519 sign/verify, plus `getRandomValues`, `randomUUID`, `subtle.digest` — so `crypto` is accurate rather than a compromise, and there is no "plus" to name. A compound name bakes today's contents into the identifier and rots on the eleventh wrapper. |
-| **`mesh` depends on the extracted package, never on `nebula-auth`** | *Inline `auth` into `nebula-auth` wholesale.* `mesh/src` needs the crypto core, and `mesh.md` § dependency direction forbids `mesh → nebula-*`. |
+| **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name.* After the policy reshape above, every symbol is a `crypto`-global wrapper — `crypto.subtle` Ed25519, `getRandomValues`, `subtle.digest` — so the name is accurate. A compound name bakes today's contents into the identifier and rots on the next wrapper. |
 
 ## Relationships
 
 - **Supersedes** [icebox/auth-token-core-compose-not-fork.md](icebox/auth-token-core-compose-not-fork.md)
   (moved 2026-07-31), which targeted the ~1,400-line DO orchestration body rather than the leaf.
-  ⚠️ **Its file:line map is dead** — every citation names `packages/nebula-auth/src/nebula-auth.ts`,
-  which no longer exists (the body is now `nebula-auth-registry.ts` / `worker-token.ts` / `router.ts`).
-  Do not port those line numbers, and do not treat it as a live plan.
-- **The orchestration-body de-fork stays out of scope and has no live task file.** ⚠️ If it is ever
-  revived its mechanism must change: this file removes `@lumenize/auth` from `nebula-auth`'s manifest,
-  so a shared session core can no longer be *"nebula-auth composes @lumenize/auth"* — it must be a
-  third extracted package that both consume. **Share via extraction, never by depending on the auth
-  product.**
-- **Does NOT fix the rotation drift, deliberately.** Closing it is a conformance fix inside
-  `packages/auth`, not decoupling work. What decoupling buys is that the fix becomes **safe to make
-  independently**. Tracked in [backlog.md](backlog.md) § `@lumenize/auth`.
-- **Nothing else is waiting on it.** The one thing it unblocks it now also delivers (the
-  `instanceName` stamp, above); beyond that its value is preventing future drift. Sequence it
-  accordingly.
+  ⚠️ **Its file:line map is dead** — it cites `packages/nebula-auth/src/nebula-auth.ts`, which no longer
+  exists. Do not port those line numbers; do not treat it as a live plan.
+- **The orchestration-body de-fork stays out of scope** and has no live task file. ⚠️ If revived, its
+  mechanism must change: this file removes `@lumenize/auth` from `nebula-auth`'s manifest, so a shared
+  session core can no longer be *"nebula-auth composes @lumenize/auth"* — it must be a third extracted
+  package both consume. **Share via extraction, never by depending on the auth product.**
+- **Does NOT fix the rotation drift, deliberately.** That is a conformance fix inside `packages/auth`.
+  What decoupling buys is that the fix becomes **safe to make independently**.
+  [backlog.md](backlog.md) § `@lumenize/auth`.
+- **Closes half of [backlog.md](backlog.md) § Lumenize Mesh's `createTestRefreshFunction` row** — moving
+  it to `@lumenize/crypto` (no `cloudflare:workers`) fixes the Node-load half for free, and ⚠️ **invalidates
+  that row's prescribed remedy**, which names the `@lumenize/auth/client` subpath this task deletes.
+  Re-scope it to the residual gap (not exported from `mesh/src/client-index.ts`) — or close it outright
+  with the one-line export, which also gives the extraction the Node-import regression test it lacks.
+- **Does NOT resolve the test-mode gating asymmetry**, though [backlog.md](backlog.md):41 names this file
+  as its home under the dead title `auth-token-core-compose-not-fork`. Repoint that link and re-scope the
+  row; threading an explicit flag through the RPC is separate work.
 - **Follows** [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md), whose
   `headers(message)` breaking change surfaced the ceremony cost.
