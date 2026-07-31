@@ -16,7 +16,7 @@
  * `@lumenize/nebula-auth`'s main barrel (that re-exports a `DurableObject` → `cloudflare:workers`).
  * Types only, from the `/client` subpath — same rule the client's own header states.
  *
- * @see tasks/nebula-impersonation-client.md
+ * @see tasks/archive/nebula-impersonation-client.md
  */
 import { debug } from '@lumenize/debug';
 

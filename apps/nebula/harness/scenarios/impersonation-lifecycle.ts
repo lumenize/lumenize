@@ -1,6 +1,6 @@
 /**
  * Impersonation, end to end on the RUNNING system — the behavioural coverage for
- * `tasks/nebula-impersonation-client.md`, moved here from the pool-workers lane.
+ * `tasks/archive/nebula-impersonation-client.md`, moved here from the pool-workers lane.
  *
  * Companion to `impersonation-expiry`, which owns the one thing needing a real clock. This one owns
  * everything deterministic: identity, the mint, refusals, concurrency, teardown and readiness.

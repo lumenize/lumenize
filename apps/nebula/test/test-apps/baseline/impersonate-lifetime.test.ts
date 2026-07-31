@@ -1,7 +1,7 @@
 /**
  * Impersonation lifetime — the session outlives its token and dies with its parent.
  *
- * Phase 3 of tasks/nebula-impersonation-client.md. ADR-009 rung 2, like the rest of the lane.
+ * Phase 3 of tasks/archive/nebula-impersonation-client.md. ADR-009 rung 2, like the rest of the lane.
  *
  * ⚠️ **Two TTL regimes, deliberately.** The client refreshes when a token is within 30s of expiry,
  * so a sub-30s token is *born* due and re-mints during the child's own construction — which is how

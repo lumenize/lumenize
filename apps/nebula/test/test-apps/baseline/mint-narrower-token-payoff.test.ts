@@ -18,7 +18,7 @@
  * The earlier "rung 1" label here was wrong: rung 1 is the real email transport, which this lane
  * does not use.
  *
- * @see tasks/nebula-impersonation-client.md Phase 4
+ * @see tasks/archive/nebula-impersonation-client.md Phase 4
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';

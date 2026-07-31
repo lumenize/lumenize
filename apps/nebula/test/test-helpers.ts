@@ -482,7 +482,7 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   // (`/auth/{universe}`). Pass `star` and you get a `{u}.*` admin whose cookie is at the universe.
   // A caller that needs the cookie path — anything asserting on `/auth/{…}/refresh-token` or
   // `/logout` — must use THIS value, never the argument. Re-deriving it cost a wrong conclusion
-  // during tasks/nebula-impersonation-client.md: a probe aimed at `/auth/{star}` 401s whether or not
+  // during tasks/archive/nebula-impersonation-client.md: a probe aimed at `/auth/{star}` 401s whether or not
   // the thing under test revoked anything, which makes the assertion look un-dischargeable.
   return { client, payload, accessToken, authScope };
 }

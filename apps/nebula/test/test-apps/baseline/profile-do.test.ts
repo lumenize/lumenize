@@ -193,7 +193,7 @@ describe('Profile DO — Phase 2', () => {
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
   // are a real founder and a real invited member, and the token under test comes from the endpoint
   // via the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
-  // Phase 4 of tasks/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
+  // Phase 4 of tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)
   //
   // Independent of ADR-012's pending amendment: with a NON-admin subject the mirrored `admin` bit is
