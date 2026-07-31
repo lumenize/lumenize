@@ -49,8 +49,7 @@ and that split is the design:
 | `turnstile.ts` (`verifyTurnstileToken`) | 47 | nebula-auth | low — a thin API call | **Copy** |
 | `extractWebSocketToken` (of `hooks.ts`'s 416) | 13 | nebula-auth, apps/nebula | low | **Copy**, re-exported for apps/nebula |
 
-Copied total ≈ 280 lines, well under CLAUDE.md's *"favor copy-paste-with-attribution over a dependency
-for <1000 SLOC"* threshold.
+Copied total ≈ 280 lines.
 
 **The other two consumers**, both of which also lose their `@lumenize/auth` manifest entry:
 
@@ -59,10 +58,6 @@ for <1000 SLOC"* threshold.
   (`create-test-refresh-function.ts:1`, via the barrel). All four move to `@lumenize/crypto`.
 - **`apps/nebula/src`** — `type ActClaim` (`resources.ts:17`) → `@lumenize/crypto`;
   `extractWebSocketToken` (`entrypoint.ts:24`) → `@lumenize/nebula-auth`, which it already depends on.
-
-**Why crypto is the exception rather than more of the same.** "Only we call it, so divergence is safe"
-is true of *policy* and false of *crypto*: a verification or key-handling bug would have to land twice,
-and the second landing is the one that gets forgotten.
 
 ## Design intent
 
@@ -76,27 +71,6 @@ which is visible in review. Same reasoning as `instanceAuthUrl`'s compile-time g
 warning comment: a structural guard cannot rot.
 
 ⇒ **Success is measured on the manifest**, not on import counts.
-
-### What extraction buys that a subpath does not
-
-⚠️ **Module-graph reachability is NOT the reason — it is already solved.** `@lumenize/auth/client`
-(`packages/auth/src/client.ts`) exports exactly these ten symbols, and its whole import chain is
-`./jwt` → `./types`, type-only, with no `cloudflare:workers` anywhere. Its own JSDoc says the split is
-*"by intent, not by runtime"*: it is designed public API, not a workaround. `mesh/src/lumenize-client.ts`
-uses it as intended, and the one `src` file still reaching the barrel is a one-line fix. Anyone
-arguing for extraction on reachability grounds is arguing for something the subpath already delivers.
-
-**What the subpath cannot deliver is a single owner, and that is the whole case.** Under
-copy-everything, `mesh/src` still needs four crypto symbols and `mesh.md` § dependency direction
-forbids `mesh → nebula-*` — so `packages/auth` stays permanently load-bearing as `mesh`'s crypto
-supplier, and `mesh` is Nebula's substrate. The package would then be one we cannot stop investing in,
-because production imports it. **Extraction is what makes walking away possible**; copying forecloses
-it. The one-owner security property (a verify or key-handling fix lands once) rides along on the same
-move.
-
-Cost is small: the sweep inside `packages/auth` is **4 import lines** (`client.ts`, `index.ts`,
-`hooks.ts`, `lumenize-auth.ts`). `@lumenize/crypto` would depend on nothing, so there is no cycle and
-no Lerna publish-order problem.
 
 ### A copy that is not marked as deliberate will be "cleaned up"
 
@@ -141,6 +115,9 @@ follows is what done *means*, plus the hazards a plan must respect.
   `AuthEmailSenderBase` appears in `mesh/test/browser/worker/` and `mesh/test/for-docs/getting-started/`.
   A for-docs mini-app is a **real consumer**, not a stray to be swept — `testing.md` records that
   those tests historically found more bugs than all other tiers combined.
+- **The `packages/auth` sweep is 4 import lines** — `client.ts`, `index.ts`, `hooks.ts`,
+  `lumenize-auth.ts`, each a `./jwt` → `@lumenize/crypto` swap. `@lumenize/crypto` depends on nothing,
+  so there is no cycle and no Lerna publish-order problem.
 - ⚠️ **Extraction is a TYPE SPLIT, not a file move — the seam most likely to be under-estimated.**
   `jwt.ts` has one type-only import, but it points at `packages/auth/src/types.ts` (164 lines), which
   mixes `ActClaim` / `JwtPayload` / `JwtHeader` in with `Subject` / `MagicLink` / `InviteToken` /
@@ -165,7 +142,7 @@ follows is what done *means*, plus the hazards a plan must respect.
 | **Extract the JWT/crypto core as `@lumenize/crypto`; `auth`, `mesh`, `nebula-auth` and `apps/nebula` all consume it** | *Copy it into `nebula-auth` too and leave `auth`'s copy in place — no new package.* `mesh/src` needs four crypto symbols and cannot depend on `nebula-*`, so `packages/auth` would stay permanently load-bearing in Nebula's production graph and could never go dormant. Two copies also means a verify or key-handling fix lands twice, and the rotation drift is proof the second landing gets missed. |
 | **Extract the crypto core; copy the rest** | *Share everything (status quo).* Keeps manufacturing false shared ownership over code that is already forked in policy, and taxes every email-template change with breaking-change ceremony. |
 | **Extract only if `packages/auth` consumes the result** | *Extract while `auth` keeps its own copy.* Pays the full price of a new package and still leaves two copies, so the one-owner property it was bought for is gone. Incoherent; do not propose it. |
-| **A subpath is not a substitute for extraction** | *Point `mesh/src` at `@lumenize/auth/client` and stop there.* Fixes module-graph reachability for one line, but leaves two crypto copies and leaves `mesh` depending on the auth product. The near-miss most likely to be re-proposed in review. |
+| **A subpath is not a substitute for extraction** | *Point `mesh/src` at `@lumenize/auth/client` and stop there.* ⚠️ **The near-miss most likely to be re-proposed in review** — and its premise is correct: `client.ts` exports exactly these ten symbols with a `./jwt` → `./types` type-only import chain and no `cloudflare:workers`, and its JSDoc says the split is *"by intent, not by runtime"*, so it is designed API. It genuinely fixes module-graph reachability for one line — ⇒ **do not argue for extraction on reachability grounds.** What it cannot do is leave one copy of the crypto core, or free `mesh` from depending on the auth product. |
 | **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
 | **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. They also double as the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the instance tag from the **URL** rather than enumerating types; pruning the union would leave no unenumerated variant to test with, and that enumeration bug has shipped once already. |
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them from `auth` for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim would be a second reference to the code that extraction exists to give one owner. |
