@@ -33,15 +33,21 @@ export interface WaitForEmailOptions {
   /**
    * Scope this listener to emails carrying `X-Lumenize-Auth-Instance: <instance>`,
    * so concurrent tests don't race each other for the next-arriving email.
-   * Maps 1:1 to NebulaAuth's `instanceName` URL segment (a 1-3 dot-separated slug
-   * like `acme-abc.app.tenant-a`). `NebulaEmailSender.headers` stamps it on any mail
-   * whose URL carries that segment — magic-link and invite today — regardless of
-   * message type, so a new instance-bearing mail is filterable here with no change
-   * to the sender. A mail whose URL has no instance segment stays untagged and lands
-   * in the catch-all bucket; use `to` with `uniqueTestEmail()` for those.
+   * Maps 1:1 to NebulaAuth's `instanceName` (a 1-3 dot-separated slug like
+   * `acme-abc.app.tenant-a`).
    *
-   * Omit to subscribe to ALL emails. Prefer `uniqueTestEmail()` for isolation
-   * where no instance is in play — it needs no cooperation from the sender.
+   * **Every Nebula auth mail carries this header** — `EmailMessage.instanceName` is required on
+   * every variant and `NebulaEmailSender.headers` stamps it directly, so a new message type is
+   * filterable here with no change to the sender and none can ship untagged. (Before 2026-07-31
+   * the tag was re-parsed out of the message's URL, so mail linking to a non-instance route —
+   * `/app`, say — landed untagged in the catch-all bucket.)
+   *
+   * Omit to subscribe to ALL emails. ⚠️ **`uniqueTestEmail()` + `to` is still the better isolation
+   * default**, and the reason has changed: not because mail might be untagged, but because two
+   * listeners on the SAME instance still race each other — and a listener that omits `to` first
+   * issues a `clear` (scoped by `instance` when given), which destroys a concurrently-waiting
+   * sibling's stored mail. Supplying `to` skips the clear entirely, so a unique recipient needs no
+   * cooperation from the sender and cannot collide.
    */
   instance?: string;
   /**

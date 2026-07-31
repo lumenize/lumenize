@@ -57,12 +57,13 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
 async function inviteAndLogin(
   stack: DevStack, browser: Browser, scope: string, adminToken: string, email: string, testToken: string,
 ): Promise<{ accessToken: string; sub: string }> {
-  // NO `instance` filter — deliberately, and the reason has CHANGED. It used to be that it could
-  // not work (`NebulaEmailSender` stamped `X-Lumenize-Auth-Instance` per message TYPE and covered
-  // magic-link only, so an invite landed in the catch-all bucket and an `instance: scope` filter
-  // silently never matched — one 60s timeout to find). The tag is now derived from the URL for
-  // every type, so the filter WOULD match. We still use `to`: a unique recipient skips the
-  // shared-bucket `clear` that `instance` performs, so this stays safe beside a concurrently-
+  // NO `instance` FILTER, but we DO assert the tag's value below — two different things, and the
+  // reason for each has changed over time. The filter could once not work at all (`NebulaEmailSender`
+  // stamped `X-Lumenize-Auth-Instance` per message TYPE and covered magic-link only, so an invite
+  // landed in the catch-all bucket and an `instance: scope` filter silently never matched — one 60s
+  // timeout to find). Since 2026-07-31 the tag is stamped from `EmailMessage.instanceName`, required
+  // on every variant, so the filter WOULD match. We still filter on `to`: a unique recipient skips
+  // the shared-bucket `clear` that `instance` performs, so this stays safe beside a concurrently-
   // waiting listener.
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
@@ -75,7 +76,18 @@ async function inviteAndLogin(
     // `extractMagicLink` matches the magic-link route specifically; an invite is a different
     // endpoint (`accept-invite?invite_token=`), so pull the href here rather than widen a shared
     // helper that other callers rely on to be magic-link-specific.
-    const html = (await waiter.emailPromise).html ?? '';
+    const email_ = await waiter.emailPromise;
+    // ⚠️ Assert the tag's VALUE, not merely that mail arrived. Without this the scenario is true
+    // BEFORE and AFTER the change — invite mail is already tagged today, because `accept-invite` is
+    // an instance-bearing route, so URL derivation happened to get it right. What this pins is that
+    // the value now comes from the caller-supplied field and is still correct. (Deliberately NOT
+    // added for magic-link: `apps/nebula/test/lib/email-login.ts` already passes `instance`, so a
+    // wrong tag there already times out every `/live` boot.)
+    assert.equal(
+      email_.instance, scope,
+      `invite mail must be tagged with its instance (got ${email_.instance ?? 'undefined'})`,
+    );
+    const html = email_.html ?? '';
     const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
     assert.ok(href, `invite email carried no accept-invite link (subject: ${html.slice(0, 60)})`);
     const link = pointLinkAt(stack.baseUrl, href.replace(/&amp;/g, '&'));

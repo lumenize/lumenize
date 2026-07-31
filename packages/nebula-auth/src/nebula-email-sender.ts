@@ -22,7 +22,6 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { createEmailTransport, type ResolvedEmail } from '@lumenize/email';
 import type { EmailMessage } from './types';
-import { NEBULA_AUTH_PREFIX, INSTANCE_BEARING_ROUTES } from './types';
 
 // ============================================
 // Typed message variants for method signatures
@@ -40,30 +39,6 @@ type InviteNewMessage = Extract<EmailMessage, { type: 'invite-new' }>;
  * `waitForEmail({ instance })` subscribes to.
  */
 const INSTANCE_HEADER = 'X-Lumenize-Auth-Instance';
-
-/**
- * The `instanceName` a Nebula auth URL identifies, or `undefined` if `value` is not one.
- *
- * Expected shape: `${origin}${NEBULA_AUTH_PREFIX}/${instanceName}/${route}?…`, where
- * `instanceName` is a 1-3 dot-separated slug like `acme.app.tenant-a`.
- *
- * Total by design — every non-URL string a message carries (`to`, `type`, `subjectEmail`)
- * fails `new URL` and returns `undefined`, so callers may hand it anything.
- */
-function parseInstanceName(value: string): string | undefined {
-  let pathname: string;
-  try {
-    pathname = new URL(value).pathname;
-  } catch {
-    return undefined;
-  }
-  if (!pathname.startsWith(`${NEBULA_AUTH_PREFIX}/`)) return undefined;
-  const segments = pathname.slice(NEBULA_AUTH_PREFIX.length + 1).split('/');
-  if (segments.length !== 2) return undefined;
-  const [instanceName, route] = segments;
-  if (!instanceName || !(INSTANCE_BEARING_ROUTES as readonly string[]).includes(route!)) return undefined;
-  return instanceName;
-}
 
 // ============================================
 // Default templates (exported for composability)
@@ -256,29 +231,22 @@ export class NebulaEmailSender extends WorkerEntrypoint {
   // ============================================
 
   /**
-   * Tag every outbound mail with the instance its URL identifies, making the originating
-   * instance addressable by downstream Email Routing consumers (test rigs, log filters)
-   * without parsing the body.
+   * Tag every outbound mail with the instance it is about, making the originating instance
+   * addressable by downstream Email Routing consumers (test rigs, log filters) without parsing
+   * the body.
    *
-   * ⚠️ **ONE hook, and the message type is deliberately never consulted.** The rule is a property
-   * of the URL, not of the mail: *if a message carries a Nebula auth URL, that URL names the
-   * instance.* So `invite-existing`, `admin-notification` and `approval-confirmation` need no
-   * decision here — today they carry app-redirect URLs with no instance segment and come out
-   * untagged, and the day one of them carries an instance-bearing URL it is tagged with no change
-   * to this file. That totality is the point: the previous per-type shape shipped magic-link tagged
-   * and invite untagged, and the failure was silent — an untagged mail lands in the email-test
-   * catch-all bucket, so `waitForEmail({ instance })` never matches and the caller dies on its
-   * timeout with nothing pointing at the sender.
+   * ⚠️ **The sender is TOLD the instance; it does not infer one.** `instanceName` is required on
+   * every `EmailMessage` variant, so this is total by construction — no type is consulted, no
+   * variant can be missed, and a new variant is covered without touching this file.
    *
-   * First match wins. Each `EmailMessage` variant carries exactly one URL, so there is
-   * nothing to disambiguate; a variant with two would need this revisited.
+   * This replaced re-parsing the instance back out of whichever URL the message carried. That
+   * shape could only tag mail whose URL had an instance segment, so a message that IS about an
+   * instance but links to `/app` shipped **untagged though its instance was known** —
+   * `invite-existing` is exactly that case and is one of the variants wanted soon. The failure was
+   * silent: an untagged mail lands in the email-test catch-all bucket, so `waitForEmail({ instance })`
+   * never matches and the caller dies on its timeout with nothing pointing at the sender.
    */
   headers(message: EmailMessage): Record<string, string> {
-    for (const value of Object.values(message)) {
-      if (typeof value !== 'string') continue;
-      const instanceName = parseInstanceName(value);
-      if (instanceName !== undefined) return { [INSTANCE_HEADER]: instanceName };
-    }
-    return {};
+    return { [INSTANCE_HEADER]: message.instanceName };
   }
 }

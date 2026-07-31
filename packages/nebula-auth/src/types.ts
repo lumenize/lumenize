@@ -29,13 +29,29 @@ export type { ResolvedEmail };
  * YAGNI question.
  *
  * Subject lines are controlled by `NebulaEmailSender` via overridable methods — not part of this type.
+ *
+ * ⚠️ **`instanceName` is REQUIRED on every variant, and that is the point.** The sender stamps its
+ * routing header straight from this field. It used to re-parse the instance back out of whichever
+ * URL the message carried, which could only ever tag mail whose URL had an instance segment — so a
+ * message that IS about an instance but links to `/app` shipped untagged even though its instance
+ * was known. Making the field required means the compiler, not a per-type table, guarantees every
+ * send site supplies it: a new variant cannot be added without one, and a send site that forgets is
+ * a type error rather than a silent mis-route. (An untagged mail lands in the email-test catch-all
+ * bucket, so `waitForEmail({ instance })` never matches and the caller dies on a timeout with
+ * nothing pointing at the sender.)
  */
+type EmailMessageBase = {
+  to: string;
+  /** The `universeGalaxyStarId` this mail is about — stamped as the routing header, never derived. */
+  instanceName: string;
+};
+
 export type EmailMessage =
-  | { type: 'magic-link'; to: string; magicLinkUrl: string }
-  | { type: 'admin-notification'; to: string; subjectEmail: string; approveUrl: string }
-  | { type: 'approval-confirmation'; to: string; redirectUrl: string }
-  | { type: 'invite-existing'; to: string; redirectUrl: string }
-  | { type: 'invite-new'; to: string; inviteUrl: string };
+  | (EmailMessageBase & { type: 'magic-link'; magicLinkUrl: string })
+  | (EmailMessageBase & { type: 'admin-notification'; subjectEmail: string; approveUrl: string })
+  | (EmailMessageBase & { type: 'approval-confirmation'; redirectUrl: string })
+  | (EmailMessageBase & { type: 'invite-existing'; redirectUrl: string })
+  | (EmailMessageBase & { type: 'invite-new'; inviteUrl: string });
 
 /**
  * RFC 8693 §4.1 delegation actor — a LOCAL widening of `@lumenize/crypto`'s `ActClaim` that adds the
@@ -240,15 +256,17 @@ export const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
 export const NEBULA_AUTH_PREFIX = '/auth';
 
 /**
- * The auth routes whose URL carries the `instanceName` segment — the SINGLE source for both
- * *building* those URLs (`instanceAuthUrl`) and *recognizing* them (`NebulaEmailSender.headers`).
+ * The auth routes whose URL carries the `instanceName` segment. Its job is to type
+ * `instanceAuthUrl`'s `route` parameter, so a route that does not exist cannot be interpolated
+ * into an auth URL — a typo is a compile error rather than a silently-404ing link in an email.
  *
- * ⚠️ **One list, deliberately, because the two ends fail apart silently.** The sender tags an
- * outgoing mail with `X-Lumenize-Auth-Instance` by matching the URL's route against this list; an
- * instance-bearing route missing from it ships **untagged**, and every `waitForEmail({ instance })`
- * listener then never matches — no error, just a 60s timeout in whatever test used it (that is how
- * the invite mail shipped untagged, 2026-07-30). Splitting build-side from recognize-side is what
- * made that possible, so adding a route here is now the only way to build one.
+ * ⚠️ **Re-derived 2026-07-31, and the old rationale is DEAD — do not restore it.** This used to be
+ * the single source for *building* those URLs **and** for *recognizing* them: `NebulaEmailSender`
+ * tagged outgoing mail by matching a URL's route against this list, so a route missing from it
+ * shipped untagged (that is how invite mail shipped untagged, 2026-07-30). **The sender no longer
+ * parses URLs at all** — `EmailMessage.instanceName` is required and stamped directly — so the
+ * recognize-side is gone and with it the fail-apart-silently hazard. The list survives on the
+ * narrower, still-real construction-typing job above, not on that one.
  */
 export const INSTANCE_BEARING_ROUTES = ['magic-link', 'accept-invite'] as const;
 export type InstanceBearingRoute = typeof INSTANCE_BEARING_ROUTES[number];
@@ -257,7 +275,7 @@ export type InstanceBearingRoute = typeof INSTANCE_BEARING_ROUTES[number];
  * Build an instance-bearing auth URL: `${origin}/auth/${instanceName}/${route}?${query}`.
  *
  * ⚠️ Use this rather than interpolating the path by hand — the type of `route` is what forces a new
- * instance-bearing route to be declared above, which is what keeps the sender able to tag it.
+ * instance-bearing route to be declared above, so a typo cannot become a live link in an email.
  */
 export function instanceAuthUrl(
   origin: string,

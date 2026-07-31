@@ -33,7 +33,7 @@ import {
   NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
 } from './types';
-import type { AccessEntry, DiscoveryEntry, NebulaJwtPayload, RefreshTokenKV } from './types';
+import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
 import { parseId, isValidSlug, matchAccess, hasAdminOverScope } from './parse-id';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
@@ -467,6 +467,7 @@ export class NebulaAuthRegistry extends DurableObject {
     void this.#sendEmail({
       type: 'magic-link',
       to: lcEmail,
+      instanceName: universeGalaxyStarId,
       magicLinkUrl: this.#magicLinkUrl(link.rawToken, universeGalaxyStarId, origin),
     }).catch((err) => {
       log.error('Resume magic-link send failed', {
@@ -648,7 +649,7 @@ export class NebulaAuthRegistry extends DurableObject {
     if (this.#isTestMode) {
       return { message: 'Magic link generated (test mode)', magicLinkUrl };
     }
-    await this.#sendEmail({ type: 'magic-link', to: lcEmail, magicLinkUrl });
+    await this.#sendEmail({ type: 'magic-link', to: lcEmail, instanceName: universeGalaxyStarId, magicLinkUrl });
     return { message: 'Check your email for the magic link' };
   }
 
@@ -705,7 +706,7 @@ export class NebulaAuthRegistry extends DurableObject {
         if (this.#isTestMode) {
           links[email] = inviteUrl;
         } else {
-          await this.#sendEmail({ type: 'invite-new', to: email, inviteUrl });
+          await this.#sendEmail({ type: 'invite-new', to: email, instanceName: universeGalaxyStarId, inviteUrl });
         }
         debug('nebula-auth.Registry.invite.sent').info('Invite sent', { email, universeGalaxyStarId });
         invited.push(email);
@@ -1022,8 +1023,16 @@ export class NebulaAuthRegistry extends DurableObject {
   // Email
   // ============================================
 
-  async #sendEmail(message: any): Promise<void> {
-    const sender = (this.env as any).AUTH_EMAIL_SENDER;
+  async #sendEmail(message: EmailMessage): Promise<void> {
+    // ⚠️ Typed on BOTH sides deliberately — `message: EmailMessage` and the binding below. This is
+    // the choke point every outbound mail passes through, so it is the only place that can make
+    // `EmailMessage`'s required `instanceName` actually bite: while this read `(message: any)` over
+    // `(this.env as any)`, the type was erased twice and adding a required field produced ZERO
+    // diagnostics. The binding is widened by intersection rather than declared locally because
+    // `nebula-auth`'s own generated `Env` has no `AUTH_EMAIL_SENDER` — the consumer
+    // (`apps/nebula`) declares it (`packaging.md` § Use the global `Env`).
+    const sender = (this.env as Env & { AUTH_EMAIL_SENDER?: { send(m: EmailMessage): Promise<void> } })
+      .AUTH_EMAIL_SENDER;
     if (sender) {
       await sender.send(message);
     } else {
