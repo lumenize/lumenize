@@ -16,9 +16,43 @@
 
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
-import { SecurityClient } from './security-client.js';
+import { SecurityClient, type TeamDocResult } from './security-client.js';
 import { LoginRequiredError, createTestRefreshFunction, type LumenizeClientGateway } from '../../../src/index.js';
 import type { TeamDocDO } from './team-doc-do.js';
+
+/**
+ * Capture what the client's `@mesh()` TeamDocDO handler receives.
+ *
+ * The capture lives here rather than on `SecurityClient` so the doc-facing
+ * fixture stays free of test plumbing. Call once per client — patching twice
+ * would nest the wrappers and push each result into both arrays.
+ */
+function captureTeamDocResults(client: SecurityClient): Array<TeamDocResult | Error> {
+  const results: Array<TeamDocResult | Error> = [];
+  const original = client.handleTeamDocResponse.bind(client);
+  (client as any).handleTeamDocResponse = (result: TeamDocResult | Error) => {
+    results.push(result);
+    original(result);
+  };
+  return results;
+}
+
+/**
+ * Fire one guarded call and return what came back — the value on success, the
+ * guard's Error on refusal. Mesh calls are one-way, so the outcome arrives at
+ * the client's result handler instead of being thrown or returned here.
+ */
+async function drive(
+  results: Array<TeamDocResult | Error>,
+  fire: () => void
+): Promise<TeamDocResult | Error> {
+  const before = results.length;
+  fire();
+  await vi.waitFor(() => {
+    expect(results.length).toBe(before + 1);
+  });
+  return results[before];
+}
 
 it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
@@ -190,8 +224,13 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
   // Phase 5: @mesh(guard) with instance state (allowed editors)
   // ============================================
-  // Carol is not in allowedEditors - her updateDocument call would fail.
-  // After being added, her call succeeds.
+  // updateDocument's guard reads `instance.allowedEditors` directly. Carol is
+  // refused until she's added, then gets through.
+  //
+  // ⚠️ Both halves are driven from a real client, because a guard runs ONLY on
+  // the mesh entry check — a `createTestingClient` call would execute
+  // updateDocument's body with the guard never consulted, which is a test of
+  // the method, not of the guard it demonstrates.
 
   const carolBrowser = new Browser();
   const carolUserId = crypto.randomUUID();
@@ -209,12 +248,19 @@ it('security patterns: auth, guards, and state-based access', async () => {
     expect(carol.connectionState).toBe('connected');
   });
 
-  // Use testing client to set up and verify guard behavior
+  const carolResults = captureTeamDocResults(carol);
+
+  // Carol is not yet an allowed editor — the guard refuses her.
+  const refusedUpdate = await drive(carolResults, () =>
+    carol.callUpdateDocument('editor-doc-1', 'Carol was here')
+  );
+  expect(refusedUpdate).toBeInstanceOf(Error);
+  expect((refusedUpdate as Error).message).toContain('Not an allowed editor');
+
+  // Seeding + reading storage is what createTestingClient IS for: addEditor is
+  // reachable over the mesh, but the `allowedEditors` getter has no @mesh().
   {
     using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'editor-doc-1');
-
-    // Initially Carol is NOT an allowed editor
-    // If she tries to call updateDocument, the guard would throw "Not an allowed editor"
 
     // Add Carol as an allowed editor
     await teamDocClient.addEditor(carolUserId);
@@ -224,11 +270,33 @@ it('security patterns: auth, guards, and state-based access', async () => {
     expect(editors.has(carolUserId)).toBe(true);
   }
 
+  // Same call, same path — now the guard passes.
+  const updateResult = await drive(carolResults, () =>
+    carol.callUpdateDocument('editor-doc-1', 'Carol was here')
+  );
+  expect(updateResult).toEqual({ updated: true, content: 'Carol was here' });
+
+  // ...and the write actually landed. Asserting only on the returned value
+  // can't tell a real write from a method that just reports success.
+  const storedContent = await drive(carolResults, () => carol.callGetContent('editor-doc-1'));
+  expect(storedContent).toBe('Carol was here');
+
   // ============================================
   // Phase 6: Reusable guards (requireSubscriber pattern)
   // ============================================
   // The requireSubscriber guard checks originAuth.sub against the
   // subscribers Set in DO storage — combining JWT identity with instance state.
+  // originAuth only exists on the real path, so both methods sharing the guard
+  // are driven from Bob's client.
+
+  const bobResults = captureTeamDocResults(bob);
+
+  // Bob is not subscribed yet.
+  const refusedEdit = await drive(bobResults, () =>
+    bob.callEditDocument('subscriber-doc-1', 'Team doc content')
+  );
+  expect(refusedEdit).toBeInstanceOf(Error);
+  expect((refusedEdit as Error).message).toContain('Subscriber access required');
 
   {
     using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'subscriber-doc-1');
@@ -239,22 +307,33 @@ it('security patterns: auth, guards, and state-based access', async () => {
     // Verify subscriber was added
     const subs = await teamDocClient.subscribers;
     expect(subs.has(bobUserId)).toBe(true);
-
-    // Both editDocument and addComment use requireSubscriber —
-    // Bob can call them because he's subscribed
-    const editResult = await teamDocClient.editDocument({ content: 'Team doc content' });
-    expect(editResult.edited).toBe(true);
-    expect(editResult.content).toBe('Team doc content');
-
-    const commentResult = await teamDocClient.addComment('Looks good!');
-    expect(commentResult.commented).toBe(true);
   }
+
+  // Both editDocument and addComment use requireSubscriber —
+  // Bob can call them because he's subscribed
+  const editResult = await drive(bobResults, () =>
+    bob.callEditDocument('subscriber-doc-1', 'Team doc content')
+  );
+  expect(editResult).toEqual({ edited: true, content: 'Team doc content' });
+
+  const commentResult = await drive(bobResults, () =>
+    bob.callAddComment('subscriber-doc-1', 'Looks good!')
+  );
+  expect(commentResult).toEqual({ commented: true });
 
   // ============================================
   // Phase 7: Call context state
   // ============================================
   // The editWithStateCheck guard checks callContext.state.isEditor.
-  // onBeforeCall computes isEditor once from allowedEditors Set.
+  // onBeforeCall computes isEditor once from allowedEditors Set — and only runs
+  // on the mesh path, so this phase is meaningless from a testing client.
+
+  // Bob is not an editor of this instance, so onBeforeCall sets isEditor false.
+  const refusedStateEdit = await drive(bobResults, () =>
+    bob.callEditWithStateCheck('state-doc-1', 'State-gated edit')
+  );
+  expect(refusedStateEdit).toBeInstanceOf(Error);
+  expect((refusedStateEdit as Error).message).toContain('Editor access required');
 
   {
     using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'state-doc-1');
@@ -269,10 +348,13 @@ it('security patterns: auth, guards, and state-based access', async () => {
     // Verify editor was added
     const editorsAfter = await teamDocClient.allowedEditors;
     expect(editorsAfter.has(bobUserId)).toBe(true);
-
-    // When Bob calls through the mesh, his callContext.state.isEditor
-    // will be true (computed in onBeforeCall) and the guard will pass
   }
+
+  // Now onBeforeCall computes isEditor true and the guard passes.
+  const stateEditResult = await drive(bobResults, () =>
+    bob.callEditWithStateCheck('state-doc-1', 'State-gated edit')
+  );
+  expect(stateEditResult).toEqual({ edited: true, byUser: bobUserId });
 
   // ============================================
   // Cleanup

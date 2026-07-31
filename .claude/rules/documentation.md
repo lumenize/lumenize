@@ -48,6 +48,11 @@ Three annotation levels for code blocks in `.md` / `.mdx` files:
 - During Phase 1 narrative drafting, `@skip-check` is temporary and must be replaced in Phase 2
 - Run `node tooling/check-examples/src/index.js --report` to audit remaining `@skip-check` annotations
 - **`@check-example` guards only fenced code blocks, never prose.** When you remove or rename an exported symbol, also `grep` the docs for prose mentions (tables, inline text, ASCII diagrams) — a green `check-examples` run proves nothing about them, and a stale class/function name in prose will silently survive.
+- **`@check-example` proves the doc MIRRORS the code, never that the code RUNS.** The checker reads the referenced file and text-matches; it executes nothing. This is fine — indeed the intended use — for the two target kinds where "does it run?" is the wrong question or is answered elsewhere:
+  - **Type declarations** (`packages/*/src/types.ts`, …) — declarations don't execute, and mirroring one is exactly the point.
+  - **Production `src/`** — it has its own test and coverage story, so unexercised code there is caught by other means.
+
+  The gap is specific to a **`test/for-docs/**` implementation fixture** (a mini-app's DO / Worker / client), which exists for no reason *except* to be exercised by its sibling narrative test. There, dead code is invisible by construction: the doc can teach a method no test ever calls, and the green check reads as verification. **Pointing at a *test* is strictly stronger — prefer it whenever the example can be phrased as something the test does.** When the example must be the fixture (a class definition, a guard function), the `@check-example` is only half the job: confirm the sibling test actually drives it. Bit 2026-07-31 — four doc-taught functions in `mesh/test/for-docs/security/team-doc-do.ts` at zero hits behind green blocks, one of them a `TODO` never implemented. See [testing.md](testing.md) § `for-docs/` tests are mini-apps.
 
 ## Check-Example Matching Behavior
 
