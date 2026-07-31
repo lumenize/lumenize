@@ -2,8 +2,10 @@
 
 **Status:** 📝 **DRAFTED 2026-07-31**, not yet reviewed. The design intent below came out of a
 measured conversation (every number in it was checked against disk that day) but it has had **no
-`/review-task` pass** — run one before `/build-task`. Phases are written because the shape was settled
-in that conversation, not because the file is review-approved.
+`/review-task` pass** — run one before `/build-task`, and settle *The gating decision* first.
+**Deliberately has no phases yet:** `/write-task` writes them only after the design intent is
+hand-reviewed, and an earlier draft's five were written against that unmade decision. What remains is
+intent, open decisions, and what done looks like.
 
 ## Objective
 
@@ -20,11 +22,16 @@ Two moves get there, and the split between them is the whole design:
 ## Why this exists
 
 `nebula-auth` was **forked** from `@lumenize/auth`, not composed with it, and the two have been
-quietly diverging on policy ever since. The forcing example is a live security drift:
-`packages/auth/src/lumenize-auth.ts:358` still revokes-and-reissues on refresh — *"Revoke old refresh
-token (rotation)"* — a month after `security.md` recorded that decision as **dropped, do not
+quietly diverging on policy ever since. The forcing example is a live `security.md` **conformance
+gap**: `packages/auth/src/lumenize-auth.ts:358` still revokes-and-reissues on refresh — *"Revoke old
+refresh token (rotation)"* — a month after that decision was recorded as **dropped, do not
 re-introduce**. It landed in `nebula-auth` only, and nobody noticed, because sharing a package
 manufactures an impression of shared ownership that is not true.
+
+⚠️ **Reliability, not vulnerability.** The failure mode is a spurious logout when two refreshes race
+a single-use token, and nobody consumes base `@lumenize/auth` but us. It is evidence that divergence
+goes unnoticed — which is this file's argument — and not an incident. Stated here rather than
+corrected later, so the alarming reading is never available in the first place.
 
 The day-to-day cost is ceremony disproportionate to the change. A 2026-07-30 refactor of the email
 sender's header hook — code with **exactly one real consumer** — required a `BREAKING` commit, a
@@ -135,35 +142,52 @@ file no longer exists; the body was restructured into `nebula-auth-registry.ts` 
   clean-seam assumption before any code moves.
 - **Its lean toward a targeted rather than full de-fork** — a ~2,800-line unification is high churn
   for the parts that are not drift-prone.
-- **Its urgency calibration, which corrects this file's Phase 5 rather than agreeing with it:** the
-  rotation footgun is a **reliability** issue (spurious logout on overlapping refreshes), *not an
-  exploitable vulnerability*, and nobody consumes base `@lumenize/auth` but us. Do not let the phrase
-  "live security drift" in *Why this exists* imply otherwise — it is a conformance gap worth closing,
-  not an incident.
+- **Its urgency calibration**, which an earlier draft of this file got wrong by calling the drift a
+  "live security drift": it is **reliability, not vulnerability**. Now stated correctly in *Why this
+  exists* rather than asserted-then-corrected.
 - **The ADR-007 precision:** de-forking *rhymes* with ADR-007 ("share one narrow core by composition")
   but does **not** bind here — ADR-007 governs mesh nodes, and these are raw `extends DurableObject`
   DOs. Cite it as motivation, never as a gate.
 
 **What is deliberately NOT carried, and stays open:** the orchestration-body de-fork itself. It is out
 of scope here and no longer has a live task file. ⚠️ **If it is ever revived, its mechanism must
-change:** Phase 4 removes `@lumenize/auth` from `nebula-auth`'s manifest, so a shared session core can
+change:** this file removes `@lumenize/auth` from `nebula-auth`'s manifest, so a shared session core can
 no longer be *"nebula-auth composes @lumenize/auth"*. It must be a third extracted package that both
-consume — the same shape as Phase 1's crypto extraction. That constraint is the real reconciliation
+consume — the same shape as the crypto extraction under option A. That constraint is the real reconciliation
 between the two files: **share via extraction, never by depending on the auth product.** Its open
 latent question is worth keeping too — *are two parallel auth DOs the right end state at all?*
 
-## Open questions
+## The gating decision — extract, or copy everything?
 
-1. **Package name, and what rides along.** `jwt.ts` today also exports `generateRandomString`,
-   `generateUuid` and `hashString`, which are **not** JWT concerns. Shipping them inside a package
-   called `@lumenize/jwt` is the kind of name that costs a re-derivation every time someone goes
-   looking for them (`calibration.md` §5). Options: (a) `@lumenize/jwt` carrying all ten exports and
-   accepting the misnomer; (b) `@lumenize/jwt` for the eight JWT/key symbols plus a separate home for
-   the three utilities; (c) a broader name (`@lumenize/crypto`) that honestly covers both. **Decide
-   before Phase 1** — it sets the public surface.
-2. **Does `packages/auth` consume the new package, or keep a local copy?** It has 46 `src`
-   references and four files importing `./jwt`. Consuming it is the consistent answer and keeps one
-   owner; confirm there is no publish-order problem under Lerna's synchronized versioning.
+⚠️ **Settle this FIRST. It decides whether a new package exists at all**, so nothing downstream can
+be planned around it. Raised by Larry 2026-07-31, sharpening what had been filed as a minor open
+question.
+
+The whole security case for extracting is **one owner** — a crypto fix lands once. That case holds
+only if `packages/auth` *consumes* the extracted package. If `auth` keeps its own copy, two copies
+exist regardless, the one-owner property is gone, and the package is paying for a benefit it no
+longer delivers. So the real choice is binary:
+
+| | Copies of the crypto core | One owner? | `mesh` still drags the DO barrel? | Cost |
+|---|---|---|---|---|
+| **A — extract; `auth`, `mesh`, `nebula-auth` all consume it** | 1 | ✅ | no | a new package |
+| **C — no new package; `nebula-auth` copies, `auth` keeps its own, `mesh` keeps depending on `auth`** | 2 | ❌ | yes | near zero |
+
+⚠️ **The middle option is incoherent and should not be proposed:** extracting while `auth` keeps a
+copy pays the full price of a new package and still leaves two copies. If `auth` will not consume it,
+choose C.
+
+**Recommendation: A.** No obstacle has been found — `crypto` would depend on nothing, so there is no
+cycle and no Lerna publish-order problem, and `auth`'s 46 `src` references are a mechanical
+`./jwt` → `@lumenize/crypto` sweep. And A is the only branch where the argument in *Why crypto is the
+exception* survives: under C, a verification or key-handling fix has to land twice, which is the exact
+failure the rotation drift already demonstrated. **A's mesh benefit is independent** and survives even
+if the security argument were discounted — under C, the MIT foundation goes on depending on a full
+auth product with a Durable Object in it to obtain six pure functions.
+
+⚠️ **If C is chosen, most of this file still applies** — the email seam, turnstile and
+`extractWebSocketToken` copies are unaffected, and so is the manifest criterion. Only the crypto
+half changes: `nebula-auth` gains a local copy instead of a dependency, and `mesh` is left as-is.
 
 ## Decisions
 
@@ -173,62 +197,36 @@ latent question is worth keeping too — *are two parallel auth DOs the right en
 | **Extract the JWT core; copy the rest** | *Share everything (status quo).* Keeps manufacturing false shared ownership over code that is already forked in policy, and taxes every email-template change with breaking-change ceremony. |
 | **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* It serves `mesh` and external users, and CLAUDE.md's mission #1 is the MIT package suite. Its low adoption (25 downloads/month) is an argument about *investment*, not about deletion — and not this file's question. |
+| **If extracted, the package is `@lumenize/crypto` — not `@lumenize/jwt`, not a compound name** | *`@lumenize/jwt` carrying all ten exports*, and *`@lumenize/jwt-plus-utils`*. ⚠️ **Both rest on a premise this file originally asserted and that is FALSE.** It called `generateRandomString` / `generateUuid` / `hashString` *"not JWT concerns"* — true — and everyone read the implied conclusion *"therefore a grab bag riding along."* The question that decides the name is whether they are **crypto** concerns, and all three are thin wrappers over the `crypto` global: `crypto.getRandomValues`, `crypto.randomUUID()`, `crypto.subtle.digest('SHA-256')`. The JWT functions are `crypto.subtle` Ed25519 wrappers. **All ten symbols wrap the same global**, so there is no "plus" — `crypto` is the accurate name, not a compromise. Also rejected: a compound name generally — it bakes today's contents into the identifier, so it rots the moment an eleventh wrapper lands, and "utils" is unsearchable for the symbol anyone is actually hunting. ⚠️ **The finding survives even under option C**: the file `nebula-auth` copies should be `crypto.ts`, not `jwt.ts`. |
 | **`mesh` keeps depending on an extracted package, never on `nebula-auth`** | *Inline `auth` into `nebula-auth` wholesale.* `mesh/src` needs the JWT core, and `mesh.md` § dependency direction forbids `mesh → nebula-*`. |
 
-## Phases
+## What "done" looks like
 
-1. **Extract the JWT/crypto core into its own package.** Resolve Open question 1 first. Move `jwt.ts`
-   as-is (no rewrite) plus the `JwtPayload` / `JwtHeader` interfaces it type-imports from
-   `packages/auth/src/types.ts`. New package follows the shape of an existing small one
-   (`packages/structured-clone`, `packages/routing`), added to the root `workspaces` list.
-   - **Success —** the new package builds and type-checks with **zero runtime dependencies** (today
-     `jwt.ts`'s only import is type-only; that property is the reason extraction is cheap and should
-     be asserted, not assumed).
-   - **Success (capable of failing) —** its own tests cover sign → verify round-trip, `verifyJwt`
-     rejecting an expired `exp`, and `verifyJwtWithRotation` accepting a token signed by the
-     non-first key in the array. **Mutation:** drop the `exp` check → the expiry test reds.
-     ⚠️ Do not port assertions that only ever exercised the happy path.
+⚠️ **Deliberately NOT phases.** This file has not had its design-intent hand review, and `/write-task`
+writes phases *after* that gate for a reason: phases written first present as the plan and anchor the
+reviewer on a shape that is about to move. An earlier draft had five, written against a decision (the
+gating question above) that had not been made — so the extraction and the copy were both built on
+ground nobody had stood on. They are cut. Write them with `/write-task` once the intent is settled.
 
-2. **Repoint `packages/auth` and `packages/mesh` at the new package.** Both keep working exactly as
-   before; this phase changes imports, not behaviour. Drop `mesh/src/lumenize-client.ts`'s
-   `@lumenize/auth/client` workaround if the new package is Node-safe (it should be — no DO).
-   - **Success —** `packages/auth` (160 tests) and `packages/mesh` suites stay green, and `mesh`'s
-     `package.json` no longer needs `@lumenize/auth` **if** nothing else in `mesh/src` uses it.
-     ⚠️ Check rather than assume: `AuthEmailSenderBase` appears in `mesh/test/browser/worker/` and
-     `mesh/test/for-docs/getting-started/`, so a **devDependency** may legitimately remain. A
-     for-docs mini-app is a real consumer, not a stray.
+What survives here is the part that is genuinely *intent* — what done means, and the hazards a plan
+must respect:
 
-3. **Copy the email seam + the two utilities into `nebula-auth`.** `auth-email-sender-base.ts`,
-   `EmailMessage` / `ResolvedEmail`, `turnstile.ts`, and `extractWebSocketToken` (that function only —
-   not `hooks.ts`'s other 400 lines).
-   - **Success —** every copied file carries a header naming `@lumenize/auth` as its origin, the date,
-     and **"deliberate divergence — do not re-sync"** with the reason. This is the phase's real
-     deliverable; the code move is mechanical.
-   - **Success (capable of failing) —** `nebula-auth`'s suite stays at its current count (255 passed /
-     1 skipped as of 2026-07-31) and the `/live` `impersonation-lifecycle` scenario — which drives a
-     real invite email end to end — still passes.
-
-4. **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`.** The phase that makes the rest
-   hold.
-   - **Success — the criterion is the manifest.** `@lumenize/auth` appears in neither `dependencies`
-     nor `devDependencies` of `packages/nebula-auth/package.json`. ⚠️ `nebula-auth`'s **tests** import
-     seven symbols from it (`parseJwtUnsafe`, `signJwt`, `importPrivateKey`, `hashString`,
-     `generateUuid`, `EmailMessage`, `ResolvedEmail`) — all now reachable from the new package or the
-     local copies, so re-point them rather than retaining a devDependency for their sake.
-   - **Success (capable of failing) —** `npm ls @lumenize/auth` from `packages/nebula-auth` resolves
-     nothing. **Mutation:** re-add the dependency → the check reds. A grep for the import string is
-     the weaker form and should not be the criterion, since it passes while the affordance remains.
-
-5. **Settle the rotation drift, or record where it is settled.** This file's forcing example is a
-   live `security.md` conformance gap in `packages/auth`. ⚠️ **Reliability, not vulnerability** — the
-   failure mode is a spurious logout when two refreshes race a single-use token, and nobody consumes
-   base `@lumenize/auth` but us (absorbed from the superseded file; do not re-inflate it into an
-   incident). Decoupling does not fix it — it makes it *safe to fix independently*, which is the
-   point. Either drop rotation in `@lumenize/auth` too, or state
-   explicitly that the base package's policy is deliberately different and correct its JSDoc
-   (`lumenize-auth.ts:49` advertises rotation as a feature).
-   - **Success —** `packages/auth`'s refresh behaviour and its documentation agree with each other,
-     and with a decision recorded somewhere findable.
+- **The decoupling criterion is the MANIFEST, and the instrument is `npm ls`.** `@lumenize/auth` in
+  neither `dependencies` nor `devDependencies` of `packages/nebula-auth/package.json`, verified by
+  `npm ls @lumenize/auth` resolving nothing from that package. ⚠️ **A grep for the import string is
+  the weaker form and must not be the criterion** — it passes while the affordance remains, which is
+  the whole thing *The manifest is the guard* argues against.
+- ⚠️ **`mesh` may legitimately keep a devDependency on `@lumenize/auth`, and that is not a failure.**
+  `AuthEmailSenderBase` appears in `mesh/test/browser/worker/` and `mesh/test/for-docs/getting-started/`.
+  A for-docs mini-app is a **real consumer**, not a stray to be swept — `testing.md` records that
+  those tests historically found more bugs than all other tiers combined. Check what `mesh/src`
+  actually needs rather than assuming the dependency can go entirely.
+- **Nothing regresses:** `packages/auth` (160 tests) and `packages/nebula-auth` (255 passed / 1
+  skipped, as of 2026-07-31) stay green, and the `/live` `impersonation-lifecycle` scenario — which
+  drives a real invite email end to end through the copied sender — still passes.
+- **Every copied file carries a do-not-re-sync header** naming its origin, the date, and the reason.
+  Per *A copy that is not marked as deliberate will be "cleaned up"*, this is the deliverable of the
+  copy work; the code move itself is mechanical.
 
 ## Relationships
 
@@ -237,8 +235,12 @@ latent question is worth keeping too — *are two parallel auth DOs the right en
   *correct* this file rather than agree with it. It is iceboxed rather than deleted because its
   seam-finding framing for the orchestration body is reusable if that work is ever revived — but its
   file:line map is dead and must not be ported. Do not treat it as a live plan.
+- **Does NOT fix the rotation drift, deliberately.** Closing it is a conformance fix inside
+  `packages/auth`, not decoupling work, and an earlier draft carried it as a phase here only because
+  this file cites it as evidence. What decoupling actually buys is that the fix becomes **safe to
+  make independently** — which is the point. Tracked in [backlog.md](backlog.md) § `@lumenize/auth`.
 - **Unblocks nothing that is currently blocked** — it is cleanup, and its value is preventing future
   drift rather than enabling a feature. Sequence it accordingly.
 - **Follows** [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md), whose
   `headers(message)` breaking change surfaced the ceremony cost, and whose `RECOMMENDED_MIN_TTL_SECONDS`
-  problem is the third instance of the barrel/DO reachability issue Phase 1 addresses.
+  problem is the third instance of the barrel/DO reachability issue the extraction addresses.
