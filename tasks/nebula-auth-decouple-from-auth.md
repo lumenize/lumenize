@@ -13,6 +13,11 @@ all.** Two moves get there, and the split between them is the whole design:
 2. **Copy** the email-sender base and two small utilities into `nebula-auth`. Deliberately forked,
    free to diverge, never re-synced.
 
+**Then a third move that spends the freedom immediately**, as a late phase rather than a backlog
+entry: **stamp `instanceName` on `EmailMessage` and delete the URL re-parse** (see *What the copy
+unblocks*). It is impossible before the copy and cheap right after it, and it is what makes this task
+deliver a working improvement rather than only preventing future drift.
+
 **The consequence that makes it worth doing: `packages/auth` ends with zero `src` consumers anywhere
 in the repo.** `mesh` and `apps/nebula` both drop it too (see *What is actually coupled*), so it
 becomes a leaf — still published, still documented, but no longer load-bearing in Nebula's production
@@ -87,14 +92,31 @@ generic MIT templates with a name substituted in. Nebula-specific templates are 
 every one of them would otherwise be either an override fighting a shared default or Nebula
 vocabulary pushed into the MIT package. The copy is what makes them ordinary edits.
 
-Owning `EmailMessage` locally removes the objection that killed the better fix for the
-instance-tagging bug. The registry currently builds a URL and the sender **re-parses the instance back
-out of it** (`nebula-email-sender.ts` `parseInstanceName`), guarded by `instanceAuthUrl`'s typed route
-union. The direct design — the registry *passing* the `instanceName` it already holds, on the message
-— was rejected only because it would push Nebula vocabulary into the shared MIT type. After the copy
-that reason is gone. ⚠️ **Not in scope here** (it is a behaviour change, and the current guard is
-sound); noted so the next person does not re-derive the rejection from a premise that has expired —
-`calibration.md` §4.
+**Owning `EmailMessage` locally unblocks the better fix for the instance-tagging bug, and that fix is
+IN SCOPE as a late phase.** The registry currently builds a URL and the sender **re-parses the
+instance back out of it** (`nebula-email-sender.ts` `parseInstanceName`), guarded by `instanceAuthUrl`'s
+typed route union. The direct design — the registry *passing* the `instanceName` it already holds, on
+the message — was rejected only because it would push Nebula vocabulary into the shared MIT type.
+After the copy that reason is gone.
+
+**It closes a correctness gap, not just a smell.** Tagging off the URL can only tag mail whose URL
+happens to carry an instance segment, so mail that *is* about an instance but links to `/app` —
+`invite-existing`, `approval-confirmation` — ships **untagged although its instance was known**. The
+registry held `universeGalaxyStarId` the whole time and discarded it.
+
+⚠️ **`instanceName` must be REQUIRED on every `EmailMessage` variant, and the whole value of the
+refactor rests on that one modifier.** Required means the compiler forces every send site to supply
+it — compile-time totality, strictly stronger than today's runtime derivation, and semantically honest
+because every Nebula mail *is* about an instance even when its URL does not say so. **Optional would
+rebuild the exact silent enumeration that already shipped once** (`types.ts` `INSTANCE_BEARING_ROUTES`
+documents that incident) and would leave this worse than the status quo. Expect "make it optional so
+the three unused variants don't need it" to look reasonable; it is the wrong move.
+
+⚠️ **`INSTANCE_BEARING_ROUTES`'s stated rationale expires with this change** — *"the two ends fail
+apart silently"* stops being true once there are no two ends. The list keeps a separate job (it types
+`instanceAuthUrl`'s `route`). Re-derive whether that alone earns its keep and rewrite the comment
+either way; do not trust the emphatic conclusion, and do not delete the list because its reason died
+(`calibration.md` §4).
 
 ## What "done" looks like
 
@@ -144,6 +166,8 @@ follows is what done *means*, plus the hazards a plan must respect.
 | **Extract only if `packages/auth` consumes the result** | *Extract while `auth` keeps its own copy.* Pays the full price of a new package and still leaves two copies, so the one-owner property it was bought for is gone. Incoherent; do not propose it. |
 | **A subpath is not a substitute for extraction** | *Point `mesh/src` at `@lumenize/auth/client` and stop there.* ⚠️ **The near-miss most likely to be re-proposed in review** — and its premise is correct: `client.ts` exports exactly these ten symbols with a `./jwt` → `./types` type-only import chain and no `cloudflare:workers`, and its JSDoc says the split is *"by intent, not by runtime"*, so it is designed API. It genuinely fixes module-graph reachability for one line — ⇒ **do not argue for extraction on reachability grounds.** What it cannot do is leave one copy of the crypto core, or free `mesh` from depending on the auth product. |
 | **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
+| **Stamp `instanceName` on `EmailMessage` here, as a late phase** | *File it in `backlog.md` and do it later.* A backlog entry carries a re-reading cost that grows daily, and the context is loaded now. Doing it in-file also makes the split deliver a working improvement instead of only preventing drift. ⚠️ Rejected as an *objection*: "it reshapes `EmailMessage`, so a green suite no longer proves the copy was faithful" — true of one commit, not of a **separate late phase**, which keeps its own success criteria. |
+| **`instanceName` is REQUIRED on every `EmailMessage` variant** | *Make it optional so the three variants Nebula does not emit need not supply it.* Optional rebuilds the silent per-type enumeration that already shipped untagged invite mail once; required gets compile-time totality, which is stronger than the runtime URL derivation it replaces. |
 | **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. They also double as the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the instance tag from the **URL** rather than enumerating types; pruning the union would leave no unenumerated variant to test with, and that enumeration bug has shipped once already. |
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them from `auth` for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim would be a second reference to the code that extraction exists to give one owner. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
@@ -165,7 +189,8 @@ follows is what done *means*, plus the hazards a plan must respect.
 - **Does NOT fix the rotation drift, deliberately.** Closing it is a conformance fix inside
   `packages/auth`, not decoupling work. What decoupling buys is that the fix becomes **safe to make
   independently**. Tracked in [backlog.md](backlog.md) § `@lumenize/auth`.
-- **Unblocks nothing that is currently blocked** — it is cleanup, and its value is preventing future
-  drift rather than enabling a feature. Sequence it accordingly.
+- **Nothing else is waiting on it.** The one thing it unblocks it now also delivers (the
+  `instanceName` stamp, above); beyond that its value is preventing future drift. Sequence it
+  accordingly.
 - **Follows** [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md), whose
   `headers(message)` breaking change surfaced the ceremony cost.
