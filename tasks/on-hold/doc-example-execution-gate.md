@@ -26,6 +26,10 @@ none.**
 - **Coverage over decorated for-docs fixtures now works** (`9fa9e54`) — `unplugin-swc`'s default
   filter `/\.m?[jt]sx?$/` is end-anchored and skipped the query-suffixed ids coverage's uncovered-file
   pass requests, so the `@mesh()` decorator reached istanbul's Babel instrumenter and killed the run.
+  ⚠️ **Fixed in `packages/mesh/vitest.config.js` only.** Any other package that widens coverage over
+  decorated fixtures needs the same `include: /\.m?[jt]sx?(\?.*)?$/`, and its symptom is a run that
+  dies rather than a number that looks wrong. Scope coverage with a `*.ts` glob, never `**`, which
+  matches the `wrangler.jsonc` in the mini-app and fails with a misleading `Missing semicolon`.
 - **Standing guidance** landed 2026-07-31: `documentation.md` § Skip-Check Annotations (which target
   kind to choose), `testing.md` § `for-docs/` tests are mini-apps (guard demos must drive the real
   mesh path; no `TODO` in a for-docs test), and the matching `/nightly-pass` tripwire.
@@ -47,7 +51,13 @@ none.**
 4. **The audit itself.** Part of one kind in one package has been measured — mesh's for-docs
    fixtures, where `calls` (76.7% funcs), `getting-started` (91.7%) and `alarms` (94.1%) hold twelve
    zero-hit functions between them. The remaining fixtures and the other three kinds are unmeasured
-   across every package.
+   across every package. That partial audit also surfaced the **inverse** defect, undecided and with
+   no other home: `TeamDocDO.updateDocument` and its guard are exercised but no `@check-example`
+   references them, and the fixture comment still calls it "block 3, second example" — a doc block
+   was deleted and the fixture was not. It is worth re-adding rather than deleting, because
+   `security.mdx`'s Method-Level section opens *"Guards receive the instance, providing access to
+   instance state"* and its only example reads claims, never instance state. Either re-add the block
+   or reword that sentence.
 5. **A gate.** Nothing fails when a doc teaches code that never runs.
 
 ## Design intent, constraints, and future state
