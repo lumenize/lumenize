@@ -4,7 +4,7 @@
 `pre-alpha`. Phases not yet written; awaiting a hand read, then `/review-task` Stage 1.
 
 Prompted by a defect found during `/build-task` on
-[nebula-auth-decouple-from-auth.md](nebula-auth-decouple-from-auth.md): `mesh/test/for-docs/security/`
+[archive/nebula-auth-decouple-from-auth.md](archive/nebula-auth-decouple-from-auth.md): `mesh/test/for-docs/security/`
 sat at 60% function coverage with four doc-taught functions at **zero hits**, three of them behind
 green `@check-example` blocks. Fixed for that one mini-app in `6df027b`; the class is untouched.
 

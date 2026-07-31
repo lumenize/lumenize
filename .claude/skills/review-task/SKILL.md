@@ -248,6 +248,45 @@ numbers the Workflow already returns:
 sharpness of your lens prompts, not its risk. A *rising* count across passes on a stabilising design
 is normal and healthy.
 
+### 4.6 RUN every command-shaped success criterion, and paste the output into the file
+
+⚠️ **This is a mechanical gate, not a judgement call, and it is the single highest-yield step in this
+skill per minute spent.** Before "go", take every success criterion in the file that *is* a command —
+a `grep`, an `npm ls`, a `node -p`, a `--list`, a file-exists check — and **execute it against the
+current tree**. Then either:
+
+- it produces the expected output ⇒ paste the result inline as evidence, or
+- it does not ⇒ **the criterion is broken; fix it now.** A criterion whose expected output is
+  already false gates nothing, because the builder learns to read past its hits.
+
+**A panel cannot do this for you.** Reviewers judge whether a criterion *reads* falsifiable, which is
+a different question from whether it *is*. Both stages will happily approve a command nobody ran.
+
+**Measured on `tasks/archive/nebula-auth-decouple-from-auth.md` (2026-07-31) — a file that had a hand review,
+two Stage-1 passes and two Stage-2 passes: SIX of its success criteria could not fail**, all six found
+only by executing them during `/build-task` (one by its verifier panel). The failure modes, so you know
+what you are looking for:
+
+- **Resolvable ≠ declared.** Two separate `npm ls <pkg> -w <consumer>` criteria, written to prove a
+  manifest entry exists. `npm ls` still prints the package and **exits 0** when the entry is deleted,
+  because it is reached transitively through a sibling; `--depth=0` does not help. Read the manifest
+  with `node -p` instead. ⚠️ And check **both** `dependencies` and `devDependencies` — the first
+  version of the fix checked only one, which would have passed while the hazard was restored.
+- **A grep whose expected output is already non-empty.** *"`grep -nE 'as any|as unknown as' <file>`
+  returns nothing"* — the file held two pre-existing casts unrelated to the thing being banned, so the
+  criterion was never satisfiable. Scope the pattern to what you actually mean.
+- **A grep that matches prose as well as code.** Fine as a one-time *triage* instruction; useless as a
+  re-runnable tripwire. Say which one it is, and give the tripwire form separately.
+- **Citing coverage that does not exist.** *"a nested bag would break the guards in `<dir>`"* — the
+  guard existed, but the only test exercising it was an unimplemented `TODO`, and the one other
+  candidate built its fixture by hand and never called the code under test. **Open the test and
+  confirm it runs the path**, don't stop at "a test file mentions this".
+
+Cheap heuristic for the whole step: **if a criterion contains a backtick-quoted command, run it. If it
+names a test, open that test.** Anything you cannot run at review time (a `/live` scenario, a full
+suite) is exempt — but say so explicitly in the file, so the builder knows which criteria arrive
+pre-verified and which do not.
+
 ### 5. Resolve in conversation
 Present each stage's synthesized list as it lands (Stage 1 at the gate, Stage 2 at the end). Also surface the `dropped` list briefly — the verify pass errs toward keeping, so anything it dropped was a clear false positive, but a quick scan lets the user veto an over-eager refutation. Work through blockers/majors with the user, propose task-file edits, and re-run a tighter panel (or a fresh human pass) if the design shifted materially. Findings are structured so a follow-up fresh-context pass can quickly see "here's what the panel caught — focus on what they missed."
 

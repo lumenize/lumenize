@@ -61,7 +61,7 @@ pre-review draft at all. Stage 2 judges architecture, security and test strategy
 nothing to bite on *without* phases: a security reviewer wants the landing order, a test-strategy
 reviewer wants to know which phase carries which criterion.
 
-Validated on `tasks/nebula-auth-decouple-from-auth.md` (2026-07-31). Stage 1 returned 20 findings, all
+Validated on `tasks/archive/nebula-auth-decouple-from-auth.md` (2026-07-31). Stage 1 returned 20 findings, all
 framing/scope, none of them "you are missing phases". Stage 2 then returned 40+ across two passes that
 were **specifically about the phases** — decomposition, ordering, intermediate-commit health, criteria
 that could not fail, mutation notes — none of which Stage 1 could structurally have seen. The ordering

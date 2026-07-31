@@ -1,20 +1,25 @@
 # Decouple `nebula-auth` from `@lumenize/auth` — extract the crypto core, copy the rest
 
-**Status:** ✅ **BUILT 2026-07-31** on `pre-alpha` — all six phases, one commit each (`d606364`+`dd1fc7a`,
-`19d7544`, `83a4e59`, `21ffb9d`, `5a0a4ae`, `1101f0e`). Hand-reviewed · `/review-task` **Stage 1**
+**Status:** ✅ **COMPLETE — built and verified 2026-07-31** on `pre-alpha`, then archived. All six
+phases, one commit each (`d606364`+`dd1fc7a`, `19d7544`, `83a4e59`, `21ffb9d`, `5a0a4ae`, `1101f0e`),
+plus close-out `fa50327` and verifier remediation `9e42780`. Hand-reviewed · `/review-task` **Stage 1**
 (20 findings) · phases written (`/write-task` pass 2) · **Stage 2** (two passes, 40+ findings, 4
-ADR-001 erosions) · `/build-task`.
+ADR-001 erosions) · `/build-task` + its adversarial verifier panel.
 
 **Objective met:** `packages/auth` has **zero `src` consumers** anywhere in the repo — the only
 surviving `from '@lumenize/auth'` in any `src/` is auth's own JSDoc `@example`. UNDEPLOYED (per the
 pre-alpha wipe-before-redeploy gate). The release-notes obligation is filed in
-[backlog.md](backlog.md) § `@lumenize/auth`.
+[backlog.md](../backlog.md) § `@lumenize/auth`.
 
-⚠️ **Three success criteria in this file were found UNCHECKABLE during the build and are corrected
-in place** — each marked *CORRECTED DURING BUILD*, with the measurement: the Phase 3 and Phase 5
-`npm ls` manifest tests (both resolve transitively and exit 0), and Phase 2's claim that
-`mesh/test/for-docs/security/` already guarded the flat wire (that phase was an unimplemented
-`TODO`). All three now use instruments that were verified capable of failing.
+⚠️ **SIX success criteria in this file could not fail, and every one was found by EXECUTING it — none
+by either review stage.** Each is marked *CORRECTED DURING BUILD* below with its measurement: the
+Phase 3 and Phase 5 `npm ls` manifest tests (they resolve transitively and exit 0); Phase 2's claim
+that `mesh/test/for-docs/security/` already guarded the flat wire (that phase was an unimplemented
+`TODO`); Phase 2's symmetry grep (two pre-existing unrelated casts made "returns nothing" impossible);
+Phase 5's manifest read (checked only `dependencies`, not `devDependencies`); and Phase 5's prose grep
+(a one-time triage instruction masquerading as a re-runnable tripwire). **That record is the reason
+`/review-task` now has step 4.6 — run every command-shaped criterion and paste its output** — which is
+this file's most durable output after the de-fork itself.
 
 ## Objective
 
@@ -516,7 +521,7 @@ field, delete `parseInstanceName`, and rewrite `nebula-email-sender.test.ts`.
 
 - **The orchestration-body de-fork.** No live task file; *Relationships* records the constraint any
   revival must honour.
-- **Fixing the rotation drift.** A conformance fix inside `packages/auth` — [backlog.md](backlog.md)
+- **Fixing the rotation drift.** A conformance fix inside `packages/auth` — [backlog.md](../backlog.md)
   § `@lumenize/auth`. What this task buys is that it becomes safe to make independently.
 - **Closing the test-mode gating asymmetry.** Threading an explicit flag through the RPC is separate
   work; Phase 5 only repoints and re-scopes the backlog row that names this file as its home.
@@ -534,12 +539,12 @@ field, delete `parseInstanceName`, and rewrite `nebula-email-sender.test.ts`.
 functions, three types and a whole subpath from published `@lumenize/auth@0.26.0` and reshapes
 `JwtPayload` — a larger break than the `headers(message)` change this file cites as its own
 motivation. `workflow.md` § Releases requires the next release be flagged. Add a row under
-[backlog.md](backlog.md) § `@lumenize/auth` enumerating the dropped exports, beside the existing one
+[backlog.md](../backlog.md) § `@lumenize/auth` enumerating the dropped exports, beside the existing one
 whose sub-bullet records that such flags have "fallen through" before for want of a named home.
 
 ## Relationships
 
-- **Supersedes** [icebox/auth-token-core-compose-not-fork.md](icebox/auth-token-core-compose-not-fork.md)
+- **Supersedes** [icebox/auth-token-core-compose-not-fork.md](../icebox/auth-token-core-compose-not-fork.md)
   (moved 2026-07-31), which targeted the ~1,400-line DO orchestration body rather than the leaf.
   ⚠️ **Its file:line map is dead** — it cites `packages/nebula-auth/src/nebula-auth.ts`, which no longer
   exists. Do not port those line numbers; do not treat it as a live plan.
@@ -549,14 +554,14 @@ whose sub-bullet records that such flags have "fallen through" before for want o
   package both consume. **Share via extraction, never by depending on the auth product.**
 - **Does NOT fix the rotation drift, deliberately.** That is a conformance fix inside `packages/auth`.
   What decoupling buys is that the fix becomes **safe to make independently**.
-  [backlog.md](backlog.md) § `@lumenize/auth`.
-- **Closes half of [backlog.md](backlog.md) § Lumenize Mesh's `createTestRefreshFunction` row** — moving
+  [backlog.md](../backlog.md) § `@lumenize/auth`.
+- **Closes half of [backlog.md](../backlog.md) § Lumenize Mesh's `createTestRefreshFunction` row** — moving
   it to `@lumenize/crypto` (no `cloudflare:workers`) fixes the Node-load half for free, and ⚠️ **invalidates
   that row's prescribed remedy**, which names the `@lumenize/auth/client` subpath this task deletes.
   Re-scope it to the residual gap (not exported from `mesh/src/client-index.ts`) — or close it outright
   with the one-line export, which also gives the extraction the Node-import regression test it lacks.
-- **Does NOT resolve the test-mode gating asymmetry**, though [backlog.md](backlog.md):41 names this file
+- **Does NOT resolve the test-mode gating asymmetry**, though [backlog.md](../backlog.md):41 names this file
   as its home under the dead title `auth-token-core-compose-not-fork`. Repoint that link and re-scope the
   row; threading an explicit flag through the RPC is separate work.
-- **Follows** [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md), whose
+- **Follows** [archive/nebula-impersonation-client.md](nebula-impersonation-client.md), whose
   `headers(message)` breaking change surfaced the ceremony cost.

@@ -27,7 +27,7 @@ type EmailMessageBase = {
  * Discriminated union for email messages sent by Nebula auth.
  *
  * ⚠️ **COPIED from `packages/auth/src/types.ts` on 2026-07-31 — a DELIBERATE DIVERGENCE, not to be
- * re-synced** (`tasks/nebula-auth-decouple-from-auth.md`). Nebula-specific templates are wanted
+ * re-synced** (`tasks/archive/nebula-auth-decouple-from-auth.md`). Nebula-specific templates are wanted
  * soon, and each would otherwise be an override fighting a shared default, or Nebula vocabulary
  * pushed into the MIT package.
  *
@@ -63,7 +63,7 @@ export type EmailMessage =
  * every layer, and ADR-013 makes it display-only).
  *
  * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
- * its type is out of scope. ⚠️ **Not a pending reconciliation** — `nebula-auth-decouple-from-auth.md`
+ * its type is out of scope. ⚠️ **Not a pending reconciliation** — `tasks/archive/nebula-auth-decouple-from-auth.md`
  * considered folding this widening into the shared package and REJECTED it (widening now buys a shape
  * about to change); ADR-016 / `nebula-pre-alpha.md` schema-surgery item 6 is where `projectActClaim`'s
  * deletion actually lives, as `resources.ts` already cites. ⚠️ `apps/nebula/src/resources.ts`

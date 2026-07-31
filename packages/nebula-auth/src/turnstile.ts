@@ -3,7 +3,7 @@
  *
  * ⚠️ **COPIED from `packages/auth/src/turnstile.ts` on 2026-07-31, and this is a DELIBERATE
  * DIVERGENCE that must NOT be re-synced.** `@lumenize/nebula-auth` no longer depends on
- * `@lumenize/auth` (`tasks/nebula-auth-decouple-from-auth.md`); the two copies are free to drift.
+ * `@lumenize/auth` (`tasks/archive/nebula-auth-decouple-from-auth.md`); the two copies are free to drift.
  * A future session diffing them and "unifying" them would look diligent while silently restoring
  * the coupling this file exists to delete. Don't.
  *

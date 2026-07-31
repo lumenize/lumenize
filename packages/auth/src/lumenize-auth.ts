@@ -88,7 +88,7 @@ export class LumenizeAuth extends DurableObject {
    * `String.prototype.includes` on the raw joined value (a substring match would let `a@x.io`
    * match the entry `a@x.io,b@y.io`; a stray trailing space would silently fail BOTH promotion AND
    * modify-protection). Empty/unset → `[]`. (Getter contract mirrors nebula-auth `NebulaAuth`; the
-   * two stay in lockstep until the de-fork — see tasks/nebula-auth-decouple-from-auth.md.)
+   * two stay in lockstep until the de-fork — see tasks/archive/nebula-auth-decouple-from-auth.md.)
    */
   get #bootstrapEmails(): string[] {
     const raw = (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL as string | undefined;

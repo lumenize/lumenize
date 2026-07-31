@@ -3,7 +3,7 @@
  *
  * ⚠️ **COPIED from `packages/auth/src/auth-email-sender-base.ts` on 2026-07-31, and this is a
  * DELIBERATE DIVERGENCE that must NOT be re-synced.** `@lumenize/nebula-auth` no longer depends on
- * `@lumenize/auth` at all (`tasks/nebula-auth-decouple-from-auth.md`); the two are free to drift,
+ * `@lumenize/auth` at all (`tasks/archive/nebula-auth-decouple-from-auth.md`); the two are free to drift,
  * and Nebula-specific templates are the immediate reason — today this sends the generic MIT
  * templates with a name substituted in. A future session diffing this against the original and
  * "unifying" them would look diligent while silently restoring the coupling this file exists to

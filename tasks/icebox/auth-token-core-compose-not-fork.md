@@ -1,6 +1,6 @@
 # Auth Token Core — Compose, Don't Fork (`@lumenize/auth` ↔ `nebula-auth`) — ⛔ SUPERSEDED
 
-> ## ⛔ SUPERSEDED 2026-07-31 by [`nebula-auth-decouple-from-auth.md`](../nebula-auth-decouple-from-auth.md) — do not build from this file
+> ## ⛔ SUPERSEDED 2026-07-31 by [`nebula-auth-decouple-from-auth.md`](../archive/nebula-auth-decouple-from-auth.md) — do not build from this file
 >
 > **Two reasons, and the second is the dangerous one.**
 >
