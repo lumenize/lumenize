@@ -1,4 +1,30 @@
-# Auth Token Core — Compose, Don't Fork (`@lumenize/auth` ↔ `nebula-auth`) — ON HOLD
+# Auth Token Core — Compose, Don't Fork (`@lumenize/auth` ↔ `nebula-auth`) — ⛔ SUPERSEDED
+
+> ## ⛔ SUPERSEDED 2026-07-31 by [`nebula-auth-decouple-from-auth.md`](../nebula-auth-decouple-from-auth.md) — do not build from this file
+>
+> **Two reasons, and the second is the dangerous one.**
+>
+> 1. **The direction changed.** This file treats the leaf layer as fine (*"Crypto is **not**
+>    duplicated"*) and proposes sharing **more** — `nebula-auth` composing a session core out of
+>    `@lumenize/auth`. The superseding file removes `@lumenize/auth` from `nebula-auth`'s manifest
+>    entirely, so that mechanism is no longer available. Sharing must go through a **third extracted
+>    package** both consume, never through depending on the auth product.
+>
+> 2. ⚠️ **Its "Current state" map is DEAD.** Every citation below names
+>    `packages/nebula-auth/src/nebula-auth.ts` (`:441`, `:1283`, `:1361`). **That file no longer
+>    exists** — the body was restructured into `nebula-auth-registry.ts`, `worker-token.ts` and
+>    `router.ts`. A builder following those line numbers lands nowhere.
+>
+> **The substance still holds** and has been carried into the superseding file's *What this absorbs*
+> section: two refresh implementations still exist (one rotating), the four policy differences are
+> still the right list, the entanglement risk still applies, targeted-beats-full is still the lean,
+> and the reliability-not-vulnerability calibration **corrects** the superseding file rather than
+> agreeing with it.
+>
+> Kept rather than deleted only because the Phase-0 seam-finding *framing* is reusable if the
+> orchestration-body de-fork is ever revived. Everything below is a 2026-07-03 snapshot.
+
+## Original file (2026-07-03 snapshot — map is stale)
 
 **Status**: **ON HOLD** — designed-enough to capture, not yet design-reviewed. Surfaced 2026-07-03 while
 discussing JWT-vs-server-session auth strategy; the forcing example is a live security-rule conformance

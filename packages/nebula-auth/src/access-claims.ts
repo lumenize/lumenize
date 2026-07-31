@@ -14,7 +14,7 @@
  *
  * This is the "factor out to share, don't copy" seam. A second (or third) hand-rolled copy
  * of the `access: { authScopePattern, admin? }` shape is exactly the drift the de-fork task
- * ([`on-hold/auth-token-core-compose-not-fork.md`]) is shrinking — so new mint sites compose
+ * ([`tasks/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
  * PURE by construction: imports only `./parse-id`, `./types`, and the Node-safe

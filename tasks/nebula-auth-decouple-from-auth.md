@@ -107,6 +107,51 @@ that reason is gone. ⚠️ **Not in scope here** (it is a behaviour change, and
 sound); noted so the next person does not re-derive the rejection from a premise that has expired —
 `calibration.md` §4.
 
+## What this absorbs from `auth-token-core-compose-not-fork` (superseded 2026-07-31)
+
+That file (now `icebox/`) addressed a **different layer** and pointed the **opposite way**, which is
+why reconciling them mattered rather than just merging them. It observed that the *leaf* layer was
+already composed — *"Crypto is **not** duplicated"* — and targeted the ~1,400-line **DO orchestration
+body** (refresh handler, cookie construction, magic-link lifecycle, subject SQL), proposing to share
+**more**. This file leaves that body untouched and changes the leaf, sharing **less** of it.
+
+⚠️ **Its "Current state (verified 2026-07-03)" map is DEAD, and inheriting it would have sent a
+builder to deleted code.** Every citation named `packages/nebula-auth/src/nebula-auth.ts` — the
+founder logic at `:1283`, the claim shape at `:1361`, the "correct reference handler" at `:441`. That
+file no longer exists; the body was restructured into `nebula-auth-registry.ts` (1210 lines),
+`worker-token.ts` (584) and `router.ts` (393). The base is unchanged at `lumenize-auth.ts` (1381).
+**Re-derive the seam against today's files; do not port those line numbers.**
+
+**What survives, and is carried here:**
+
+- **The substance of the drift claim holds.** Two refresh implementations still exist —
+  `packages/auth/src/lumenize-auth.ts` (rotating) and `nebula-auth/src/worker-token.ts`
+  `handleRefreshToken` (pure KV read, no rotation). Only the map rotted, not the finding.
+- **The four policy differences**, still the right list to test any seam against: first-user-is-founder;
+  `access: AccessEntry` claims vs the base's `authorizedActors`; the two-scope model + `{u}.{g}.{s}`
+  parsing; cookie path (base `Path=/` vs nebula's path-scoped `/auth/{authScope}`).
+- ⚠️ **Its stated risk, which applies verbatim to any future de-fork:** *"The fork headers claim the
+  diffs are localized; a de-fork can discover they're more entangled than advertised."* Confirm the
+  clean-seam assumption before any code moves.
+- **Its lean toward a targeted rather than full de-fork** — a ~2,800-line unification is high churn
+  for the parts that are not drift-prone.
+- **Its urgency calibration, which corrects this file's Phase 5 rather than agreeing with it:** the
+  rotation footgun is a **reliability** issue (spurious logout on overlapping refreshes), *not an
+  exploitable vulnerability*, and nobody consumes base `@lumenize/auth` but us. Do not let the phrase
+  "live security drift" in *Why this exists* imply otherwise — it is a conformance gap worth closing,
+  not an incident.
+- **The ADR-007 precision:** de-forking *rhymes* with ADR-007 ("share one narrow core by composition")
+  but does **not** bind here — ADR-007 governs mesh nodes, and these are raw `extends DurableObject`
+  DOs. Cite it as motivation, never as a gate.
+
+**What is deliberately NOT carried, and stays open:** the orchestration-body de-fork itself. It is out
+of scope here and no longer has a live task file. ⚠️ **If it is ever revived, its mechanism must
+change:** Phase 4 removes `@lumenize/auth` from `nebula-auth`'s manifest, so a shared session core can
+no longer be *"nebula-auth composes @lumenize/auth"*. It must be a third extracted package that both
+consume — the same shape as Phase 1's crypto extraction. That constraint is the real reconciliation
+between the two files: **share via extraction, never by depending on the auth product.** Its open
+latent question is worth keeping too — *are two parallel auth DOs the right end state at all?*
+
 ## Open questions
 
 1. **Package name, and what rides along.** `jwt.ts` today also exports `generateRandomString`,
@@ -175,8 +220,11 @@ sound); noted so the next person does not re-derive the rejection from a premise
      the weaker form and should not be the criterion, since it passes while the affordance remains.
 
 5. **Settle the rotation drift, or record where it is settled.** This file's forcing example is a
-   live `security.md` violation in `packages/auth`. Decoupling does not fix it — it makes it *safe to
-   fix independently*, which is the point. Either drop rotation in `@lumenize/auth` too, or state
+   live `security.md` conformance gap in `packages/auth`. ⚠️ **Reliability, not vulnerability** — the
+   failure mode is a spurious logout when two refreshes race a single-use token, and nobody consumes
+   base `@lumenize/auth` but us (absorbed from the superseded file; do not re-inflate it into an
+   incident). Decoupling does not fix it — it makes it *safe to fix independently*, which is the
+   point. Either drop rotation in `@lumenize/auth` too, or state
    explicitly that the base package's policy is deliberately different and correct its JSDoc
    (`lumenize-auth.ts:49` advertises rotation as a feature).
    - **Success —** `packages/auth`'s refresh behaviour and its documentation agree with each other,
@@ -184,13 +232,11 @@ sound); noted so the next person does not re-derive the rejection from a premise
 
 ## Relationships
 
-- **Overlaps** [on-hold/auth-token-core-compose-not-fork.md](on-hold/auth-token-core-compose-not-fork.md),
-  which names the same rotation drift as its forcing example and whose un-park trigger (the mesh
-  continuation-only refactor) has already landed. ⚠️ **Reconcile the two before building** — that file
-  argues *compose, don't fork* for the token core, which is the same answer this file gives for
-  `jwt.ts` and the opposite of what it gives for the email seam. The likely resolution is that this
-  file supersedes it, absorbing its Phase 0 seam-finding; if so, `git rm` it and repoint its pointers
-  in one pass rather than leaving a superseded banner (`tasks/README.md`).
+- **Supersedes** [icebox/auth-token-core-compose-not-fork.md](icebox/auth-token-core-compose-not-fork.md)
+  (moved 2026-07-31). Everything still true in it is absorbed above, including the parts that
+  *correct* this file rather than agree with it. It is iceboxed rather than deleted because its
+  seam-finding framing for the orchestration body is reusable if that work is ever revived — but its
+  file:line map is dead and must not be ported. Do not treat it as a live plan.
 - **Unblocks nothing that is currently blocked** — it is cleanup, and its value is preventing future
   drift rather than enabling a feature. Sequence it accordingly.
 - **Follows** [archive/nebula-impersonation-client.md](archive/nebula-impersonation-client.md), whose

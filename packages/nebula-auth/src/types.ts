@@ -24,7 +24,7 @@ export type { ResolvedEmail, EmailMessage };
  *
  * ⚠️ **Local, deliberately.** `@lumenize/auth` is a separate package with its own consumers; widening
  * its type is out of scope (and one more divergence for
- * `tasks/on-hold/auth-token-core-compose-not-fork.md` to reconcile). ⚠️ `apps/nebula/src/resources.ts`
+ * `tasks/nebula-auth-decouple-from-auth.md` to reconcile). ⚠️ `apps/nebula/src/resources.ts`
  * keeps importing the **narrow** `@lumenize/auth` type: its `changedBy` is a persistence boundary, and
  * declaring an optional `profileId` there is the ADR-001 divergence `projectActClaim` exists to
  * prevent. **The type system is not a guard across that seam** — the widened shape is structurally
