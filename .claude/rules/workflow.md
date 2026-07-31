@@ -97,7 +97,23 @@ Score each candidate on this, and say so when you recommend:
 
 ## Dependencies
 - **Ask before installing any npm package.** Favor copy-paste-with-attribution over a dependency for <1000 SLOC (add an entry to `ATTRIBUTIONS.md` *and* a comment above the copied code).
-- Permissive licenses only (MIT, Apache-2.0, BSD-3-Clause, ISC). Prefer smallest built footprint over fastest, and strongest Cloudflare Workers compatibility. Never install globally.
+- Permissive licenses only (MIT, Apache-2.0, BSD-3-Clause, ISC). Prefer **fastest startup** over fastest steady-state, and strongest Cloudflare Workers compatibility. Never install globally.
+
+### Startup cost is the criterion — and it's WORK-AT-IMPORT, not size
+**A DO is not a separate deployment** — its class is exported from the Worker bundle, so every DO instance pays for the *whole* Worker's import graph, including code it never touches. Cost is **per-Worker-project**: a dep added anywhere in `apps/nebula`'s graph taxes every DO in it, and moving the heavy import behind a subpath **does not help** while its importers still share the Worker. So "is this dep worth it?" is never a question about one package.
+
+⚠️ **Size is a screening proxy, not the cause.** V8 pre-parses lazily and defers full compilation until a function is *called*, so a bundle that merely **defines** a lot is nearly free. What costs is code that **runs at module scope** — and it is almost always the dependency's, not ours: eager init tables (tsc's keyword/scanner/diagnostic catalogues), `new Map`/regex/`Object.freeze` of "constants", class field initializers and decorators, shim installation, wrangler's `keepNames` `__name()` wrapper per function definition, and the GC to collect it all.
+
+Measured 2026-07-31 on the `do-cold-start-bundle-ab` arms: `ts-runtime-parser-validator` (9.2 MB) spends a 295 ms local startup window on **66 ms garbage collection**, ~104 ms of top-level init inside `deps.bundle.mjs` (tsc + typia), and ~15 ms in 18,298 `__name()` wrappers. That is why 2.7 MB → 9.2 MB costs **16×** startup for **3.4×** the bytes: the two bundles do different *amounts of work*, not proportional amounts. ⇒ **Never gate on byte count** — it would fire on `isomorphic-git` (684 KiB, 25 ms, harmless) and stay silent on a small package that builds a big table at import.
+
+**Measure it — two commands, no deploy** (use `--workerBundle`; the direct `check startup` path misdetects a Worker as Pages and exits 1 on 4.113):
+```sh
+npx wrangler deploy --dry-run --outfile /tmp/w.bundle    # prints Total Upload
+npx wrangler check startup --workerBundle /tmp/w.bundle  # → .cpuprofile
+```
+Read the `.cpuprofile` in `speedscope.app` (Left Heavy) or Chrome DevTools. **Self-time plateaus along the top edge are the cost**; tall narrow towers are deep call chains that cost nothing. A profile with single-digit samples means there is nothing to optimize. Local CPU ≠ Cloudflare's, so trust it for *relative* comparison, never as a predicted production number — for that, `wrangler deploy` reports a server-side `Worker Startup Time`. The summary line (bundle KiB, active/idle/GC split) needs wrangler ≥ 4.116, which is a toolchain-**triple** bump — see § Toolchain bumps, never `wrangler` alone.
+
+⚠️ **Startup cost ≠ wake latency.** End-to-end DO `create` and `wake` also depend on eviction depth, which is **not predictable from any of this**: an identical 9.2 MB bundle measured 120 ms and 1,256 ms on repeat runs. Method and full tier data in `experiments/do-cold-start-bundle-ab/RESULTS.md` (2026-07-23, n=10).
 
 ## Sequential implementation — no parallel worktrees
 One long-running branch, implemented sequentially. Never parallelize code-writing across worktrees, parallel PRs, or concurrent write-agents — in this solo workflow, merge/conflict cost exceeds any speedup. Parallel agents are for reading and verifying (review panels, verifiers), never for writing code concurrently. Worktree isolation is fine only for self-contained experiments whose code never merges back (next section); if a worktree's code would need to come back, don't use a worktree.
