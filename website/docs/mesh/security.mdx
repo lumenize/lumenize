@@ -196,7 +196,12 @@ The Gateway requires this header to be set by your `onBeforeConnect` hook:
 The Gateway decodes the JWT payload (without re-verifying the signature) and extracts:
 - **`sub`** (required) — becomes `originAuth.sub`
 - **`exp`** — stored for per-message expiration checks
-- **Claims** (`emailVerified`, `adminApproved`, `isAdmin`, `act`) — become `originAuth.claims`
+- **Every other claim the payload carries** — becomes `originAuth.claims`. This is a derivation, not
+  a fixed list: whatever the verified JWT holds at its top level shows up on `originAuth.claims`
+  under the same name, so an auth provider that mints a new claim needs no Gateway change. With
+  `@lumenize/auth` that means its [`AuthClaims`](../auth/#jwt-claims) (`emailVerified`,
+  `adminApproved`, `isAdmin`) plus `act`, because `createJwtPayload` spreads custom claims **flat**
+  onto the token rather than nesting them.
 
 If the `Authorization` header is missing or the JWT lacks a `sub` claim, the Gateway rejects the WebSocket upgrade with 401.
 

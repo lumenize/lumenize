@@ -63,7 +63,22 @@ export interface RefreshToken {
 }
 
 /**
- * JWT payload claims
+ * JWT payload — the REGISTERED claims (RFC 7519 §4.1), plus an optional bag of first-party
+ * custom claims. It carries **no auth policy**: a layer that mints its own claims declares
+ * its own interface for them (this package's is {@link AuthClaims}).
+ *
+ * ⚠️ **`customClaims` is an INPUT shape, never the wire shape.** `createJwtPayload` spreads
+ * it FLAT into the token, so each key arrives at the payload's top level. `@lumenize/mesh`'s
+ * Gateway copies the whole verified payload into `originAuth.claims`, so a nested bag would
+ * silently become `originAuth.claims.customClaims.x` and break every consumer reading it.
+ *
+ * ⚠️ **Registered claims win.** `createJwtPayload` spreads the bag first — a *custom* claim
+ * is by definition not a registered one (RFC 7519 §4.3), so it can never shadow `sub`/`exp`.
+ *
+ * Deliberately carries **no index signature**: registered claims stay statically checked, so
+ * reading a custom claim is a deliberate narrowing through a declared interface rather than
+ * an untyped property access.
+ *
  * @see https://lumenize.com/docs/auth/#jwt-claims
  */
 export interface JwtPayload {
@@ -79,15 +94,42 @@ export interface JwtPayload {
   iat: number;
   /** JWT ID (unique identifier) */
   jti: string;
+  /** Delegation chain per RFC 8693 */
+  act?: ActClaim;
+  /** First-party custom claims (RFC 7519 §4.3), spread FLAT at mint — see above. */
+  customClaims?: Record<string, unknown>;
+}
+
+/**
+ * The custom claims `@lumenize/auth` itself mints and gates on — this package's own access
+ * policy, deliberately NOT part of {@link JwtPayload}.
+ *
+ * Both ends narrow through this one declaration: the mint site annotates the bag it hands to
+ * `createJwtPayload`, and `hooks.ts`'s access gate reads the verified token through
+ * {@link AuthJwtPayload}. Renaming a field here is therefore a compile error at both ends.
+ *
+ * ⚠️ **A `type` alias, not an `interface`, and that is load-bearing.** Only a type alias gets
+ * TypeScript's implicit index signature, which is what lets it be passed as
+ * `createJwtPayload`'s `customClaims: Record<string, unknown>`. An `interface` is open to
+ * declaration merging and so gets none — converting this back would break the mint site.
+ */
+export type AuthClaims = {
   /** Subject has confirmed email */
   emailVerified: boolean;
   /** Admin has granted access */
   adminApproved: boolean;
-  /** Full admin access */
+  /** Full admin access (implicitly satisfies `adminApproved`) */
   isAdmin?: boolean;
-  /** Delegation chain per RFC 8693 */
-  act?: ActClaim;
-}
+};
+
+/**
+ * A token minted by `@lumenize/auth`: registered claims plus this package's own
+ * {@link AuthClaims}, which arrive **flat** because `createJwtPayload` spreads the bag.
+ *
+ * The members are `Partial` because a token minted by another layer (or an older one) may
+ * carry none of them — which the access gate treats as "not approved".
+ */
+export type AuthJwtPayload = JwtPayload & Partial<AuthClaims>;
 
 /**
  * JWT header

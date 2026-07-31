@@ -341,6 +341,10 @@ export async function connectDriver(
  * Mint a DELIBERATELY-DEGRADED token for the negative control.
  * - `'base'`  → the base mesh/auth shape (`createTestRefreshFunction`-equivalent): flat `isAdmin`,
  *   NO `access` claim, base issuer. This is the exact "wrong shape for Nebula" the task names.
+ *   ⚠️ The `isAdmin`/`emailVerified`/`adminApproved` flags are passed as `customClaims` but land
+ *   FLAT on the token — `createJwtPayload` spreads the bag — so this really is the flat base shape,
+ *   not a nested one. That flatness is the point of the control; a nested bag would degrade the
+ *   token for a second, uninteresting reason and stop isolating the missing `access` claim.
  * - `'no-access'` → nebula issuer + valid `aud`/`sub`/`email` but STILL no `access` claim. Isolates
  *   `access.authScopePattern` (router.ts) as the *sole* discriminator — the strongest control.
  *
@@ -360,9 +364,7 @@ export async function mintDegradedToken(
       audience: opts.scope,
       subject: sub,
       expiresInSeconds: 900,
-      emailVerified: true,
-      adminApproved: true,
-      isAdmin: true,
+      customClaims: { emailVerified: true, adminApproved: true, isAdmin: true },
     });
     return signJwt(payload as any, privateKey, stack.activeKey);
   }

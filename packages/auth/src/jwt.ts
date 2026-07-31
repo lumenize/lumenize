@@ -244,30 +244,35 @@ export function parseJwtUnsafe(token: string): { header: JwtHeader; payload: Jwt
 }
 
 /**
- * Create a JWT payload with standard claims and auth flags
+ * Create a JWT payload: the registered claims, plus any first-party custom claims spread
+ * FLAT at the payload's top level.
+ *
+ * Carries no auth policy — the caller supplies whatever custom claims its layer defines
+ * (see `AuthClaims` for this package's).
+ *
+ * ⚠️ **Registered claims win.** `customClaims` is spread FIRST, so a bag carrying `sub` or
+ * `exp` cannot shadow the computed values — a *custom* claim is by definition not a
+ * registered one (RFC 7519 §4.3).
  */
 export function createJwtPayload(options: {
   issuer: string;
   audience: string;
   subject: string;
   expiresInSeconds: number;
-  emailVerified: boolean;
-  adminApproved: boolean;
-  isAdmin?: boolean;
   act?: { sub: string; act?: any };
+  /** Spread flat into the token — never nested under a `customClaims` key on the wire. */
+  customClaims?: Record<string, unknown>;
 }): JwtPayload {
   const now = Math.floor(Date.now() / 1000);
 
   return {
+    ...options.customClaims,
     iss: options.issuer,
     aud: options.audience,
     sub: options.subject,
     exp: now + options.expiresInSeconds,
     iat: now,
     jti: crypto.randomUUID(),
-    emailVerified: options.emailVerified,
-    adminApproved: options.adminApproved,
-    ...(options.isAdmin ? { isAdmin: true } : {}),
     ...(options.act ? { act: options.act } : {}),
   };
 }

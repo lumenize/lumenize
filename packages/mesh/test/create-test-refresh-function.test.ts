@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { verifyJwt, importPublicKey, parseJwtUnsafe } from '@lumenize/auth';
+import type { JwtPayload } from '@lumenize/auth';
 import { createTestRefreshFunction } from '../src/create-test-refresh-function';
+
+/**
+ * The custom claims `createTestRefreshFunction` mints. Declared locally rather than imported
+ * from `@lumenize/auth`: mesh mints a token auth happens to gate on, and must not take on
+ * auth's policy type.
+ *
+ * ⚠️ Read at the payload's **top level** on purpose — `createJwtPayload` spreads the
+ * `customClaims` bag FLAT, and these assertions pin that at the token level. The consequence
+ * of losing it is pinned end-to-end in `test/for-docs/security/`, where the Gateway copies the
+ * verified payload into `originAuth.claims` and a nested bag would leave a guard reading
+ * `undefined` (verified by mutation, 2026-07-31).
+ */
+type TestRefreshClaims = { emailVerified?: boolean; adminApproved?: boolean; isAdmin?: boolean };
+const claimsOf = (parsed: { payload: JwtPayload } | null): JwtPayload & TestRefreshClaims =>
+  parsed!.payload as JwtPayload & TestRefreshClaims;
 
 describe('createTestRefreshFunction', () => {
   it('returns a function that produces { access_token, sub }', async () => {
@@ -58,9 +74,9 @@ describe('createTestRefreshFunction', () => {
 
     const parsed = parseJwtUnsafe(access_token);
     expect(parsed).not.toBeNull();
-    expect(parsed!.payload.adminApproved).toBe(true);
-    expect(parsed!.payload.emailVerified).toBe(true);
-    expect(parsed!.payload.isAdmin).toBeUndefined();
+    expect(claimsOf(parsed).adminApproved).toBe(true);
+    expect(claimsOf(parsed).emailVerified).toBe(true);
+    expect(claimsOf(parsed).isAdmin).toBeUndefined();
   });
 
   it('respects adminApproved=false', async () => {
@@ -68,7 +84,7 @@ describe('createTestRefreshFunction', () => {
     const { access_token } = await refresh();
 
     const parsed = parseJwtUnsafe(access_token);
-    expect(parsed!.payload.adminApproved).toBe(false);
+    expect(claimsOf(parsed).adminApproved).toBe(false);
   });
 
   it('respects emailVerified=false', async () => {
@@ -76,7 +92,7 @@ describe('createTestRefreshFunction', () => {
     const { access_token } = await refresh();
 
     const parsed = parseJwtUnsafe(access_token);
-    expect(parsed!.payload.emailVerified).toBe(false);
+    expect(claimsOf(parsed).emailVerified).toBe(false);
   });
 
   it('respects isAdmin=true', async () => {
@@ -84,7 +100,7 @@ describe('createTestRefreshFunction', () => {
     const { access_token } = await refresh();
 
     const parsed = parseJwtUnsafe(access_token);
-    expect(parsed!.payload.isAdmin).toBe(true);
+    expect(claimsOf(parsed).isAdmin).toBe(true);
   });
 
   it('respects custom iss and aud', async () => {

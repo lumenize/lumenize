@@ -1,6 +1,6 @@
 import { debug } from '@lumenize/debug';
 import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt';
-import type { JwtPayload } from './types';
+import type { AuthJwtPayload, JwtPayload } from './types';
 
 // WebSocket subprotocol prefix for access tokens
 const WS_TOKEN_PREFIX = 'lmz.access-token.';
@@ -96,9 +96,14 @@ async function verifyAndGate(
   publicKeys: CryptoKey[],
   issuer: string,
   audience: string,
-): Promise<{ payload: JwtPayload } | { error: Response }> {
-  // Verify JWT with rotation support
-  let payload: JwtPayload | null;
+): Promise<{ payload: AuthJwtPayload } | { error: Response }> {
+  // Verify JWT with rotation support.
+  //
+  // Narrowed to `AuthJwtPayload` (registered claims + this package's own `AuthClaims`,
+  // which `createJwtPayload` spreads FLAT onto the token) so the access gate below reads
+  // statically-typed fields rather than untyped properties. This is the READ end of the
+  // contract whose MINT end is `lumenize-auth.ts` `#generateAccessToken`.
+  let payload: AuthJwtPayload | null;
 
   if (publicKeys.length === 1) {
     payload = await verifyJwt(token, publicKeys[0]);

@@ -61,6 +61,8 @@ export type {
   RefreshToken,
   JwtPayload,
   JwtHeader,
+  AuthClaims,
+  AuthJwtPayload,
   EmailMessage,
   ResolvedEmail,
   AuthRoutesOptions,

@@ -6,6 +6,7 @@
 
 import { LumenizeClient, mesh } from '../../../src/index.js';
 import type { UserProfileDO } from './user-profile-do.js';
+import type { TeamDocDO } from './team-doc-do.js';
 
 export class SecurityClient extends LumenizeClient {
   /**
@@ -30,5 +31,29 @@ export class SecurityClient extends LumenizeClient {
       return;
     }
     console.log('Profile data received:', result.message);
+  }
+
+  /**
+   * Call an admin-only method, guarded on `originAuth.claims.isAdmin`.
+   */
+  callAdminMethod(instanceId: string): void {
+    this.lmz.call(
+      'TEAM_DOC_DO',
+      instanceId,
+      this.ctn<TeamDocDO>().adminMethod(),
+      this.ctn().handleAdminResponse(this.ctn().$result)
+    );
+  }
+
+  /**
+   * Handle response from the admin-only method
+   */
+  @mesh()
+  handleAdminResponse(result: string | Error): void {
+    if (result instanceof Error) {
+      console.error('Admin call failed:', result.message);
+      return;
+    }
+    console.log('Admin result received:', result);
   }
 }

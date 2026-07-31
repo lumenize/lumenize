@@ -221,7 +221,7 @@ export async function mintAccessToken(
     authScopePattern: opts.authScopePattern,
     ttlSeconds: effectiveTtlSeconds,
   });
-  return { accessToken: await signJwt(payload as any, privateKey, activeKey), effectiveTtlSeconds };
+  return { accessToken: await signJwt(payload, privateKey, activeKey), effectiveTtlSeconds };
 }
 
 // ── email-magic-link (request) ─────────────────────────────────────────────────────────────────

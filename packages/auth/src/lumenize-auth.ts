@@ -1,7 +1,7 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage } from './types';
+import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage, AuthClaims } from './types';
 import {
   generateRandomString,
   hashString,
@@ -1288,14 +1288,21 @@ export class LumenizeAuth extends DurableObject {
 
     const privateKey = await importPrivateKey(privateKeyPem);
 
+    // Annotated with `AuthClaims` deliberately: this is the MINT end of the contract whose
+    // READ end is `hooks.ts`'s access gate. Both narrow through the one interface, so
+    // renaming a field on either side is a compile error rather than a silently-ungated token.
+    const customClaims: AuthClaims = {
+      emailVerified: subject.emailVerified,
+      adminApproved: subject.adminApproved,
+      ...(subject.isAdmin ? { isAdmin: true } : {}),
+    };
+
     const payload = createJwtPayload({
       issuer: this.#issuer,
       audience: this.#audience,
       subject: subject.sub,
       expiresInSeconds: this.#accessTokenTtl,
-      emailVerified: subject.emailVerified,
-      adminApproved: subject.adminApproved,
-      isAdmin: subject.isAdmin || undefined,
+      customClaims,
       act: actorSub ? { sub: actorSub } : undefined,
     });
 

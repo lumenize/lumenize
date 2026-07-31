@@ -101,7 +101,7 @@ const isAdmin = client.claims?.isAdmin;   // Lumenize-auth admin flag
 
 `claims` is `null` until the first successful token refresh or until an initial `accessToken` is parsed at construction time. Use the optional chain (`client.claims?.sub`) for any code that may run before a token is available.
 
-`@lumenize/auth` issues the JWT and defines the [`JwtPayload`](../auth/) shape. If your auth provider mints additional claims, declare them in a module augmentation alongside your client code.
+`@lumenize/auth` issues the JWT and defines the [`JwtPayload`](../auth/) shape — the registered claims. Anything beyond those is a first-party custom claim: pass it as `customClaims` at mint and it is spread **flat** onto the token, so it arrives on `client.claims` under its own name alongside `sub` and `aud`. Declare the shape your provider mints as its own interface (that is what `AuthClaims` is for `@lumenize/auth`) and narrow to it where you read the claims.
 
 ## Mesh API
 

@@ -125,8 +125,67 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
   // ============================================
-  // TODO: Implement this test: Bob (no isAdmin) fails, Admin (createTestRefreshFunction({ isAdmin: true })) succeeds.
-  // The adminMethod guard checks originAuth.claims.isAdmin.
+  // The adminMethod guard checks originAuth.claims.isAdmin. Bob (no isAdmin) is refused;
+  // an admin minted with `isAdmin: true` gets through.
+  //
+  // ⚠️ This also pins the FLAT WIRE FORMAT end to end. `createTestRefreshFunction` hands
+  // `isAdmin` to `createJwtPayload` as a *custom claim*, which spreads the bag FLAT onto the
+  // token; the Gateway then copies the whole verified payload into `originAuth.claims`. If
+  // the bag were ever nested instead of spread, the claim would arrive as
+  // `originAuth.claims.customClaims.isAdmin`, the guard would read `undefined`, and the admin
+  // half below goes red. Driven over the real path — real client → Worker fetch → auth hooks
+  // → Gateway → DO — with no test-mode infrastructure.
+
+  const adminCallResults: Array<string | Error> = [];
+
+  // Bob is NOT an admin — his call must be refused by the guard.
+  const originalAdminHandler = bob.handleAdminResponse.bind(bob);
+  (bob as any).handleAdminResponse = (result: any) => {
+    adminCallResults.push(result);
+    originalAdminHandler(result);
+  };
+
+  bob.callAdminMethod('admin-doc-1');
+
+  await vi.waitFor(() => {
+    expect(adminCallResults.length).toBe(1);
+  });
+
+  expect(adminCallResults[0]).toBeInstanceOf(Error);
+  expect((adminCallResults[0] as Error).message).toContain('Admin only');
+
+  // An admin — same path, but the token carries the isAdmin custom claim.
+  const adminBrowser = new Browser();
+  const adminUserId = crypto.randomUUID();
+  const adminRefresh = createTestRefreshFunction({ sub: adminUserId, isAdmin: true });
+
+  using adminUser = new SecurityClient({
+    instanceName: `${adminUserId}.tab1`,
+    baseUrl: 'https://localhost',
+    refresh: adminRefresh,
+    fetch: adminBrowser.fetch,
+    WebSocket: adminBrowser.WebSocket,
+  });
+
+  await vi.waitFor(() => {
+    expect(adminUser.connectionState).toBe('connected');
+  });
+
+  const adminOwnResults: Array<string | Error> = [];
+  const originalOwnHandler = adminUser.handleAdminResponse.bind(adminUser);
+  (adminUser as any).handleAdminResponse = (result: any) => {
+    adminOwnResults.push(result);
+    originalOwnHandler(result);
+  };
+
+  adminUser.callAdminMethod('admin-doc-1');
+
+  await vi.waitFor(() => {
+    expect(adminOwnResults.length).toBe(1);
+  });
+
+  expect(adminOwnResults[0]).not.toBeInstanceOf(Error);
+  expect(adminOwnResults[0]).toBe('admin-only-result');
 
   // ============================================
   // Phase 5: @mesh(guard) with instance state (allowed editors)

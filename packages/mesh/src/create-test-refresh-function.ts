@@ -88,9 +88,14 @@ export function createTestRefreshFunction(
       audience: aud,
       subject: sub,
       expiresInSeconds: ttl,
-      emailVerified,
-      adminApproved,
-      isAdmin: isAdmin || undefined,
+      // Spread FLAT onto the token by `createJwtPayload`, which is what `@lumenize/auth`'s
+      // access gate reads. Declared inline rather than through auth's `AuthClaims`: mesh mints
+      // a token auth happens to gate on, and must not take on auth's policy type.
+      customClaims: {
+        emailVerified,
+        adminApproved,
+        ...(isAdmin ? { isAdmin: true } : {}),
+      },
     });
 
     const accessToken = await signJwt(payload, privateKey, 'BLUE');

@@ -128,7 +128,9 @@ sequenceDiagram
 
 ## JWT Claims
 
-Access tokens contain standard JWT claims plus status and role information:
+Access tokens contain standard JWT claims plus status and role information. The two are declared
+separately: `JwtPayload` is the registered claims and carries no auth policy, while this package's
+own status and role flags live in `AuthClaims`.
 
 ```typescript @check-example('packages/auth/src/types.ts')
 interface JwtPayload {
@@ -140,17 +142,39 @@ interface JwtPayload {
   iat: number;          // Issued at
   jti: string;          // JWT ID
 
+  // Delegation (RFC 8693)
+  act?: ActClaim;
+
+  // First-party custom claims — spread FLAT at mint, see below
+  customClaims?: Record<string, unknown>;
+}
+```
+
+`@lumenize/auth`'s own claims are the two-phase access flags plus the admin role:
+
+```typescript @check-example('packages/auth/src/types.ts')
+type AuthClaims = {
   // Status flags (both required for access)
   emailVerified: boolean;   // Subject clicked magic link
   adminApproved: boolean;   // Admin granted access
 
   // Role flag
   isAdmin?: boolean;
-
-  // Delegation (RFC 8693)
-  act?: ActClaim;
-}
+};
 ```
+
+:::info[Custom claims are spread flat onto the token]
+
+`customClaims` is an **input** shape, not the wire shape. `createJwtPayload` spreads the bag flat, so
+each key arrives at the payload's top level — a token carrying `AuthClaims` decodes with
+`emailVerified` beside `sub`, never nested under a `customClaims` key. That is what lets
+`@lumenize/mesh` copy the whole verified payload into `originAuth.claims` and have guards read
+`claims.isAdmin` directly.
+
+Registered claims win: the bag is spread first, so a custom claim named `sub` or `exp` cannot shadow
+the real one — a *custom* claim is by definition not a registered one (RFC 7519 §4.3).
+
+:::
 
 The `act` claim enables delegation — one authenticated subject acting on behalf of another. It's recursive per [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693): each layer records who delegated to whom. Guards check `sub` for authorization; the `act` chain is recorded for audit trails.
 

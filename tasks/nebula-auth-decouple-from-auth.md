@@ -1,8 +1,9 @@
 # Decouple `nebula-auth` from `@lumenize/auth` — extract the crypto core, copy the rest
 
-**Status:** 📝 **DRAFTED 2026-07-31.** Hand-reviewed · `/review-task` **Stage 1** resolved (20 findings,
-all applied) · phases written (`/write-task` pass 2). **Next: Stage 2 conformance review**, then
-`/build-task`.
+**Status:** 🔨 **BUILDING (started 2026-07-31).** Hand-reviewed · `/review-task` **Stage 1** resolved
+(20 findings) · phases written (`/write-task` pass 2) · **Stage 2** resolved (two passes, 40+ findings,
+4 ADR-001 erosions). `/build-task` in progress on `pre-alpha`: **Phase 1 ✅ · Phase 2 ✅** · Phases 3–6
+pending.
 
 ## Objective
 
@@ -179,6 +180,15 @@ exactly where they gate access. The contract below is the phase.
   `mesh/src/lumenize-client-gateway.ts:269` builds `originAuth.claims` as `{ ...jwtPayload, ... }`, so
   a nested bag would silently become `originAuth.claims.customClaims.isAdmin` and break the guards in
   `mesh/test/for-docs/security/`.
+  - ⚠️ **CORRECTED DURING BUILD (2026-07-31): that guard existed but NOTHING EXERCISED IT.**
+    `for-docs/security/index.test.ts:128` was a `TODO` ("Bob (no isAdmin) fails, Admin … succeeds"),
+    and the only other end-to-end `originAuth.claims.isAdmin` assertion
+    (`lumenize-client-gateway.test.ts:288`) mints via `createFakeJwt`, a hand-built token that never
+    calls `createJwtPayload`. So **no existing test could fail on the nesting mutation** and this
+    criterion had no instrument. The build implements the TODO over the real path (real client →
+    Worker fetch → auth hooks → Gateway → DO, no test-mode infrastructure), which is the tier-1
+    venue for this code — Nebula's `/live` cannot cover it, because Nebula mints via
+    `buildNebulaJwtPayload` and never reaches `createJwtPayload`.
 - **`packages/auth` declares its own `AuthClaims { emailVerified: boolean; adminApproved: boolean; isAdmin?: boolean }`
   and narrows BOTH ends through it** — the mint site passes `customClaims: AuthClaims`, and
   `hooks.ts`'s `verifyAndGate` narrows through it rather than reading the bag inline. This is what
@@ -227,7 +237,9 @@ reshape and it depends on the bag being optional.
   `website/docs/mesh/security.mdx` :66-81, :106, :123 and especially **:199**, whose member list
   (`emailVerified`, `adminApproved`, `isAdmin`, `act`) should be rewritten to describe the
   **derivation** — *"whatever claims the verified JWT carries become `originAuth.claims`"* — so the
-  next claim added does not recreate this drift; `website/docs/mesh/testing.mdx:83-96`; and
+  next claim added does not recreate this drift; `website/docs/mesh/testing.mdx:83-96` (⚠️ **no edit
+  needed** — it documents `createTestRefreshFunction`'s *options*, whose public names are unchanged;
+  only the internal wiring moved into `customClaims`); and
   `apps/nebula/harness/lib/harness.ts:339-348`'s `mintDegradedToken` JSDoc (an ADR-009 rung-4
   negative control that pins the flat-`isAdmin` shape). **Doc criterion:** `cd website && npm run check-examples`
   clean — ⚠️ *not* `npm run test:doc`, which opens `set +e`, ends in a literal `exit 0`, and never

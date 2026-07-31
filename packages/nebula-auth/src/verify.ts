@@ -37,7 +37,10 @@ export async function verifyNebulaAccessToken(
 
   if (!rawPayload) return null;
 
-  const payload = rawPayload as unknown as NebulaJwtPayload;
+  // A single legal downcast: `NebulaJwtPayload` is structurally a `JwtPayload` (registered
+  // claims) plus Nebula's own `access`/`profileId` custom claims, so the two types are
+  // comparable and the `as unknown as` double cast this replaced is no longer needed.
+  const payload = rawPayload as NebulaJwtPayload;
 
   if (!payload.aud || typeof payload.aud !== 'string') return null;
   if (payload.iss !== NEBULA_AUTH_ISSUER) return null;

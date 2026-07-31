@@ -214,9 +214,7 @@ The pattern (as used in `routeNebulaAuthRequest`):
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
 // ...
   const corsDecision = applyCorsPolicy(request, options.cors ?? false);
-  if (corsDecision.earlyResponse) {
-    return corsDecision.earlyResponse;
-  }
+  if (corsDecision.earlyResponse) return corsDecision.earlyResponse;
   const allowedOrigin = corsDecision.allowedOrigin;
   const withCors = (response: Response): Response =>
     allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;

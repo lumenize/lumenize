@@ -1,6 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
+import type { AuthJwtPayload, JwtPayload } from '../src/types';
+
+/**
+ * Narrow a parsed token to `@lumenize/auth`'s own claim shape.
+ *
+ * `JwtPayload` is registered claims only — this package's `emailVerified`/`adminApproved`/
+ * `isAdmin` are custom claims that `createJwtPayload` spreads FLAT onto the token, so they
+ * arrive at the top level but are typed through `AuthClaims` rather than declared on the
+ * shared payload.
+ */
+const authClaims = (parsed: { payload: JwtPayload } | null): AuthJwtPayload =>
+  parsed!.payload as AuthJwtPayload;
 import {
   createRouteDORequestAuthHooks,
   extractWebSocketToken,
@@ -255,9 +267,9 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       const parsed = parseJwtUnsafe(refreshBody.access_token);
 
       // Bootstrap email should have admin flags set
-      expect(parsed!.payload.emailVerified).toBe(true);
-      expect(parsed!.payload.adminApproved).toBe(true);
-      expect(parsed!.payload.isAdmin).toBe(true);
+      expect(authClaims(parsed).emailVerified).toBe(true);
+      expect(authClaims(parsed).adminApproved).toBe(true);
+      expect(authClaims(parsed).isAdmin).toBe(true);
     });
 
     it('does NOT promote non-bootstrap email to admin', async () => {
@@ -284,9 +296,9 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       const parsed = parseJwtUnsafe(refreshBody.access_token);
 
       // Regular user should NOT be admin
-      expect(parsed!.payload.emailVerified).toBe(true);
-      expect(parsed!.payload.adminApproved).toBe(false);
-      expect(parsed!.payload.isAdmin).toBeFalsy();
+      expect(authClaims(parsed).emailVerified).toBe(true);
+      expect(authClaims(parsed).adminApproved).toBe(false);
+      expect(authClaims(parsed).isAdmin).toBeFalsy();
     });
 
     it('bootstrap is idempotent across multiple logins', async () => {
@@ -325,7 +337,7 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
         headers: { 'Cookie': `refresh-token=${rt2}` }
       }));
       const body2 = await refresh2.json() as any;
-      const parsed2 = parseJwtUnsafe(body2.access_token)!.payload;
+      const parsed2 = parseJwtUnsafe(body2.access_token)!.payload as AuthJwtPayload;
 
       // Same sub across logins, still admin
       expect(parsed2.sub).toBe(sub1);
@@ -367,7 +379,7 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       const refreshBody = await refreshResp.json() as any;
       const parsed = parseJwtUnsafe(refreshBody.access_token);
 
-      expect(parsed!.payload.adminApproved).toBe(true);
+      expect(authClaims(parsed).adminApproved).toBe(true);
     });
 
     it('sets isAdmin flag (implicitly sets adminApproved)', async () => {
@@ -401,8 +413,8 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       const refreshBody = await refreshResp.json() as any;
       const parsed = parseJwtUnsafe(refreshBody.access_token);
 
-      expect(parsed!.payload.isAdmin).toBe(true);
-      expect(parsed!.payload.adminApproved).toBe(true); // implicitly set
+      expect(authClaims(parsed).isAdmin).toBe(true);
+      expect(authClaims(parsed).adminApproved).toBe(true); // implicitly set
     });
   });
 
@@ -689,8 +701,8 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       expect(parsed!.payload.jti).toBeDefined(); // unique token ID
 
       // Verify new auth flags
-      expect(parsed!.payload.emailVerified).toBe(true); // set after magic link click
-      expect(parsed!.payload.adminApproved).toBe(false); // default for new subject
+      expect(authClaims(parsed).emailVerified).toBe(true); // set after magic link click
+      expect(authClaims(parsed).adminApproved).toBe(false); // default for new subject
     });
 
     it('JWT can be verified with public key', async () => {
@@ -819,6 +831,28 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
       expect(body.error).toBe('invalid_token');
     });
 
+    // Tier note: a pure-function test deliberately, not a `/live` scenario. `createJwtPayload`
+    // takes no env, touches no network and reaches no server — the precedence rule is decided
+    // entirely by key order in one object literal, so a running system could not make this more
+    // faithful. The end-to-end half of the flat-claims contract IS driven over the real path,
+    // in `test/for-docs/security/` (Phase 4).
+    it('registered claims win: a custom claim cannot shadow sub/exp', async () => {
+      const before = Math.floor(Date.now() / 1000);
+      const payload = createJwtPayload({
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
+        subject: 'a',
+        expiresInSeconds: 900,
+        // A hostile bag: both keys are REGISTERED claims, so neither may take effect.
+        customClaims: { sub: 'b', exp: 9e9 },
+      });
+
+      expect(payload.sub).toBe('a');
+      expect(payload.exp).not.toBe(9e9);
+      expect(payload.exp).toBeGreaterThanOrEqual(before + 900);
+      expect(payload.exp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 900);
+    });
+
     it('returns 403 when access gate fails (emailVerified but not adminApproved)', async () => {
       const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
@@ -829,8 +863,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'user-no-approval',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
+        customClaims: { emailVerified: true, adminApproved: false },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -857,8 +890,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'user-approved',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -884,9 +916,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'admin-user',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
-        isAdmin: true,
+        customClaims: { emailVerified: true, adminApproved: false, isAdmin: true },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -909,8 +939,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'user-blue',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const blueToken = await signJwt(bluePayload, bluePrivateKey, 'BLUE');
 
@@ -921,8 +950,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'user-green',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const greenToken = await signJwt(greenPayload, greenPrivateKey, 'GREEN');
 
@@ -949,8 +977,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://wrong-audience.com',
         subject: 'user-123',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -975,8 +1002,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'user-123',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -1034,8 +1060,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'ws-user-no-approval',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
+        customClaims: { emailVerified: true, adminApproved: false },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -1061,8 +1086,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
         audience: 'https://lumenize.local',
         subject: 'ws-user-123',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: true,
+        customClaims: { emailVerified: true, adminApproved: true },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -1161,7 +1185,7 @@ describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
 
       // Verify the JWT has adminApproved=false
       const parsed = parseJwtUnsafe(accessToken);
-      expect(parsed!.payload.adminApproved).toBe(false);
+      expect(authClaims(parsed).adminApproved).toBe(false);
 
       // Create hooks
       const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
@@ -1236,8 +1260,7 @@ describe('@lumenize/auth - WebSocket Utilities', () => {
         audience: 'test',
         subject: 'verify-user',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
+        customClaims: { emailVerified: true, adminApproved: false },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -1260,8 +1283,7 @@ describe('@lumenize/auth - WebSocket Utilities', () => {
         audience: 'test',
         subject: 'expired-user',
         expiresInSeconds: -3600, // Negative = already expired
-        emailVerified: true,
-        adminApproved: false,
+        customClaims: { emailVerified: true, adminApproved: false },
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
@@ -1282,8 +1304,7 @@ describe('@lumenize/auth - WebSocket Utilities', () => {
         audience: 'test',
         subject: 'wrong-key-user',
         expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
+        customClaims: { emailVerified: true, adminApproved: false },
       });
       const token = await signJwt(payload, privateKey, 'GREEN');
 
@@ -2249,8 +2270,8 @@ describe('@lumenize/auth - GET /accept-invite', () => {
     }));
     const refreshBody = await refreshRes.json() as any;
     const parsed = parseJwtUnsafe(refreshBody.access_token);
-    expect(parsed!.payload.emailVerified).toBe(true);
-    expect(parsed!.payload.adminApproved).toBe(true);
+    expect(authClaims(parsed).emailVerified).toBe(true);
+    expect(authClaims(parsed).adminApproved).toBe(true);
   });
 
   it('invite token is reusable — second click still works', async () => {
@@ -2330,8 +2351,8 @@ describe('@lumenize/auth - GET /accept-invite', () => {
     const { access_token } = await refreshRes.json() as any;
     const parsed = parseJwtUnsafe(access_token);
 
-    expect(parsed!.payload.emailVerified).toBe(true);
-    expect(parsed!.payload.adminApproved).toBe(true);
+    expect(authClaims(parsed).emailVerified).toBe(true);
+    expect(authClaims(parsed).adminApproved).toBe(true);
     expect(parsed!.payload.sub).toBeDefined();
     expect(parsed!.payload.sub.length).toBe(36);
   });
@@ -2456,9 +2477,9 @@ describe('@lumenize/auth - POST /delegated-token', () => {
 
     // Claims should come from the principal, not the actor
     expect(parsed!.payload.sub).toBe(principal.sub);
-    expect(parsed!.payload.emailVerified).toBe(true);
-    expect(parsed!.payload.adminApproved).toBe(true);
-    expect(parsed!.payload.isAdmin).toBeFalsy(); // principal is not admin
+    expect(authClaims(parsed).emailVerified).toBe(true);
+    expect(authClaims(parsed).adminApproved).toBe(true);
+    expect(authClaims(parsed).isAdmin).toBeFalsy(); // principal is not admin
     expect(parsed!.payload.act!.sub).toBe(admin.sub);
   });
 });
