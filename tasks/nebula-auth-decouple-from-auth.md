@@ -1,9 +1,20 @@
 # Decouple `nebula-auth` from `@lumenize/auth` — extract the crypto core, copy the rest
 
-**Status:** 🔨 **BUILDING (started 2026-07-31).** Hand-reviewed · `/review-task` **Stage 1** resolved
-(20 findings) · phases written (`/write-task` pass 2) · **Stage 2** resolved (two passes, 40+ findings,
-4 ADR-001 erosions). `/build-task` in progress on `pre-alpha`: **Phase 1 ✅ · Phase 2 ✅** · Phases 3–6
-pending.
+**Status:** ✅ **BUILT 2026-07-31** on `pre-alpha` — all six phases, one commit each (`d606364`+`dd1fc7a`,
+`19d7544`, `83a4e59`, `21ffb9d`, `5a0a4ae`, `1101f0e`). Hand-reviewed · `/review-task` **Stage 1**
+(20 findings) · phases written (`/write-task` pass 2) · **Stage 2** (two passes, 40+ findings, 4
+ADR-001 erosions) · `/build-task`.
+
+**Objective met:** `packages/auth` has **zero `src` consumers** anywhere in the repo — the only
+surviving `from '@lumenize/auth'` in any `src/` is auth's own JSDoc `@example`. UNDEPLOYED (per the
+pre-alpha wipe-before-redeploy gate). The release-notes obligation is filed in
+[backlog.md](backlog.md) § `@lumenize/auth`.
+
+⚠️ **Three success criteria in this file were found UNCHECKABLE during the build and are corrected
+in place** — each marked *CORRECTED DURING BUILD*, with the measurement: the Phase 3 and Phase 5
+`npm ls` manifest tests (both resolve transitively and exit 0), and Phase 2's claim that
+`mesh/test/for-docs/security/` already guarded the flat wire (that phase was an unimplemented
+`TODO`). All three now use instruments that were verified capable of failing.
 
 ## Objective
 
