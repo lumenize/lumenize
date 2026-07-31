@@ -1,7 +1,8 @@
 # Decouple `nebula-auth` from `@lumenize/auth` — extract the crypto core, copy the rest
 
-**Status:** 📝 **DRAFTED 2026-07-31.** Hand-reviewed + `/review-task` **Stage 1** resolved (20 findings,
-all applied). **Phases next** — `/write-task` pass 2, then Stage 2.
+**Status:** 📝 **DRAFTED 2026-07-31.** Hand-reviewed · `/review-task` **Stage 1** resolved (20 findings,
+all applied) · phases written (`/write-task` pass 2). **Next: Stage 2 conformance review**, then
+`/build-task`.
 
 ## Objective
 
@@ -120,51 +121,6 @@ rationale stops being true once there are no two ends (the list keeps a separate
 `calibration.md` §4). Leave these and the next reader re-derives this change as a *reversal* to the
 enumeration that shipped the untagged-invite bug.
 
-## What "done" looks like
-
-⚠️ **Not phases** — `/write-task` pass 2 writes those. This is what done *means*, plus the hazards.
-
-- **The criterion is the MANIFEST, and it is self-verifying.** `@lumenize/auth` in neither
-  `dependencies` nor `devDependencies` of `packages/nebula-auth/package.json` or `apps/nebula/package.json`
-  (neither has a devDependency escape hatch), verified by `npm ls @lumenize/auth`. ⚠️ **A grep for the
-  import string is the weaker form and must not be the criterion** — it passes while the affordance
-  remains.
-- **Repo-wide sweep criterion, not a count.** `grep -rln "@lumenize/auth" --include="*.ts" packages apps`
-  returns only `packages/auth/**` and `mesh/test/**`. Counts rot; this does not. *(Scale, so the phase
-  is not surprised: nebula-auth 11 test files · apps/nebula 2 src + 50 test + 3 harness · mesh 2 src.)*
-- **`grep -rn "@lumenize/auth/client" packages apps` returns nothing** — the subpath is deleted, not
-  merely unused. Six live importers, plus four JSDoc/prose sites naming it as the canonical Node-safe
-  pattern (`nebula-auth/src/testing.ts`, `access-claims.ts`, `create-nebula-test-token.ts`,
-  `harness/lib/harness.ts`) and `backlog.md`.
-- **The manifest change is one entry out and one entry IN.** `auth-email-sender-base.ts:2` imports
-  `createEmailTransport` from `@lumenize/email`, which `nebula-auth` gets transitively today and does
-  not declare. Copying the sender means **adding `@lumenize/email`**.
-- **`@lumenize/crypto` carries its own tests** — its own vitest project and a `test` script, or
-  `scripts/test-code.sh` (which tests a workspace *iff* its `package.json` has one) silently skips it
-  and `scripts/release.sh` publishes it untested. Today there is no `jwt.test.ts`: coverage lives in
-  `packages/auth/test/auth.test.ts`, which stays behind, and `verifyJwtWithRotation` has **zero** direct
-  tests. Shipping the repo's highest-security-weight code with no owned tests would gut this file's own
-  *one owner, fixes land once* premise. Also repoint `website/docs/auth/index.mdx` (a `@check-example`
-  on `JwtPayload`, which hard-breaks under the type split) and `website/docs/mesh/lumenize-client.mdx`.
-- ⚠️ **Extraction is a TYPE SPLIT, not a file move.** `jwt.ts`'s one type-only import points at
-  `packages/auth/src/types.ts`, which mixes `ActClaim` / `JwtPayload` / `JwtHeader` in with `Subject` /
-  `MagicLink` / `InviteToken` / `RefreshToken` / `EmailMessage` / `AuthRoutesOptions` / `CorsOptions` /
-  `LoginResponse` / `AuthError`. `index.ts:58-72` likewise exports the three JWT types inside one block
-  alongside ten that stay — so that edit is a **split, not a delete**. `hooks.ts:3` has a second
-  `import type { JwtPayload }` the "two swaps" framing misses.
-- **The `packages/auth` sweep is 2 swaps + 2 deletions.** `hooks.ts` and `lumenize-auth.ts` repoint
-  `./jwt` → `@lumenize/crypto`; `client.ts` and `index.ts` are re-export barrels whose crypto blocks are
-  **deleted**, which empties `client.ts` entirely and removes the `"./client"` entry from
-  `packages/auth/package.json`. Dropping the symbols also breaks `for-docs/test-helpers.test.ts` and
-  `endpoints.test.ts` on the auth side.
-- ⚠️ **`nebula-email-sender.test.ts` is the ONE test that does not move mechanically.** Its whole subject
-  is that `headers()` derives the tag from the URL without enumerating types — the mechanism the
-  `instanceName` phase deletes. That phase **rewrites** it to assert the new contract. Treat "this test
-  still passes unchanged" as a signal the phase did not land.
-- **Nothing regresses:** `packages/auth` and `packages/nebula-auth` suites stay green *after* accounting
-  for the split (state the post-move split, not a raw count), and the `/live` `impersonation-lifecycle`
-  scenario — a real invite email end to end through the copied sender — still passes.
-
 ## Decisions
 
 | Decision | Rejected alternative — why |
@@ -183,6 +139,141 @@ enumeration that shipped the untagged-invite bug.
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim is a second reference to the code extraction exists to give one owner. Apply the same no-shim rule to the three JWT types. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
 | **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name.* After the policy reshape above, every symbol is a `crypto`-global wrapper — `crypto.subtle` Ed25519, `getRandomValues`, `subtle.digest` — so the name is accurate. A compound name bakes today's contents into the identifier and rots on the next wrapper. |
+
+## Phases
+
+Numbering is executable order. Every phase must leave the tree green — `npm run type-check` *and*
+`npm run test:code` — because a broken intermediate commit here spans four packages.
+
+⚠️ **Phase 1 first for a reason:** it is pure subtraction and removes ~64 files from every later
+sweep. Doing it after the extraction would mean repointing 50 imports and then deleting them.
+
+### 1. `generateUuid` is gone; the repo calls `crypto.randomUUID()` directly
+
+Its whole body is `return crypto.randomUUID()`, which `coding-style.md` § IDs says to call directly.
+Delete the export and rewrite ~14 source sites (`auth/src` ×4, `nebula-auth/src` ×3 plus call sites,
+`apps/nebula/harness` ×2) and ~64 test imports (`apps/nebula/test` ×50 — all of them `generateUuid` —
+plus `nebula-auth/test`). `createJwtPayload`'s `jti` becomes a direct call.
+
+- **Success criteria (capable of failing):** `grep -rn '\bgenerateUuid\b' packages apps` returns
+  nothing outside `node_modules`; `npm run type-check` clean; all suites green.
+- **Mutation note:** restore any single `generateUuid()` call — the grep returns it *and* the import
+  fails to resolve, since the export no longer exists.
+
+### 2. `JwtPayload` carries registered claims only; no consumer casts around it
+
+Reshape **in place, inside `packages/auth`**, before anything moves — so Phase 3 is a pure relocation
+and the new package is never born carrying auth's retired policy. `JwtPayload` becomes
+`iss`/`aud`/`sub`/`exp`/`iat`/`jti`/`act?` plus a `claims` bag; `createJwtPayload` takes the bag;
+`auth`'s two mint sites pass `{ emailVerified, adminApproved, isAdmin }` through it;
+`mesh/src/create-test-refresh-function.ts` and `apps/nebula/harness/lib/harness.ts` follow.
+
+- **Success criteria (capable of failing):** `JwtPayload` declares no `emailVerified`,
+  `adminApproved` or `isAdmin`; `grep -rn 'as unknown as NebulaJwtPayload' packages/nebula-auth/src`
+  returns nothing (the cast at `verify.ts:40` exists *because* of the policy fields, so it must
+  disappear on its own, not be deleted by hand); `npm run type-check` clean; auth, nebula-auth and
+  mesh suites green.
+- **Mutation note:** delete the `...claims` spread in `createJwtPayload` — auth's minted tokens lose
+  `emailVerified` and `packages/auth/test/auth.test.ts` reds.
+
+### 3. `@lumenize/crypto` owns the core; every consumer points at it; `@lumenize/auth/client` is deleted
+
+The new package (own `vitest` project **and a `test` script**), the crypto assertions lifted out of
+`packages/auth/test/auth.test.ts`, `auth`'s two import swaps (`hooks.ts`, `lumenize-auth.ts`) and two
+re-export-block deletions (`client.ts`, `index.ts` — the latter a *split*, since it exports ten types
+that stay), `client.ts` deleted with its `"./client"` exports-map entry, and every consumer repointed:
+`mesh/src` ×2, `nebula-auth/src`, `apps/nebula/src` (`ActClaim`), plus the four JSDoc/prose sites that
+name the doomed subpath as the canonical Node-safe pattern.
+
+⚠️ **`apps/nebula/harness/` moves in THIS phase — the constraint is hard.** It is the shared boot for
+all six `/live` scenarios, so splitting it out leaves the acceptance instrument unable to start. It
+also runs under plain Node/tsx, which makes it the only surface that actually proves the new package
+is Node-safe (zero `cloudflare:workers` reachability) — the property `/client` existed to provide.
+
+- **Success criteria (capable of failing):** `grep -rn "@lumenize/auth/client" packages apps` returns
+  nothing and `packages/auth/package.json` has no `"./client"` key; `npm run test:code` output
+  **names the crypto project** (not merely "green" — `test-code.sh` tests a workspace *iff* its
+  `package.json` has a `test` script, so a script-less package passes by being skipped);
+  `verifyJwtWithRotation` has at least one direct test, which it has zero of today; `/live`
+  `impersonation-lifecycle` boots and passes; `npm run test:doc` green after repointing
+  `website/docs/auth/index.mdx`'s `@check-example` on `JwtPayload` and
+  `website/docs/mesh/lumenize-client.mdx`'s "auth defines the `JwtPayload` shape".
+- **Mutation note:** remove the `test` script from `packages/crypto/package.json` — the `test:code`
+  criterion reds. Today that same removal would pass silently, which is the failure this criterion
+  is shaped to catch.
+- **Standing guidance:** the two website repoints live here because Phase 3 is the last phase that
+  changes what they describe. Same for `backlog.md` § Lumenize Mesh's `createTestRefreshFunction`
+  row, whose prescribed remedy names the subpath this phase deletes — re-scope it to the residual
+  `client-index.ts` export gap, or close it outright with the one-line export.
+
+### 4. The WebSocket subprotocol token is defined once, in the package that produces it
+
+`extractWebSocketToken` and the `lmz.access-token.` prefix move into `@lumenize/mesh`, whose
+`lumenize-client.ts:797` writes that prefix. `nebula-auth/src/router.ts` and
+`apps/nebula/src/entrypoint.ts` import from there; both already depend on mesh.
+`packages/auth/src/hooks.ts` keeps its own copy — auth is going leaf and still serves its own users.
+
+- **Success criteria (capable of failing):** the prefix is an exported constant appearing exactly once
+  in `mesh/src`; neither consumer declares its own; a mesh test round-trips producer → consumer.
+- **Mutation note:** change the prefix in `lumenize-client.ts`'s producer only — the round-trip test
+  reds. **No test couples the two ends today**, which is precisely what made copying this dangerous.
+
+### 5. The manifest drops `@lumenize/auth` — the objective lands
+
+Copy the email sender, **collapsed into a single `NebulaEmailSender`** (one consumer, so the
+base/subclass split abstracts nothing), and turnstile, both renamed on arrival. `ResolvedEmail` is
+imported from `@lumenize/email`, never copied; `@lumenize/email` joins nebula-auth's manifest as
+`@lumenize/auth` leaves it. `apps/nebula` and `mesh`'s `dependencies` drop it too — mesh keeps a
+`devDependency` for its for-docs mini-apps, which are real consumers.
+
+- **Success criteria (capable of failing):** `npm ls @lumenize/auth` resolves nothing from
+  `packages/nebula-auth` or `apps/nebula`; `grep -rln "@lumenize/auth" --include="*.ts" packages apps`
+  returns only `packages/auth/**` and `packages/mesh/test/**`; every copied file's header names its
+  origin, the date, and that it is a deliberate divergence not to be re-synced; `/live`
+  `impersonation-lifecycle` passes, driving a real invite email through the copied sender.
+- **Mutation note:** restore `"@lumenize/auth"` to `packages/nebula-auth/package.json` — `npm ls`
+  finds it. ⚠️ A grep-only criterion would **stay green** through that mutation, which is why the
+  manifest and not the import is the criterion.
+- **Standing guidance:** repoint `backlog.md`:41, which names this task as the home for the test-mode
+  gating asymmetry under the dead title `auth-token-core-compose-not-fork`, and re-scope it (see
+  *Non-goals*).
+
+### 6. The sender is told the instance instead of inferring it
+
+**Type the choke point first, or the rest of this phase is decorative:** `#sendEmail(message: EmailMessage)`
+and a typed `AUTH_EMAIL_SENDER` binding, replacing `#sendEmail(message: any)` over `(this.env as any)`.
+Only then add the required `instanceName` to every `EmailMessage` variant, stamp `headers()` from the
+field, delete `parseInstanceName`, and rewrite `nebula-email-sender.test.ts`.
+
+- **Success criteria (capable of failing):** `npm run type-check` clean — named explicitly because **CI
+  does not run it**, so this phase's guarantee is a desk-time type error rather than a merge gate;
+  `parseInstanceName` is gone from `nebula-email-sender.ts`; `nebula-email-sender.test.ts` asserts
+  stamping-from-field rather than URL derivation (⚠️ if that file still passes *unchanged*, the phase
+  did not land); `/live` invite mail carries `X-Lumenize-Auth-Instance`.
+- **Mutation note:** delete `instanceName` from **each of the three** send sites in turn — every one
+  must red `type-check`. Check all three rather than sampling: `#resumeClaimIfOwner` sits behind
+  `if (this.#isTestMode) return`, so no vitest test reaches it and only the type-check can catch it.
+- **Standing guidance — three sites expire with this phase and it owns all three:**
+  `nebula-email-sender.ts`'s `headers()` JSDoc, which argues in bold for the derivation being deleted;
+  `calibration.md` §2's dated 2026-07-30 worked example, which is **always loaded** and would otherwise
+  present this change as a reversal to the enumeration that shipped the untagged-invite bug; and
+  `INSTANCE_BEARING_ROUTES`'s *"the two ends fail apart silently"* rationale — **re-derive** whether the
+  list still earns its keep on its remaining job (typing `instanceAuthUrl`'s `route`) rather than
+  deleting it because its reason died (`calibration.md` §4).
+
+## Non-goals
+
+- **The orchestration-body de-fork.** No live task file; *Relationships* records the constraint any
+  revival must honour.
+- **Fixing the rotation drift.** A conformance fix inside `packages/auth` — [backlog.md](backlog.md)
+  § `@lumenize/auth`. What this task buys is that it becomes safe to make independently.
+- **Closing the test-mode gating asymmetry.** Threading an explicit flag through the RPC is separate
+  work; Phase 5 only repoints and re-scopes the backlog row that names this file as its home.
+- **Nebula-specific email templates.** Phase 5 unblocks them; writing them is later work.
+- **Deleting `instanceAuthUrl` / `INSTANCE_BEARING_ROUTES`.** Phase 6 re-derives whether they still
+  earn their keep; deletion is not assumed.
+- **Deprecating `@lumenize/auth`.** It stays published and documented; this task only makes deprecating
+  it possible later.
 
 ## Relationships
 
