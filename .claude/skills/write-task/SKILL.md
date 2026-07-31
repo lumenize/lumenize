@@ -50,6 +50,25 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 
 **Then stop.** Present the section and ask for a read. Expect to iterate here — it is cheaper than iterating on phases.
 
+## Where the review stages go: Stage 1 → phases → Stage 2
+
+**`/review-task`'s two stages straddle Pass 2, they do not both follow it.** Run Stage 1 (framing &
+scope) on the phase-less file, resolve it, *then* write phases, *then* run Stage 2 (conformance).
+
+The reason is what each stage can see. Stage 1 judges design intent, and phases present at that point
+anchor reviewers on a shape that is about to move — the same argument that keeps phases out of a
+pre-review draft at all. Stage 2 judges architecture, security and test strategy, which have almost
+nothing to bite on *without* phases: a security reviewer wants the landing order, a test-strategy
+reviewer wants to know which phase carries which criterion.
+
+Validated on `tasks/nebula-auth-decouple-from-auth.md` (2026-07-31). Stage 1 returned 20 findings, all
+framing/scope, none of them "you are missing phases". Stage 2 then returned 40+ across two passes that
+were **specifically about the phases** — decomposition, ordering, intermediate-commit health, criteria
+that could not fail, mutation notes — none of which Stage 1 could structurally have seen. The ordering
+also let a late scope change land *before* Stage 1, so Stage 1 reviewed the real scope; and it exposed
+a defect that lives only in the delta between decisions (a Decisions row whose second rationale a
+later-added phase silently stranded), which no single-snapshot review can catch.
+
 ## Pass 2 — the rest, written against the approved contract
 
 Only after the intent is approved:

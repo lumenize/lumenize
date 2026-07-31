@@ -227,6 +227,18 @@ numbers the Workflow already returns:
   rate (**~5%**) means they verified against source, and the list is worth processing item by item.
   Empirically in one file: pass 1 dropped 9 of 30 and its surviving findings were mostly false
   premises about a design that then changed; pass 4 dropped 2 of 44 and every survivor was actionable.
+- ⚠️ **FIRST check `byLens` for a zero — a lens can die and the panel still returns a confident-looking
+  synthesis.** A reviewer agent that hits a terminal API error contributes nothing, and the surviving
+  lenses fill the page, so the result *reads* complete. Bit 2026-07-31: `review:security` died mid-response
+  on a task reshaping JWT claims; `byLens` showed `security: 0` while packaging and test-strategy returned
+  25 findings between them. Presenting that as "the conformance review" would have shipped a claims-bag
+  redesign of the access-control path with **no security review at all**. The task notification's
+  `agents_error` count is the other tell. Re-run the dead lens before reading anything else.
+  - **Re-running one lens costs the whole run.** Cached replay needs `(prompt, opts)` unchanged, and the
+    args are embedded in every prompt — so editing `spec`/`priorFindings` to help the re-run invalidates
+    every agent. That is not automatically bad: it buys a genuine *second independent pass* (in the same
+    incident, pass 2 raised 21 and dropped 4, where pass 1 had dropped 0). Decide which you want, and
+    keep args byte-identical if you only want the missing lens.
 - **All-design findings with FEW mechanical ones usually means UNDER-SPECIFIED, not sound.** You
   cannot have a wrong line number until you have written a line number. A quiet mechanical layer in
   an early pass is not a clean bill — it is the absence of surface. Expect a second wave once the
