@@ -23,11 +23,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { generateUuid } from '@lumenize/auth';
 import { DagTree, Subscriptions, QuerySubs, Resources, ROOT_NODE_ID } from '@lumenize/nebula';
 import type { CallContext } from '@lumenize/mesh';
 
-const uniqueGalaxy = () => `cdp-${generateUuid().slice(0, 8)}.app`;
+const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
 
 /** A synthetic CallContext carrying exactly the claim shape under test. */
 function ctxFor(sub: string, access?: { admin?: boolean; authScopePattern?: string }): CallContext {

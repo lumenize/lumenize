@@ -20,13 +20,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3st-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c3st-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };
@@ -46,7 +45,7 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
   it('streams chunks BEFORE the durable Message, then reconciles the ephemeral away by id', async () => {
     const scope = uniqueDevScope();
     const { client } = await devClient(scope);
-    const messageId = generateUuid();
+    const messageId = crypto.randomUUID();
 
     using sub = client.resources.subscribeQuery(sessionQuery);
     await sub.ready;
@@ -81,7 +80,7 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
   it('a subscriber DENIED on the assistant node receives ZERO chunks (M1 transient recheck)', async () => {
     const scope = uniqueDevScope();
     const { client: admin, accessToken } = await devClient(scope);
-    const messageId = generateUuid();
+    const messageId = crypto.randomUUID();
 
     // A non-admin with NO grant on SESSION_NODE_ID (ROOT). It subscribes the query, so
     // it WOULD receive chunks if the transient push skipped the permission recheck.

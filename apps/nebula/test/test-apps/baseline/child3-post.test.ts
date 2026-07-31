@@ -10,13 +10,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3p-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c3p-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };

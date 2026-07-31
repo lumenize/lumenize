@@ -7,14 +7,13 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function galaxyName(star: string): string {
@@ -58,7 +57,7 @@ describe('Star ontology lifecycle', () => {
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
     await waitForSuccess(client);
 
@@ -72,7 +71,7 @@ describe('Star ontology lifecycle', () => {
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false } },
     });
     await waitForSuccess(client);
 
@@ -102,7 +101,7 @@ describe('Star ontology lifecycle', () => {
 
       // Force Star to cache this version
       client.callStarTransaction(star, version, {
-        [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: `t${i}`, done: false } },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: `t${i}`, done: false } },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(true);
@@ -129,13 +128,13 @@ describe('Star ontology lifecycle', () => {
 
     // Cache v2 on Star
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
     await waitForSuccess(client);
 
     // Stale v1 transaction
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -161,7 +160,7 @@ describe('Star ontology lifecycle', () => {
     client.callStarApplyOntology(star,{ version: 'v1', types: TODO });
     await waitForSuccess(client);
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'seed', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'seed', done: false } },
     });
     await waitForSuccess(client);
 
@@ -170,7 +169,7 @@ describe('Star ontology lifecycle', () => {
 
     // First v2 transaction triggers the switch (cache miss)
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
     const r1 = await waitForSuccess(client) as TransactionResult;
     expect(r1.ok).toBe(true);
@@ -178,7 +177,7 @@ describe('Star ontology lifecycle', () => {
     // Subsequent v2 transactions must use the cache (hit path)
     for (let i = 0; i < 3; i++) {
       client.callStarTransaction(star, 'v2', {
-        [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: `b${i}`, done: false } },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: `b${i}`, done: false } },
       });
       const r = await waitForSuccess(client) as TransactionResult;
       expect(r.ok).toBe(true);

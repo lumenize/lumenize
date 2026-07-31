@@ -16,7 +16,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { generateUuid } from '@lumenize/auth';
 import { NebulaClientTest } from './index';
 import {
   universeAdminClient, createInvitedClient, createSubject, browserLogin,
@@ -29,7 +28,7 @@ const SAFE_TTL = 300;
 
 /** A universe admin plus a real invited non-admin member of a star beneath it. */
 async function adminAndMember(memberEmail = 'member@example.com') {
-  const universe = `imp-${generateUuid().slice(0, 8)}`;
+  const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
   const star = `${universe}.app.tenant`;
   const browser = new Browser();
 
@@ -110,7 +109,7 @@ describe('impersonate() — the mint', () => {
     // ⚠️ The counter must be on the PARENT's `fetch`, because the child INHERITS it — that is the
     // transport `child.impersonate()` would use. Counting on a separate client built alongside would
     // count nothing, and the "no network call" assertion would pass no matter what the guard did.
-    const universe = `imp-${generateUuid().slice(0, 8)}`;
+    const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
     let mintRequests = 0;
@@ -163,8 +162,8 @@ describe('impersonate() — the mint', () => {
       expect(childCount(admin)).toBe(0);
 
       const target = expectedStatus === 404
-        ? { sub: generateUuid(), scope: star }                                  // in reach, absent subject
-        : { sub: member.sub, scope: `imp-${generateUuid().slice(0, 8)}.app.other` }; // foreign universe
+        ? { sub: crypto.randomUUID(), scope: star }                                  // in reach, absent subject
+        : { sub: member.sub, scope: `imp-${crypto.randomUUID().slice(0, 8)}.app.other` }; // foreign universe
 
       const rejected = admin.impersonate(target.sub, target.scope, { ttlSeconds: SAFE_TTL });
       await expect(rejected).rejects.toThrow(ImpersonationMintError);
@@ -215,7 +214,7 @@ describe('impersonate() — two children coexist', () => {
     // passes and the test proves nothing. (It did: the first draft of this test stayed green under
     // exactly that mutation.) A universe-scoped subject has one `sub` whose reach pattern covers both
     // stars, which is the only way to get one identity at two `activeScope`s.
-    const universe = `imp-${generateUuid().slice(0, 8)}`;
+    const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const star2 = `${universe}.app.tenant2`;
     const browser = new Browser();
@@ -247,7 +246,7 @@ describe('impersonate() — the parent is untouched', () => {
     // ⚠️ The parent must be given an EXPLICIT context, because `browser.context(origin)` returns an
     // INDEPENDENT context per call ("sessionStorage is per-context") — reading a second one would
     // inspect empty storage and the assertion would pass vacuously no matter what the child did.
-    const universe = `imp-${generateUuid().slice(0, 8)}`;
+    const universe = `imp-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
     const ctx = browser.context(ORIGIN);

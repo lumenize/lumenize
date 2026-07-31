@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, END_OF_TIME } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
@@ -18,7 +17,7 @@ const TEST_TYPES = `interface TestResource { title: string; tags: any; metadata:
 
 // Helper: unique star scope per test
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 // Helper: admin client
@@ -101,7 +100,7 @@ describe('star-resources', () => {
     it('create a resource and read it back with rich types', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -128,7 +127,7 @@ describe('star-resources', () => {
     it('put with correct eTag succeeds', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -159,7 +158,7 @@ describe('star-resources', () => {
     it('put with wrong eTag returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -169,7 +168,7 @@ describe('star-resources', () => {
 
       // Update with fabricated eTag
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: generateUuid(), value: makeTestValue('Bad Update') },
+        [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('Bad Update') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -187,7 +186,7 @@ describe('star-resources', () => {
     it('soft delete and read back', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -218,7 +217,7 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarRead(star, ONTOLOGY_VERSION, generateUuid());
+      client.callStarRead(star, ONTOLOGY_VERSION, crypto.randomUUID());
       const result = await waitForSuccess(client);
       expect(result).toBeNull();
 
@@ -251,8 +250,8 @@ describe('star-resources', () => {
       const childNodeId = client.lastResult as string;
 
       // Create two resources
-      const r1 = generateUuid();
-      const r2 = generateUuid();
+      const r1 = crypto.randomUUID();
+      const r2 = crypto.randomUUID();
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [r1]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
         [r2]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
@@ -261,7 +260,7 @@ describe('star-resources', () => {
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Mixed batch: update r1, move r2 to child
-      const r3 = generateUuid();
+      const r3 = crypto.randomUUID();
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
         [r2]: { op: 'move', eTag: createResult.eTags[r2], nodeId: childNodeId },
@@ -283,8 +282,8 @@ describe('star-resources', () => {
     it('one conflict in batch rolls back entire transaction', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const r1 = generateUuid();
-      const r2 = generateUuid();
+      const r1 = crypto.randomUUID();
+      const r2 = crypto.randomUUID();
 
       // Create two resources
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -297,7 +296,7 @@ describe('star-resources', () => {
       // Batch with one bad eTag
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
-        [r2]: { op: 'put', eTag: generateUuid(), value: makeTestValue('R2 Updated') },
+        [r2]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('R2 Updated') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -313,7 +312,7 @@ describe('star-resources', () => {
     it('multiple creates in one transaction', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const ids = [generateUuid(), generateUuid(), generateUuid()];
+      const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 
       const ops: Record<string, any> = {};
       for (const id of ids) {
@@ -340,7 +339,7 @@ describe('star-resources', () => {
     it('same sub within debounce window overwrites in place (no new timeline entry)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Default coalesceWindowMs is 1 hour — all writes within this test are within the window
 
@@ -373,7 +372,7 @@ describe('star-resources', () => {
     it('coalesceWindowMs: 0 creates new snapshot on every update', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Set coalesceWindowMs to 0
       client.callStarSetConfig(star, 'coalesceWindowMs', 0);
@@ -412,7 +411,7 @@ describe('star-resources', () => {
     it('different sub chain within window creates new snapshot', async () => {
       const star = uniqueStar();
       const { client: admin, accessToken } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create a child node and grant user write permission
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'shared', 'Shared');
@@ -464,7 +463,7 @@ describe('star-resources', () => {
     it('validTo of previous snapshot equals validFrom of new snapshot (coalesceWindowMs: 0)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Set coalesceWindowMs to 0 for full audit trail
       client.callStarSetConfig(star, 'coalesceWindowMs', 0);
@@ -522,7 +521,7 @@ describe('star-resources', () => {
       await waitForSuccess(admin);
 
       // User creates resource
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
@@ -542,7 +541,7 @@ describe('star-resources', () => {
       await waitForResult(admin);
       const nodeId = admin.lastResult as string;
 
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
@@ -590,7 +589,7 @@ describe('star-resources', () => {
       await waitForResult(admin);
       const nodeId = admin.lastResult as string;
 
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
@@ -605,7 +604,7 @@ describe('star-resources', () => {
       expect(readError).toContain('read permission required');
 
       // User cannot write — typed TransactionError per 5.3.3b widening
-      const newResourceId = generateUuid();
+      const newResourceId = crypto.randomUUID();
       user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [newResourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
@@ -633,7 +632,7 @@ describe('star-resources', () => {
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'private', 'Private');
       await waitForResult(admin);
       const nodeId = admin.lastResult as string;
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
@@ -652,7 +651,7 @@ describe('star-resources', () => {
       // (2) not-found node via create on a nonexistent nodeId → NodeNotFoundError
       //     via doTransaction's catch.
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
       });
       await waitForError(admin);
       const notFoundErr = admin.lastErrorObject!;
@@ -685,7 +684,7 @@ describe('star-resources', () => {
       const nodeB = client.lastResult as string;
 
       // Create resource on node A
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: nodeA, value: makeTestValue() },
       });
@@ -711,7 +710,7 @@ describe('star-resources', () => {
     it('move to same node is idempotent no-op', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -749,7 +748,7 @@ describe('star-resources', () => {
       const dstNode = admin.lastResult as string;
 
       // Create resource on source
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
       admin.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: srcNode, value: makeTestValue() },
       });
@@ -788,7 +787,7 @@ describe('star-resources', () => {
     it('create on already-existing resourceId throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -809,7 +808,7 @@ describe('star-resources', () => {
     it('create on deleted resourceId also throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create and delete
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -836,7 +835,7 @@ describe('star-resources', () => {
     it('put a deleted resource succeeds (deleted is informational)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create and delete
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -876,7 +875,7 @@ describe('star-resources', () => {
       await waitForResult(client);
       const targetNode = client.lastResult as string;
 
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create and delete
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -909,7 +908,7 @@ describe('star-resources', () => {
     it('delete already-deleted resource succeeds idempotently (new eTag)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Create and delete
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
@@ -944,7 +943,7 @@ describe('star-resources', () => {
     it('fabricated eTag returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
@@ -953,7 +952,7 @@ describe('star-resources', () => {
 
       // Update with random UUID that never existed
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [resourceId]: { op: 'put', eTag: generateUuid(), value: makeTestValue('Bad') },
+        [resourceId]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue('Bad') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -964,8 +963,8 @@ describe('star-resources', () => {
     it('eTag from different resourceId returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const r1 = generateUuid();
-      const r2 = generateUuid();
+      const r1 = crypto.randomUUID();
+      const r2 = crypto.randomUUID();
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [r1]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
@@ -983,8 +982,8 @@ describe('star-resources', () => {
       // Create in separate transactions for different eTags
       const { client: c2 } = await adminClient(star);
 
-      const ra = generateUuid();
-      const rb = generateUuid();
+      const ra = crypto.randomUUID();
+      const rb = crypto.randomUUID();
 
       c2.callStarTransaction(star, ONTOLOGY_VERSION, {
         [ra]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('RA') },
@@ -1031,7 +1030,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: null },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: null },
       });
       const error = await waitForError(client);
       expect(error).toContain('must not be null or undefined');
@@ -1042,7 +1041,7 @@ describe('star-resources', () => {
     it('put with null value throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
@@ -1064,7 +1063,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'put', eTag: generateUuid(), value: makeTestValue() },
+        [crypto.randomUUID()]: { op: 'put', eTag: crypto.randomUUID(), value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('not found');
@@ -1077,7 +1076,7 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
 
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'delete', eTag: generateUuid() },
+        [crypto.randomUUID()]: { op: 'delete', eTag: crypto.randomUUID() },
       });
       const error = await waitForError(client);
       expect(error).toContain('not found');
@@ -1092,7 +1091,7 @@ describe('star-resources', () => {
       // requirePermission checks node existence before admin bypass,
       // so even admins get a clear "Node not found" error
       client.callStarTransaction(star, ONTOLOGY_VERSION, {
-        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
+        [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: '99999999-9999-4999-8999-999999999999', value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('Node 99999999-9999-4999-8999-999999999999 not found');
@@ -1103,7 +1102,7 @@ describe('star-resources', () => {
     it('value containing rich types in nested positions', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      const resourceId = generateUuid();
+      const resourceId = crypto.randomUUID();
 
       // Rich types (Map, Date) inside a TestResource object — verifies structured clone round-trip
       const value = makeTestValue('Rich Nested');

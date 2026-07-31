@@ -13,7 +13,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
@@ -22,7 +21,7 @@ import { NebulaClientTest } from './index';
 const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
-const uniqueUniverse = () => `u-${generateUuid().slice(0, 8)}`;
+const uniqueUniverse = () => `u-${crypto.randomUUID().slice(0, 8)}`;
 
 async function waitForResult(client: NebulaClientTest) {
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
@@ -53,7 +52,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Private');
     await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
     const nodeId = admin.lastResult as string;
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId, value: { title: 'v0' } },
     });
@@ -120,7 +119,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const star = `${universe}.app.tenant-a`;
     // Star-admin connects FIRST → becomes founder (the sole ROOT admin grant).
     const { client: admin } = await founder(star);
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v0' } },
     });

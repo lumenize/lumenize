@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -18,7 +17,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 // Two distinct admin clients on the same Star — different browsers means
@@ -80,7 +79,7 @@ describe('star-fanout', () => {
   it('subscriber receives fanout on mutation by another client', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId, 'Initial');
 
     // b subscribes
@@ -110,7 +109,7 @@ describe('star-fanout', () => {
   it('originator excluded from own mutation fanout (BroadcastChannel)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId, 'Initial');
 
     // Both a and b subscribe to the same resource
@@ -145,7 +144,7 @@ describe('star-fanout', () => {
     // Spin up a third client (also admin, distinct browser → distinct clientId)
     const c = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId, 'Initial');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -172,8 +171,8 @@ describe('star-fanout', () => {
   it('subscribers to other resources unaffected', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const r1 = generateUuid();
-    const r2 = generateUuid();
+    const r1 = crypto.randomUUID();
+    const r2 = crypto.randomUUID();
     const eTag2 = await createResource(a.client, star, r2, 'R2 initial');
     await createResource(a.client, star, r1, 'R1 initial');
 
@@ -199,7 +198,7 @@ describe('star-fanout', () => {
   it('delete fans out snapshot with meta.deleted=true (not null)', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId, 'About to be deleted');
 
     b.client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -225,7 +224,7 @@ describe('star-fanout', () => {
   it('ontology version install clears all Subscribers rows', async () => {
     const star = uniqueStar();
     const { a, b } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'v1 resource');
 
     // b subscribes under v1

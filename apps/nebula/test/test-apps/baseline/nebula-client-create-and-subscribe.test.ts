@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -16,7 +15,7 @@ import { NebulaClientTest } from './index';
 const TODO = `interface Todo { title: string; done: boolean; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function adminClient(star: string) {
@@ -32,7 +31,7 @@ describe('client.resources.createAndSubscribe', () => {
   it('creates the resource and resolves .snapshot with the created value', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
 
     using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'made', done: false });
     const snap = await sub.snapshot;
@@ -50,7 +49,7 @@ describe('client.resources.createAndSubscribe', () => {
   it('delivers subsequent fanout updates to the armed subscription', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
 
     using sub = client.resources.createAndSubscribe('Todo', rid, ROOT_NODE_ID, { title: 'v1', done: false });
     const created = await sub.snapshot;
@@ -75,7 +74,7 @@ describe('client.resources.createAndSubscribe', () => {
   it('rejects .snapshot when the resource already exists (create did not commit)', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
 
     // Pre-create it.
     const first = await client.resources.transaction({

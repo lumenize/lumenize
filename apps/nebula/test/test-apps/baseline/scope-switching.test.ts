@@ -6,14 +6,13 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { browserLogin, foundAndLogin, refreshToken } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 describe('admin active-scope switching', () => {
   it('universe admin can refresh with different activeScope values', async () => {
     const browser = new Browser();
-    const universe = `uni-${generateUuid().slice(0, 8)}`;
+    const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
     const starA = `${universe}.app.tenant-a`;
     const starB = `${universe}.app.tenant-b`;
 

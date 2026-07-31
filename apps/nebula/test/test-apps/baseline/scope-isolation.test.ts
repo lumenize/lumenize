@@ -13,7 +13,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
 import { Galaxy, Universe, requireAdmin, enforceScopeReach } from '@lumenize/nebula';
@@ -610,7 +609,7 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 describe('access.admin is confined to the node it covers (Phase 1)', () => {
   async function starFounderPrincipal() {
     const browser = new Browser();
-    const universe = `conf-${generateUuid().slice(0, 8)}`;
+    const universe = `conf-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const founder = await foundStarAndLogin(browser, star, 'admin@example.com');
     return { universe, star, founder };

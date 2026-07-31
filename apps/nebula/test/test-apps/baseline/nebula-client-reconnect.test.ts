@@ -30,7 +30,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt, ORIGIN } from '../../test-helpers';
@@ -40,7 +39,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -74,7 +73,7 @@ async function setupSubscribedClient(star: string) {
   a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(a.client);
 
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
   await createResource(a.client, star, resourceId);
 
   // Subscribe via the public API so #subscriptionRegistry is populated —

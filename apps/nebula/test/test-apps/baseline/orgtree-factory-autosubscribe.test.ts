@@ -16,13 +16,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
@@ -72,7 +71,7 @@ describe('orgTree auto-subscribe-on-connect via the factory (real Star)', () => 
 
     // A mutates the tree. No optimistic local write — A's own store updates only
     // via the broadcast echo (originator included).
-    const slug = `team-${generateUuid().slice(0, 8)}`;
+    const slug = `team-${crypto.randomUUID().slice(0, 8)}`;
     await a.client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, slug, 'Engineering');
 
     // Both the originator (A) AND the observer (B) see the new node via broadcast.

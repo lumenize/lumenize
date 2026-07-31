@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { signJwt, importPrivateKey, generateUuid } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/auth';
 import { verifyNebulaAccessToken } from '../src/router';
 import { NEBULA_AUTH_ISSUER } from '../src/types';
 import type { NebulaJwtPayload, AccessEntry } from '../src/types';
@@ -23,10 +23,10 @@ async function createToken(overrides: Record<string, unknown> = {}, keyColor: 'B
   const defaults: Record<string, unknown> = {
     iss: NEBULA_AUTH_ISSUER,
     aud: 'acme.app.tenant-a',
-    sub: generateUuid(),
+    sub: crypto.randomUUID(),
     exp: now + 900,
     iat: now,
-    jti: generateUuid(),
+    jti: crypto.randomUUID(),
     email: 'test@example.com',
     adminApproved: true,
     access: { authScopePattern: 'acme.app.tenant-a', admin: false },
@@ -74,7 +74,7 @@ describe('verifyNebulaAccessToken', () => {
     });
 
     it('returns payload with all expected fields', async () => {
-      const sub = generateUuid();
+      const sub = crypto.randomUUID();
       const token = await createToken({
         sub,
         aud: 'acme.app.tenant-a',
@@ -123,10 +123,10 @@ describe('verifyNebulaAccessToken', () => {
       // Sign without aud field
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        sub: generateUuid(),
+        sub: crypto.randomUUID(),
         exp: now + 900,
         iat: now,
-        jti: generateUuid(),
+        jti: crypto.randomUUID(),
         access: { authScopePattern: 'acme.*', admin: true },
       } as any, privateKey, 'BLUE');
 
@@ -142,7 +142,7 @@ describe('verifyNebulaAccessToken', () => {
         aud: 'acme',
         exp: now + 900,
         iat: now,
-        jti: generateUuid(),
+        jti: crypto.randomUUID(),
         access: { authScopePattern: 'acme.*', admin: true },
       } as any, privateKey, 'BLUE');
 
@@ -170,10 +170,10 @@ describe('verifyNebulaAccessToken', () => {
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
         aud: 'acme',
-        sub: generateUuid(),
+        sub: crypto.randomUUID(),
         exp: now + 900,
         iat: now,
-        jti: generateUuid(),
+        jti: crypto.randomUUID(),
       } as any, privateKey, 'BLUE');
 
       const result = await verifyNebulaAccessToken(token, env);

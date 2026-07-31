@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
@@ -17,7 +16,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function adminClient(star: string) {
@@ -81,7 +80,7 @@ describe('star-subscribe', () => {
   it('subscribe to existing resource delivers initial snapshot via handleResourceUpdate', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(client, star, resourceId, 'Hello');
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', resourceId);
@@ -103,7 +102,7 @@ describe('star-subscribe', () => {
   it('subscribe to non-existent resource returns error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const missingId = generateUuid();
+    const missingId = crypto.randomUUID();
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', missingId);
     const err = await waitForError(client);
@@ -116,7 +115,7 @@ describe('star-subscribe', () => {
   it('subscribe with stale ontology version returns mismatch error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     // Register a newer ontology version on Galaxy so v1 becomes stale
@@ -148,7 +147,7 @@ describe('star-subscribe', () => {
     await waitForResult(admin);
     const nodeId = admin.lastResult as string;
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(admin, star, resourceId, 'Secret', nodeId);
 
     // Non-admin user with no permission
@@ -165,7 +164,7 @@ describe('star-subscribe', () => {
   it('re-subscribe is idempotent: single row, fresh initial push each call', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     // First subscribe
@@ -198,7 +197,7 @@ describe('star-subscribe', () => {
   it('subscribe with mismatched resourceType returns type-mismatch error', async () => {
     const star = uniqueStar();
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(client, star, resourceId);
 
     client.callStarSubscribe(star, ONTOLOGY_VERSION, 'WrongType', resourceId);

@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, canonicalQueryHash } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
@@ -23,7 +22,7 @@ const TYPES = [
   'interface Child { parent: Parent; label: string }',
 ].join('\n');
 
-const uniqueStar = () => `c2-${generateUuid().slice(0, 8)}.app.tenant-a`;
+const uniqueStar = () => `c2-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
 async function waitForResult(c: NebulaClientTest) {
   await vi.waitFor(() => expect(c.callCompleted).toBe(true));
@@ -59,23 +58,23 @@ describe('child2 query subscriptions (Phase 3)', () => {
   it('initial push: correct membership (type/deleted/other-parent excluded), (validFrom,resourceId) order', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const P = generateUuid();
-    const Q = generateUuid();
+    const P = crypto.randomUUID();
+    const Q = crypto.randomUUID();
 
     // Two children of P co-created in ONE txn (same validFrom → resourceId tiebreaker).
-    const c1 = generateUuid(), c2 = generateUuid();
+    const c1 = crypto.randomUUID(), c2 = crypto.randomUUID();
     await commit(a, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
       [c2]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c2' } },
     });
     // A third child of P in a later txn.
-    const c3 = generateUuid();
+    const c3 = crypto.randomUUID();
     await commit(a, star, {
       [c3]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c3' } },
     });
     // Noise that must NOT appear: a child of a DIFFERENT parent, a deleted child of P,
     // and a Parent-typed resource sharing the P id space.
-    const cOther = generateUuid(), cDel = generateUuid();
+    const cOther = crypto.randomUUID(), cDel = crypto.randomUUID();
     const eTags = await commit(a, star, {
       [cOther]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: Q, label: 'other' } },
       [cDel]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'doomed' } },
@@ -113,8 +112,8 @@ describe('child2 query subscriptions (Phase 3)', () => {
   it('M3: reordered keys / omitted-vs-explicit defaults collapse to ONE queryHash + one row', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const P = generateUuid();
-    const c1 = generateUuid();
+    const P = crypto.randomUUID();
+    const c1 = crypto.randomUUID();
     await commit(a, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
     });
@@ -164,7 +163,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
   it('has-denial subscriber: onPartial allow → {resourceIds, deniedNodes}; error → {deniedNodes} only', async () => {
     const star = uniqueStar();
     const { client: adminC, accessToken } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
 
     // c1 on ROOT (user readable once granted); c2 on a private node (never granted).
     adminC.callStarCreateNode(star, ROOT_NODE_ID, 'pub', 'Pub');
@@ -174,7 +173,7 @@ describe('child2 query subscriptions (Phase 3)', () => {
     await vi.waitFor(() => expect(adminC.lastResult).toBeDefined());
     const privNode = adminC.lastResult as string;
 
-    const c1 = generateUuid(), c2 = generateUuid();
+    const c1 = crypto.randomUUID(), c2 = crypto.randomUUID();
     await commit(adminC, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: pubNode, value: { parent: P, label: 'c1' } },
       [c2]: { op: 'create', typeName: 'Child', nodeId: privNode, value: { parent: P, label: 'c2' } },
@@ -207,11 +206,11 @@ describe('child2 query subscriptions (Phase 3)', () => {
   it('register succeeds even when every match is denied (just deniedNodes, no rejection)', async () => {
     const star = uniqueStar();
     const { client: adminC, accessToken } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     adminC.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(adminC.lastResult).toBeDefined());
     const privNode = adminC.lastResult as string;
-    const c1 = generateUuid();
+    const c1 = crypto.randomUUID();
     await commit(adminC, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: privNode, value: { parent: P, label: 'c1' } },
     });
@@ -240,9 +239,9 @@ describe('child2 query subscriptions (Phase 3)', () => {
   it('m1: an ontology install signals a query-sub-ONLY client with one OntologyStaleError', async () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     await commit(a, star, {
-      [generateUuid()]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
     });
 
     // A second client with ONLY a query sub (no single-resource sub).

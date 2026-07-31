@@ -18,14 +18,13 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, SESSION_MESSAGE_ONTOLOGY_VERSION } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 // A DevStudio sandbox is the `{u}.{g}.dev` star-tier instance.
-const uniqueDevScope = () => `acme-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `acme-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 
 // Admin (scope-admin) client bound to DEV_STUDIO. appVersion is irrelevant to
 // DevStudio (no version-gate, D8) — default 'v1'.
@@ -46,8 +45,8 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     // Deliberately "wrong" appVersion: DevStudio must ignore it (no stale error, D8)
     // and stamp the server constant (m4).
     const { client } = await devAdmin(scope, 'client-claims-WRONG');
-    const sessionId = generateUuid();
-    const turnId = generateUuid();
+    const sessionId = crypto.randomUUID();
+    const turnId = crypto.randomUUID();
 
     const out = await client.resources.transaction({
       [sessionId]: { op: 'create', typeName: 'Session', nodeId: ROOT_NODE_ID, value: { title: 'chat 1' } },
@@ -74,7 +73,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     // Distinct Browser ⇒ distinct Gateway ⇒ distinct clientId (the fanout is keyed
     // on clientId, so b's put fans out to a, the non-originator subscriber).
     const { client: b } = await devAdmin(scope);
-    const turnId = generateUuid();
+    const turnId = crypto.randomUUID();
 
     using sub = a.resources.createAndSubscribe('Message', turnId, ROOT_NODE_ID, { session: 'sess-x', role: 'user', content: 'v1' });
     const created = await sub.snapshot;
@@ -103,7 +102,7 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
 
     // Admin (scope-admin bypass) makes a private node + a Message on it.
     const nodeId = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'private', 'Private');
-    const existingTurn = generateUuid();
+    const existingTurn = crypto.randomUUID();
     const seed = await admin.resources.transaction({
       [existingTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'secret' } },
     });
@@ -122,14 +121,14 @@ describe('DevStudio resources e2e (real NebulaClient, resourceHostBinding: DEV_S
     await expect(user.resources.read('Message', existingTurn)).rejects.toThrow(/permission/i);
     // DENIED: write a new Message on the node → per-resource permission-denied.
     const denied = await user.resources.transaction({
-      [generateUuid()]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'nope' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'nope' } },
     });
     expect(denied.kind).toBe('rejected');
     expect(denied.kind === 'rejected' && denied.resources[Object.keys(denied.resources)[0]]?.kind).toBe('permission-denied');
 
     // GRANT write to the user, then they CAN create + read on the node.
     await admin.orgTree.setPermission(nodeId, payload.sub, 'write');
-    const myTurn = generateUuid();
+    const myTurn = crypto.randomUUID();
     const allowed = await user.resources.transaction({
       [myTurn]: { op: 'create', typeName: 'Message', nodeId, value: { session: 'sess-x', role: 'user', content: 'mine' } },
     });

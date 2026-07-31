@@ -24,7 +24,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { OntologyStaleInfo, TransactionResult, SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -33,7 +32,7 @@ import { NebulaClientTest } from './index';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -83,7 +82,7 @@ describe('nebula-client push-on-clear ontology-stale (5.3.4b)', () => {
     await waitForResult(a.client);
 
     // Create 3 resources at v1 (this also lazily installs v1 on Star).
-    const resourceIds = [generateUuid(), generateUuid(), generateUuid()];
+    const resourceIds = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
     for (const rid of resourceIds) {
       await createResource(a.client, star, rid, 'v1');
     }

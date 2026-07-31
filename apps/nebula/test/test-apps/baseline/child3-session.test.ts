@@ -11,13 +11,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3s-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c3s-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 
   // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
   // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
@@ -74,7 +73,7 @@ describe('child3 Phase 1 — fixed default Session (D-session)', () => {
 
     // Create a Message FK'd to the fixed session id, under the single session node.
     // Exercises the enriched ontology too (the optional `author` field validates).
-    const m1 = generateUuid();
+    const m1 = crypto.randomUUID();
     await client.resources.transaction({
       [m1]: {
         op: 'create', typeName: 'Message', nodeId: SESSION_NODE_ID,

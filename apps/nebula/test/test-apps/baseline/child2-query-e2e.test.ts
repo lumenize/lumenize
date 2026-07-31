@@ -11,13 +11,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c2e-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c2e-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 
   // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
   // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
@@ -45,15 +44,15 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     const scope = uniqueDevScope();
     const { client: a } = await devClient(scope);
     const { client: b } = await devClient(scope);
-    const S = generateUuid();
-    const Other = generateUuid();
+    const S = crypto.randomUUID();
+    const Other = crypto.randomUUID();
 
     using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'session', value: S });
     await sub.ready;
     expect(sub.resourceIds).toEqual([]);
 
     // B creates t1, t2 (one txn → same validFrom → resourceId tiebreaker).
-    const t1 = generateUuid(), t2 = generateUuid();
+    const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const eTags = await b.resources.transaction({
       [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't1' } },
       [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't2' } },
@@ -62,7 +61,7 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     expect(sub.resourceIds).toEqual([t1, t2].sort()); // co-created → resourceId order
 
     // B creates t3 (later) belonging to S, and a noise Message of Other.
-    const t3 = generateUuid(), tn = generateUuid();
+    const t3 = crypto.randomUUID(), tn = crypto.randomUUID();
     await b.resources.transaction({
       [t3]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't3' } },
       [tn]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: Other, role: 'user', content: 'noise' } },
@@ -90,11 +89,11 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
     const scope = uniqueDevScope();
     const { client: a } = await devClient(scope);
     const { client: b } = await devClient(scope);
-    const S = generateUuid();
+    const S = crypto.randomUUID();
 
     using sub = a.resources.subscribeQuery({ queryType: 'parentChild', typeName: 'Message', field: 'session', value: S });
     await sub.ready;
-    const t1 = generateUuid(), t2 = generateUuid();
+    const t1 = crypto.randomUUID(), t2 = crypto.randomUUID();
     const eTags = await b.resources.transaction({
       [t1]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't1-v0' } },
       [t2]: { op: 'create', typeName: 'Message', nodeId: ROOT_NODE_ID, value: { session: S, role: 'user', content: 't2-v0' } },
@@ -128,12 +127,12 @@ describe('child2 query subscription e2e (DevStudio, public client.resources.subs
   it('a resource A loses read on falls out of A\'s membership set', async () => {
     const scope = uniqueDevScope();
     const { client: admin, accessToken } = await devClient(scope);
-    const S = generateUuid();
+    const S = crypto.randomUUID();
 
     // Two SIBLING nodes under ROOT (no inheritance between them), a Message of S on each.
     const nodeA = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'a', 'A');
     const nodeB = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'b', 'B');
-    const tA = generateUuid(), tB = generateUuid();
+    const tA = crypto.randomUUID(), tB = crypto.randomUUID();
     await admin.resources.transaction({
       [tA]: { op: 'create', typeName: 'Message', nodeId: nodeA, value: { session: S, role: 'user', content: 'a' } },
       [tB]: { op: 'create', typeName: 'Message', nodeId: nodeB, value: { session: S, role: 'user', content: 'b' } },

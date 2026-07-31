@@ -11,7 +11,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { generateUuid } from '@lumenize/auth';
 import { NebulaClientTest } from './index';
 import { universeAdminClient, createInvitedClient, createSubject } from '../../test-helpers';
 import { childCount, isTornDown } from '../../../src/impersonation';
@@ -24,7 +23,7 @@ const INSTANT_REMINT_TTL = 20;
 let guardFired = false;
 
 async function adminAndMember(email = 'member@example.com') {
-  const universe = `impl-${generateUuid().slice(0, 8)}`;
+  const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
   const star = `${universe}.app.tenant`;
   const browser = new Browser();
   const { client: admin, accessToken: adminToken, payload: adminPayload, authScope } =
@@ -143,7 +142,7 @@ describe('lifetime — child logout() is child-only teardown', () => {
     // impersonate a universe-scoped subject there. Now the cookie paths match EXACTLY, the pin is
     // inert, and the branch is the only thing standing between a child logout and the admin's
     // 30-day refresh token.
-    const universe = `impl-${generateUuid().slice(0, 8)}`;
+    const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
     const browser = new Browser();
     const { client: admin, accessToken: adminToken, authScope } = await universeAdminClient(
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
@@ -323,7 +322,7 @@ describe('lifetime — re-minting through the parent', () => {
     // an impersonation session on a transient 5xx — inverting the blip invariant this file states
     // three times. testing.md requires each operand of a terminal-vs-transient condition to be
     // mutated independently rather than toggling the branch as a whole.
-    const universe = `impl-${generateUuid().slice(0, 8)}`;
+    const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
     let failMints = false;
@@ -373,7 +372,7 @@ describe('lifetime — re-minting through the parent', () => {
   it('a TERMINAL re-mint failure ends the child without logging the admin out', async () => {
     // The probe must be the parent's REAL `onLoginRequired` config hook — that is what mesh's
     // terminal path calls, and what a child must not inherit.
-    const universe = `impl-${generateUuid().slice(0, 8)}`;
+    const universe = `impl-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
     let loginRequiredFired = false;

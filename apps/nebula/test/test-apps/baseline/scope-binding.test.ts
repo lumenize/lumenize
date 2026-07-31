@@ -12,7 +12,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import {
   adminClientAt, universeAdminClient,
   createInvitedClient,
@@ -79,7 +78,7 @@ describe('structural tier-DO scope binding', () => {
     // other doesn't.
     it('admin wildcard: a universe admin refreshed to the star activeScope is accepted (REACH branch)', async () => {
       const browser = new Browser();
-      const universe = `uni-${generateUuid().slice(0, 8)}`;
+      const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
       // Universe admin authenticates at the universe but refreshes activeScope to the star. Its
@@ -180,8 +179,8 @@ describe('structural tier-DO scope binding', () => {
 
   describe('universe-level', () => {
     it('accepts the matching universe aud, rejects a foreign universe', async () => {
-      const universe = `uni-${generateUuid().slice(0, 8)}`;
-      const otherUniverse = `other-${generateUuid().slice(0, 8)}`;
+      const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
+      const otherUniverse = `other-${crypto.randomUUID().slice(0, 8)}`;
 
       const browser = new Browser();
       const { client: clientA } = await universeAdminClient(

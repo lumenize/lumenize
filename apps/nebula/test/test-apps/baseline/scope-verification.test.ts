@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { generateUuid, signJwt, importPrivateKey } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/auth';
 import { env } from 'cloudflare:test';
 import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
 
@@ -26,10 +26,10 @@ async function craftJwt(options: {
   const payload = {
     iss: NEBULA_AUTH_ISSUER,
     aud: options.aud,
-    sub: options.sub ?? generateUuid(),
+    sub: options.sub ?? crypto.randomUUID(),
     exp: now + 900,
     iat: now,
-    jti: generateUuid(),
+    jti: crypto.randomUUID(),
     emailVerified: true,
     adminApproved: true,
     email: 'test@example.com',

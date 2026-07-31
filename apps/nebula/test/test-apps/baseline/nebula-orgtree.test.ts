@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -20,7 +19,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -106,7 +105,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     const { a, galaxyName } = await twoAdminClients(star);
 
     // Install v1 (a real op) so the v2 install below is a genuine version change.
-    await createResource(a.client, star, generateUuid(), 'v1-seed');
+    await createResource(a.client, star, crypto.randomUUID(), 'v1-seed');
     a.client.callStarSubscribeTree(star);
     await vi.waitFor(() => expect(a.client.orgTreeUpdateCount).toBeGreaterThan(0));
 
@@ -115,7 +114,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     a.client.callStarApplyOntology(star, { version: 'v2', types: TEST_TYPES });
     await waitForSuccess(a.client);
     a.client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v2' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v2' } },
     });
     await waitForResult(a.client);
 
@@ -167,7 +166,7 @@ describe('orgTree dedicated channel (P8 server)', () => {
     expect(nodeId).not.toBe(ROOT_NODE_ID);
 
     await a.client.orgTree.relabelNode(nodeId, 'Renamed Team'); // resolves (void)
-    await a.client.orgTree.setPermission(nodeId, generateUuid(), 'write'); // resolves
+    await a.client.orgTree.setPermission(nodeId, crypto.randomUUID(), 'write'); // resolves
 
     // Reject-on-failure: deleting a non-existent node → NodeNotFoundError rejects
     // the awaited call (NOT connection-gated, NOT swallowed).

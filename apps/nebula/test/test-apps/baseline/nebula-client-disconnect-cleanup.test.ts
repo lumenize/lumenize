@@ -18,7 +18,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, SubscriberRow } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -28,7 +27,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function waitForResult(client: NebulaClientTest) {
@@ -65,7 +64,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId);
 
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
@@ -115,7 +114,7 @@ describe('drop-on-failed-fanout subscriber cleanup (5.3.5)', () => {
     a.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
     await waitForResult(a.client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId);
 
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');

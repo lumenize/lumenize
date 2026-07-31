@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { adminClientAt, universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
@@ -16,7 +15,7 @@ describe('guard enforcement', () => {
   describe('star-level guards', () => {
     it('non-admin cannot call setStarConfig, can call getStarConfig and whoAmI', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin
       const { accessToken: adminToken } = await foundAndLogin(browser, star, 'admin@example.com');
@@ -53,7 +52,7 @@ describe('guard enforcement', () => {
 
     it('star-level admin can call setStarConfig', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Bootstrap admin and create client
       const { client: adminClient } = await adminClientAt(
@@ -85,7 +84,7 @@ describe('guard enforcement', () => {
     // "universe admin reaches star-level admin methods" means.
     it('universe admin (wildcard) can call star-level setStarConfig', async () => {
       const browser = new Browser();
-      const universe = `uni-${generateUuid().slice(0, 8)}`;
+      const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
       // Founder (pattern `{universe}.*`) at the star aud — creates the Star DO.
@@ -126,8 +125,8 @@ describe('guard enforcement', () => {
   describe('lifecycle ordering', () => {
     it('onBeforeCall rejects wrong active scope before guard runs', async () => {
       const browser = new Browser();
-      const starA = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
-      const starB = `acme-${generateUuid().slice(0, 8)}.app.tenant-b`;
+      const starA = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
+      const starB = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-b`;
 
       // Create Star A with admin
       const { client: clientA } = await adminClientAt(

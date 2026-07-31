@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult, QuerySubscriberRow } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, createPlatformAdminClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
@@ -21,7 +20,7 @@ const TYPES = [
   'interface Parent { name: string }',
   'interface Child { parent: Parent; label: string }',
 ].join('\n');
-const uniqueUniverse = () => `c2p-${generateUuid().slice(0, 8)}`;
+const uniqueUniverse = () => `c2p-${crypto.randomUUID().slice(0, 8)}`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
@@ -45,11 +44,11 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
   it('grant hole: granting read (no resource write) reveals members; revoke shrinks + denies', async () => {
     const star = `${uniqueUniverse()}.app.tenant-a`;
     const { client: a, accessToken } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
     const priv = a.lastResult as string;
-    const c1 = generateUuid();
+    const c1 = crypto.randomUUID();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
 
     // A non-admin user with NO grant subscribes → denied push.
@@ -88,11 +87,11 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     const star = `${universe}.app.tenant-a`;
     // Founder star-admin first (sole ROOT admin grant) creates a private child.
     const { client: a, accessToken } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
     const priv = a.lastResult as string;
-    const c1 = generateUuid();
+    const c1 = crypto.randomUUID();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 

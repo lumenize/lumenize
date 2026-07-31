@@ -13,7 +13,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, Star, requireAdmin } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
@@ -63,7 +62,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     await applyOntology(client, dev, 'v1', TODO_V1);
 
     // Create a Todo under v1 (no `color` field exists yet).
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
@@ -96,7 +95,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client } = await devAdminClient(galaxy, dev);
     await applyOntology(client, dev, 'v1', TODO_V1);
 
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'x', done: false } },
     });
@@ -186,7 +185,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     // A child node + a resource attached to it.
     client.callStarCreateNode(dev, ROOT_NODE_ID, 'child', 'Child');
     const childNodeId = await waitForSuccess(client) as string;
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: childNodeId, value: { title: 'x', done: false } },
     });
@@ -232,7 +231,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const userSub = userPayload.sub;
 
     // Admin creates a resource at ROOT and grants the non-admin `read` on ROOT.
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     admin.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'x', done: false } },
     });
@@ -302,7 +301,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client } = await devAdminClient(galaxy, dev);
 
     await applyOntology(client, dev, 'v1', TODO_V1);
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     client.callStarTransaction(dev, 'v1', {
       [rid]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'a', done: false } },
     });
@@ -329,7 +328,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     await applyOntology(client, dev, 'v2', TODO_V2_BREAKING);
 
     // A fresh write satisfying v2 (includes `priority`) validates + commits.
-    const rid2 = generateUuid();
+    const rid2 = crypto.randomUUID();
     client.callStarTransaction(dev, 'v2', {
       [rid2]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'b', done: false, priority: 'high' } },
     });

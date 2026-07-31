@@ -8,7 +8,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { SubscriberRow, TransactionResult } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -16,7 +15,7 @@ import { NebulaClientTest } from './index';
 
 const VERSION = 'v1';
 const TYPES = ['interface Parent { name: string }', 'interface Child { parent: Parent; label: string }'].join('\n');
-const uniqueStar = () => `c2w-${generateUuid().slice(0, 8)}.app.tenant-a`;
+const uniqueStar = () => `c2w-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
@@ -37,8 +36,8 @@ describe('child2 client window management (Phase 6)', () => {
   it('content subs open for the rendered window only; leave+return within grace = no churn', async () => {
     const star = uniqueStar();
     const a = await admin(star);
-    const P = generateUuid();
-    const c1 = generateUuid(), c2 = generateUuid();
+    const P = crypto.randomUUID();
+    const c1 = crypto.randomUUID(), c2 = crypto.randomUUID();
     a.callStarTransaction(star, VERSION, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } },
       [c2]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c2' } },

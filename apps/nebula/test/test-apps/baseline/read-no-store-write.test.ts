@@ -19,7 +19,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionOutcome } from '@lumenize/nebula';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
@@ -30,7 +29,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TYPES = `interface Todo { title: string; done: boolean; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function committedETag(outcome: TransactionOutcome, rid: string): string {
@@ -50,7 +49,7 @@ describe('client.resources.read does not write to the bound store (§5.3.8, real
     admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TYPES });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
-    const todoId = generateUuid();
+    const todoId = crypto.randomUUID();
     const created = await admin.client.resources.transaction({
       [todoId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'buy milk', done: false } },
     });

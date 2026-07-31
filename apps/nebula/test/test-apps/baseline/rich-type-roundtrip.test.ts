@@ -9,7 +9,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
 import { NebulaClientTest } from './index';
@@ -24,7 +23,7 @@ const RICH_TYPES = `interface RichResource {
 }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function setupAdminClient(star: string) {
@@ -39,7 +38,7 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
   it('Map / Date / Set survive create → re-read with type intact', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const when = new Date('2026-01-02T03:04:05.678Z');
     const counts = new Map<string, number>([['a', 1], ['b', 2]]);
@@ -80,7 +79,7 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
   it('a within-value cycle survives create → real wire → storage → re-read with identity', async () => {
     const star = uniqueStar();
     const { client } = await setupAdminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     const blob: any = { tag: 'inner' };
     blob.loop = blob; // direct cycle inside the value's `blob` field (within-value, not a reference)
@@ -107,7 +106,7 @@ describe('rich-type round-trip (ADR-002, real Star)', () => {
     const star = uniqueStar();
     const a = await setupAdminClient(star);
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     await a.client.resources.transaction({
       [resourceId]: {

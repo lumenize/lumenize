@@ -18,12 +18,11 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { createNebulaClient } from '@lumenize/nebula/frontend';
 import { browserLogin, foundAndLogin, ORIGIN, universeOf } from '../../test-helpers';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 describe('client.logout (§5.3.8 path 6, real Star)', () => {

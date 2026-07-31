@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult, TransactionError, OntologyState } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, browserLogin, createSubject } from '../../test-helpers';
@@ -16,7 +15,7 @@ import { NebulaClientTest } from './index';
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function galaxyName(star: string): string {
@@ -184,7 +183,7 @@ describe('Star ontology cache', () => {
     const star = uniqueStar();
     const galaxy = galaxyName(star);
     const { client } = await adminClient(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
 
     // Register ontology
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
@@ -198,7 +197,7 @@ describe('Star ontology cache', () => {
     expect(r1.ok).toBe(true);
 
     // Second transaction — should use cache (no Galaxy fetch needed)
-    const r2Id = generateUuid();
+    const r2Id = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [r2Id]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Write docs', done: false } },
     });
@@ -219,7 +218,7 @@ describe('Star ontology cache', () => {
     // Client tagged a version that doesn't exist on Galaxy. Star fetches latest
     // (v1) and rejects because the tag doesn't match.
     client.callStarTransaction(star, 'v999', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -237,7 +236,7 @@ describe('Star ontology cache', () => {
     // versioned op against an ontology-less Star is a version mismatch (current = '')
     // rather than the old "not found" — the client is told to refresh.
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -259,13 +258,13 @@ describe('Star ontology cache', () => {
 
     // Force Star to fetch latest (v2) by sending v2 first
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false, priority: 'high' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false, priority: 'high' } },
     });
     await waitForSuccess(client);
 
     // Now send v1 — should get version mismatch
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Stale', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Stale', done: false } },
     });
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
@@ -288,7 +287,7 @@ describe('validation integration', () => {
     await waitForSuccess(client);
 
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
     });
     const result = await waitForSuccess(client) as TransactionResult;
     expect(result.ok).toBe(true);
@@ -306,7 +305,7 @@ describe('validation integration', () => {
 
     // Missing required field 'done', wrong type for 'title'
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } },
     });
     const result = await waitForSuccess(client) as TransactionResult;
     expect(result.ok).toBe(false);
@@ -333,7 +332,7 @@ describe('validation integration', () => {
     });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     // Omit 'priority' — `@default "medium"` JSDoc tag should fill it
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix bug', done: false } },
@@ -357,7 +356,7 @@ describe('validation integration', () => {
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Fix', done: false } },
     });
@@ -382,7 +381,7 @@ describe('validation integration', () => {
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'To delete', done: false } },
     });
@@ -406,8 +405,8 @@ describe('validation integration', () => {
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const r1 = generateUuid();
-    const r2 = generateUuid();
+    const r1 = crypto.randomUUID();
+    const r2 = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [r1]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Valid', done: false } },
       [r2]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 123 } }, // invalid
@@ -436,7 +435,7 @@ describe('validation integration', () => {
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Meta', done: false } },
     });
@@ -463,7 +462,7 @@ describe('read integration', () => {
     client.callStarApplyOntology(star, { version: 'v1', types: TODO_TYPES });
     await waitForSuccess(client);
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     client.callStarTransaction(star, 'v1', {
       [resourceId]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Read me', done: true } },
     });
@@ -487,11 +486,11 @@ describe('read integration', () => {
 
     // Need at least one transaction to cache the ontology on the Star
     client.callStarTransaction(star, 'v1', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'Seed', done: false } },
     });
     await waitForSuccess(client);
 
-    client.callStarRead(star, 'v1', generateUuid());
+    client.callStarRead(star, 'v1', crypto.randomUUID());
     const snap = await waitForSuccess(client);
     expect(snap).toBeNull();
 
@@ -511,12 +510,12 @@ describe('read integration', () => {
 
     // Force Star to fetch v2
     client.callStarTransaction(star, 'v2', {
-      [generateUuid()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false, priority: 'high' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Todo', nodeId: ROOT_NODE_ID, value: { title: 'X', done: false, priority: 'high' } },
     });
     await waitForSuccess(client);
 
     // Read with stale version
-    client.callStarRead(star, 'v1', generateUuid());
+    client.callStarRead(star, 'v1', crypto.randomUUID());
     const error = await waitForError(client);
     expect(error).toContain('version mismatch');
 

@@ -9,14 +9,14 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { parseJwtUnsafe, generateUuid } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '../src/types';
 import type { NebulaJwtPayload } from '../src/types';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
 const authUrl = (path: string) => `${ORIGIN}${PREFIX}/${path}`;
-const uni = () => `u${generateUuid().slice(0, 8)}`;
+const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 
 /** Found a Universe through the browser: claim (mints founder) → click → refresh → admin JWT. */
 async function browserFoundUniverse(browser: Browser, slug: string, email: string): Promise<NebulaJwtPayload> {

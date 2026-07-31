@@ -7,7 +7,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { adminClientAt } from '../../test-helpers';
 import { StarTest, NebulaClientTest } from './index';
 
@@ -94,7 +93,7 @@ describe('gateway abuse cases', () => {
   describe('mesh → client active-scope verification', () => {
     it('happy path: StarTest calls client echo on same active scope', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       // Create admin client
       const { client: adminClient } = await adminClientAt(
@@ -128,7 +127,7 @@ describe('gateway abuse cases', () => {
 
     it('client-side guard: adminEcho passes for admin-originated call', async () => {
       const browser = new Browser();
-      const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+      const star = `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
       const { client: adminClient } = await adminClientAt(
         NebulaClientTest, browser, star, star, 'admin@example.com',

@@ -6,7 +6,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { DagTreeState } from '@lumenize/nebula';
 import { adminClientAt, universeAdminClient, createInvitedClient, foundAndLogin, browserLogin, createSubject } from '../../test-helpers';
@@ -14,7 +13,7 @@ import { NebulaClientTest } from './index';
 
 // Helper: create a unique star scope per test to avoid cross-test interference
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 // Helper: create admin client connected to a star
@@ -743,7 +742,7 @@ describe('dag-tree', () => {
       // Resolve for a distinct, non-founder subject so the founder's seeded
       // root-admin grant (which rolls down to every node) doesn't shadow the
       // tier under test. The founder (caller) still performs the grants.
-      const testSub = generateUuid();
+      const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'secured', 'Secured');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
@@ -807,7 +806,7 @@ describe('dag-tree', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       // Distinct subject — see the CRUD test above (founder rolls down admin).
-      const testSub = generateUuid();
+      const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'upsert-test', 'Upsert');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
@@ -835,7 +834,7 @@ describe('dag-tree', () => {
       const { client } = await adminClient(star);
       // Resolve for a distinct subject — the founder's seeded root-admin grant
       // would otherwise roll down and shadow the rolldown under test.
-      const sub = generateUuid();
+      const sub = crypto.randomUUID();
 
       // Build: root → A → C, root → B → C (diamond), C → D
       client.callStarCreateNode(star, ROOT_NODE_ID, 'branch-a', 'A');
@@ -886,7 +885,7 @@ describe('dag-tree', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       // Distinct subject — the founder has a seeded root-admin grant.
-      const testSub = generateUuid();
+      const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'isolated', 'Isolated');
       await vi.waitFor(() => expect(client.lastResult).toBeDefined());
@@ -1278,7 +1277,7 @@ describe('dag-tree', () => {
     // STAR DO — admission via the *reach* branch (pattern covers the callee), which is what
     // "universe admin has full DAG access to a descendant Star" actually means.
     it('universe admin bypasses all DAG checks via the scope-admin claim', async () => {
-      const universe = `uni-${generateUuid().slice(0, 8)}`;
+      const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
       // Founder at the star aud — creates the Star DO and seeds root admin.

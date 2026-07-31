@@ -18,13 +18,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { QueryDescriptor } from '@lumenize/nebula';
 import { universeAdminClient, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3t-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c3t-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 
   // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
   // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
@@ -41,7 +40,7 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
   it('includes the accessAdmin-bypass + read-granted subscribers, excludes the read-denied one', async () => {
     const scope = uniqueDevScope();
     const { client: admin, accessToken } = await devClient(scope);
-    const S = generateUuid();
+    const S = crypto.randomUUID();
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: S };
 
     // A node the admin has NO explicit grant on (DevStudio seeds no root admin — the

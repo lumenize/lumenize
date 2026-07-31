@@ -16,7 +16,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionOutcome, ResourceHandler } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, createSubject } from '../../test-helpers';
@@ -28,7 +27,7 @@ const TEST_TYPES = `interface TestResource { title: string; }`;
 const TWO_TYPES = `interface TestResource { title: string; }\ninterface Note { body: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 /** Pull the committed eTag for `rid` out of a committed outcome. */
@@ -90,7 +89,7 @@ async function awaitCall(client: NebulaClientTest): Promise<unknown> {
  * stale (V1) eTag B should submit against to force a conflict.
  */
 async function setupConflict(star: string, a: { client: NebulaClientTest }, b: { client: NebulaClientTest }) {
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
 
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
@@ -424,8 +423,8 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     const b = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
 
     // Set up a stale-eTag conflict for one resource of EACH type.
-    const todoId = generateUuid();
-    const noteId = generateUuid();
+    const todoId = crypto.randomUUID();
+    const noteId = crypto.randomUUID();
     const todoCreate = await a.client.resources.transaction({
       [todoId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'T1' } },
     });
@@ -502,8 +501,8 @@ describe('nebula-client.resources.onTransactionResourceResolution (v3)', () => {
     await awaitCall(admin.client);
 
     // ridA on N1 (user CAN write) — advance it so the user's eTag is stale → conflict.
-    const ridA = generateUuid();
-    const ridB = generateUuid();
+    const ridA = crypto.randomUUID();
+    const ridB = crypto.randomUUID();
     const aCreate = await admin.client.resources.transaction({
       [ridA]: { op: 'create', typeName: 'TestResource', nodeId: n1, value: { title: 'A-v1' } },
     });

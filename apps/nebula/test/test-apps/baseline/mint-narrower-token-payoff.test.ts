@@ -22,7 +22,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { ROOT_NODE_ID, projectActClaim } from '@lumenize/nebula';
 import type { Star, TransactionResult } from '@lumenize/nebula';
@@ -34,7 +33,7 @@ const TYPES = 'interface Note { label: string }';
 
 describe('/mint-narrower-token — the DAG verdict', () => {
   it('a narrower token for a NON-admin member is DENIED a write the caller is allowed', async () => {
-    const universe = `mnt-${generateUuid().slice(0, 8)}`;
+    const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
 
@@ -68,8 +67,8 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
     // ── The verdict ──────────────────────────────────────────────────────────────────────────────
     const denied = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, generateUuid(), {
-        [generateUuid()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
+      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(), {
+        [crypto.randomUUID()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'nope' } },
       })) as TransactionResult;
     expect(denied.ok).toBe(false);
     expect(Object.values((denied as { ok: false; errors: Record<string, any> }).errors)[0].type)
@@ -78,7 +77,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     // Control: the SAME write with the caller's OWN token commits — so the path is reachable and the
     // denial above is the `admin` mirror, not a plumbing failure.
     admin.callStarTransaction(star, VERSION, {
-      [generateUuid()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'yes' } },
+      [crypto.randomUUID()]: { op: 'create', typeName: 'Note', nodeId: priv, value: { label: 'yes' } },
     });
     await vi.waitFor(() => expect(admin.callCompleted).toBe(true));
     expect((admin.lastResult as TransactionResult).ok).toBe(true);
@@ -95,7 +94,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
   // it a narrower token for a non-admin subject holds no DAG grant in a fresh Star and the write is
   // denied for an unrelated reason (the very denial the test above asserts).
   it('persists changedBy = { sub, act: { sub } } with NO profileId, and still coalesces', async () => {
-    const universe = `mnt-${generateUuid().slice(0, 8)}`;
+    const universe = `mnt-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
 
@@ -119,9 +118,9 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     await vi.waitFor(() => expect(impersonating.connectionState).toBe('connected'));
     expect(impersonating.claims.act?.profileId).toBe(adminPayload.profileId); // the claim DOES carry it
 
-    const rid = generateUuid();
+    const rid = crypto.randomUUID();
     const commit = (label: string) => impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, generateUuid(),
+      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(),
         { [rid]: { op: 'create', typeName: 'Note', nodeId: node, value: { label } } }));
     const first = await commit('one') as TransactionResult;
     expect(first.ok).toBe(true);
@@ -141,7 +140,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
 
     // ...and two same-actor writes inside the window still coalesce to ONE row.
     const second = await impersonating.lmz.callAsync('STAR', star,
-      impersonating.ctn<Star>().transaction(VERSION, generateUuid(),
+      impersonating.ctn<Star>().transaction(VERSION, crypto.randomUUID(),
         { [rid]: { op: 'put', eTag: (first as { ok: true; eTags: Record<string, string> }).eTags[rid], value: { label: 'two' } } })) as TransactionResult;
     expect(second.ok).toBe(true);
     expect(await rows()).toHaveLength(1);

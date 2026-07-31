@@ -21,7 +21,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import { createNebulaClient, textMerge } from '@lumenize/nebula/frontend';
 import { computed } from '@vue/reactivity';
@@ -41,7 +40,7 @@ interface document { body: string; }
 type Todo = { title: string; description: string; status: 'open' | 'done' };
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 function makeFactoryClient(star: string, browser: Browser) {
@@ -91,7 +90,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── coding-your-ui § Mutating the org/permission tree ──
     const userAliceNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-alice', 'Alice');
     const userBobNodeId = await client.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'user-bob', 'Bob');
-    const bobsSub = generateUuid();
+    const bobsSub = crypto.randomUUID();
     const nodeId = userAliceNodeId;
 
     // @doc coding-your-ui.md § Mutating the org/permission tree

@@ -5,7 +5,7 @@
  */
 import { expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid, parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
@@ -27,7 +27,7 @@ function authUrl(path: string): string {
  * galaxy (use `uniqueGalaxyScope()` for that).
  */
 export function uniqueStar(): string {
-  return `s-${generateUuid().slice(0, 8)}.app.tenant`;
+  return `s-${crypto.randomUUID().slice(0, 8)}.app.tenant`;
 }
 
 /**
@@ -46,7 +46,7 @@ export function uniqueGalaxyScope(): {
    *  DO with `starA`/`starB`. See tasks/nebula-studio.md § Dev-data reset. */
   dev: string;
 } {
-  const universe = `g-${generateUuid().slice(0, 8)}`;
+  const universe = `g-${crypto.randomUUID().slice(0, 8)}`;
   const galaxy = `${universe}.app`;
   return {
     universe,

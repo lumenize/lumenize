@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
-import { signJwt, importPrivateKey, generateUuid } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from '../src/types';
 import type { AccessEntry } from '../src/types';
 import {
@@ -17,13 +17,13 @@ import {
 const PREFIX = NEBULA_AUTH_PREFIX;
 const workerUrl = (path: string) => `http://localhost${PREFIX}/${path}`;
 const registryUrl = (endpoint: string) => `http://localhost${PREFIX}/${endpoint}`;
-const uni = () => `u${generateUuid().slice(0, 8)}`;
+const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 
 /** Sign a raw Nebula-shaped JWT (email/adminApproved are no longer claims). */
 async function signRaw(extra: Record<string, any>): Promise<string> {
   const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
   const now = Math.floor(Date.now() / 1000);
-  return signJwt({ iss: NEBULA_AUTH_ISSUER, sub: generateUuid(), exp: now + 900, iat: now, jti: generateUuid(), ...extra } as any, privateKey, 'BLUE');
+  return signJwt({ iss: NEBULA_AUTH_ISSUER, sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), ...extra } as any, privateKey, 'BLUE');
 }
 
 /** A synthetic non-admin token for a scope (drives the router without a real login). */
@@ -211,7 +211,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
           ctx.storage.sql.exec(
             'INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,0,0,?)',
-            generateUuid(), generateUuid(), star, invitee, '2026-01-01T00:00:00.000Z',
+            crypto.randomUUID(), crypto.randomUUID(), star, invitee, '2026-01-01T00:00:00.000Z',
           );
         });
         const linksBefore = (await rowsFor(star)).links;
@@ -455,13 +455,13 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     it('wrong issuer → 401', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: 'wrong-issuer', aud: 'some-instance', sub: generateUuid(), exp: now + 900, iat: now, jti: generateUuid(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
+      const token = await signJwt({ iss: 'wrong-issuer', aud: 'some-instance', sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
       expect((await post(token)).status).toBe(401);
     });
     it('missing sub → 401', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: NEBULA_AUTH_ISSUER, aud: 'some-instance', exp: now + 900, iat: now, jti: generateUuid(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
+      const token = await signJwt({ iss: NEBULA_AUTH_ISSUER, aud: 'some-instance', exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
       expect((await post(token)).status).toBe(401);
     });
     it('missing access → 401', async () => {

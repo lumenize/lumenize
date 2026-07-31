@@ -15,13 +15,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { DEFAULT_SESSION_ID, SESSION_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot } from '@lumenize/nebula';
 import { universeAdminClient } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
-const uniqueDevScope = () => `c3e-${generateUuid().slice(0, 8)}.app.dev`;
+const uniqueDevScope = () => `c3e-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 const sessionQuery = {
   queryType: 'parentChild' as const, typeName: 'Message', field: 'session', value: DEFAULT_SESSION_ID,
 };
@@ -41,7 +40,7 @@ describe('child3 Phase 6 — history-restore + multi-participant e2e', () => {
   it('a late-joining participant restores the full ordered conversation from durable Messages alone', async () => {
     const scope = uniqueDevScope();
     const { client: sender } = await devClient(scope);
-    const a1 = generateUuid(), a2 = generateUuid();
+    const a1 = crypto.randomUUID(), a2 = crypto.randomUUID();
 
     // Build the conversation as durable Messages, alternating user/assistant. Sequential
     // awaits → advancing clock → chronological (validFrom, resourceId) order.

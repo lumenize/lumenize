@@ -22,12 +22,11 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { adminClientAt, ORIGIN } from '../../test-helpers';
 import { NebulaClientTest } from './index';
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 describe('nebula-client resilient chat-turn delivery', () => {
@@ -46,12 +45,12 @@ describe('nebula-client resilient chat-turn delivery', () => {
     const a = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
     const clientId = a.client.lmz.instanceName;
 
-    const turnId = generateUuid();
+    const turnId = crypto.randomUUID();
     const pending = a.client.registerPendingTurnForTest(turnId);
 
     // Deliver for a DIFFERENT turnId first — must NOT settle our pending turn (if
     // onChatResult ignored turnId, this 'WRONG' payload would resolve it first).
-    a.client.triggerOnChatResultForTest(star, clientId, generateUuid(), 'WRONG', 'WRONG');
+    a.client.triggerOnChatResultForTest(star, clientId, crypto.randomUUID(), 'WRONG', 'WRONG');
     // Then deliver for the real turnId.
     a.client.triggerOnChatResultForTest(star, clientId, turnId, 'right', 'rt');
 
@@ -64,7 +63,7 @@ describe('nebula-client resilient chat-turn delivery', () => {
 
     // Register the pending turn BEFORE the drop — it lives in #pendingTurns (memory),
     // which a transient reconnect does NOT clear (only an explicit disconnect() does).
-    const turnId = generateUuid();
+    const turnId = crypto.randomUUID();
     const pending = a.client.registerPendingTurnForTest(turnId);
 
     // Force a reconnect via the Gateway supersede mechanism (same trick as 5.3.4a):

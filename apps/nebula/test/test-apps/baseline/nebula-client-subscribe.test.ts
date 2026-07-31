@@ -14,7 +14,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { TransactionResult } from '@lumenize/nebula';
 import { adminClientAt } from '../../test-helpers';
@@ -24,7 +23,7 @@ const ONTOLOGY_VERSION = 'v1';
 const TEST_TYPES = `interface TestResource { title: string; }`;
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 async function twoAdminClients(star: string) {
@@ -72,7 +71,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('subscribe() resolves with the initial snapshot', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const eTag = await createResource(a.client, star, resourceId, 'Initial value');
 
     const snap = await a.client.resources.subscribe('TestResource', resourceId).snapshot;
@@ -91,7 +90,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
     // Phase 5.3.1 makes subscribe-before-create reject. The Promise should
     // reject; we should NOT get a null resolve.
     await expect(
-      a.client.resources.subscribe('TestResource', generateUuid()).snapshot,
+      a.client.resources.subscribe('TestResource', crypto.randomUUID()).snapshot,
     ).rejects.toThrow(/not found/);
 
     a.client[Symbol.dispose]();
@@ -100,7 +99,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('coalesces concurrent subscribe() calls to the same (rt, rid)', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'Coalesced');
 
     const p1 = a.client.resources.subscribe('TestResource', resourceId);
@@ -121,7 +120,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('subscribe() Promise rejects when ontology version is stale at construction', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'Stale-test');
 
     // Register v2 on Galaxy
@@ -149,7 +148,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('disposing the handle unsubscribes (server row dropped)', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'dispose-test');
 
     const sub = a.client.resources.subscribe('TestResource', resourceId);
@@ -170,7 +169,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('standalone unsubscribe() is equivalent to disposing the handle', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'standalone');
 
     await a.client.resources.subscribe('TestResource', resourceId).snapshot;
@@ -189,7 +188,7 @@ describe('nebula-client.resources.subscribe (5.3.3a)', () => {
   it('two handles for the same (rt, rid): first dispose keeps the subscription; second releases it', async () => {
     const star = uniqueStar();
     const { a } = await twoAdminClients(star);
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     await createResource(a.client, star, resourceId, 'shared');
 
     const sub1 = a.client.resources.subscribe('TestResource', resourceId);

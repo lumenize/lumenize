@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { adminClientAt, createInvitedClient, browserLogin, foundAndLogin, createSubject } from '../../test-helpers';
@@ -21,7 +20,7 @@ const TYPES = [
   'interface Parent { name: string }',
   'interface Child { parent: Parent; label: string }',
 ].join('\n');
-const uniqueStar = () => `c2r-${generateUuid().slice(0, 8)}.app.tenant-a`;
+const uniqueStar = () => `c2r-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 
 async function waitForResult(c: NebulaClientTest) { await vi.waitFor(() => expect(c.callCompleted).toBe(true)); }
 async function waitForSuccess(c: NebulaClientTest) { await waitForResult(c); expect(c.lastError).toBeUndefined(); return c.lastResult; }
@@ -56,7 +55,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const P = generateUuid(), Q = generateUuid();
+    const P = crypto.randomUUID(), Q = crypto.randomUUID();
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 
     b.callStarSubscribeQuery(star, query);
@@ -64,21 +63,21 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([]); // empty initially
 
     // create: c1 joins
-    const c1 = generateUuid();
+    const c1 = crypto.randomUUID();
     let n = b.queryUpdateCount;
     const e1 = await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([c1]);
 
     // create: c2 joins
-    const c2 = generateUuid();
+    const c2 = crypto.randomUUID();
     n = b.queryUpdateCount;
     await commit(a, star, { [c2]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c2' } } });
     await nextPush(b, n);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual(await ordered(a, star, [c1, c2]));
 
     // reparent-in: c3 starts under Q, then its parent field is edited to P
-    const c3 = generateUuid();
+    const c3 = crypto.randomUUID();
     const e3 = await commit(a, star, { [c3]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: Q, label: 'c3' } } });
     n = b.queryUpdateCount;
     await commit(a, star, { [c3]: { op: 'put', eTag: e3[c3], value: { parent: P, label: 'c3' } } });
@@ -104,7 +103,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await nextPush(b, 0);
 
@@ -114,7 +113,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     // Related anchor: a Child create DOES push. When it lands, count must be
     // baseline+1 (only the related one). Mutation: drop the touched-type filter →
     // the unrelated Parent create also pushed → count baseline+2 → red.
-    const c1 = generateUuid();
+    const c1 = crypto.randomUUID();
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } } });
     await nextPush(b, baseline);
     expect(b.lastQueryUpdate?.result.resourceIds).toEqual([c1]);
@@ -127,8 +126,8 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     const star = uniqueStar();
     const { client: a } = await admin(star);
     const { client: b } = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
-    const P = generateUuid();
-    const c1 = generateUuid();
+    const P = crypto.randomUUID();
+    const c1 = crypto.randomUUID();
     const e = await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: ROOT_NODE_ID, value: { parent: P, label: 'c1' } } });
     b.callStarSubscribeQuery(star, { queryType: 'parentChild', typeName: 'Child', field: 'parent', value: P });
     await nextPush(b, 0);
@@ -146,7 +145,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
   it('delivery split: no-denial gets full ids; has-denial gets readable subset + deniedNodes', async () => {
     const star = uniqueStar();
     const { client: a, accessToken } = await admin(star);
-    const P = generateUuid();
+    const P = crypto.randomUUID();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'pub', 'Pub');
     await vi.waitFor(() => expect(a.lastResult).toBeDefined());
     const pub = a.lastResult as string;
@@ -169,7 +168,7 @@ describe('child2 query rerun on commit (Phase 4)', () => {
     user.callStarSubscribeQuery(star, query); await nextPush(user, 0);
 
     // create c1 (pub, user-readable) + c2 (priv, denied) in one txn.
-    const c1 = generateUuid(), c2 = generateUuid();
+    const c1 = crypto.randomUUID(), c2 = crypto.randomUUID();
     const nb = b.queryUpdateCount, nu = user.queryUpdateCount;
     await commit(a, star, {
       [c1]: { op: 'create', typeName: 'Child', nodeId: pub, value: { parent: P, label: 'c1' } },

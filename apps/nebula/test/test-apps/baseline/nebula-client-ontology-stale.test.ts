@@ -17,7 +17,6 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID } from '@lumenize/nebula';
 import type { OntologyStaleInfo, TransactionOutcome } from '@lumenize/nebula';
 import { isOntologyStaleError } from '@lumenize/nebula';
@@ -35,7 +34,7 @@ function committedETag(outcome: TransactionOutcome, rid: string): string {
 }
 
 function uniqueStar(): string {
-  return `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
+  return `acme-${crypto.randomUUID().slice(0, 8)}.app.tenant-a`;
 }
 
 /**
@@ -59,7 +58,7 @@ async function setupStaleScenario() {
   await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
   // Create a resource at v1 so we have something to operate on
-  const resourceId = generateUuid();
+  const resourceId = crypto.randomUUID();
   const created = await a.client.resources.transaction({
     [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1-resource' } },
   });
@@ -163,7 +162,7 @@ describe('nebula-client ontology-stale signal (5.3.3d)', () => {
     a.client.callStarApplyOntology(star, { version: 'v1', types: TEST_TYPES });
     await vi.waitFor(() => { expect(a.client.callCompleted).toBe(true); });
 
-    const resourceId = generateUuid();
+    const resourceId = crypto.randomUUID();
     const created = await a.client.resources.transaction({
       [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'V1' } },
     });
