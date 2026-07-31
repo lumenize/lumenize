@@ -106,6 +106,13 @@ diligent while silently restoring the coupling this file exists to remove.
 
 ### What the copy unblocks
 
+**The affirmative case for forking the email seam is that its templates are about to diverge.** Today
+`NebulaEmailSender` overrides no template and no subject at all — it sets `appName = 'Nebula'`, a
+`from`, and `headers()`, and inherits all five templates verbatim, so Nebula's mail is currently the
+generic MIT templates with a name substituted in. Nebula-specific templates are wanted soon, and
+every one of them would otherwise be either an override fighting a shared default or Nebula
+vocabulary pushed into the MIT package. The copy is what makes them ordinary edits.
+
 Owning `EmailMessage` locally removes the objection that killed the better fix for the
 instance-tagging bug. The registry currently builds a URL and the sender **re-parses the instance back
 out of it** (`nebula-email-sender.ts` `parseInstanceName`), guarded by `instanceAuthUrl`'s typed route
@@ -160,6 +167,7 @@ follows is what done *means*, plus the hazards a plan must respect.
 | **Extract only if `packages/auth` consumes the result** | *Extract while `auth` keeps its own copy.* Pays the full price of a new package and still leaves two copies, so the one-owner property it was bought for is gone. Incoherent; do not propose it. |
 | **A subpath is not a substitute for extraction** | *Point `mesh/src` at `@lumenize/auth/client` and stop there.* Fixes module-graph reachability for one line, but leaves two crypto copies and leaves `mesh` depending on the auth product. The near-miss most likely to be re-proposed in review. |
 | **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
+| **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. They also double as the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the instance tag from the **URL** rather than enumerating types; pruning the union would leave no unenumerated variant to test with, and that enumeration bug has shipped once already. |
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them from `auth` for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim would be a second reference to the code that extraction exists to give one owner. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
 | **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name such as `jwt-plus-utils`.* All ten symbols wrap the same `crypto` global — `crypto.subtle` for Ed25519 sign/verify, plus `getRandomValues`, `randomUUID`, `subtle.digest` — so `crypto` is accurate rather than a compromise, and there is no "plus" to name. A compound name bakes today's contents into the identifier and rots on the eleventh wrapper. |
