@@ -68,3 +68,14 @@ Amount, use of funds, and what it buys. The milestone slide is nearly free: **th
 - **The AI claim**: always the bounded form — "the AI can never *read* what the asking user can't read" — never "can't leak" unqualified (see `strategy.md`).
 - **Claude Tag figures**: re-verify at deck time against [the announcement](https://www.anthropic.com/news/introducing-claude-tag) (currently: public beta 2026-06-23; ~65% of Anthropic's product team's code via their internal version).
 - **Security validation**: an independent pen test of the secure-by-default claims is both an enterprise timing gate and a deck asset; scope/cost it early.
+
+## 7. Third-party category validation — a free "why now" asset (added 2026-07-31)
+
+Y Combinator's [Fall 2026 RFS](https://www.ycombinator.com/rfs) independently asks for two things we are building, which is a cheap credibility card for the deck (details and the citation discipline are in `strategy.md`):
+
+- **A Cloud for Small Software** (Pete Koomen, YC group partner) — building is easy now, deploying and sharing is not; of the three hard problems the RFS names, two are our substrate (*auth & permissions*, and nontechnical users sharing arbitrary code securely).
+- **Multiplayer AI** (Aaron Epstein, YC group partner) — anyone dropping into the same live agent session to watch, redirect, and hand off. ⚠️ **Demo this as the open invitation it is** — the builder invites whoever they need into the thread with Nebula, on a uniform participation floor. Presenting it as "a coach can join" names one use case, undersells a built substrate as a service offering, and misses the RFS, which asks for the general form.
+
+**How to use it.** This answers the "is this a real category or a founder's hobby?" reflex without us asserting anything — the strongest form of that answer, since it comes from the investor side. Best placement is a supporting line on *Why now*, not a slide of its own; a deck that leans on someone else's RFS for its thesis looks derivative.
+
+**How not to use it.** (a) YC's small software is bespoke tools for one or a few users; ours is multi-tenant and revenue-capable — cite it for the infrastructure thesis, never for the positioning. (b) That RFS's headline is deployment simplicity, with security as a sub-problem; that matches our committed wedge sequencing, but do not present it as YC validating *secure-by-default* specifically, because it doesn't. (c) The Fall 2026 application deadline (2026-07-27) has passed — this is deck evidence, not an open application.
