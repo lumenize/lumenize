@@ -164,6 +164,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] **CI's `--coverage` / `--retry 2` silently do not reach packages whose `test` script chains a second command** (found 2026-07-31 by the `/build-task` verifier panel on `@lumenize/crypto`). `scripts/test-code.sh` invokes `npm run test -w "$pkg" -- "${VITEST_ARGS[@]}"`, and npm appends forwarded args to the **end of the whole script string** — so for a script like `"test": "vitest --run && npm run test:node-import"` the flags land on the *second* command, not on vitest. `@lumenize/crypto` and `@lumenize/mesh` both have this shape.
+  - **Nothing is wrong today** — the tests all run; only the coverage instrumentation and retry budget are lost for those two packages, which is why it went unnoticed.
+  - Fix options: give the chained command its own script and let `test` be vitest-only, or have `test-code.sh` pass flags via an env var the package script interpolates. Low urgency.
+
+
 - [ ] **Move `/live` + prod-drive to ADR-009 rung 1 end-to-end, retiring the last real consumer of `NebulaClientConfig.accessToken` (surfaced 2026-07-29).** Two vestigial pieces, both predating the client's auto-refresh:
   - **`harness/lib/harness.ts`** builds its client with `accessToken` + `instanceName` explicitly "to skip its own refresh". On the **non-mint** path that is pure optimization — `provisionAndLogin(… fetchImpl: browser.fetch)` already logs in through the `Browser` shim, so the refresh cookie **is** in the context and the client's own flow would work. Cost of dropping it: one round trip at harness boot. The **`opts.mint`** path is different — `createNebulaTestToken`, **ADR-009 rung 3**, no cookie at all — and that is the one ADR-009 calls a last resort needing per-site justification. Retiring it is the actual rung-1 move.
   - **`harness/lib/prod-drive.ts`** holds a stored refresh-token session and calls `refreshAccessToken(...)` **by hand** to get an access token to hand the client. That is the pre-auto-refresh pattern; seeding the cookie into the `Browser` context instead lets the built-in flow do it.
