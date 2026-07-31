@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { foundUniverse, inviteAndLogin, adminRequest, url } from './test-helpers';
 import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '../src/types';

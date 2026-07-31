@@ -10,8 +10,8 @@
  *
  * Lifted from the ui-smoke lane (`test/ui-smoke/global-setup.ts`) + the bench harness
  * (`test/browser/multi-client.ts`), generalized off vitest. Runs in plain Node: imports only
- * the Node-safe subpaths (`@lumenize/nebula/client`, `@lumenize/nebula-auth/testing`,
- * `@lumenize/auth/client`, `@lumenize/testing`) — none pull `cloudflare:workers`.
+ * the Node-safe entries (`@lumenize/nebula/client`, `@lumenize/nebula-auth/testing`,
+ * `@lumenize/crypto`, `@lumenize/testing`) — none pull `cloudflare:workers`.
  *
  * Local `wrangler dev` needs Docker Desktop (the DevContainer builds at boot) — the harness
  * probes it and fails loudly if absent. PROD driving is deliberately NOT here: prod tokens come
@@ -26,7 +26,7 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { provisionAndLogin } from '../../test/lib/email-login';
-import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth/client';
+import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/crypto';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula

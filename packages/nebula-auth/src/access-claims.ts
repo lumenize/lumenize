@@ -18,8 +18,8 @@
  * this, never re-emit `access:{...}` inline.
  *
  * PURE by construction: imports only `./parse-id`, `./types`, and the Node-safe
- * `@lumenize/auth/client` JWT primitives — no `cloudflare:workers` — so it is safe to pull
- * into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
+ * `@lumenize/crypto` JWT primitives — no `cloudflare:workers` anywhere in that package's graph —
+ * so it is safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
  * (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
 import type { AccessEntry, NebulaJwtPayload } from './types';

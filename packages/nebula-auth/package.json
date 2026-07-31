@@ -51,6 +51,7 @@
   },
   "dependencies": {
     "@lumenize/auth": "*",
+    "@lumenize/crypto": "*",
     "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
     "@lumenize/routing": "*",

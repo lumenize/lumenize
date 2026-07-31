@@ -1,4 +1,4 @@
-import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth';
+import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/crypto';
 
 /**
  * Options for {@link createTestRefreshFunction}.

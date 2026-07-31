@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { signJwt, importPrivateKey } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
 
 /**

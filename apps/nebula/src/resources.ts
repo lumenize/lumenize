@@ -14,7 +14,7 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 // (ADR-001). The widened shape is structurally assignable to this one, so **the type system will not
 // catch the swap** — `projectActClaim` below is the sole enforcement, and a widened import would make
 // its narrowing look redundant to the next reader.
-import type { ActClaim } from '@lumenize/auth';
+import type { ActClaim } from '@lumenize/crypto';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError } from './errors';
 import type {
@@ -68,7 +68,7 @@ export type TransactionResult =
  *
  * ⏳ **An INTERIM with a scheduled end, not the target model.** `nebula-auth`'s JWT `act` claim carries
  * the actor's `profileId` (an actor pair — the claims describe two people); `Snapshots.changedBy` must
- * not, because it is (a) typed as `@lumenize/auth`'s NARROW `ActClaim`, which cannot declare the field
+ * not, because it is (a) typed as `@lumenize/crypto`'s NARROW `ActClaim`, which cannot declare the field
  * (ADR-001), and (b) doubling as the same-actor coalesce key at `#writeSnapshot`, where a widened
  * record would change the compare. `tasks/nebula-pre-alpha.md`'s schema-surgery item 6 replaces that
  * column with the full acting claims and derives the key from `sub` + `act` — at which point **this

@@ -5,7 +5,7 @@
  */
 import { expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';

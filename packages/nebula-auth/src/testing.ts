@@ -7,7 +7,8 @@
  * `cloudflare:workers`-free — so it can be imported from a standalone `tsx` driver
  * (`tasks/archive/claude-live-verification.md`).
  *
- * Mirrors the `@lumenize/auth/client` split: by intent, not by runtime.
+ * A split by intent, not by runtime. (It used to mirror auth's Node-safe subpath; that subpath is
+ * gone — its primitives are now the whole of `@lumenize/crypto`, which needs no split.)
  */
 
 // The local-mint identity path (Phase 1).

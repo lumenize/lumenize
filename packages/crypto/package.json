@@ -1,0 +1,44 @@
+{
+  "name": "@lumenize/crypto",
+  "version": "0.26.0",
+  "description": "De✨light✨ful Ed25519 JWT signing, verification with key rotation, and hashing primitives for Cloudflare Workers, Node, and browsers",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "test": "vitest --run && npm run test:node-import",
+    "test:node-import": "tsx --test test/node-import.test.mjs",
+    "coverage": "vitest --run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "4.1.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vitest": "4.1.10"
+  },
+  "keywords": [
+    "jwt",
+    "ed25519",
+    "eddsa",
+    "crypto",
+    "cloudflare-workers"
+  ],
+  "author": "Larry Maccherone",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

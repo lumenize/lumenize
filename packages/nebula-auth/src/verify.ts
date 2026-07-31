@@ -3,11 +3,7 @@
  * token layer, and the app entrypoint. Extracted from `router.ts` so `router.ts` and `worker-token.ts`
  * can both import it without an import cycle.
  */
-import {
-  verifyJwt,
-  verifyJwtWithRotation,
-  importPublicKey,
-} from '@lumenize/auth';
+import { verifyJwt, verifyJwtWithRotation, importPublicKey } from '@lumenize/crypto';
 import { matchAccess } from './parse-id';
 import { NEBULA_AUTH_ISSUER } from './types';
 import type { NebulaJwtPayload } from './types';

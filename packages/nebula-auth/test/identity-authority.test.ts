@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
-import { hashString } from '@lumenize/auth';
+import { hashString } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndParse, registryUrl } from './test-helpers';
 

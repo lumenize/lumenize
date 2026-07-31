@@ -19,9 +19,9 @@
  * construction). Prod tokens must still come via audited login / stored-refresh — never this
  * local mint (security invariant).
  *
- * Node-safe by construction: imports only `./access-claims` (pure) and the Node-safe
- * `@lumenize/auth/client` signing primitives — no `cloudflare:workers` — so it runs under
- * plain Node (tsx) against a real `wrangler dev`.
+ * Node-safe by construction: imports only `./access-claims` (pure) and `@lumenize/crypto`'s
+ * signing primitives — that package has no `cloudflare:workers` anywhere in its graph — so it
+ * runs under plain Node (tsx) against a real `wrangler dev`.
  *
  * @example
  * ```typescript
@@ -32,7 +32,7 @@
  * const client = new NebulaClient({ baseUrl, authScope, activeScope, refresh, ... });
  * ```
  */
-import { signJwt, importPrivateKey } from '@lumenize/auth/client';
+import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { buildNebulaJwtPayload } from './access-claims';
 
 /** Options for {@link createNebulaTestToken}. */

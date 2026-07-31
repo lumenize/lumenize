@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
-import { hashString } from '@lumenize/auth';
+import { hashString } from '@lumenize/crypto';
 import { foundUniverse, requestMagicLink, clickLink, refreshAndParse } from './test-helpers';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }

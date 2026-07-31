@@ -13,18 +13,12 @@ export { LumenizeAuth } from './lumenize-auth';
 // Worker-level routing wrapper
 export { createAuthRoutes } from './create-auth-routes';
 
-// JWT utilities
-export {
-  signJwt,
-  verifyJwt,
-  verifyJwtWithRotation,
-  importPrivateKey,
-  importPublicKey,
-  generateRandomString,
-  hashString,
-  createJwtPayload,
-  parseJwtUnsafe
-} from './jwt';
+// JWT utilities moved to `@lumenize/crypto` (2026-07-31): `signJwt`, `verifyJwt`,
+// `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `generateRandomString`,
+// `hashString`, `createJwtPayload`, `parseJwtUnsafe`, plus the `JwtPayload` / `JwtHeader` /
+// `ActClaim` types. Deliberately NOT re-exported — a compatibility shim would be a second
+// reference to the code the extraction exists to give one owner. Import from
+// `@lumenize/crypto` instead.
 
 // Email sender entrypoints (WorkerEntrypoint pattern)
 export {
@@ -59,14 +53,11 @@ export type {
   MagicLink,
   InviteToken,
   RefreshToken,
-  JwtPayload,
-  JwtHeader,
   AuthClaims,
   AuthJwtPayload,
   EmailMessage,
   ResolvedEmail,
   AuthRoutesOptions,
-  ActClaim,
   LoginResponse,
   AuthError,
   CorsOptions

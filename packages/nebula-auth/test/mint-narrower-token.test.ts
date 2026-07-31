@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   foundUniverse, inviteAndLogin, adminRequest, url,

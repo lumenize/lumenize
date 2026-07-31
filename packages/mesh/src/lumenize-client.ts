@@ -1,6 +1,6 @@
 import { debug } from '@lumenize/debug';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { parseJwtUnsafe, type JwtPayload } from '@lumenize/auth/client';
+import { parseJwtUnsafe, type JwtPayload } from '@lumenize/crypto';
 import { WS_HEARTBEAT_PING, WS_HEARTBEAT_PONG, WS_HEARTBEAT_INTERVAL_MS } from './ws-heartbeat.js';
 import {
   newContinuation,

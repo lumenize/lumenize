@@ -45,6 +45,7 @@
   "dependencies": {
     "@cloudflare/containers": "0.3.7",
     "@lumenize/auth": "^0.26.0",
+    "@lumenize/crypto": "^0.26.0",
     "@lumenize/debug": "^0.26.0",
     "@lumenize/routing": "^0.26.0",
     "@lumenize/structured-clone": "^0.26.0",

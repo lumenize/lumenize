@@ -27,7 +27,7 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
-import { generateRandomString, hashString } from '@lumenize/auth';
+import { generateRandomString, hashString } from '@lumenize/crypto';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
   NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,

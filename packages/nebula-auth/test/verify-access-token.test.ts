@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { signJwt, importPrivateKey } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { verifyNebulaAccessToken } from '../src/router';
 import { NEBULA_AUTH_ISSUER } from '../src/types';
 import type { NebulaJwtPayload, AccessEntry } from '../src/types';

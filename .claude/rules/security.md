@@ -1,6 +1,7 @@
 ---
 paths:
   - "packages/auth/**/*.ts"
+  - "packages/crypto/**/*.ts"
   - "packages/nebula-auth/**/*.ts"
   - "apps/nebula/**/*.ts"
 ---

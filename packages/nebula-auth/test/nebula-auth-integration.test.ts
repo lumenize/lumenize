@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX } from '../src/types';
 import type { NebulaJwtPayload } from '../src/types';
 

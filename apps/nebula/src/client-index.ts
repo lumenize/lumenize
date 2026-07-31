@@ -37,7 +37,7 @@ export type {
 
 // Resource types and the END_OF_TIME constant — used when constructing
 // transactions and reading snapshots. These types reference @lumenize/mesh
-// and @lumenize/auth via type-only imports (erased at compile time), so
+// and @lumenize/crypto via type-only imports (erased at compile time), so
 // they're safe to re-export here.
 export { END_OF_TIME } from './resources';
 export type {

@@ -18,12 +18,7 @@
  * @see tasks/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
-import {
-  signJwt,
-  importPrivateKey,
-  generateRandomString,
-  hashString,
-} from '@lumenize/auth';
+import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
 import { buildNebulaJwtPayload } from './access-claims';
 import { buildAuthScopePattern, hasAdminOverScope, matchAccess, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';

@@ -299,8 +299,22 @@ the subpath deletion specifically; the phase bundles the rest by choice, for one
 - **Success criteria (capable of failing):**
   - `grep -rn "@lumenize/auth/client" packages apps` returns nothing, and `packages/auth/package.json`
     has no `"./client"` key.
-  - `npm ls @lumenize/crypto -w @lumenize/auth -w @lumenize/mesh -w @lumenize/nebula-auth -w @lumenize/nebula`
-    resolves in all four — the manifest test, mirroring Phase 5's.
+  - All four manifests **declare** the dependency:
+    `for p in packages/auth packages/mesh packages/nebula-auth apps/nebula; do node -p "require('./$p/package.json').dependencies['@lumenize/crypto'] ?? 'MISSING'"; done`
+    prints no `MISSING`.
+    - ⚠️ **CORRECTED DURING BUILD (2026-07-31). The originally-specified `npm ls @lumenize/crypto -w …`
+      instrument CANNOT FAIL here** — measured. With `@lumenize/crypto` deleted from
+      `packages/mesh/package.json`, `npm ls` still prints it and **exits 0**, because it is reached
+      transitively via `@lumenize/auth` (which declares it); `--depth=0` does not help either. Since
+      `auth`, `nebula-auth` and `apps/nebula` all sit on that same transitive path, the check was
+      vacuous for three of the four. `npm ls` answers *"is it resolvable"*; the commitment here is
+      *"is it declared"*, and only reading the manifest answers that.
+    - The second half of the old mutation note was right and is why this matters: mesh's `tsc`
+      **passes** with the entry missing (root `node_modules/@lumenize/*` symlinks resolve an
+      undeclared import), so no suite catches it and the failure surfaces only as a broken
+      *published* package. ⚠️ **Phase 5's criterion is the mirror image and needs the same scrutiny
+      when it lands** — `npm ls @lumenize/auth` from `nebula-auth`/`apps/nebula` may likewise still
+      resolve through a sibling after the entry is dropped.
   - `./scripts/test-code.sh --list` names `@lumenize/crypto`, and `type-check.sh` output names it too
     (a package with no `test` script or no `tsconfig.json` is **skipped**, not failed).
   - `npm pack --dry-run -w @lumenize/crypto` lists the sources; a Node-import smoke test modelled on
@@ -311,8 +325,10 @@ the subpath deletion specifically; the phase bundles the rest by choice, for one
     `'supports key rotation'`, both passing.
 - **Mutation notes:** (a) replace `verifyJwtWithRotation`'s body with `return verifyJwt(token, publicKeys[0])`
   → the GREEN-second test reds; (b) remove `packages/crypto`'s `test` script → the `--list` criterion
-  reds (today the same removal passes silently); (c) drop one of the four manifest entries →
-  `npm ls` reds while every suite stays green.
+  reds (today the same removal passes silently); (c) drop one of the four manifest entries → the
+  manifest-read criterion above prints `MISSING` **while `tsc` and every suite stay green** (verified
+  2026-07-31 on `packages/mesh`). ⚠️ (c) originally said `npm ls` reds; it does not — see the
+  correction under the criterion.
 - **Standing guidance:** the website **path** repoints (Phase 2 owns their content); `backlog.md`
   § Lumenize Mesh's `createTestRefreshFunction` row, whose prescribed remedy names the subpath this
   phase deletes — re-scope it to the residual `client-index.ts` export gap and record *why* the

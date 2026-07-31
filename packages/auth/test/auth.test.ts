@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
-import type { AuthJwtPayload, JwtPayload } from '../src/types';
+import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '@lumenize/crypto';
+import type { AuthJwtPayload } from '../src/types';
+import type { JwtPayload } from '@lumenize/crypto';
 
 /**
  * Narrow a parsed token to `@lumenize/auth`'s own claim shape.

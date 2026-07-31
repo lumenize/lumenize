@@ -11,7 +11,7 @@
  *  - `inviteAndLogin` — an admin mints an invitee identity, then the invitee accepts + logs in (member).
  */
 import { expect } from 'vitest';
-import { parseJwtUnsafe } from '@lumenize/auth';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from '../src/types';
 
 export const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'

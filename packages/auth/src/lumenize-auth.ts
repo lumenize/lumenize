@@ -12,7 +12,7 @@ import {
   importPublicKey,
   createJwtPayload,
   parseJwtUnsafe
-} from './jwt';
+} from '@lumenize/crypto';
 
 /**
  * Error thrown by #authenticateRequest when authentication fails.

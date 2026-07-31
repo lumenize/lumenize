@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { verifyJwt, importPublicKey, parseJwtUnsafe } from '@lumenize/auth';
-import type { JwtPayload } from '@lumenize/auth';
+import { verifyJwt, importPublicKey, parseJwtUnsafe } from '@lumenize/crypto';
+import type { JwtPayload } from '@lumenize/crypto';
 import { createTestRefreshFunction } from '../src/create-test-refresh-function';
 
 /**

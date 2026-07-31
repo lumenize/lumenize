@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
-import { signJwt, importPrivateKey } from '@lumenize/auth';
+import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, REGISTRY_INSTANCE_NAME } from '../src/types';
 import type { AccessEntry } from '../src/types';
 import {

@@ -1,13 +1,7 @@
-/**
- * Actor claim for delegation per RFC 8693
- * Recursive: each layer records who delegated to whom
- */
-export interface ActClaim {
-  /** Actor ID (who is performing the action) */
-  sub: string;
-  /** Nested delegation chain */
-  act?: ActClaim;
-}
+// `ActClaim`, `JwtPayload` and `JwtHeader` moved to `@lumenize/crypto` (2026-07-31) — they are
+// generic JWT shapes carrying no auth policy. Imported here only to build `AuthJwtPayload`;
+// deliberately NOT re-exported, so there is exactly one home for them.
+import type { JwtPayload } from '@lumenize/crypto';
 
 /**
  * Subject record stored in the Auth DO
@@ -63,44 +57,6 @@ export interface RefreshToken {
 }
 
 /**
- * JWT payload — the REGISTERED claims (RFC 7519 §4.1), plus an optional bag of first-party
- * custom claims. It carries **no auth policy**: a layer that mints its own claims declares
- * its own interface for them (this package's is {@link AuthClaims}).
- *
- * ⚠️ **`customClaims` is an INPUT shape, never the wire shape.** `createJwtPayload` spreads
- * it FLAT into the token, so each key arrives at the payload's top level. `@lumenize/mesh`'s
- * Gateway copies the whole verified payload into `originAuth.claims`, so a nested bag would
- * silently become `originAuth.claims.customClaims.x` and break every consumer reading it.
- *
- * ⚠️ **Registered claims win.** `createJwtPayload` spreads the bag first — a *custom* claim
- * is by definition not a registered one (RFC 7519 §4.3), so it can never shadow `sub`/`exp`.
- *
- * Deliberately carries **no index signature**: registered claims stay statically checked, so
- * reading a custom claim is a deliberate narrowing through a declared interface rather than
- * an untyped property access.
- *
- * @see https://lumenize.com/docs/auth/#jwt-claims
- */
-export interface JwtPayload {
-  /** Issuer */
-  iss: string;
-  /** Audience */
-  aud: string;
-  /** Subject (UUID of the principal) */
-  sub: string;
-  /** Expiration time (Unix timestamp) */
-  exp: number;
-  /** Issued at (Unix timestamp) */
-  iat: number;
-  /** JWT ID (unique identifier) */
-  jti: string;
-  /** Delegation chain per RFC 8693 */
-  act?: ActClaim;
-  /** First-party custom claims (RFC 7519 §4.3), spread FLAT at mint — see above. */
-  customClaims?: Record<string, unknown>;
-}
-
-/**
  * The custom claims `@lumenize/auth` itself mints and gates on — this package's own access
  * policy, deliberately NOT part of {@link JwtPayload}.
  *
@@ -130,16 +86,6 @@ export type AuthClaims = {
  * carry none of them — which the access gate treats as "not approved".
  */
 export type AuthJwtPayload = JwtPayload & Partial<AuthClaims>;
-
-/**
- * JWT header
- */
-export interface JwtHeader {
-  alg: 'EdDSA';
-  typ: 'JWT';
-  /** Key ID - identifies which key was used for signing */
-  kid: string;
-}
 
 /**
  * Discriminated union for email messages sent by LumenizeAuth.

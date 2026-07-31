@@ -15,17 +15,17 @@ import { TOKEN_REFRESH_AHEAD_SECONDS } from '@lumenize/mesh/client';
 export type { ResolvedEmail, EmailMessage };
 
 /**
- * RFC 8693 §4.1 delegation actor — a LOCAL widening of `@lumenize/auth`'s `ActClaim` that adds the
+ * RFC 8693 §4.1 delegation actor — a LOCAL widening of `@lumenize/crypto`'s `ActClaim` that adds the
  * actor's `profileId`, because the claims of a narrower token must describe **two people**: top-level
  * claims pertain to the subject, `act` to the actor who is driving.
  *
  * `profileId` is **optional**, matching every source of it (`NebulaJwtPayload.profileId` is optional at
  * every layer, and ADR-013 makes it display-only).
  *
- * ⚠️ **Local, deliberately.** `@lumenize/auth` is a separate package with its own consumers; widening
+ * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
  * its type is out of scope (and one more divergence for
  * `tasks/nebula-auth-decouple-from-auth.md` to reconcile). ⚠️ `apps/nebula/src/resources.ts`
- * keeps importing the **narrow** `@lumenize/auth` type: its `changedBy` is a persistence boundary, and
+ * keeps importing the **narrow** `@lumenize/crypto` type: its `changedBy` is a persistence boundary, and
  * declaring an optional `profileId` there is the ADR-001 divergence `projectActClaim` exists to
  * prevent. **The type system is not a guard across that seam** — the widened shape is structurally
  * assignable to the narrow one, so nothing errors if the wrong import is chosen; the projection is the

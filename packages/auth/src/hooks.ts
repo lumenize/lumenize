@@ -1,6 +1,7 @@
 import { debug } from '@lumenize/debug';
-import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt';
-import type { AuthJwtPayload, JwtPayload } from './types';
+import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from '@lumenize/crypto';
+import type { AuthJwtPayload } from './types';
+import type { JwtPayload } from '@lumenize/crypto';
 
 // WebSocket subprotocol prefix for access tokens
 const WS_TOKEN_PREFIX = 'lmz.access-token.';

@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
-import { hashString, parseJwtUnsafe } from '@lumenize/auth';
+import { hashString, parseJwtUnsafe } from '@lumenize/crypto';
 import {
   foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, adminRequest,
 } from './test-helpers';
