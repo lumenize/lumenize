@@ -7,7 +7,7 @@ Stage 1, before Stage 2.
 ## Objective
 
 **`packages/nebula-auth` stops depending on `@lumenize/auth` — no entry in its `package.json` at
-all.** Two moves get there, and the split between them is the whole design:
+all.** Two moves get there, and the split between them — by **security weight** — is the whole design:
 
 1. **Extract** the JWT/crypto core into `@lumenize/crypto`. Shared, one owner, security fixes land once.
 2. **Copy** the email-sender base and two small utilities into `nebula-auth`. Deliberately forked,
@@ -27,7 +27,7 @@ graph and therefore free to go dormant whenever that is the right call.
 
 `nebula-auth` was **forked** from `@lumenize/auth`, not composed with it, and the two have been
 quietly diverging on policy ever since. The forcing example is a live `security.md` **conformance
-gap**: `packages/auth/src/lumenize-auth.ts:359` still revokes-and-reissues on refresh — *"Revoke old
+gap**: `packages/auth/src/lumenize-auth.ts:358` still revokes-and-reissues on refresh — *"Revoke old
 refresh token (rotation)"* — a month after that decision was recorded as **dropped, do not
 re-introduce**. It landed in `nebula-auth` only, and nobody noticed, because sharing a package
 manufactures an impression of shared ownership that is not true.
@@ -99,10 +99,14 @@ typed route union. The direct design — the registry *passing* the `instanceNam
 the message — was rejected only because it would push Nebula vocabulary into the shared MIT type.
 After the copy that reason is gone.
 
-**It closes a correctness gap, not just a smell.** Tagging off the URL can only tag mail whose URL
-happens to carry an instance segment, so mail that *is* about an instance but links to `/app` —
-`invite-existing`, `approval-confirmation` — ships **untagged although its instance was known**. The
-registry held `universeGalaxyStarId` the whole time and discarded it.
+**It closes a correctness gap, not just a smell — and the gap arrives with the very feature that is
+imminent.** Tagging off the URL can only tag mail whose URL happens to carry an instance segment, so
+mail that *is* about an instance but links to `/app` would ship **untagged although its instance was
+known** — the registry holds `universeGalaxyStarId` the whole time and discards it. ⚠️ **Latent
+today, not live:** Nebula emits only `magic-link` and `invite-new`, both instance-bearing, so nothing
+is currently mistagged. `invite-existing` is exactly the app-redirect shape that would trip it, and
+it is one of the variants wanted soon (see Decisions) — so the fix lands *before* the bug rather
+than after, which is the whole reason to do it here instead of filing it.
 
 ⚠️ **`instanceName` must be REQUIRED on every `EmailMessage` variant, and the whole value of the
 refactor rests on that one modifier.** Required means the compiler forces every send site to supply
@@ -137,9 +141,18 @@ follows is what done *means*, plus the hazards a plan must respect.
   `AuthEmailSenderBase` appears in `mesh/test/browser/worker/` and `mesh/test/for-docs/getting-started/`.
   A for-docs mini-app is a **real consumer**, not a stray to be swept — `testing.md` records that
   those tests historically found more bugs than all other tiers combined.
-- **The `packages/auth` sweep is 4 import lines** — `client.ts`, `index.ts`, `hooks.ts`,
-  `lumenize-auth.ts`, each a `./jwt` → `@lumenize/crypto` swap. `@lumenize/crypto` depends on nothing,
-  so there is no cycle and no Lerna publish-order problem.
+- **The `packages/auth` sweep touches 4 files, but only 2 are swaps.** `hooks.ts` and
+  `lumenize-auth.ts` swap `./jwt` → `@lumenize/crypto`. `client.ts` and `index.ts` are **re-export
+  barrels**, and since the ten symbols leave `auth`'s public API (Decisions), those blocks are
+  **deleted, not repointed**. `@lumenize/crypto` depends on nothing, so there is no cycle and no Lerna
+  publish-order problem.
+- ⚠️ **Deleting those re-exports EMPTIES `client.ts`, so the `@lumenize/auth/client` subpath itself
+  goes away.** Its entire body is the ten-symbol re-export plus `JwtPayload` / `JwtHeader` / `ActClaim`
+  — nothing else — so the `"./client"` entry comes out of `packages/auth/package.json`'s `exports` map
+  and `client.ts` is deleted. This is a larger public-API removal than "ten symbols," and it is
+  load-bearing for `mesh`: `lumenize-client.ts` imports from that subpath today and must move to
+  `@lumenize/crypto` in the same phase or `mesh` breaks. (Nothing is lost — `@lumenize/crypto` *is*
+  the Node/browser-safe entry point that subpath existed to provide.)
 - ⚠️ **Extraction is a TYPE SPLIT, not a file move — the seam most likely to be under-estimated.**
   `jwt.ts` has one type-only import, but it points at `packages/auth/src/types.ts` (164 lines), which
   mixes `ActClaim` / `JwtPayload` / `JwtHeader` in with `Subject` / `MagicLink` / `InviteToken` /
@@ -150,6 +163,11 @@ follows is what done *means*, plus the hazards a plan must respect.
 - **11 `nebula-auth` test files import `@lumenize/auth`, and all of them move.** The manifest criterion
   admits no `devDependency`, so the code move is not `src`-only. Mechanical, and per `calibration.md`
   §3(c) test churn is ≈zero-weight — named here only so it is not discovered mid-build.
+- ⚠️ **`nebula-email-sender.test.ts` is the ONE test that does not move mechanically.** Its whole
+  subject is that `headers()` derives the instance tag from the URL without enumerating message types
+  — the mechanism the `instanceName` phase deletes. That phase must **rewrite** it to assert the new
+  contract (every variant carries `instanceName`; the tag is stamped from it), not merely repoint its
+  imports. Treat "this test still passes unchanged" as a signal the phase did not actually land.
 - **Nothing regresses:** `packages/auth` (160 tests) and `packages/nebula-auth` (255 passed / 1
   skipped, as of 2026-07-31) stay green, and the `/live` `impersonation-lifecycle` scenario — which
   drives a real invite email end to end through the copied sender — still passes.
@@ -168,7 +186,7 @@ follows is what done *means*, plus the hazards a plan must respect.
 | **Remove `@lumenize/auth` from `nebula-auth`'s `package.json`** | *Keep the dependency and merely prefer local copies.* The manifest entry is the affordance — re-coupling would cost one import line and show no review signal. |
 | **Stamp `instanceName` on `EmailMessage` here, as a late phase** | *File it in `backlog.md` and do it later.* A backlog entry carries a re-reading cost that grows daily, and the context is loaded now. Doing it in-file also makes the split deliver a working improvement instead of only preventing drift. ⚠️ Rejected as an *objection*: "it reshapes `EmailMessage`, so a green suite no longer proves the copy was faithful" — true of one commit, not of a **separate late phase**, which keeps its own success criteria. |
 | **`instanceName` is REQUIRED on every `EmailMessage` variant** | *Make it optional so the three variants Nebula does not emit need not supply it.* Optional rebuilds the silent per-type enumeration that already shipped untagged invite mail once; required gets compile-time totality, which is stronger than the runtime URL derivation it replaces. |
-| **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. They also double as the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the instance tag from the **URL** rather than enumerating types; pruning the union would leave no unenumerated variant to test with, and that enumeration bug has shipped once already. |
+| **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today (`nebula-auth-registry.ts:651`, `:708`), so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. ⚠️ **A second reason applied only until the `instanceName` phase and is now spent** — they were also the fixtures in `nebula-email-sender.test.ts` proving `headers()` derives the tag from the **URL** rather than enumerating types, and that phase deletes URL derivation. The decision stands on the near-term consumer alone; do not re-cite the fixture argument. |
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them from `auth` for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim would be a second reference to the code that extraction exists to give one owner. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
 | **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name such as `jwt-plus-utils`.* All ten symbols wrap the same `crypto` global — `crypto.subtle` for Ed25519 sign/verify, plus `getRandomValues`, `randomUUID`, `subtle.digest` — so `crypto` is accurate rather than a compromise, and there is no "plus" to name. A compound name bakes today's contents into the identifier and rots on the eleventh wrapper. |
