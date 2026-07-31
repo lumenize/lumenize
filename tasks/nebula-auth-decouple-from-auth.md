@@ -43,7 +43,7 @@ This does **not** deprecate `@lumenize/auth` (see Decisions); it makes deprecati
 
 | Piece | Lines | Consumers outside `packages/auth` | Security weight | Verdict |
 |---|---|---|---|---|
-| `jwt.ts` — Ed25519 sign/verify/importKeys, `hashString`, `generateRandomString`, `parseJwtUnsafe`, `createJwtPayload` + the `JwtPayload` / `JwtHeader` / `ActClaim` types | 281 | mesh (`src`), nebula-auth (`src` + tests), apps/nebula (`src` type-only, + harness) | **HIGH** — crypto, incl. BLUE/GREEN key rotation (`verifyJwtWithRotation`) | **Extract** → `@lumenize/crypto`, reshaped |
+| `jwt.ts` — Ed25519 sign/verify/importKeys, `hashString`, `generateRandomString`, `parseJwtUnsafe`, `createJwtPayload`, `generateUuid` + the `JwtPayload` / `JwtHeader` / `ActClaim` types | 281 | mesh (`src`), nebula-auth (`src` + tests), apps/nebula (`src` type-only, + harness) | **HIGH** — crypto, incl. BLUE/GREEN key rotation (`verifyJwtWithRotation`) | **Extract** → `@lumenize/crypto`, reshaped — except `generateUuid`, which is **deleted** (Phase 1) |
 | `auth-email-sender-base.ts` + `EmailMessage` | 217 | **nebula-auth only** — mesh touches it in `test/browser/` + `test/for-docs/`, never `src` | none | **Copy**, collapsed into `NebulaEmailSender` |
 | `turnstile.ts` (`verifyTurnstileToken`) | 47 | nebula-auth | low — a thin API call | **Copy** |
 | `extractWebSocketToken` (of `hooks.ts`'s 416) | 13 | nebula-auth, apps/nebula | low | **Move to `@lumenize/mesh`** — not copied |
@@ -60,8 +60,8 @@ This does **not** deprecate `@lumenize/auth` (see Decisions); it makes deprecati
   ⚠️ All 50 test imports are `generateUuid`, which is **deleted rather than repointed** (Decisions).
 - **`apps/nebula/harness/`** — imports `@lumenize/auth/client` and runs under plain Node/tsx. It is the
   shared boot for all six `/live` scenarios, so it must move in the **same phase** as the subpath
-  deletion or the `/live` gate below stops booting. It is also the surface that actually proves
-  `@lumenize/crypto` is Node-safe.
+  deletion (Phase 3) or the `/live` acceptance criteria in Phases 3, 5 and 6 cannot even boot. It is
+  also the surface that actually proves `@lumenize/crypto` is Node-safe.
 
 ## Design intent
 
@@ -135,7 +135,7 @@ enumeration that shipped the untagged-invite bug.
 | **Stamp `instanceName` on `EmailMessage` here, as a late phase** | *File it in `backlog.md`.* A backlog entry carries a re-reading cost that grows daily and the context is loaded now; doing it in-file makes the split deliver a working improvement instead of only preventing drift. ⚠️ Rejected as an *objection*: "it reshapes `EmailMessage`, so a green suite no longer proves the copy faithful" — true of one commit, not of a separate late phase with its own criteria. |
 | **`instanceName` is REQUIRED on every `EmailMessage` variant** | *Make it optional so the three unemitted variants need not supply it.* Optional rebuilds the silent per-type enumeration that already shipped untagged invite mail once. ⚠️ Required only buys compile-time totality if the phase also types `#sendEmail` and runs `type-check` — see *Design intent*. |
 | **Copy all five email templates, subjects and `EmailMessage` variants verbatim** | *Prune the three Nebula never emits.* Nebula sends only `magic-link` and `invite-new` today, so `admin-notification` / `approval-confirmation` / `invite-existing` look dead — but at least one is wanted soon, so this is not a YAGNI question. ⚠️ A second reason (they were the fixtures proving URL-derived tagging) is **spent** — the `instanceName` phase deletes that mechanism. Do not re-cite it. |
-| **The `ActClaim` narrow/wide split survives extraction unchanged** | *Fold `nebula-auth`'s widening into `@lumenize/crypto` now that we own it.* ADR-016 / `nebula-pre-alpha.md` schema surgery deletes `projectActClaim` anyway, so widening now buys a shape about to change. ⚠️ Two JSDoc blocks assert the old home and sit adjacent to import lines this task already edits — `nebula-auth/src/types.ts:25-32` (which names *this file* as the reconciler) and `apps/nebula/src/resources.ts:11-17,71`. The phase owns both. |
+| **The `ActClaim` narrow/wide split survives extraction unchanged** | *Fold `nebula-auth`'s widening into `@lumenize/crypto` now that we own it.* ADR-016 / `nebula-pre-alpha.md` schema surgery deletes `projectActClaim` anyway, so widening now buys a shape about to change. ⚠️ Two JSDoc blocks assert the old home and sit adjacent to import lines this task already edits — `nebula-auth/src/types.ts:25-32` (which names *this file* as the reconciler) and `apps/nebula/src/resources.ts:11-17,71`. **Phase 3 owns both**, since it moves the imports they sit next to. |
 | **Drop the ten crypto symbols from `@lumenize/auth`'s public API** | *Re-export them for backward compatibility.* No live users, so there is nothing to stay compatible with; a shim is a second reference to the code extraction exists to give one owner. Apply the same no-shim rule to the three JWT types. |
 | **`@lumenize/auth` stays published and documented** | *Deprecate it.* Its low adoption is an argument about *investment*, not deletion, and not this file's question. What this file buys is that deprecating it later becomes possible. |
 | **The package is `@lumenize/crypto`** | *`@lumenize/jwt`*, and *a compound name.* After the policy reshape above, every symbol is a `crypto`-global wrapper — `crypto.subtle` Ed25519, `getRandomValues`, `subtle.digest` — so the name is accurate. A compound name bakes today's contents into the identifier and rots on the next wrapper. |
@@ -179,11 +179,20 @@ and the new package is never born carrying auth's retired policy. `JwtPayload` b
 ### 3. `@lumenize/crypto` owns the core; every consumer points at it; `@lumenize/auth/client` is deleted
 
 The new package (own `vitest` project **and a `test` script**), the crypto assertions lifted out of
-`packages/auth/test/auth.test.ts`, `auth`'s two import swaps (`hooks.ts`, `lumenize-auth.ts`) and two
-re-export-block deletions (`client.ts`, `index.ts` — the latter a *split*, since it exports ten types
-that stay), `client.ts` deleted with its `"./client"` exports-map entry, and every consumer repointed:
-`mesh/src` ×2, `nebula-auth/src`, `apps/nebula/src` (`ActClaim`), plus the four JSDoc/prose sites that
-name the doomed subpath as the canonical Node-safe pattern.
+`packages/auth/test/auth.test.ts`, `auth`'s import swaps and re-export-block deletions, `client.ts`
+deleted with its `"./client"` exports-map entry, and every consumer repointed: `mesh/src` ×2,
+`nebula-auth/src`, `apps/nebula/src` (`ActClaim`), plus the four JSDoc/prose sites that name the
+doomed subpath as the canonical Node-safe pattern.
+
+⚠️ **This is a TYPE SPLIT, not a file move — the seam most likely to be under-estimated.** `jwt.ts`
+has one type-only import and it points at `packages/auth/src/types.ts`, which mixes `ActClaim` /
+`JwtPayload` / `JwtHeader` in with `Subject` / `MagicLink` / `InviteToken` / `RefreshToken` /
+`EmailMessage` / `AuthRoutesOptions` / `CorsOptions` / `LoginResponse` / `AuthError`. Three edits the
+"two swaps and two deletions" shorthand hides: `types.ts` is cut (JWT types leave, the rest stays);
+`index.ts:58-72` exports the three JWT types inside **one block alongside ten that stay**, so that is
+a *split*, not a delete, and treating it as a delete over-deletes; and `hooks.ts:3` carries a second
+`import type { JwtPayload }` beyond its value import. Confirm the seam is as clean as it looks before
+moving any code.
 
 ⚠️ **`apps/nebula/harness/` moves in THIS phase — the constraint is hard.** It is the shared boot for
 all six `/live` scenarios, so splitting it out leaves the acceptance instrument unable to start. It
