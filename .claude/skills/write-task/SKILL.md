@@ -69,6 +69,8 @@ also let a late scope change land *before* Stage 1, so Stage 1 reviewed the real
 a defect that lives only in the delta between decisions (a Decisions row whose second rationale a
 later-added phase silently stranded), which no single-snapshot review can catch.
 
+⚠️ **If the task exercises a `Proposed` ADR, ratify it between Stage 2 and `/build-task`** — Stage 2 is the stage that reads ADRs in full, and build is when code starts depending on the commitment. Conditional, not a step: most tasks exercise none. See `docs/adr/README.md` § *Lifecycle*.
+
 ## Pass 2 — the rest, written against the approved contract
 
 Only after the intent is approved:
