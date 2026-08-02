@@ -1,5 +1,5 @@
 /**
- * Registry unit tests — NebulaAuthRegistry: discovery, existence (`Scopes`), founder-minting claim
+ * Registry unit tests — NebulaAuthRegistry: discovery, existence (`Scopes`), admin-minting claim
  * flows, admin-gated in-session creation, scope-tree, and cascade deletion (sub-first).
  *
  * Uses Workers RPC to call registry methods directly (nebula-auth is raw-DO infrastructure). Each test
@@ -48,10 +48,10 @@ describe('NebulaAuthRegistry', () => {
       expect(await freshRegistry().discover('nobody@example.com')).toEqual([]);
     });
 
-    it('returns { universeGalaxyStarId, isAdmin } for a claimed universe founder (sub-FREE)', async () => {
+    it('returns { universeGalaxyStarId, isAdmin } for a claimed universe admin (sub-FREE)', async () => {
       const r = freshRegistry();
-      await r.claimUniverse('acme', 'founder@example.com', 'http://localhost');
-      const entries = await r.discover('founder@example.com');
+      await r.claimUniverse('acme', 'scope-admin@example.com', 'http://localhost');
+      const entries = await r.discover('scope-admin@example.com');
       expect(entries).toEqual([{ universeGalaxyStarId: 'acme', isAdmin: true }]);
       expect(entries[0]).not.toHaveProperty('sub'); // never leak the surrogate identity key
     });
@@ -79,8 +79,8 @@ describe('NebulaAuthRegistry', () => {
 
     it('find-and-flips an existing identity → returns { sub, scope, isAdmin } and sets emailVerified', async () => {
       const r = freshRegistry();
-      await r.claimUniverse('flipu', 'founder@example.com', 'http://localhost'); // mints founder (emailVerified=0)
-      const identity = await r.getAndVerifyIdentity('founder@example.com', 'flipu');
+      await r.claimUniverse('flipu', 'scope-admin@example.com', 'http://localhost'); // mints the admin identity (emailVerified=0)
+      const identity = await r.getAndVerifyIdentity('scope-admin@example.com', 'flipu');
       expect(identity).toMatchObject({ universeGalaxyStarId: 'flipu', isAdmin: true });
       expect(identity.sub).toBeDefined();
     });
@@ -96,14 +96,14 @@ describe('NebulaAuthRegistry', () => {
     });
   });
 
-  // ── claimUniverse (founder-minting self-signup) ─────────────────────────────────────────────────
+  // ── claimUniverse (admin-minting self-signup) ─────────────────────────────────────────────────
   describe('claimUniverse', () => {
-    it('claims a universe, mints the founder identity, and returns the magic link', async () => {
+    it('claims a universe, mints the claiming admin identity, and returns the magic link', async () => {
       const r = freshRegistry();
-      const result = await r.claimUniverse('my-universe', 'founder@example.com', 'http://localhost');
+      const result = await r.claimUniverse('my-universe', 'scope-admin@example.com', 'http://localhost');
       expect(result.magicLinkUrl).toContain('/auth/my-universe/magic-link');
       expect(await r.checkSlugAvailable('my-universe')).toBe(false);
-      expect(await r.discover('founder@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', isAdmin: true }]);
+      expect(await r.discover('scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', isAdmin: true }]);
     });
 
     it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
@@ -117,16 +117,16 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // Two ways a star comes into being, and they partition cleanly by slug class:
-  //   claimStar   — OPEN self-signup. Mints an exact-star `isAdmin` founder + emails a claim link.
+  //   claimStar   — OPEN self-signup. Mints an exact-star `isAdmin` star-scoped admin + emails a claim link.
   //                 Rejects reserved env names (`dev`). Tenant stars only.
-  //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO founder. The only
-  //                 founderless path, which is exactly what `{u}.{g}.dev` needs.
-  // The open claim is safe because a founder's exact-star pattern is inert above its own Star
+  //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO admin identity. The only
+  //                 no-identity path, which is exactly what `{u}.{g}.dev` needs.
+  // The open claim is safe because a star-scoped admin's exact-star pattern is inert above its own Star
   // (ADR-015: authority flows strictly downward) — see tasks/archive/nebula-star-founder-provisioning.md.
 
   // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
   describe('createGalaxy', () => {
-    it('creates a galaxy Scopes row under an existing universe (no founder identity)', async () => {
+    it('creates a galaxy Scopes row under an existing universe (no identity minted)', async () => {
       const r = freshRegistry();
       await r.claimUniverse('gal-univ', 'admin@example.com', 'http://localhost');
       const result = await r.createGalaxy('gal-univ.my-galaxy', ADMIN_OVER('gal-univ'));

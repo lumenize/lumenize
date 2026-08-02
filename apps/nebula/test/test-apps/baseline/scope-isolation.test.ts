@@ -42,7 +42,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const browser = new Browser();
     const { galaxy, starA, starB } = uniqueGalaxyScope();
 
-    // One founder-admin at the galaxy; two clients at sibling star activeScopes.
+    // One admin at the galaxy; two clients at sibling star activeScopes.
     // Both clients share the single Galaxy DO `galaxy` — the collision under test.
     const { client: clientA } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, starA, 'admin@example.com',
@@ -143,7 +143,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const galaxyX = uniqueGalaxyScope().galaxy;
     const galaxyY = uniqueGalaxyScope().galaxy; // a different Galaxy DO
 
-    // Founder admin at galaxy X (aud = galaxyX, admin = true).
+    // Admin at galaxy X (aud = galaxyX, admin = true).
     const { client } = await universeAdminClient(
       NebulaClientTest, browser, galaxyX, galaxyX, 'admin@example.com',
     );
@@ -174,7 +174,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const browser = new Browser();
     const { galaxy, starA: star } = uniqueGalaxyScope();
 
-    // Galaxy-level founder admin (aud = galaxy, admin) addressing a descendant Star.
+    // Galaxy-level admin (aud = galaxy, admin) addressing a descendant Star.
     const { client: galaxyClient } = await universeAdminClient(
       NebulaClientTest, browser, galaxy, galaxy, 'admin@example.com',
     );
@@ -204,7 +204,7 @@ describe('structural scope isolation (Fix 1)', () => {
     const browser = new Browser();
     const { universe, galaxy, starA: star } = uniqueGalaxyScope();
 
-    // Universe-level founder admin (aud = universe, admin).
+    // Universe-level admin (aud = universe, admin).
     const { client } = await universeAdminClient(
       NebulaClientTest, browser, universe, universe, 'admin@example.com',
     );
@@ -231,21 +231,21 @@ describe('structural scope isolation (Fix 1)', () => {
   // of T6 (which now reaches). Mutation: blank the matchAccess(aud) reject →
   // this passes.
   //
-  // ⚠️ The caller is an INVITED MEMBER, not a founder. An exact-star
+  // ⚠️ The caller is an INVITED MEMBER, not a scope admin. An exact-star
   // `authScopePattern` can only be minted by an invite (`buildAuthScopePattern`
-  // returns the exact id at star tier); `claim-universe` — the only founder-
+  // returns the exact id at star tier); `claim-universe` — the only admin-
   // minting path — always yields a universe-tier `<u>.*`. So the reach clause
   // here is skipped because the caller is non-admin, whereas the original
   // fixture skipped it because an exact-star *admin* pattern missed the sibling.
   // Branch (e) is reached identically either way. The exact-pattern-ADMIN
   // variant is covered by the confinement tests at the bottom of this file
-  // (tasks/nebula-confine-admin-bypass.md Phase 1), whose `starFounderPrincipal`
+  // (tasks/nebula-confine-admin-bypass.md Phase 1), whose `starAdminPrincipal`
   // reaches an exact-star ADMIN pattern through a real `claimStar` login — no
   // narrowing mint needed.
   it('exact-star caller is rejected reaching a sibling Star (branch e)', async () => {
     const { universe, starA, starB } = uniqueGalaxyScope();
 
-    // Founder admin at the universe — only needed to issue the invite below.
+    // Admin at the universe — only needed to issue the invite below.
     const adminBrowser = new Browser();
     await bootstrapAdmin(adminBrowser, universe, 'admin@example.com');
     const { accessToken: adminToken } = await refreshToken(adminBrowser, universe, universe);
@@ -598,7 +598,7 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 //   2. `requireAdmin` used to key on the bare `access.admin` bit with no reference to which node it
 //      was running in → that admitted descendant-scope admin acted as admin on the ANCESTOR.
 //
-// The principal is a **real star founder** (`claimStar` stamps `isAdmin=1` at the full 3-segment id),
+// The principal is a **real star-scoped admin** (`claimStar` stamps `isAdmin=1` at the full 3-segment id),
 // whose exact-star `authScopePattern` is inert at every ancestor (ADR-015): admitted-but-not-admin at
 // the Universe DO, which is the host `driveUniverse` drives. That is exactly the shape the escalation
 // needed — reached by a real login rather than by a mint.
@@ -607,15 +607,15 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 // its OWN `sub`. That is SELF-narrowing, which the endpoint now rejects (400) — and it never needed
 // the endpoint at all: `foundStarAndLogin` yields the same principal via a real path.
 describe('access.admin is confined to the node it covers (Phase 1)', () => {
-  async function starFounderPrincipal() {
+  async function starAdminPrincipal() {
     const browser = new Browser();
     const universe = `conf-${crypto.randomUUID().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
-    const founder = await foundStarAndLogin(browser, star, 'admin@example.com');
-    return { universe, star, founder };
+    const starAdmin = await foundStarAndLogin(browser, star, 'admin@example.com');
+    return { universe, star, starAdmin };
   }
 
-  // Drive the Universe DO directly with the founder token's REAL claims. Isolated-DO tier: the claims
+  // Drive the Universe DO directly with the star-scoped admin token's REAL claims. Isolated-DO tier: the claims
   // come from a real login; only the transport is synthetic (a NebulaClient refreshes from a
   // Path-scoped cookie at the STAR, so it cannot drive the Universe DO under these claims).
   const driveUniverse = (universe: string, claims: NebulaJwtPayload, method: string, args: unknown[] = []) =>
@@ -626,12 +626,12 @@ describe('access.admin is confined to the node it covers (Phase 1)', () => {
       metadata: { callee: { type: 'LumenizeDO', bindingName: 'UNIVERSE', instanceName: universe } },
     });
 
-  it('the star founder really is a sub-universe admin (fixture guard)', async () => {
-    const { universe, star, founder } = await starFounderPrincipal();
+  it('the star-scoped admin really is a sub-universe admin (fixture guard)', async () => {
+    const { universe, star, starAdmin } = await starAdminPrincipal();
     // If any of these drift the escalation tests below stop testing an escalation at all.
-    expect(founder.payload.aud).toBe(star);
-    expect(founder.payload.access?.admin).toBe(true);
-    expect(founder.payload.access?.authScopePattern).toBe(star); // exact star — never `${star}.*`
+    expect(starAdmin.payload.aud).toBe(star);
+    expect(starAdmin.payload.access?.admin).toBe(true);
+    expect(starAdmin.payload.access?.authScopePattern).toBe(star); // exact star — never `${star}.*`
     // ...and it does NOT cover the Universe DO — the whole point.
     expect(matchAccess(star, universe)).toBe(false);
   });
@@ -647,7 +647,7 @@ describe('access.admin is confined to the node it covers (Phase 1)', () => {
     );
 
   it('a star-scoped admin CANNOT setUniverseConfig on the Universe DO (was: full admin)', async () => {
-    const { universe, founder } = await starFounderPrincipal();
+    const { universe, starAdmin } = await starAdminPrincipal();
 
     // Control: the covering universe admin CAN write — so the DO is reachable and the method works.
     const browser = new Browser();
@@ -656,7 +656,7 @@ describe('access.admin is confined to the node it covers (Phase 1)', () => {
     await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ owner: 'universe-admin' }));
 
     // The escalation: same DO, descendant-scope admin, admitted by the tenant branch.
-    await driveUniverse(universe, founder.payload, 'setUniverseConfig', ['owner', 'star-admin']);
+    await driveUniverse(universe, starAdmin.payload, 'setUniverseConfig', ['owner', 'star-admin']);
 
     // Give the post-ack chain a chance to run, then assert it did NOT take effect.
     // Pre-fix this wrote the descendant's value; post-fix `requireAdmin` denies before the write.
@@ -665,13 +665,13 @@ describe('access.admin is confined to the node it covers (Phase 1)', () => {
   });
 
   it('a star-scoped admin CANNOT teardown the Universe DO (destructive; was: full admin)', async () => {
-    const { universe, founder } = await starFounderPrincipal();
+    const { universe, starAdmin } = await starAdminPrincipal();
     const browser = new Browser();
     const { payload: uniAdmin } = await foundAndLogin(browser, universe, 'admin@example.com', universe);
     await driveUniverse(universe, uniAdmin, 'setUniverseConfig', ['survives', 'yes']);
     await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ survives: 'yes' }));
 
-    await driveUniverse(universe, founder.payload, 'teardown');
+    await driveUniverse(universe, starAdmin.payload, 'teardown');
 
     // `teardown` is `ctx.storage.deleteAll()`. Pre-fix the config vanished; post-fix it survives.
     await vi.waitFor(async () => expect(await readConfig(universe)).toMatchObject({ survives: 'yes' }));

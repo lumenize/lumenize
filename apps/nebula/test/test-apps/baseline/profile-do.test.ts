@@ -191,7 +191,7 @@ describe('Profile DO — Phase 2', () => {
   // ── A NARROWER token is never an OWNER (tasks/archive/nebula-mint-narrower-token.md Phase 3) ────────────
   // ⚠️ **This test is ADR-009 RUNG 2 and does NOT inherit this file's rung-3 header.** The whole
   // point is the token minted by the production `/mint-narrower-token` endpoint, so the principals
-  // are a real founder and a real invited member, and the token under test comes from the endpoint
+  // are a real star-scoped admin and a real invited member, and the token under test comes from the endpoint
   // via the production client capability, `admin.impersonate()`. (It was labelled rung 1 before
   // Phase 4 of tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)

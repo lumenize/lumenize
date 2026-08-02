@@ -24,10 +24,10 @@ import { NebulaClientTest } from './index';
 
 describe('structural tier-DO scope binding', () => {
   describe('star-level', () => {
-    // ⚠️ INVITED MEMBERS, not founders. This test's whole subject is the TENANT branch
+    // ⚠️ INVITED MEMBERS, not star admins. This test's whole subject is the TENANT branch
     // (`matchAccess(buildAuthScopePattern(name), aud)`), which requires an **exact-star**
-    // `authScopePattern` — mintable only by invite, since `claim-universe` (the sole founder path)
-    // always yields a universe-tier `{u}.*`. With founders here, `enforceScopeReach` would return
+    // `authScopePattern` — mintable only by invite, since `claim-universe` (the sole admin-minting path)
+    // always yields a universe-tier `{u}.*`. With star admins here, `enforceScopeReach` would return
     // early at the REACH clause and the tenant branch would never run: green, but testing the
     // sibling test's mechanism instead of its own. It would also collapse the deliberate contrast
     // with the `admin wildcard` case below into a duplicate.
@@ -35,7 +35,7 @@ describe('structural tier-DO scope binding', () => {
       const starA = uniqueStar();
       const starB = uniqueStar();
 
-      // One founder per universe, used only to issue each star's invite.
+      // One admin per universe, used only to issue each star's invite.
       const adminA = new Browser();
       const { accessToken: tokenA } = await foundAndLogin(adminA, starA, 'admin@example.com', starA);
       await createSubject(adminA, starA, tokenA, 'alice@example.com');
@@ -72,7 +72,7 @@ describe('structural tier-DO scope binding', () => {
     });
 
     // The deliberate CONTRAST to the tenant-branch test above: same DO, same accepted outcome,
-    // different mechanism. Here the caller is a founder (`{u}.*`, admin), so `enforceScopeReach`
+    // different mechanism. Here the caller is a universe admin (`{u}.*`, admin), so `enforceScopeReach`
     // returns at the REACH clause and the tenant branch is never reached. Keeping the two distinct
     // is the point — if both used the same principal shape this test would prove nothing the
     // other doesn't.
@@ -105,8 +105,8 @@ describe('structural tier-DO scope binding', () => {
 
       // Two sibling stars share the one Galaxy DO, and both auds reach it. ⚠️ The covering pattern
       // is the FOUNDER's `{universe}.*`, not `<galaxy>.*` — `claim-universe` is the only
-      // founder-minting path, so a founder is always universe-tier. The widening under test is
-      // therefore the universe wildcard; the galaxy wildcard is not mintable as a founder today.
+      // admin-minting path, so such an admin is always universe-tier. The widening under test is
+      // therefore the universe wildcard; the galaxy wildcard is not mintable as an admin today.
       const { client: clientA } = await universeAdminClient(
         NebulaClientTest, browser, galaxy, starA, 'admin@example.com',
       );
@@ -141,7 +141,7 @@ describe('structural tier-DO scope binding', () => {
   });
 
   // 🔒 The star-tier precondition on `adminClientAt` is what keeps the intent-split honest, and it is
-  // load-bearing for the star-founder change: once that helper mints a real exact-star founder, a
+  // load-bearing for the star-scoped-admin change: once that helper mints a real exact-star-scoped admin, a
   // galaxy or universe `scope` becomes unservable, not merely mis-tiered. It is a runtime check
   // rather than a grep because every call site passes an identifier, never a dotted literal — some
   // via a wrapper param two indirections away. It found 6 mis-tiered sites when introduced (one of
@@ -157,7 +157,7 @@ describe('structural tier-DO scope binding', () => {
       ).rejects.toThrow(/star-tier only/);
     });
 
-    it('accepts a star scope, and mints a REAL star founder — exact-star, never {u}.*', async () => {
+    it('accepts a star scope, and mints a REAL star-scoped admin — exact-star, never {u}.*', async () => {
       // Two jobs. (1) Discriminator for the precondition: without a passing case, deleting the
       // segment check and hardcoding `throw` would satisfy every refusal above.
       const { starA } = uniqueGalaxyScope();
@@ -166,9 +166,9 @@ describe('structural tier-DO scope binding', () => {
       );
       expect(client.connectionState).toBe('connected');
 
-      // (2) 🔒 The star-founder re-grounding itself. This is the assertion the whole intent-split
+      // (2) 🔒 The star-scoped-admin re-grounding itself. This is the assertion the whole intent-split
       // was built to make possible — under the old body it returned `{u}.*` and reds here. An
-      // exact-star pattern is what makes the founder inert at every ancestor (ADR-015); if the mint
+      // exact-star pattern is what makes the star-scoped admin inert at every ancestor (ADR-015); if the mint
       // ever widens, open self-signup silently becomes an escalation.
       expect(payload.access?.authScopePattern).toBe(starA);
       expect(payload.access?.authScopePattern).not.toContain('*');

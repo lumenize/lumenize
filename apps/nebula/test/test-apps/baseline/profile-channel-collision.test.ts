@@ -9,7 +9,7 @@
  * silently lose that resource's updates after any WS blip.
  *
  * Auth: **real server issuance** (ADR-009 rung 2) via `adminClientAt` — claim the universe, which mints the
- * founder `isAdmin: true`, then refresh at the star — so the client can install an ontology with a `Profile`
+ * universe admin `isAdmin: true`, then refresh at the star — so the client can install an ontology with a `Profile`
  * type + create/subscribe a resource of it. No hand-minted token: nothing here needs an identity shape real
  * issuance can't produce.
  */
@@ -27,12 +27,12 @@ function uniqueStar(): string { return `acme-${uuid().slice(0, 8)}.app.tenant`; 
 
 /**
  * A connected ADMIN `NebulaClientTest` for `star` (can applyOntology + create), via **real server
- * issuance** — claim the universe (which mints the founder, `isAdmin: true`), consume the magic
+ * issuance** — claim the universe (which mints the universe admin, `isAdmin: true`), consume the magic
  * link, refresh at the star. Rung 2 of the ADR-009 ladder, and rung 3 is gone from this file.
  *
  * This used to hand-mint a token, justified in-place as *"browserLogin is red mid-turnover"*. That
  * excuse expired: `adminClientAt` works, and nothing here needs a shape real issuance can't produce
- * — it wants an admin at a star, which the founder's pattern already covers. (Its siblings
+ * — it wants an admin at a star, which the universe admin's pattern already covers. (Its siblings
  * `profile-do` / `profile-subscribe` / `subscriber-list` legitimately keep the mint; they assert on
  * `profileId`/`sub` values they must choose. See their headers.)
  */

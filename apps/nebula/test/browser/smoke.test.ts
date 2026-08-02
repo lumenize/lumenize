@@ -28,7 +28,7 @@
 import { describe, it, expect, inject, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient, ROOT_NODE_ID } from '@lumenize/nebula/client';
-import { bootstrapStarFounder } from './auth-bootstrap';
+import { bootstrapStarAdmin } from './auth-bootstrap';
 
 const ADMIN_EMAIL = 'test@lumenize.io';
 const ONTOLOGY_VERSION = 'v1';
@@ -98,7 +98,7 @@ describe('browser harness', () => {
     const browser = new Browser();
     const scope = uniqueStar();
 
-    await bootstrapStarFounder({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     expect(browser.getCookie('refresh-token'), 'refresh cookie should be set').toBeDefined();
 
@@ -123,7 +123,7 @@ describe('browser harness', () => {
     const scope = uniqueStar();
 
     // 1. Bootstrap admin via real magic-link → cookie captured
-    await bootstrapStarFounder({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
+    await bootstrapStarAdmin({ browser, baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     // 2. Construct NebulaClient — its internal refresh() uses browser.fetch
     //    (carries the cookie) to mint access JWTs. WebSocket comes from
@@ -151,7 +151,7 @@ describe('browser harness', () => {
       //    on a cache miss; the compiled validator must be PUSHED via setOntology.
       //    `StarTest.applyOntologyForTest` compiles server-side (this Node-side
       //    client can't import the Worker-only `compileOntologyVersion`). Bootstrap
-      //    admin (founder at first instance) satisfies the requireAdmin gate.
+      //    admin (root admin at first instance) satisfies the requireAdmin gate.
       client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);

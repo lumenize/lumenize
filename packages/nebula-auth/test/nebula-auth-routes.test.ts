@@ -122,7 +122,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         expect(resp.status).toBe(400);
         expect((await resp.json() as any).error).toBe('parent_not_found');
         // Reds if the claimUniverse-shaped body (which has no parent check) is copied: without it an
-        // unauthenticated caller writes an isAdmin founder under a galaxy that never existed.
+        // unauthenticated caller writes an isAdmin identity under a galaxy that never existed.
         expect(await rowsFor(star)).toEqual({ scopes: 0, links: 0 });
       });
 
@@ -164,8 +164,8 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       it('a taken slug is owner-aware but NOT observable in the response', async () => {
         const { galaxy } = await realGalaxy();
         const star = `${galaxy}.resume`;
-        const founder = 'founder@example.com';
-        expect((await claimStar(SELF, star, founder)).status).toBe(200);
+        const starAdmin = 'scope-admin@example.com';
+        expect((await claimStar(SELF, star, starAdmin)).status).toBe(200);
         const afterClaim = await rowsFor(star);
 
         // (a) A DIFFERENT email → plain slug_taken, NO new link row.
@@ -174,15 +174,15 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         expect(other.status).toBe(409);
         expect((await rowsFor(star)).links).toBe(afterClaim.links);
 
-        // (b) The founder's OWN email while emailVerified = 0 → the resume: a NEW link row, delivered
+        // (b) The star-scoped admin's OWN email while emailVerified = 0 → the resume: a NEW link row, delivered
         //     only by email — and a byte-identical response.
-        const resume = await claimStar(SELF, star, founder);
+        const resume = await claimStar(SELF, star, starAdmin);
         const resumeBody = await resume.text();
         expect(resume.status).toBe(409);
         expect((await rowsFor(star)).links).toBe(afterClaim.links + 1);
 
         // 🔒 The anti-oracle property. Reds if the resume returns a fresh-claim-shaped success, which
-        // would confirm that a probed address is that slug's unverified founder (and mail them).
+        // would confirm that a probed address is that slug's unverified admin (and mail them).
         expect(resumeBody).toBe(otherBody);
         expect(JSON.parse(resumeBody).magicLinkUrl).toBeUndefined();
       });
@@ -190,8 +190,8 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       it('the resume adds a link row ONLY — it never mutates the identity', async () => {
         const { galaxy } = await realGalaxy();
         const star = `${galaxy}.no-mutate`;
-        const founder = 'founder2@example.com';
-        expect((await claimStar(SELF, star, founder)).status).toBe(200);
+        const starAdmin = 'star-admin-2@example.com';
+        expect((await claimStar(SELF, star, starAdmin)).status).toBe(200);
 
         const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
         const readIdentity = async (email: string) => (runInDurableObject as any)(stub, (_i: any, ctx: any) =>
@@ -200,9 +200,9 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
             email, star,
           )][0]);
 
-        const before = await readIdentity(founder);
-        await claimStar(SELF, star, founder);
-        expect(await readIdentity(founder)).toEqual(before);
+        const before = await readIdentity(starAdmin);
+        await claimStar(SELF, star, starAdmin);
+        expect(await readIdentity(starAdmin)).toEqual(before);
 
         // A PENDING INVITEE at the same scope is (isAdmin 0, emailVerified 0) — exactly what a looser
         // predicate would match. Resuming one must not promote it to star admin through an
@@ -238,7 +238,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // ── Login redirect: the TIER SPLIT ───────────────────────────────────────────────────────────
     //
     // 🔒 This is a wire-level decision: it bakes into every emailed link, so it cannot be fixed after
-    // the fact. A **star** founder is an end user and lands on the built-app surface (`/app`, which is
+    // the fact. A **star-scoped** admin is an end user and lands on the built-app surface (`/app`, which is
     // hardcoded because the routing scheme fixes it). Every other tier is a user-developer landing on
     // their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which the Galaxy collapse flips from
     // `/app` to `/studio`.
@@ -256,20 +256,20 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
       const locationOf = async (linkUrl: string) =>
         (await SELF.fetch(new Request(linkUrl, { redirect: 'manual' }))).headers.get('Location');
 
-      it('a STAR founder lands on /app/{scope} even when the control plane has moved to /studio', async () => {
+      it('a STAR-scoped admin lands on /app/{scope} even when the control plane has moved to /studio', async () => {
         const u = uni();
         const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
         const galaxy = `${u}.app`;
         await createGalaxy(SELF, galaxy, access_token);
         const star = `${galaxy}.tenant`;
-        const { magicLinkUrl } = await (await claimStar(SELF, star, 'founder@example.com')).json() as any;
+        const { magicLinkUrl } = await (await claimStar(SELF, star, 'scope-admin@example.com')).json() as any;
 
         await withStudioRedirect(async () => {
           expect(await locationOf(magicLinkUrl)).toBe(`/app/${encodeURIComponent(star)}`);
         });
       });
 
-      it('a UNIVERSE founder rides NEBULA_AUTH_REDIRECT — /studio/{scope}', async () => {
+      it('a UNIVERSE-scoped admin rides NEBULA_AUTH_REDIRECT — /studio/{scope}', async () => {
         const u = uni();
         const magicLinkUrl = await claimUniverse(SELF, u, `owner-${u}@example.com`);
         await withStudioRedirect(async () => {
@@ -279,7 +279,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
 
       it('an EXPIRED/invalid star link errors to /app, not into the control plane', async () => {
         // ⚠️ The case the split matters most for. MAGIC_LINK_TTL is 30 min and the resumable claim
-        // exists precisely because these expire — an unsplit error branch would drop a Star founder
+        // exists precisely because these expire — an unsplit error branch would drop a star-scoped admin
         // into the user-developer's Studio.
         const u = uni();
         const { access_token } = await foundUniverse(SELF, u, `owner-${u}@example.com`);
@@ -336,9 +336,9 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
   });
 
   describe('instance dispatch — auth flow (no JWT)', () => {
-    it('email-magic-link → 200 (magicLinkUrl in test mode); magic-link click for an existing founder → 302 + cookie; refresh → 200; logout → 200', async () => {
+    it('email-magic-link → 200 (magicLinkUrl in test mode); magic-link click for an existing identity → 302 + cookie; refresh → 200; logout → 200', async () => {
       const u = uni();
-      await foundUniverse(SELF, u, 'flow@example.com'); // founder identity now exists
+      await foundUniverse(SELF, u, 'flow@example.com'); // admin identity now exists
 
       const ml = await requestMagicLink(SELF, u, 'flow@example.com');
       expect(ml.status).toBe(200);

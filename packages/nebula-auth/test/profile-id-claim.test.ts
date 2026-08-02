@@ -26,7 +26,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idempotent)', () => {
   it('claim-universe mints a profileId on the Identities row AND emits it as a JWT claim (rung-2 login)', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
     // The minted JWT carries a bare `profileId` claim (a UUID)...
     expect(admin.parsed.profileId).toMatch(UUID_RE);
@@ -39,10 +39,10 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
 
   it('a returning login (find-and-flip, no re-mint) keeps the SAME profileId', async () => {
     const uni = uniqueUniverse();
-    const first = await foundUniverse(SELF, uni, 'founder@example.com');
+    const first = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
     // Log in again via a fresh login magic link → same sub AND same profileId (the INSERT is not re-run).
-    const mlResp = await requestMagicLink(SELF, uni, 'founder@example.com');
+    const mlResp = await requestMagicLink(SELF, uni, 'scope-admin@example.com');
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const { refreshToken } = await clickLink(SELF, magicLinkUrl);
     const second = await refreshAndParse(SELF, uni, refreshToken);
@@ -53,7 +53,7 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
 
   it('two distinct identities (different emails) get DISTINCT profileIds (1 sub : 1 profile in P1)', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const member = await inviteAndLogin(SELF, uni, admin.access_token, 'member@example.com');
 
     expect(member.parsed.profileId).toMatch(UUID_RE);
@@ -64,7 +64,7 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
 describe('Phase 1 — profileId rides all THREE KV-record writers → the claim survives refresh', () => {
   it('(a) the login record writer (#recordRefreshToken) puts profileId in the KV record', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
     const rec = await kvRecord(admin.refreshToken);
     expect(rec.profileId).toBe(admin.parsed.profileId); // reds if #recordRefreshToken drops profileId
@@ -72,7 +72,7 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
 
   it('(b) the setIdentityAdmin convergence re-put carries profileId forward → next refresh still has the claim', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const profileId = admin.parsed.profileId;
 
     // Toggle the admin bit → the convergence re-put REBUILDS the KV record (distinct from the (c) miss path).
@@ -89,7 +89,7 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
 
   it('(c) a FORCED KV-miss self-heal reconstructs the record WITH profileId → the minted JWT keeps the claim', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const profileId = admin.parsed.profileId;
 
     // FORCE the miss: miniflare KV is strongly consistent, so a normal refresh HITS KV and never

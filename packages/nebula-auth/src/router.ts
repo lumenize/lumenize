@@ -40,7 +40,7 @@ export interface RouteNebulaAuthOptions {
 }
 
 // Registry endpoint suffixes (exact match after the prefix) — forwarded to the registry DO.
-// `claim-*` = open self-signup (mints a founder, emails); `create-*` = admin-gated and founderless.
+// `claim-*` = open self-signup (mints the claiming admin identity, emails); `create-*` = admin-gated, minting no identity.
 const REGISTRY_ENDPOINTS = new Set([
   'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
   'delete-scope-plan', 'delete-scope',

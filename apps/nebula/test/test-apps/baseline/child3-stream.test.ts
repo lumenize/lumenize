@@ -31,7 +31,7 @@ const sessionQuery = {
 };
 
   // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
+  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
   // is administered by the covering admin's wildcard. That is how it works in production, not a test
   // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
 function devClient(scope: string, email = 'admin@example.com') {

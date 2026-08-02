@@ -127,11 +127,11 @@ export function pointLinkAt(baseUrl: string, link: string): string {
 }
 
 /**
- * POST `claim-universe` — the one open, founder-minting entry point. Returns the magic-link
+ * POST `claim-universe` — the one open, admin-minting entry point. Returns the magic-link
  * URL in test mode, `undefined` in email mode (the link arrives by email instead), or
  * `null` when the slug is **already claimed** (409).
  *
- * ⚠️ 409 is legitimate and common, not an error: one founder backing several clients claims
+ * ⚠️ 409 is legitimate and common, not an error: one admin backing several clients claims
  * once, then re-logs-in. Callers fall through to an ordinary login. It is NOT silently
  * swallowed — if the universe was claimed by a *different* email, no identity exists for
  * this one and the login fails visibly at consume.
@@ -175,13 +175,13 @@ export async function requestMagicLink(options: {
 }
 
 /**
- * POST `claim-star` — the open Star self-signup. Mints an `isAdmin` founder AT the star scope and
+ * POST `claim-star` — the open Star self-signup. Mints an `isAdmin` star-scoped admin AT the star scope and
  * issues its claim link in one call, so unlike `create-star` there IS an identity to log in as
  * afterwards. Returns the link in test mode, `undefined` in email mode, or `null` on 409 (already
  * claimed — fall through to an ordinary login for the existing identity).
  *
  * ⚠️ Requires the parent galaxy to exist, and refuses reserved environment slugs (`dev`). A
- * `{u}.{g}.dev` workspace is founderless by construction — provision that with `create-star` and
+ * `{u}.{g}.dev` workspace has no star-scoped admin by construction — provision that with `create-star` and
  * drive it from a covering admin instead.
  */
 export async function requestStarClaim(options: {
@@ -206,18 +206,18 @@ export async function requestStarClaim(options: {
  * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScopePattern`.
  *
  * This is what {@link provisionAndLogin} cannot give you. That helper climbs: it claims the
- * *universe* and returns a universe-founder token whose `{u}.*` reach merely *covers* the star. The
- * difference is not cosmetic — a universe founder is admin everywhere above the star too, so any test
+ * *universe* and returns a universe-admin token whose `{u}.*` reach merely *covers* the star. The
+ * difference is not cosmetic — a universe admin is admin everywhere above the star too, so any test
  * asserting confinement passes vacuously under it (ADR-015). Use this wherever the fixture means "an
  * admin **at** this star".
  *
  * The universe and galaxy above still have to exist, and only their own admin may create them, so
- * steps 1–2 remain the climb. Step 3 is the new capability: `claim-star` mints the founder and emails
+ * steps 1–2 remain the climb. Step 3 is the new capability: `claim-star` mints the star-scoped admin and emails
  * the link in one open call.
  *
  * ⚠️ `star` must NOT be a reserved environment slug (`dev`) — see {@link requestStarClaim}.
  */
-export async function provisionStarFounder(
+export async function provisionStarAdmin(
   options: Omit<EmailLoginOptions, 'authScope'> & { scope: string },
 ): Promise<{ accessToken: string; sub: string; session: EmailSession }> {
   const { scope, baseUrl, testToken, fetchImpl = fetch, bypassToken, timeout } = options;
@@ -225,13 +225,13 @@ export async function provisionStarFounder(
   const origin = baseUrl.replace(/\/$/, '');
   const parts = scope.split('.');
   if (parts.length !== 3) {
-    throw new Error(`provisionStarFounder needs a 3-segment star scope, got "${scope}"`);
+    throw new Error(`provisionStarAdmin needs a 3-segment star scope, got "${scope}"`);
   }
   const [universe, galaxy] = parts;
   const useEmail = (options.channel ?? 'email') === 'email';
 
-  // 1–2. The universe + galaxy above the star, provisioned by the universe founder (a DIFFERENT
-  //      identity from the star founder — which is the point: the star founder is a stranger).
+  // 1–2. The universe + galaxy above the star, provisioned by the universe admin (a DIFFERENT
+  //      identity from the star-scoped admin — which is the point: the star-scoped admin is a stranger).
   await provisionAndLogin({ ...options, scope: `${universe}.${galaxy}`, email: `owner-${email}` });
 
   // 3. Claim the star as the tenant. Open — no admin in the loop, no token needed.
@@ -243,7 +243,7 @@ export async function provisionStarFounder(
     const claimed = await requestStarClaim({
       baseUrl: origin, universeGalaxyStarId: scope, email, fetchImpl, bypassToken,
     });
-    // 409 — already claimed (a second Browser for the same founder). An ordinary login works,
+    // 409 — already claimed (a second Browser for the same admin). An ordinary login works,
     // because unlike a `create-star` scope this one HAS an identity.
     const rawLink = claimed === null
       ? await requestMagicLink({ baseUrl: origin, authScope: scope, email, fetchImpl, bypassToken })
@@ -350,24 +350,24 @@ export async function refreshAccessToken(
 }
 
 /**
- * Provision a scope and log in as its real founder — the rung-1 path for a scope
+ * Provision a scope and log in as its real admin — the rung-1 path for a scope
  * that does not exist yet.
  *
  * Why this and not just `loginViaEmail`: **login never mints an identity.** Identity
  * mint is authority-point-only (`nebula-auth-registry.ts` says outright *"NEVER call
  * from a login path"*), so a magic link for a scope with no identity is issued, emailed,
  * and then rejected on consumption — `302 /app?error=invalid_token`, no cookie. The one
- * open, founder-minting entry point today is `claim-universe`, which mints the founder
+ * open, admin-minting entry point today is `claim-universe`, which mints the universe admin
  * with `isAdmin: true` before sending the link.
  *
  * So: claim the **universe**, log in there for real, then create the galaxy/star beneath
- * it with that founder's token. The returned token's universe-founder reach covers every
+ * it with that admin's token. The returned token's universe-admin reach covers every
  * scope below, which is what lets a caller drive a star it never logged into directly —
  * the same shape prod uses (`prodLogin` at `nebula-platform`, then refresh at the target).
  *
  * ⚠️ Logging in *directly* at a fresh star is a different thing, and `create-star` cannot get you
- * there — it writes a `Scopes` row with no founder, so there is no identity to log in as. The path
- * that can is the open `claim-star` self-signup, which mints an `isAdmin` founder at the star scope
+ * there — it writes a `Scopes` row with no admin identity, so there is no identity to log in as. The path
+ * that can is the open `claim-star` self-signup, which mints an `isAdmin` star-scoped admin at the star scope
  * and emails it a claim link (`tasks/archive/nebula-star-founder-provisioning.md`). Re-ground this helper
  * onto it rather than climbing from the universe (that task's Phase 4).
  *
@@ -426,7 +426,7 @@ export async function provisionAndLogin(
   let { accessToken, sub } = await refreshAccessToken(origin, session, universe, fetchImpl);
 
   // 3. Create each level below the universe. Both endpoints are admin-gated over the
-  //    parent, and the universe founder is admin — so this founder authorizes its own tree.
+  //    parent, and the universe admin is admin — so this admin authorizes its own tree.
   const levels: Array<[string, string]> = [];
   if (galaxy) levels.push(['create-galaxy', `${universe}.${galaxy}`]);
   if (star) levels.push(['create-star', `${universe}.${galaxy}.${star}`]);
@@ -443,7 +443,7 @@ export async function provisionAndLogin(
     }
   }
 
-  // 4. Re-issue at the requested scope. `aud` becomes `scope`; reach stays the founder's.
+  // 4. Re-issue at the requested scope. `aud` becomes `scope`; reach stays the admin's.
   if (scope !== universe) {
     ({ accessToken, sub } = await refreshAccessToken(origin, session, scope, fetchImpl));
   }

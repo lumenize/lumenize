@@ -35,8 +35,8 @@ async function waitForUpdateCount(client: NebulaClientTest, n: number) {
   await vi.waitFor(() => expect(client.resourceUpdateCount).toBeGreaterThanOrEqual(n));
 }
 
-/** Founder star-admin: connects (seeds ROOT admin), installs the ontology. */
-async function founder(star: string) {
+/** Star-scoped admin: connects (seeds ROOT admin), installs the ontology. */
+async function starAdmin(star: string) {
   const f = await adminClientAt(NebulaClientTest, new Browser(), star, star, 'admin@example.com');
   f.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
   await waitForResult(f.client);
@@ -46,7 +46,7 @@ async function founder(star: string) {
 describe('child2 per-push read recheck (Phase 2 / D3)', () => {
   it('revoked subscriber stops receiving content pushes; its sub row remains (D5 never-drop)', async () => {
     const star = `${uniqueUniverse()}.app.tenant-a`;
-    const { client: admin, payload: adminPayload } = await founder(star);
+    const { client: admin, payload: adminPayload } = await starAdmin(star);
 
     // Private node + a resource on it.
     admin.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Private');
@@ -117,8 +117,8 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
   it('a claims.access.admin subscriber with NO DAG grant still receives pushes (D16)', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
-    // Star-admin connects FIRST → becomes founder (the sole ROOT admin grant).
-    const { client: admin } = await founder(star);
+    // Star-admin connects FIRST → becomes the root admin (the sole ROOT admin grant).
+    const { client: admin } = await starAdmin(star);
     const rid = crypto.randomUUID();
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: { title: 'v0' } },
@@ -126,10 +126,10 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
     const eTag = created.eTags[rid];
 
-    // A second admin connects after the founder latch is set → access.admin: true but NO DAG
+    // A second admin connects after the root-admin latch is set → access.admin: true but NO DAG
     // grant of its own. Its Subscribers row stores accessAdmin = 1.
     // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
-    // founder can exist per universe (`claim-universe` is the sole founder-minting path and the
+    // admin can exist per universe (`claim-universe` is the sole admin-minting path and the
     // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
     // bootstrap email is the one production path to a second `access.admin` here, and it reaches
     // this Star because `*` covers every scope.
@@ -139,7 +139,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     //   (1) it really is a scope-admin whose pattern covers this Star (else the stored verdict is
     //       0 and the push below would be explained by something other than the bypass);
     //   (2) it really holds NO DAG grant — that rests entirely on the implicit ordering that
-    //       `founder(star)` ran first and set the `__nebula_rootAdminSeeded` latch. If this
+    //       `starAdmin(star)` ran first and set the `__nebula_rootAdminSeeded` latch. If this
     //       identity ever acquired a root grant, the test would stay green while the bypass it
     //       exists to prove went untested.
     expect(uniPayload.access?.admin).toBe(true);
@@ -149,7 +149,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     uni.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
     await waitForUpdateCount(uni, 1);
 
-    // Founder mutates → the universe admin RECEIVES the push purely via the stored
+    // The star-scoped admin mutates → the universe admin RECEIVES the push purely via the stored
     // accessAdmin bypass (it holds no DAG grant). Mutation: ignore stored
     // accessAdmin → evaluatePermissions denies it → no push → red.
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {

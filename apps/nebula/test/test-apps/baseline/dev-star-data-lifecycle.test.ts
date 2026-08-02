@@ -266,24 +266,48 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     user[Symbol.dispose]();
   });
 
-  it('founder ROOT-admin grant: absent immediately after reset, reseeded on the next admin call (honest test)', async () => {
+  it('a COVERING admin never becomes the DataPlane root admin — the seed is exact-star only', async () => {
     const { galaxy, dev } = uniqueGalaxyScope();
     const { client, payload } = await devAdminClient(galaxy, dev);
-    const founderSub = payload.sub;
     await applyOntology(client, dev, 'v1', TODO_V1);
 
-    // Warm the dev Star so the founder grant + latch are seeded before reset.
+    // This client is a UNIVERSE admin: its `authScopePattern` COVERS this `.dev` Star but is
+    // not EQUAL to it. Warm the Star so `onBeforeCall`'s seed gate runs.
+    client.callStarWhoAmI(dev);
+    await waitForSuccess(client);
+
+    // No grant. Reds if star.ts's gate is relaxed back to `hasAdminOverScope`, which a
+    // covering admin satisfies — the arrival-order bug this rule exists to prevent
+    // (the seed latch is one-shot, so a wrong winner would hold root forever).
+    client.callStarInspectRootAdmin(dev, payload.sub);
+    expect(await waitForSuccess(client)).toBe(false);
+
+    client[Symbol.dispose]();
+  });
+
+  // BLOCKED on a `.dev`-scoped admin identity. `createStar` mints no identity and `claim-star`
+  // refuses the reserved `.dev` slug, so after the exact-star seed rule (2026-08-02) NO principal
+  // satisfies the gate on a `.dev` Star. Unblocks with the per-invitee admin mint INTO `.dev`
+  // (tasks/nebula-auth-identity-mint.md Phase 4); only the client's tier changes — the assertions
+  // below are the real reset/reseed contract and are left intact.
+  it.skip('DataPlane root admin: absent immediately after reset, reseeded on the next admin call (honest test)', async () => {
+    const { galaxy, dev } = uniqueGalaxyScope();
+    const { client, payload } = await devAdminClient(galaxy, dev);
+    const rootAdminSub = payload.sub;
+    await applyOntology(client, dev, 'v1', TODO_V1);
+
+    // Warm the dev Star so the root-admin grant + latch are seeded before reset.
     client.callStarWhoAmI(dev);
     await waitForSuccess(client);
 
     // Reset + probe in ONE call: the grant is ABSENT immediately after reset (the reset
     // call's own onBeforeCall ran with the latch set → no reseed; the direct
     // resetDevData call has no onBeforeCall to reseed either).
-    client.callStarResetAndProbeRootAdmin(dev, founderSub);
+    client.callStarResetAndProbeRootAdmin(dev, rootAdminSub);
     expect(await waitForSuccess(client)).toBe(false);
 
     // The NEXT admin call reseeds (latch wiped) → grant present.
-    client.callStarInspectRootAdmin(dev, founderSub);
+    client.callStarInspectRootAdmin(dev, rootAdminSub);
     expect(await waitForSuccess(client)).toBe(true);
 
     client[Symbol.dispose]();

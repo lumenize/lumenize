@@ -19,14 +19,14 @@ async function kvRecord(refreshToken: string): Promise<any> {
 }
 
 describe('Identity authority — mint only at authority points', () => {
-  it('claim-universe mints the founder identity (admin); a returning email resolves to the SAME sub', async () => {
+  it('claim-universe mints the claiming admin identity; a returning email resolves to the SAME sub', async () => {
     const uni = uniqueUniverse();
-    const first = await foundUniverse(SELF, uni, 'founder@example.com');
-    expect(first.parsed.access.admin).toBe(true);         // founder is admin
+    const first = await foundUniverse(SELF, uni, 'scope-admin@example.com');
+    expect(first.parsed.access.admin).toBe(true);         // the claiming admin is admin
     expect(first.parsed.access.authScopePattern).toBe(`${uni}.*`);
 
     // Log in AGAIN via the login magic-link (find-and-flip) — must resolve to the SAME sub, never re-mint.
-    const mlResp = await requestMagicLink(SELF, uni, 'founder@example.com');
+    const mlResp = await requestMagicLink(SELF, uni, 'scope-admin@example.com');
     expect(mlResp.status).toBe(200);
     const { magicLinkUrl } = await mlResp.json() as { magicLinkUrl: string };
     const { refreshToken } = await clickLink(SELF, magicLinkUrl);
@@ -36,7 +36,7 @@ describe('Identity authority — mint only at authority points', () => {
 
   it('login verify NEVER mints: a stranger requesting a magic link for a scope they were not minted into is REJECTED at consume', async () => {
     const uni = uniqueUniverse();
-    await foundUniverse(SELF, uni, 'founder@example.com'); // scope exists, founder minted
+    await foundUniverse(SELF, uni, 'scope-admin@example.com'); // scope exists, admin minted
 
     // A stranger requests a login magic link for the SAME scope. The request succeeds (Turnstile-only,
     // no mint) but the CLICK must reject — no identity exists for stranger@ in `uni`.
@@ -56,7 +56,7 @@ describe('Identity authority — mint only at authority points', () => {
 
   it('NO sub is generated outside the registry — the login-request path creates no identity row', async () => {
     const uni = uniqueUniverse();
-    await foundUniverse(SELF, uni, 'founder@example.com');
+    await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const before = (await getRegistry().discover('nobody@example.com')).length;
     await requestMagicLink(SELF, uni, 'nobody@example.com'); // request only — must not mint
     const after = (await getRegistry().discover('nobody@example.com')).length;
@@ -70,7 +70,7 @@ describe('Identity authority — mint only at authority points', () => {
   // (§Founder). Low-immediacy for pre-alpha (no real third-party signup yet); tracked, not built.
   it.skip('BLOCKER (m6): two claimUniverse attempts for the same email converge to ONE Universe (needs the pending-signup single-flight)', async () => {
     // When built: POST claim-universe twice for the same email (distinct slugs or a 1:1 email→Universe
-    // mapping) and assert discover(email) returns exactly one universe with one founder identity.
+    // mapping) and assert discover(email) returns exactly one universe with one admin identity.
   });
 });
 
@@ -112,7 +112,7 @@ describe('Refresh is a pure KV read — the registry is NOT on the refresh path'
 
   it('a refresh fires ZERO registry markers; a login fires one (positive control)', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
     // Positive control: login (already happened during foundUniverse) fired a registry marker.
     expect(entries.some((e) => String(e.namespace).startsWith('nebula-auth.Registry'))).toBe(true);
@@ -128,7 +128,7 @@ describe('Refresh is a pure KV read — the registry is NOT on the refresh path'
 describe('isAdmin convergence into the KV record (ADR-010; M4 expiry preservation)', () => {
   it('a real admin-change endpoint converges the KV record; the next refresh reflects it', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     expect((await kvRecord(admin.refreshToken)).isAdmin).toBe(true);
 
     // Drive convergence through the registry's real admin-change RPC (never a direct KV write).
@@ -141,7 +141,7 @@ describe('isAdmin convergence into the KV record (ADR-010; M4 expiry preservatio
 
   it("M4: convergence re-applies the token's ORIGINAL absolute expiry to the KV entry — NOT a fresh 30-day TTL, NOT immortal", async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const sub = admin.parsed.sub;
     const registry = getRegistry();
 
@@ -174,7 +174,7 @@ describe('isAdmin convergence into the KV record (ADR-010; M4 expiry preservatio
 describe('Logout deletes the KV record', () => {
   it('logout removes the refresh KV record → the next refresh 401s', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     expect(await kvRecord(admin.refreshToken)).not.toBeNull();
 
     const logoutResp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/logout`, {
@@ -195,7 +195,7 @@ describe('Logout deletes the KV record', () => {
 describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-colo propagation)', () => {
   it('a missing KV record but live index+identity → the registry reconstructs + self-heals KV → refresh succeeds', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     // Simulate a KV read-your-write miss: delete ONLY the KV record (RefreshTokenIndex + Identity live).
     await (env as any).REFRESH_TOKEN_KV.delete(`refresh:${await hashString(admin.refreshToken)}`);
     expect(await kvRecord(admin.refreshToken)).toBeNull();
@@ -209,7 +209,7 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
 
   it('a bogus refresh token (no index row) → 401, not a fallback mint', async () => {
     const uni = uniqueUniverse();
-    await foundUniverse(SELF, uni, 'founder@example.com');
+    await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const resp = await SELF.fetch(new Request(`http://localhost/auth/${uni}/refresh-token`, {
       method: 'POST',
       headers: { Cookie: 'refresh-token=totally-bogus', 'Content-Type': 'application/json' },
@@ -222,9 +222,9 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
 describe('M1 — refresh activeScope validated against the KV record scope, not client input', () => {
   it('rejects an activeScope outside the KV record scope; accepts one within it', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
-    // Within the founder's `{uni}.*` reach (KV record scope is the universe) → accepted.
+    // Within the universe admin's `{uni}.*` reach (KV record scope is the universe) → accepted.
     const ok = await refreshAndParse(SELF, uni, admin.refreshToken, `${uni}.app.tenant`);
     expect(ok.parsed.aud).toBe(`${uni}.app.tenant`);
 
@@ -241,7 +241,7 @@ describe('M1 — refresh activeScope validated against the KV record scope, not 
 describe('delete-scope — sub-first, fail-closed (M2)', () => {
   it('fails CLOSED when callerSub resolves to no identity (403), not "no other users → wipe"', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const registry = getRegistry();
     // A callerSub with no Identity row → the caller-exclusion in `affectedUsers` can't be computed,
     // so the warning would silently under-count → refuse rather than return a lying plan.
@@ -255,7 +255,7 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
   // members are surfaced as a WARNING on the plan, never as a refusal.
   it('a genuinely shared scope is deleted, not refused — members surface as a warning', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     // Invite a second member into the universe → shared.
     await inviteAndLogin(SELF, uni, admin.access_token, 'member@example.com');
 
@@ -284,10 +284,10 @@ describe('delete-scope — sub-first, fail-closed (M2)', () => {
 describe('Scopes is the existence authority — existence is NOT derived from Identity', () => {
   it('an admin-created, member-LESS galaxy exists (slug unavailable + in myScopeTree) yet has zero identities', async () => {
     const uni = uniqueUniverse();
-    const admin = await foundUniverse(SELF, uni, 'founder@example.com');
+    const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const registry = getRegistry();
 
-    // Create a galaxy in-session (admin) — a Scopes row with NO founder identity (wildcard-managed).
+    // Create a galaxy in-session (admin) — a Scopes row with NO admin identity identity (wildcard-managed).
     const createResp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
@@ -298,8 +298,8 @@ describe('Scopes is the existence authority — existence is NOT derived from Id
     expect(await registry.checkSlugAvailable(`${uni}.app`)).toBe(false); // exists (reds if derived from Identity)
     const tree = (await registry.myScopeTree(admin.parsed.access)).map((s: any) => s.instanceName);
     expect(tree).toContain(`${uni}.app`);                                // discoverable though member-less
-    // discover(founder) does NOT surface the galaxy — the founder has no Identity there.
-    const founderScopes = (await registry.discover('founder@example.com')).map((d: any) => d.universeGalaxyStarId);
-    expect(founderScopes).not.toContain(`${uni}.app`);
+    // discover(the admin) does NOT surface the galaxy — the admin has no Identity there.
+    const starAdminScopes = (await registry.discover('scope-admin@example.com')).map((d: any) => d.universeGalaxyStarId);
+    expect(starAdminScopes).not.toContain(`${uni}.app`);
   });
 });

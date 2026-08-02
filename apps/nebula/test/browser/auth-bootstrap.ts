@@ -15,7 +15,7 @@
  * NEBULA_AUTH_TEST_MODE into wrangler configs / npm scripts / CI.
  */
 
-import { provisionAndLogin, provisionStarFounder } from '../lib/email-login';
+import { provisionAndLogin, provisionStarAdmin } from '../lib/email-login';
 import type { Browser } from '@lumenize/testing';
 
 interface BootstrapAdminOptions {
@@ -38,31 +38,31 @@ interface BootstrapAdminOptions {
  * refresh-token flow.
  *
  * **Re-grounded onto `claim-star` (2026-07-25).** It used to POST `email-magic-link` and rely on
- * "the first email registered at a scope becomes its founder" — a founder-minting-on-login path that
+ * "the first email registered at a scope becomes its admin" — an admin-minting-on-login path that
  * was deliberately removed (identity mint is authority-point-only; the registry says outright *"NEVER
  * call from a login path"*). Between that removal and `claim-star` landing, this helper was simply
  * broken: the link was issued and emailed fine, then rejected on consumption — `getAndVerifyIdentity`
  * → null → `302 /app?error=invalid_token`, **no cookie** — which is what reddened this whole lane.
  *
- * `provisionStarFounder` closes it by walking the path a real tenant walks: the universe + galaxy are
- * provisioned by their own founder, then the **open** `claim-star` mints this email as the star's
- * founder and emails the claim link. Still ADR-009 rung 1 — a real send, received by the deployed
+ * `provisionStarAdmin` closes it by walking the path a real tenant walks: the universe + galaxy are
+ * provisioned by their own admin, then the **open** `claim-star` mints this email as the star's
+ * star-scoped admin and emails the claim link. Still ADR-009 rung 1 — a real send, received by the deployed
  * `email-test` Worker, no test-mode bypass.
  *
- * ⚠️ The resulting identity is an **exact-star** founder, not a universe admin with `{u}.*` reach.
+ * ⚠️ The resulting identity is an **exact-star** admin, not a universe admin with `{u}.*` reach.
  * That is deliberate and is the higher-fidelity fixture (a confinement assertion passes vacuously
  * under a universe admin), but it means this helper cannot bootstrap a scope ABOVE the star, and it
- * cannot bootstrap a reserved `{u}.{g}.dev` workspace — those are founderless by construction.
+ * cannot bootstrap a reserved `{u}.{g}.dev` workspace — those are has no star-scoped admin by construction.
  *
  * For a galaxy- or universe-scoped fixture use {@link bootstrapUniverseAdmin} instead.
  */
-export async function bootstrapStarFounder(options: BootstrapAdminOptions): Promise<void> {
+export async function bootstrapStarAdmin(options: BootstrapAdminOptions): Promise<void> {
   const { browser, baseUrl, scope, email, testToken } = options;
-  await provisionStarFounder({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
+  await provisionStarAdmin({ baseUrl, scope, email, testToken, fetchImpl: browser.fetch });
 }
 
 /**
- * Bootstrap a **universe founder** and provision the tree down to `scope`, leaving the refresh cookie
+ * Bootstrap a **universe admin** and provision the tree down to `scope`, leaving the refresh cookie
  * at `/auth/{universe}/`. Returns the universe scope, which callers pass as their client's
  * `authScope`. Reach is `{u}.*`, so the client targets any descendant via `activeScope`.
  *
@@ -70,7 +70,7 @@ export async function bootstrapStarFounder(options: BootstrapAdminOptions): Prom
  * universe admin's `{u}.*` matches `{u}.{g}` and everything beneath, so this client has full
  * authority inside the galaxy; nothing is being worked around. What is impossible is a *refresh
  * cookie* at `/auth/{u}.{g}/`, because no `Identities` row can exist at a 2-segment scope
- * (`create-galaxy` mints no founder, and there is no `claim-galaxy`). The old helper POSTed
+ * (`create-galaxy` mints no admin identity, and there is no `claim-galaxy`). The old helper POSTed
  * `email-magic-link` there and relied on login-time minting, which was removed as the
  * stranger-claims-a-child escalation; that is why every galaxy-scoped caller in this lane went red.
  *

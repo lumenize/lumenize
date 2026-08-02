@@ -292,14 +292,14 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   // ============================================
-  // Scope creation — claim (founder-minting self-signup) + create (admin, scope-only)
+  // Scope creation — claim (identity-minting self-signup) + create (admin, scope-only)
   // ============================================
 
   /**
    * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row (with
-   * data-use consent opt-IN), MINTS the founder `Identity` (`isAdmin=1`, `emailVerified=0` — the
-   * founder still proves via the magic link, which find-and-flips `emailVerified`), and issues a
-   * magic link. An authority point — this is where a Universe's founder identity is minted.
+   * data-use consent opt-IN), MINTS the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0` — the
+   * claimer still proves via the magic link, which find-and-flips `emailVerified`), and issues a
+   * magic link. An authority point — this is where a Universe's first admin identity is minted.
    *
    * ⚠️ Self-signup idempotency (mints the scope itself, so `UNIQUE(email,scope)` can't backstop a
    * double-submit) is deferred for pre-alpha — §Founder / Phase-1 success criteria (m6).
@@ -321,7 +321,7 @@ export class NebulaAuthRegistry extends DurableObject {
     }
 
     const lc = normalizeEmail(email);
-    // Scope row + founder mint + claim link, atomically. ⚠️ Defence-in-depth, NOT a fix for a shipped
+    // Scope row + admin-identity mint + claim link, atomically. ⚠️ Defence-in-depth, NOT a fix for a shipped
     // bug: the orphan-`Scopes` row this guards is not currently reachable (`#mintIdentity` pre-checks
     // its only UNIQUE and returns the existing `sub`; `sub`/`profileId` are fresh UUIDs), so there is
     // no reachable throw between the writes. It is wrapped because the ordering split touches this
@@ -338,7 +338,7 @@ export class NebulaAuthRegistry extends DurableObject {
         });
         throw err;
       }
-      // MINT the founder identity (authority point). A bootstrap email founding `nebula-platform` is
+      // MINT the claiming admin identity (authority point). A bootstrap email founding `nebula-platform` is
       // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
       this.#mintIdentity(email, slug, /* isAdmin */ true, /* emailVerified */ false);
       this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
@@ -349,17 +349,17 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * **Open Star self-signup** — a stranger becomes the founder of a Star inside someone else's Galaxy,
-   * with no admin in the loop. An AUTHORITY POINT: this is where a Star's founder identity is minted.
+   * **Open Star self-signup** — a stranger becomes the star-scoped admin of a Star inside someone else's Galaxy,
+   * with no admin in the loop. An AUTHORITY POINT: this is where a Star's star-scoped admin identity is minted.
    *
-   * That openness is the product, not a defect to engineer away. A star founder holds an **exact-star**
+   * That openness is the product, not a defect to engineer away. A star-scoped admin holds an **exact-star**
    * `authScopePattern`, which `hasAdminOverScope` makes inert at every ancestor (ADR-015: authority
    * flows strictly downward), so a squatter gains a slug and nothing else — and a covering admin can
    * delete the squatted Star. **Do not add an approval step, invite code, or per-Galaxy on/off switch.**
    *
-   * ⚠️ **Not a `claimUniverse` copy.** It is open and founder-minting like `claimUniverse`, but nests
+   * ⚠️ **Not a `claimUniverse` copy.** It is open and identity-minting like `claimUniverse`, but nests
    * under an existing Galaxy like `createStar`. Three divergences are load-bearing security, each with
-   * its own test: the **parent-exists** check (without it, an unauthenticated caller writes founders
+   * its own test: the **parent-exists** check (without it, an unauthenticated caller writes star admins
    * under galaxies that never existed — including fully-orphan stars no covering admin can remediate);
    * the **reserved-slug** reject (without it, a stranger founds the user-developer's own `.dev` Studio
    * workspace and can wipe it); and minting at the **3-segment star id** (minting at the universe
@@ -414,10 +414,10 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(409, 'slug_taken', `Star "${universeGalaxyStarId}" is already claimed`);
     }
 
-    // Scope row + founder mint + claim link, atomically — no `await` inside.
+    // Scope row + admin-identity mint + claim link, atomically — no `await` inside.
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyStarId);
-      // MINT the founder at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
+      // MINT the star-scoped admin at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
       // stores none, and `buildAuthScopePattern` derives exact-star from a 3-segment scope at
       // token-mint time. Passing `parsed.universe` here would silently yield `{u}.*`.
       this.#mintIdentity(lc, universeGalaxyStarId, /* isAdmin */ true, /* emailVerified */ false);
@@ -429,14 +429,14 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * The resumable claim: when the slug is taken by a founder who never finished (link lost, failed, or
+   * The resumable claim: when the slug is taken by a claimer who never finished (link lost, failed, or
    * expired), re-send their link — **by email only**. Synchronous by construction; the caller throws
    * `slug_taken` immediately after, whether or not this fired.
    *
    * ⚠️ **The response must be identical either way.** Answering a resume with a fresh-claim-shaped
    * success would turn success-vs-`slug_taken` into an email-confirmation oracle: probe a slug with a
    * throwaway address → `slug_taken`; probe with `victim@corp.com` → success proves the victim is that
-   * slug's unverified founder, and mails them. Keeping the body identical leaves the email as the only
+   * slug's unverified claimer, and mails them. Keeping the body identical leaves the email as the only
    * channel, and it reaches the real owner.
    *
    * ⚠️ **The send is fired, never awaited.** Only this branch would have an external hop to wait on, so
@@ -456,11 +456,11 @@ export class NebulaAuthRegistry extends DurableObject {
     origin: string,
     log: ReturnType<typeof debug>,
   ): void {
-    const founder = [...this.ctx.storage.sql.exec(
+    const claimer = [...this.ctx.storage.sql.exec(
       'SELECT sub FROM Identities WHERE email = ? AND universeGalaxyStarId = ? AND isAdmin = 1 AND emailVerified = 0',
       lcEmail, universeGalaxyStarId,
     )];
-    if (founder.length === 0) return; // not the unverified founder — an ordinary slug_taken, no mail
+    if (claimer.length === 0) return; // not the unverified claimer — an ordinary slug_taken, no mail
 
     this.#insertMagicLinkRow(link.tokenHash, lcEmail, universeGalaxyStarId, link.expiresAt);
     if (this.#isTestMode) return; // same short-circuit as #deliverMagicLink; never leak the URL here
@@ -477,7 +477,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO founder identity + NO email. The
+   * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO identity minted + NO email. The
    * parent-Universe admin manages the new galaxy via their `{u}.*` wildcard reach (§Founder — no local
    * admin stamped). Caller (Worker) pre-verifies the JWT and passes the verified access claim.
    */
@@ -504,7 +504,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Create a Star IN-SESSION — admin-gated over the parent galaxy, `Scopes` row only, NO founder + NO
+   * Create a Star IN-SESSION — admin-gated over the parent galaxy, `Scopes` row only, NO identity minted + NO
    * email (the admin already holds a session that reaches the new Star via wildcard reach). Mirrors
    * {@link createGalaxy} one tier down.
    */
@@ -1190,7 +1190,7 @@ function isValidEmail(email: string): boolean {
  * looked up, or compared must pass through this: the registry compares email BINARY (UNIQUE(email,
  * scope), the getAndVerifyIdentity/discover WHERE clauses, the delete-scope caller-exclusion), so
  * a stray leading/trailing space at mint that a trimmed login can't match would silently split an
- * identity and lock the founder out. Lowercasing alone is not enough — trim too.
+ * identity and lock the owner out. Lowercasing alone is not enough — trim too.
  */
 function normalizeEmail(email: string): string {
   return email.toLowerCase().trim();

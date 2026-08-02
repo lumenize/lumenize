@@ -11,7 +11,7 @@
  * `NebulaClient` from `@lumenize/nebula/client`.
  *
  * `appendOntologyVersion` is `@mesh(requireAdmin)`, so this must connect as an
- * admin (the harness's bootstrapped founder cookie) — a raw-RPC seed route can't
+ * admin (the harness's bootstrapped admin cookie) — a raw-RPC seed route can't
  * carry that auth context.
  */
 import { NebulaClient } from '@lumenize/nebula/client';

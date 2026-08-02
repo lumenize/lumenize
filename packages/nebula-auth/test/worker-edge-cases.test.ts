@@ -78,7 +78,7 @@ describe('logout edge cases', () => {
 });
 
 describe('mint-narrower-token edge cases (after the Bearer gate)', () => {
-  // These need a valid Bearer to pass the router's verifyInstanceJwt; use a founder token.
+  // These need a valid Bearer to pass the router's verifyInstanceJwt; use a star-scoped admin token.
   it('missing subOfNarrowerToken → 400; missing activeScope → 400; invalid JSON → 400', async () => {
     const { foundUniverse, adminRequest } = await import('./test-helpers');
     const scope = u();

@@ -85,7 +85,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
   it('demote self-heal (D16): accessAdmin is derived per subscribe-time token', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
-    // Founder star-admin first (sole ROOT admin grant) creates a private child.
+    // Star-scoped admin first (sole ROOT admin grant) creates a private child.
     const { client: a, accessToken } = await admin(star);
     const P = crypto.randomUUID();
     a.callStarCreateNode(star, ROOT_NODE_ID, 'priv', 'Priv');
@@ -97,8 +97,8 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
 
     // A second admin (access.admin, NO DAG grant) subscribes → sees the private child via the
     // stored accessAdmin bypass; its row carries accessAdmin = 1.
-    // ⚠️ PLATFORM bootstrap admin (`*`), not a second universe admin: one founder per universe
-    // (`claim-universe` is the sole founder-minting path, slug unique), so the old
+    // ⚠️ PLATFORM bootstrap admin (`*`), not a second universe admin: one admin per universe
+    // (`claim-universe` is the sole admin-minting path, slug unique), so the old
     // `universe-admin@example.com` identity is unmintable. `*` covers this Star.
     const { client: uni } = await createPlatformAdminClient(NebulaClientTest, new Browser(), star);
     uni.callStarSubscribeQuery(star, query);

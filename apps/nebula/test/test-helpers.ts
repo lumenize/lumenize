@@ -60,7 +60,7 @@ export function uniqueGalaxyScope(): {
 /**
  * The universe segment of any scope id (`a.b.c` → `a`). The universe is the only tier
  * `claim-universe` accepts (`isValidSlug` rejects dots), and therefore the only tier at
- * which a *founder admin* identity can be minted.
+ * which an *admin* identity can be minted.
  */
 /**
  * Star slugs the platform reserves — mirrors `RESERVED_STAR_SLUGS` in `@lumenize/nebula-auth`, same
@@ -81,12 +81,12 @@ export function universeOf(scope: string): string {
 }
 
 /**
- * Claim a universe — the **only open founder-minting path** (`#mintIdentity(..., isAdmin: true)`).
+ * Claim a universe — the **only open admin-minting path** (`#mintIdentity(..., isAdmin: true)`).
  * Returns the test-mode magic-link URL.
  *
  * ⚠️ Login NEVER mints. `requestMagicLink` creates a link for any email, but consuming it fails
  * unless an `Identities` row already exists (`getAndVerifyIdentity` → no row → reject). So an
- * identity must be established here (founder) or via `createSubject` (invite) *before* any login.
+ * identity must be established here (claim) or via `createSubject` (invite) *before* any login.
  */
 export async function claimUniverse(
   browser: Browser,
@@ -124,18 +124,18 @@ export async function claimStar(
 }
 
 /**
- * Found a Star **as its own founder** and capture the refresh cookie AT the star.
+ * Found a Star **as its own star-scoped admin** and capture the refresh cookie AT the star.
  *
  * The counterpart to {@link bootstrapAdmin}, and the difference is the whole point of the
- * star-founder change: this yields an **exact-star** `authScopePattern`, inert at every ancestor
- * (ADR-015), where `bootstrapAdmin` yields a universe founder whose `{u}.*` merely *covers* the star.
+ * star-scoped-admin change: this yields an **exact-star** `authScopePattern`, inert at every ancestor
+ * (ADR-015), where `bootstrapAdmin` yields a universe admin whose `{u}.*` merely *covers* the star.
  *
  * ⚠️ **The cookie lands at `/auth/{star}`** — so refreshes for this identity target the star, not the
  * universe. That is only possible because `claim-star` mints an identity there; a `create-star` scope
  * has none.
  *
  * The universe and galaxy above must exist and only their own admin may create them, so those two
- * hops remain a climb — performed by a SEPARATE owner identity, since the star founder is by
+ * hops remain a climb — performed by a SEPARATE owner identity, since the star-scoped admin is by
  * construction a stranger to them.
  */
 export async function foundStarAndLogin(
@@ -178,7 +178,7 @@ export async function foundStarAndLogin(
 }
 
 /**
- * Establish a founder admin for `scope`'s universe and capture its refresh cookie.
+ * Establish an admin for `scope`'s universe and capture its refresh cookie.
  *
  * ⚠️ **The cookie lands at `/auth/{universe}`, not `/auth/{scope}`** — cookie paths are
  * RFC-6265 matched (`@lumenize/testing` `cookieMatches`), and `/auth/acme` does NOT match
@@ -197,7 +197,7 @@ export async function bootstrapAdmin(
     await browser.fetch(claimLink);
     return;
   }
-  // Already claimed (this founder backing a second client, or a second Browser for the same
+  // Already claimed (this admin backing a second client, or a second Browser for the same
   // identity) — request a fresh login link for the existing identity and click that instead.
   const magicLinkUrl = await requestMagicLink({
     baseUrl: ORIGIN, authScope: universe, email, fetchImpl: browser.fetch,
@@ -266,7 +266,7 @@ export async function refreshToken(
  * Log in an **already-minted** identity at `authScope` (request link → click → refresh).
  *
  * ⚠️ The identity must already exist at `authScope` — login never mints. Use this for an
- * **invited member** (`createSubject` minted them at that scope). For a founder admin use
+ * **invited member** (`createSubject` minted them at that scope). For an admin use
  * {@link foundAndLogin}, which claims the universe first.
  */
 export async function browserLogin(
@@ -298,12 +298,12 @@ export async function browserLogin(
 }
 
 /**
- * Found a universe and log its admin in: claim (mints the founder, `isAdmin: true`) → click →
- * refresh. The founder-admin counterpart to {@link browserLogin}.
+ * Found a universe and log its admin in: claim (mints the universe admin, `isAdmin: true`) → click →
+ * refresh. The admin counterpart to {@link browserLogin}.
  *
  * `scope` is the **hierarchy** you want to authenticate within — its universe is what gets
  * claimed and what the refresh cookie is scoped to. `activeScope` (defaulting to `scope`) is the
- * JWT `aud`; it may be any descendant, since the founder's pattern is `{universe}.*`.
+ * JWT `aud`; it may be any descendant, since the universe admin's pattern is `{universe}.*`.
  *
  * Returns the `authScope` actually used (the universe) so callers can configure a client with it.
  */
@@ -364,7 +364,7 @@ async function connectClient<T extends NebulaClient>(
  * lives two indirections away, so no static sweep can find the tier-mismatched ones. This throws on
  * exactly those, and keeps throwing on any that get added later.
  *
- * ✅ **Mints a REAL star founder** (2026-07-25) — `claim-star` self-signup, `authScopePattern` =
+ * ✅ **Mints a REAL star-scoped admin** (2026-07-25) — `claim-star` self-signup, `authScopePattern` =
  * the exact star id, inert at every ancestor (ADR-015). It used to hand back a universe admin
  * (`{u}.*`) regardless of what you asked for; that interim is gone.
  *
@@ -394,14 +394,14 @@ export async function adminClientAt<T extends NebulaClient>(
     );
   }
   // ⚠️ Segment count is NOT sufficient. The reserved `.dev` star is 3 segments and still has no
-  // founder of its own: `create-star` makes it (founderless by design), the covering admin's
+  // star-scoped admin of its own: `create-star` makes it (minting no identity by design), the covering admin's
   // wildcard administers it, and `claim-star` refuses the slug outright. So it needs
   // `universeAdminClient` for the same reason a galaxy does — which is how it works in production,
   // not a test concession.
   if (RESERVED_STAR_SLUGS.has(segments[2])) {
     throw new Error(
-      `adminClientAt cannot serve the reserved star "${scope}" — a "${segments[2]}" star is ` +
-      'founderless by construction (create-star, no founder; claim-star refuses the slug). ' +
+      `adminClientAt cannot serve the reserved star "${scope}" — a "${segments[2]}" star has ` +
+      'no star-scoped admin by construction (create-star mints none; claim-star refuses the slug). ' +
       'Use universeAdminClient: the covering admin is how it is administered in production too.',
     );
   }
@@ -415,7 +415,7 @@ export async function adminClientAt<T extends NebulaClient>(
  *
  * Use this — and *only* this — when the assertion depends on the wildcard: cross-tier reach (aud at
  * one tier, callee at another), `{u}.*` widening, or "an admin with no DAG grant on this node".
- * Unlike {@link adminClientAt}, this guarantee is **stable** across the star-founder change, so
+ * Unlike {@link adminClientAt}, this guarantee is **stable** across the star-scoped-admin change, so
  * these fixtures keep testing the same property.
  *
  * `scope` may be any tier — the universe is derived from it.
@@ -439,17 +439,17 @@ export async function universeAdminClient<T extends NebulaClient>(
 }
 
 /**
- * Create an authenticated **founder-admin** NebulaClient and wait for it to connect.
+ * Create an authenticated **admin** NebulaClient and wait for it to connect.
  *
  * ⚠️ **Prefer {@link adminClientAt} or {@link universeAdminClient}** — they encode INTENT (what the
- * test needs) rather than PROVENANCE (how the identity was minted), so the star-founder change
+ * test needs) rather than PROVENANCE (how the identity was minted), so the star-scoped-admin change
  * touches one helper body instead of every call site. This remains the shared implementation both
- * delegate to, and the right choice only where the founder-mint mechanics are themselves the
+ * delegate to, and the right choice only where the admin-mint mechanics are themselves the
  * subject.
  *
  * Each test-app passes its own client class (e.g., NebulaClientTest).
  *
- * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a founder
+ * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a universe admin
  * with `isAdmin: true` and pattern `{universe}.*`) and becomes the client's `authScope`, because
  * that is where the refresh cookie is path-scoped. `activeScope` is the JWT `aud` — any descendant
  * of that universe. ⚠️ **The client's `authScope` is therefore the universe, not `scope`** — passing
@@ -495,9 +495,9 @@ export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
  * Log in the configured **platform bootstrap admin** (`authScopePattern: '*'`) at `activeScope`.
  *
  * This is the ONE production path to a *second* `access.admin` identity in a universe that already
- * has a founder: `requestMagicLink` mints the bootstrap email at `nebula-platform`
+ * has an admin: `requestMagicLink` mints the bootstrap email at `nebula-platform`
  * (`nebula-auth-registry.ts` — the only email-magic-link mint), and `*` covers every scope. Because
- * the founder's `__nebula_rootAdminSeeded` latch is already set, this identity receives **no root
+ * the root admin's `__nebula_rootAdminSeeded` latch is already set, this identity receives **no root
  * DAG grant** — which is exactly the shape the D16 stored-bypass fixtures need ("`access.admin`
  * with no DAG grant of its own").
  *
@@ -517,7 +517,7 @@ export async function createPlatformAdminClient<T extends NebulaClient>(
 }
 
 /**
- * Create an authenticated client for an **already-minted, non-founder** identity — the invitee
+ * Create an authenticated client for an **already-minted, non-admin** identity — the invitee
  * half of the pair with {@link createAuthenticatedClient}. `authScope` is where the invite minted
  * them (`createSubject`'s scope), which is also where their refresh cookie is path-scoped.
  */

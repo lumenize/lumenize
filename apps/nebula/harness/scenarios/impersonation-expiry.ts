@@ -44,7 +44,7 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
-import { provisionStarFounder, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
+import { provisionStarAdmin, loginViaEmail, refreshAccessToken } from '../../test/lib/email-login';
 
 /** This scenario never drives a build, so it does not need the container — or Docker. */
 export const needsContainer = false;
@@ -73,15 +73,15 @@ export async function run(stack: DevStack): Promise<void> {
   const star = `${universe}.app.tenant`;
   const subjectEmail = `subject-${suffix}@lumenize.io`;
 
-  // The SUBJECT: a real star founder, reached through the open claim-star path. As a side effect this
+  // The SUBJECT: a real star-scoped admin, reached through the open claim-star path. As a side effect this
   // provisions the universe + galaxy above, owned by a DIFFERENT identity — `owner-<email>` — which
   // is precisely the admin we need, and why the two are created in this order.
-  const subject = await provisionStarFounder({
+  const subject = await provisionStarAdmin({
     baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: browser.fetch,
   });
 
   // The ADMIN: log that universe owner in. A plain login, NOT provisionAndLogin — the universe is
-  // already claimed, and claiming is the one open founder-minting entry, so re-provisioning would
+  // already claimed, and claiming is the one open admin-minting entry, so re-provisioning would
   // fail rather than re-authenticate.
   const adminSession = await loginViaEmail({
     baseUrl: stack.baseUrl, authScope: universe, email: `owner-${subjectEmail}`,

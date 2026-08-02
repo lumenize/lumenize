@@ -106,11 +106,11 @@ async function claimAndClick(
  * `/worker/auth/${scope}/` and the minted token carries an **exact-star** `authScopePattern`.
  *
  * **Re-grounded onto `claim-star` (2026-07-25).** This used to POST `email-magic-link` at `scope` and
- * rely on "the first email registered at a scope becomes its founder" — a login-time mint that was
+ * rely on "the first email registered at a scope becomes its admin" — a login-time mint that was
  * deliberately removed (identity mint is authority-point-only; the registry says outright *"NEVER
  * call from a login path"*). In between, the link was issued and emailed fine and then rejected on
  * consumption — `getAndVerifyIdentity` → null → `302 /app?error=invalid_token`, **no cookie** — which
- * is what reddened this lane. `claim-star` mints the founder and emails the link in one open call.
+ * is what reddened this lane. `claim-star` mints the star-scoped admin and emails the link in one open call.
  *
  * The universe and galaxy above still have to exist and only their own admin may create them, so
  * steps 1–2 remain a climb; step 3 is the new capability.
@@ -125,11 +125,11 @@ export async function bootstrapAdmin(
   }
   const [universe, galaxy] = parts;
 
-  // 1. Claim the universe (open) — the founder that will authorize the galaxy below it.
+  // 1. Claim the universe (open) — the universe admin that will authorize the galaxy below it.
   await claimAndClick(baseUrl, 'claim-universe', universe, { slug: universe, email }, email, testToken);
 
   // 2. A universe-scoped token, used only to create the galaxy. `create-galaxy` is admin-gated over
-  //    the parent, and the universe founder is admin — so this founder authorizes its own tree.
+  //    the parent, and the universe admin is admin — so this admin authorizes its own tree.
   const refresh = await fetch(`${baseUrl}/auth/${universe}/refresh-token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -161,6 +161,6 @@ export async function bootstrapAdmin(
   // Both cookies are now in the jar — `/worker/auth/{universe}/` and `/worker/auth/{scope}/`. A
   // client picks which identity it gets purely by its `authScope`. Callers that need to write ABOVE
   // the star (installing the app's ontology on the Galaxy, say) must use the universe one: the star
-  // founder holds an exact-star pattern and is inert at every ancestor, by design (ADR-015).
+  // star-scoped admin holds an exact-star pattern and is inert at every ancestor, by design (ADR-015).
   return { universe, galaxy: `${universe}.${galaxy}` };
 }

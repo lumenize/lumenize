@@ -50,7 +50,7 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // the admin bit to the callee node (`hasAdminOverScope`), so a pattern-less admin claim is denied —
 // and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
 // downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
-// that reaches a `.dev` Star: a universe founder, whose pattern is `{universe}.*`.
+// that reaches a `.dev` Star: a universe admin, whose pattern is `{universe}.*`.
 const fire = (
   binding: any, bindingName: string, instance: string, method: string,
   args: unknown[] = [],

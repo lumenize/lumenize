@@ -40,7 +40,7 @@ async function waitForError(client: NebulaClientTest) {
   return client.lastError!;
 }
 
-/** A real STAR founder — exact-star pattern, inert at every ancestor. The default here. */
+/** A real STAR-scoped admin — exact-star pattern, inert at every ancestor. The default here. */
 async function adminClient(star: string) {
   const browser = new Browser();
   return adminClientAt(NebulaClientTest, browser, star, star, 'admin@example.com');
@@ -49,7 +49,7 @@ async function adminClient(star: string) {
 /**
  * A client that can write the GALAXY's ontology.
  *
- * ⚠️ `appendOntologyVersion` is `@mesh(requireAdmin)` **on the Galaxy**, so a star founder is
+ * ⚠️ `appendOntologyVersion` is `@mesh(requireAdmin)` **on the Galaxy**, so a star-scoped admin is
  * correctly refused ("Admin access required for …") — its exact-star pattern is inert at every
  * ancestor (ADR-015). This is the real model, not a fixture detail: the app developer publishes the
  * ontology from the tier that owns it; a tenant only consumes it.

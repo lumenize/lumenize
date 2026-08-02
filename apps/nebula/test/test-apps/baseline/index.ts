@@ -243,7 +243,7 @@ export class StarTest extends Star {
    * its argument straight back, touching neither the ontology nor `#dataPlane`. The
    * 4-arg fire-back delivers the value to the client's `handleResult`. A COLD echo on
    * a fresh Star therefore isolates fresh-Star cold-wake (placement + onStart schema/
-   * ROOT + onBeforeCall scope-check + founder-seed) from any data-plane operation —
+   * ROOT + onBeforeCall scope-check + root-admin seed) from any data-plane operation —
    * the clean counterpart to `transaction`'s cold path.
    */
   @mesh()
@@ -317,23 +317,23 @@ export class StarTest extends Star {
 
   /**
    * Test-only (P3 criterion 7, honest test): perform the reset and, in the SAME
-   * invocation, report whether `founderSub` still holds ROOT `admin`. This call's
+   * invocation, report whether `starAdminSub` still holds ROOT `admin`. This call's
    * `onBeforeCall` ran with the latch SET (Star warmed pre-reset) → it did NOT
-   * reseed; `resetDevData` is a DIRECT in-class call, so nothing reseeds the founder
+   * reseed; `resetDevData` is a DIRECT in-class call, so nothing reseeds the root admin
    * grant. Reading it here observes the brief grantless window. Returns `false`.
    */
   @mesh(requireAdmin)
-  async resetAndProbeRootAdmin(founderSub: string): Promise<boolean> {
+  async resetAndProbeRootAdmin(starAdminSub: string): Promise<boolean> {
     await this.resetDevData();
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
+    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
   }
 
-  /** Test-only (P3 criterion 7): does `founderSub` hold ROOT `admin`? Called as the
-   *  "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a founder
+  /** Test-only (P3 criterion 7): does `starAdminSub` hold ROOT `admin`? Called as the
+   *  "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a root-admin
    *  caller observes `true`, documenting reseed-on-next-touch. */
   @mesh(requireAdmin)
-  inspectRootAdmin(founderSub: string): boolean {
-    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, founderSub) === 'admin';
+  inspectRootAdmin(starAdminSub: string): boolean {
+    return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
   }
 }
 
@@ -1012,15 +1012,15 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarResetAndProbeRootAdmin(starName: string, founderSub: string): void {
+  callStarResetAndProbeRootAdmin(starName: string, starAdminSub: string): void {
     this.resetResults();
-    const remote = this.ctn<StarTest>().resetAndProbeRootAdmin(founderSub);
+    const remote = this.ctn<StarTest>().resetAndProbeRootAdmin(starAdminSub);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarInspectRootAdmin(starName: string, founderSub: string): void {
+  callStarInspectRootAdmin(starName: string, starAdminSub: string): void {
     this.resetResults();
-    const remote = this.ctn<StarTest>().inspectRootAdmin(founderSub);
+    const remote = this.ctn<StarTest>().inspectRootAdmin(starAdminSub);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }

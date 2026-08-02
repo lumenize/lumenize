@@ -45,7 +45,7 @@ The remaining provisioning / capture / inspection work builds on these:
   `actorsAuthorized`, audited). NEW piece still needed = **synthetic-subject provisioning**.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index; `discover` /
   `claimUniverse` / `createGalaxy`).
-- **Root-admin Part 1** — founder admin-on-`ROOT_NODE_ID` (`tasks/on-hold/nebula-dataplane-root-admin.md`).
+- **Root-admin Part 1** — initial DataPlane root admin (`admin` on `ROOT_NODE_ID`) (`tasks/on-hold/nebula-dataplane-root-admin.md`).
 - **`onBeforeCall` higher-admin reach** — the `enforceScopeReach(name, claims)` guard (one audit point per
   ADR-007, `apps/nebula/src/nebula-do.ts`, shared by `NebulaDO`/`NebulaContainer.onBeforeCall`) admits a
   caller whose `access.authScopePattern` covers the target, **gated on `access.admin`**; `{u1}` still can't
@@ -137,7 +137,7 @@ The remaining provisioning / capture / inspection work builds on these:
   scope). 🔓 At the Galaxy tier what it adds is a **galaxy-BOUNDED**
   principal — a collaborator on one app who is *not* an admin of the whole universe. ⚠️ Not missing
   capability: a universe admin's `{u}.*` already covers `{u}.{g}` and everything beneath. The narrow
-  mechanical consequence is that nobody can *authenticate at* a Galaxy today (no founder row can exist
+  mechanical consequence is that nobody can *authenticate at* a Galaxy today (no identity row can exist
   at a 2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope`
   — which is the shape prod uses and stays correct afterward.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to

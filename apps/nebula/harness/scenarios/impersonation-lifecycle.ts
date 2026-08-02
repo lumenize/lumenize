@@ -24,7 +24,7 @@ import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
 import { readDevVar } from '../lib/harness';
-import { provisionStarFounder, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
+import { provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
   ImpersonationChainError, ImpersonationMintError, childCount, isTornDown,
@@ -130,8 +130,8 @@ export async function run(stack: DevStack): Promise<void> {
     return browser.fetch(input, init);
   }) as typeof fetch;
 
-  // The SUBJECT (a real star founder) and, as a side effect, the universe owner above it — our ADMIN.
-  const subject = await provisionStarFounder({
+  // The SUBJECT (a real star-scoped admin) and, as a side effect, the universe owner above it — our ADMIN.
+  const subject = await provisionStarAdmin({
     baseUrl: stack.baseUrl, scope: star, email: subjectEmail, testToken, fetchImpl: browser.fetch,
   });
   const adminSession = await loginViaEmail({
@@ -207,7 +207,7 @@ export async function run(stack: DevStack): Promise<void> {
   // ── 5. Two children coexist — the DO-name collision is silent, so this is its only guard ────────
   // ONE subject at TWO scopes: the names then differ ONLY by the scope segment. (Two different
   // subjects would differ by the sub segment, which is why the baseline version of this test passed
-  // with the scope segment removed.) The universe-scoped admin can impersonate the star founder at
+  // with the scope segment removed.) The universe-scoped admin can impersonate the star-scoped admin at
   // the star; a second scope for the SAME sub is the universe itself is not reachable here, so this
   // asserts the weaker-but-real property: distinct children, distinct names, both live.
   const secondChild = await adminClient.impersonate(subject.sub, star, { ttlSeconds: SAFE_TTL });

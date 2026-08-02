@@ -246,7 +246,7 @@ export async function connectDriver(
     connectTimeoutMs?: number;
     /**
      * Escape hatch to rung 3 (synthetic mint) — ONLY for identities real login can't create, e.g. a
-     * NON-admin at a scope whose founder would be admin. `reason` is required and is not decorative:
+     * NON-admin at a scope whose scope admin would be admin. `reason` is required and is not decorative:
      * ADR-009 says each surviving mint is justified per-site, so the justification lives at the call
      * site instead of in a reviewer's memory. If you're reaching for this to save time, don't — the
      * whole point of the measurement is that time isn't the trade-off.
@@ -256,7 +256,7 @@ export async function connectDriver(
       isAdmin?: boolean;
       /**
        * The token ISSUER's DO instance (drives `authScopePattern`) — distinct from the client's own
-       * gateway instanceName. Default `scope` (founder of its own scope); `'nebula-platform'` mints
+       * gateway instanceName. Default `scope` (admin of its own scope); `'nebula-platform'` mints
        * a `*` super-admin whose `aud` is `scope` but whose reach is global.
        */
       issuerInstanceName?: string;
@@ -283,8 +283,8 @@ export async function connectDriver(
     })());
   } else {
     // provisionAndLogin, not a bare login: a fresh boot has no scopes at all, and login
-    // never mints an identity. It claims the universe (the one open founder-minting entry),
-    // logs in there for real, then creates the galaxy/star beneath with that founder's token.
+    // never mints an identity. It claims the universe (the one open admin-minting entry),
+    // logs in there for real, then creates the galaxy/star beneath with that admin's token.
     const result = await provisionAndLogin({
       baseUrl: stack.baseUrl,
       scope,

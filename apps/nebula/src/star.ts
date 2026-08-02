@@ -36,7 +36,6 @@ import type { QueryDescriptor, SubscriberEntry } from './query-hash';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import type { OntologyVersionRow, OntologyState } from './galaxy';
 import type { NebulaClient } from './nebula-client';
-import { hasAdminOverScope } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
@@ -102,40 +101,47 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * Seed the founder as a DAG `admin` grant on root at first provision.
+   * Seed the **initial DataPlane root admin** — a DAG `admin` grant on `ROOT_NODE_ID`, granted to the
+   * first **star-scoped admin** to touch this Star.
    *
-   * Stars are lazy DOs with no explicit `createStar`; the founder is the
-   * scope-admin (`claims.access.admin`) who first touches this Star. We grant
-   * them `admin` on `ROOT_NODE_ID` so the request-access climb has a findable
-   * terminus *inside the tree* — a scope-level bypass admin isn't in the
-   * permissions map and so can't be discovered by the climb (it terminates at
-   * root only because the founder's grant lives there). The `setPermission`
-   * call satisfies its own `admin` gate via the scope-admin bypass
-   * (dag-tree.ts `requirePermission`), so no un-guarded path is needed. Runs
-   * exactly once; a non-admin first caller leaves root adminless until an admin
-   * connects.
+   * Two distinct things, in two planes, easily conflated: a *star-scoped admin* is a registry
+   * `Identities` row (`isAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
+   * the *DataPlane root admin* is this DAG grant. This method is the bridge between them, and it runs
+   * exactly once — later root admins are added by an ordinary `setPermission`, which is why this one
+   * is the **initial** one and not the only possible one.
    *
-   * ⚠️ Open Star self-signup (`claim-star`) adds NO founder-specific machinery here — the gate below
-   * is the whole mechanism. A star founder holds an exact-star `authScopePattern`, which already
-   * satisfies `hasAdminOverScope` on their own Star, so they self-seed root on first authenticated
-   * touch with zero new code. A "founder preference" was considered and cut: it would buy only the
-   * covering-admin-touches-first race (benign and self-healing) at the cost of an `Identities`
-   * migration and a JWT-payload change. Design: tasks/archive/nebula-star-founder-provisioning.md.
+   * The grant's job is to give the request-access climb a findable terminus *inside the tree*: a
+   * scope-admin holding only the `claims.access.admin` bypass is **not** in the permissions map, so
+   * the climb cannot discover them. `setPermission` satisfies its own `admin` gate via that same
+   * bypass (dag-tree.ts `requirePermission`), so no un-guarded path is needed.
+   *
+   * ⚠️ **EXACT-star, not `hasAdminOverScope`** (2026-08-02). A covering Galaxy/Universe admin passes
+   * `hasAdminOverScope` here, so under the old predicate whichever admin wandered in first took the
+   * grant — and because the KV flag is one-shot with no re-seed path, that Star's climb would
+   * terminate at the covering admin **forever**, routing its tenants' access requests away from their
+   * own Star admin. Requiring the pattern to equal this Star's id makes the grant follow ownership
+   * rather than arrival order. This costs the covering admin nothing: ADR-015 keeps their authority
+   * total via the bypass — only climb *discoverability* is at stake.
+   *
+   * ⚠️ A Star with no star-scoped admin (`createStar` mints no identity — the `.dev` workspace) simply
+   * stays root-adminless until one exists, which is already the behavior for a non-admin first caller.
+   * `claim-star` self-signup needs no special machinery: the claimer's exact-star pattern satisfies
+   * this gate on their first authenticated touch.
+   *
+   * ⚠️ Keep this predicate when the seed lifts to the DataPlane
+   * (tasks/on-hold/nebula-dataplane-root-admin.md), which moves it onto hosts that are NOT leaves —
+   * on a non-leaf host the old pattern-covers form would let a descendant's admin seed an ancestor.
    */
   onBeforeCall() {
     super.onBeforeCall() // locks the active scope (aud) on first call
     if (this.ctx.storage.kv.get('__nebula_rootAdminSeeded')) return
     const auth = this.lmz.callContext.originAuth
     const claims = auth?.claims as NebulaJwtPayload | undefined
-    // `hasAdminOverScope`, NOT a bare `access.admin`: this is the one site where the transient
-    // scope-admin bypass becomes a DURABLE DAG grant, so an admin of a child scope must never seed
-    // itself as root admin of an ancestor host. Behavior-preserving today by construction — the
-    // `super.onBeforeCall()` above has already admitted the caller, and on a star-tier leaf
-    // admission implies the predicate — so this is pre-positioning for the pending DataPlane lift
-    // (tasks/on-hold/nebula-dataplane-root-admin.md), which moves this seed onto hosts that are NOT
-    // leaves. Confining it here means that lift inherits the fix instead of re-opening the hole.
     if (!auth?.sub || !this.lmz.instanceName) return
-    if (!hasAdminOverScope(claims?.access, this.lmz.instanceName)) return
+    // Exact equality, NOT `hasAdminOverScope` — see the EXACT-star note above. This is the one site
+    // where the transient scope-admin bypass becomes a DURABLE DAG grant.
+    const access = claims?.access
+    if (access?.admin !== true || access.authScopePattern !== this.lmz.instanceName) return
     this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }
@@ -371,7 +377,7 @@ export class Star extends NebulaDO {
    * (SQL + KV + alarm rows). `onStart()` then reconstructs the helper objects (fresh
    * empty caches), recreates schema + ROOT, and nulls `#row`/`#facet` (a stale facet
    * would keep authorizing the dropped ontology). The DO + `{u}.{g}.dev` registration
-   * survive. The founder ROOT-admin grant reseeds on the next admin call's
+   * survive. The DataPlane root-admin grant reseeds on the next admin call's
    * `onBeforeCall` first-touch (the `deleteAll` wiped the latch).
    *
    * **`ReloadSubscribers` are preserved across the wipe** (captured → wiped →

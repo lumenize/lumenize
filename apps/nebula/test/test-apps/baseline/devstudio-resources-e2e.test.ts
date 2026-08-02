@@ -29,7 +29,7 @@ const uniqueDevScope = () => `acme-${crypto.randomUUID().slice(0, 8)}.app.dev`;
 // Admin (scope-admin) client bound to DEV_STUDIO. appVersion is irrelevant to
 // DevStudio (no version-gate, D8) — default 'v1'.
   // ⚠️ `universeAdminClient`, not `adminClientAt`: a `{u}.{g}.dev` star is FOUNDERLESS by
-  // construction — `create-star` mints no founder and `claim-star` refuses the reserved slug — so it
+  // construction — `create-star` mints no admin identity and `claim-star` refuses the reserved slug — so it
   // is administered by the covering admin's wildcard. That is how it works in production, not a test
   // concession. (`adminClientAt` refuses this scope outright for exactly that reason.)
 function devAdmin(scope: string, appVersion = 'v1') {

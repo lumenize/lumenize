@@ -59,8 +59,8 @@ describe('dag-tree', () => {
       expect(state.edges).toBeInstanceOf(Set);
       expect(state.edges.size).toBe(0);
 
-      // The connecting admin is the scope-admin founder, auto-seeded as `admin`
-      // on root at first provision (see § founder root-admin seeding).
+      // The connecting admin is the scope admin, auto-seeded as `admin`
+      // on root at first provision (see § root-admin seeding).
       expect(state.permissions).toBeInstanceOf(Map);
       expect(state.permissions.size).toBe(1);
       expect(state.permissions.get(ROOT_NODE_ID)?.get(payload.sub)).toBe('admin');
@@ -112,28 +112,28 @@ describe('dag-tree', () => {
     });
   });
 
-  // ─── Founder root-admin seeding (nebula-star-root-admin.md Part 1) ──
+  // ─── Root-admin seeding (nebula-star-root-admin.md Part 1) ──
 
-  describe('founder root-admin seeding', () => {
-    it('seeds the founder (scope-admin) as admin on ROOT_NODE_ID at first provision', async () => {
+  describe('DataPlane root-admin seeding', () => {
+    it('seeds the star-scoped admin as DataPlane root admin at first provision', async () => {
       const star = uniqueStar();
       const { client, payload } = await adminClient(star);
-      const founderSub = payload.sub;
+      const starAdminSub = payload.sub;
 
       // checkPermission resolves the grant via the permission climb (NOT the
       // scope-admin bypass — that lives only in requirePermission). So a true
       // result proves a real DAG grant exists, and gutting the seed flips it.
-      client.callStarCheckPermission(star, ROOT_NODE_ID, 'admin', founderSub);
+      client.callStarCheckPermission(star, ROOT_NODE_ID, 'admin', starAdminSub);
       await vi.waitFor(() => {
         expect(client.lastResult).toBe(true);
       });
 
       // ...and the grant is in the permissions map, so the request-access climb
-      // can discover the founder as the admin to ask.
+      // can discover the root admin as the admin to ask.
       client.callStarDagTreeGetState(star);
       await vi.waitFor(() => {
         const state = client.lastResult as DagTreeState;
-        expect(state.permissions.get(ROOT_NODE_ID)?.get(founderSub)).toBe('admin');
+        expect(state.permissions.get(ROOT_NODE_ID)?.get(starAdminSub)).toBe('admin');
       });
 
       client[Symbol.dispose]();
@@ -739,9 +739,9 @@ describe('dag-tree', () => {
     it('setPermission, checkPermission, getEffectivePermission, revokePermission', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Resolve for a distinct, non-founder subject so the founder's seeded
+      // Resolve for a distinct, non-admin subject so the root admin's seeded
       // root-admin grant (which rolls down to every node) doesn't shadow the
-      // tier under test. The founder (caller) still performs the grants.
+      // tier under test. The root admin (caller) still performs the grants.
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'secured', 'Secured');
@@ -777,7 +777,7 @@ describe('dag-tree', () => {
 
       // No grant → checkPermission resolves false (it delegates to
       // resolvePermission and does NOT use the scope-admin bypass; the
-      // founder-seeding test proves that direction capable-of-failing).
+      // root-admin seeding test proves that direction capable-of-failing).
       client.callStarCheckPermission(star, nodeId, 'admin', testSub);
       await vi.waitFor(() => expect(client.lastResult).toBe(false));
 
@@ -805,7 +805,7 @@ describe('dag-tree', () => {
     it('setPermission replaces existing tier (upsert)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Distinct subject — see the CRUD test above (founder rolls down admin).
+      // Distinct subject — see the CRUD test above (the root admin rolls down admin).
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'upsert-test', 'Upsert');
@@ -832,7 +832,7 @@ describe('dag-tree', () => {
     it('grant on root → all descendants, highest from any path wins', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Resolve for a distinct subject — the founder's seeded root-admin grant
+      // Resolve for a distinct subject — the root admin's seeded root-admin grant
       // would otherwise roll down and shadow the rolldown under test.
       const sub = crypto.randomUUID();
 
@@ -884,7 +884,7 @@ describe('dag-tree', () => {
     it('no grant on any ancestor → denied', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
-      // Distinct subject — the founder has a seeded root-admin grant.
+      // Distinct subject — the root admin has a seeded grant.
       const testSub = crypto.randomUUID();
 
       client.callStarCreateNode(star, ROOT_NODE_ID, 'isolated', 'Isolated');
@@ -1269,10 +1269,10 @@ describe('dag-tree', () => {
   // ─── Universe Admin Cross-Access ──────────────────────────────────
 
   describe('universe admin (wildcard JWT) has full DAG access', () => {
-    // ⚠️ ONE founder per universe — `claim-universe` is the only founder-minting path and the slug is
+    // ⚠️ ONE admin per universe — `claim-universe` is the only admin-minting path and the slug is
     // unique, so the old fixture's separate `star-admin@` + `universe-admin@` identities are
     // unmintable (an invite mints `isAdmin: false`, so there is no "star-level admin" tier either).
-    // Both clients are therefore the same founder; the property under test is unchanged and is now
+    // Both clients are therefore the same admin; the property under test is unchanged and is now
     // exercised more precisely, because the second client holds aud = the UNIVERSE while acting on a
     // STAR DO — admission via the *reach* branch (pattern covers the callee), which is what
     // "universe admin has full DAG access to a descendant Star" actually means.
@@ -1280,7 +1280,7 @@ describe('dag-tree', () => {
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // Founder at the star aud — creates the Star DO and seeds root admin.
+      // Admin at the star aud — creates the Star DO and seeds root admin.
       const starBrowser = new Browser();
       const { client: starAdmin } = await adminClientAt(
         NebulaClientTest, starBrowser, star, star, 'admin@example.com',
@@ -1314,7 +1314,7 @@ describe('dag-tree', () => {
     it('complete denied set; grant flips one; accessAdmin bypasses; Star DAG admin resolves allow-all', async () => {
       const star = uniqueStar();
       const { client: admin, payload: adminPayload } = await adminClient(star);
-      const founderSub = adminPayload.sub; // admin on ROOT (founder seed)
+      const starAdminSub = adminPayload.sub; // admin on ROOT (starAdmin seed)
 
       // Two sibling nodes under root.
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'n-a', 'A');
@@ -1359,9 +1359,9 @@ describe('dag-tree', () => {
       expect(res.allowed.has(nB)).toBe(true);
       expect(res.denied.size).toBe(0);
 
-      // A Star DAG `admin` grant (the founder, admin on root) resolves allow-all
+      // A Star DAG `admin` grant (the seeded root admin) resolves allow-all
       // through resolvePermission with accessAdmin:false (no JWT bypass needed).
-      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', founderSub, false);
+      admin.callStarEvaluatePermissions(star, [nA, nB], 'read', starAdminSub, false);
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       res = admin.lastResult as Eval;
       expect(res.allowed.has(nA)).toBe(true);

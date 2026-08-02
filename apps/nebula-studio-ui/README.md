@@ -12,7 +12,7 @@ There is **no dev-only login shortcut**. Real users, tests, and you all log in t
    (`/auth/discover`), then sends a magic link to your one scope. Click the link in your email →
    you land authenticated.
 2. **First run (no scope yet)** → the form offers to **claim a Universe slug**; claiming sends the
-   magic link to the new scope. First access makes you its founder-admin.
+   magic link to the new scope. First access seeds you as its root admin.
 3. **Returning** → the Studio remembers your last scope (localStorage) and auto-connects when a
    valid refresh cookie is present; otherwise it shows the email form again.
 
@@ -50,7 +50,7 @@ Prereqs: Docker Desktop running (`docker context use desktop-linux`).
    generated app to the sandbox; the preview pane reloads to show it.
 
    > For a throwaway sandbox, append `?scope=test-yourname.test-app.dev` — first login at a fresh
-   > `.dev` scope makes you its founder-admin.
+   > `.dev` scope makes you its root admin.
 
 ## Limitations (first cut — iterate from here)
 - **No HMR under the prefix yet** — the preview iframe is force-reloaded on each change

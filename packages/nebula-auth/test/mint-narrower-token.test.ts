@@ -76,20 +76,20 @@ describe('/mint-narrower-token (admin branch only)', () => {
 
   // The P2 twin — the same mirror, with a subject who really IS an admin. Without this, an
   // implementation that hard-codes `isAdmin: false` would pass the test above.
-  it('...and MIRRORS a TRUE bit for an admin subject — a `claimStar` founder (P2)', async () => {
+  it('...and MIRRORS a TRUE bit for an admin subject — a `claimStar` star-scoped admin (P2)', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const star = `${u}.app.tenant`;
-    // A star founder is the only real path to a sub-universe `isAdmin=1` identity.
-    const founder = await foundStarAndLogin(SELF, star, 'founder@example.com', admin.access_token);
-    expect(founder.parsed.access.admin).toBe(true); // fixture guard — else the assertion below is vacuous
+    // A star-scoped admin is the only real path to a sub-universe `isAdmin=1` identity.
+    const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
+    expect(starAdmin.parsed.access.admin).toBe(true); // fixture guard — else the assertion below is vacuous
 
     const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: founder.parsed.sub, activeScope: star },
+      method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
     });
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
-    expect(parsed.sub).toBe(founder.parsed.sub);
+    expect(parsed.sub).toBe(starAdmin.parsed.sub);
     expect(parsed.access.admin).toBe(true);
     expect(parsed.access.authScopePattern).toBe(star); // exact-star, derived from the requested scope
   });
@@ -141,8 +141,8 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const galaxy = `${u}.app`;
       const star = `${galaxy}.tenant`;
 
-      // Caller: a star founder — exact-star pattern `u.app.tenant`, `admin: true`.
-      const caller = await foundStarAndLogin(SELF, star, 'founder@example.com', admin.access_token);
+      // Caller: a star-scoped admin — exact-star pattern `u.app.tenant`, `admin: true`.
+      const caller = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
       expect(caller.parsed.access.authScopePattern).toBe(star); // fixture guard: NOT a wildcard
       // Subject: a member whose OWN scope is the parent galaxy — strictly above the caller.
       const subject = await inviteIntoGalaxy(SELF, galaxy, admin.access_token, 'gal-member@example.com');
@@ -209,7 +209,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const admin = await foundUniverse(SELF, u, 'admin@example.com'); // pattern `${u}.*`
     const galaxy = `${u}.app`;
     const star = `${galaxy}.tenant`;
-    const subject = await foundStarAndLogin(SELF, star, 'founder@example.com', admin.access_token);
+    const subject = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
     expect(subject.parsed.access.authScopePattern).toBe(star); // the subject's reach is the star alone
 
     const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
@@ -305,11 +305,11 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const u = uni();
       const admin = await foundUniverse(SELF, u, 'admin@example.com');
       const star = `${u}.app.tenant`;
-      const founder = await foundStarAndLogin(SELF, star, 'founder@example.com', admin.access_token);
+      const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
       const third = await inviteAndLogin(SELF, star, admin.access_token, 'third@example.com');
 
       const minted = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: founder.parsed.sub, activeScope: star },
+        method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
       });
       expect(minted.status).toBe(200);
       const narrower = (await minted.json() as any).access_token;
@@ -400,10 +400,10 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     const star = `${u}.app.tenant`;
     // **P2** — an ADMIN subject. `#computeDeletionPlan` gates on `hasAdminOverScope` against the
     // MINTED token's access, so a P1 (non-admin) token 403s before the record is ever written.
-    const founder = await foundStarAndLogin(SELF, star, 'founder@example.com', admin.access_token);
+    const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
 
     const minted = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: founder.parsed.sub, activeScope: star },
+      method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
     });
     expect(minted.status).toBe(200);
     const narrower = (await minted.json() as any).access_token;
@@ -422,7 +422,7 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     expect(record).toBeDefined();
 
     // (1) The authority `sub` — the person acted upon. Mutation: drop `sub` from the record → reds.
-    expect(record.data.actingToken.sub).toBe(founder.parsed.sub);
+    expect(record.data.actingToken.sub).toBe(starAdmin.parsed.sub);
     // (2) The complete `act` chain — WHO ACTUALLY DROVE IT. This is the element whose absence makes
     // the record affirmatively wrong. Mutation: drop `act` → reds.
     expect(record.data.actingToken.act).toEqual({
@@ -430,7 +430,7 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     });
     // (3) `profileId` — display-only, write-time-pinned, so a departed actor is nameable with no
     // registry hop. Mutation: drop `profileId` → reds.
-    expect(record.data.actingToken.profileId).toBe(founder.parsed.profileId);
+    expect(record.data.actingToken.profileId).toBe(starAdmin.parsed.profileId);
     // (4) The `access` entry — what authority was ASSERTED. Immutable history; never read back as an
     // authz input (that would be ADR-013's stored scope-set). Mutation: drop `access` → reds.
     expect(record.data.actingToken.access).toEqual({ authScopePattern: star, admin: true });

@@ -23,7 +23,7 @@
  * that IS denied is a pattern covering the token's own `aud` but **not the node it calls** — reach
  * it by setting `issuerInstanceName` strictly below the node under test. That escalation shape is
  * covered by scope-isolation.test.ts's `access.admin` confinement tests (whose principal is a real
- * exact-star founder), not here.
+ * exact-star-scoped admin), not here.
  */
 import assert from 'node:assert/strict';
 import { ROOT_NODE_ID } from '@lumenize/nebula/client';
@@ -51,7 +51,7 @@ export async function run(stack: DevStack): Promise<void> {
     scope: TARGET,
     mint: {
       reason:
-        'real login CANNOT produce this identity: logging in at TARGET makes you its founder, hence ' +
+        'real login CANNOT produce this identity: logging in at TARGET makes you its admin, hence ' +
         'admin — and a NON-admin at TARGET is exactly the control this scenario needs.',
       issuerInstanceName: TARGET,
       isAdmin: false,

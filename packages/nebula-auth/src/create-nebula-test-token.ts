@@ -9,13 +9,13 @@
  * shape — which Nebula's gateway rejects (`router.verifyNebulaAccessToken`, the
  * `access.authScopePattern` gate). This util instead composes the shared
  * {@link buildNebulaJwtPayload} claim-builder, so the token carries the real
- * `access: { authScopePattern, admin? }` shape a founder's server-minted token would —
+ * `access: { authScopePattern, admin? }` shape a scope admin's server-minted token would —
  * verified normally against the corresponding public key, no test-mode, all production
  * verification paths exercised.
  *
  * NOT a login: the token carries only a `sub` (identity is the surrogate `sub`, never email —
  * `email` is no longer a JWT claim), and no email is sent and no identity is DB-minted. For local
- * `wrangler dev` an admin token for one's own sandbox scope needs neither (founder-equivalent by
+ * `wrangler dev` an admin token for one's own sandbox scope needs neither (scope-admin-equivalent by
  * construction). Prod tokens must still come via audited login / stored-refresh — never this
  * local mint (security invariant).
  *
@@ -52,7 +52,7 @@ export interface CreateNebulaTestTokenOptions {
   activeScope: string;
   /**
    * Issuing DO instance name (universeGalaxyStarId) — drives the `authScopePattern`.
-   * Default: `activeScope` (a founder minting for its own scope).
+   * Default: `activeScope` (a scope admin minting for its own scope).
    */
   instanceName?: string;
   /** Subject UUID. Default: a stable `crypto.randomUUID()` generated once per factory call. */

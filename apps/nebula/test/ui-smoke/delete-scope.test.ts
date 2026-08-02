@@ -61,8 +61,8 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   // ⚠️ **CORRECTED 2026-07-25 while building Phase 2: `claim-star` does NOT unblock this.** The lane
   // logs in AT `test-u0.test-g0.dev`, and `.dev` is on the RESERVED list `claim-star` itself adds —
   // it refuses that slug by design (a stranger founding the user-developer's own Studio workspace is
-  // exactly what the list prevents). A `.dev` scope is founderless by construction, so an identity
-  // reaches it only by (a) logging in at an ANCESTOR the founder holds — but `refreshCookie` sets
+  // exactly what the list prevents). A `.dev` scope has no star-scoped admin by construction, so an identity
+  // reaches it only by (a) logging in at an ANCESTOR the covering admin holds — but `refreshCookie` sets
   // `Path=/auth/{scope}`, so a universe login's cookie is not sent to `/auth/{u}.{g}.dev/refresh-token`
   // — or (b) an INVITE into the scope (tasks/nebula-auth-identity-mint.md). Which one is a design
   // question, tracked in tasks/archive/nebula-star-founder-provisioning.md § Phase 2.

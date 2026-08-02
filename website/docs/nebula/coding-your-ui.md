@@ -324,7 +324,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 const sub = client.claims.sub;
 
 // Create the list under a node the user can write to. This demo signs in as
-// the Star's founder, who holds `admin` on the root node (granted when the
+// the Star's initial DataPlane root admin, who holds `admin` on the root node (granted when the
 // Star was created), so resources attach under ROOT_NODE_ID. In a multi-user
 // app, attach under whatever node the user was granted — see "Mutating the
 // org/permission tree" for how access is granted.
@@ -346,7 +346,7 @@ if (await client.resources.read('todoList', sub) === null) {
 }
 ```
 
-(A node the user can write to is the only prerequisite; the founder gets one — `admin` on root — at Star creation. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
+(A node the user can write to is the only prerequisite; the Star's own admin gets one — `admin` on root — on first touch. Other users acquire write on a node by being granted it — see [Mutating the org/permission tree](#mutating-the-orgpermission-tree); who to ask is resolved client-side from the tree (see the [worked example](#worked-example-rendering-the-built-in-tree)).)
 
 By contrast, a field whose elements are **inline objects** — composition *within* this one resource, e.g. a todo's `checklist: { text, done }[]` — iterates the same way but without auto-subscribing per item; the fields are right there in the value. The distinction is by type: a field typed as **another ontology type** (e.g. `assignees: User[]`) is a *relationship*, stored by id and read like `items` above — one auto-subscribe per id — never an embedded object; nesting is for inline composition only (see [Resources](./resources.md)).
 

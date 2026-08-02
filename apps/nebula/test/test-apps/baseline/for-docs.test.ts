@@ -17,7 +17,7 @@
  * Capable-of-failing: every transaction asserts a real `committed` outcome (a
  * broken put/create/auto-derive-eTag path would return a non-committed kind),
  * the computeds assert real derived values off live snapshots, and the orgTree
- * sequence asserts the founder can drive every mutation against the real DAG.
+ * sequence asserts the star-scoped admin can drive every mutation against the real DAG.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -65,17 +65,17 @@ describe('for-docs runtime examples (real Star)', () => {
   it('factory usage, transactions, subscribe/Disposable, handlers, orgTree, outcomes', async () => {
     const star = uniqueStar();
 
-    // ── Setup: founder installs the ontology, then connects via the factory ──
-    // The first subject to reach a fresh Star becomes the founder (admin on ROOT).
+    // ── Setup: the star-scoped admin installs the ontology, then connects via the factory ──
+    // The first subject to reach a fresh Star becomes the root admin (admin on ROOT).
     const admin = await adminClientAt(
-      NebulaClientTest, new Browser(), star, star, 'founder@example.com', ONTOLOGY_VERSION,
+      NebulaClientTest, new Browser(), star, star, 'scope-admin@example.com', ONTOLOGY_VERSION,
     );
     const galaxyName = star.split('.').slice(0, 2).join('.');
     admin.client.callStarApplyOntology(star, { version: ONTOLOGY_VERSION, types: ONTOLOGY });
     await vi.waitFor(() => { expect(admin.client.callCompleted).toBe(true); });
 
     const browser = new Browser();
-    await foundAndLogin(browser, star, 'founder@example.com', star);
+    await foundAndLogin(browser, star, 'scope-admin@example.com', star);
     const bf = makeFactoryClient(star, browser);
     await bf.ready;
     // Alias to the names the doc snippets use.

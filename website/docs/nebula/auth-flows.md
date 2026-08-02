@@ -29,13 +29,13 @@ The Nebula entrypoint parses this once and threads it as a single `cors` config 
 
 Login **never mints** an identity. A magic-link login *verifies* an already-existing identity (find-and-flip its `emailVerified`) and is **rejected** if none exists — this is what closes stranger-self-join. Identities are minted only at authority points:
 
-- **Universe** — open self-signup: `claim-universe` mints the founder identity (`isAdmin=true`) + the scope.
-- **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, founder-minting star self-signup.
+- **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`isAdmin=true`) + the scope.
+- **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, identity-minting star self-signup.
 - **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee identity (`isAdmin=false`), and `accept-invite` flips its `emailVerified`.
 
 ## First-time login (self-signup — founding a Universe)
 
-A new user arrives with no existing refresh cookie and no identity yet. Discovery returns nothing, so they found a Universe (`claim-universe`), which mints the founder identity and emails a magic link; clicking it issues the refresh cookie.
+A new user arrives with no existing refresh cookie and no identity yet. Discovery returns nothing, so they found a Universe (`claim-universe`), which mints the claiming admin identity and emails a magic link; clicking it issues the refresh cookie.
 
 ```mermaid
 sequenceDiagram
@@ -55,10 +55,10 @@ sequenceDiagram
     end
 
     rect rgba(220, 220, 255, 0.3)
-        Note over UI,R: 2. Claim a Universe — MINTS the founder identity
+        Note over UI,R: 2. Claim a Universe — MINTS the claiming admin identity
         UI->>W: POST /auth/claim-universe { slug, email, cf-turnstile-response }
         W->>R: claimUniverse(slug, email)
-        Note over R: register Scope + mint founder Identity<br/>(isAdmin, emailVerified false) + create MagicLink
+        Note over R: register Scope + mint admin Identity<br/>(isAdmin, emailVerified false) + create MagicLink
         R-->>W: send magic-link email
         W-->>UI: Show "Check your email"
     end
@@ -67,7 +67,7 @@ sequenceDiagram
         Note over UI,KV: 3. Click magic link — verify + issue the refresh token
         UI->>W: GET /auth/{slug}/magic-link?one_time_token=...
         W->>R: consumeMagicLink(tokenHash, refreshTokenHash, expiresAt)
-        Note over R: find-and-flip the founder Identity<br/>write RefreshTokenIndex (sync) THEN
+        Note over R: find-and-flip that Identity<br/>write RefreshTokenIndex (sync) THEN
         R->>KV: put refresh:{tokenHash} = { sub, scope, isAdmin, expiresAt }
         R-->>W: { sub, universeGalaxyStarId }
         W-->>UI: Set-Cookie (path /auth/{slug}) + 302 to /app/{slug}

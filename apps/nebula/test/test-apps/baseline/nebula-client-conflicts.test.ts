@@ -73,7 +73,7 @@ async function twoAdminClients(star: string) {
 async function setupNonAdminUser(star: string, adminAccessToken: string, email = 'user@example.com') {
   await createSubject(new Browser(), star, adminAccessToken, email);
   // createInvitedClient, NOT createAuthenticatedClient: the invite already minted this identity at
-  // `star`, so it logs in there. The founder factory would claim the universe and mint them a
+  // `star`, so it logs in there. The admin factory would claim the universe and mint them a
   // SECOND, admin identity — silently turning this non-admin fixture into an admin one.
   return createInvitedClient(NebulaClientTest, new Browser(), star, star, email);
 }

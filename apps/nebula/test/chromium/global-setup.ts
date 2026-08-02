@@ -63,7 +63,7 @@ export default async function setup(project: TestProject) {
 
   // CRITICAL: wrangler-dev state SURVIVES across runs (unlike vitest-pool-workers'
   // fresh-per-run miniflare). Wipe it at the start of every run so each run is
-  // clean — no Stars / NebulaAuthRegistry rows / founders accumulated from prior
+  // clean — no Stars / NebulaAuthRegistry rows / star admins accumulated from prior
   // runs. Tests use unique universes (`acme-<uuid>.app.tenant-a`) so stale state
   // isn't a correctness hazard, but this keeps the dir bounded + the run
   // reproducible, and matches pool-workers semantics.

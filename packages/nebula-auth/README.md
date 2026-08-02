@@ -58,7 +58,7 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 
 | Authority point | What is minted |
 |---|---|
-| `claimUniverse` (open self-signup) | `Scopes` row **+** founder `Identity` (`isAdmin=1`, `emailVerified=0`) |
+| `claimUniverse` (open self-signup) | `Scopes` row **+** the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0`) |
 | `issueInvites` (admin) | invitee `Identity` (`isAdmin=0`, `emailVerified=0`), pre-created |
 | `requestMagicLink` at `nebula-platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
 | `createGalaxy` / `createStar` (admin) | `Scopes` row **only** — no identity, no email; the parent admin manages via wildcard reach |
@@ -148,8 +148,8 @@ Registry paths are identified by exact match of the whole path remainder against
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
 | `/auth/discover` | POST | Turnstile | → registry `fetch()` | Email-based scope discovery. Returns `{ universeGalaxyStarId, isAdmin }[]` — deliberately `sub`-free |
-| `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` (raw) | Open self-signup: register the `Scopes` row, mint the founder identity, send a magic link |
-| `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the founder at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
+| `/auth/claim-universe` | POST | Turnstile | → registry `fetch()` (raw) | Open self-signup: register the `Scopes` row, mint the claiming admin identity, send a magic link |
+| `/auth/claim-star` | POST | Turnstile | → registry `fetch()` (raw) | **Open Star self-signup.** Body `{ universeGalaxyStarId, email }`. Registers the `Scopes` row, mints the star-scoped admin at the **3-segment star id** (`isAdmin`, `emailVerified: 0` → an **exact-star** pattern), and sends a claim link — all in one `transactionSync`. No admin in the loop |
 | `/auth/create-galaxy` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a galaxy — `Scopes` row only |
 | `/auth/create-star` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | Admin creates a star — `Scopes` row only |
 | `/auth/my-scopes` | POST | JWT (+`verifiedAccess` injected) + rate limit | → registry `fetch()` | The caller's manageable scope tree, keyed on the verified admin scope (not email) |
@@ -171,7 +171,7 @@ Validation is a fail-fast prologue in this exact order, so a request failing sev
 | — | 400 | `invalid_request` | the body is not a JSON object |
 | — | 200 | — | `{ message }`, plus `magicLinkUrl` in test mode only |
 
-⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a founder who never verified their email, that founder is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified founder. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
+⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a claimer who never verified their email, that claimer is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified claimer. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
 
 ⚠️ **`claim-star` must be in `TURNSTILE_ENDPOINTS`, and that is a separate `Set` from `REGISTRY_ENDPOINTS`.** Only the latter is needed for the route to work, so an endpoint added to one and not the other is live and **ungated** — and `checkRateLimit` keys on a verified `sub`, so it never runs here. `checkTurnstile` also short-circuits under `NEBULA_AUTH_TEST_MODE`, which every test lane sets, so no end-to-end test can catch the omission; `isTurnstileGated()` is exported for that assertion.
 
@@ -238,7 +238,7 @@ Index-first is a seam invariant: an eviction at the awaited KV put leaves at wor
 
 ### Admin invite
 
-The invitee identity is pre-created at issuance, so the click only flips flags — no conditional mint, no founder promotion, and no Turnstile (the invite token is the proof of legitimacy).
+The invitee identity is pre-created at issuance, so the click only flips flags — no conditional mint, no admin promotion, and no Turnstile (the invite token is the proof of legitimacy).
 
 ```mermaid
 sequenceDiagram
@@ -267,7 +267,7 @@ sequenceDiagram
 
 ### Universe self-signup
 
-The one open, founder-minting claim. Forwarded to the registry, which owns every write.
+The one open, identity-minting claim. Forwarded to the registry, which owns every write.
 
 ```mermaid
 sequenceDiagram
@@ -281,12 +281,12 @@ sequenceDiagram
     R->>R: validate the email + slug, reject the reserved nebula-platform
     R->>R: checkSlugAvailable against Scopes
     R->>R: INSERT the Scopes row
-    R->>R: mint the founder Identity (isAdmin=1, emailVerified=0)
+    R->>R: mint the claiming admin Identity (isAdmin=1, emailVerified=0)
     R->>R: INSERT MagicLinks, send the email
     R-->>W: 200 { message }
     W-->>C: 200
 
-    Note over C,R: The founder proves the address by clicking, which find-and-flips emailVerified
+    Note over C,R: The claimer proves the address by clicking, which find-and-flips emailVerified
 ```
 
 ### Galaxy / Star creation (admin only)
@@ -307,7 +307,7 @@ sequenceDiagram
     W-->>C: 201
 ```
 
-`create-star` is the same shape one tier down, gated on the parent **galaxy**. Neither mints a founder — the creating admin already reaches the new scope through their wildcard pattern.
+`create-star` is the same shape one tier down, gated on the parent **galaxy**. Neither mints an identity — the creating admin already reaches the new scope through their wildcard pattern.
 
 ### Discovery
 

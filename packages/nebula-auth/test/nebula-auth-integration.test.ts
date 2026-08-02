@@ -18,7 +18,7 @@ const ORIGIN = 'http://localhost';
 const authUrl = (path: string) => `${ORIGIN}${PREFIX}/${path}`;
 const uni = () => `u${crypto.randomUUID().slice(0, 8)}`;
 
-/** Found a Universe through the browser: claim (mints founder) → click → refresh → admin JWT. */
+/** Found a Universe through the browser: claim (mints the admin) → click → refresh → admin JWT. */
 async function browserFoundUniverse(browser: Browser, slug: string, email: string): Promise<NebulaJwtPayload> {
   const claim = await browser.fetch(authUrl('claim-universe'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -159,7 +159,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
         body: JSON.stringify({ universeGalaxyId: galaxyId }),
       })).status).toBe(201);
 
-      // The current star-creation path is create-star (admin, in-session) — a Scopes row, no founder,
+      // The current star-creation path is create-star (admin, in-session) — a Scopes row, no admin identity,
       // no email, managed via the admin's `${u}.*` wildcard. (Open star self-signup is a future flow.)
       const starId = `${galaxyId}.dev`;
       const createStar = await browser.fetch(authUrl('create-star'), {
@@ -170,14 +170,14 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(createStar.status).toBe(201);
       expect((await createStar.json() as any).instanceName).toBe(starId);
 
-      // No local founder identity was minted — the admin manages it via wildcard reach (their `${u}.*`
+      // No local admin identity was minted — the admin manages it via wildcard reach (their `${u}.*`
       // token already covers the star).
       const disc = await SELF.fetch(new Request(authUrl('discover'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'owner@example.com' }),
       }));
       const scopes = (await disc.json() as Array<{ universeGalaxyStarId: string }>).map(e => e.universeGalaxyStarId);
-      expect(scopes).toEqual([u]); // only the universe founder identity; no star founder
+      expect(scopes).toEqual([u]); // only the universe admin identity; no star-scoped admin
     });
 
     it('discovery: two universes for one email → delete one scope → re-discover shows the other', async () => {
@@ -198,7 +198,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       };
       expect(await disc()).toEqual([a, b].sort());
 
-      // The B-founder deletes universe B (solo scope → no blockers). Its identity is removed.
+      // The B admin deletes universe B (solo scope → no blockers). Its identity is removed.
       const bToken = await currentToken(bB, b);
       const del = await bB.fetch(authUrl('delete-scope'), {
         method: 'POST',

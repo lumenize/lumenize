@@ -8,6 +8,8 @@
 
 The invitee then reaches everything through the **already-built scope-admin bypass** — no grant code, no new mechanism.
 
+🔀 **Both files survive; neither supersedes the other — pinned 2026-08-02.** This is the per-invitee admin **mint**; [nebula-identity-data-model.md](nebula-identity-data-model.md) is the identity **schema**, and it grows its own schema draft + phases in place rather than being handed to a new file. The only transfer between them is the `profileId` join below; that file's **D11** pins that **§4 stays here** and that this file **builds first**, so §4 lands while the scoped-admin branch is still near-vacuous.
+
 📤 **One-human-one-`profileId` moved out** (2026-07-26) → [nebula-identity-data-model.md](nebula-identity-data-model.md). *Where* that join happens follows from decisions about the identity data model (is a membership keyed on the person or the email? does a Profile exist before first verification?), so it cannot be pinned ahead of them. This file no longer specifies it.
 
 ## Frame — what exists, what's missing
@@ -60,7 +62,7 @@ Missing:
 | `{u}` (universe) | `{u}.*` | everything in the Universe |
 | `nebula-platform` | `'*'` | everything — a **super-admin invites a super-admin**, and only a super-admin can, since `matchAccess(pattern, 'nebula-platform')` is true only for `'*'` |
 
-**Nobody authenticates *at* a Galaxy, and nothing needs to.** No `Identities` row can exist at a 2-segment scope (`create-galaxy` mints no founder, and there is no `claim-galaxy`), so no refresh cookie can be set at `/auth/{u}.{g}/`. Callers authenticate at the universe and name the Galaxy in `activeScope` — the shape prod uses.
+**Nobody authenticates *at* a Galaxy, and nothing needs to.** No `Identities` row can exist at a 2-segment scope (`create-galaxy` mints no identity, and there is no `claim-galaxy`), so no refresh cookie can be set at `/auth/{u}.{g}/`. Callers authenticate at the universe and name the Galaxy in `activeScope` — the shape prod uses.
 
 **Making super-admin invitable is deliberate:** adding a coach today needs an env-var change + redeploy (`NEBULA_AUTH_BOOTSTRAP_EMAIL`), and the coach loop is the conversion layer — it must not require ops. ⚠️ Note this is *not* an audit-trail improvement: nothing persists **who** minted an admin (the `Identities` INSERT has no actor column, `InviteTokens` records only `(tokenHash, email, universeGalaxyStarId, expiresAt)`, and the sole record is a DEBUG-gated mint log), whereas the env-var path leaves a git commit *and* a deploy record. A real audit trail is out of scope here. Stranger-self-join stays closed — the bootstrap gate in `requestMagicLink` is untouched.
 
@@ -112,7 +114,7 @@ Only **B** needs the promote step, and it is the only case that touches KV at is
    - **Success:** an invited→accepted collaborator **posts + triggers a Nebula reply** and **creates a test user** in the `.dev` Star; a **non-enrolled but AUTHENTICATED** identity (valid JWT, no admin/grant over `{u}.{g}`) is **denied by the permission/reach check, not a 401**. Regression: the invite stays **single-use**. *(Behavioral half rides the collapse task's `/live` drive: `wrangler dev` + Docker, not pool-workers.)*
 4. **Clear this task's `it.skip` debt (after Phase 1, which is what unblocks it — the per-invitee `isAdmin` flag plus `createSubject`'s wiring; nothing in Phase 2 affects a login or a scope deletion).** Larry, 2026-07-25: the suite should be as clean as possible before the collapse starts, and this file is the one that moves the needle on the `.dev`-login blocker.
 
-   **Why these are blocked here:** the `ui-smoke` lane logs in *at* `test-u0.test-g0.dev`, and a `.dev` star is founderless by construction — `create-star` mints no founder and `claim-star` refuses the reserved slug, so no `Identities` row (and therefore no refresh cookie at `/auth/{u}.{g}.dev/`) can exist there. `issueInvites` is already generic on scope, so inviting an admin **into the `.dev` scope** mints exactly that row.
+   **Why these are blocked here:** the `ui-smoke` lane logs in *at* `test-u0.test-g0.dev`, and a `.dev` star has no star-scoped admin by construction — `create-star` mints no identity and `claim-star` refuses the reserved slug, so no `Identities` row (and therefore no refresh cookie at `/auth/{u}.{g}.dev/`) can exist there. `issueInvites` is already generic on scope, so inviting an admin **into the `.dev` scope** mints exactly that row.
 
    **Inventory re-derived 2026-07-26 against current code — 14 skips, of which this file owns 3:**
 

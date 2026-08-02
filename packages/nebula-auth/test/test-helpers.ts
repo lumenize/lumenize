@@ -7,7 +7,7 @@
  * needed but the real issuance + consume + KV + JWT-mint code paths are exercised end-to-end.
  *
  * Two ways to establish an identity (login verify NEVER mints — a raw email can't just self-join):
- *  - `foundUniverse` — self-signup mints the founder identity at claim, then logs in (admin).
+ *  - `foundUniverse` — self-signup mints the admin identity at claim, then logs in (admin).
  *  - `inviteAndLogin` — an admin mints an invitee identity, then the invitee accepts + logs in (member).
  */
 import { expect } from 'vitest';
@@ -30,7 +30,7 @@ export function registryUrl(endpoint: string): string {
   return `${ORIGIN}${PREFIX}/${endpoint}`;
 }
 
-/** Claim a Universe (self-signup — MINTS the founder identity). Returns the test-mode magic-link URL. */
+/** Claim a Universe (self-signup — MINTS the admin identity). Returns the test-mode magic-link URL. */
 export async function claimUniverse(self: Fetcher, slug: string, email: string): Promise<string> {
   const resp = await self.fetch(new Request(registryUrl('claim-universe'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -43,7 +43,7 @@ export async function claimUniverse(self: Fetcher, slug: string, email: string):
 }
 
 /**
- * Claim a Star (OPEN self-signup — mints the exact-star founder). Returns the whole response so
+ * Claim a Star (OPEN self-signup — mints the exact-star admin). Returns the whole response so
  * callers can assert the reject codes; on success the test-mode body carries `magicLinkUrl`.
  */
 export async function claimStar(self: Fetcher, universeGalaxyStarId: string, email: string): Promise<Response> {
@@ -53,7 +53,7 @@ export async function claimStar(self: Fetcher, universeGalaxyStarId: string, ema
   }));
 }
 
-/** Create a Galaxy (admin-gated, `Scopes` row only, NO founder). */
+/** Create a Galaxy (admin-gated, `Scopes` row only, NO admin identity). */
 export async function createGalaxy(self: Fetcher, universeGalaxyId: string, adminToken: string): Promise<Response> {
   return self.fetch(new Request(registryUrl('create-galaxy'), {
     method: 'POST',
@@ -102,7 +102,7 @@ export async function refreshAndParse(
   return { ...body, parsed: parseJwtUnsafe(body.access_token)!.payload };
 }
 
-/** Found a Universe end-to-end: claim (mint founder) → click → refresh. Returns an ADMIN token. */
+/** Found a Universe end-to-end: claim (mint the admin) → click → refresh. Returns an ADMIN token. */
 export async function foundUniverse(self: Fetcher, slug: string, email: string) {
   const magicLink = await claimUniverse(self, slug, email);
   const { refreshToken, setCookie } = await clickLink(self, magicLink);
@@ -130,7 +130,7 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
 }
 
 /**
- * Found a Star end-to-end **as its own founder** → an `isAdmin=1` identity at the full 3-segment id
+ * Found a Star end-to-end **as its own star-scoped admin** → an `isAdmin=1` identity at the full 3-segment id
  * with an EXACT-STAR `authScopePattern` (`claimStar` stamps it — `nebula-auth-registry.ts`).
  *
  * This is the only real (ADR-009 rung 1) path to a **sub-universe admin** identity, which is what any

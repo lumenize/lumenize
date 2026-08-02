@@ -20,7 +20,7 @@ Both passed review repeatedly because each looked locally reasonable. The upward
 
 **Authority flows strictly downward along the scope tree, and only downward.**
 
-1. **Downward is total and non-vetoable.** A principal whose `authScopePattern` covers a node has full authority over that node and everything beneath it. Descendants — including a scope's own founder or members — can never veto, block, or attenuate an admin above them. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
+1. **Downward is total and non-vetoable.** A principal whose `authScopePattern` covers a node has full authority over that node and everything beneath it. Descendants — including a scope's own members — can never veto, block, or attenuate an admin above them. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 
 2. **Upward is nil.** A principal has **no** authority over any node its pattern does not cover. The bare `admin` bit is never authority by itself; authority is always the pair (`admin` ∧ pattern-covers-this-node).
 
@@ -31,12 +31,12 @@ Both passed review repeatedly because each looked locally reasonable. The upward
 ## Alternatives considered
 
 - **Let members block deletion of a shared scope.** The status quo before this ADR. Protects real users from a careless admin, but inverts the model: it makes authority conditional on the consent of those it governs. Under open Star self-signup it also becomes an attack — a squatter holds a slug hostage precisely because they are an "other user."
-- **A narrow carve-out: only unblock when the scope has a single founder.** Proposed and rejected 2026-07-21. It treats the symptom; the veto is wrong for every descendant, not just the single-member case, and a predicate carve-out leaves the inverted principle in place to resurface elsewhere.
+- **A narrow carve-out: only unblock when the scope has a single member.** Proposed and rejected 2026-07-21. It treats the symptom; the veto is wrong for every descendant, not just the single-member case, and a predicate carve-out leaves the inverted principle in place to resurface elsewhere.
 - **Close the upward leak by tightening `enforceScopeReach`'s tenant branch.** Rejected: that is admission, not authority. Narrowing it breaks legitimate non-admin upward reads (a Star fetching its app's ontology) while leaving the actual defect — guards trusting a bare bit — untouched.
 - **Rely on review to catch violations.** Empirically insufficient: both violations survived multiple passes, and a third was proposed during the very session that fixed the second.
 
 ## Consequences
 
-- **Positive.** One predicate to audit instead of a scattered conjunction. Open Star self-signup becomes implementable: a star founder's exact-star pattern is inert above its own Star by construction, which is what makes an unauthorized signup safe. Remediation works: a covering admin can always clean up beneath them.
+- **Positive.** One predicate to audit instead of a scattered conjunction. Open Star self-signup becomes implementable: a star-scoped admin's exact-star pattern is inert above its own Star by construction, which is what makes an unauthorized signup safe. Remediation works: a covering admin can always clean up beneath them.
 - **Negative / accepted.** A careless admin can destroy a descendant scope that other people are actively using; the only guard is the warning surface. That is deliberate — the alternative inverts the model — but it raises the stakes on delete-confirmation UX, which must carry enough context (attached users, last login, activity) for an informed decision.
 - **Deliberately open.** Which reads are tenant-facing is a per-method guard decision (point 3), not covered here. An allocation inherited from before a tier existed is a latent trap: re-confirm each non-admin `@mesh()` on an ancestor against who can actually reach it today, and record the reason.

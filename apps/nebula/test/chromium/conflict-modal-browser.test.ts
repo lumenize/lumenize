@@ -47,12 +47,12 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
     const baseUrl = proxyBaseUrl();
     const testToken = inject('emailTestToken');
 
-    // Provision the tree and log in as the STAR's founder (open `claim-star`), leaving cookies for
-    // both the universe founder and the star founder in chromium's jar.
+    // Provision the tree and log in as the STAR's own admin (open `claim-star`), leaving cookies for
+    // both the universe admin and the star-scoped admin in chromium's jar.
     const { universe, galaxy: galaxyName } = await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     // Install the 'todo' ontology as the USER-DEVELOPER — i.e. authenticated at the UNIVERSE, whose
-    // founder's `{u}.*` reach covers the Galaxy. ⚠️ Not as the star founder: an exact-star pattern is
+    // universe admin's `{u}.*` reach covers the Galaxy. ⚠️ Not as the star-scoped admin: an exact-star pattern is
     // inert at every ancestor (ADR-015), so `callGalaxyAppendOntologyVersion` from the tenant is
     // correctly refused and the transaction below then fails `ontology-stale`. That separation is the
     // real model — the app developer publishes the ontology, the tenant consumes it.

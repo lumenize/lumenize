@@ -240,7 +240,7 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  * Star slugs a stranger may NOT self-claim via `claim-star`.
  *
  * A star id's third segment is one slot holding two kinds of value: a **tenant** slug (self-claimed,
- * founder-minted) or a reserved **environment** name (admin-created and founderless via `createStar`).
+ * self-claimed admin identity) or a reserved **environment** name (admin-created and no identity minted, via `createStar`).
  * There is no structural separator between them — this list is the only thing keeping the two apart.
  *
  * `dev` is reserved by structure, not by policy: `nebula-client` hardcodes `${galaxy}.dev` as the

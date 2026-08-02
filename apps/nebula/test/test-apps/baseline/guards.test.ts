@@ -74,8 +74,8 @@ describe('guard enforcement', () => {
       adminClient[Symbol.dispose]();
     });
 
-    // ⚠️ ONE founder per universe. `claim-universe` is the only founder-minting path and the slug is
-    // unique, so a universe cannot hold two distinct founder admins — the old fixture's separate
+    // ⚠️ ONE admin per universe. `claim-universe` is the only admin-minting path and the slug is
+    // unique, so a universe cannot hold two distinct admins — the old fixture's separate
     // `star-admin@` + `universe-admin@` identities are unmintable. There is likewise no "star-level
     // admin" tier: an invite mints `isAdmin: false`, so every admin's pattern is `{u}.*` (or `*`).
     // The property under test survives intact, and is now exercised more precisely: the second client
@@ -87,7 +87,7 @@ describe('guard enforcement', () => {
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
-      // Founder (pattern `{universe}.*`) at the star aud — creates the Star DO.
+      // Universe admin (pattern `{universe}.*`) at the star aud — creates the Star DO.
       const starBrowser = new Browser();
       const { client: starClient } = await adminClientAt(
         NebulaClientTest, starBrowser, star, star, 'admin@example.com',
