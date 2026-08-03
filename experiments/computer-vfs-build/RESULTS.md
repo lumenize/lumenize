@@ -15,6 +15,9 @@ there is nothing to isolate.
 | Does container state outside the mount survive between execs? | ✅ **Yes** (§6) |
 | Does it add a `zod` dependency? | ✅ **No — and the swap REMOVES one** (§7) |
 | Net startup cost vs `@cloudflare/shell` | ✅ **−12.4 ms, −207 KiB** (§7b) |
+| Does the native Tailwind oxide plugin run on the mount? | ✅ **Yes — verified, real JIT CSS** (§7c) |
+| Can `node_modules` live in the VFS and survive container death? | ✅ **Yes — but it costs ~2.3 s/build** (§7c) |
+| Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
 
 ---
 
@@ -180,6 +183,86 @@ do very little at module scope, which is the distinction that actually governs s
 to startup and to the bundle** — none of it is in the import graph — but worth knowing for CI
 install time. This is exactly the case `workflow.md` means by *"never gate on byte count."*
 
+## 7c. ROUND 2 — the native Tailwind plugin really runs, and deps-in-the-VFS is a real option
+
+Round 1 baked `node_modules` outside the mount and recommended keeping it there. **That
+recommendation did not consider that the container is EPHEMERAL**, so any dep not in the image is
+reinstalled on *every* turn, not just the turn that added it. Round 2 asks the question round 1
+skipped. (Prompted by Larry, 2026-08-03.)
+
+### The native Tailwind oxide plugin runs — verified, not assumed
+
+This is the capability that forces a container to exist at all ([[studio-keep-container-native-tide]]),
+so "the build ran" is a weaker claim than "oxide ran". Both now hold:
+
+```
+probe_oxide_native -> /node_modules/@tailwindcss/oxide-linux-x64-gnu/tailwindcss-oxide.linux-x64-gnu.node
+build stdout       -> vite v6.4.3 … /*! 🌼 daisyUI 5.7.14 */ … ✓ 1561 modules transformed
+                      dist/assets/index-JvU8UIWX.css  14.58 kB │ gzip: 3.66 kB
+css probe          -> 14584 bytes of real JIT output
+```
+
+The native `.node` binary is present and the build emits genuine Tailwind v4 JIT CSS. **The whole
+real toolchain — vite 6, `@vitejs/plugin-vue`, `@tailwindcss/vite` + oxide, daisyUI — runs against
+the FUSE mount.**
+
+### Deps in the VFS survive container death — confirmed
+
+| step | time | note |
+|---|---:|---|
+| `copy_deps_into_vfs` (one-time seed) | **11 753 ms** | 115 MB / 4604 files crossing into DO SQLite |
+| `verify_deps_in_vfs` | 1152 ms | 113 MB / 4604 files present |
+| build, deps in VFS, cold FUSE cache | **11 530 ms** | vite self-reported 9.87 s |
+| **build on a NEW container, no seed step** | **6816 ms** | vite self-reported 4.11 s |
+
+The last row is the important one: the previous container was **destroyed**, a fresh one booted,
+**no seed ran**, and the build still succeeded — so `/workspace/node_modules` was still there,
+because the VFS lives in Galaxy's SQLite. **Durable `node_modules` across ephemeral containers
+works.**
+
+### The trade-off, and why it is not the one-liner either of us assumed
+
+| model | per-turn build | install cost |
+|---|---:|---|
+| deps baked outside the mount (round 1) | **~4.5 s** | 0 s **while the user stays inside the baked set** — but **2.3–6.6 s on EVERY turn** once they add anything outside it, because the container is ephemeral |
+| deps in the VFS | **~6.8 s** | 0 s, always, after an 11.7 s one-time seed |
+
+So it is **+2.3 s on every turn** against **−2.3 to −6.6 s on every turn after the user's first
+non-baked dependency**. Not "rare turn" vs "common turn" — that framing was wrong in round 1,
+and it is what made the baked recommendation look free.
+
+### ⇒ The hybrid is what both measurements point at
+
+Node resolution from `/workspace/app` walks `/workspace/app/node_modules` → `/workspace/node_modules`
+→ `/node_modules`. That is the same property round 1 exploited to keep deps out of the VFS, and it
+supports a **two-tier** tree:
+
+- **baked set at `/node_modules`** (ext4, outside the mount) — the curated libs, fast reads, no
+  per-turn FUSE cost, no durable storage cost;
+- **user-added deps at `/workspace/app/node_modules`** (in the VFS) — durable across ephemeral
+  containers, installed once and never again, and **only those few packages pay the FUSE penalty**,
+  so the per-turn cost scales with what the user added rather than with the whole 115 MB tree.
+
+⚠️ **Measured endpoints only — the hybrid itself is NOT yet measured.** 4.5 s (all baked) and 6.8 s
+(all VFS) bracket it; the mechanism (resolution walk) is verified but the middle of the range is an
+inference. Measure before pinning.
+
+ⓘ This also interacts with the separate **http(s)-imports-only** proposal, which was motivated by
+exactly this install cost. If deps become durable in the VFS, that proposal's main justification
+weakens — it should be re-derived rather than inherited.
+
+### 7d. ⚠️ `destroy()` during a live Workspace session tears the capnweb wire
+
+`mode=recycle` (calling `ctx.container.destroy()` from inside a request that already holds a
+Workspace session) failed the whole request with
+`Peer closed WebSocket: 1006 WebSocket disconnected without sending Close frame.` The next request
+reconnected fine against a fresh container.
+
+⇒ **The ephemeral `start()` … `destroy()` cycle must not run while a Workspace session is open**, or
+it must tolerate a 1006 and reconnect. The collapse's build-box drive does `destroy()` after
+delivering `dist` — that is exactly this shape, so it needs an explicit teardown order rather than
+inheriting round 1's assumption that `destroy()` is a fire-and-forget.
+
 ## 8. Method notes — read before citing anything above
 
 - **Within-container A/B by design.** container-cold-start-probe measured colo as a ~3.5×
@@ -213,7 +296,9 @@ install time. This is exactly the case `workflow.md` means by *"never gate on by
    contact with the measurement, and the design win is real: `applyChanges` /
    `syncToDevContainer` and the bespoke dist-return **are deleted, not ported** (§3).
 2. **Budget ~3 s of cold start, not ~1–2 s** (§2), and keep it behind LLM latency.
-3. **Keep `node_modules` baked outside the VFS.** Both the mount design and the vendor's
-   `npm install` numbers point the same way.
+3. **`node_modules` placement is NOT settled — go two-tier.** Round 1's "keep it baked" ignored that
+   the ephemeral container reinstalls any non-baked dep on *every* turn. Baked set on ext4, user-added
+   deps in the VFS (§7c). The hybrid's middle is unmeasured; measure before pinning.
 4. **Container-side real git** for any repo-to-repo work (§5); Artifacts stays a later swap.
+6. **Order the container teardown explicitly** — `destroy()` during a live Workspace session fails the request (§7d).
 5. **No zod guard needed** — `computer` has none, and dropping `shell` removes the path we already have (§7). The swap is also **−12.4 ms of startup and −207 KiB of bundle** (§7b).
