@@ -20,12 +20,32 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
   ⓘ **`apps/nebula-studio-ui`'s `unplugin-swc` comment is now partly stale** — it blames esbuild, but esbuild shipped TC39 decorator support in **0.21.0 (2024-05-07)** and vite 6 resolves **0.25.12**, which passes both probe arms. Re-verify whether that workaround is still needed *on vite 6* before carrying it forward.
 
+  ✅ **RESOLVED — use `unplugin-swc`, the plugin we already run. No build step needed.** Verified 2026-08-03 on 1030 lines / 180 decorated methods, 3 runs each:
+
+  | arm | build | delta | output |
+  |---|---|---:|---|
+  | no plugin | 243 / 243 / 242 ms | — | ❌ decorators emitted verbatim, exit 0 |
+  | **`unplugin-swc`** (what studio-ui already uses) | 379 / **261 / 258** ms | **~+16 ms** | ✅ clean, runs |
+  | `@rolldown/plugin-babel` + `@babel/plugin-proposal-decorators` | 403 / 388 / 385 ms | ~+145 ms | ✅ clean, runs |
+
+  ⚠️ **My two earlier "`unplugin-swc` FAILS under vite 8" claims were WRONG — a scoping error, reported twice as a verdict on the plugin.** Both plugins default to **excluding `node_modules`**, so a decorated *dependency* is skipped and the build **silently emits broken output at exit 0**. Widening `include`/`exclude` to cover the decorated package is the whole fix. ⚠️ That silent-exit-0 default is the real footgun here and is worth a comment wherever it is configured.
+
+  ⇒ **This retires the pre-compile plan as the preferred path** (see below) — swc costs ~16 ms per build against ~2.5–3.4 s, needs **no build step**, and keeps source-runs-directly intact per `workflow.md` § *No build during development*. It also answers the long-standing *"not sure why we use swc"*: the reason in `apps/nebula-studio-ui/vite.config.ts` (esbuild lacks decorators) went stale in 2024, but the plugin is still required — now for rolldown/oxc, which genuinely does not transform them.
+
+  ⓘ babel notes if it is ever needed as a fallback: `@rolldown/plugin-babel@0.2.3` peers `vite: ^8.0.0`; use `version: '2023-11'`; `@babel/plugin-proposal-decorators@8` requires `@babel/core@^8` which is still **RC**, so pin the babel 7 line (7.29.7 verified).
+
+  <details><summary>Superseded: the babel arm and the pre-compile plan (kept for the measurements)</summary>
+
   ✅ **A babel plugin DOES work — verified 2026-08-03 (Larry's suggestion).** `@rolldown/plugin-babel@0.2.3` (peers `vite: ^8.0.0`) + `@babel/plugin-proposal-decorators` at `version: '2023-11'` transforms the decorators correctly: zero `@mesh` left in the output, bundle runs, decorator marks applied. **Cost measured at realistic volume** (1030 lines / 180 decorated methods): **~390 ms with babel vs ~243 ms without**, so **≈145 ms per build** — about 5 % of a 2.5–3.4 s user turn.
   - ⚠️ **The load-bearing detail, and it is a footgun:** the plugin's `exclude` **defaults to `/node_modules/`**, so a decorated *dependency* is skipped by default and the build **silently emits broken output at exit 0**. It only works once `exclude` is narrowed to opt that package in. (This default almost certainly also explains why `unplugin-swc` appeared to "not work" in the first pass — that arm was probably mis-scoped, not incompatible.)
   - ⚠️ `@babel/plugin-proposal-decorators@8` requires `@babel/core@^8`, still **RC** — pin the babel 7 line (`7.29.7` verified).
 
   **Unblock paths, best first:** (1) **pre-transform the vendored frontend** — vendor a compiled-JS build of `@lumenize/nebula/frontend` into the container image instead of raw TS, so no decorator ever reaches the user's bundler (also the normal way to ship a client library, and it removes the raw-TS-from-node_modules oddity); (2) **the babel plugin above** — no new build infrastructure, but it pays ~145 ms *every turn* rather than once, adds three deps to every user-developer's build chain, and its correctness rests on an `exclude` override whose failure mode is a silent exit-0; (3) wait for oxc decorator support; (4) stay on vite 6.
-  ⇒ **Path 1 stays preferred, and the reason is NOT performance** (145 ms is affordable). It is that the vendoring step **does not exist yet at all**, so vendoring compiled JS is the *same work* as vendoring raw TS — and it additionally retires the `@ts-expect-error` in `nebula.ts`, gives the user a real `.d.ts`, keeps babel out of every generated app, and removes the silent-failure surface entirely. Path 2 is the right fallback if the compile step turns out to be expensive. **The 4–5.8× win is real and still worth chasing** — see [experiments/computer-vfs-build/RESULTS.md](../experiments/computer-vfs-build/RESULTS.md) § *vite 8 deletes the bundling cliff*.
+  ⇒ **Path 1 stays preferred, and the reason is NOT performance** (145 ms is affordable). It is that the vendoring step **does not exist yet at all**, so vendoring compiled JS is the *same work* as vendoring raw TS — and it additionally retires the `@ts-expect-error` in `nebula.ts`, gives the user a real `.d.ts`, keeps babel out of every generated app, and removes the silent-failure surface entirely. Path 2 is the right fallback if the compile step turns out to be expensive.
+  </details>
+
+  ⚠️ **Why the pre-compile path was DROPPED, and it is not the 16 ms.** Larry (2026-08-03): the repo previously had hours-long death loops blamed on build caches, which stopped when the compile step was removed from `packages/*`. That is not stale history — it is codified as `workflow.md` § *No build during development* (*"never add or run a build step in the dev loop … doom loops chasing build caches, `dist/`-vs-`src/` confusion, and stale output"*). A vendored pre-compiled frontend would have to be staged out of `apps/nebula/src/` into the image context by a script, and **a staged copy that lags its source is exactly the `dist/`-vs-`src/` shape the rule exists to prevent**. The earlier recommendation weighed correctness and per-turn cost but never weighed that rule — the plugin path keeps source running directly and costs 16 ms.
+  ⓘ **Publish-time compile was also considered and rejected:** `apps/nebula` is `UNLICENSED` and not published, and `build-packages.sh` discovers `packages/` only — so this would mean extracting the frontend into a published package (a licensing/business decision) **and** coupling user-developer app capability to our release cadence, which is the wrong coupling while the frontend is still changing. **The 4–5.8× win is real and still worth chasing** — see [experiments/computer-vfs-build/RESULTS.md](../experiments/computer-vfs-build/RESULTS.md) § *vite 8 deletes the bundling cliff*.
 
   <details><summary>Original plan (still accurate on everything EXCEPT "nothing blocks it")</summary>
 
