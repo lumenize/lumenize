@@ -49,7 +49,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
       - name: Install + setup (shared scripts/ci-install.sh)
@@ -108,7 +108,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: ''
 
       - name: Install + setup (shared scripts/ci-install.sh)
@@ -140,7 +140,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
           cache: ''  # Disable built-in npm caching to avoid conflicts
 
       - name: Install + setup (shared scripts/ci-install.sh)

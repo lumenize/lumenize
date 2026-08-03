@@ -41,13 +41,13 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.934.0",
-    "@types/node": "^25.5.0",
+    "@types/node": "^24.13.3",
     "@vitest/coverage-istanbul": "^4.1.4",
     "terser": "^5.44.0",
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "optionalDependencies": {
     "@esbuild/linux-arm64": "^0.27.3",

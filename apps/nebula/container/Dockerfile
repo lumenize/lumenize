@@ -13,9 +13,9 @@
 #
 # Deploy: `wrangler deploy` pushes this image via Docker Desktop + WARP
 # ([[cf-container-deploy-proxy]]); CI is the headless fallback.
-FROM node:22-slim
+FROM node:24-slim
 
-# node:22-slim ships no git; DevStudio's optional Artifacts `git pull` (future) and
+# node:24-slim ships no git; DevStudio's optional Artifacts `git pull` (future) and
 # general tooling need it (container-vite spike finding).
 RUN apt-get update && apt-get install -y --no-install-recommends git \
   && rm -rf /var/lib/apt/lists/*

@@ -1,10 +1,13 @@
 # Spike image: computerd (FUSE-mounted VFS) + the REAL Nebula app scaffold's baked deps.
 #
 # Base recipe is lifted verbatim from cloudflare/computer's examples/container Dockerfile
-# (debian:stable-slim + nodesource node 22 + fuse3), because that combination is the one
-# proven to mount computerd's FUSE backend. node:22-slim was NOT used: it is bookworm-based
-# and wants `libfuse2`, while the t64 transition renamed it `libfuse2t64` on trixie — the
-# example's base is what the daemon is actually tested against.
+# (debian:stable-slim + nodesource node 24 + fuse3), because that combination is the one
+# proven to mount computerd's FUSE backend. The official `node:*-slim` image was NOT used:
+# it is bookworm-based and wants `libfuse2`, while the t64 transition renamed it
+# `libfuse2t64` on trixie — the example's base is what the daemon is actually tested
+# against. That reason is about the DEBIAN RELEASE, not the Node major, so it survives the
+# 22→24 bump unchanged: `node:24-slim` is still bookworm (verified 2026-08-03), so swapping
+# to the official image would reintroduce exactly the libfuse mismatch this base avoids.
 #
 # FUSE_MOUNT=auto: Cloudflare Containers expose /dev/fuse so the real kernel backend mounts;
 # `wrangler dev` does NOT, and it falls back to a userspace shim. That divergence is the
@@ -20,7 +23,7 @@ RUN apt-get update \
  && mkdir -p /etc/apt/keyrings \
  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
       | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
- && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" \
+ && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       > /etc/apt/sources.list.d/nodesource.list \
  && apt-get update \
  && apt-get install -y --no-install-recommends nodejs \

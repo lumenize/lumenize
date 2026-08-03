@@ -159,6 +159,15 @@ Source runs directly — **never add or run a build step in the dev loop.** vite
 
 **Enumerate over the `workspaces` list, not a `packages/*` glob** — `doc-test/*/*` is a workspaces entry and is easy to miss (`npm ls @cloudflare/vitest-pool-workers --all`). An experiment that declares `wrangler` *without* pool-workers has nothing pinning it forward, which is how stale experiments hoist an ancient wrangler to the repo root.
 
+### The Node major and the CF triple are INDEPENDENT axes — bump them separately
+**Baseline: Node 24 LTS ("Krypton").** Six surfaces carry it and must move in one sweep, or the lanes silently disagree: root `engines` · `.nvmrc` · `@types/node` (root + `tooling/check-examples` + `tooling/doc-testing`) · every `node-version:` in `.github/workflows/` · `apps/nebula/container/Dockerfile` (`node:24-slim`) · `experiments/computer-vfs-build/Dockerfile` (nodesource `node_24.x`).
+
+⚠️ **A Node bump does NOT imply a toolchain-triple bump, and conflating them destroys your ability to read a failure.** wrangler/miniflare declare `node >=22.0.0`, so a Node major inside that floor costs the triple nothing — measured 2026-08-03: the entire suite went green on Node 24 with pool-workers/wrangler/miniflare **completely unchanged**, before a single dependency moved. Bumping both at once would have put a runtime major (miniflare 4→5) on the same commit as the Node major, so any red would be unattributable — the exact opposite of the "treat an unexplained failure as signal" rule above. **Establish the new Node on the pinned triple first, then bump the triple on its own budget.**
+
+⚠️ **`@types/node` tracks the RUNTIME major, never "latest".** Types ahead of the runtime typecheck code against APIs that don't exist at runtime — a green `type-check` that ships a `TypeError`. The root pin had drifted to `^25` while the runtime was 22; Node 24 + `@types/node@^24` closes it.
+
+⚠️ **npm 11 (bundled with Node 24) WARNS about lifecycle scripts but still RUNS them.** `npm warn allow-scripts … not yet covered by allowScripts` fires for `workerd`/`esbuild` on every install and reads exactly like a block — it is not. Verified 2026-08-03 with a sentinel postinstall that wrote a marker file: the marker appeared. Do **not** "fix" this by adding an `allowScripts` allowlist or re-running installs; treat the warning as noise **until npm actually enforces it**, at which point `npm ci` in CI is what breaks (per §4, re-derive then — don't pre-build the guard now). Note the binaries would survive enforcement anyway: workerd/esbuild ship theirs via **optional platform deps**, and the postinstall is only the fallback.
+
 ## Releases
 All packages publish together with synchronized versions (Lerna); publish scripts repoint `package.json` from `src/` to `dist/`, then revert (the only time a build runs). Favor breaking changes over technical debt — they bump major semver and need the next release flagged. Use `/release-workflow`.
 
