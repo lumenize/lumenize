@@ -12,11 +12,12 @@
     "lucide-vue-next": "^0.469.0",
     "vue": "^3.5.13"
   },
+  "//vite8": "vite 8 is the ROLLDOWN release — it drops rollup AND esbuild for the Rust bundler. Measured on this exact scaffold (experiments/computer-vfs-build/RESULTS.md): the build is 4-5.8x faster once a user-developer adds real libraries — `+ echarts` 11.5-15.5s -> 2.8s, four heavy libs 18.5s -> 3.4s. That turns '+14s for four heavy deps' into '+1s'. Bumped 2026-08-03. `@vitejs/plugin-vue` 5->6 is required (v5 does not peer-declare vite 8).",
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.2",
-    "vite": "^6.0.7"
+    "vite": "^8.2.0"
   }
 }
