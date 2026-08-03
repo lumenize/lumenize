@@ -87,6 +87,7 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
 
     try {
       const mode = url.searchParams.get("mode");
+      if (mode === "hybrid") return Response.json(await this.#hybrid());
       if (mode) return Response.json(await this.#incremental(mode));
       const reps = Number(url.searchParams.get("reps") ?? "2");
       return Response.json(await this.#bench(reps));
@@ -180,6 +181,96 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     await exec(`${where}_css_probe`, `cat ${FUSE_APP}/dist/assets/*.css 2>/dev/null | wc -c && grep -l 'tailwind\\|--tw-' ${FUSE_APP}/dist/assets/*.css 2>/dev/null | head -2`);
 
     return { mode, steps };
+  }
+
+  /**
+   * ROUND 3 (2026-08-03) — the three hybrids.
+   *
+   * Round 2 measured the two ENDPOINTS: all deps baked on ext4 (~4.5 s/build) vs all deps in
+   * the VFS (~6.8 s/build, durable across container death). Neither is the shape we would
+   * ship. Three candidates, all using `lucide-vue-next` as the stand-in "user-added dep"
+   * because the seed App.vue genuinely imports from it, so the build really resolves it:
+   *
+   *   H1  resolution-walk hybrid — baked set stays on ext4 at /node_modules, the user dep
+   *       lives in the VFS at /workspace/app/node_modules. Node's upward walk finds the
+   *       nearer (VFS) copy first. Only the user's own packages pay FUSE.
+   *   H2  copy-in hybrid (Larry's) — the user dep is DURABLE in the VFS but is bulk-copied
+   *       onto ext4 before the build, so the build itself touches no FUSE for deps. Trades
+   *       one sequential copy against thousands of small FUSE reads. The vendor's bench
+   *       splits on exactly this axis, so it is not obvious which wins.
+   *   H3  npm-cache hybrid — leave node_modules alone entirely and persist npm's CACHE in
+   *       the VFS, so a real `npm install` runs offline. Needs registry egress to evaluate
+   *       honestly, which is itself worth probing given the backend installs an
+   *       interceptOutboundHttp hook on connect.
+   */
+  async #hybrid() {
+    const steps: Step[] = [];
+    const ws = await getWorkspace(this);
+    let last = Date.now();
+    const mark = (name: string, extra: Partial<Step> = {}) => {
+      const now = Date.now();
+      steps.push({ name, ms: now - last, ...extra });
+      last = now;
+    };
+    const exec = async (name: string, command: string, cwd?: string) => {
+      const handle = await ws.runtime.exec(command, {
+        cwd,
+        encoding: "utf8",
+        env: EXEC_ENV,
+        timeoutMs: BUILD_TIMEOUT_MS,
+      });
+      const r = await handle.result();
+      mark(name, {
+        exitCode: r.exitCode,
+        pushed: r.pushed,
+        pulled: r.pulled,
+        note: r.exitCode === 0 ? `${r.stdout}`.trim().slice(-300) : `${r.stderr}`.slice(-400),
+      });
+      return r;
+    };
+
+    const USER_DEP = "lucide-vue-next"; // the seed App.vue imports { House } from this
+    const VFS_DEPS = `${FUSE_APP}/node_modules`;
+
+    await exec("boot", "node -v");
+
+    // Source into the VFS, as codegen would.
+    await ws.fs.mkdir(`${FUSE_APP}/src`, { recursive: true });
+    for (const [rel, content] of Object.entries(SEED_APP)) {
+      await ws.fs.writeFile(`${FUSE_APP}/${rel}`, content);
+    }
+    mark("write_seed_into_vfs", { note: `${SEED_FILE_COUNT} files / ${SEED_BYTES} B` });
+
+    await exec("measure_user_dep", `du -sh /node_modules/${USER_DEP} && find /node_modules/${USER_DEP} -type f | wc -l`);
+
+    // ---- H0: control — everything baked on ext4, source in the VFS (round 1's shape) -----
+    await exec("H0_all_baked_build", "rm -rf dist && vite build 2>&1 | tail -3", FUSE_APP);
+
+    // ---- H1: resolution-walk hybrid ------------------------------------------------------
+    // Move the user dep into the VFS and DELETE it from ext4, so resolution is forced to the
+    // FUSE copy. Deleting is what makes this a real test rather than a shadowed no-op.
+    await exec("H1_setup_move_dep_to_vfs",
+      `mkdir -p ${VFS_DEPS} && cp -r /node_modules/${USER_DEP} ${VFS_DEPS}/${USER_DEP} && rm -rf /node_modules/${USER_DEP}`);
+    await exec("H1_verify_resolution",
+      `node -e "console.log(require.resolve('${USER_DEP}/package.json',{paths:['${FUSE_APP}']}))"`);
+    await exec("H1_build_dep_from_vfs", "rm -rf dist && vite build 2>&1 | tail -3", FUSE_APP);
+
+    // ---- H2: copy-in hybrid — durable in VFS, bulk-copied to ext4 before building ---------
+    await exec("H2_copy_vfs_dep_to_ext4", `cp -r ${VFS_DEPS}/${USER_DEP} /node_modules/${USER_DEP}`);
+    // Hide the VFS copy so the build cannot silently keep using it.
+    await exec("H2_hide_vfs_dep", `mv ${VFS_DEPS}/${USER_DEP} ${VFS_DEPS}/.${USER_DEP}-hidden`);
+    await exec("H2_verify_resolution",
+      `node -e "console.log(require.resolve('${USER_DEP}/package.json',{paths:['${FUSE_APP}']}))"`);
+    await exec("H2_build_dep_from_ext4", "rm -rf dist && vite build 2>&1 | tail -3", FUSE_APP);
+
+    // ---- H3 groundwork: is the registry even reachable, and where does npm cache? ---------
+    // The container backend calls interceptOutboundHttp(egressHost, workspace) on connect, so
+    // "does a tenant container have npm egress" is a live question, not an assumption.
+    await exec("H3_probe_npm_cache_dir", "npm config get cache && du -sh $(npm config get cache) 2>/dev/null || echo no-cache-yet");
+    await exec("H3_probe_registry_egress",
+      "curl -s -o /dev/null -w 'registry_http=%{http_code} time=%{time_total}s' --max-time 20 https://registry.npmjs.org/lucide-vue-next || echo EGRESS_BLOCKED");
+
+    return { steps };
   }
 
   async #bench(reps: number) {

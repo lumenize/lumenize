@@ -16,7 +16,9 @@ there is nothing to isolate.
 | Does it add a `zod` dependency? | ✅ **No — and the swap REMOVES one** (§7) |
 | Net startup cost vs `@cloudflare/shell` | ✅ **−12.4 ms, −207 KiB** (§7b) |
 | Does the native Tailwind oxide plugin run on the mount? | ✅ **Yes — verified, real JIT CSS** (§7c) |
-| Can `node_modules` live in the VFS and survive container death? | ✅ **Yes — but it costs ~2.3 s/build** (§7c) |
+| Can `node_modules` live in the VFS and survive container death? | ✅ Yes — **but it is not worth it** (§7c, §7e) |
+| Best `node_modules` placement? | ✅ **ext4 — both hybrids lose** (§7e) |
+| Does a tenant container have npm registry egress? | ✅ **Yes, HTTP 200 in 46–57 ms** (§7e) |
 | Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
 
 ---
@@ -251,6 +253,61 @@ inference. Measure before pinning.
 exactly this install cost. If deps become durable in the VFS, that proposal's main justification
 weakens — it should be re-derived rather than inherited.
 
+## 7e. ROUND 3 — both hybrids LOSE, and registry egress works. Keep deps off the VFS.
+
+Round 2 proposed a two-tier hybrid and left its middle unmeasured. Measured now, 3 runs, one
+container per run, using `lucide-vue-next` (**33 MB / 3112 files**) as the stand-in user dep —
+chosen because the seed `App.vue` genuinely imports from it, so the build really resolves it.
+Times are vite's own self-reported build time, which excludes process startup:
+
+| arm | run 1 | run 2 | run 3 | median | per-build total |
+|---|---:|---:|---:|---:|---:|
+| **H0** all deps baked on ext4 | 4.78 s | 3.38 s | 4.24 s | **4.24 s** | **4.24 s** |
+| **H1** user dep in the VFS (resolution walk) | 9.13 s | 7.64 s | 8.36 s | **8.36 s** | **8.36 s** |
+| **H2** user dep durable in VFS, bulk-copied to ext4 first | 3.48 s | 3.18 s | 3.39 s | **3.39 s** | **9.36 s** (5.97 s copy + build) |
+
+- **H1 roughly DOUBLES the build.** 3112 files resolved through FUSE costs ~4.1 s every build,
+  forever. The warming trend runs *against* this reading — H1 ran between the two ext4 arms, so
+  cache warming would have flattered it, and it was still 2×.
+- **H2 is worse.** The bulk copy alone (5.97 s median, in either direction — the VFS seed was
+  7.1 s) costs more than an entire baked build. Larry's intuition that chattiness matters was
+  right; the problem is that the copy is *also* chatty at 3112 files, so it does not convert the
+  per-file cost into a cheap sequential one.
+- **H2's build is the fastest arm** (3.39 s) — as expected, since it resolves everything from
+  ext4. All the cost moved into the copy.
+
+⇒ **Neither hybrid beats simply keeping `node_modules` on ext4.** The FUSE penalty scales with
+file count, and dependency trees are the most file-count-heavy thing in the system. This is the
+same conclusion round 1 reached, but round 1 reached it without asking the question.
+
+### Registry egress works — which changes what the real options are
+
+| probe | result (3 runs) |
+|---|---|
+| `curl https://registry.npmjs.org/lucide-vue-next` from the container | **HTTP 200 in 46–57 ms** |
+| `npm config get cache` | `/root/.npm`, 124 K (image build ran `npm cache clean`) |
+
+So a tenant container **can** reach the npm registry today, and fast. Against the earlier probe's
+measured `npm install` of one big dep (**2.3–6.6 s**), that means **download is under 2 % of an
+install** — the cost is unpack and link, not network.
+
+⇒ **Hybrid C (persist npm's cache in the VFS) is dead on arrival.** It optimises the 46 ms and
+leaves the 2–6 s untouched. Worth recording so it is not re-proposed.
+
+⇒ **And plain `npm install` at build time is competitive with H1** (2.3–6.6 s vs H1's +4.1 s
+every build) while costing **no DO storage** and adding nothing to DO cold start — which
+*does* scale with SQLite size.
+
+### ⚠️ This RETRACTS round 2's read on the http(s)-imports proposal
+
+Round 2 said durable deps in the VFS would weaken that proposal's justification. **They would
+not, because the VFS cannot hold deps cheaply.** Both options that keep a real `node_modules`
+pay 2–6 s per turn on any non-baked dep, because the container is ephemeral either way. So the
+per-turn install cost the http(s)-imports idea was invented to remove is **still there and still
+unaddressed** — that proposal stands on its own merits, un-weakened. The levers that actually
+move it are (a) curating the baked set so fewer turns need an install at all, and (b) sidestepping
+`node_modules`, which is what http(s) imports do.
+
 ### 7d. ⚠️ `destroy()` during a live Workspace session tears the capnweb wire
 
 `mode=recycle` (calling `ctx.container.destroy()` from inside a request that already holds a
@@ -296,9 +353,11 @@ inheriting round 1's assumption that `destroy()` is a fire-and-forget.
    contact with the measurement, and the design win is real: `applyChanges` /
    `syncToDevContainer` and the bespoke dist-return **are deleted, not ported** (§3).
 2. **Budget ~3 s of cold start, not ~1–2 s** (§2), and keep it behind LLM latency.
-3. **`node_modules` placement is NOT settled — go two-tier.** Round 1's "keep it baked" ignored that
-   the ephemeral container reinstalls any non-baked dep on *every* turn. Baked set on ext4, user-added
-   deps in the VFS (§7c). The hybrid's middle is unmeasured; measure before pinning.
+3. **Keep `node_modules` entirely on ext4 — SETTLED by measurement (§7e).** Both hybrids lose: deps in
+   the VFS double the build, and bulk-copying them out costs more than a whole build. Registry egress
+   works (46–57 ms), so user extras go through `npm install` at build time. The per-turn install cost
+   on non-baked deps is real and unsolved by FUSE — curate the baked set, and judge the http(s)-imports
+   proposal on its own merits.
 4. **Container-side real git** for any repo-to-repo work (§5); Artifacts stays a later swap.
 6. **Order the container teardown explicitly** — `destroy()` during a live Workspace session fails the request (§7d).
 5. **No zod guard needed** — `computer` has none, and dropping `shell` removes the path we already have (§7). The swap is also **−12.4 ms of startup and −207 KiB of bundle** (§7b).
