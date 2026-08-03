@@ -95,13 +95,14 @@ sequenceDiagram
     Note over G: agent reply streams to Chat throughout — thinking then text, transient chunks (streamProgress svc.broadcast, NO writes)
     G-->>Chat: transient reply chunks (best-effort — a missed chunk just drops animation)
     alt build needed
-      G->>K: start() at codegen-start (cold ~1-2s hides behind LLM)
+      G->>K: start() at codegen-start (cold plus FUSE mount, measured 2.3-3.7s, hides behind LLM)
+      Note over G,K: codegen writes source via ws.fs.writeFile into Galaxy SQLite. computerd mirrors it into the container as a live FUSE mount, so there is NO push step and no applyChanges
       Note over G: codegen loop (env.AI) — write_file + in-DO compile-on-write, container-free, until mark_complete
-      G->>K: build(source), LOCAL ctx.container
-      Note over K: vite build (oxide JIT) then dist, or buildError
-      K-->>G: dist (or buildError, or retryable)
+      G->>K: runtime.exec("vite build") on the mount, LOCAL ctx.container
+      Note over K: vite build (oxide JIT) reads source over FUSE, writes dist over FUSE
+      K-->>G: exit code plus the post-exec sync bracket (measured 5 files pulled)
+      Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
       G->>K: destroy() (ephemeral, fresh container per build)
-      Note over G: store dist (dev-served)
       G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
       P->>G: GET dist (dev-direct, uncached)
       G-->>P: index.html + hashed assets
