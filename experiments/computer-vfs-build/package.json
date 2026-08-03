@@ -1,0 +1,20 @@
+{
+  "name": "computer-vfs-build",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//": "Throwaway DEPLOYED spike: does @cloudflare/computer's FUSE-mounted VFS carry our real `vite build`? Within-container A/B (FUSE vs the container's own ext4 disk) so colo — a ~3.5x nuisance variable per container-cold-start-probe — is held constant. Tear down from the DASHBOARD (a project-delete also removes the DO namespaces); `wrangler delete` leaves them orphaned.",
+  "scripts": {
+    "types": "wrangler types",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "seed:gen": "node scripts/gen-seed.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/computer": "^0.1.1",
+    "@platformatic/vfs": "^0.4.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.111.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  // Container-FREE config for the host-side `file://` git probe (secondary d). No
+  // `containers` block on purpose: `wrangler dev` then needs no Docker at all, so this half
+  // of the spike runs even when the registry is unreachable. A Workspace constructed
+  // without `backends` is filesystem-only, which is all the git surface needs.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-computer-git-probe",
+  "main": "src/git-probe.ts",
+  "compatibility_date": "2026-05-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "GitProbeDO", "class_name": "GitProbeDO" }]
+  },
+  "exports": {
+    "GitProbeDO": { "type": "durable-object", "storage": "sqlite" }
+  }
+}

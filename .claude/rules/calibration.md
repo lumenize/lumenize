@@ -150,6 +150,43 @@ that heads off an objection — for a decision you have already made. Especially
 something **can't** be done, since §3's cost-weighting and this entry both push you to accept it
 cheaply. Ask of that clause alone: *if the conclusion were wrong, would I still believe this?*
 
+## 8. A dependency's maturity LABEL is not a measurement — and while we have no users, early adoption is usually the cheaper side of the unlearning tax
+
+**The reflex:** read "preview" / "alpha" / "APIs are unstable" / "not suitable for production use" as a
+decision input, recommend the mature incumbent, and frame the preference as engineering judgment. Same
+shape as §6 (cost-avoidance dressed as calibration), different domain — §6 is *test tiers*, this is
+*dependencies*; citing §6 for this is itself the mistake, because the test-tier framing hides that the
+cost here is borne in **build direction**, not wall-clock.
+
+**The correction:** that label is the vendor telling teams **with users** not to break them. Ask instead
+what breaks for **us** — and price it with `workflow.md` § *Evaluating alternatives*, which usually
+comes out the **other** way: the incumbent is what will need unlearning, and every line written against
+it is an interim its successor deletes. When a package is where the ecosystem is visibly going, "adopt
+later" is not the conservative option, it is a *dated* one. Larry, 2026-08-03: *"We SHOULD be depending
+on things like this not avoiding them as long as it is the direction things are going."*
+
+⚠️ **This discounts the LABEL only — never a measurement.** Perf on a path we depend on, local-vs-prod
+fidelity, import-time startup cost, a transitive dep that fights an ADR: all still count, and all are
+things you *measure* rather than infer from a version number. The correction is to stop treating
+"0.1.1, published this week" as itself an argument, not to stop testing.
+
+⚠️ **Scoped to pre-users, and it EXPIRES.** The licence is that we have nobody to break. When Nebula has
+paying users this flips, and per §4 that is a trigger to **re-derive**, not to invert on sight.
+
+**Where it bit (2026-08-03, `@cloudflare/computer`):** Cloudflare shipped the successor to
+`@cloudflare/shell` — which `apps/nebula` already depends on, and whose `workspace.shell.exec` the
+successor's own migration doc renames. The recommendation was to keep it out of the Galaxy collapse,
+with *"NOT suitable for production use at this time"* ranked among the reasons. ⚠️ **`workflow.md`'s
+unlearning-tax rule was in context and argued the opposite**: staying on the incumbent is what creates
+the interim, since the source-push code the collapse would write is exactly what the successor's FUSE
+mount deletes. Larry overrode it. The *technical* objections in the same recommendation (FUSE
+throughput on the `vite build`, `/dev/fuse` absent under `wrangler dev`) survived the override intact —
+which is the shape to aim for: measurements survive, labels don't.
+
+**The tell:** your objection cites a **label** — a version number, a beta stage, a README warning —
+rather than a number you measured or a code path you read. Ask: *who is that warning addressed to, and
+are we them?*
+
 ---
 
 ## Adding an entry

@@ -1,0 +1,37 @@
+{
+  // SPIKE: can @cloudflare/computer's FUSE-mounted VFS carry our real `vite build`?
+  // Deployed name is `experiment-`-prefixed per workflow.md — these accumulate in the CF
+  // dashboard and must be obvious as throwaways.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "experiment-computer-vfs-build",
+  "main": "src/worker.ts",
+  // Later than the repo floor (2026-03-12); matches what cloudflare/computer's own example
+  // pins, since the container backend uses ctx.exports loopback bindings.
+  "compatibility_date": "2026-05-26",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "containers": [
+    {
+      "class_name": "VfsBuildDO",
+      "image": "./Dockerfile",
+      // standard-2 matches apps/nebula's CURRENT containers block, so the A/B lands on the
+      // same hardware class Nebula actually runs. (The collapse task's prose still says
+      // standard-1 — that drift is noted in RESULTS.md, not corrected here.)
+      "instance_type": "standard-2",
+      "max_instances": 3,
+      "rollout_active_grace_period": 0,
+      "rollout_step_percentage": [100]
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [{ "name": "VfsBuildDO", "class_name": "VfsBuildDO" }]
+  },
+
+  // Declarative `exports` map, per the 2026-07-16 toolchain upgrade — not `migrations`.
+  "exports": {
+    "VfsBuildDO": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  "observability": { "enabled": true }
+}

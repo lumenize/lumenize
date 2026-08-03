@@ -17,7 +17,8 @@
     "packages/ts-runtime-parser-validator/forks/typia/utils",
     "experiments/container-cold-start-probe",
     "experiments/do-cold-start-bundle-ab",
-    "experiments/wrangler-test-harness"
+    "experiments/wrangler-test-harness",
+    "experiments/computer-vfs-build"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
