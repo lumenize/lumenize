@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@cloudflare/computer": "^0.1.1",
+    "@cloudflare/shell": "^0.4.0",
     "@platformatic/vfs": "^0.4.0"
   },
   "devDependencies": {

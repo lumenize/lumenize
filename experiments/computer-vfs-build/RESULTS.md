@@ -13,7 +13,8 @@ there is nothing to isolate.
 | Worker startup cost of importing `@cloudflare/computer` | ✅ **20–22 ms / 346 KiB** (§4) |
 | Does host-side `file://` git work? | ❌ **No — unimplemented** (§5) |
 | Does container state outside the mount survive between execs? | ✅ **Yes** (§6) |
-| Do the optional peers (`zod`, `ai`) land on us? | ⚠️ Resolvable, not bundled (§7) |
+| Does it add a `zod` dependency? | ✅ **No — and the swap REMOVES one** (§7) |
+| Net startup cost vs `@cloudflare/shell` | ✅ **−12.4 ms, −207 KiB** (§7b) |
 
 ---
 
@@ -109,8 +110,8 @@ git (`git clone /workspace/app /workspace/build`), never host-side.
 ### 5b. Two API rough edges from the same probe
 
 - **`@cloudflare/computer/git` requires `@platformatic/vfs`,** an optional peer **npm does not
-  install** — every git call throws until it is added explicitly. Note the asymmetry with §7:
-  npm auto-installed the peers we don't want and skipped the one we do.
+  install** — every git call throws `requires @platformatic/vfs as an optional peer dependency`
+  until it is added explicitly. This is the one peer you must actually declare.
 - `git.add` takes **`paths`**, not `filepaths`; `GitInitOptions` has no `initialBranch`. (Both
   were our probe's errors first — recorded so the next reader doesn't re-derive them.)
 
@@ -132,17 +133,52 @@ runs, so `rm -rf X && cp -r … X` with `cwd: X` can never start. One residual a
 its target directory did not exist for the next exec. Recorded rather than explained — do not
 build on an invented mechanism for it.
 
-## 7. `zod` and `ai` are installed but not bundled
+## 7. ✅ CORRECTED — `@cloudflare/computer` does NOT bring `zod`. We already have it, from `@cloudflare/shell`.
 
-`peerDependenciesMeta.optional: true` means *"fine if absent"*, **not** *"don't install"* — npm
-pulls optional peers, so `@cloudflare/computer` brings `ai@7.0.48` and `zod@4.4.3` into
-`node_modules`.
+An earlier revision of this file claimed adopting `computer` would drag `zod` in as an ADR-001
+footgun. **That was wrong**, and it was wrong in the specific way `calibration.md` §7 describes:
+it was a supporting premise asserted under a conclusion nobody was arguing with, so nobody
+checked it. Checked now, three ways:
 
-- **Bundle impact: none.** The 346 KiB upload never imports them; esbuild tree-shakes by import
-  graph. They load only via `@cloudflare/computer/tools`.
-- **Footgun impact: real.** `import { z } from 'zod'` *resolves* once present, so a future agent
-  gets a working import and a silent **ADR-001** violation. ⇒ If `apps/nebula` takes this dep,
-  that needs a guard (lint rule or `overrides`), not just a "never import `/tools`" note.
+- **A clean `npm i @cloudflare/computer@0.1.1` in an empty directory installs zero `zod` and zero
+  `ai`** — 85 packages, and `find -type d -name zod` over the whole tree is empty. Same with the
+  dep declared in `package.json`, and same under `--omit=peer`.
+- **`apps/nebula` already depends on `zod@4.4.3` TODAY**, via
+  `@cloudflare/shell@0.4.0 → @cloudflare/codemode@0.4.1 → zod` (plus `zod@3.25.76` reaching every
+  test-having package through `@cloudflare/vitest-pool-workers@0.18.5`).
+- `@cloudflare/computer`'s own dependencies are `acorn`, `capnweb`, `just-bash` — **no codemode**,
+  which is the package that carries zod on the shell side.
+
+⇒ **Swapping `shell` → `computer` REMOVES a zod path rather than adding one.** No guard, no
+`overrides`, no lint rule needed for this.
+
+ⓘ What was actually observed: in *this monorepo's* workspace install, npm did materialize `ai` +
+`@ai-sdk` under `@cloudflare/computer` (optional peers), though `zod` resolved to the copy already
+hoisted for other packages. It does not reproduce in isolation, nothing bundles it, and
+`--omit=peer` suppresses it. A curiosity, not a cost.
+
+## 7b. The swap is a net startup WIN — measured
+
+Three arms, identical DO shape, `wrangler deploy --dry-run` + `wrangler check startup
+--workerBundle` (the two-command recipe in `workflow.md` § *Startup cost*):
+
+| arm | bundle | gzip | **active CPU at startup** | GC |
+|---|---:|---:|---:|---:|
+| baseline (neither package) | 0.55 KiB | 0.32 KiB | **0.0 ms** | 0.0 ms |
+| **`@cloudflare/shell` — what nebula imports today** (`Workspace`, `WorkspaceFileSystem`, `createGit`, per `dev-studio.ts:31-32`) | 540.07 KiB | 112.04 KiB | **22.5 ms** | 1.3 ms |
+| **`@cloudflare/computer` — the proposed replacement** | 333.07 KiB | 68.49 KiB | **10.1 ms** | 1.3 ms |
+
+⇒ **Net effect of the swap: −207 KiB bundle, −12.4 ms active startup.** The collapsed Galaxy
+starts *faster* than the code it replaces, not slower.
+
+For scale, `workflow.md`'s cautionary example (`ts-runtime-parser-validator`, 9.2 MB) spends
+~295 ms with 66 ms of GC. Both of these are in a different class entirely — they define a lot and
+do very little at module scope, which is the distinction that actually governs startup.
+
+ⓘ Disk footprint runs the other way — `computer` is 85 packages / 90 MB installed vs `shell`'s
+59 / 10 MB (the bulk is `just-bash` 24 MB, `sql.js` 19 MB, `@mixmark-io/domino` 9 MB). **Irrelevant
+to startup and to the bundle** — none of it is in the import graph — but worth knowing for CI
+install time. This is exactly the case `workflow.md` means by *"never gate on byte count."*
 
 ## 8. Method notes — read before citing anything above
 
@@ -180,4 +216,4 @@ pulls optional peers, so `@cloudflare/computer` brings `ai@7.0.48` and `zod@4.4.
 3. **Keep `node_modules` baked outside the VFS.** Both the mount design and the vendor's
    `npm install` numbers point the same way.
 4. **Container-side real git** for any repo-to-repo work (§5); Artifacts stays a later swap.
-5. **Guard `zod`** before this dep enters `apps/nebula` (§7).
+5. **No zod guard needed** — `computer` has none, and dropping `shell` removes the path we already have (§7). The swap is also **−12.4 ms of startup and −207 KiB of bundle** (§7b).
