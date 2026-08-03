@@ -88,6 +88,12 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     try {
       const mode = url.searchParams.get("mode");
       if (mode === "hybrid") return Response.json(await this.#hybrid());
+      if (mode === "install") {
+        return Response.json(await this.#installTurn(
+          url.searchParams.get("deps") ?? "echarts",
+          url.searchParams.get("into") ?? "ext4",
+        ));
+      }
       if (mode) return Response.json(await this.#incremental(mode));
       const reps = Number(url.searchParams.get("reps") ?? "2");
       return Response.json(await this.#bench(reps));
@@ -271,6 +277,127 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
       "curl -s -o /dev/null -w 'registry_http=%{http_code} time=%{time_total}s' --max-time 20 https://registry.npmjs.org/lucide-vue-next || echo EGRESS_BLOCKED");
 
     return { steps };
+  }
+
+  /**
+   * ROUND 4 (2026-08-03) — "is the whole turn just under 10s anyway?" (Larry)
+   *
+   * Every install number quoted so far came from container-cold-start-probe measuring a
+   * DIFFERENT app. This measures the real worst case in THIS setup, end to end, on a cold
+   * container: boot + FUSE mount + `npm install <serious deps>` + `vite build` + dist back.
+   *
+   * The placement detail that matters: the user's package.json lives in the VFS, so a naive
+   * `npm install` in that directory writes node_modules into FUSE — the slow combination
+   * round 3 measured. Installing with `--prefix /` puts the tree on ext4 instead, where
+   * node's upward resolution still finds it, keeping the dep DECLARATION durable while the
+   * dep TREE stays ephemeral and fast. Both are measured so the difference is visible.
+   */
+  async #installTurn(depsParam: string, into: string) {
+    const steps: Step[] = [];
+    const ws = await getWorkspace(this);
+    let last = Date.now();
+    const t0 = last;
+    const mark = (name: string, extra: Partial<Step> = {}) => {
+      const now = Date.now();
+      steps.push({ name, ms: now - last, ...extra });
+      last = now;
+    };
+    const exec = async (name: string, command: string, cwd?: string) => {
+      const handle = await ws.runtime.exec(command, {
+        cwd,
+        encoding: "utf8",
+        env: EXEC_ENV,
+        timeoutMs: BUILD_TIMEOUT_MS,
+      });
+      const r = await handle.result();
+      mark(name, {
+        exitCode: r.exitCode,
+        pushed: r.pushed,
+        pulled: r.pulled,
+        note: r.exitCode === 0 ? `${r.stdout}`.trim().slice(-260) : `${r.stderr}`.slice(-400),
+      });
+      return r;
+    };
+
+    // NOTE: no explicit destroy() here. Doing it after getWorkspace() opens the session is
+    // exactly the 1006 trap this spike recorded (§7d) — and a fresh `?instance=` name already
+    // yields a cold container, which is what the measurement needs.
+    await exec("cold_boot_and_mount", "node -v");
+    const coldEnd = Date.now();
+
+    await ws.fs.mkdir(`${FUSE_APP}/src`, { recursive: true });
+    for (const [rel, content] of Object.entries(SEED_APP)) {
+      await ws.fs.writeFile(`${FUSE_APP}/${rel}`, content);
+    }
+    mark("write_seed_into_vfs");
+
+    // ROUND 4b: the http(s)-import arm. If the dep is imported from a CDN URL instead of npm,
+    // vite externalises it -- no install AND no bundling. Round 4 showed bundling is the
+    // dominant term, so this is the arm that actually tests whether the http(s)-imports-only
+    // proposal is worth its restriction.
+    if (into === "http") {
+      const urls = depsParam.split(/\s+/).filter(Boolean).map((d) => `https://esm.sh/${d}`);
+      await exec(
+        "append_http_imports",
+        urls.map((u) => `printf 'import "%s";\\n' '${u}' >> ${FUSE_APP}/src/main.ts`).join(" && ") +
+          ` && tail -3 ${FUSE_APP}/src/main.ts`,
+      );
+      const t = Date.now();
+      await exec("build", "rm -rf dist && node /node_modules/vite/bin/vite.js build 2>&1 | tail -6", FUSE_APP);
+      const b = Date.now();
+      let h = "";
+      try {
+        h = await ws.fs.readFile(`${FUSE_APP}/dist/index.html`, "utf8");
+      } catch {
+        mark("dist_MISSING");
+      }
+      if (h) mark("dist_readable_from_do", { note: `${h.length} B` });
+      return {
+        deps: depsParam,
+        installedInto: into,
+        totals: { coldBootAndMountMs: coldEnd - t0, npmInstallMs: 0, buildMs: b - t, wholeTurnMs: Date.now() - t0 },
+        steps,
+      };
+    }
+
+    // `--prefix /` -> ext4 (fast, ephemeral). cwd=/workspace/app -> FUSE (slow, durable).
+    const installCmd =
+      into === "vfs"
+        ? `npm install --no-audit --no-fund --include=dev ${depsParam}`
+        : `npm install --no-audit --no-fund --include=dev --prefix / ${depsParam}`;
+    const installCwd = into === "vfs" ? FUSE_APP : undefined;
+    await exec("npm_install", `${installCmd} 2>&1 | tail -4`, installCwd);
+    const installEnd = Date.now();
+
+    const depRoot = into === "vfs" ? `${FUSE_APP}/node_modules` : "/node_modules";
+    await exec("measure_installed", `du -sh ${depRoot} && find ${depRoot} -type f | wc -l`);
+    // `npm install --prefix /` left `vite: not found` twice. Look rather than guess again:
+    // is the package gone, or only its .bin symlink?
+    await exec("diag_after_install", `ls -d /node_modules/vite 2>&1; ls /node_modules/.bin 2>&1 | head -8; echo "--bin count:"; ls /node_modules/.bin 2>/dev/null | wc -l`);
+    // Make the new deps actually part of the build, otherwise this measures nothing.
+    if (depsParam.trim()) await exec("import_new_deps", `printf 'import "%s";\\n' ${depsParam.split(/\s+/).filter(Boolean).map((d) => `'${d}'`).join(" ")} >> ${FUSE_APP}/src/main.ts && tail -4 ${FUSE_APP}/src/main.ts`);
+    await exec("build", "rm -rf dist && node /node_modules/vite/bin/vite.js build 2>&1 | tail -4", FUSE_APP);
+    const buildEnd = Date.now();
+
+    let html = "";
+    try {
+      html = await ws.fs.readFile(`${FUSE_APP}/dist/index.html`, "utf8");
+    } catch (e) {
+      mark("dist_MISSING", { note: `${(e as Error)?.message}`.slice(0, 200) });
+    }
+    if (html) mark("dist_readable_from_do", { note: `${html.length} B` });
+
+    return {
+      deps: depsParam,
+      installedInto: into,
+      totals: {
+        coldBootAndMountMs: coldEnd - t0,
+        npmInstallMs: installEnd - coldEnd,
+        buildMs: buildEnd - installEnd,
+        wholeTurnMs: Date.now() - t0,
+      },
+      steps,
+    };
   }
 
   async #bench(reps: number) {

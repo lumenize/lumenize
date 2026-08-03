@@ -20,6 +20,8 @@ there is nothing to isolate.
 | Best `node_modules` placement? | ✅ **ext4 — both hybrids lose** (§7e) |
 | Does a tenant container have npm registry egress? | ✅ **Yes, HTTP 200 in 46–57 ms** (§7e) |
 | Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
+| What dominates a turn once a user adds a heavy lib? | ⚠️ **BUNDLING — build 4.2 s → 11–18.5 s** (§7f) |
+| Does an http(s)/CDN import skip that? | ❓ **UNMEASURED — harness bug, do not cite a number** (§7f) |
 
 ---
 
@@ -307,6 +309,50 @@ per-turn install cost the http(s)-imports idea was invented to remove is **still
 unaddressed** — that proposal stands on its own merits, un-weakened. The levers that actually
 move it are (a) curating the baked set so fewer turns need an install at all, and (b) sidestepping
 `node_modules`, which is what http(s) imports do.
+
+## 7f. ROUND 4 — ⚠️ THE DOMINANT COST IS BUNDLING, NOT THE FILESYSTEM OR THE INSTALL
+
+Every number in rounds 1–3 used the **baked scaffold only**. Larry asked what happens when a
+user-developer adds something *serious*. Measured end to end on a cold container — boot + FUSE
+mount + `npm install` + `vite build` + dist back:
+
+| what the app imports | cold boot | npm install | **build** | **whole turn** |
+|---|---:|---:|---:|---:|
+| baked set only (rounds 1–3) | ~3.0 s | — | **~4.2 s** | **~7.5 s** |
+| + `echarts` | 1.7 s / 0.4 s | 4.0 s / 1.4 s | **15.5 s / 11.5 s** | **21.3 s / 13.3 s** |
+| + `echarts three date-fns lodash-es` | 0.1 s | 7.1 s | **18.5 s** | **25.6 s** |
+
+**The build is where it goes, and it is rollup bundling the user's imports.** Adding one heavy
+library takes the build from ~4.2 s to 11.5–15.5 s; four libraries take it to 18.5 s. Against
+that:
+
+- the FUSE-vs-ext4 question (§1, **1.05×**) is **noise**;
+- the install itself is **1.4–7.1 s**, secondary;
+- and `npm install` was never the thing worth optimising.
+
+⇒ **Larry's "isn't it all under 10 s anyway?" holds for the baked set (~7.5 s) and breaks the
+moment a user pulls in a heavy library (13–26 s).** That is the real cliff, and neither the
+filesystem work nor the dep-placement work in rounds 1–3 touches it.
+
+⚠️ **This does NOT re-weaken the http(s)-imports proposal — it re-motivates it for a different
+reason.** Round 3 said that proposal stands on its install-cost merits. Round 4 says its install
+cost is the *small* term; the interesting property is that a CDN/ESM import is **externalised
+rather than bundled**, so it would skip the 11–18 s that dominates. That is a much stronger
+argument than the one it was originally proposed under.
+
+⚠️⚠️ **But that is a HYPOTHESIS — the http-import arm did NOT produce a valid measurement.**
+Three attempts died on shell escaping inside this harness (multi-level TS-template → JSON → sh →
+`printf` quoting), not on anything about the platform. **Do not cite an http-import build number;
+there isn't one.** The known-good A/B path was re-run afterwards and returned a clean 0.99× with
+`cold+mount 1713 ms`, confirming the failures were harness-local. Fixing that arm is the single
+highest-value next measurement in this experiment.
+
+ⓘ Two harness bugs worth recording because both produced *plausible* wrong answers first:
+`NODE_ENV=production` (pinned in `EXEC_ENV` for build determinism) makes `npm install` **prune
+devDependencies**, which silently deleted vite and produced `vite: not found` — fixed with
+`--include=dev`. And `ws.fs.writeFile` from the DO during this flow raised `WritableStream RPC
+stub was disposed without calling close()`; doing the same write container-side via `exec`
+avoids it.
 
 ### 7d. ⚠️ `destroy()` during a live Workspace session tears the capnweb wire
 
