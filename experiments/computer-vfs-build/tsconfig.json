@@ -10,5 +10,5 @@
     "noEmit": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["src/worker.ts", "src/seed-app.ts", "worker-configuration.d.ts"]
 }

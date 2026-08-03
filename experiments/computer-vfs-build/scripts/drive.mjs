@@ -8,7 +8,7 @@
 // comes from here (real wall clock, outside the CF runtime) and should bracket the sum of the
 // DO-side step marks.
 
-const BASE = process.env.SPIKE_URL ?? "https://experiment-computer-vfs-build.lumenize.workers.dev";
+const BASE = process.env.SPIKE_URL ?? "https://experiment-computer-vfs-build.transformation.workers.dev";
 const runs = Number(process.argv[2] ?? 3);
 const reps = Number(process.argv[3] ?? 2);
 

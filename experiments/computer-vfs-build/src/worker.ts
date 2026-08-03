@@ -120,7 +120,10 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
         exitCode: result.exitCode,
         pushed: result.pushed,
         pulled: result.pulled,
-        note: result.exitCode === 0 ? undefined : `${result.stderr}`.slice(-600),
+        // Capture stdout even on success: the diag steps below answer their question through
+        // what they PRINT, and a `... || echo MISSING` fallback exits 0 either way, so an
+        // exit code alone cannot distinguish the two outcomes.
+        note: result.exitCode === 0 ? `${result.stdout}`.trim().slice(-300) : `${result.stderr}`.slice(-600),
       });
       return result;
     };
@@ -152,11 +155,25 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     }
     mark("write_seed_into_vfs", { note: `${SEED_FILE_COUNT} files / ${SEED_BYTES} B` });
 
+    // ---- diagnostics for the arm-B failure (2026-08-03) ------------------------------
+    // First run: `B_disk_prep` (rm -rf + cp -r into /var/tmp) exited 0, yet the NEXT exec
+    // could not cwd into the directory it should have created. Two candidate causes, and
+    // they have very different consequences for us, so probe rather than guess:
+    //   (1) `&&` is not shell-interpreted, so only the `rm` ran and the `cp` never did;
+    //   (2) container-local state OUTSIDE the mount does not survive between execs — which
+    //       would mean /workspace is the only durable surface, a finding in its own right.
+    await exec("diag_image_contents", "ls -la /seed /seed/app /var/tmp 2>&1 | head -40");
+    await exec("diag_shell_chaining", "echo first && echo second");
+    await exec("diag_write_outside_mount", "echo persisted > /var/tmp/probe.txt; cat /var/tmp/probe.txt");
+    await exec("diag_read_outside_mount_next_exec", "cat /var/tmp/probe.txt 2>&1 || echo MISSING");
+
     // ---- equalizer: warm vite's dep-optimize cache BEFORE either measured arm ----
     // Both arms resolve /node_modules, so vite's .vite cache is SHARED. Without this the
     // first measured arm would pay to populate it and the second would free-ride — the
     // exact confound that would make whichever arm ran first look bad.
-    await exec("warmup_build_discarded", `rm -rf /var/tmp/warm && cp -r ${SEED_DIR} /var/tmp/warm && vite build`, "/var/tmp/warm");
+    // NOTE: `cwd` is validated at SPAWN, before the command runs, so a command that creates
+    // its own cwd must `cd` into it instead of declaring it (the first run's bug).
+    await exec("warmup_build_discarded", `rm -rf /var/tmp/warm && cp -r ${SEED_DIR} /var/tmp/warm && cd /var/tmp/warm && vite build`);
 
     for (let rep = 1; rep <= reps; rep++) {
       // arm A — build in the FUSE mount; dist lands in the VFS and syncs back to the DO.
@@ -165,9 +182,15 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
       const html = await ws.fs.readFile(`${FUSE_APP}/dist/index.html`, "utf8");
       mark(`A${rep}_dist_readable_from_do`, { note: `${html.length} B` });
 
-      // arm B — same bytes, same deps, container's own ext4 disk.
-      await exec(`B${rep}_disk_prep`, `rm -rf ${DISK_APP} && cp -r ${SEED_DIR} ${DISK_APP}`);
-      await exec(`B${rep}_disk_build`, "rm -rf dist && vite build", DISK_APP);
+      // arm B — same bytes, same deps, container's own ext4 disk. Prep and build are ONE
+      // exec so the comparison cannot be broken by cross-exec state loss; the `cp` is
+      // disk-to-disk and measured separately below as its own control.
+      await exec(
+        `B${rep}_disk_build`,
+        `rm -rf ${DISK_APP} && cp -r ${SEED_DIR} ${DISK_APP} && cd ${DISK_APP} && vite build`,
+      );
+      // Control: what the `rm`+`cp` prefix costs, so it can be subtracted from arm B.
+      await exec(`B${rep}_prep_only_control`, `rm -rf /var/tmp/ctl && cp -r ${SEED_DIR} /var/tmp/ctl`);
     }
 
     // Colo, so results can be compared against container-cold-start-probe's colo table.

@@ -70,7 +70,7 @@ export class GitProbeDO extends DurableObject<Env> {
       return "clean";
     });
     await record("mkdir /a", () => ws.fs.mkdir("/a", { recursive: true }));
-    await record("git init /a", () => git.init({ dir: "/a", initialBranch: "main" }));
+    await record("git init /a", () => git.init({ dir: "/a" }));
     await record("write /a/hello.txt", () => ws.fs.writeFile("/a/hello.txt", "hello from /a\n"));
     await record("git add", () => git.add({ dir: "/a", paths: ["hello.txt"] }));
     await record("git commit", () =>
@@ -86,7 +86,7 @@ export class GitProbeDO extends DurableObject<Env> {
     // clone is what a scaffold-provision would use, pull is what a promote would use.
     await record("mkdir /b2 + init", async () => {
       await ws.fs.mkdir("/b2", { recursive: true });
-      return git.init({ dir: "/b2", initialBranch: "main" });
+      return git.init({ dir: "/b2" });
     });
     await record("git remote add origin file:///a", () =>
       git.remoteAdd({ dir: "/b2", name: "origin", url: "file:///a" }),

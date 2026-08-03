@@ -18,7 +18,12 @@
       // same hardware class Nebula actually runs. (The collapse task's prose still says
       // standard-1 — that drift is noted in RESULTS.md, not corrected here.)
       "instance_type": "standard-2",
-      "max_instances": 3,
+      // Each `?instance=` name is a distinct DO and therefore a distinct container. At 3 this
+      // capped out after a handful of runs and new acquisitions failed with
+      // `connect failed at stage=health ... aborted due to timeout` until they idle-evicted —
+      // a self-inflicted cap, not a platform limit, but it reads exactly like a cold/stuck
+      // failure, so it is worth recognising.
+      "max_instances": 10,
       "rollout_active_grace_period": 0,
       "rollout_step_percentage": [100]
     }
