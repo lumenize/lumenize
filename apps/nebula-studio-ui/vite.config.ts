@@ -3,10 +3,24 @@ import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 import swc from "unplugin-swc";
 
-// SWC transforms the imported @lumenize/* TS. esbuild (vite's default) does NOT support
-// the TC39 stage-3 decorators `@mesh()` uses — it silently breaks private-field refs in
-// decorated classes ("Private field '#x' must be declared in an enclosing class"). Same
-// config as packages/mesh/vitest.config.js. https://github.com/evanw/esbuild/issues/104
+// SWC transforms the imported @lumenize/* TS, which carries the TC39 stage-3 decorators
+// `@mesh()` uses. This plugin is REQUIRED, not an optimization.
+//
+// ⚠️ The original reason recorded here was esbuild's lack of decorator support
+// (esbuild#104). That went stale in May 2024 — esbuild shipped decorators in 0.21.0 and
+// handles this fine as of 0.25.x. The plugin is still required for a DIFFERENT reason:
+// vite 8 bundles with ROLLDOWN/oxc, which does NOT transform stage-3 decorators. It emits
+// them verbatim AND THE BUILD EXITS 0, so the artifact only fails when a browser parses
+// it — a blank screen from a SyntaxError, with a green build.
+//
+// ⚠️ Verify with `node --check dist/assets/*.js`, NOT by grepping for `@mesh`:
+// minification renames the decorator (`@mesh()` -> `@Ka()`), so a grep finds nothing and
+// reads as a pass. Measured cost of this plugin: ~16 ms/build.
+//
+// The @lumenize/* packages resolve through WORKSPACE SYMLINKS to apps/nebula/src/**, i.e.
+// outside node_modules — which is why swc's default node_modules-exclude does not skip
+// them here and no `exclude` override is needed (the container scaffold, where the
+// frontend is a real vendored dependency, does need one).
 const swcPlugin = swc.vite({
   jsc: {
     parser: { syntax: "typescript", decorators: true },
@@ -49,9 +63,11 @@ const WORKER = process.env.NEBULA_WORKER_URL || "http://localhost:8787";
 
 export default defineConfig({
   plugins: [vue(), swcPlugin, tailwindcss(), appSpaFallback],
-  // Keep the DECORATED @lumenize source out of vite's esbuild dep-prebundle so the SWC
-  // plugin above transforms it as source — otherwise esbuild mangles the @mesh decorators
-  // before SWC ever sees them (the blank-screen / private-field SyntaxError).
+  // Keep the DECORATED @lumenize source out of vite's dep-prebundle so the SWC plugin
+  // above transforms it as source. The prebundler is rolldown/oxc under vite 8 (it was
+  // esbuild under vite 6) — the package changed, the hazard did not: neither transforms
+  // stage-3 decorators, so without this the prebundle wins the race and SWC never sees
+  // them. Dev-server-only knob; the production build is covered by the plugin itself.
   optimizeDeps: { exclude: ["@lumenize/nebula", "@lumenize/mesh"] },
   server: {
     port: 5174,
