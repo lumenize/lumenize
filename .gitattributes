@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Lockfile is GENERATED OUTPUT, not authored source. Marking it collapses it in GitHub
+# diffs/PRs and keeps it out of language stats; `-diff` suppresses the textual diff locally
+# too, so `git diff` stays readable when an install re-resolves a few hundred lines.
+# Review the package.json change, never the lock. Still COMMITTED — it is what makes
+# `npm ci` reproducible. Never hand-edit, with one exception (removing a workspace package:
+# surgical JSON parse -> stringify, never a from-scratch regen).
+package-lock.json linguist-generated=true -diff
