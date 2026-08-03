@@ -1,5 +1,42 @@
 # Custom client dependencies resolve in the browser, not in the build
 
+> # ⛔ ICEBOXED 2026-08-03 — do not re-propose the CDN mechanism
+>
+> **The guard this file demanded fired, and it went against the file.** § *Design consideration*
+> below required a **Rolldown-Vite arm** in any competing experiment — *"not as a side quest, but
+> because it is what keeps the comparison honest… a Rust bundler shrinks the build and promotes the
+> registry pull to the long pole"* — precisely so a measurement could not flatter the decision
+> already made here. That arm was run
+> ([experiments/computer-vfs-build/RESULTS.md](../../experiments/computer-vfs-build/RESULTS.md)) and
+> the prediction was **exactly right**, which is what removes this file's justification:
+>
+> | | vite 6 (rollup) | **vite 8 (rolldown)** |
+> |---|---:|---:|
+> | build, baked set only | ~4 200 ms | **1 770 / 2 885 ms** |
+> | build, `+ echarts` | 11 468 / 15 540 ms | **2 702 / 2 812 ms** |
+> | build, `+ echarts three date-fns lodash-es` | 18 496 ms | **3 049 / 3 387 ms** |
+>
+> Bundling was the 11–18 s term this file existed to delete. Under rolldown it is **1.8–3.4 s**, and
+> the install it would also have deleted is **0.6–4.3 s** — with **container→npm-registry egress
+> measured working at HTTP 200 in 46–57 ms**, which this file had listed as an open risk. A whole
+> cold turn with four heavy libraries now lands at **2.8–7.7 s**.
+>
+> ⚠️ **This file was not shown to be WRONG — it was shown to be not worth its cost.** Its logic still
+> holds: taking dependencies out of the loop entirely would still save the install. That saving is
+> now single-digit seconds inside an already-fast turn, against a CDN-resolution mechanism, a
+> version-pinning discipline, a compile-gate change and a new failure surface. **Larry's call,
+> 2026-08-03, on those numbers.** Honouring this file's own instruction to *"re-derive rather than
+> reverting on reflex"*: the re-derivation is above, and it is about magnitude, not correctness.
+>
+> ✅ **WHAT SURVIVES — the objective, and one pinned business decision.** *"Any npm package is fair
+> game, with warnings and no curation"* (pinned 2026-07-30) **still stands** — it is a product
+> decision, not a mechanism. It is now satisfied the boring way: `npm install` at build time, since
+> egress works and installs are fast. What dies is only the **browser/CDN resolution mechanism**.
+>
+> **Reopen only if** a measurement shows the per-turn install has become the dominant term again —
+> e.g. a user-developer tree far larger than the four-heavy-library case measured here. Do not
+> reopen on the original build-cost argument; that term is gone.
+
 **Status**: Designed 2026-07-30 (conversation with Larry, this session). **NOT reviewed — `/review-task`
 Stages 1 and 2 are deliberately deferred as premature**, and the `/write-task` intent gate was skipped at
 Larry's direction; read *Design intent* first when this goes active. On-hold: designed, paused, expected to

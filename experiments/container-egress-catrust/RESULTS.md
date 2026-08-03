@@ -3,7 +3,7 @@
 > **2026-07-30 — half of this experiment's motivation is retired; the other half stands.** Container egress is
 > no longer the path to **user-supplied npm dependencies**: those resolve in the *browser* from an ESM CDN, and
 > the container's `node_modules` stays frozen at the baked set — see
-> [`tasks/on-hold/nebula-browser-resolved-deps.md`](../../tasks/on-hold/nebula-browser-resolved-deps.md).
+> [`tasks/icebox/nebula-browser-resolved-deps.md`](../../tasks/icebox/nebula-browser-resolved-deps.md).
 > The **Artifacts/git** motivation below is untouched — `*.artifacts.cloudflare.net` was always the real target,
 > and the CA-trust recipe still serves the future Artifacts `git pull` that `apps/nebula/container/Dockerfile`
 > anticipates. Results below are point-in-time and unedited.
