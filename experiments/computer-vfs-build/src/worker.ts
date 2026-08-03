@@ -295,6 +295,15 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
   async #installTurn(depsParam: string, into: string) {
     const steps: Step[] = [];
     const ws = await getWorkspace(this);
+    // Writing files was the single biggest source of self-inflicted failure in this spike:
+    // four-level quoting (TS template -> JSON -> sh -> printf format) broke three separate
+    // arms, and `ws.fs.writeFile` mid-flow raised a disposed-stub error. base64 sidesteps
+    // BOTH — the payload is alphanumeric plus `+/=`, so nothing in it can be interpreted by
+    // the shell, and the write happens container-side.
+    const writeFileB64 = async (name: string, path: string, content: string) => {
+      const b64 = btoa(content);
+      return exec(name, `echo '${b64}' | base64 -d > ${path} && tail -3 ${path}`);
+    };
     let last = Date.now();
     const t0 = last;
     const mark = (name: string, extra: Partial<Step> = {}) => {
@@ -323,6 +332,9 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     // exactly the 1006 trap this spike recorded (§7d) — and a fresh `?instance=` name already
     // yields a cold container, which is what the measurement needs.
     await exec("cold_boot_and_mount", "node -v");
+    // Verify the toolchain actually running, rather than inferring it from the Dockerfile.
+    // A cached npm layer would silently invalidate every number below.
+    await exec("probe_toolchain", `node /node_modules/vite/bin/vite.js --version; node -e "console.log('rolldown:', require('/node_modules/vite/package.json').dependencies.rolldown || 'none', '| rollup:', require('/node_modules/vite/package.json').dependencies.rollup || 'none')"`);
     const coldEnd = Date.now();
 
     await ws.fs.mkdir(`${FUSE_APP}/src`, { recursive: true });
@@ -337,10 +349,10 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     // proposal is worth its restriction.
     if (into === "http") {
       const urls = depsParam.split(/\s+/).filter(Boolean).map((d) => `https://esm.sh/${d}`);
-      await exec(
-        "append_http_imports",
-        urls.map((u) => `printf 'import "%s";\\n' '${u}' >> ${FUSE_APP}/src/main.ts`).join(" && ") +
-          ` && tail -3 ${FUSE_APP}/src/main.ts`,
+      await writeFileB64(
+        "write_main_http_imports",
+        `${FUSE_APP}/src/main.ts`,
+        `${SEED_APP["src/main.ts"]}\n${urls.map((u) => `import "${u}";`).join("\n")}\n`,
       );
       const t = Date.now();
       await exec("build", "rm -rf dist && node /node_modules/vite/bin/vite.js build 2>&1 | tail -6", FUSE_APP);
@@ -375,7 +387,14 @@ export class VfsBuildDO extends withWorkspace(ContainerBase, workspaceOptions) {
     // is the package gone, or only its .bin symlink?
     await exec("diag_after_install", `ls -d /node_modules/vite 2>&1; ls /node_modules/.bin 2>&1 | head -8; echo "--bin count:"; ls /node_modules/.bin 2>/dev/null | wc -l`);
     // Make the new deps actually part of the build, otherwise this measures nothing.
-    if (depsParam.trim()) await exec("import_new_deps", `printf 'import "%s";\\n' ${depsParam.split(/\s+/).filter(Boolean).map((d) => `'${d}'`).join(" ")} >> ${FUSE_APP}/src/main.ts && tail -4 ${FUSE_APP}/src/main.ts`);
+    if (depsParam.trim()) {
+      const bare = depsParam.split(/\s+/).filter(Boolean);
+      await writeFileB64(
+        "write_main_npm_imports",
+        `${FUSE_APP}/src/main.ts`,
+        `${SEED_APP["src/main.ts"]}\n${bare.map((d) => `import "${d}";`).join("\n")}\n`,
+      );
+    }
     await exec("build", "rm -rf dist && node /node_modules/vite/bin/vite.js build 2>&1 | tail -4", FUSE_APP);
     const buildEnd = Date.now();
 

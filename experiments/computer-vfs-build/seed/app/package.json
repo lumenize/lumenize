@@ -2,7 +2,7 @@
   "name": "nebula-devcontainer-app",
   "private": true,
   "type": "module",
-  "//": "Curated UI-lib set baked into the DevContainer image. 'Remove a lib' = stop importing it (vite tree-shakes); pulling a NON-listed package is the only thing needing runtime egress (deferred — deps are fully baked for the demo).",
+  "//": "Curated UI-lib set baked into the DevContainer image. 'Remove a lib' = stop importing it (vite tree-shakes); pulling a NON-listed package is the only thing needing runtime egress (deferred \u2014 deps are fully baked for the demo).",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build"
@@ -13,10 +13,11 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.2",
-    "vite": "^6.0.7"
-  }
+    "vite": "^8.2.0"
+  },
+  "//vite8": "SPIKE ONLY: bumped from vite ^6.0.7 to ^8 (the rolldown release) to measure whether rolldown collapses the bundling cost that round 4 showed dominates. apps/nebula/container/app/package.json is NOT changed \u2014 adopting this in Nebula is a separate call."
 }

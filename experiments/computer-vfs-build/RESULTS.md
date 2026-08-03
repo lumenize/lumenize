@@ -20,8 +20,9 @@ there is nothing to isolate.
 | Best `node_modules` placement? | ✅ **ext4 — both hybrids lose** (§7e) |
 | Does a tenant container have npm registry egress? | ✅ **Yes, HTTP 200 in 46–57 ms** (§7e) |
 | Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
-| What dominates a turn once a user adds a heavy lib? | ⚠️ **BUNDLING — build 4.2 s → 11–18.5 s** (§7f) |
-| Does an http(s)/CDN import skip that? | ❓ **UNMEASURED — harness bug, do not cite a number** (§7f) |
+| What dominates a turn once a user adds a heavy lib? | ⚠️ On vite 6, **bundling** (4.2 s → 11–18.5 s) (§7f) — **fixed by vite 8** (§7g) |
+| Does an http(s)/CDN import skip that? | ❓ UNMEASURED (§7f) — and **largely moot** now (§7g) |
+| ⭐ Does vite 8 (rolldown) help? | ✅ **YES — 4–5.8× on heavy deps, cliff gone** (§7g) |
 
 ---
 
@@ -353,6 +354,53 @@ devDependencies**, which silently deleted vite and produced `vite: not found` �
 `--include=dev`. And `ws.fs.writeFile` from the DO during this flow raised `WritableStream RPC
 stub was disposed without calling close()`; doing the same write container-side via `exec`
 avoids it.
+
+## 7g. ROUND 5 — ⭐ vite 8 (rolldown) DELETES the bundling cliff. This is the biggest result here.
+
+Round 4 concluded that bundling dominates a turn. **That is a rollup fact, not a law.** vite 8.2.0
+(published 2026-07-30) drops rollup and esbuild entirely for **rolldown** — the Rust bundler.
+Larry asked why we were not already on it. Measured, with the running toolchain verified per run
+(`vite/8.2.0 linux-x64 node-v22.23.2 | rolldown: ~1.2.0 | rollup: none`):
+
+| what the app imports | **vite 6 build (rollup)** | **vite 8 build (rolldown)** | speedup |
+|---|---:|---:|---:|
+| baked set only | ~4 200 ms | **1 770 / 2 885 ms** | ~1.8× |
+| + `echarts` | 11 468 / 15 540 ms | **2 702 / 2 812 ms** | **~4–5.5×** |
+| + `echarts three date-fns lodash-es` | 18 496 ms | **3 049 / 3 387 ms** | **~5.8×** |
+
+**The cliff is gone.** Under rollup, adding four heavy libraries cost **+14 s** over the baked
+baseline. Under rolldown it costs **+1 s**. Whole turns landed at **2.8–7.7 s** warm and 9.9 s on
+the one genuinely cold container — i.e. inside Larry's "under 10 s and I stop caring" bar even
+with four heavy libraries.
+
+### What this overturns
+
+1. **Round 4's headline is now half-wrong.** Bundling dominated *because we were on a two-major-old
+   vite*. It is no longer the dominant term — on vite 8 the **install** (0.6–4.3 s) is usually
+   larger than the build (1.8–3.4 s).
+2. **The http(s)-imports-only proposal loses its strongest argument again.** Round 4 re-motivated
+   it on "a CDN import is externalised rather than bundled, so it skips the 11–18 s". That 11–18 s
+   no longer exists. Judge the proposal on install cost and UX, not on build cost. *(The
+   http-import arm itself was never successfully measured — see §7f — but it no longer matters
+   much what it would have shown.)*
+3. **`apps/nebula` should move to vite 8.** Both plugins already declare support —
+   `@vitejs/plugin-vue@6.0.8` peers `vite: ^5 || ^6 || ^7 || ^8`, `@tailwindcss/vite@4.3.3` peers
+   `^5.2 || ^6 || ^7 || ^8` — and vite 8's engines (`^20.19.0 || >=22.12.0`) are satisfied by the
+   container's node 22.23.2. ⚠️ **Only this spike's `seed/app/package.json` was bumped;
+   `apps/nebula/container/app/package.json` is untouched.** That adoption is a separate call.
+4. It is squarely on the trajectory already recorded in [[studio-keep-container-native-tide]],
+   which named "vite→Rolldown (Rust)" as part of the native tide the container exists to ride.
+
+### ⚠️ Method note — the first vite 8 attempt produced WRONG numbers, and that is the lesson
+
+An earlier pass measured vite 8 at **11 179 ms** for `echarts` — barely different from vite 6 — and
+nearly got reported as "rolldown does not help much". It was almost certainly executing on a
+**stale container** still running the vite 6 image (warm instances linger under `max_instances`,
+and a fresh DO can be handed one). Adding a `probe_toolchain` step that prints the *running*
+`vite --version` and whether its deps list `rolldown` or `rollup` is what caught it. **Every number
+in the table above comes from a run that verified its own toolchain.** ⇒ When an image changes,
+probe the runtime rather than trusting the build log — `docker` reporting a rebuilt layer says
+nothing about which container answered the request.
 
 ### 7d. ⚠️ `destroy()` during a live Workspace session tears the capnweb wire
 
