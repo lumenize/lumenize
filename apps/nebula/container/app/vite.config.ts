@@ -1,6 +1,32 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
+import swc from "unplugin-swc";
+
+// vite 8 bundles with ROLLDOWN (Rust), not rollup+esbuild — which is why the build is
+// 4-5.8x faster once a user-developer adds real libraries (measured: `echarts` 11.5-15.5s
+// -> 2.8s; four heavy libs 18.5s -> 3.4s. experiments/computer-vfs-build/RESULTS.md).
+//
+// ⚠️ BUT rolldown/oxc does NOT transform TC39 stage-3 decorators. It emits them VERBATIM
+// and THE BUILD STILL EXITS 0 — the artifact only fails when a browser parses it. The
+// generated app reaches decorators through `./nebula` -> `@lumenize/nebula/frontend` ->
+// NebulaClient, whose mesh-callable methods carry `@mesh()`. So this plugin is REQUIRED,
+// not an optimization; without it the preview silently ships a SyntaxError.
+//
+// ⚠️⚠️ `exclude` defaults to /node_modules/, and the vendored frontend IS a dependency —
+// so the default would skip exactly the code that needs transforming, silently, at exit 0.
+// That is why the default is overridden below. Do not "simplify" this away.
+const swcDecorators = swc.vite({
+  include: /\.ts$/,
+  // Transform our own source AND the vendored @lumenize frontend; leave every other
+  // dependency on the fast path (they carry no decorators).
+  exclude: [/[/\\]node_modules[/\\](?!@lumenize[/\\])/],
+  jsc: {
+    parser: { syntax: "typescript", decorators: true },
+    transform: { decoratorVersion: "2022-03" },
+    target: "es2022",
+  },
+});
 
 // The preview is served behind the DevContainer DO's fetch() proxy at a PER-INSTANCE
 // path prefix — `/dev-container/{u}.{g}.dev/` (the entrypoint's direct-serve route).
@@ -15,7 +41,7 @@ const base = process.env.PREVIEW_BASE || "/";
 
 export default defineConfig({
   base,
-  plugins: [vue(), tailwindcss()],
+  plugins: [swcDecorators, vue(), tailwindcss()],
   server: {
     host: "0.0.0.0",
     port: 5173,
