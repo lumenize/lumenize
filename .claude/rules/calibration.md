@@ -28,7 +28,7 @@ The reflexes below are not hypothetical. Every one is drawn from a real, dated f
 
 **The correction:** ask first whether the problem can be made *structurally impossible*, then whether it needs a guard. A guard you don't need is a guard nobody has to maintain, test, or later discover was justified by an incidental property.
 
-**Where it bit (2026-07-26):** a `profileId` join was hardened through **two full review passes** — an `emailVerified` filter to stop a first-mover capture, a deterministic tiebreak, a pinned read-before-write order. Moving `profileId` onto the email row deleted the entire class: one address has one row holding one id, so there is no race to filter, no order to pin, and no row able to compete with itself. Two rounds of hardening, replaced by a schema fact. See `tasks/nebula-identity-data-model.md` § *What D1 + D2 buy*.
+**Where it bit (2026-07-26):** a `profileId` join was hardened through **two full review passes** — an `emailVerified` filter to stop a first-mover capture, a deterministic tiebreak, a pinned read-before-write order. Moving `profileId` onto the email row deleted the entire class: one address has one row holding one id, so there is no race to filter, no order to pin, and no row able to compete with itself. Two rounds of hardening, replaced by a schema fact. See `tasks/archive/nebula-identity-data-model.md` § *What D1 + D2 buy*.
 
 **The tell:** you are adding the *second* guard to the same mechanism, or a guard whose justification is "so that X cannot happen" where X is an artifact of the design rather than of the domain.
 
