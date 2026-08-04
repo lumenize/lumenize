@@ -108,7 +108,7 @@ describe.runIf(HAS_DOCKER && HAS_AI_PATH)('Studio UI smoke (wrangler dev + Docke
 
   // ⛔ SKIPPED — LOGIN NEVER MINTS (post-surrogate-sub), and nothing provisions `TEST_SCOPE`.
   // Proven 2026-07-25: the magic-link consume returns `302 /app?error=invalid_token` with NO
-  // Set-Cookie, because `getAndVerifyIdentity` finds no `Identities` row at the scope — `global-setup`
+  // Set-Cookie, because `getAndVerifyIdentity` finds no membership at the scope — `global-setup`
   // wipes `.wrangler/state` each run and the bootstrap mint is gated to `nebula-platform` + the
   // bootstrap email, so it never fires for a star scope. Everything downstream (no cookie → refresh
   // 401 "No refresh token provided" → never `connected`) follows from that one fact.

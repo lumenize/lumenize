@@ -85,7 +85,7 @@ export function universeOf(scope: string): string {
  * Returns the test-mode magic-link URL.
  *
  * ⚠️ Login NEVER mints. `requestMagicLink` creates a link for any email, but consuming it fails
- * unless an `Identities` row already exists (`getAndVerifyIdentity` → no row → reject). So an
+ * unless a membership already exists (`getAndVerifyIdentity` → no row → reject). So an
  * identity must be established here (claim) or via `createSubject` (invite) *before* any login.
  */
 export async function claimUniverse(
@@ -153,7 +153,7 @@ export async function foundStarAndLogin(
   //     log in (that email has no universe identity). 28 tests do exactly that.
   //   • same Browser — the two cookies cannot be confused. They are Path-scoped (`/auth/{universe}`
   //     vs `/auth/{star}`) and RFC-6265 matched, so a refresh at the star sends only the star's.
-  // The star identity is still its own `Identities` row at the star scope, so the minted token is
+  // The star identity is still its own `Memberships` row at the star scope, so the minted token is
   // exact-star regardless of who owns the universe — which is the fidelity this change is about.
   await bootstrapAdmin(browser, universe, email);
   const { accessToken: ownerToken } = await refreshToken(browser, universe, universe);

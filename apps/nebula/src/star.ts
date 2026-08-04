@@ -105,7 +105,7 @@ export class Star extends NebulaDO {
    * first **star-scoped admin** to touch this Star.
    *
    * Two distinct things, in two planes, easily conflated: a *star-scoped admin* is a registry
-   * `Identities` row (`isAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
+   * `Memberships` row (`isAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
    * the *DataPlane root admin* is this DAG grant. This method is the bridge between them, and it runs
    * exactly once — later root admins are added by an ordinary `setPermission`, which is why this one
    * is the **initial** one and not the only possible one.

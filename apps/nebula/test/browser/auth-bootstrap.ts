@@ -69,7 +69,7 @@ export async function bootstrapStarAdmin(options: BootstrapAdminOptions): Promis
  * ⚠️ **A galaxy cannot be AUTHENTICATED AT — which is not the same as "cannot be operated".** A
  * universe admin's `{u}.*` matches `{u}.{g}` and everything beneath, so this client has full
  * authority inside the galaxy; nothing is being worked around. What is impossible is a *refresh
- * cookie* at `/auth/{u}.{g}/`, because no `Identities` row can exist at a 2-segment scope
+ * cookie* at `/auth/{u}.{g}/`, because no membership can exist at a 2-segment scope
  * (`create-galaxy` mints no admin identity, and there is no `claim-galaxy`). The old helper POSTed
  * `email-magic-link` there and relied on login-time minting, which was removed as the
  * stranger-claims-a-child escalation; that is why every galaxy-scoped caller in this lane went red.
