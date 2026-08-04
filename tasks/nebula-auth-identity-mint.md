@@ -29,7 +29,7 @@ Missing:
 
 ## ⚠️ What the identity split changes here
 
-[nebula-identity-data-model.md](nebula-identity-data-model.md) Phase 1 replaces `Identities` with **`Emails`** (the address, its `profileId`, `emailVerified`) + **`Memberships`** (`sub` PK, `emailId` FK, scope, `isAdmin`, `acceptedAt`). This file predates that and describes the old table throughout. What actually moves, so a builder can re-derive rather than re-read:
+✅ **BUILT 2026-08-04, not pending** — [nebula-identity-data-model.md](nebula-identity-data-model.md) Phase 1 landed, replacing `Identities` with **`Emails`** (the address, its `profileId`, `emailVerified`) + **`Memberships`** (`sub` PK, `emailId` FK, scope, `isAdmin`, `acceptedAt`). This file predates that. ⚠️ **Re-derive every storage claim against `packages/nebula-auth/src/schemas.ts` — the tables exist now, so the code is the authority and this table is only a map of what moved:**
 
 | Written here as | Now |
 |---|---|
@@ -51,7 +51,7 @@ Missing:
 | Scope rides the **URL path** | In the body — would need re-verifying against the JWT, and two scopes can disagree. |
 | **Works at every tier** (no tier check in this task) | Restricting to galaxy tier — a point solution. The mint invariant is uniform across tiers (§2), and so is reach, now that every admin check is confined to its own node. |
 | Promotion is **promote-only** | Demoting on an `isAdmin:false` re-invite — a plain/F&F invite must never strip someone's existing admin. |
-| **No revocation path in the interim** — accepted gap | Building a demote endpoint here. `setIdentityAdmin(sub, false)` already exists and already converges KV, so it is a thin admin-gated wrapper when wanted ([backlog.md](backlog.md) § Nebula Auth, which pins the shape + a last-super-admin guard). The gap is bounded to **mis-grants, not escalation** — the reach invariant (§2) means an inviter can never grant beyond their own reach. |
+| **No revocation path in the interim** — accepted gap | Building a demote endpoint here. `setIdentityAdmin(sub, false, callerClaims)` already exists and already converges KV — and already records its acting principal — so it is a thin admin-gated wrapper when wanted ([backlog.md](backlog.md) § Nebula Auth, which pins the shape + a last-super-admin guard). The gap is bounded to **mis-grants, not escalation** — the reach invariant (§2) means an inviter can never grant beyond their own reach. |
 | **`#mintIdentity`'s `profileId` behaviour is not this task's to change** — thread `isAdmin` through its four callers and touch nothing else. ⚠️ **Description corrected 2026-08-04:** this row used to read *"keeps minting a fresh `profileId`"*, which was true only pre-split — a fresh id is now minted for an address **new to Nebula**, and a known address keeps its own. The decision is unchanged; the sentence describing it was wrong. | Joining a human's profiles here. **Moved out** → [nebula-identity-data-model.md](nebula-identity-data-model.md), which then **dissolved** the join rather than implementing it. |
 | The Profile's scoped-admin branch **stays, gated on an ACCEPTED membership** — admins curating a member's private fields is a wanted capability (§4, [ADR-012](../docs/adr/012-global-profile-visibility.md)) | **Retiring it (owner + super-admin only)** — it was the decision until 2026-08-04 and removes the capability with no replacement short of super-admin. The manufacture it was protecting against is closed by requiring acceptance; the sideways residual is real and accepted in the ADR. **Scope-keying the private fields** — the structural answer to that residual, deferred: it adds a dimension to a field set with no production consumers, for a many-scopes case that does not exist at this population. |
 | Collaborator = **admin at the invited scope** | Varied per-node DAG tiers — deferred to [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md); needs a carrier not yet pinnable. |
@@ -65,7 +65,7 @@ Missing:
 ] }
 ```
 - **`emails: string[]` → `invitees: Array<{ email: string; isAdmin?: boolean }>`.** The entries are no longer emails, so the name changes with the shape. Clean break, no dual-shape alias.
-- **Scope from the path:** `instanceName` is parsed there and passed to `handleInvite(request, env, instanceName, verifiedAccess)` (the router's `invite` branch: `handleInvite(request, env, instanceName, authResult.payload.access)`) — so the router's existing scope-match already gates it.
+- **Scope from the path:** `instanceName` is parsed there and passed to `handleInvite(request, env, instanceName, callerClaims)` — ⚠️ **it takes the FULL verified payload now, not just `access`** (ADR-016 needs the `act` chain, and narrowing early makes the record unbuildable downstream); the admin bit is narrowed inside (the router's `invite` branch: `handleInvite(request, env, instanceName, authResult.payload.access)`) — so the router's existing scope-match already gates it.
 - **Strict per-entry normalization at the Worker gate — pass a CLEAN array onward, never the raw parsed body.** `handleInvite` maps into a typed `{ email: string; isAdmin: boolean }[]` via `entry.isAdmin === true` (ADR-001 validate-at-the-boundary; `request.json()` is an unchecked cast, so this **is** the field's validation — `"false"` / `"0"` / `1` must never mint an admin). ⚠️ Forwarding raw entries would re-open the same truthy-sink one layer deeper. Validate `Array.isArray(body.invitees)` and that each entry is an object with a string `email`; a malformed entry joins the existing `errors` array rather than failing the batch.
 - **The flag is inert on its own** — parsed only *after* the router scope-match and the admin gate pass, so it selects an outcome and never grants authority. An omitted `isAdmin` keeps every plain/F&F invite a non-admin member, so this one field **is** the shared invite/collaborator discriminator.
 - **The extension point for the deferred tiers:** per-person grants later become a richer per-entry spec (`{ email, grants: […] }`) with no second reshape of the envelope.
@@ -130,17 +130,22 @@ Only **B** needs the promote step, and it is the only case that touches KV at is
 
 ## Phases
 
-1. **Per-invitee admin mint (auth).** Reshape the body to `invitees` (§1) and thread each entry's normalized `isAdmin` through `handleInvite` → `issueInvites(instanceName, invitees, origin, verifiedAccess)` (which re-asserts admin-over-scope in-method — §2); its existing per-email loop reads `invitee.email` + `invitee.isAdmin`. **A/C** → drop the hardcoded `/* isAdmin */ false` in that loop; **B** → `setIdentityAdmin(sub, true)`. **Promote-only.**
+1. **Per-invitee admin mint (auth).** Reshape the body to `invitees` (§1) and thread each entry's normalized `isAdmin` through `handleInvite` → `issueInvites(instanceName, invitees, origin, callerClaims)` — ⚠️ **the built signature already carries `callerClaims: NebulaJwtPayload` as its 4th parameter (ADR-016), so this reshape changes the SECOND, not the last; `handleInvite` likewise now receives the full verified payload, not just `access`**
    - **Call sites:** replace every site matching `grep -rn "emails" --include="*.ts" packages/nebula-auth apps/nebula | grep -v node_modules` — **re-derive the set, do not trust a count** (it was "~15" when written and returns 44 as of 2026-08-04, most of them prose; it is a locator, not an inventory), **plus** `packages/nebula-auth/README.md` (which diagrams the body shape) and `apps/nebula/test/test-helpers.ts` (`createSubject`, imported by ~17 baseline files — wire its currently-dead `isAdmin?` option through here; Phase 3 and the collapse task's collaborator test both need it). `bootstrapUniverseAdmin` in `apps/nebula/test/browser/auth-bootstrap.ts` authenticates at the universe and names the Galaxy in `activeScope` — that is the correct shape (§2) and it **stays** unchanged. ⚠️ **Do NOT touch `@lumenize/auth`** — the MIT package has its own `#handleInvite` / `body.emails` ([`#handleInvite`](../packages/auth/src/lumenize-auth.ts)) and its own consumers.
    - **Success — assert the PERSISTED bit, never the `/invite` 200** (identical for `true`/`false`): (i) net-new `isAdmin:true` → `getIdentityScope(sub).isAdmin === true`, or stronger (ADR-009) drive accept→refresh and assert `access.admin` in the JWT; (ii) **re-invite an existing `isAdmin=0` member with `isAdmin:true` → the accepted JWT now carries `access.admin`** (reds against the early-return); (iii) omitted flag — *and* explicit `isAdmin:false`, *and* wrong-typed `isAdmin:"false"` — still leave `isAdmin=0`.
-   - **Success — ADR-016 records, through the SHARED projection.** This phase turns `issueInvites` into an admin-minting RPC and adds the first
-     production `setIdentityAdmin` caller — both change authority, so both owe a record of the acting token's full verified claims. ⚠️ **The
-     projection helper is a mutual obligation with [nebula-identity-data-model.md](nebula-identity-data-model.md) § *Next — write the schema*:
-     whichever phase runs first **builds** the exported helper in `nebula-auth`; the other adopts it. Neither file may assume the other did it.
-     ⚠️ **That schema build started FIRST (2026-08-04), so LOOK for the helper before writing one** — and if it is not there, build it; the
-     obligation stays mutual, since its phases only owe records for the methods *their* diffs touch and neither invite method is one of them.
-     No site hand-assembles its own record — that is the divergence ADR-016 calls unrecoverable, and `executeScopeDeletion` is that migration's
-     first caller, **not** its template. Criterion: stripping the claims argument from either site must red.
+   - **Success — ADR-016 records SURVIVE the reshape.** ✅ **The mutual obligation is DISCHARGED: the
+     schema build landed `projectActingToken` (in `access-claims.ts`, exported from the package root
+     so `apps/nebula` can use the identical record for Resources' `changedBy`), and `issueInvites`,
+     `setIdentityAdmin` and `changeEmail` all already take REQUIRED verified claims and record through
+     it.** Do NOT write a second projection, and do not hand-assemble — that divergence is what
+     ADR-016 calls unrecoverable history.
+     ⚠️ **What this phase owes is therefore NARROWER than it was, and easy to lose while reshaping the
+     body:** keep threading the real caller claims through `handleInvite` → `issueInvites` as the
+     signature changes, and add the record to any NEW authority-moving site the per-invitee `isAdmin`
+     work introduces. ⚠️ **The required parameter only guarantees the claims are PASSED** — deleting
+     the `actingToken` field from a record type-checks cleanly, so the criterion is the assertion, not
+     the signature: `identity-authority.test.ts` § *an authority change records the ACTING TOKEN*
+     already reds on that mutation for `issueInvites`; extend it if this phase adds a site.
    - **Success — `client.scopes.invite(scope, invitees)` EXISTS, and the harness calls it.** The
      registry endpoints are HTTP routes off the mesh, so app code reaches them through the client's
      `authedFetch` — which keeps the JWT inside the client (no bearer in UI/page code) and keeps ONE

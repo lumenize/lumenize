@@ -44,6 +44,12 @@ export {
   hasAdminOverScope,
 } from './parse-id';
 
+// ADR-016's acting-principal projection — the ONE shared shape every record site uses.
+// ⚠️ Exported deliberately: `apps/nebula` needs the identical record for Resources' `changedBy`, and
+// a second hand-rolled projection there is the divergence ADR-016 calls unrecoverable history.
+export { projectActingToken } from './access-claims';
+export type { ActingTokenRecord } from './access-claims';
+
 // Types needed by consuming packages
 export type {
   Tier,
