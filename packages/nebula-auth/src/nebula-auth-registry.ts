@@ -2,7 +2,7 @@
  * NebulaAuthRegistry — the ONE singleton DO that owns all durable auth state.
  *
  * Since tasks/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this registry is
- * the **single writer** of everything: the `Scopes` existence registry, `Identities` (surrogate-`sub`
+ * the **single writer** of everything: the `Scopes` existence registry, `Emails` + `Memberships` (surrogate-`sub`
  * identity, was `Emails` + `Subjects`), the `MagicLinks` / `InviteTokens` login channel, and the
  * `RefreshTokenIndex` (→ reliable KV invalidation). It also writes the Workers-KV refresh record
  * (`refresh:{tokenHash}`) — the ONE hot record, read at the edge by the default Worker on refresh,
@@ -31,10 +31,11 @@ import { generateRandomString, hashString } from '@lumenize/crypto';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
   NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,
-  MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL,
+  MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
 import { parseId, isValidSlug, matchAccess, hasAdminOverScope } from './parse-id';
+import { projectActingToken } from './access-claims';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
@@ -100,17 +101,61 @@ export class NebulaAuthRegistry extends DurableObject {
       rowsWritten: migrationResult.rowsWritten,
     });
 
-    // Sweep expired login-channel tokens on every DO wake (the singleton's onStart-equivalent — the
-    // constructor completes before dispatch). MagicLinks/InviteTokens live in the registry (not KV, so
-    // no TTL auto-clean), are short-TTL + low-volume, so a full-scan `expiresAt <` DELETE on wake is the
-    // cheap replacement (§The schema: "a cheap sweep replaces KV TTL"). No index on `expiresAt`: reads
-    // are ~1/1000th the cost of a write, so on these small tables the periodic scan is far cheaper than
-    // an index write on every insert. (RefreshTokenIndex is deliberately NOT swept — stale rows are
-    // harmless no-op deletes; §Blast radius. Expired tokens are also inert on lookup — the consume/
-    // verify paths gate on `expiresAt` regardless — so the sweep is purely storage hygiene.)
+    // Sweep on wake AND arm the recurring tick. The wake call alone is not enough: its frequency is
+    // INVERSELY correlated with load (a busy singleton is never evicted, so it never re-constructs)
+    // while row accumulation is DIRECTLY correlated with it — so at the traffic where hygiene matters
+    // it would stop firing entirely.
+    this.#sweepAndRearm();
+  }
+
+  /**
+   * Storage hygiene for the three expiry-bearing token tables, plus the re-arm. **Never correctness:**
+   * every row it deletes is already inert on lookup, because the consume/verify paths gate on
+   * `expiresAt` regardless — so a missed tick costs disk, never behaviour.
+   *
+   * ⚠️ **Exactly three tables, and the omissions are deliberate. `Scopes`, `Emails` and `Memberships`
+   * MUST NOT be swept**, and in particular not by the obvious predicate "no live activation path",
+   * which is wrong three separate ways: (1) `createGalaxy`/`createStar` write a `Scopes` row and
+   * nothing else, ever, so an admin-created scope matches such a predicate permanently — a
+   * user-developer's Galaxy would vanish within the hour, with its slug freed; (2) it would delete the
+   * un-taken-up membership `#resumeClaimIfOwner` reads, which is designed to work *after* the link
+   * expires, locking a legitimate claimer out of their own slug; (3) sweeping `Emails` would dangle
+   * the `emailId` every surviving membership references. Reclaiming a genuinely abandoned scope needs
+   * a time-based abandonment TTL reaping scope + membership + address together, which is a product
+   * policy and is deferred.
+   *
+   * ⚠️ **Zero KV operations, by construction.** `RefreshTokenIndex` rows are deleted here without
+   * touching their KV records — which is safe ONLY because these rows are already expired, so no live
+   * token loses its index. Deleting an *unexpired* row here would strand a live KV record with no
+   * index, invisible to every future revoke; that is the invariant `#revokeByHashes` exists to hold,
+   * and this method must not become a second, quieter way to break it.
+   *
+   * ⚠️ **No ADR-016 record, deliberately, and the reason is "no authority moves" — never "it is only
+   * hygiene".** Nothing here is done on anyone's behalf: there is no acting principal to name, not
+   * even a server-composed one, and no capability is removed from anyone since the rows were already
+   * inert. If this sweep is ever widened to reap something a live path still reads, that reasoning
+   * expires and the exclusion must be re-derived rather than inherited.
+   *
+   * The period follows storage accumulation, not a correctness deadline, so it is hourly rather than
+   * minutes — 12× fewer singleton wake-ups than the 5-minute figure this started at (ADR-018).
+   */
+  #sweepAndRearm(): void {
     const nowIso = new Date().toISOString();
-    ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', nowIso);
-    ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', nowIso);
+    // No index on `expiresAt`: reads are ~1/1000th the cost of a write, so on these small tables a
+    // periodic scan is far cheaper than an index write on every insert.
+    this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', nowIso);
+    this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', nowIso);
+    this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE expiresAt < ?', nowIso);
+    // Un-awaited on purpose: a DO storage write needs no await (the output gate orders it), and this
+    // is called from a synchronous constructor. Re-armed unconditionally so the chain cannot lapse —
+    // `setAlarm` overwrites, and a DO has exactly one alarm slot, so this is idempotent.
+    void this.ctx.storage.setAlarm(Date.now() + SWEEP_INTERVAL_SECONDS * 1000);
+  }
+
+  /** The recurring hygiene tick. Re-arms itself via `#sweepAndRearm`, so one alarm slot carries the
+   *  whole chain — there is no second scheduled thing to multiplex against. */
+  async alarm(): Promise<void> {
+    this.#sweepAndRearm();
   }
 
   #sql(strings: TemplateStringsArray, ...values: any[]): any[] {
@@ -141,74 +186,136 @@ export class NebulaAuthRegistry extends DurableObject {
   // ============================================
 
   /**
-   * MINT a fresh identity in a scope — an **authority-point-only** operation (Universe/Star claim +
-   * invite issuance). Returns the new surrogate `sub`. Idempotent on `(email, scope)`: if a row
-   * already exists it is returned unchanged (its `sub` preserved) rather than duplicated — so a
-   * re-issued invite or re-claim converges. `email` is normalized (lowercased + trimmed — m1). NEVER
-   * call from a login path.
+   * MINT a membership in a scope — an **authority-point-only** operation (Universe/Star claim + invite
+   * issuance). Returns the surrogate `sub`. NEVER call from a login path.
+   *
+   * Find-or-create at BOTH levels, so it is idempotent twice over: an address that already exists keeps
+   * its row — and therefore its `profileId` — and a membership that already exists is returned unchanged
+   * with its `sub` preserved, so a re-issued invite or re-claim converges rather than duplicating.
+   *
+   * ⚠️ **There is deliberately no `emailVerified` parameter.** Under the split, proof of the mailbox is a
+   * property of the ADDRESS and taking up a membership is per-MEMBERSHIP, so a mint has nothing to say
+   * about either: a new address starts unproved, an existing one is left alone, and every new membership
+   * starts un-taken-up. Passing a flag here is what would let an invite into a second scope silently
+   * un-verify an address the person had already proved — the parameter's absence makes that impossible
+   * rather than merely discouraged.
    */
-  #mintIdentity(email: string, universeGalaxyStarId: string, isAdmin: boolean, emailVerified: boolean): string {
+  #mintIdentity(email: string, universeGalaxyStarId: string, isAdmin: boolean): string {
     const lc = normalizeEmail(email);
+    const nowIso = new Date().toISOString();
+
+    // The address row. `profileId` is real from the moment the row exists — no provisional state, no
+    // promotion step, and no second path that could mint a competing id for the same address (ADR-010:
+    // both ids are random opaque UUIDs, generated without coordination).
+    const existingEmail = this.#sql`SELECT emailId FROM Emails WHERE email = ${lc}`;
+    let emailId: string;
+    if (existingEmail.length > 0) {
+      emailId = existingEmail[0].emailId as string;
+    } else {
+      emailId = crypto.randomUUID();
+      this.ctx.storage.sql.exec(
+        'INSERT INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES (?, ?, ?, 0, ?)',
+        emailId, lc, crypto.randomUUID(), nowIso,
+      );
+    }
+
     const existing = this.#sql`
-      SELECT sub FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
+      SELECT sub FROM Memberships WHERE emailId = ${emailId} AND universeGalaxyStarId = ${universeGalaxyStarId}
     `;
-    if (existing.length > 0) return existing[0].sub as string; // idempotent: existing sub AND profileId preserved
+    if (existing.length > 0) return existing[0].sub as string;
 
     const sub = crypto.randomUUID();
-    // Mint the PUBLIC `profileId` in the SAME INSERT as `sub` (one write, not a second row). ADR-010:
-    // both are random opaque UUIDs, minted without coordination. tasks/nebula-profile-store.md Phase 1.
-    const profileId = crypto.randomUUID();
+    // `acceptedAt` stays NULL: minting a membership is not taking it up. That NULL is what the Profile
+    // DO's scoped-admin authz check keys on (ADR-012), so it is load-bearing, not bookkeeping.
     this.ctx.storage.sql.exec(
-      `INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      sub, profileId, universeGalaxyStarId, lc, isAdmin ? 1 : 0, emailVerified ? 1 : 0, new Date().toISOString(),
+      `INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt)
+       VALUES (?, ?, ?, ?, NULL, ?)`,
+      sub, emailId, universeGalaxyStarId, isAdmin ? 1 : 0, nowIso,
     );
-    debug('nebula-auth.Registry.identity.minted').info('Identity minted', {
-      sub, profileId, universeGalaxyStarId, email: lc, isAdmin, emailVerified,
+    debug('nebula-auth.Registry.identity.minted').info('Membership minted', {
+      sub, emailId, universeGalaxyStarId, email: lc, isAdmin,
     });
     return sub;
   }
 
   /**
-   * Login **verify** — find the identity for `(email, scope)` and flip `emailVerified` true, returning
-   * `{ sub, universeGalaxyStarId, isAdmin, profileId }`. Returns `null` if **no identity exists** (the load-bearing
-   * "a row ⇒ authorized member" invariant that lets `adminApproved` retire — a stranger who requested a
-   * login magic link for a scope they were never minted into is rejected here). NEVER mints. Public so
-   * the token layer can drive it, but only reached via the consume RPCs.
+   * Login **verify** — find the membership for `(address, scope)`, record that the mailbox is proved and
+   * the membership taken up, and return `{ sub, universeGalaxyStarId, isAdmin, profileId }`. Returns
+   * `null` if **no membership exists** (the load-bearing "a row ⇒ authorized member" invariant — a
+   * stranger who requested a login link for a scope they were never minted into is rejected here).
+   * NEVER mints. Public so the token layer can drive it, but only reached via the consume RPCs.
+   *
+   * ⚠️ **Both flag UPDATEs are GUARDED on the value they change from, and that is a cost decision, not
+   * style.** SQLite writes the row whether or not the value actually changes, and this is the
+   * highest-volume write path in the registry (ADR-018) — unguarded, every returning login pays two
+   * writes to set values that are already set. Guarded, a repeat login writes nothing.
    */
   getAndVerifyIdentity(email: string, universeGalaxyStarId: string):
     { sub: string; universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
     const lc = normalizeEmail(email);
     const rows = this.#sql`
-      SELECT sub, isAdmin, profileId FROM Identities WHERE email = ${lc} AND universeGalaxyStarId = ${universeGalaxyStarId}
+      SELECT m.sub AS sub, m.isAdmin AS isAdmin, m.emailId AS emailId, e.profileId AS profileId
+      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+      WHERE e.email = ${lc} AND m.universeGalaxyStarId = ${universeGalaxyStarId}
     `;
     if (rows.length === 0) return null;
     const sub = rows[0].sub as string;
-    this.ctx.storage.sql.exec('UPDATE Identities SET emailVerified = 1 WHERE sub = ?', sub);
+
+    // Proof of the MAILBOX — global to the address, so it is set once and never re-proved per scope.
+    // The marker is emitted only when a write actually happened: a missing guard leaves the stored value
+    // byte-identical (1 overwritten with 1), so the wasted write is observable ONLY as a write.
+    const proved = this.ctx.storage.sql.exec(
+      'UPDATE Emails SET emailVerified = 1 WHERE emailId = ? AND emailVerified = 0', rows[0].emailId as string,
+    );
+    if (proved.rowsWritten > 0) {
+      debug('nebula-auth.Registry.identity.mailboxProved').info('Mailbox proved', { sub });
+    }
+    // Taking up THIS membership — per-membership, and distinct from the line above.
+    const accepted = this.ctx.storage.sql.exec(
+      'UPDATE Memberships SET acceptedAt = ? WHERE sub = ? AND acceptedAt IS NULL', new Date().toISOString(), sub,
+    );
+    if (accepted.rowsWritten > 0) {
+      debug('nebula-auth.Registry.identity.membershipAccepted').info('Membership accepted', { sub });
+    }
     return { sub, universeGalaxyStarId, isAdmin: Boolean(rows[0].isAdmin), profileId: rows[0].profileId as string };
   }
 
   /**
-   * Change an identity's login email — a **single-row update** (Phase 3). Because `email` is a mutable
-   * attribute that NOTHING keys off (the surrogate `sub` is the identity key; no token record keys off
-   * email; `email` is not a JWT claim), this is the whole email-change flow: no cross-DO cascade, no
-   * token re-issue, no re-key. The sub's refresh tokens stay valid (KV records are `sub`-anchored).
-   * Email is lowercased (the `UNIQUE(email, scope)` + discover + delete-scope guards compare binary).
+   * Re-point an ADDRESS to a new one — a single-row, single-column UPDATE on `Emails`, however many
+   * scopes that address holds memberships in. Nothing keys or FKs on an address, so there is no cascade,
+   * no re-key, and no token re-issue; refresh records are `sub`-anchored and survive.
+   *
+   * ⚠️ **This is the PRIMITIVE, not the email-change flow.** It performs no authorization and no
+   * revocation, and it has no production caller. The flow that will eventually call it requires fresh
+   * proof of the OLD address (a live session is not sufficient — sessions outlive mailbox control) and
+   * revokes on its own schedule; its pinned contract is the skipped block in `email-mutable.test.ts`.
+   * Do not expose this method as an endpoint without building that.
+   *
    * Returns `false` if the sub is unknown.
    */
-  changeEmail(sub: string, newEmail: string): boolean {
-    const rows = this.#sql`SELECT universeGalaxyStarId FROM Identities WHERE sub = ${sub}`;
+  changeEmail(sub: string, newEmail: string, callerClaims: NebulaJwtPayload): boolean {
+    const rows = this.#sql`SELECT emailId FROM Memberships WHERE sub = ${sub}`;
     if (rows.length === 0) return false;
-    this.ctx.storage.sql.exec('UPDATE Identities SET email = ? WHERE sub = ?', normalizeEmail(newEmail), sub);
-    debug('nebula-auth.Registry.identity.emailChanged').info('Email changed', { sub });
+    this.ctx.storage.sql.exec(
+      'UPDATE Emails SET email = ? WHERE emailId = ?', normalizeEmail(newEmail), rows[0].emailId as string,
+    );
+    // ADR-016: a re-point changes which mailbox holds the authority for every scope this address
+    // touches. ⚠️ The parameter is REQUIRED even though nothing calls this yet — that is the point:
+    // whoever builds the flow cannot forget it, because omitting it will not compile.
+    debug('nebula-auth.Registry.identity.emailChanged').info('Email changed', {
+      sub, actingToken: projectActingToken(callerClaims),
+    });
     return true;
   }
 
   /** Resolve a `sub` → its scope + admin bit + `profileId`. `null` if unknown. Used by the refresh
    *  KV-miss self-heal, the `isAdmin` convergence re-put, and mint-narrower-token — each threads
-   *  `profileId` into the record it rebuilds so the `profileId` claim survives (Phase 1). */
+   *  `profileId` into the record it rebuilds so the claim survives. */
   getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
-    const rows = this.#sql`SELECT universeGalaxyStarId, isAdmin, profileId FROM Identities WHERE sub = ${sub}`;
+    const rows = this.#sql`
+      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.isAdmin AS isAdmin, e.profileId AS profileId
+      FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE m.sub = ${sub}
+    `;
     if (rows.length === 0) return null;
     return {
       universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
@@ -221,7 +328,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * Defensive refresh-path fallback for a Worker KV **miss** (NOT the normal path — the Worker reads KV
    * directly on refresh). Workers KV is eventually consistent, so on the login→first-refresh hop a
    * cross-colo read can miss the just-written record; the singleton `RefreshTokenIndex` is
-   * strongly-consistent, so reconstruct the record from it (+ the current `Identities` row, which gives
+   * strongly-consistent, so reconstruct the record from it (+ the current membership row, which gives
    * the CURRENT `isAdmin`/scope — fresher than a stale KV copy) and **self-heal KV** (re-put, so
    * subsequent refreshes hit KV directly — bounding the fallback to at most once per token per
    * propagation gap). Returns `null` for a genuinely-invalid / expired / revoked token (not in the
@@ -245,24 +352,24 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Reverse lookup: the DISTINCT scopes a `profileId` spans (via `idx_Identities_profileId`) — the
-   * Profile DO's scoped-admin authz check (`requireOwnerOrAdmin`, tasks/nebula-profile-store.md). A
-   * profileId maps to 1..N `sub`s across scopes (P2 unification), so this can return several.
+   * Reverse lookup: the DISTINCT scopes a `profileId` spans (via `idx_Emails_profileId`) — the Profile
+   * DO's scoped-admin authz check (`requireOwnerOrAdmin`). One `profileId` can span several addresses
+   * and each address several scopes, so this can return many.
    *
-   * ⚠️ **ONLY ACCEPTED memberships count — `emailVerified = 1` is load-bearing AUTHZ here, not a
+   * ⚠️ **ONLY ACCEPTED memberships count — `acceptedAt IS NOT NULL` is load-bearing AUTHZ here, not a
    * tidy-up.** Without it, scope authority over a profile can be MANUFACTURED, and a profile is a
    * *global* object: claim a Universe (unauthenticated, Turnstile only) → invite any address you can
    * guess → you now "administer a scope that profile touches" → the Profile DO's scoped-admin branch
-   * hands you write on their public fields and read/write on their private ones. The only writer of
-   * `emailVerified = 1` is `getAndVerifyIdentity`, reached solely by consuming a magic link or invite
-   * delivered to the address — so acceptance is proof of the mailbox, which no attacker can forge for
-   * someone else's address. An invited-but-never-accepted row is `emailVerified = 0` (every
-   * `#mintIdentity` call site passes `false`), so it confers nothing.
+   * hands you write on their public fields and read/write on their private ones. `acceptedAt` is
+   * written only by `getAndVerifyIdentity`, reached solely by consuming a magic link or invite
+   * delivered to the address — so it is proof of the mailbox, which no attacker can forge for someone
+   * else's address. An invited-but-never-accepted membership has no value there, so it confers nothing.
    *
-   * ⚠️ Today the hole is *narrow* because a `profileId` is minted per `(email, scope)`, so a
-   * manufactured invite attaches to a fresh id, not the victim's. It stops being narrow the moment
-   * `profileId` becomes a property of the ADDRESS and spans every scope — do not remove this
-   * predicate, and re-point it (never drop it) when acceptance moves to its own per-membership column.
+   * ⚠️ **Do NOT swap this predicate for `Emails.emailVerified`.** They are not interchangeable: the
+   * address is proved once and globally, so `emailVerified` would count every scope a person was ever
+   * *invited* into once they had proved the mailbox anywhere — which is exactly the manufactured
+   * authority this guard exists to refuse. See ADR-012, and the manufacture test in
+   * `identity-authority.test.ts`, which reds if the predicate is dropped or swapped.
    *
    * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
    * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors), so the
@@ -270,15 +377,18 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   getScopesForProfile(profileId: string): string[] {
     const rows = this.#sql`
-      SELECT DISTINCT universeGalaxyStarId FROM Identities
-      WHERE profileId = ${profileId} AND emailVerified = 1
+      SELECT DISTINCT m.universeGalaxyStarId AS universeGalaxyStarId
+      FROM Emails e JOIN Memberships m ON m.emailId = e.emailId
+      WHERE e.profileId = ${profileId} AND m.acceptedAt IS NOT NULL
     `;
     return rows.map(r => r.universeGalaxyStarId as string);
   }
 
-  /** The lowercased `email` for a `sub`, or `null` — an ADR-010 indexed lookup, never a key. */
+  /** The normalized address behind a `sub`, or `null` — an indexed lookup, never a key. */
   #emailForSub(sub: string): string | null {
-    const rows = this.#sql`SELECT email FROM Identities WHERE sub = ${sub}`;
+    const rows = this.#sql`
+      SELECT e.email AS email FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE m.sub = ${sub}
+    `;
     return rows.length > 0 ? (rows[0].email as string) : null;
   }
 
@@ -294,7 +404,8 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   discover(email: string): DiscoveryEntry[] {
     const rows = this.#sql`
-      SELECT universeGalaxyStarId, isAdmin FROM Identities WHERE email = ${normalizeEmail(email)}
+      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.isAdmin AS isAdmin
+      FROM Emails e JOIN Memberships m ON m.emailId = e.emailId WHERE e.email = ${normalizeEmail(email)}
     `;
     return rows.map(r => ({
       universeGalaxyStarId: r.universeGalaxyStarId as string,
@@ -303,7 +414,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /** Whether a scope id is available (no `Scopes` row). Existence is a `Scopes` fact, NOT derived
-   *  from `Identities` — a wildcard-managed child scope has a row here and zero members. */
+   *  from membership — a wildcard-managed child scope has a row here and zero members. */
   checkSlugAvailable(universeGalaxyStarId: string): boolean {
     const rows = this.#sql`SELECT 1 FROM Scopes WHERE universeGalaxyStarId = ${universeGalaxyStarId}`;
     return rows.length === 0;
@@ -358,7 +469,7 @@ export class NebulaAuthRegistry extends DurableObject {
       }
       // MINT the claiming admin identity (authority point). A bootstrap email founding `nebula-platform` is
       // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
-      this.#mintIdentity(email, slug, /* isAdmin */ true, /* emailVerified */ false);
+      this.#mintIdentity(email, slug, /* isAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
     });
     log.info('Universe claimed', { slug, email: lc });
@@ -438,7 +549,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // MINT the star-scoped admin at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
       // stores none, and `buildAuthScopePattern` derives exact-star from a 3-segment scope at
       // token-mint time. Passing `parsed.universe` here would silently yield `{u}.*`.
-      this.#mintIdentity(lc, universeGalaxyStarId, /* isAdmin */ true, /* emailVerified */ false);
+      this.#mintIdentity(lc, universeGalaxyStarId, /* isAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
     });
     log.info('Star claimed', { universeGalaxyStarId, email: lc });
@@ -462,10 +573,15 @@ export class NebulaAuthRegistry extends DurableObject {
    * Its rejection is caught here so it can't surface as an unhandled rejection. (Guaranteed delivery —
    * outbox/retries — is deferred: `tasks/backlog.md` § internal email reliability.)
    *
-   * ⚠️ **Writes ONLY a `MagicLinks` row — never `UPDATE Identities`.** The `isAdmin = 1` clause is
-   * load-bearing: `issueInvites` mints pending invitees as `(isAdmin 0, emailVerified 0)` at the same
-   * scope, so a looser predicate matches them — and "resuming" one by setting `isAdmin = 1` would
-   * promote an invitee to star admin through an unauthenticated endpoint.
+   * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `isAdmin = 1` clause is
+   * load-bearing: `issueInvites` mints pending invitees as non-admin and un-taken-up at the same scope,
+   * so a looser predicate matches them — and "resuming" one by setting `isAdmin = 1` would promote an
+   * invitee to star admin through an unauthenticated endpoint.
+   *
+   * ⚠️ The unfinished-claim test is `acceptedAt IS NULL` — "was this membership ever taken up?" — NOT
+   * whether the mailbox was proved. Those are different questions now, and this one is per-membership:
+   * a claimer who had proved the same address in some *other* scope must still be able to resume here.
+   * That is precisely the case the pre-split single column could not express.
    */
   #resumeClaimIfOwner(
     universeGalaxyStarId: string,
@@ -475,7 +591,8 @@ export class NebulaAuthRegistry extends DurableObject {
     log: ReturnType<typeof debug>,
   ): void {
     const claimer = [...this.ctx.storage.sql.exec(
-      'SELECT sub FROM Identities WHERE email = ? AND universeGalaxyStarId = ? AND isAdmin = 1 AND emailVerified = 0',
+      `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+       WHERE e.email = ? AND m.universeGalaxyStarId = ? AND m.isAdmin = 1 AND m.acceptedAt IS NULL`,
       lcEmail, universeGalaxyStarId,
     )];
     if (claimer.length === 0) return; // not the unverified claimer — an ordinary slug_taken, no mail
@@ -604,7 +721,7 @@ export class NebulaAuthRegistry extends DurableObject {
       const link = await this.#prepareMagicLink();
       this.ctx.storage.transactionSync(() => {
         this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
-        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true, /* emailVerified */ false);
+        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true);
         this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
       });
       return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
@@ -645,7 +762,7 @@ export class NebulaAuthRegistry extends DurableObject {
   /**
    * INSERT the `MagicLinks` row. **Synchronous** — safe inside a `transactionSync` closure.
    *
-   * `email` must already be `normalizeEmail`d: it has to match the `Identities` normalization or
+   * `email` must already be `normalizeEmail`d: it has to match the `Emails` normalization or
    * consume-time verification won't find the row.
    */
   #insertMagicLinkRow(tokenHash: string, lcEmail: string, universeGalaxyStarId: string, expiresAt: string): void {
@@ -695,7 +812,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * (HASHED), then send the invite email. In test mode the raw links are returned instead of sent.
    */
   async issueInvites(
-    universeGalaxyStarId: string, emails: string[], origin: string,
+    universeGalaxyStarId: string, emails: string[], origin: string, callerClaims: NebulaJwtPayload,
   ): Promise<{ invited: string[]; errors: Array<{ email: string; error: string }>; links?: Record<string, string> }> {
     const invited: string[] = [];
     const errors: Array<{ email: string; error: string }> = [];
@@ -709,7 +826,7 @@ export class NebulaAuthRegistry extends DurableObject {
       }
       try {
         // Pre-create the invitee identity (idempotent on (email, scope)) — the authority point.
-        this.#mintIdentity(email, universeGalaxyStarId, /* isAdmin */ false, /* emailVerified */ false);
+        this.#mintIdentity(email, universeGalaxyStarId, /* isAdmin */ false);
 
         const rawToken = generateRandomString(32);
         const tokenHash = await hashString(rawToken);
@@ -726,7 +843,12 @@ export class NebulaAuthRegistry extends DurableObject {
         } else {
           await this.#sendEmail({ type: 'invite-new', to: email, instanceName: universeGalaxyStarId, inviteUrl });
         }
-        debug('nebula-auth.Registry.invite.sent').info('Invite sent', { email, universeGalaxyStarId });
+        // ADR-016: an invite MINTS a membership, so it changes who can do what. The record names the
+        // full acting token through the shared projection — never a bare `sub`, which under
+        // impersonation names the person acted upon as the person who acted.
+        debug('nebula-auth.Registry.invite.sent').info('Invite sent', {
+          email, universeGalaxyStarId, actingToken: projectActingToken(callerClaims),
+        });
         invited.push(email);
       } catch (error) {
         errors.push({ email, error: error instanceof Error ? error.message : 'Unknown error' });
@@ -822,19 +944,96 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Logout / revoke (Worker-driven). Deletes the KV record + its `RefreshTokenIndex` entry. ⚠️ KV is
-   * eventually consistent, so a revoked token keeps working for the KV-propagation window (~edge
-   * cacheTtl) PLUS the full access-TTL — the short access-TTL is the mitigation (security.md).
+   * Revoke a specific set of refresh tokens — **the one revoke mechanism**; every caller routes here.
+   *
+   * ⚠️ **THE INVARIANT: never un-index a token whose KV record you did not just delete.** Revocation
+   * spans two stores with no transaction, so there are two possible orphans and they are NOT equally
+   * bad:
+   *   - **index row, no KV record** — the next refresh takes a KV miss and `getRefreshRecord`
+   *     reconstructs the record from the index row, so the token *resurrects*; but it stays
+   *     ENUMERABLE, so re-running a revoke kills it. **Recoverable.**
+   *   - **KV record, no index row** — the token keeps working off the KV hit, is invisible to every
+   *     future revoke, and lives to its ~30-day TTL. **Unrecoverable.**
+   *
+   * ⚠️ Both orderings used to be justified by "an orphaned index row is harmless — the token is
+   * already dead." **That is false**, and `getRefreshRecord`'s self-heal is why: an index row IS a
+   * live token. The KV-first conclusion survives, but re-derive it as recoverable-vs-unrecoverable
+   * rather than harmless-vs-not, or the next reader "simplifies" the ordering on a dead premise.
+   *
+   * The un-index is therefore scoped to the hashes whose KV delete **resolved**, which keeps the
+   * invariant under partial failure too: a rejected delete leaves that token indexed, hence
+   * recoverable. `allSettled` is chosen for those failure semantics — plain `Promise.all` discards
+   * *which* key failed; overlapping the round-trips is a second-order win on the DO's elapsed-time
+   * billing and changes neither the operation count nor its per-operation cost.
+   *
+   * ⚠️ **Irreducible residual, stated rather than hidden:** a KV `put` already in flight when the
+   * caller enumerated can still land after these deletes — the write is dispatched to an external
+   * store and nothing here can unsend it. The window is one KV round-trip. Offboarding covers the
+   * adversarial case by removing the MEMBERSHIP before revoking, since starving alone is defeated by
+   * re-login.
+   */
+  async #revokeByHashes(
+    tokenHashes: string[],
+    reason: string,
+    /** The verified claims of whoever ASKED for this — projected, never pre-picked. Absent only on the
+     *  logout path, which is authenticated by a refresh cookie and so carries no claims at all; that
+     *  absence is honest, whereas passing the token owner's `sub` here would assert an actor we never
+     *  verified. Whose sessions these are is `subjectSub`, a separate field, because conflating the
+     *  two is exactly the misreading ADR-016 exists to prevent. */
+    actingClaims?: NebulaJwtPayload,
+    subjectSub?: string,
+  ): Promise<void> {
+    if (tokenHashes.length === 0) return;
+    const results = await Promise.allSettled(
+      tokenHashes.map(h => this.#refreshKv.delete(`refresh:${h}`)),
+    );
+    const confirmed = tokenHashes.filter((_, i) => results[i]!.status === 'fulfilled');
+
+    // ⚠️ **A rejected delete is LOUD, deliberately — this branch is otherwise untested defensive
+    // code.** Reaching it requires a real KV failure, which no lane can induce without an injectable
+    // binding, so `testing.md`'s "defensive exception conditions that are hard to reach may stay
+    // uncovered" applies. What replaces the test is that the event announces itself AND says what
+    // state it left, because the whole point of the filter is that this case is RECOVERABLE: the
+    // token keeps its index row, so it stays enumerable and a re-run of the revoke will retry it.
+    // Without that sentence a reader has to re-derive whether anything is still live.
+    if (confirmed.length !== tokenHashes.length) {
+      debug('nebula-auth.Registry.token.revokeIncomplete').error(
+        'KV delete FAILED for some tokens — they remain INDEXED and therefore still revocable; ' +
+        're-run the revoke for this sub to retry',
+        { reason, subjectSub, requested: tokenHashes.length, deleted: confirmed.length },
+      );
+    }
+    if (confirmed.length > 0) {
+      const placeholders = confirmed.map(() => '?').join(',');
+      this.ctx.storage.sql.exec(
+        `DELETE FROM RefreshTokenIndex WHERE tokenHash IN (${placeholders})`, ...confirmed,
+      );
+    }
+    // ADR-016: this removes state, so the record names EVERY party — the subject whose sessions died
+    // AND, through the shared projection, the full verified claims of whoever asked, including the
+    // `act` chain. A `sub`-only record names the person acted upon as the person who acted, which is
+    // affirmatively wrong rather than merely incomplete, and it would be believed. `actingToken` is
+    // absent on the logout path by design: that path carries no claims to verify, and asserting an
+    // actor we never saw would be the same defect in a friendlier shape.
+    debug('nebula-auth.Registry.token.revoked').warn('Refresh tokens revoked', {
+      reason,
+      subjectSub,
+      actingToken: actingClaims ? projectActingToken(actingClaims) : undefined,
+      requested: tokenHashes.length,
+      revoked: confirmed.length,
+    });
+  }
+
+  /**
+   * Logout / revoke a single token (Worker-driven). ⚠️ KV is eventually consistent, so a revoked token
+   * keeps working for the KV-propagation window (~edge cacheTtl) PLUS the full access-TTL — the short
+   * access-TTL is the mitigation (security.md).
    */
   async revokeRefreshToken(refreshTokenHash: string): Promise<void> {
-    // KV-first, THEN the index row (matching #invalidateRefreshTokensForSub). For a DELETE this is the
-    // correct ordering of the M3 invariant: an interruption after the KV delete leaves at worst an
-    // orphaned index row (harmless — the token is already dead). The reverse (index-first) could strand
-    // a live-but-UNindexed KV record that convergence/invalidation — which enumerate by index — can
-    // never reach, so it would survive to its ~30-day TTL despite logout.
-    await this.#refreshKv.delete(`refresh:${refreshTokenHash}`);
-    this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE tokenHash = ?', refreshTokenHash);
-    debug('nebula-auth.Registry.token.revoked').warn('Logout', { method: 'logout' });
+    const rows = this.#sql`SELECT sub FROM RefreshTokenIndex WHERE tokenHash = ${refreshTokenHash}`;
+    await this.#revokeByHashes(
+      [refreshTokenHash], 'logout', /* actingClaims */ undefined, rows[0]?.sub as string | undefined,
+    );
   }
 
   /**
@@ -843,8 +1042,8 @@ export class NebulaAuthRegistry extends DurableObject {
    * ORIGINAL absolute expiry (`RefreshTokenIndex.expiresAt`) — CF KV drops `expirationTtl` across a
    * put, so a fresh TTL would EXTEND a demoted user's token and omitting it would make it IMMORTAL (M4).
    */
-  async setIdentityAdmin(sub: string, isAdmin: boolean): Promise<void> {
-    this.ctx.storage.sql.exec('UPDATE Identities SET isAdmin = ? WHERE sub = ?', isAdmin ? 1 : 0, sub);
+  async setIdentityAdmin(sub: string, isAdmin: boolean, callerClaims: NebulaJwtPayload): Promise<void> {
+    this.ctx.storage.sql.exec('UPDATE Memberships SET isAdmin = ? WHERE sub = ?', isAdmin ? 1 : 0, sub);
     const scope = this.getIdentityScope(sub);
     if (!scope) return;
     const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${sub}`;
@@ -858,7 +1057,10 @@ export class NebulaAuthRegistry extends DurableObject {
         expirationTtl: kvTtlSeconds(t.expiresAt as string),
       });
     }
-    debug('nebula-auth.Registry.identity.roleUpdated').info('isAdmin converged', { sub, isAdmin, tokens: tokens.length });
+    // ADR-016: this is the authority change itself — the record must name every party.
+    debug('nebula-auth.Registry.identity.roleUpdated').info('isAdmin converged', {
+      sub, isAdmin, tokens: tokens.length, actingToken: projectActingToken(callerClaims),
+    });
   }
 
   // ============================================
@@ -880,7 +1082,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Execute the cascade: re-verify admin + re-run the guard, then for each affected scope delete the
-   * `Scopes` row, its `Identities`, their `RefreshTokenIndex` entries + KV refresh records, and the
+   * `Scopes` row, its `Memberships`, their `RefreshTokenIndex` entries + KV refresh records, and the
    * scope's `MagicLinks` / `InviteTokens`. Returns the affected set so the Worker fans out platform-DO
    * `teardown()` (the registry can't reach platform DOs — dependency direction). Throws 403 / 409.
    *
@@ -905,10 +1107,12 @@ export class NebulaAuthRegistry extends DurableObject {
     for (const scope of plan.affected) {
       const name = scope.instanceName;
       // Invalidate every refresh token for every identity in this scope (KV + index), then drop rows.
-      const subs = this.#sql`SELECT sub FROM Identities WHERE universeGalaxyStarId = ${name}`
+      const subs = this.#sql`SELECT sub FROM Memberships WHERE universeGalaxyStarId = ${name}`
         .map(r => r.sub as string);
-      for (const sub of subs) await this.#invalidateRefreshTokensForSub(sub);
-      this.ctx.storage.sql.exec('DELETE FROM Identities WHERE universeGalaxyStarId = ?', name);
+      for (const sub of subs) {
+        await this.#invalidateRefreshTokensForSub(sub, 'scope-deletion', callerClaims);
+      }
+      this.ctx.storage.sql.exec('DELETE FROM Memberships WHERE universeGalaxyStarId = ?', name);
       this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE universeGalaxyStarId = ?', name);
       this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE universeGalaxyStarId = ?', name);
       this.ctx.storage.sql.exec('DELETE FROM Scopes WHERE universeGalaxyStarId = ?', name);
@@ -940,11 +1144,22 @@ export class NebulaAuthRegistry extends DurableObject {
     return { affected: plan.affected };
   }
 
-  /** Delete every refresh token for a `sub` — KV records first, then the index rows. */
-  async #invalidateRefreshTokensForSub(sub: string): Promise<void> {
+  /**
+   * Revoke every refresh token for a `sub`.
+   *
+   * ⚠️ **The enumeration is a SNAPSHOT, and the delete is scoped to it — never `WHERE sub = ?`.** A
+   * blanket delete would remove index rows for tokens this operation never touched: the awaited KV
+   * deletes open the input gate, and a login landing in that window writes its index row synchronously
+   * (`#recordRefreshToken` is index-first by design), so the blanket sweep would un-index a token whose
+   * KV record it never deleted — converting the recoverable orphan into the unrecoverable one. A token
+   * minted after this snapshot simply survives, which is correct: it is a login that happened after the
+   * revoke began, and it remains enumerable and revocable.
+   */
+  async #invalidateRefreshTokensForSub(
+    sub: string, reason: string, actingClaims?: NebulaJwtPayload,
+  ): Promise<void> {
     const tokens = this.#sql`SELECT tokenHash FROM RefreshTokenIndex WHERE sub = ${sub}`;
-    for (const t of tokens) await this.#refreshKv.delete(`refresh:${t.tokenHash as string}`);
-    this.ctx.storage.sql.exec('DELETE FROM RefreshTokenIndex WHERE sub = ?', sub);
+    await this.#revokeByHashes(tokens.map(t => t.tokenHash as string), reason, actingClaims, sub);
   }
 
   #computeDeletionPlan(target: string, callerSub: string, callerAccess: AccessEntry): ScopeDeletionPlan {
@@ -1022,14 +1237,15 @@ export class NebulaAuthRegistry extends DurableObject {
     const args = [...scopes, callerEmailLc];
 
     const totalRows = [...this.ctx.storage.sql.exec(
-      `SELECT COUNT(DISTINCT email) AS total FROM Identities
-       WHERE universeGalaxyStarId IN (${placeholders}) AND email != ?`,
+      `SELECT COUNT(DISTINCT e.email) AS total FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+       WHERE m.universeGalaxyStarId IN (${placeholders}) AND e.email != ?`,
       ...args,
     )];
 
     const sample = [...this.ctx.storage.sql.exec(
-      `SELECT email, MIN(universeGalaxyStarId) AS instanceName FROM Identities
-       WHERE universeGalaxyStarId IN (${placeholders}) AND email != ?
+      `SELECT e.email AS email, MIN(m.universeGalaxyStarId) AS instanceName
+       FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+       WHERE m.universeGalaxyStarId IN (${placeholders}) AND e.email != ?
        GROUP BY email ORDER BY email LIMIT 25`,
       ...args,
     )].map(r => ({ instanceName: r.instanceName as string, email: r.email as string }));

@@ -268,7 +268,7 @@ async function handleInstancePath(
   if (AUTHENTICATED_SUFFIXES.has(suffix) && request.method === 'POST') {
     const authResult = await verifyInstanceJwt(request, env, instanceName);
     if ('error' in authResult) return authResult.error;
-    if (suffix === 'invite') return handleInvite(request, env, instanceName, authResult.payload.access);
+    if (suffix === 'invite') return handleInvite(request, env, instanceName, authResult.payload);
     return mintNarrowerToken(request, env, authResult.payload);
   }
 

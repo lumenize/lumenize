@@ -167,19 +167,33 @@ export interface Scope {
   universeGalaxyStarId: string;
 }
 
-/** `Identities` row — person-in-a-scope (merged `Emails` + `Subjects`). */
-export interface Identity {
-  /** Registry-minted surrogate identity key (UUID). */
-  sub: string;
-  /** Registry-minted PUBLIC address (UUID) — minted WITH `sub`, distinct namespace. `sub → exactly
-   *  one profileId`; `profileId ← 1..N subs` (the P2 unification substrate). tasks/nebula-profile-store.md. */
-  profileId: string;
-  universeGalaxyStarId: string;
-  /** MUTABLE current login address (lowercased). The ONLY copy. */
+/** `Emails` row — one per ADDRESS, across every scope that address belongs to. */
+export interface EmailRecord {
+  /** Opaque surrogate PK (UUID). Everything that must survive an address change references THIS. */
+  emailId: string;
+  /** MUTABLE current login address, NORMALIZED (lowercased + trimmed). The ONLY copy in the registry. */
   email: string;
-  isAdmin: boolean;
-  /** Per-scope proof-click. Replaces the retired `adminApproved` as the "authorized member" signal. */
+  /** Registry-minted PUBLIC display handle (UUID) — a distinct namespace from `sub`, and a property of
+   *  the ADDRESS, so every membership this address holds resolves to the same one. */
+  profileId: string;
+  /** Proof of the MAILBOX — global to the address, never re-proved per scope. */
   emailVerified: boolean;
+  createdAt: string;
+}
+
+/** `Memberships` row — one per (address, scope); the join table. */
+export interface Membership {
+  /** Registry-minted surrogate identity key (UUID). The membership key AND the FK every resource,
+   *  grant and snapshot records (ADR-013) — so it is never re-keyed. */
+  sub: string;
+  /** FK → `Emails.emailId`. Never the address itself: an address changes, this does not. */
+  emailId: string;
+  universeGalaxyStarId: string;
+  isAdmin: boolean;
+  /** When THIS membership was taken up, or absent if never. Distinct from `emailVerified`, which is a
+   *  property of the address — an invitation that was never accepted has no value here, and that is
+   *  what the Profile's scoped-admin authz check keys on (ADR-012). */
+  acceptedAt?: string;
   createdAt: string;
 }
 
@@ -321,6 +335,14 @@ export const MAGIC_LINK_TTL = 1800;
 
 /** Invite token lifetime in seconds (7 days) */
 export const INVITE_TTL = 604800;
+
+/** How often the registry sweeps its expired token rows (1 hour).
+ *
+ *  ⚠️ This period tracks STORAGE ACCUMULATION, never a correctness deadline — every row the sweep
+ *  removes is already inert on lookup, so a late tick costs disk and nothing else. Do not shorten it
+ *  reflexively: the registry is the system's one singleton, so each tick is a wake it pays for
+ *  (ADR-018), and an earlier 5-minute value was inherited from a mechanism that no longer exists. */
+export const SWEEP_INTERVAL_SECONDS = 3600;
 
 /** JWT issuer */
 export const NEBULA_AUTH_ISSUER = 'https://nebula.lumenize.com';

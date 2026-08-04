@@ -100,6 +100,36 @@ export function buildNebulaAccessEntry(
  * defense-in-depth mirrored at `router.verifyNebulaAccessToken`: it makes an inconsistent
  * token impossible to construct here, not merely rejected downstream.
  */
+/** The acting-principal record: every party to an action, projected from verified claims. */
+export interface ActingTokenRecord {
+  /** The AUTHORITY principal — the token's subject. ⚠️ Under impersonation this is the person acted
+   *  UPON, not the actor; the actor is `act.sub`. Never read this alone to answer "who did it". */
+  sub: string;
+  /** The complete delegation chain, or absent when the subject acted for themselves. */
+  act?: NebulaJwtPayload['act'];
+  profileId?: string;
+  /** Authority as ASSERTED at write time. Immutable history — never read back as an authz input. */
+  access?: NebulaJwtPayload['access'];
+}
+
+/**
+ * Project verified claims into the ADR-016 acting-principal record — **the one shared projection; no
+ * site assembles its own.**
+ *
+ * ⚠️ **Named for the TOKEN, never for a role.** `actingToken.sub` reads as *the token's subject*,
+ * which is what it is. Every role name inverts: `actor.sub` reads as "the actor" but holds the person
+ * acted *upon* — the misreading ADR-016 exists to prevent, and it would be believed. `actingClaims`
+ * is the same defect one step removed, since "the acting claims" still invites "the acting sub".
+ *
+ * ⚠️ **Pass the CLAIMS, never a pre-picked `sub`.** A bare string cannot carry the `act` chain, so a
+ * caller that narrows to `claims.sub` before calling here silently produces a record naming the wrong
+ * human under impersonation — which ADR-016 calls affirmatively wrong and worse than no record. Taking
+ * the whole payload is what makes that shape impossible to write.
+ */
+export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord {
+  return { sub: claims.sub, act: claims.act, profileId: claims.profileId, access: claims.access };
+}
+
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
   const access = buildNebulaAccessEntry(input.instanceName, input.isAdmin, input.authScopePattern);
   if (!matchAccess(access.authScopePattern, input.activeScope)) {

@@ -393,8 +393,14 @@ export async function handleLogout(request: Request, env: Env, instanceName: str
  * from the JWT — the registry owns identity.
  */
 export async function handleInvite(
-  request: Request, env: Env, instanceName: string, verifiedAccess: NebulaJwtPayload['access'],
+  request: Request, env: Env, instanceName: string, callerClaims: NebulaJwtPayload,
 ): Promise<Response> {
+  // ⚠️ Takes the WHOLE verified payload, not just `access`. The gate below needs only the admin bit,
+  // but issuing an invite mints a membership — an authority change — so ADR-016 requires a record of
+  // the full acting token, `act` chain included. Narrowing to `access` here would make that record
+  // unbuildable downstream without re-verifying, and a `sub`-only record names the person acted upon
+  // as the person who acted.
+  const verifiedAccess = callerClaims.access;
   // Admin gate HERE (the Worker is the trusted gate): the router already verified the JWT + scope
   // match (matchAccess(pattern, instanceName)); `admin === true` completes admin-over-scope. Gating
   // here keeps the registry RPC throw-free for this expected client error (RPC drops custom Error props).
@@ -416,7 +422,7 @@ export async function handleInvite(
   if (!Array.isArray(body.emails)) return errorResponse(400, 'invalid_request', 'emails array required');
 
   const origin = new URL(request.url).origin;
-  const result = await registry(env).issueInvites(instanceName, body.emails, origin);
+  const result = await registry(env).issueInvites(instanceName, body.emails, origin, callerClaims);
   return Response.json(result);
 }
 
