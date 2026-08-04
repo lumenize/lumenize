@@ -11,12 +11,24 @@
  * escalation the flow's design exists to prevent (an admin re-pointing someone else's identity).
  */
 import { describe, it, expect } from 'vitest';
-import { SELF, env } from 'cloudflare:test';
+import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
-import { foundUniverse, requestMagicLink, clickLink, refreshAndParse } from './test-helpers';
+import { foundUniverse, requestMagicLink, clickLink, refreshAndParse, url } from './test-helpers';
+
+/** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
+ *  consulted — authorization keys off the caller's own verified access, not off this. */
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', admin: true } }) as any;
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
+/** The `sub` for an address in a scope, read through the DO's own storage (no RPC exposes it — the
+ *  surrogate key is deliberately absent from `discover`'s result to keep it a narrow oracle). */
+async function subForEmail(email: string, scope: string): Promise<string> {
+  return (runInDurableObject as any)(getRegistry(), (_i: any, c: any) => [...c.storage.sql.exec(
+    `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+     WHERE e.email = ? AND m.universeGalaxyStarId = ?`, email, scope,
+  )][0].sub as string);
+}
 async function kvRecord(refreshToken: string): Promise<any> {
   const raw = await (env as any).REFRESH_TOKEN_KV.get(`refresh:${await hashString(refreshToken)}`);
   return raw ? JSON.parse(raw) : null;
@@ -33,7 +45,7 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expect((await kvRecord(admin.refreshToken)).sub).toBe(sub);
 
     // Change the email — a single-row update.
-    expect(await registry.changeEmail(sub, 'new@example.com')).toBe(true);
+    expect(await registry.changeEmail(sub, 'new@example.com', ACTING())).toBe(true);
 
     // discover: the NEW address resolves to the scope; the OLD no longer does.
     expect((await registry.discover('new@example.com')).map((d: any) => d.universeGalaxyStarId)).toEqual([u]);
@@ -61,8 +73,67 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     expect(oldClick.headers.get('Set-Cookie')).toBeNull(); // rejected — old email no longer an identity
   });
 
+  /**
+   * The headline property, and the one that needs THREE scopes to be capable of failing. With a single
+   * membership, "update one row" and "update one row of N" are indistinguishable — every pre-split
+   * fixture had exactly one, which is why the defect survived. The address now lives on one row that all
+   * three memberships reference, so a re-point is complete by construction rather than by iteration.
+   */
+  it('a re-point moves ALL of a person\'s memberships, not one of N', async () => {
+    const old = `multi-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    const fresh = `moved-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    const [a, b, c] = [uni(), uni(), uni()];
+    const registry = getRegistry();
+
+    const first = await foundUniverse(SELF, a, old);
+    await registry.claimUniverse(b, old, 'http://localhost');
+    await registry.claimUniverse(c, old, 'http://localhost');
+    const before = (await registry.discover(old)).map((d: any) => d.universeGalaxyStarId).sort();
+    expect(before).toEqual([a, b, c].sort());
+
+    expect(await registry.changeEmail(first.parsed.sub, fresh, ACTING())).toBe(true);
+
+    // Reds against a per-membership UPDATE: that would move ONE scope and strand the other two.
+    expect((await registry.discover(fresh)).map((d: any) => d.universeGalaxyStarId).sort()).toEqual(before);
+    expect(await registry.discover(old)).toEqual([]);
+  });
+
   it('changeEmail returns false for an unknown sub', async () => {
-    expect(await getRegistry().changeEmail('no-such-sub', 'x@example.com')).toBe(false);
+    expect(await getRegistry().changeEmail('no-such-sub', 'x@example.com', ACTING())).toBe(false);
+  });
+
+  /**
+   * A credential delivered to an address must stop working once that address stops being the person's.
+   * This passes today and the point is that the re-key must not break it — it is what makes the token
+   * tables' bare address load-bearing rather than incidental: they resolve by ADDRESS, so a stale token
+   * fails CLOSED. Keying either table on `emailId` would red this, because an `emailId` never goes
+   * stale and the link would mint a full session as the person's current identity.
+   */
+  it('an unconsumed invite dies when the address it was sent to is re-pointed', async () => {
+    const old = `inv-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    const u = uni();
+    const registry = getRegistry();
+    const admin = await foundUniverse(SELF, u, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
+
+    const inviteResp = await SELF.fetch(new Request(url(u, 'invite'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: [old] }),
+    }));
+    expect(inviteResp.status).toBe(200);
+    const link = (await inviteResp.json() as { links: Record<string, string> }).links[old];
+    expect(link).toBeTruthy();
+
+    // The invite really did mint a membership, so the click would otherwise succeed.
+    const invited = await registry.discover(old);
+    expect(invited).toHaveLength(1);
+
+    // Re-point the invitee's address before they ever click, through the registry's own primitive.
+    const moved = `moved-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    expect(await registry.changeEmail(await subForEmail(old, u), moved, ACTING())).toBe(true);
+
+    const click = await SELF.fetch(new Request(link, { redirect: 'manual' }));
+    expect(click.headers.get('Set-Cookie')).toBeNull(); // refused — no membership resolves the old address
   });
 
   it('discover is sub-FREE and reads the UNIQUE(email, scope) index', async () => {

@@ -5,7 +5,7 @@
  * test is capable-of-failing.
  *
  * ⚠️ **Rung 3 is LOAD-BEARING here** (ADR-009 in-place justification): the fixtures seed registry
- * `Identities` rows keyed on a CHOSEN `profileId` so `getScopesForProfile(profileId)` resolves to a known
+ * registry rows carrying a CHOSEN `profileId` so `getScopesForProfile(profileId)` resolves to a known
  * scope. Real issuance assigns `profileId` server-side, so the fixture could not be constructed through it.
  *
  * Harness: a plain `LumenizeClient` (mesh) with `refresh: createNebulaTestToken(...)` (ADR-009 rung 3,
@@ -58,14 +58,30 @@ async function makeClient(opts: {
   return client;
 }
 
-/** Seed a registry `Identities` row so `getScopesForProfile(profileId)` → `[scope]` (scoped-admin fixture). */
-async function seedIdentity(profileId: string, scope: string): Promise<void> {
+/**
+ * Seed a registry address + membership so `getScopesForProfile(profileId)` → `[scope]` — the
+ * scoped-admin fixture.
+ *
+ * ⚠️ **`accepted` is the whole point of the parameter, not a detail.** `getScopesForProfile` counts
+ * only memberships that were actually taken up, because otherwise scope authority over a *global*
+ * profile is manufacturable: claim a Universe, invite any address you can guess, and you "administer a
+ * scope that profile touches" (ADR-012). Seeding `accepted: false` builds the manufactured shape, and a
+ * fixture that always seeded accepted rows could never tell the guard from its absence.
+ */
+async function seedIdentity(profileId: string, scope: string, accepted = true): Promise<void> {
   const registry: any = (env as any).NEBULA_AUTH_REGISTRY.getByName('registry');
+  const emailId = crypto.randomUUID();
   await (runInDurableObject as any)(registry, (_i: any, c: any) => {
     c.storage.sql.exec(
-      `INSERT OR REPLACE INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt)
-       VALUES (?,?,?,?,0,1,?)`,
-      crypto.randomUUID(), profileId, scope, `${crypto.randomUUID()}@x.com`, '2026-01-01T00:00:00.000Z',
+      `INSERT OR REPLACE INTO Emails (emailId, email, profileId, emailVerified, createdAt)
+       VALUES (?,?,?,1,?)`,
+      emailId, `${crypto.randomUUID()}@x.com`, profileId, '2026-01-01T00:00:00.000Z',
+    );
+    c.storage.sql.exec(
+      `INSERT OR REPLACE INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt)
+       VALUES (?,?,?,0,?,?)`,
+      crypto.randomUUID(), emailId, scope,
+      accepted ? '2026-01-01T00:00:00.000Z' : null, '2026-01-01T00:00:00.000Z',
     );
   });
 }
@@ -141,22 +157,30 @@ describe('Profile DO — Phase 2', () => {
 
     // ⏳ SKIPPED — this asserts ADR-012's committed TARGET, which the code has not reached yet.
     // ADR-012 retires the scoped-admin branch (`requireOwnerOrAdmin` qualifies owner + super-admin
-    // ONLY), but the branch is still live: `#requireOwnerOrAdmin` step (4) + `lookupProfileScopes`.
-    // BLOCKER: tasks/nebula-auth-identity-mint.md §4 *Drop the Profile's scoped-admin branch*.
-    // Un-skipping is that section's acceptance criterion — and it also DELETES the positive control
-    // above and the fail-closed test below, whose whole subject is the branch being removed.
+    // ⚠️ **This REPLACES a skipped test written for the retire-the-branch design** ("SCOPED-admin ...
+    // is REFUSED — owner + super-admin ONLY"). That target was reversed: admins curating a member's
+    // private fields is a wanted capability, so the branch STAYS and what makes it safe is that only an
+    // ACCEPTED membership counts (ADR-012). The old skip was left encoding a rejected model, which
+    // testing.md calls actively harmful — a future reader takes it as settled intent.
     //
-    // ⚠️ Asserts only what ADR-012 + §4 have PINNED: refusal, and zero registry reads (§4's stated
-    // consequence — the branch is the file's one read, and removing it leaves `getScopesForProfile`
-    // unused for authz). The rejection MESSAGE is deliberately unasserted: §4 does not pin one, and
-    // guessing it here would make this a scaffold rather than a contract (testing.md).
-    it.skip('SCOPED-admin covering the profile scope is REFUSED — owner + super-admin ONLY (ADR-012)', async () => {
+    // The pair below is the real contract, and the second half is the security assertion: an
+    // unaccepted membership is exactly what an attacker manufactures by inviting an address they
+    // guessed, so it must confer nothing.
+    it('SCOPED-admin over a scope the profile ACCEPTED is permitted', async () => {
       const pid = uuid();
-      await seedIdentity(pid, 'acme.app.tenant');
-      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() }); // pattern acme.*
+      await seedIdentity(pid, 'acme.app.tenant');                   // accepted
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
+      await expect(write(admin, pid, { name: 'X' })).resolves.toBeUndefined();
+    });
+
+    it('SCOPED-admin over a scope the profile NEVER ACCEPTED is refused — the manufactured shape', async () => {
+      const pid = uuid();
+      await seedIdentity(pid, 'acme.app.tenant', /* accepted */ false);
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
+      // Reds if `getScopesForProfile` drops its acceptance predicate — or swaps it for the address's
+      // `emailVerified`, which is 1 here and would hand the attacker the scope.
       await expect(write(admin, pid, { name: 'X' })).rejects.toThrow();
       await expect(readNotes(admin, pid)).rejects.toThrow();
-      expect(registryReads()).toBe(0);                              // branch gone → the ONE read goes with it
     });
 
     it('SCOPED-admin covering NONE of the profile scopes is rejected (cross-Galaxy admin) — one read, then deny', async () => {

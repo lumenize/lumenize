@@ -196,7 +196,9 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
         const readIdentity = async (email: string) => (runInDurableObject as any)(stub, (_i: any, ctx: any) =>
           [...ctx.storage.sql.exec(
-            'SELECT sub, profileId, isAdmin, emailVerified FROM Identities WHERE email = ? AND universeGalaxyStarId = ?',
+            `SELECT m.sub AS sub, e.profileId AS profileId, m.isAdmin AS isAdmin, m.acceptedAt AS acceptedAt
+             FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
+             WHERE e.email = ? AND m.universeGalaxyStarId = ?`,
             email, star,
           )][0]);
 
@@ -204,14 +206,19 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         await claimStar(SELF, star, starAdmin);
         expect(await readIdentity(starAdmin)).toEqual(before);
 
-        // A PENDING INVITEE at the same scope is (isAdmin 0, emailVerified 0) — exactly what a looser
+        // A PENDING INVITEE at the same scope is (isAdmin 0, never taken up) — exactly what a looser
         // predicate would match. Resuming one must not promote it to star admin through an
         // unauthenticated endpoint, and must send it nothing.
         const invitee = 'invitee@example.com';
+        const inviteeEmailId = crypto.randomUUID();
         await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
           ctx.storage.sql.exec(
-            'INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,0,0,?)',
-            crypto.randomUUID(), crypto.randomUUID(), star, invitee, '2026-01-01T00:00:00.000Z',
+            'INSERT INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES (?,?,?,0,?)',
+            inviteeEmailId, invitee, crypto.randomUUID(), '2026-01-01T00:00:00.000Z',
+          );
+          ctx.storage.sql.exec(
+            'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES (?,?,?,0,NULL,?)',
+            crypto.randomUUID(), inviteeEmailId, star, '2026-01-01T00:00:00.000Z',
           );
         });
         const linksBefore = (await rowsFor(star)).links;

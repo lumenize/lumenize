@@ -16,19 +16,33 @@ function freshRegistry(): any {
   return env.NEBULA_AUTH_REGISTRY.getByName(`reg-${crypto.randomUUID()}`);
 }
 
-/** Seed `Scopes` rows + `Identities` directly (bypassing the authority-point mint) for deletion tests. */
+/** Seed `Scopes` + `Emails` + `Memberships` directly (bypassing the authority-point mint) for deletion
+ *  tests. One `Emails` row per distinct address — which is the schema's rule, not a convenience: the
+ *  same address in two scopes is ONE address row with two memberships, and seeding it any other way
+ *  would build a shape the real mint cannot produce. */
 async function seed(
   stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; isAdmin?: boolean }>,
 ): Promise<void> {
-  // profileId is a NOT NULL column the real mint supplies; seed a throwaway UUID per member (deletion
-  // tests don't exercise profileId). Generate outside the callback (no crypto reliance inside it).
-  const seeded = members.map(m => ({ ...m, profileId: crypto.randomUUID() }));
+  // Ids the real mint supplies. Generated outside the callback (no crypto reliance inside it).
+  const emailIds = new Map<string, { emailId: string; profileId: string }>();
+  for (const m of members) {
+    const lc = m.email.toLowerCase();
+    if (!emailIds.has(lc)) emailIds.set(lc, { emailId: crypto.randomUUID(), profileId: crypto.randomUUID() });
+  }
+  const seeded = members.map(m => ({ ...m, lc: m.email.toLowerCase() }));
   await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
     for (const s of scopes) ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', s);
+    for (const [lc, ids] of emailIds) {
+      ctx.storage.sql.exec(
+        'INSERT OR IGNORE INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES (?,?,?,1,?)',
+        ids.emailId, lc, ids.profileId, '2026-01-01T00:00:00.000Z',
+      );
+    }
     for (const m of seeded) {
       ctx.storage.sql.exec(
-        'INSERT INTO Identities (sub, profileId, universeGalaxyStarId, email, isAdmin, emailVerified, createdAt) VALUES (?,?,?,?,?,1,?)',
-        m.sub, m.profileId, m.scope, m.email.toLowerCase(), m.isAdmin ? 1 : 0, '2026-01-01T00:00:00.000Z',
+        'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES (?,?,?,?,?,?)',
+        m.sub, emailIds.get(m.lc)!.emailId, m.scope, m.isAdmin ? 1 : 0,
+        '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
       );
     }
   });
@@ -236,7 +250,7 @@ describe('NebulaAuthRegistry', () => {
       // The attached identity disappears between confirm and execute — the window the removed 409
       // used to mask. With the prune-up gone, `affected` is `down` and cannot grow.
       await (runInDurableObject as any)(r, (_i: any, ctx: any) => {
-        ctx.storage.sql.exec('DELETE FROM Identities WHERE sub = ?', otherSub);
+        ctx.storage.sql.exec('DELETE FROM Memberships WHERE sub = ?', otherSub);
       });
 
       const executed = await r.executeScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'), ACTING(owner, 'd9'));

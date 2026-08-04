@@ -1,5 +1,5 @@
 /**
- * Profile-store Phase 1 — the `profileId` mint (an `Identities` column, minted WITH `sub`) and the
+ * Profile-store — the `profileId` mint (a column on the ADDRESS row) and the
  * bare custom `profileId` JWT claim, threaded through all THREE KV-record writers so the claim
  * survives the pure-KV refresh mint. Every test is capable-of-failing: gutting the code under test
  * reddens it. tasks/nebula-profile-store.md Phase 1.
@@ -15,6 +15,10 @@ import {
   foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, adminRequest,
 } from './test-helpers';
 
+/** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
+ *  consulted — authorization keys off the caller's own verified access, not off this. */
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', admin: true } }) as any;
+
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
 async function kvRecord(refreshToken: string): Promise<any> {
@@ -24,7 +28,7 @@ async function kvRecord(refreshToken: string): Promise<any> {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idempotent)', () => {
-  it('claim-universe mints a profileId on the Identities row AND emits it as a JWT claim (rung-2 login)', async () => {
+  it('claim-universe mints a profileId on the address row AND emits it as a JWT claim (rung-2 login)', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
 
@@ -32,7 +36,7 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
     expect(admin.parsed.profileId).toMatch(UUID_RE);
     // ...distinct from the surrogate `sub` (deliberately separate namespaces — the public address).
     expect(admin.parsed.profileId).not.toBe(admin.parsed.sub);
-    // ...and it reflects the AUTHORITATIVE Identities.profileId, not a random per-mint value.
+    // ...and it reflects the AUTHORITATIVE Emails.profileId, not a random per-mint value.
     const scope = await getRegistry().getIdentityScope(admin.parsed.sub);
     expect(scope.profileId).toBe(admin.parsed.profileId);
   });
@@ -85,7 +89,7 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
     const profileId = admin.parsed.profileId;
 
     // Toggle the admin bit → the convergence re-put REBUILDS the KV record (distinct from the (c) miss path).
-    await getRegistry().setIdentityAdmin(admin.parsed.sub, false);
+    await getRegistry().setIdentityAdmin(admin.parsed.sub, false, ACTING());
 
     // The rebuilt record must still carry profileId (reds if the re-put drops it — as it must re-apply expiry).
     expect((await kvRecord(admin.refreshToken)).profileId).toBe(profileId);
@@ -102,7 +106,7 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
     const profileId = admin.parsed.profileId;
 
     // FORCE the miss: miniflare KV is strongly consistent, so a normal refresh HITS KV and never
-    // exercises the (c) self-heal. Delete ONLY the KV record (RefreshTokenIndex + Identity stay live).
+    // exercises the (c) self-heal. Delete ONLY the KV record (RefreshTokenIndex + membership stay live).
     await (env as any).REFRESH_TOKEN_KV.delete(`refresh:${await hashString(admin.refreshToken)}`);
     expect(await kvRecord(admin.refreshToken)).toBeNull();
 
