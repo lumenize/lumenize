@@ -187,6 +187,44 @@ which is the shape to aim for: measurements survive, labels don't.
 rather than a number you measured or a code path you read. Ask: *who is that warning addressed to, and
 are we them?*
 
+## 9. You will spend prevention on the LOUDEST failure, not the QUIETEST one
+
+**The reflex:** after a build, propose guard rails for whatever just hurt. Recency reads as
+importance, and a defect that cost an hour of thrashing *feels* like the one to prevent — so the
+post-mortem optimises the thing that already announced itself.
+
+**The correction: prevention is for failures with NO SIGNAL. Let loud ones stay loud.** A hang, a
+parse error, a 404, a type error, a red suite — all self-reporting, all cheap to diagnose, none worth
+machinery. The ones that need machinery are the ones that leave everything **green**: a criterion
+that cannot fail, a fixture built in the safe shape, a test tier silently skipped, a stale quotation
+in always-loaded prose, an `it.skip` encoding a design that was later reversed. Larry, 2026-08-04:
+*"You usually figure things like this out pretty quickly and they make themselves known so I really
+don't worry about preventing them. It's things that don't make themselves known until I push … that
+concern me much more."*
+
+⚠️ **"Loud" means loud WHERE SOMEONE WILL SEE IT.** A failure that only fires in an environment
+nobody runs is effectively silent — a deploy-only path, a `ctx.abort()` behaviour miniflare cannot
+reproduce, a branch reachable only with credentials CI lacks. Those need the treatment quiet failures
+get, however dramatic they would be if anyone were watching.
+
+⚠️ **This licenses no indifference to loud failures** — only to *pre-empting* them. Fix the hang;
+just don't build a framework so the next hang cannot happen.
+
+**Where it bit (2026-08-04, the identity-split build):** the session's noisiest bug was a leaked
+`waitForEmail` waiter that hung the process after printing a green verdict — diagnosed and fixed in
+minutes. The post-mortem proposed making it structurally impossible. Meanwhile the build had shipped
+**zero `/live` scenarios** behind a fully green 262-test suite, and that went unnoticed until the
+human asked why the tier kept being skipped. Effort was being aimed at the failure that had already
+reported itself, while the one with no signal at all waited on a question that might never have been
+asked.
+
+**The tell:** you are proposing a guard rail for something you personally debugged this session. Ask
+what its signal was. If the answer is "it broke immediately and I saw it", that is evidence *against*
+the guard rail, not for it — and it is worth asking what ELSE this build changed that would have
+stayed green if it were wrong.
+
+---
+
 ---
 
 ## Adding an entry
