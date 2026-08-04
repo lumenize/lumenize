@@ -14,9 +14,15 @@
  * ⚠️ **Why this exists when two in-lane tests already cover it.** They cover it on **stacked
  * fixtures** — `profile-do.test.ts` hand-`INSERT`s the registry rows (`seedIdentity`) *and* mints a
  * synthetic token (`createNebulaTestToken`, ADR-009 rung 3), while `identity-authority.test.ts`
- * asserts at the registry level rather than on the refusal a caller actually receives. Both are worth
- * keeping — they run in CI with no email infrastructure — but neither proves an attacker is refused;
- * they prove a hand-built approximation of one is. This build twice shipped a seeded fixture in the
+ * asserts at the registry level rather than on the refusal a caller actually receives. Neither proves
+ * an attacker is refused; they prove a hand-built approximation of one is.
+ *
+ * ⚠️ **Keep both — NEITHER arm is a superset, so a future cleanup must not pick one.** This arm has no
+ * fixture to build wrong, and proves the refusal a real caller receives. The in-lane pair runs in CI
+ * with **no email infrastructure**, and reaches branches a real client cannot construct at all — the
+ * fail-closed path and the registry-read counter need state a genuine login never produces. Delete
+ * either and the coverage that survives is the one that happens to be cheaper, not the one that
+ * happens to be right. This build twice shipped a seeded fixture in the
  * *safe* shape (a mutation-restore that corrupted a neighbour, and an acceptance fixture where the
  * guard held either way), which is exactly the failure a fixture-free scenario cannot have.
  *

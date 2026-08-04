@@ -62,6 +62,12 @@ async function makeClient(opts: {
  * Seed a registry address + membership so `getScopesForProfile(profileId)` → `[scope]` — the
  * scoped-admin fixture.
  *
+ * ⚠️ **This builds a principal the REAL path builds differently — two stacked fixtures: this
+ * hand-`INSERT`ed row AND `makeClient`'s synthetic rung-3 token.** So when the question is *is this
+ * authz decision correct*, prefer `apps/nebula/harness/scenarios/profile-takeover-refused.ts`, which
+ * proves the same property with a real login, a real invite and a real client — nothing hand-built.
+ * This fixture is for reaching branches a client cannot construct, not for deciding correctness.
+ *
  * ⚠️ **`accepted` is the whole point of the parameter, not a detail.** `getScopesForProfile` counts
  * only memberships that were actually taken up, because otherwise scope authority over a *global*
  * profile is manufacturable: claim a Universe, invite any address you can guess, and you "administer a
@@ -166,6 +172,12 @@ describe('Profile DO — Phase 2', () => {
     // The pair below is the real contract, and the second half is the security assertion: an
     // unaccepted membership is exactly what an attacker manufactures by inviting an address they
     // guessed, so it must confer nothing.
+    //
+    // ⚠️ **Cross-arm, and NEITHER is a superset — do not delete one as redundant.** The live
+    // counterpart (`harness/scenarios/profile-takeover-refused.ts`) proves the refusal a real caller
+    // receives, with no fixture to build wrong. THIS arm sees what no client can: it runs in CI with
+    // no email infrastructure, and it can reach the fail-closed branch and the read-counter by
+    // constructing state a real login never produces. Each is blind to what the other sees.
     it('SCOPED-admin over a scope the profile ACCEPTED is permitted', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant');                   // accepted
