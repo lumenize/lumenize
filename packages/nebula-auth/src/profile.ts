@@ -1,6 +1,13 @@
 /**
  * Profile — the global, per-`profileId` Durable Object that holds a person's PUBLIC OIDC fields
- * (`name`/`nickname`/`picture`) plus a PRIVATE `privateNotes` blob ("what the LLM knows about you").
+ * (`name`/`nickname`/`picture`) plus a PRIVATE field set, of which `privateNotes` ("what the LLM knows
+ * about you") is the first and currently the only member.
+ *
+ * ⚠️ **Private is DERIVED, not enumerated: the public set is the `PUBLIC_FIELDS` allow-list, and every
+ * other field is private by construction** (ADR-012). So a newly added field is private without anyone
+ * deciding, and cannot leak by omission. Build the pushed snapshot FROM the allow-list — never by
+ * subtracting known-private keys from the stored record, which is the shape that ships a leak the first
+ * time someone adds a field and forgets the deny-list.
  *
  * Layer: **raw-DO infrastructure that COMPOSES the mesh comms core** (`ComposedMeshDO`, ADR-007) — it
  * needs the client-facing mesh subscribe AND a raw-RPC read of the raw `NebulaAuthRegistry` (the
@@ -12,11 +19,15 @@
  * AuthZ (tasks/nebula-profile-store.md § The Profile DO):
  *  - **Public read/subscribe is OPEN** — any authenticated caller holding the (unguessable) `profileId`
  *    reads the public fields. No gate, NO registry read on the hot path. The handle IS the capability.
- *  - **`requireOwnerOrAdmin` gates public-field writes + `privateNotes` read/write** — owner (JWT
- *    `profileId` === this instance) and super-admin (`authScopePattern === '*'`) short-circuit with NO
- *    read; a scoped admin is the ONE path that reads (the registry's `getScopesForProfile`). Fail CLOSED.
+ *  - **`requireOwnerOrAdmin` gates public-field writes + the private set's read/write** — EXACTLY two
+ *    capability levels, never per-field roles: anyone who can read a private field can also write it and
+ *    write every public one. Owner (JWT `profileId` === this instance, and no `act` chain) and
+ *    super-admin (`authScopePattern === '*'`) short-circuit with NO read; a scoped admin whose pattern
+ *    covers a scope where this profile holds an **ACCEPTED** membership is the ONE path that reads (the
+ *    registry's `getScopesForProfile`, whose acceptance predicate is what makes that branch safe — see
+ *    the comment at the branch). Fail CLOSED.
  *
- * `privateNotes` NEVER rides a pushed/subscribed snapshot — it is served solely by a separate gated read.
+ * A private field NEVER rides a pushed/subscribed snapshot — it is served solely by a separate gated read.
  *
  * @see tasks/nebula-profile-store.md
  */
@@ -265,18 +276,23 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // (4) Scoped admin — the ONE registry read. Fail CLOSED on error (raw-RPC drops custom error props,
     // so a thrown registry error would arrive shapeless — deny rather than trust it).
     //
-    // ⏳ **THIS BRANCH IS SCHEDULED FOR DELETION — do not harden, extend, or optimize it.**
-    // ADR-012 retires it: `requireOwnerOrAdmin` is to qualify **owner + super-admin ONLY**, because
-    // scope authority over a profile can be MANUFACTURED (claim a Universe, invite any address), so
-    // "admin of some scope this profile touches" confers nothing over a *global* object. The removal
-    // is `tasks/nebula-auth-identity-mint.md` §4 *Drop the Profile's scoped-admin branch*, which also
-    // deletes this file's `lookupProfileScopes` seam and leaves `getScopesForProfile` unused for
-    // authz. Target asserted by the `it.skip` in `apps/nebula/test/.../profile-do.test.ts`
-    // ("SCOPED-admin ... is REFUSED"); un-skipping it is that section's acceptance criterion.
+    // ⚠️ **WHAT MAKES THIS BRANCH SAFE IS NOT HERE — it is the ACCEPTED-membership predicate inside
+    // `getScopesForProfile`.** Ungated, this authority is MANUFACTURABLE: Universe self-signup is open
+    // by design and an invite mints the membership immediately, so anyone could claim a Universe,
+    // invite an address they guessed, and become "an admin of a scope that stranger's profile
+    // touches" — over a *global* object. Only memberships the person actually took up count, and the
+    // accepted marker is written solely by the login verify path, which requires consuming a link
+    // delivered to the mailbox. See ADR-012, and the manufacture test in `nebula-auth`'s
+    // `identity-authority.test.ts`, which reds if the predicate is dropped.
     //
-    // ⚠️ It is still LIVE and load-bearing until then — deleting it here without §4's analysis
-    // removes a Galaxy admin's ability to fix a member's display name with no replacement path
-    // (§4 accepts that cost deliberately, escalating moderation to super-admin).
+    // ⚠️ So: do NOT "optimize" the registry call into a plain `profileId → scopes` lookup, and do not
+    // widen this branch to unaccepted memberships. Two residuals are accepted deliberately in ADR-012
+    // (this points sideways across the scope tree, and reaches every scope the person belongs to);
+    // scope-keying the private fields is the deferred structural answer if they ever bite.
+    //
+    // ⚠️ `!claims.act` on branch (1) does NOT fence impersonation out of the profile — an admin
+    // impersonating someone with an accepted membership in a covered scope arrives HERE, by their own
+    // authority. That follows from impersonation meaning what it says; it is not a gap in (1).
     let scopes: string[];
     try {
       // Marker: the ONLY place a Profile authz check reads the registry (the read-counter the
