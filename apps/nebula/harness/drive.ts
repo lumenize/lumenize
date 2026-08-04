@@ -18,6 +18,9 @@ import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
 import * as impersonationExpiry from './scenarios/impersonation-expiry';
 import * as impersonationLifecycle from './scenarios/impersonation-lifecycle';
+import * as identityConvergence from './scenarios/identity-convergence';
+import * as revokeIsTotal from './scenarios/revoke-is-total';
+import * as profileTakeoverRefused from './scenarios/profile-takeover-refused';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -39,6 +42,9 @@ const SCENARIOS: Record<string, Scenario> = {
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
   'impersonation-lifecycle': impersonationLifecycle, // impersonate() end-to-end: identity → refusals → teardown
+  'identity-convergence': identityConvergence, // one address, two real logins → ONE profileId (no fixture)
+  'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
+  'profile-takeover-refused': profileTakeoverRefused, // manufactured scope authority buys nothing (no fixture)
 };
 
 async function main(): Promise<void> {

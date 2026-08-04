@@ -203,6 +203,18 @@ export interface Driver {
   client: NebulaClient;
   /** The subject UUID the mint assigned this identity. */
   sub: string;
+  /** This identity's access token — needed ONLY where no client API reaches the endpoint yet.
+   *
+   *  ⚠️ **Prefer `client.scopes.*`.** Production keeps the JWT inside the client and issues authed
+   *  HTTP itself (`authedFetch`), so app code never handles a bearer; a scenario that hand-builds an
+   *  `Authorization` header proves the endpoint works while skipping the code that reaches it in
+   *  production — the exact divergence this tier exists to close.
+   *
+   *  ⚠️ The one live gap is **`/invite`, which has no `client.scopes` method**, so an invite scenario
+   *  must still call it directly. When that method lands, the remaining uses of this field go with it.
+   *  It is a SNAPSHOT, so it also silently goes stale across a refresh — fine for a seconds-long
+   *  scenario, wrong for anything that outlives one token. NEVER log this value. */
+  accessToken: string;
   /** The active (== auth) scope this driver drives. */
   scope: string;
   /**
@@ -318,6 +330,7 @@ export async function connectDriver(
     client,
     sub,
     scope,
+    accessToken: access_token,
     wipe: () => {
       try {
         // Fire-and-forget under the continuation-only model (mirrors nebula-studio-ui App.vue).
