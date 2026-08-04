@@ -27,11 +27,11 @@ The Nebula entrypoint parses this once and threads it as a single `cors` config 
 
 ## Who can create a scope (identity is minted only at authority points)
 
-Login **never mints** an identity. A magic-link login *verifies* an already-existing identity (find-and-flip its `emailVerified`) and is **rejected** if none exists — this is what closes stranger-self-join. Identities are minted only at authority points:
+Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and is **rejected** if none exists — this is what closes stranger-self-join. Memberships are minted only at authority points:
 
 - **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`isAdmin=true`) + the scope.
 - **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, identity-minting star self-signup.
-- **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee identity (`isAdmin=false`), and `accept-invite` flips its `emailVerified`.
+- **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`isAdmin=false`, not yet taken up), and `accept-invite` records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
 
 ## First-time login (self-signup — founding a Universe)
 
@@ -58,7 +58,7 @@ sequenceDiagram
         Note over UI,R: 2. Claim a Universe — MINTS the claiming admin identity
         UI->>W: POST /auth/claim-universe { slug, email, cf-turnstile-response }
         W->>R: claimUniverse(slug, email)
-        Note over R: register Scope + mint admin Identity<br/>(isAdmin, emailVerified false) + create MagicLink
+        Note over R: register Scope + mint admin membership<br/>(isAdmin, not yet taken up) + create MagicLink
         R-->>W: send magic-link email
         W-->>UI: Show "Check your email"
     end
