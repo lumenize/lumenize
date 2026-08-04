@@ -32,7 +32,7 @@ A separate reflex is to scope the rule to *irreversible* actions. That is a loop
 
 There is **no carve-out**. The rule above is uniform, including for resource writes. What varies is that some records double as a **same-actor comparison key**, and that comparison must key on **identity only — the `sub` plus the complete `act` chain** — never on a stringification of the stored record.
 
-`resources.ts:212`'s `JSON.stringify(current.meta.changedBy) === changedByJson` is the live instance. It works today only because `#buildChangedBy` stores `{ sub, act }` and nothing else, so the record and the identity key happen to coincide. Widen the record without splitting the key and coalescing breaks: the window is **1 hour** (`resources.ts:107`) while `ACCESS_TOKEN_TTL` is **15 minutes**, so a single window spans several tokens with distinct `jti`/`iat` — the same person's hour-long editing session would stop coalescing, multiplying snapshot rows on the highest-volume write path.
+`resources.ts`'s coalescing compare — `JSON.stringify(current.meta.changedBy) === changedByJson` is the live instance. It works today only because `#buildChangedBy` stores `{ sub, act }` and nothing else, so the record and the identity key happen to coincide. Widen the record without splitting the key and coalescing breaks: the window is **1 hour** (`resources.ts`'s `coalesceWindowMs`, default `3_600_000`) while `ACCESS_TOKEN_TTL` is **15 minutes**, so a single window spans several tokens with distinct `jti`/`iat` — the same person's hour-long editing session would stop coalescing, multiplying snapshot rows on the highest-volume write path.
 
 Split them and there is **no behavioural change at all**: a key derived from (`sub`, `act`) is *identical* to today's stringify, because those are already the only fields present. The widening is therefore breaking on disk and inert in behaviour.
 
@@ -50,7 +50,7 @@ Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdent
 
 | Approach | Why rejected |
 |---|---|
-| **Record the `sub` only** (status quo) | Under impersonation this names the wrong human, with no marker that it did. `:888` does exactly this today. |
+| **Record the `sub` only** (status quo) | Under impersonation this names the wrong human, with no marker that it did. `executeScopeDeletion` does exactly this today. |
 | **Record `sub` + `act.sub`, nothing else** | Fixes the wrong-person defect but loses *what authority was asserted*, which is the question a post-incident reader actually has ("how was this permitted?"). It also forces a live registry hop to render a departed actor's name — the case the `profileId` stamp exists for. |
 | **Widen `changedBy` while leaving `JSON.stringify(changedBy)` as the coalesce key** | The naive route to uniformity, and it silently breaks coalescing: the 1-hour window spans several 15-minute tokens, so `jti`/`iat` differ and the same person's editing session stops coalescing. The fix is to derive the key, not to narrow the record — see the Corollary. |
 | **Exempt resource writes permanently** (a standing carve-out) | Leaves two record shapes and two rules to keep in sync forever, for a reason that is an implementation conflation rather than a real constraint. Rejected 2026-07-28: derive the key and the exemption disappears. |
