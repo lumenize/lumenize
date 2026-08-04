@@ -51,13 +51,22 @@ describe('Phase 1 — profileId mint (one INSERT; a UUID distinct from sub; idem
     expect(second.parsed.profileId).toBe(first.parsed.profileId); // reds if a login re-mints profileId
   });
 
-  it('two distinct identities (different emails) get DISTINCT profileIds (1 sub : 1 profile in P1)', async () => {
+  /**
+   * ⚠️ **Two different PEOPLE, which is the only thing this asserts.** It says nothing about whether
+   * one person's addresses share a `profileId` — and must not, because the direction there is
+   * changing: `profileId` becomes a property of the ADDRESS, so one address in several scopes
+   * resolves to one `profileId`. The earlier title ("1 sub : 1 profile") and comment ("a per-identity
+   * `profileId`, not shared") described the model being reversed, and this test stays green through
+   * that reversal because it uses two *distinct* addresses — so its prose, not its assertion, was the
+   * thing a future reader would have taken as settled intent.
+   */
+  it('two different PEOPLE get distinct profileIds', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     const member = await inviteAndLogin(SELF, uni, admin.access_token, 'member@example.com');
 
     expect(member.parsed.profileId).toMatch(UUID_RE);
-    expect(member.parsed.profileId).not.toBe(admin.parsed.profileId); // a per-identity profileId, not shared
+    expect(member.parsed.profileId).not.toBe(admin.parsed.profileId);
   });
 });
 
