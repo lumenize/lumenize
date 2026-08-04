@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndParse, registryUrl } from './test-helpers';
+import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndParse, registryUrl, url } from './test-helpers';
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -301,5 +301,68 @@ describe('Scopes is the existence authority — existence is NOT derived from Id
     // discover(the admin) does NOT surface the galaxy — the admin has no Identity there.
     const starAdminScopes = (await registry.discover('scope-admin@example.com')).map((d: any) => d.universeGalaxyStarId);
     expect(starAdminScopes).not.toContain(`${uni}.app`);
+  });
+});
+
+describe('getScopesForProfile — only ACCEPTED memberships confer scope authority over a profile', () => {
+  /**
+   * The Profile DO's scoped-admin branch passes when the caller administers any scope
+   * `getScopesForProfile` returns, and a profile is a GLOBAL object — so without an acceptance
+   * predicate, authority over one is manufacturable: claim a Universe (unauthenticated, Turnstile
+   * only) → invite any address you can guess → you now "administer a scope that profile touches".
+   *
+   * Everything here rides the real paths except ONE line: the invited row's `profileId` is converged
+   * onto the victim's by hand, because today `#mintIdentity` mints a fresh `profileId` per
+   * `(email, scope)` — which is the only reason the hole is currently narrow. That convergence is
+   * exactly what moving `profileId` onto the address makes automatic, so this test pins the predicate
+   * BEFORE the schema arms it. The `emailVerified = 0` state is PRODUCED by the real invite endpoint,
+   * never asserted by a fixture — so it also reds if invites ever start pre-verifying.
+   */
+  it('a manufactured, never-accepted invite does NOT put its scope in the victim profile\'s scope list', async () => {
+    const victimEmail = `victim-${crypto.randomUUID().slice(0, 8)}@example.com`;
+    const victimUni = uniqueUniverse();
+    const evilUni = uniqueUniverse();
+
+    // Real: the victim founds their own Universe and logs in → accepted membership + a real profileId.
+    const victim = await foundUniverse(SELF, victimUni, victimEmail);
+    const victimProfileId = victim.parsed.profileId;
+    expect(victimProfileId).toBeTruthy();
+
+    // Real: the attacker founds a Universe of their own — open self-signup, no approval needed.
+    const attacker = await foundUniverse(SELF, evilUni, 'attacker@example.com');
+
+    // Real: the attacker invites the victim's address into THEIR Universe. The link is never clicked,
+    // so the minted row stays unaccepted (`emailVerified = 0` — every #mintIdentity call site).
+    const inviteResp = await SELF.fetch(new Request(url(evilUni, 'invite'), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${attacker.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: [victimEmail] }),
+    }));
+    expect(inviteResp.status).toBe(200);
+
+    const registry = getRegistry();
+    // The ONLY simulated step — see the block comment. Also asserts the invited row really is
+    // unaccepted, so this reds if the invite path ever starts flipping the flag.
+    const invitedUnaccepted = await (runInDurableObject as any)(registry, (_i: any, c: any) => {
+      const rows = [...c.storage.sql.exec(
+        'SELECT sub, emailVerified FROM Identities WHERE email = ? AND universeGalaxyStarId = ?',
+        victimEmail, evilUni,
+      )];
+      c.storage.sql.exec('UPDATE Identities SET profileId = ? WHERE sub = ?', victimProfileId, rows[0].sub);
+      return rows[0];
+    });
+    expect(invitedUnaccepted.emailVerified).toBe(0);
+
+    // The attacker's scope must NOT appear — this is the whole guard.
+    const scopes = await registry.getScopesForProfile(victimProfileId);
+    expect(scopes).toContain(victimUni);       // the victim's own accepted membership still counts
+    expect(scopes).not.toContain(evilUni);     // reds if `AND emailVerified = 1` is dropped
+
+    // Acceptance is what discriminates — not something incidental about the seeded row. Flip only the
+    // flag and the scope appears, so the assertion above cannot be passing for an unrelated reason.
+    await (runInDurableObject as any)(registry, (_i: any, c: any) => {
+      c.storage.sql.exec('UPDATE Identities SET emailVerified = 1 WHERE sub = ?', invitedUnaccepted.sub);
+    });
+    expect(await registry.getScopesForProfile(victimProfileId)).toContain(evilUni);
   });
 });

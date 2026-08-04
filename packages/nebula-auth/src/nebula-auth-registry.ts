@@ -249,12 +249,30 @@ export class NebulaAuthRegistry extends DurableObject {
    * Profile DO's scoped-admin authz check (`requireOwnerOrAdmin`, tasks/nebula-profile-store.md). A
    * profileId maps to 1..N `sub`s across scopes (P2 unification), so this can return several.
    *
+   * ⚠️ **ONLY ACCEPTED memberships count — `emailVerified = 1` is load-bearing AUTHZ here, not a
+   * tidy-up.** Without it, scope authority over a profile can be MANUFACTURED, and a profile is a
+   * *global* object: claim a Universe (unauthenticated, Turnstile only) → invite any address you can
+   * guess → you now "administer a scope that profile touches" → the Profile DO's scoped-admin branch
+   * hands you write on their public fields and read/write on their private ones. The only writer of
+   * `emailVerified = 1` is `getAndVerifyIdentity`, reached solely by consuming a magic link or invite
+   * delivered to the address — so acceptance is proof of the mailbox, which no attacker can forge for
+   * someone else's address. An invited-but-never-accepted row is `emailVerified = 0` (every
+   * `#mintIdentity` call site passes `false`), so it confers nothing.
+   *
+   * ⚠️ Today the hole is *narrow* because a `profileId` is minted per `(email, scope)`, so a
+   * manufactured invite attaches to a fresh id, not the victim's. It stops being narrow the moment
+   * `profileId` becomes a property of the ADDRESS and spans every scope — do not remove this
+   * predicate, and re-point it (never drop it) when acceptance moves to its own per-membership column.
+   *
    * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
    * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors), so the
    * Profile DO caller fails CLOSED on `[]`/reject rather than reading a lost `status`.
    */
   getScopesForProfile(profileId: string): string[] {
-    const rows = this.#sql`SELECT DISTINCT universeGalaxyStarId FROM Identities WHERE profileId = ${profileId}`;
+    const rows = this.#sql`
+      SELECT DISTINCT universeGalaxyStarId FROM Identities
+      WHERE profileId = ${profileId} AND emailVerified = 1
+    `;
     return rows.map(r => r.universeGalaxyStarId as string);
   }
 
