@@ -97,11 +97,20 @@ export function uniqueTestEmail(prefix = 'test'): string {
  *
  * Call this BEFORE triggering the send — the DO pushes only to already-connected
  * sockets, so a listener attached afterwards misses the email entirely.
+ *
+ * ⚠️ **You MUST call `cleanup()`, and a `finally` is the only safe place** — an assertion between
+ * here and there will otherwise skip it. The reason is not tidiness: the open WebSocket keeps Node's
+ * event loop alive, so a leaked waiter makes the process **print its verdict and then hang**. That
+ * failure is nastier than it sounds because it accuses the wrong thing — a scenario that passed in
+ * 4 s looks like a 7-minute hung boot, and the natural conclusion is "the live tier is slow/flaky"
+ * rather than "my caller leaked a socket". Bit 2026-08-04, and it is exactly the impression
+ * `live.md` exists to correct.
  */
 export function waitForEmail(options: WaitForEmailOptions): {
   /** Resolves with the next matching email; rejects on timeout or socket close. */
   emailPromise: Promise<StoredEmail>;
-  /** Close the WebSocket. Safe to call more than once. */
+  /** Close the WebSocket — REQUIRED, in a `finally`. Safe to call more than once. See the note above:
+   *  a leaked waiter hangs the process after its verdict prints. */
   cleanup: () => void;
   /** Receive-side timing, for `reportEmailLatency`. */
   marks: EmailWaitMarks;
