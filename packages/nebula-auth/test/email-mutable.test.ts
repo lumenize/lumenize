@@ -104,6 +104,18 @@ describe.skip('the email-change FLOW (unbuilt) — pinned contract', () => {
     // and a narrower token's top-level `sub` IS the victim — so without this predicate an attacker
     // makes Nebula send a legitimate confirm link to the victim's real mailbox. Presence-only: it
     // tests that `act` is present, never who the actor is.
+    //
+    // 🔒 **WHOEVER BUILDS THIS OWES THE PREDICATE A COMMENT AT THE SITE — treat that as part of the
+    // acceptance, not a nicety.** This clause has been re-argued at least a dozen times and reversed
+    // twice, because it *looks* like a violation of the read-side rule it is actually a licensed
+    // exception to: authz never reads `act`, and here authz reads `act`. Every fresh reader therefore
+    // arrives wanting to "simplify" it away, and nothing else in the request path weakens visibly when
+    // they do. The comment must carry (a) that it is presence-only and MUST NOT become
+    // `act.sub === claims.sub`, which reads the chain's identity and is the manufacture it defends
+    // against; (b) that it is what makes the target-`emailId` question moot, so removing it reopens a
+    // decision rather than just a check. `profile.ts`'s owner branch already carries exactly this kind
+    // of comment for the same predicate on a different surface — copy its shape, not its wording.
+    //
     // ARRANGE (placeholder): a narrower token minted for `sub`, POSTed to the change endpoint.
     // ASSERT: refused; no email is sent (assert on the email sender, not on a response body).
   });
