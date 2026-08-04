@@ -88,6 +88,21 @@ export class SQLSchemaMigrations {
    * Apply every not-yet-applied migration, in id order, in **one atomic `transactionSync` batch**.
    * Synchronous — callable from a DO constructor body. Re-running once current is a no-op.
    * Returns SQL-cursor rows read/written aggregated across the batch (the marker write is not counted).
+   *
+   * ⚠️ **Ids are a HIGH-WATER MARK, never a list position — so a rewritten list MUST start above the
+   * highest id any live storage has already applied.** Migrations are selected by `id > marker`, so a
+   * storage whose marker already exceeds the new list's highest id matches **nothing** and this returns
+   * early: no tables created, no error, and `{rowsRead: 0, rowsWritten: 0}` — *byte-identical to a
+   * healthy already-current construct*. There is no signal at the call site, and the first symptom is a
+   * `no such table` thrown much later by an unrelated method.
+   *
+   * This bites when several migrations are **collapsed into one fresh baseline** (a wipe or greenfield
+   * reset), because the instinct is to renumber the baseline from 1 — which is precisely the value that
+   * silently matches nothing. Number the collapsed baseline **above the previous high-water mark**
+   * instead; a non-1-based sequence costs nothing, and it makes the failure impossible rather than
+   * merely unlikely. Restarting at 1 is safe *only* where no storage survives the change (a full wipe,
+   * fresh vitest storage, a harness that deletes `.wrangler/state`), and it leaves any ad-hoc local dev
+   * directory as a live trap whose only recovery is `rm -rf .wrangler`.
    */
   runAll(): { rowsRead: number; rowsWritten: number } {
     const result = { rowsRead: 0, rowsWritten: 0 };
