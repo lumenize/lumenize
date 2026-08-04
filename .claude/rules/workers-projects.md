@@ -6,12 +6,12 @@ paths:
 
 # Which Rules Apply — Worker/DO Layer Map
 
-The monorepo has distinct layers of Worker/DO code, and **which conventions apply depends on your layer**. Layer can't be read off a path or a single grep — `packages/mesh` holds both the Mesh surface and raw internals, `fetch` is Mesh-layer yet defines no DO, `testing` drives DOs it doesn't define. So **derive it from the file in front of you** using the rule below; the snapshot afterward is only a convenience.
+The monorepo has distinct layers of Worker/DO code, and **which conventions apply depends on your layer**. Layer can't be read off a path or a single grep — `packages/mesh` holds both the Mesh surface and raw internals, `fetch` is Mesh-layer yet defines no DO, `testing` drives DOs it doesn't define. So you MUST **derive it from the file in front of you** using the rule below; the snapshot afterward is only a convenience.
 
 ## Derive your layer (per file — this is the authority)
 Look at the file you're editing:
 
-1. **Defines a DO?** `class X extends LumenizeDO` → **Mesh layer**; `class X extends DurableObject` → **raw-DO layer**. (Holds for test-fixture DOs too — a DO in `test/**` follows the same rules as one in `src/`.) Apply [durable-objects.md](durable-objects.md) **plus** the matching comm file ([mesh.md](mesh.md) or [raw-comm.md](raw-comm.md)). **A DO that drives an attached Container** does so via **raw `ctx.container`** — you do *not* `extends Container` (that base is optional and being retired; a plain `LumenizeDO`/`NebulaDO` + raw `ctx.container` is the path, and it restores pool-workers testability). It stays **Mesh layer**, and *additionally* apply [containers.md](containers.md) for the container lifecycle/state-machine concerns the plain-DO rules don't cover.
+1. **Defines a DO?** `class X extends LumenizeDO` → **Mesh layer**; `class X extends DurableObject` → **raw-DO layer**. (Holds for test-fixture DOs too — a DO in `test/**` follows the same rules as one in `src/`.) You MUST apply [durable-objects.md](durable-objects.md) **plus** the matching comm file ([mesh.md](mesh.md) or [raw-comm.md](raw-comm.md)). **A DO that drives an attached Container** MUST do so via **raw `ctx.container`** and MUST NOT `extends Container` (that base is optional and being retired; a plain `LumenizeDO`/`NebulaDO` + raw `ctx.container` is the path, and it restores pool-workers testability). It stays **Mesh layer**, and you MUST *additionally* apply [containers.md](containers.md) for the container lifecycle/state-machine concerns the plain-DO rules don't cover.
 2. **Uses `this.lmz` / `this.svc` but defines no DO?** (a Mesh service/library, e.g. `fetch`) → **Mesh layer**: [mesh.md](mesh.md).
 3. **Drives DOs without defining one?** (a harness that wraps user DOs, e.g. `@lumenize/testing`) → follow the comm file for *how* it talks; raw DO RPC → [raw-comm.md](raw-comm.md).
 4. **None of the above?** → utility / Worker code; none of the three DO files apply.

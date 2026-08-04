@@ -10,20 +10,20 @@ paths:
 
 ⚠️ **This rule is MECHANISM only.** There is **no design guidance in this repo yet, deliberately** —
 palette identity, type scale, spacing rhythm, density, and motion are held until the UX hire lands, and
-the stock daisyUI themes we currently run are a **placeholder, not a brand decision**. Do not read this
-file as permission to author a theme or a design system: it says *how* color is wired, never *what* it
+the stock daisyUI themes we currently run are a **placeholder, not a brand decision**. This file MUST NOT
+be read as permission to author a theme or a design system: it says *how* color is wired, never *what* it
 should look like.
 
 ## The rule
 
-**Color comes from the daisyUI theme — on both surfaces:** Nebula's own UI (`apps/nebula-studio-ui`)
-and the apps Studio generates for user-developers. Use semantic classes (`bg-primary`,
-`text-base-content`, `bg-base-200`, `border-base-300`); don't hard-code raw Tailwind palette utilities
-(`bg-blue-500`, `text-slate-700`).
+**Color MUST come from the daisyUI theme — on both surfaces:** Nebula's own UI (`apps/nebula-studio-ui`)
+and the apps Studio generates for user-developers. Semantic classes (`bg-primary`, `text-base-content`,
+`bg-base-200`, `border-base-300`) MUST be used, and raw Tailwind palette utilities (`bg-blue-500`,
+`text-slate-700`) MUST NOT be hard-coded.
 
-To change how something *looks*, change the theme, not the markup — set the theme's color variables in
-an `@plugin "daisyui/theme"` block (OKLCH preferred; it's what every built-in theme uses), or switch
-built-in themes. Same result on screen, applied everywhere at once.
+To change how something *looks*, you MUST change the theme rather than the markup — set the theme's
+color variables in an `@plugin "daisyui/theme"` block (OKLCH preferred; it's what every built-in theme
+uses), or switch built-in themes. Same result on screen, applied everywhere at once.
 
 ## Why it applies to both surfaces
 
@@ -36,14 +36,14 @@ rather than N files.
 ## Warn, don't refuse
 
 Consistent with Nebula's governance stance — advisory practices with a documented-exception override,
-never hard gates. If a user-developer explicitly wants colors hard-coded into markup, **do it**, but
+never hard gates. If a user-developer explicitly wants colors hard-coded into markup, you **MUST do it**, but MUST
 name the tradeoff once first: those colors stop following the theme, so restyling later means editing
-every component, and they won't adapt to light/dark. Say it plainly, once, then follow their decision —
-no repeating, no refusing. This is the "no foot-guns — even when we let you break a rule, you're loudly
-warned" principle from `CLAUDE.md`, not a gate.
+every component, and they won't adapt to light/dark. Say it plainly, once, then follow their decision;
+you MUST NOT repeat the warning and MUST NOT refuse. This is the "no foot-guns — even when we let you
+break a rule, you're loudly warned" principle from `CLAUDE.md`, not a gate.
 
 The codegen scaffold (`STUDIO_LOOP_SYSTEM_PROMPT` in [dev-studio.ts](../../apps/nebula/src/dev-studio.ts))
-carries this same **default → redirect → warn-and-proceed** shape. Keep the two in sync when either changes.
+carries this same **default → redirect → warn-and-proceed** shape. The two MUST be kept in sync when either changes.
 
 ## Status
 

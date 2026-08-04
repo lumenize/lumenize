@@ -33,6 +33,14 @@ So *"where in standing guidance should this go?"* is a routing question, and the
 
 Detailed conventions live in **`.claude/rules/`** (auto-discovered — no reference needed). Rules without a `paths:` glob load **every session**; rules with one load **only when you touch matching files**. This file is the index:
 
+**Requirement levels are marked, so a rule file's binding surface is enumerable without reading its argument.** Within `.claude/rules/*.md`, the ALL-CAPS keywords **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** carry the meanings in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) — and only those five, so one grep lists every requirement:
+
+```sh
+grep -nE '\b(MUST NOT|MUST|SHOULD NOT|SHOULD|MAY)\b' .claude/rules/*.md
+```
+
+Everything else in those files is prose: rationale, evidence, the failure that motivated the rule, the mechanism to use. Lowercase *must* / *never* / *should* there is deliberately **not** a requirement — where a statement binds, it is capped. ⚠️ **The caps are therefore reserved — do not reach for them as emphasis.** House style caps the *object* of emphasis (`RUNNING`, `SOURCE`, `INDEPENDENT`) and that stays; capping a modal now asserts a conformance level someone can check you against. Two files are deliberately un-keyworded: `calibration.md`, which states biases to correct rather than requirements to meet, and `workflow.md`'s ADR one-liner index, which points at commitments rather than restating them (the ADRs themselves do not use the convention).
+
 | Rule | Loads when | Covers |
 |---|---|---|
 | `critical.md` | always | non-negotiable guardrails (npm, sync storage, generated `Env`, compat date, secrets, docs `.md`) |

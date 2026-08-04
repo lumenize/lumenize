@@ -10,34 +10,34 @@ paths:
 # Package Structure, Env & Secrets
 
 ## Development-mode `package.json`
-No build scripts; point at source. (Publish scripts repoint to `dist/` then revert — see [workflow.md](workflow.md) § Releases.)
+A package MUST NOT declare build scripts and MUST point at source. (Publish scripts repoint to `dist/` then revert — see [workflow.md](workflow.md) § Releases.)
 ```json
 { "type": "module", "main": "src/index.ts", "types": "src/index.ts", "files": ["src/**/*"] }
 ```
-Intra-monorepo deps use `"*"` as the version.
+Intra-monorepo deps MUST use `"*"` as the version.
 
 ## Standard package files
 - `package.json` — no build scripts, points to `src/`
-- `src/index.ts` — single export file re-exporting the public API. ⚠️ **Do NOT re-export a `@lumenize/mesh`-composing DO (`ComposedMeshDO`/`LumenizeDO` subclass) from this widely-imported index** — pulling the whole mesh chain (transitive `cloudflare:workers` + client/Gateway code) through the index **breaks the transform of pure-unit test files that import the index only for light utilities**: they get a bare `SyntaxError: Invalid or unexpected token` with **no location**, and the whole file silently stops running (marked failed with 0 assertion failures). A DO test that imports `cloudflare:test` transforms the same chain fine, so it looks file-specific and is baffling. A plain `extends DurableObject` (no mesh) in the index is fine — it's the mesh dependency weight. **Fix: export the mesh-composing DO from a dedicated subpath** (`"./profile": { "import": "./src/profile.ts" }`), consumers do `import { X } from '@lumenize/pkg/subpath'`. Bit 2026-07-14 (nebula-auth `Profile` DO → `@lumenize/nebula-auth/profile`).
+- `src/index.ts` — single export file re-exporting the public API. ⚠️ **A `@lumenize/mesh`-composing DO (`ComposedMeshDO`/`LumenizeDO` subclass) MUST NOT be re-exported from this widely-imported index** — pulling the whole mesh chain (transitive `cloudflare:workers` + client/Gateway code) through the index **breaks the transform of pure-unit test files that import the index only for light utilities**: they get a bare `SyntaxError: Invalid or unexpected token` with **no location**, and the whole file silently stops running (marked failed with 0 assertion failures). A DO test that imports `cloudflare:test` transforms the same chain fine, so it looks file-specific and is baffling. A plain `extends DurableObject` (no mesh) in the index is fine — it's the mesh dependency weight. **Fix: the mesh-composing DO MUST be exported from a dedicated subpath** (`"./profile": { "import": "./src/profile.ts" }`), consumers do `import { X } from '@lumenize/pkg/subpath'`. Bit 2026-07-14 (nebula-auth `Profile` DO → `@lumenize/nebula-auth/profile`).
 - `README.md` — minimal: name, tagline, link to website docs, key features, install
-- `LICENSE` — `MIT` for open-source packages, or `UNLICENSED` for Nebula code (`packages/nebula-auth`, `apps/nebula`) until the platform ships externally as `BUSL-1.1`. Use the **exact SPDX identifier** in `package.json` `license` (`BUSL-1.1`, not `BSL-1.1`/`BSI-1.1`).
+- `LICENSE` — `MIT` for open-source packages, or `UNLICENSED` for Nebula code (`packages/nebula-auth`, `apps/nebula`) until the platform ships externally as `BUSL-1.1`. `package.json` `license` MUST carry the **exact SPDX identifier** (`BUSL-1.1`, not `BSL-1.1`/`BSI-1.1`).
 - `dist/` — generated at publish only (gitignored)
 
 **Cloudflare Worker packages** additionally:
 - `tsconfig.json` extends root, includes `"types": ["vitest/globals"]`
 - `vitest.config.js` (Workers project config — see [testing.md](testing.md))
-- `wrangler.jsonc` (DO bindings + class-registration via the declarative `exports` map — **never a `migrations` array**, the retired imperative form your training will reach for first; see [durable-objects.md](durable-objects.md) § DO class registration. ⚠️ this wrangler.jsonc `exports` is the **DO class registry**, a *different thing* from the package.json `exports` field further down this file, which is the Node subpath/condition map; never conflate them; `compatibility_date: "2026-03-12"` or later). For Node builtins use `compatibility_flags: ["nodejs_compat"]` — **NOT `"nodejs_compat_v2"`**: with a current compat date `nodejs_compat` already gives v2 semantics AND resolves `node:` module imports in real `wrangler dev`, whereas the `_v2`-suffixed flag does not (a `node:os`/etc. import crashes worker startup with `No such module`). vitest-pool-workers polyfills `node:` builtins independently, so a green pool-workers run masks this — real `wrangler dev` (deployed-Worker harnesses) + prod break.
-- `worker-configuration.d.ts` — **auto-generated only** via `npm run types`
+- `wrangler.jsonc` (DO bindings + class-registration via the declarative `exports` map — **a `migrations` array MUST NOT be used**, being the retired imperative form your training will reach for first; see [durable-objects.md](durable-objects.md) § DO class registration. ⚠️ this wrangler.jsonc `exports` is the **DO class registry**, a *different thing* from the package.json `exports` field further down this file, which is the Node subpath/condition map; never conflate them; `compatibility_date: "2026-03-12"` or later). For Node builtins you MUST use `compatibility_flags: ["nodejs_compat"]` and MUST NOT use **`"nodejs_compat_v2"`**: with a current compat date `nodejs_compat` already gives v2 semantics AND resolves `node:` module imports in real `wrangler dev`, whereas the `_v2`-suffixed flag does not (a `node:os`/etc. import crashes worker startup with `No such module`). vitest-pool-workers polyfills `node:` builtins independently, so a green pool-workers run masks this — real `wrangler dev` (deployed-Worker harnesses) + prod break.
+- `worker-configuration.d.ts` — MUST be **auto-generated only**, via `npm run types`
 
 ## Use the global `Env` type
-`wrangler types` generates a global `Env` in `worker-configuration.d.ts`. Always use it directly — never `interface Env`, `MyEnv`, or `AuthEnv`.
+`wrangler types` generates a global `Env` in `worker-configuration.d.ts`. You MUST use it directly, and MUST NOT declare `interface Env`, `MyEnv`, or `AuthEnv`.
 ```typescript
 export default { async fetch(request: Request, env: Env) { /* ... */ } }
 export function createRoutes(env: Env, options: Config) { /* ... */ }
 ```
-**Use `object` instead of `Env`** only for code in shared packages (`@lumenize/rpc`, `@lumenize/testing`) called by *multiple* packages with different generated `Env`s. If the function lives in the same package as the `wrangler.jsonc` defining the bindings it accesses, use `Env`.
+**`object` MAY be used instead of `Env`** only for code in shared packages (`@lumenize/rpc`, `@lumenize/testing`) called by *multiple* packages with different generated `Env`s. If the function lives in the same package as the `wrangler.jsonc` defining the bindings it accesses, it MUST use `Env`.
 
-**Widen with an intersection** for the in-between case: source that lives in the same package as its `wrangler.jsonc` but is *also compiled under consumer packages' programs* (a workspace dep points at `src/`, so TS type-checks your source against the consumer's generated `Env`). If the consumer's `Env` lacks a binding you access, don't reintroduce a local `interface Env` (and don't add the var to the consumer's `wrangler.jsonc`) — keep the generated global as the base and widen only at the signature: `env: Env & { DEBUG?: string }` (alias it with a comment if used more than once). Canonical: `tooling/test-endpoints/src/EnvTestDO.ts`, compiled by `packages/fetch` tests whose `Env` has no `DEBUG`.
+**Widen with an intersection** for the in-between case: source that lives in the same package as its `wrangler.jsonc` but is *also compiled under consumer packages' programs* (a workspace dep points at `src/`, so TS type-checks your source against the consumer's generated `Env`). If the consumer's `Env` lacks a binding you access, you MUST NOT reintroduce a local `interface Env` and MUST NOT add the var to the consumer's `wrangler.jsonc` — the generated global MUST stay the base, widened only at the signature: `env: Env & { DEBUG?: string }` (alias it with a comment if used more than once). Canonical: `tooling/test-endpoints/src/EnvTestDO.ts`, compiled by `packages/fetch` tests whose `Env` has no `DEBUG`.
 
 ## Environment variables & secrets
 | Location | Committed? | Scope | Best for |
@@ -50,9 +50,9 @@ export function createRoutes(env: Env, options: Config) { /* ... */ }
 
 There is no `wrangler` CLI command for non-secret *production* vars — use one of the others. Precedence in local dev/test: vitest miniflare bindings > `.dev.vars` > `wrangler.jsonc`.
 
-- **Secrets must never be committable** (see [critical.md](critical.md)). Centralized in the gitignored root `/lumenize/.dev.vars`; `.dev.vars.example` is the committed template with placeholders instead of actual secrets; `scripts/setup-symlinks.sh` (postinstall) symlinks `.dev.vars` into each package/test dir. **`.dev.vars` resolves relative to the `wrangler.jsonc` location**, so sub-directory wrangler configs (e.g. `test/e2e-email/wrangler.jsonc`) need their own symlink — `setup-symlinks.sh` handles any directory containing a `wrangler.jsonc`.
-- **Test-mode flags** (bypass auth, disable rate limits) are security-sensitive: set them in vitest `miniflare.bindings` so they can't leak to production. `LUMENIZE_AUTH_TEST_MODE` is auth-internal only — mesh projects use `createTestRefreshFunction` from `@lumenize/mesh` instead.
-- **Privilege-granting bootstrap knobs** (`LUMENIZE_AUTH_BOOTSTRAP_EMAIL` / `NEBULA_AUTH_BOOTSTRAP_EMAIL` — auto-admin for the first subject registering that email) follow the test-mode-flag rule: vitest `miniflare.bindings`, not `wrangler.jsonc` `vars`. Sole exception: a **deployed test harness** (e.g. `packages/mesh/test/browser/worker/`) has no bindings channel, so it carries the var in its `wrangler.jsonc` with a comment marking the exception. Never in a production worker's config — committed vars are world-readable and deploy with the worker, so a bootstrap email there is a standing admin backdoor.
+- **Secrets MUST NOT be committable** (see [critical.md](critical.md)). Centralized in the gitignored root `/lumenize/.dev.vars`; `.dev.vars.example` is the committed template with placeholders instead of actual secrets; `scripts/setup-symlinks.sh` (postinstall) symlinks `.dev.vars` into each package/test dir. **`.dev.vars` resolves relative to the `wrangler.jsonc` location**, so sub-directory wrangler configs (e.g. `test/e2e-email/wrangler.jsonc`) need their own symlink — `setup-symlinks.sh` handles any directory containing a `wrangler.jsonc`.
+- **Test-mode flags** (bypass auth, disable rate limits) are security-sensitive: they MUST be set in vitest `miniflare.bindings` so they can't leak to production. `LUMENIZE_AUTH_TEST_MODE` is auth-internal only — mesh projects MUST use `createTestRefreshFunction` from `@lumenize/mesh` instead.
+- **Privilege-granting bootstrap knobs** (`LUMENIZE_AUTH_BOOTSTRAP_EMAIL` / `NEBULA_AUTH_BOOTSTRAP_EMAIL` — auto-admin for the first subject registering that email) follow the test-mode-flag rule: they MUST go in vitest `miniflare.bindings` and MUST NOT go in `wrangler.jsonc` `vars`. Sole exception: a **deployed test harness** (e.g. `packages/mesh/test/browser/worker/`) has no bindings channel, so it MAY carry the var in its `wrangler.jsonc` with a comment marking the exception. It MUST NOT appear in a production worker's config — committed vars are world-readable and deploy with the worker, so a bootstrap email there is a standing admin backdoor.
 
 ## Self-referencing service bindings
 A Worker can bind to its own `WorkerEntrypoint` classes via a self-referencing service binding — the `"service"` field matches the Worker's own `"name"`:
@@ -75,7 +75,7 @@ try {
 ```
 This is a *runtime* guard only.
 
-**Must be browser-bundleable**: ⚠️ the try/catch above does NOT help bundlers — esbuild/Vite/Rollup/webpack statically see the `'cloudflare:workers'` literal even inside `await import(...)` and fail to resolve it. **Any module that transitively reaches a browser bundle must contain zero references to `cloudflare:workers`** (see the invariant comment in `packages/mesh/src/gateway-messages.ts`). Split env-specific code into separate entry files and select via `exports` *conditions*, isolating `cloudflare:workers` to the `workerd` entry:
+**Must be browser-bundleable**: ⚠️ the try/catch above does NOT help bundlers — esbuild/Vite/Rollup/webpack statically see the `'cloudflare:workers'` literal even inside `await import(...)` and fail to resolve it. **Any module that transitively reaches a browser bundle MUST contain zero references to `cloudflare:workers`** (see the invariant comment in `packages/mesh/src/gateway-messages.ts`). Env-specific code MUST be split into separate entry files selected via `exports` *conditions*, isolating `cloudflare:workers` to the `workerd` entry:
 ```jsonc
 "exports": { ".": {
   "types": "./src/index.ts",
@@ -85,4 +85,4 @@ This is a *runtime* guard only.
   "browser": "./src/index.browser.ts"     // localStorage; no cloudflare:workers
 }}
 ```
-Condition keys are runtime-matched tokens, not labels: Cloudflare presents `workerd`/`worker` (not `cloudflare`); Bun/Deno fall through to `node`. Omit `default` so an unmatched toolchain fails loudly rather than shipping a silently-wrong build. Canonical: `@lumenize/debug` (imported by browser-bundled client code, so it can't use the try/catch).
+Condition keys are runtime-matched tokens, not labels: Cloudflare presents `workerd`/`worker` (not `cloudflare`); Bun/Deno fall through to `node`. `default` MUST be omitted so an unmatched toolchain fails loudly rather than shipping a silently-wrong build. Canonical: `@lumenize/debug` (imported by browser-bundled client code, so it can't use the try/catch).
