@@ -69,4 +69,15 @@ ADRs have no automatic loading path, so two mechanisms keep them live:
    **This has a measured failure behind it.** Left unbudgeted, the section grew to **3,273 words** — 38% of `workflow.md` and 22% of *all* always-loaded standing guidance — by accreting restated reasoning one reasonable-looking addition at a time. Condensed back to ~1,270 on 2026-08-05 with no commitment changed. ⚠️ **The trim also found content that existed ONLY in the index** (ADR-012's `emailVerified` tripwire), which is the failure mode to actually fear: an index line is not a place to record a decision. If a clause belongs anywhere, it belongs in the ADR **first** — then decide whether the index needs to point at it.
 
    Growth is watched by a scheduled routine (monthly, threshold-triggered), which **proposes and never edits** — trimming a guard is a silent-failure class, so a human decides.
+
+   ### Reviewing always-loaded guidance — the `Guidance-Review:` trailer
+   The growth watch holds the line but **never re-examines the baseline**, so a second monthly routine nominates one always-loaded file for a line-by-line human pass, scored by `words × months-since-last-review`. It needs to know when a file was last *reviewed* — which is not when it was last *modified*, since the files that grow constantly are exactly the ones nobody re-reads.
+
+   ⚠️ **That date is derived from git, never from a maintained list.** A review commit carries a trailer naming the file it covered:
+
+   ```
+   Guidance-Review: .claude/rules/calibration.md
+   ```
+
+   Add it **only for a genuine line-by-line pass of the whole file** — not for an ordinary edit, and not for trimming one section (the 2026-08-05 ADR-index condensation deliberately carries no trailer for `workflow.md`, because only that section was examined). If the trailer is forgotten the file simply looks unreviewed and gets nominated again: the lapse fails toward over-nominating, which is the safe direction.
 2. **`/review-task` reads the full ADR files** while scouting the spec — design review is where ADR conflicts get caught. `/build-task` deliberately does not re-read them: by build time the task file has been reviewed, and the index one-liners are in context anyway.
