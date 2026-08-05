@@ -50,5 +50,5 @@ This is not a confidentiality concession to be hardened in a later release. **Wi
 
 ## Non-goals / out of scope
 
-- **Cross-Star / cross-tenant visibility.** The boundary is the Star; this ADR says nothing about what's visible across Stars or up the Universe/Galaxy hierarchy.
+- **Cross-Star / cross-tenant visibility.** The boundary is the Star; this ADR says nothing about what's visible across Stars or up the Universe/Galaxy hierarchy. ⇒ **[ADR-012](012-global-profile-visibility.md) answers the one case that has since needed it** — a person's PUBLIC profile fields (`name`/`nickname`/`picture`), readable by any authenticated caller holding the `profileId`, across every boundary. It **generalizes** this ADR's visibility ≠ capability principle rather than making an exception to it, which is why it is its own commitment. Nothing else crosses the Star boundary by default.
 - **Does not weaken any access-control enforcement requirement** — see the hard dependency above.

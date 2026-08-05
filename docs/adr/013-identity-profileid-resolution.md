@@ -9,6 +9,8 @@
 
 `sub` is **per-membership** — the same address in two scopes mints two `sub`s. `profileId` is the **global public display handle**. The mapping is single-valued in the direction that matters: many `sub`s → one `profileId`, each `sub` → exactly one. Two reflexes a fresh contributor reaches for: a `sub`↔`profileId` **join table**, and **copying `profileId` onto resource records** "so we don't resolve it every time."
 
+⚠️ **Not to be confused with [ADR-012](012-global-profile-visibility.md), its same-day sibling** — the two are constantly mistaken for each other because both are about `profileId`. **This ADR is the DATA MODEL: where the `profileId` lives, and what may key on it.** ADR-012 is **AUTHZ: who may read and write a profile.** When the question is *"where is it stored, may I copy it, may I key or FK on it?"* it is answered here; when it is *"may this caller see or change it?"* it is answered there. They meet at exactly one point — the owner short-circuit below reads the JWT `profileId` claim, which is this ADR's licensed self-healing denormalization put to ADR-012's use.
+
 ## Decision
 
 **`profileId` is a column on the `Emails` row — a property of the ADDRESS, not of any one membership.** A `sub` resolves to it through its membership's `emailId`. There is no join table: a `sub` maps to exactly one address and an address to exactly one `profileId`, so there is no n:m and no per-link metadata to carry.

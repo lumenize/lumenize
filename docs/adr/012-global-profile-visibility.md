@@ -11,6 +11,8 @@ A person's public profile (`name`/`nickname`/`picture`) must resolve from a bare
 
 ADR-008 established "identity is not confidential" but is **explicitly intra-Star** and disclaims cross-tenant visibility, so it does not by itself license a global read. The reflex a fresh contributor reaches for is a scope-intersection **reach gate** on the profile read — which breaks exactly the cross-scope resolution the feature exists for.
 
+⚠️ **Not to be confused with [ADR-013](013-identity-profileid-resolution.md), its same-day sibling** — the two are constantly mistaken for each other because both are about `profileId`. **This ADR is AUTHZ: who may read and write a profile.** ADR-013 is the **DATA MODEL: where the `profileId` lives, and what may key on it.** When the question is *"may this caller see or change it?"* it is answered here; when it is *"where is it stored, may I copy it, may I key or FK on it?"* it is answered there. They meet at exactly one point — the owner short-circuit reads the JWT `profileId` claim, which is ADR-013's licensed self-healing denormalization.
+
 ## Decision
 
 **Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`** — across scope/Star/Universe boundaries. No reach gate, no registry read on the read/subscribe path; the Gateway's authN is the only check. **Holding the `profileId` IS the capability** (the public-GitHub-profile model, minus the guessable slug).

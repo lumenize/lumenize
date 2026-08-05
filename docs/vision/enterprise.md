@@ -20,13 +20,15 @@ The resolution is never a better ban. It is a **sanctioned, secure way to do the
 
 **Founder-market-fit:** Larry authored the original DevSecOps manifesto. This is not pattern-matching the shadow-IT-gets-sanctioned arc from the outside — it's running it a second time, with the credibility of having run it the first time. That is a signal a competitor cannot manufacture.
 
+**Corroboration of the ANSWER SHAPE — Cloudflare ran this play on itself (added 2026-08-05).** Cloudflare built [Cloudflare OS](https://blog.cloudflare.com/cloudflare-os/) — a sanctioned internal place for every employee to build apps and automate work, with mediated capability access instead of shared credentials — deployed it internally in May, then open-sourced it. **Weigh it for what it is.** As *demand* evidence it is weaker than the YC RFS below: N=1, a company of engineers on its own platform, and open-sourcing it drives Workers consumption, so a skeptical buyer discounts it as self-serving and not-like-them. Where it is uniquely strong is the **shape of the answer**: an investor saying the problem is real is a different claim from a sophisticated engineering organization, facing it internally, building precisely the sanctioned-secure-place answer this doc argues for rather than an enforcement regime. Cite it for *"this is what serious orgs build when they take it seriously,"* never for *"look how big the demand is."* ⚠️ It is also the sharpest competitive objection we face — see *The newer objection* below; the same artifact does both jobs and the two readings must not be blurred.
+
 **Third-party corroboration of the demand (added 2026-07-31).** The thesis above rests on an assertion — that domain experts inside companies are already building — and the enterprise pitch lives or dies on the buyer believing it. Y Combinator's [Fall 2026 RFS](https://www.ycombinator.com/rfs) makes the same assertion from the investor side, in **A Cloud for Small Software** (Pete Koomen, YC group partner): every team does things differently, and demand for bespoke tools — workflows, the numbers a team tracks, sprints, shared prototypes — is effectively unlimited; that software is now easy to build and still hard to deploy and share. That is our intrapreneur, described by someone with no stake in our framing, and two of the three hard problems the RFS names are our substrate (*auth & permissions*; nontechnical users sharing arbitrary code securely). Cite it precisely because it isn't us saying it — an IT buyer discounts our claim that their people are already building, and discounts it far less coming from a YC partner asking to fund the infrastructure.
 
 ---
 
 ## The buyer & the pain
 
-- **Buyer** — IT / security / platform-engineering leadership. *Not* the builder. (The builder is the champion, not the purchaser.)
+- **Buyer** — IT / security / platform-engineering leadership. *Not* the builder. (The builder is the champion, not the purchaser.) ⚠️ **Skews smaller than the titles suggest** — the sweet spot is the org with *no platform team*, where this is a CTO or head of ops rather than a CISO. Reasoning in *The newer objection* below.
 - **Champion** — the intrapreneur already using Nebula bottoms-up. The wedge produces the internal advocate for free.
 - **Pain** — "My domain experts are shipping apps on tools I can't see, can't govern, and can't secure — and under strict-liability law (see `strategy.md` *Why now*) the org is now on the hook for what they ship."
 - **Trigger event** — an incident, a failed audit, a procurement review, or the dawning realization that the enforcement memo isn't working.
@@ -55,6 +57,19 @@ The "sanctioned citizen development" budget line has owners: **Microsoft Power P
 **Discipline:** never fight Power Platform on governance-checkbox count early — theirs is mature and ours is deliberately gated (*Timing gates* below). The pitch is not "better governance than Microsoft"; it is **"your people already chose agentic tools; govern the thing they actually use."**
 
 ---
+
+## The newer objection — "Cloudflare just open-sourced this" (added 2026-08-05)
+
+[Cloudflare OS](https://blog.cloudflare.com/cloudflare-os/) is free, modern, agentic-native, and from a company with real security credibility. It will come up, and "we're more secure" is the wrong answer — theirs is a good design for their customer. **The answer is operator burden, and it is the cleanest segmentation line we have:**
+
+- **It is a kit you deploy and staff, not a product you buy.** You host it in your own Cloudflare account with your own Access policies, AI Gateway config, and integrations — and each external system needs a **Gatekeeper**, a Worker somebody writes and maintains, carrying that service's policy logic. So adoption presumes a platform team. ⇒ **Its natural adopter is an organization that could already have solved this.** It does nothing for the company of 60 — which is where the shadow-IT problem is *worst*, because there is no platform team to route around *to*.
+- **Hand-written policy per service is the footgun we exist to remove.** A Gatekeeper written thinly is a wide-open one, and nothing warns you. That is the same objection we make to arbitrary server code (`strategy.md`, walled garden), landing in a new place.
+- **It stops at the org boundary.** Everyone is an employee behind Cloudflare Access; there is no row-level or relationship-based control *inside* an app because there are no tenants to isolate. So it is subject to the same trajectory argument as Power Platform above: an internal tool built there stays one.
+- **Its motion is top-down; ours is not.** Someone must *decide* to deploy Cloudflare OS, and roll it out. That is a platform-adoption event. Nebula arrives one intrapreneur at a time and the org buys later to govern what is already happening — this doc's whole land motion. The inversion argument we make against Power Platform gets **stronger** against a better competitor, not weaker.
+
+**What this sharpens: the buyer skews smaller than this doc has been assuming.** The large end of the enterprise market is exactly the end most able to self-host a free kit. Our sweet spot is the organization with no platform team — where the buyer is a CTO, head of ops, or an IT lead rather than a CISO; procurement is a card rather than a nine-month cycle; and the governance surface that satisfies them is **lighter** than the SSO/SCIM/SOC 2/residency stack below. This is good news twice over: the expansion starts earlier and cheaper than a big-enterprise framing implies, and there is less to build.
+
+⚠️ **This moves the buyer, NOT the gates.** A smaller buyer needing less surface is not permission to build governance surface early — *Timing gates* below and `strategy.md` check 7 stand unchanged, and the smaller surface is an argument for building *less later*, not *something now*. ⚠️ It is also not a retreat from large enterprises; it is where the wedge lands **first**. The estate a big org eventually buys to govern is still the prize.
 
 ## What "the secure way" requires — the governance tier
 
