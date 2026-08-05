@@ -62,4 +62,11 @@ An ADR reads as if written fresh for the **current** design — it is not an app
 ADRs have no automatic loading path, so two mechanisms keep them live:
 
 1. **One-liner index** in `.claude/rules/workflow.md` § Architecture commitments (always loaded). Adding an ADR means adding its one-liner there — an ADR without an index line is invisible.
+
+   ### The index line — a POINTER, with a budget
+   ⚠️ **One sentence naming the commitment, plus any tripwire that would bite before a reader thought to open the ADR. Target ≤60 words; treat 100 as the hard stop.** Argument, evidence, measurements, worked examples, and dated amendment history all belong in the ADR — the index exists to make you *go read it*, not to substitute for it.
+
+   **This has a measured failure behind it.** Left unbudgeted, the section grew to **3,273 words** — 38% of `workflow.md` and 22% of *all* always-loaded standing guidance — by accreting restated reasoning one reasonable-looking addition at a time. Condensed back to ~1,270 on 2026-08-05 with no commitment changed. ⚠️ **The trim also found content that existed ONLY in the index** (ADR-012's `emailVerified` tripwire), which is the failure mode to actually fear: an index line is not a place to record a decision. If a clause belongs anywhere, it belongs in the ADR **first** — then decide whether the index needs to point at it.
+
+   Growth is watched by a scheduled routine (monthly, threshold-triggered), which **proposes and never edits** — trimming a guard is a silent-failure class, so a human decides.
 2. **`/review-task` reads the full ADR files** while scouting the spec — design review is where ADR conflicts get caught. `/build-task` deliberately does not re-read them: by build time the task file has been reviewed, and the index one-liners are in context anyway.
