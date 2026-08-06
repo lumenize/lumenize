@@ -161,8 +161,6 @@ describe('Profile DO — Phase 2', () => {
       expect(registryReads()).toBe(1);                              // proves the counter is genuinely wired (not vacuous)
     });
 
-    // ⏳ SKIPPED — this asserts ADR-012's committed TARGET, which the code has not reached yet.
-    // ADR-012 retires the scoped-admin branch (`requireOwnerOrAdmin` qualifies owner + super-admin
     // ⚠️ **This REPLACES a skipped test written for the retire-the-branch design** ("SCOPED-admin ...
     // is REFUSED — owner + super-admin ONLY"). That target was reversed: admins curating a member's
     // private fields is a wanted capability, so the branch STAYS and what makes it safe is that only an

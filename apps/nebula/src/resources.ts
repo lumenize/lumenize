@@ -122,7 +122,7 @@ export class Resources {
         validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
         eTag TEXT NOT NULL,
         changedBy TEXT NOT NULL,
-        deleted BOOLEAN NOT NULL DEFAULT 0,
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
         value TEXT NOT NULL,
         PRIMARY KEY (resourceId, validFrom),
         FOREIGN KEY (nodeId) REFERENCES Nodes(nodeId)

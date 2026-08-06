@@ -60,7 +60,7 @@ export class DagTree {
         nodeId TEXT PRIMARY KEY,
         slug TEXT NOT NULL,
         label TEXT NOT NULL DEFAULT '',
-        deleted BOOLEAN NOT NULL DEFAULT 0
+        deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1))
       ) WITHOUT ROWID;
 
       CREATE TABLE IF NOT EXISTS Edges (

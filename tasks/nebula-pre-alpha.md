@@ -66,7 +66,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - ✅ **Auth gap — `onBeforeCall` higher-admin reach** (2026-06-23) — see Building blocks above. [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md)
 - ✅ **`/mint-narrower-token` escalation fix** (2026-07-07, when the endpoint was named `/delegated-token`) — scope-bounded mint (gate `activeScope` on the *caller's* pattern; bind minted pattern + `admin` to the caller, never the target/instance) + refresh-cookie rejection + `{ sub }` root-identity guard (reject act-bearing tokens); delegation authz invariant (read + mint side) pinned in `.claude/rules/security.md`. Surfaced by the act-chain `/review-task` detour (whose model settled the chat `actAs` too). [archive/rfc-act-chains.md](archive/rfc-act-chains.md)
 - ✅ **Wave-1 ① Studio UI single-origin serving** (vite proxy + the prefix contract ③ transcribed). [archive/nebula-studio-vite-proxy.md](archive/nebula-studio-vite-proxy.md) · **Durable gotcha:** keep two-terminal vite+`wrangler dev`; **avoid the CF Vite plugin** (workerd-in-vite can't construct a `Container` → breaks the DevContainer preview).
-- ✅ **Wave-1 ② Local UI smoke + zero `it.skip`** (the `ui-smoke` Playwright lane; real-email login → shell → prompt → preview → wipe). [archive/nebula-local-smoke.md](archive/nebula-local-smoke.md)
+- ✅ **Wave-1 ② Local UI smoke** (the `ui-smoke` Playwright lane; real-email login → shell → prompt → preview → wipe). [archive/nebula-local-smoke.md](archive/nebula-local-smoke.md) ⚠️ **The "zero `it.skip`" half of this claim was true when written and is NOT true now — corrected 2026-08-05.** The lane has since accumulated skips from two directions, each with a named owner: the `.dev`-login blocker ([backlog.md](backlog.md) § Testing & Quality) and surfaces the Galaxy collapse deletes or rewrites ([nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)). ⚠️ **Stated as ownership, not as a count** — a number here goes stale the moment any lane gains or greens one, which is exactly how this line came to be wrong; re-derive with `grep -rnE '^\s*(it|test|describe)\.skip\(' apps/nebula/test/ui-smoke/`. **The shipped capability is the lane itself; zero-skip was an acceptance criterion of that build, not a standing property of the repo.**
 - ✅ **Wave-1 ③ First prod deploy** (2026-06-26; custom domain `nebula.lumenize.com`, migrations v1 frozen, `/_version` compare-only, `deploy.sh`). [archive/nebula-release-process.md](archive/nebula-release-process.md) · deferred CI/headless hardening → [on-hold/nebula-release-hardening.md](on-hold/nebula-release-hardening.md).
 - ✅ **Chat thread ① DevStudio data-plane** — extracted `DagTree`+`Resources`+`Subscriptions` into the composable `ResourceDataPlane`; injectable `resourceHostBinding` (`STAR`/`DEV_STUDIO`). [archive/nebula-devstudio-data-plane.md](archive/nebula-devstudio-data-plane.md)
 - ✅ **Chat thread ② parent-child query subscriptions** — `QuerySubs` + `queryHash`, per-push read recheck + `accessAdmin`, windowed lazy content subs. [archive/nebula-query-subscriptions.md](archive/nebula-query-subscriptions.md) · [[sql-migrations-marker-key]]
@@ -113,6 +113,38 @@ The remaining provisioning / capture / inspection work builds on these:
 - ⚠️ **GATE — preview survives redeploys (NOT built; found live on prod 2026-07-04).** Every pre-alpha redeploy re-rolls the DevContainer application (ANY container-config change restarts instances — e.g. the `instance_type` sync `standard`→`standard-1` applied on the 07-04 deploy), so each deploy **cold-boots every active preview**, and a cold boot reverts the container disk to the baked image (Flow 1c). Observed for `larry.2026-07-01-larry-1.dev` right after the 07-04 redeploy: the preview stuck on the **"Waking your preview…"** interstitial that **does NOT self-heal on a plain cold boot** — `wakingPreviewPage`'s `autoRecover` is gated on the stuck-`running`-flag signature (`isStuckFlagResponse`) ONLY, so a normal cold boot shows a **manual-only Reload button that feels dead** for the minutes the boot takes; and once the container came up it served the **baked default** (`App.vue` = "Your app is warming up…", `appVersion:""`) — the user's generated app was **gone until a new codegen turn re-pushed it**. **We redeploy a lot during pre-alpha, so every F&F user's live preview breaks after every deploy and does not come back on its own → must be seamless before/right-after inviting.** Candidate directions (pin at `/review-task`, do NOT pre-pin): **(a)** the waking page **bounded-auto-polls the cold-boot case too** (with backoff), not just the stuck-flag case, so a legit boot self-heals with no clicking; **(b)** **auto-restore on preview-open** — DevStudio holds the durable source (git `Workspace`), so a cold-booted container should be re-pushed on preview-open/return (Flow 1c) **without** requiring a new codegen turn (the existing app returns by itself); **(c)** **deploy pre-warms** the known-active containers (or re-pushes) so users never hit a cold preview post-deploy; **(d)** a codegen push onto an **unavailable** container must **surface/retry visibly**, never silently land on the baked placeholder with `appVersion:""`. Direct follow-on to the wakeup fix (`tasks/archive/nebula-container-wakeup-fix.md`, same `dev-container.ts` preview/waking-page path): that fix handled the RARE stuck-`running` race; this is the **common** post-redeploy/idle cold-boot UX it explicitly deferred.
   - **Acceptance / verify (the bar for "confident"):** after a **container-re-rolling** redeploy (or a >5m idle), the preview **self-heals to the running app within ~60s with zero manual clicks.** Checkable with a post-deploy probe that polls `GET /dev-container/{scope}/` and classifies the body — `Waking your preview` = stuck/cold, `warming up` = baked default (source not re-pushed), `nebula-scope` meta = app serving. ⚠️ **Repro is conditional:** a pure worker-code redeploy that leaves the container image/config unchanged may NOT re-roll the container (preview stays warm), so to actually exercise this, deploy a container-touching change (or let it idle >5m) first.
 
+### Consider before invites (NOT gates)
+
+Nothing here blocks an invite. Each is listed because the window in which it is cheap closes when
+someone other than Larry is reading the output — or building against it. Where an item links out, the
+full reasoning, the rejected shortcut, and the fix direction live there; follow the link rather than
+re-deriving here. *(The first two surfaced from typed-error work, 2026-08-06.)*
+
+- **Give the scope/admin gates typed errors**, so a tester reporting "it's broken" is distinguishable
+  from one who was simply refused → [backlog.md](backlog.md) § Nebula, *The scope/admin gates throw bare
+  `Error`*. ⚠️ The obvious shortcut — reusing `PermissionDeniedError` — is rejected there, for reasons
+  that outlive this milestone.
+- **Fix `@lumenize/structured-clone`'s error rehydration, and its published doc caveat** — registering a
+  custom Error on `globalThis` silently corrupts the message → [backlog.md](backlog.md) § Lumenize Mesh,
+  *Registering a custom Error on `globalThis` CORRUPTS its message*. Nothing in-repo hits it; the reason
+  it belongs on a pre-alpha list is that the **published** doc teaches the footgun, and pre-alpha is when
+  readership starts.
+- **Consider, a runtime verify step for the codegen loop** *(noted 2026-08-06)*. Studio declares a generated
+  app done on the compile gate alone — nothing drives the app to see whether it renders, throws in console,
+  or loads data. That is `live.md`'s thesis pointed at the **user-developer's** app instead of at us, and it
+  earns a place on this list because its value rises the moment non-Larry testers start generating: without
+  it, every failure arrives as a human bug report, and
+  [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md) has no source of truth for whether
+  generated code *worked*. ⚠️ **The open question is the SESSION, not the driver.** The preview serve is
+  deliberately ungated (`apps/nebula/src/entrypoint.ts` — direct GET/HEAD to `DEV_CONTAINER`, since browsers
+  don't attach `Authorization` to document loads), so a driver reaches the shell with no token at all; but
+  tenant data is gated on the WS/mesh path, so seeing **real** data needs a session, and ADR-009's ladder
+  governs how one is obtained. Mechanism stays open — the Playwright we already run, Browser Run's Chromium,
+  or [Kitesurf](https://blog.cloudflare.com/kitesurf/) (Workers-native, agent-shaped CDP output, materially
+  cheaper per drive; its stated weak spot is exactly the long authenticated session). ⚠️ Scope it as *the
+  codegen loop lacks runtime feedback*, never as *pick a browser* — user-triggered debugging and
+  agent-triggered verification are one mechanism with two triggers, and the agent half is the valuable one.
+
 ### Wave 2 — the long pole (data-bound, exploratory)
 
 **Two kinds of EXPLORATORY (do not pretend these are pinned):**
@@ -132,14 +164,42 @@ The remaining provisioning / capture / inspection work builds on these:
   act-as downscopes automatically because DAG checks key off the delegated token's `sub` (the test
   user), never `act` (the admin). For **all Universe/Galaxy admins editing their apps going forward**, not
   just pre-alpha. This is the **push** half; shares the subject/grant/scope core with
-  `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork. **Buildable piece =
-  [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md)** (invite a peer as admin at the invited
-  scope). 🔓 At the Galaxy tier what it adds is a **galaxy-BOUNDED**
-  principal — a collaborator on one app who is *not* an admin of the whole universe. ⚠️ Not missing
-  capability: a universe admin's `{u}.*` already covers `{u}.{g}` and everything beneath. The narrow
-  mechanical consequence is that nobody can *authenticate at* a Galaxy today (no identity row can exist
-  at a 2-segment scope), so callers authenticate at the universe and name the galaxy in `activeScope`
-  — which is the shape prod uses and stays correct afterward.
+  `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
+  ⚠️ **Sequenced ahead of all three: [nebula-reach-from-scope.md](nebula-reach-from-scope.md)** (2026-08-05) — a
+  token carries the member's scope and reach becomes `isAdmin ∧ scope-at-or-above-this-node`, deleting
+  the derived wildcard pattern. ✅ **NOT wipe-gated** (nothing stored changes shape — verified); it goes
+  first because five files already describe the model it replaces and the collapse would add more. It
+  **amends ADR-015** (commitment intact, mechanism replaced) and closes the collaborator's open question
+  about tenant-Star over-reach by deleting the over-reach.
+  **Split into three on 2026-08-05, by dependency rather than topic:**
+  **(a)** the invite MECHANISM — [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md), buildable
+  now, no collapse dependency: per-invitee `isAdmin`, the minted `sub` in the response, a client method.
+  It names no collaborator. **(b)** the COLLABORATOR —
+  [nebula-collaborator-tiers.md](nebula-collaborator-tiers.md), trigger fired 2026-08-05,
+  **gated on the collapse** (it needs `write@Galaxy-root`, and the Galaxy is not a `DagTree` host until
+  the collapse makes it one). **(c)** the SYNTHETIC subjects — below, still unowned.
+  🔄 **A pinned decision was reversed here (2026-08-05):** `collaborator = admin at the invited scope`
+  (pinned 2026-07-19) is retired. It was not the narrowest thing that worked — an exact-star invite at
+  `{u}.{g}.dev` reaches that Star and nothing else and needs zero grant machinery — and shipping a
+  named-but-wrong collaborator would cost more in re-reading than it saved (`workflow.md` § *unlearning
+  tax*). Reasoning lives in (b)'s § *Why this exists*.
+  ⚠️ **(a) and (b) have task files. (c) is NEEDED and UNOWNED** — called out here so it stops being a
+  clause inside someone else's bullet. Neither invite path exercises a data-plane permission model: (a)
+  mints a membership and (b) grants a bundle, but both are people with mailboxes. For a Star to be
+  exercised it needs **non-admin members driven under test**, and the pre-alpha answer is **synthetic
+  act-as-only subjects** (no mailbox, no claim, RFC-reserved dead domain — § Caveats) plus whatever
+  attaches their DAG grants.
+  ✅ **Checkable:** `createSubject` exists **only** in `apps/nebula/test/test-helpers.ts` — zero
+  production callers, no UI — so today this capability exists for tests and for nobody else.
+  ⚠️ **Placement is open, and it is a real question, not a formatting one:** this sits in Wave 2 as
+  exploratory, but *"a pre-alpha user can test the permission model of the app they just generated"*
+  reads as **Invite-gated**. Decide before the collapse lands, since that is when real users arrive.
+  ⚠️ **A galaxy-tier invite is NOT missing capability**, and reading it as such is what produced the
+  reversed decision above: a universe admin's `{u}.*` already covers `{u}.{g}` and everything beneath,
+  so a galaxy-tier admin is a *narrower* principal, never a new one. The narrow mechanical consequence
+  is that nobody can *authenticate at* a Galaxy by claim (no identity row can exist at a 2-segment scope
+  — `create-galaxy` mints none and there is no `claim-galaxy`), so callers authenticate at the universe
+  and name the galaxy in `activeScope` — the shape prod uses, and it stays correct afterward.
 - **Ontology annotations** (`@title` / `@description` / `@inverse`) — data-bound prereq; additive to
   `extractTypeMetadata` (engine roadmap item).
 - **Container vite swc** — Rung-2 runtime so data-bound apps (importing `{client, store}`) actually run

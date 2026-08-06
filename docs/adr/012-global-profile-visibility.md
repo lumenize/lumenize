@@ -15,7 +15,7 @@ ADR-008 established "identity is not confidential" but is **explicitly intra-Sta
 
 ## Decision
 
-**Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`** — across scope/Star/Universe boundaries. No reach gate, no registry read on the read/subscribe path; the Gateway's authN is the only check. **Holding the `profileId` IS the capability** (the public-GitHub-profile model, minus the guessable slug).
+**Public profile fields (`name`/`nickname`/`picture`) are readable and subscribable by ANY authenticated caller that holds the `profileId`** — across scope/Star/Universe boundaries. No reach gate, no registry read on the read/subscribe path; the Gateway's authN is the only check. **Holding the `profileId` IS the capability.** ⚠️ **The analogy is a public GitHub profile with an unguessable handle instead of a slug — and it stops there.** A GitHub profile is readable **logged out**; this is not, and never was: the Gateway's authN is a real requirement, so an anonymous holder of a `profileId` reaches nothing. There is also no HTTPS surface to reach — the Profile DO has no `fetch()` handler and no route, so a Profile cannot be curled, crawled, or linked to from outside. Reading it is a mesh call on an already-authenticated connection. Do not read the analogy as licensing logged-out access; that misreading was live in `docs/vision/auth.md` until 2026-08-05.
 
 This **generalizes** ADR-008's principle from within-a-Star to a global public-address handle; because it exceeds ADR-008's intra-Star scope, it is its own commitment.
 
