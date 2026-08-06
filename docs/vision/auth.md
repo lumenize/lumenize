@@ -14,7 +14,7 @@ From there, calls pass the same layers in the same order, even if some of them a
 
 1. **Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 2. **The name stamp.** A durable node has two addresses: an instance name and a 64-character hex id. The first time a node is addressed we record the binding and instance name it was reached by, and any later mismatch throws. A node cannot change its name, nor be reached through the wrong binding.
-3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of and where you are currently acting. This is where we decide whether that lets you reach into this node at all.
+3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of and where you are currently working. This is where we decide whether that lets you reach into this node at all.
 4. **The `@mesh()` allowlist.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is unreachable from outside it.
 5. **The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
 6. **Checks at the top of the method.** A guard is handed only the node instance, never the method's arguments — so any decision that depends on *which* record or *which* orgTree node you are touching cannot live in one. Those checks run just inside the method and throw an explanatory error that travels back over the `lmz.call()` response, so the caller learns why it was denied.
@@ -28,9 +28,9 @@ A scope is the instanceName half of a node's address, and it is what the coarse-
 
 Examples:
 
-- `{universe}.{galaxy}.{star}`, often abbreviated as `{u}.{g}.{s}`. Indicates a Star.
-- `{u}.{g}`. Indicates a Galaxy, which contains `{u}.{g}.{s}` and many other Stars.
-- `{u}`. Indicates a Universe, which contains `{u}.{g}` and other Galaxies.
+- `{universe}.{galaxy}.{star}`, often abbreviated as `u.g.s`. Indicates a Star.
+- `u.g`. Indicates a Galaxy, which contains `u.g.s` and many other Stars.
+- `u`. Indicates a Universe, which contains `u.g` and other Galaxies.
 
 Notice how **scopes are hieararchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This is important for the **Coarse-grained access control** discussion below.
 
@@ -44,11 +44,11 @@ Browsers decide which cookies to send by starts-with-style matching the request 
 
 ## `activeScope`
 
-An access token is a signed JWT. It has one `activeScope` — where you are acting right now, carried as the `aud` claim.
+An access token is a signed JWT. It has one `activeScope` — where you are working right now, carried as the `aud` claim.
 
-The client asks for it. Each time it refreshes, it names the scope it wants to act in, and the server checks that against the session's own record rather than against anything the client sent. So you may ask for any scope your session reaches into, and for no other (more on in a later section).
+The client asks for it. Each time it refreshes, it names the scope it wants to work in, and the server checks that against the session's own record rather than against anything the client sent. So you may ask for any scope your session reaches into, and for no other (more on in a later section).
 
-One session can mint access tokens at different active scopes over its life. That is what a user-developer moving around their own Universe is doing: authenticated at `{u}`, acting at `{u}.{g}` while editing an app, then at `{u}.{g}.{s}` while looking at one of its tenants. The two differing is the ordinary case, not an unusual one.
+One session can mint access tokens at different active scopes over its life. That is what a user-developer moving around their own Universe is doing: authenticated at `u`, working in `u.g` while editing an app, then in `u.g.s` while looking at one of its tenants. The two differing is the ordinary case, not an unusual one.
 
 `activeScope` should also agree with what the URL says you are looking at. Today it can drift, which breaks sharing a link — the recipient lands on the right page pointed at the wrong scope. [ADR-017](../adr/017-the-url-is-the-view-state.md) is the not-fully-implemented commitment that closes that.
 
@@ -57,7 +57,7 @@ The contrast, at a glance:
 | | `authScope` | `activeScope` |
 |---|---|---|
 | Belongs to | the session | each access token |
-| What it is | where you authenticated | where you are acting right now |
+| What it is | where you authenticated | where you are working right now |
 | Where it lives | the refresh cookie's path, and the JWT's `access` claim | the JWT `aud` |
 | Who sets it | fixed at login | the client asks, on each refresh |
 
@@ -70,7 +70,7 @@ A whole token, annotated — a Galaxy admin who is currently looking at one of t
 ```jsonc
 {
   "sub": "8f3c…",              // the membership: one address in one scope
-  "aud": "acme.crm.bigco",     // activeScope — where I am acting
+  "aud": "acme.crm.bigco",     // activeScope — where I am working
   "access": {
     "authScope": "acme.crm",   // where I am a member
     "admin": true              // see Coarse-grained access control
@@ -86,50 +86,53 @@ Some decisions need nothing but the token. Whether you reach into a node comes f
 
 ## Coarse-grained access control
 
-> Today the JWT carries a wildcard pattern derived from the scope (`{u}.{g}.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
+> Today the JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
 
 The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information.
 
-Two things on the token decide it: `authScope`, where you are a member, and `admin`. The scope says where you sit in the hierarchy; `admin` is what makes that position mean anything. It is not the data-plane `admin` grant, though — that is a different thing on a different tree, covered under **The data plane**.
+Three things decide it: where you are a member (`authScope`), whether you are an admin there (`admin`), and the scope of the node being called. Reach is a comparison among the three, never a property of the token on its own. The scope says where you sit; `admin` is what makes sitting there mean anything. And it is not the data-plane `admin` grant — that is a different thing on a different tree, covered under **The data plane**.
 
-A call reaches into a node in one of two ways:
+There are exactly two ways in:
 
-- **Downward.** If `admin` is set, the token reaches into its own scope and everything beneath it, including scopes that do not exist yet, and has admin authority at each. A Universe admin is an admin of every Galaxy and Star in that Universe.
-- **Upward.** A token always reaches into its own ancestors, so a Star member reaches into the Galaxy and Universe above it. It gets no authority there. This is what lets a tenant read something their Galaxy offers them.
+- **Your `activeScope` is at or below the node.** No `admin` needed. This covers your own scope and every ancestor above it.
+- **Your `authScope` is at or above the node, and `admin` is set.** The only way to reach *downward*.
 
-Without `admin` a token reaches into its own scope and nothing beneath it.
+Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
-Reaching past that outer boundary is only that. What you can do inside is a separate question, answered by the `@mesh()` guards on the methods that node exposes and, for anything touching Resources, by the fine-grained access control of the Data-plane.
+Six calls, all in the same Universe:
 
-### Reaching upward
+| Case | `authScope` | `admin` | `activeScope` | Node called | Usually can |
+|---|---|---|---|---|---|
+| Ordinary | `u.g.s` | no | `u.g.s` | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
+| Upward | `u.g` | no | `u.g` | `u` | read the organizational-level agentic coding standing guidance |
+| Upward, `admin` below the node | `u.g` | **yes** | `u.g` | `u` | the same as the row above — the admin bit sits beneath `u`, so it buys nothing |
+| Upward, `admin` at the node | `u` | **yes** | `u.g` | `u` | everything at the Universe, including editing the standing guidance |
+| Downward | `u.g` | **yes** | `u.g` | `u.g.s` | everything in that Star, via the bypass |
+| Refused | `u.g` | no | `u.g` | `u.g.s` | **nothing** — no method ever runs |
 
-Upward exists so a Star can read something the app above it offers. There is one app definition and many tenant Stars, so anything that belongs to the app rather than to a tenant has to be readable from below. Nothing exercises this yet — the mechanism is in place and waiting for its first consumer.
+The first four rows are one rule, not four: your `activeScope` is at or below the node you are calling. Reaching into your own Galaxy and reaching up into its Universe are the same comparison against two different nodes. What separates them is the `admin` bit — and, decisively, where it sits relative to the node it is read in. Rows three and four carry the same bit and mean opposite things.
 
-Two things bound it, and neither depends on who you are.
+Row five is the only one admitted by the second rule. Its `activeScope` sits *above* the node, so the first rule cannot help and nothing but `admin` gets it in — a Galaxy admin whose view is still the Galaxy, calling into one of its Stars to summarize it. An admin who has switched their view to that Star lands in the first rule instead, and gets the same bypass once inside.
 
-A token reaching up gets no authority there. A tenant admitted into their Galaxy can call it, and every method they call still runs its own `@mesh()` guard against a caller who is not an admin of that Galaxy. Reaching in is what lets the conversation start; the guard on each method is what decides whether it continues.
+That makes rows five and six a minimal pair: same session, same view, same node, differing only in the bit. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-And an admin of a child is nobody at the parent. Being admin of `{u}.{g}.dev` says nothing about `{u}.{g}`, because authority is always the admin bit *and* a scope at or above the node being touched — and `.dev` sits beneath the Galaxy, not above it.
+Neither rule ever crosses to a sibling, and neither crosses between Universes. Platform is the exception: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere.
 
-### Reaching downward
+### Why upward exists
 
-Downward is where the convention is deliberately generous. An admin whose scope is at or above a node gets a bypass in that node's Data-plane: full read, write and admin over its whole orgTree, with no grant ever written. That is what makes a Universe admin an admin of every Star beneath them, including ones created later.
+So a node can read something the scope above it offers. There is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below. Stars once fetched the app's UI code this way; that now goes to the Galaxy directly, since Galaxies are lightly loaded and the responses cache well.
 
-The bypass is evaluated against the node it is running in, never against the bare admin bit, and that distinction has teeth. A guard that once read the bit alone admitted a `{u}.{g}.dev` admin — legitimately reaching up into its Galaxy — and then handed them admin over the Galaxy's entire tree. Every admin check is now confined to the node it runs in, which is what keeps upward admission from becoming upward authority.
+What upward reach is really for is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app reads the whole stack upward.
 
-Neither rule ever crosses to a sibling, and neither crosses between Universes. The scope is the bound in both directions, so `admin` alone is never authority — always `admin` and a scope at-or-above the thing being touched.
+What they may *change* is a separate question, and the answer is where their `admin` sits. A Galaxy member evolves that Galaxy's guidance and nothing above it. A Universe admin who notices — in the retro at the end of a piece of work — that something would help every app in the organization can edit the Universe layer, which is row four. The product improves itself recursively, the same loop we run on this repo.
 
-Platform is the exception. `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere.
+That getting in buys nothing by itself is the point, not a limitation. A tenant admitted into their Galaxy can call it; every method still runs its own `@mesh()` guard against a caller who is not an admin there. Reaching in starts the conversation. The guard on each method decides whether it continues.
 
-Three identities in the same Universe:
+### Why downward is generous for admins
 
-| Scope | `admin` | Reaches | Can do there |
-|---|---|---|---|
-| `{u}` | yes | the Universe and every Galaxy and Star beneath, including ones that do not exist yet | everything, via the bypass |
-| `{u}.{g}` | no | that Galaxy, and upward with no authority | nothing without a Data-plane grant |
-| `{u}.{g}.{s}` | yes | that Star, and upward with no authority | everything in that Star |
+An admin whose scope is at or above a node gets a bypass in that node's Data-plane: full read, write and admin over its whole orgTree, with no grant ever written. That is what makes a Universe admin an admin of every Star beneath them, including ones created later, and it is deliberate — an owner should not have to grant themselves access to their own work.
 
-The middle row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one — testing there is a second session.
+The bypass is evaluated against the node it is running in, never against the bare `admin` bit, and that distinction has teeth. A guard that once read the bit alone admitted a `u.g.dev` admin — legitimately reaching up into its Galaxy, row three's shape one level down — and then handed them admin over the Galaxy's entire tree. Every admin check is now confined to the node it runs in, which is what keeps reaching up into a node from making you an admin of it.
 
 ## Inside the node
 
@@ -209,7 +212,7 @@ Private data can be read and written only by the owner of the profile, a superus
 
 Accepted is load-bearing, not bookkeeping. An invitation creates a membership before the invitee has done anything, so counting unaccepted ones would let anyone claim a Universe, invite an address they guessed, and become an admin over a scope that stranger's profile touches. A membership is only marked accepted by consuming a link delivered to the mailbox, which no attacker can do for someone else's address.
 
-The owner is whoever's `profileId` is on the token, and only when that token carries no impersonation chain. An admin impersonating someone is not that person here. They may still reach the private fields through the admin rule above, under their own authority, if they administer a scope where the profile holds an accepted membership.
+The owner is whoever's `profileId` is on the token, and only when that token carries no impersonation chain. An admin impersonating someone is not that person here. They may still reach the private fields through the admin rule above, as themselves, if they administer a scope where the profile holds an accepted membership.
 
 Access to a Profile is therefore decided by the token, plus Registry data for the admin case. The owner case reads nothing from the Registry, because the token already carries the `profileId`.
 
@@ -250,13 +253,13 @@ Here is that mirroring, in the same shape as the token in **The access token** a
 
 Every identity claim names the tenant. `admin` is gone entirely, because it is the intersection of the two: the admin has it, the tenant does not, so the token does not. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
 
-One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something their own authority does not already include. Everywhere else it buys nothing, since an admin already has authority over everyone beneath them. The one case today is profile ownership, which sits outside the scope tree. Such a check may look at whether `act` is present, never at who the actor is.
+One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. The one case today is profile ownership, which sits outside the scope tree. Such a check may look at whether `act` is present, never at who the actor is.
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
 ### Reading the history
 
-Every action that moves authority or removes state records the acting token: the subject, the whole actor chain, and the authority asserted. Today that goes to the debug log and nowhere durable.
+Every action that changes who can do what, or removes state, records the acting token: the subject, the whole actor chain, and the `access` it asserted. Today that goes to the debug log and nowhere durable.
 
 The future is a sink behind that log — one destination collecting those records, and an interface over it that shows each person only what their scope entitles them to see. It is not built and nothing depends on it yet. The records already carry what such a view needs, so the work is the sink and the viewer, not a change to what gets written.
 
@@ -298,7 +301,7 @@ First, in the Registry: invite the person into that Star as a plain member. They
 
 Then, in the Data-plane: an existing root admin grants `admin` on the root node to that `sub`.
 
-The result is full Data-plane authority in that Star and no Registry authority whatsoever. They can grant and revoke permissions anywhere in the orgTree, and they cannot invite anyone into the scope, create a sibling scope, or delete anything at the Registry level.
+The result is full Data-plane admin in that Star and none at all at the Registry. They can grant and revoke permissions anywhere in the orgTree, and they cannot invite anyone into the scope, create a sibling scope, or delete anything at the Registry level.
 
 #### Member of a Star with write permission over a non-root orgTree node
 
@@ -310,7 +313,14 @@ They can read and write that node and everything beneath it, since permissions t
 
 No Data-plane grant is involved, because Profiles have no orgTree.
 
-What the admin needs is Registry admin over a scope where that person holds an accepted membership. Accepted is what makes it safe: an invitation the person never took up confers nothing, so nobody can manufacture authority over a stranger's profile by inviting an address they guessed.
+What the admin needs is Registry admin over a scope where that person holds an accepted membership. Accepted is what makes it safe: an invitation the person never took up confers nothing, so nobody can manufacture admin rights over a stranger's profile by inviting an address they guessed.
 
 Impersonating the person does not help here, because impersonation never makes you the owner. The admin does not need it — they qualify in their own name, and the record names them rather than the person whose profile changed.
 
+
+## Working notes — delete this section when this doc gets its home
+
+Edits this document has caused elsewhere, to process once its own wording settles. **Only items triggered by "this doc stopped changing" belong here.** Anything a *build* makes true belongs as a phase criterion in the task file doing that build — two owners for one edit means it fires twice or not at all.
+
+- **Sweep "authority" out of ADR-015 and ADR-016.** Judged unclear on 2026-08-06 and removed from this doc; both ADRs still use it as core vocabulary. Each site needs its own rewording rather than a mechanical replace, which is exactly why it waits for the phrasing here to settle. Class (c) per `docs/adr/README.md` — wording, decision unmoved, no supersession needed even for an Accepted one.
+- **Pick a home for this document, and decide whether to split it.** `CLAUDE.md` scopes `docs/vision/*.md` to product strategy plus the `/review-task` product lens. The overview fits that; the rest has become a system explainer synthesizing ADR-008, 012, 013, 015 and 016 into one narrative — a job no surface in the repo currently has. Candidate split: overview stays in vision, remainder moves to an internal `docs/` home. Whatever it gets, it needs a discovery path — an unindexed explainer is one nobody loads.
