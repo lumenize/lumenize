@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Status** | Living doc as of 2026-07-05. Direction committed; timing gated behind the wedge + a working eval harness (see *Timing gates*). Forward-looking — this is a moat we grow into, not a feature we ship early. |
+| **Status** | Living doc as of 2026-07-05. Direction committed; timing gated behind the wedge + a working eval harness (see § *Timing gates*). Forward-looking — this is a moat we grow into, not a feature we ship early. |
 | **Audience** | Internal. A `/review-task` product-vision lens for any task touching Studio's generation loop, evals, or platform-learning. Also the investor "compounding moat" narrative. |
 | **Relationship** | Sibling of [`strategy.md`](strategy.md); deepens its coach-loop line ("over time the same feedback loop trains the platform's own agents, docs, and defaults"). Where the two conflict, `strategy.md` wins — the wedge funds and proves this, not the other way around. |
 
@@ -19,7 +19,7 @@ The portable insight is that you don't need to touch weights to get the loop. **
 That distinction is the whole strategy:
 
 - **What this is NOT:** training our own model, "self-improving AI," an autonomous system that rewrites its own goals. No weight updates. The base models stay frozen and swappable (today Studio runs a Kimi-class model via `env.AI`).
-- **What this IS:** the platform's *scaffold and defaults* measurably improve from aggregate outcome signal, gated by a fixed eval harness. A self-improving *system*. Bounded, gated, and honest about it (see *Claim discipline*).
+- **What this IS:** the platform's *scaffold and defaults* measurably improve from aggregate outcome signal, gated by a fixed eval harness. A self-improving *system*. Bounded, gated, and honest about it (see § *Claim discipline*).
 
 ---
 
@@ -103,7 +103,7 @@ Flag a task that:
 2. **Builds the scaffold-evolution loop before the reward function (eval harness) exists** — you cannot optimize against a scorer you haven't built and pinned.
 3. **Lets cross-tenant learning leak one builder's code/data into another's generation** — evolve only the platform's trusted scaffolds; the trust boundary is non-negotiable.
 4. **Optimizes scaffolds against a weak proxy** (compile-pass) in a way that degrades the true target (secure, paying apps) — Goodhart; the fixed eval ruler is the guard.
-5. **Treats this as day-one** or pulls focus from the wedge — it's gated behind a proven wedge + a working eval harness (see *Timing gates*).
+5. **Treats this as day-one** or pulls focus from the wedge — it's gated behind a proven wedge + a working eval harness (see § *Timing gates*).
 
 ---
 
