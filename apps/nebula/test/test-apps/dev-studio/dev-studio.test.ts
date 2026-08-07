@@ -178,7 +178,7 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
     // `matchAccess(undefined, x)` would throw at `.endsWith`; `hasAdminOverScope` returns false so
     // the caller gets the clean scope-naming denial. Mutation: drop the truthiness guard in
     // `hasAdminOverScope` → this reds with a TypeError instead.
-    expect(guard({ access: { admin: true } })).toThrow('Admin access required for');
+    expect(guard({ access: { scopeAdmin: true } })).toThrow('Admin access required for');
   });
 });
 

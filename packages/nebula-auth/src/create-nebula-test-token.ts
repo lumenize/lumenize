@@ -9,7 +9,7 @@
  * shape — which Nebula's gateway rejects (`router.verifyNebulaAccessToken`, the
  * `access.authScopePattern` gate). This util instead composes the shared
  * {@link buildNebulaJwtPayload} claim-builder, so the token carries the real
- * `access: { authScopePattern, admin? }` shape a scope admin's server-minted token would —
+ * `access: { authScopePattern, scopeAdmin? }` shape a scope admin's server-minted token would —
  * verified normally against the corresponding public key, no test-mode, all production
  * verification paths exercised.
  *

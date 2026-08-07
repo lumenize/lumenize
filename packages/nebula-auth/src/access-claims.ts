@@ -13,7 +13,7 @@
  * unverified identity, so a valid token proves authorized membership by construction).
  *
  * This is the "factor out to share, don't copy" seam. A second (or third) hand-rolled copy
- * of the `access: { authScopePattern, admin? }` shape is exactly the drift the de-fork task
+ * of the `access: { authScopePattern, scopeAdmin? }` shape is exactly the drift the de-fork task
  * ([`tasks/archive/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
