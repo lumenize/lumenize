@@ -32,7 +32,7 @@ Examples:
 - `u.g`. Indicates a Galaxy, which contains `u.g.s` and many other Stars.
 - `u`. Indicates a Universe, which contains `u.g` and other Galaxies.
 
-Notice how **scopes are hieararchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This is important for the **Coarse-grained access control** discussion below.
+Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This is important for the **Coarse-grained access control** discussion below.
 
 ## `authScope` (Sessions)
 
@@ -46,9 +46,11 @@ Browsers decide which cookies to send by starts-with-style matching the request 
 
 An access token is a signed JWT. It has one `activeScope` — where you are working right now, carried as the `aud` claim.
 
-The client asks for it. Each time it refreshes, it names the scope it wants to work in, and the server checks that against the session's own record rather than against anything the client sent. So you may ask for any scope your session reaches into, and for no other (more on in a later section).
+The client asks for it. Each time it refreshes, it names the scope it wants to work in, and the server checks that against the session's own record rather than against anything the client sent. So you may ask for any scope your session reaches into, and for no other (more on this in a later section).
 
 One session can mint access tokens at different active scopes over its life. That is what a user-developer moving around their own Universe is doing: authenticated at `u`, working in `u.g` while editing an app, then in `u.g.s` while looking at one of its tenants. The two differing is the ordinary case, not an unusual one.
+
+`activeScope` decides nothing about reach — **Coarse-grained access control** explains why — but it is not decorative. The Gateway partitions **pushes** by it: a message produced by a call in one scope is delivered only to connections whose token names that same scope. Two tabs belonging to one Galaxy admin, open on `u.g.s1` and `u.g.s2`, carry the same `authScope` and the same `admin` bit, so nothing but `activeScope` tells them apart — and a subscription update from one tenant must not surface in the other. That is a partition, not a boundary: the client picks both sides, so it can only narrow what it already reaches, never widen it. The Profile is exempt, for the reason it is exempt everywhere else — its pushes carry public fields only, and cross-scope delivery is the point.
 
 `activeScope` should also agree with what the URL says you are looking at. Today it can drift, which breaks sharing a link — the recipient lands on the right page pointed at the wrong scope. [ADR-017](../adr/017-the-url-is-the-view-state.md) is the not-fully-implemented commitment that closes that.
 
@@ -63,7 +65,7 @@ The contrast, at a glance:
 
 ## The access token
 
-An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking, and carries no authority of its own.
+An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking. It confers no authority, which is not the same as doing nothing — the Gateway partitions pushes by it, per **`activeScope`** above.
 
 A whole token, annotated — a Galaxy admin who is currently looking at one of their tenants:
 

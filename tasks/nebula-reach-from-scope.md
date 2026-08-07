@@ -30,8 +30,8 @@
 Two rules, one predicate, and the **direction is the meaning**:
 
 ```
-authority at this node  =  isAdmin  ∧  (my scope is at-or-above this node)
-admission at this node  =            (my aud   is at-or-below this node)   — no authority
+authority at this node  =  admin  ∧  isAtOrAbove(my scope, this node)   — downward
+admission at this node  =            isAtOrAbove(this node, my scope)   — upward, no authority
 ```
 
 `buildAuthScopePattern` is deleted. `matchAccess`'s glob grammar becomes a hierarchy predicate. The claim becomes **`access.authScope`**, holding the member's scope verbatim.
@@ -130,7 +130,12 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 
    ✅ **The codebase already agrees on the substantive point.** `/mint-narrower-token` performs real narrowing by narrowing the **pattern** (`authScopePattern: buildAuthScopePattern(body.activeScope)`), not by setting a narrower `aud` alone — so the mechanism that genuinely bounds a token already treats `authScope` as the bound and `activeScope` as the view.
 
-   ⚠️ **Still to verify, and it is the one thing not settled:** whether any consumer relies on `activeScope` narrowing reach *within* a session, and whether dropping it forfeits blast-radius containment on a leaked access token. Neither looks live — an admin reaches downward regardless of `activeScope` today — but both are assertions to check against the code, not to assume. If either turns out to be load-bearing, the decision above reopens.
+   ✅ **Verified against the code 2026-08-07, and the decision stands.**
+
+   - **Blast radius: nothing is lost.** `enforceScopeReach`'s admin branch (`hasAdminOverScope`) never reads `aud` at all, so a leaked *admin* token already reaches its whole `authScope` subtree today. For a non-admin, a node below your scope is refused under both models. There is no containment to forfeit.
+   - **The substitution IS the fix for `Missing` item 3, not an extra change.** Only the upward branch reads `aud`. A non-admin at `{u}` may mint `aud={u}.{g}.{s}` (the mint accepts it — `{u}.*` covers it), and the node-derived exact pattern then matches that `aud`, which is precisely how the unconsumed downward reach arises. Comparing against the member's scope instead refuses it, because `{u}.{g}.{s}` is not at-or-above `{u}`. **This phase is smaller than written.**
+   - ⚠️ **`aud` IS load-bearing elsewhere, and MUST NOT be removed from the token or stripped from the wire.** `NebulaClientGateway.onBeforeCallToClient` compares the originating call's `aud` to the connection's and rejects a mismatch — the push-delivery partition. `authScope` cannot replace it: two tabs of one Galaxy admin on sibling Stars share `authScope` and `admin`, so an `authScope` comparison would deliver one tenant's subscription updates to the other. **Scope this phase to the reach decision only.**
+   - `verify.ts`'s internal-consistency check (`matchAccess(authScopePattern, aud)`) stops guarding reach and starts guarding only that invariant, which the Gateway partition assumes. Keep it; re-word its comment, which currently claims a reach purpose.
 
 ## Relationships
 
