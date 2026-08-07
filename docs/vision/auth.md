@@ -32,7 +32,7 @@ Examples:
 - `u.g`. Indicates a Galaxy, which contains `u.g.s` and many other Stars.
 - `u`. Indicates a Universe, which contains `u.g` and other Galaxies.
 
-Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This is important for the **Coarse-grained access control** discussion below.
+Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This matters for § *Coarse-grained access control* below.
 
 ## `authScope` (Sessions)
 
@@ -50,7 +50,7 @@ The client asks for it. Each time it refreshes, it names the scope it wants to w
 
 One session can mint access tokens at different active scopes over its life. That is what a user-developer moving around their own Universe is doing: authenticated at `u`, working in `u.g` while editing an app, then in `u.g.s` while looking at one of its tenants. The two differing is the ordinary case, not an unusual one.
 
-`activeScope` decides nothing about reach — **Coarse-grained access control** explains why — but it is not decorative. The Gateway partitions **pushes** by it: a message produced by a call in one scope is delivered only to connections whose token names that same scope. Two tabs belonging to one Galaxy admin, open on `u.g.s1` and `u.g.s2`, carry the same `authScope` and the same `admin` bit, so nothing but `activeScope` tells them apart — and a subscription update from one tenant must not surface in the other. That is a partition, not a boundary: the client picks both sides, so it can only narrow what it already reaches, never widen it. The Profile is exempt, for the reason it is exempt everywhere else — its pushes carry public fields only, and cross-scope delivery is the point.
+`activeScope` decides nothing about reach — § *Coarse-grained access control* explains why — but it is not decorative. The Gateway uses it to route **pushes**: a message produced by a call in one scope is delivered only to connections whose token names that same scope. Two tabs belonging to one Galaxy admin, open on `u.g.s1` and `u.g.s2`, carry the same `authScope` and the same `admin` bit, so nothing but `activeScope` tells them apart — and a subscription update from one tenant must not surface in the other. This still grants nothing. The client picks both sides of that comparison, so the most it can do is keep its own tabs from bleeding into each other; it can never reach anything `authScope` does not already allow. The Profile is exempt, for the reason it is exempt everywhere else — its pushes carry public fields only, and cross-scope delivery is the point.
 
 `activeScope` should also agree with what the URL says you are looking at. Today it can drift, which breaks sharing a link — the recipient lands on the right page pointed at the wrong scope. [ADR-017](../adr/017-the-url-is-the-view-state.md) is the not-fully-implemented commitment that closes that.
 
@@ -65,7 +65,7 @@ The contrast, at a glance:
 
 ## The access token
 
-An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking. It confers no authority, which is not the same as doing nothing — the Gateway partitions pushes by it, per **`activeScope`** above.
+An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking. It confers no authority, which is not the same as doing nothing — the Gateway routes pushes by it, per § *`activeScope`* above.
 
 A whole token, annotated — a Galaxy admin who is currently looking at one of their tenants:
 
@@ -88,22 +88,24 @@ Some decisions need nothing but the token. Whether you reach into a node comes f
 
 ## Coarse-grained access control
 
-> Today the JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here. That task has also not yet ratified deciding reach from `authScope` alone, which this section now describes.
+> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here. That task has also not yet ratified deciding reach from `authScope` alone, which this section now describes.
 
 **This layer exists to make lateral movement impossible.** If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node exists to be called. That is the first row of the table below, and it is the case this whole layer is built around. Vertical movement is the part that is allowed, and only in the two specific forms described here.
 
-The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information.
+The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
 
-Three things decide it: where you are a member (`authScope`), whether you are an admin there (`admin`), and the scope of the node being called. Reach is a comparison among the three, never a property of the token on its own. The scope says where you sit; `admin` is what makes sitting there mean anything. And it is not the data-plane `admin` grant — that is a different thing on a different tree, covered under **The data plane**.
+Three things decide it: where you are a member (`authScope`), whether you are an admin there (`admin`), and the scope of the node being called. The decision is a comparison among the three. 
+
+> **Not the same `admin`.** The data-plane `admin` grant is a different thing from the `admin` we are talking about here. It's on a different tree, the DAG orgTree, covered in § *The data plane* below.
 
 `activeScope` plays no part in this decision, though a reader arriving from its section above would reasonably expect it to. It is chosen by the client, and a value the caller picks can never be a boundary; the mint already confines it inside `authScope`, so it can only ever name somewhere you could already reach. It says which part of the mesh you are looking at, not which part you may touch.
 
-There are exactly two ways in, and both compare the same two things — where you are a member, and where the node sits:
+There are exactly two ways in, and both compare the same two things — where you are a member, and where the node you are calling sits:
 
-- **The node is your own scope, or an ancestor of it.** Free; no `admin` needed.
-- **The node is a descendant of your scope, and `admin` is set.** The only way to reach *downward*.
+- **The node is your own auth scope, or an ancestor of it.** Free; no `admin` needed.
+- **The node is a descendant of your auth scope, and `admin` is set.** The only way to reach *downward*.
 
-In one line: your scope and the node must be on the same vertical line, upward is free, and downward needs `admin`.
+In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `admin`**.
 
 Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
@@ -125,7 +127,7 @@ Seven example calls, all in the same Universe:
 
 The last two rows are a minimal pair: same member, same node, differing only in the bit. That is the whole of the second rule — descending into your own subtree is the one movement `admin` exists to authorize. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-Neither rule ever crosses to a sibling, and neither crosses between Universes. There are two exceptions. Platform is one: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere. The Profile is the other, and it is deliberate — see **Profiles**.
+Neither rule ever crosses to a sibling, and neither crosses between Universes. There are two exceptions. Platform is one: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere. The Profile is the other, and it is deliberate — see § *Profiles*.
 
 ### Why upward exists
 
@@ -244,7 +246,7 @@ Two rules, pointing opposite ways:
 
 It is never an escalation. You can only act as someone whose scope you already fully administer, and the token mirrors that person's access rather than your own.
 
-Here is that mirroring, in the same shape as the token in **The access token** above. The admin from that example — `8f3c…`, with profile `1a9d…` — is now acting as one of their tenants:
+Here is that mirroring, in the same shape as the token in § *The access token* above. The admin from that example — `8f3c…`, with profile `1a9d…` — is now acting as one of their tenants:
 
 ```jsonc
 {
