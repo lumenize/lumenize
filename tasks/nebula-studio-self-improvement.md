@@ -80,6 +80,22 @@ Harness: reuse `apps/nebula/test/browser/smoke.test.ts`'s Node-side bootstrap (`
 
 ---
 
+## Where the harvest record lives — DECIDED 2026-08-07
+
+Part A reads it as the eval fixture and Part B reads it as the attribution substrate, so it is decided **once, here**, rather than independently in each. What exists today: `TurnRecord` ([galaxy.ts](../apps/nebula/src/galaxy.ts)) is written fire-and-forget on **every** codegen turn — `DevStudio`'s recorder fires it at the Galaxy, which persists a JSON payload row readable through `getTurns`. Its own JSDoc already designates it the eval-replay unit and equates its schema with the eval-fixture schema, so Part A's fixture format is not a new artifact to design.
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Harvest substrate | **Our own resource model. AI Gateway logs are NOT the record** — not now, not as a fallback | Three independent reasons, any one sufficient. (1) **The signal is post-inference and AIG structurally cannot see it**: what makes a turn good is whether the compile gate passed, whether files applied, whether the human accepted or immediately rephrased — AIG sees one request/response pair, the same blindness [nebula-tenant-ai-billing.md](on-hold/nebula-tenant-ai-billing.md) § *AI Gateway vs Analytics Engine* already names on the cost side. (2) **Tenancy is structural for us and conventional for AIG**: a record lives in the tenant's own DO by construction, where AIG's tenant boundary is a `cf-aig-metadata` string somebody remembered to attach per call site — hand-written policy per site is the footgun [docs/vision/enterprise.md](../docs/vision/enterprise.md) uses *against* a competitor, so buying it here would be buying our own criticism. (3) **[ADR-004](../docs/adr/004-snodgrass-temporal-resources.md) gives history free**, with no per-plan retention ceiling and no privileged Cloudflare token on the read path — a token the billing file works specifically to avoid. |
+| AI Gateway's remaining role | **Runtime control plane only** — spend caps, auto-fallback, Workers-AI rate-limit headroom. Never the record | Those are *enforcement*, which a passive record cannot do, so the two are complements rather than alternatives. ⇒ If a gateway is ever enabled it SHOULD carry `cf-aig-collect-log-payload: false`: metering and caps without duplicating prompts and generated source account-side. That is what stops the metering goal and the harvest goal competing for the same switch — they were only ever in tension because one switch served both. |
+| Which of OUR surfaces is the record | **OPEN — resolve during the Galaxy collapse, not here** | Two capture surfaces exist with an unclear division: `TurnRecord` (Galaxy-local JSON, eval-shaped, carries model id / prompts / current source / raw output / reasoning / tool calls with results / applied paths / compile-gate slot) and `Session`/`Message` (DevStudio Resources, conversation-shaped, carries none of the turn mechanics). Neither is a superset. The collapse lands both in **one DO** — it already notes the cross-node recorder fire becoming a local self-call — so the question stops being a cross-node design problem and becomes a schema choice inside one node. Deciding it *before* then would price a hop that is about to disappear. |
+
+⚠️ **Under-capture is the failure mode with no signal, which is why the surface question is scheduled rather than deferred.** Nothing goes red if a turn omits its gate outcome; the corpus simply comes out thin months later, and **turns already written cannot be backfilled**. This is the same argument [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) already makes for the [ADR-019](../docs/adr/019-derived-artifacts-record-observations.md) observation stamp — same object, same write moment, same irreversibility — so the two capture decisions SHOULD land together rather than in separate passes.
+
+ⓘ **Two drifts in `TurnRecord` to fix whenever it is next opened** (noted 2026-08-07, neither blocking): its turn time is an epoch `number`, which [ADR-011](../docs/adr/011-iso-timestamps.md) rules out in favour of an ISO 8601 string; and its JSDoc still describes the one-shot regex path as current, though the tool-calling loop has since shipped and populates the tool-call slot.
+
+---
+
 ## Part B — The optimizer (scaffold evolution)
 
 The Cloudflare-native loop from the vision doc, made concrete:
@@ -129,7 +145,7 @@ Part A (the eval) is buildable as soon as gate #1 is confirmed. Parts B/C wait o
 **Success**: reporter emits pass/fail to `GITHUB_STEP_SUMMARY`; replay keeps CI cost bounded; canary runs every pass; threshold breach fails the check. **At this point the regression gate is live — the reward function exists.**
 
 ### Phase 4 — Scaffold store + outcome logging
-**Success**: scaffold versions persisted as an ADR-004 history sequence in a DO; every generation logs `(task → scaffold-version → deterministic+judge outcome)`; embeddings written to Vectorize. No behavior change yet — just the substrate.
+**Success**: scaffold versions persisted as an ADR-004 history sequence in a DO; every generation logs `(task → scaffold-version → deterministic+judge outcome)` **onto the substrate settled in § *Where the harvest record lives*** — which by the time this phase runs is one surface in one DO, so this phase extends a record rather than choosing between two; embeddings written to Vectorize. No behavior change yet — just the substrate.
 
 ### Phase 5 — Retrieval-augmented generation
 **Success**: a new task retrieves top-k past winners from Vectorize and conditions generation on them; A/B (via Part A) shows non-regression vs. the un-augmented loop. The first place the loop *closes*.
