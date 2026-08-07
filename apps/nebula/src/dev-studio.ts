@@ -91,11 +91,13 @@ const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
 /**
  * Unwrap a Workers AI `/ai/run` REST envelope to the same value `env.AI.run` returns.
  *
- * The direct REST endpoint wraps the result in `{ result, success, errors }` (verified
- * live); an AI-Gateway `workers-ai` response may already be the provider-native
- * (unwrapped) shape — handle both. Throws on `success: false`. Exported so the cheap
- * `dev-studio` shape probe can assert the unwrap feeds {@link parseModelTurn} unchanged
- * (the binding path needs no unwrap, so only REST exercises this).
+ * The REST endpoint wraps the result in `{ result, success, errors }` (verified live) and
+ * keeps doing so when the call is gateway-routed, since that is now the same endpoint plus
+ * a header. The bare-value branch is kept anyway: it costs one `in` check and it is what
+ * absorbs a response shape changing under us rather than letting it reach
+ * {@link parseModelTurn}. Throws on `success: false`. Exported so the cheap `dev-studio`
+ * shape probe can assert the unwrap feeds {@link parseModelTurn} unchanged (the binding
+ * path needs no unwrap, so only REST exercises this).
  */
 export function unwrapWorkersAiRest(json: unknown): unknown {
   if (json && typeof json === 'object' && 'success' in json) {
@@ -815,11 +817,20 @@ export class DevStudio extends NebulaDO {
   }
 
   /**
-   * Workers AI over REST — the hosted-lane AI path (no `env.AI` binding there). Routes
-   * through an AI Gateway when `CF_AI_GATEWAY` is set (cost/latency analytics), else the
-   * direct account endpoint. The `/ai/run` response wraps the binding's result in
-   * `{ result, success, errors }` (verified against the live API) — {@link unwrapWorkersAiRest}
-   * unwraps `.result` so {@link parseModelTurn} reads the same shape the binding returns.
+   * Workers AI over REST — the hosted-lane AI path (no `env.AI` binding there). **One URL,
+   * always**: gateway routing is a `cf-aig-gateway-id` header on the ordinary `/ai/run`
+   * endpoint, not a different origin. `CF_AI_GATEWAY` therefore selects *observability*,
+   * never the transport — so a gateway typo can no longer change which API answers.
+   * The `/ai/run` response wraps the binding's result in `{ result, success, errors }`
+   * (verified against the live API) — {@link unwrapWorkersAiRest} unwraps `.result` so
+   * {@link parseModelTurn} reads the same shape the binding returns.
+   *
+   * ⚠️ **An unset `CF_AI_GATEWAY` is a deliberate default, not an oversight.** Naming a
+   * gateway turns on full request+response payload logging account-side (prompts and
+   * generated source); what Studio *wants* recorded lives in its own Session/Message
+   * objects instead. Adding a gateway id here is a data-handling decision — make it
+   * on purpose, and see `tasks/on-hold/nebula-tenant-ai-billing.md` first.
+   *
    * **Never log the token or the `Authorization` header** (security.md); errors carry the
    * URL `pathname` + status only (the token rides the header, never the URL).
    */
@@ -830,14 +841,13 @@ export class DevStudio extends NebulaDO {
   ): Promise<unknown> {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
     if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
-    const url = env.CF_AI_GATEWAY
-      ? `https://gateway.ai.cloudflare.com/v1/${accountId}/${env.CF_AI_GATEWAY}/workers-ai/${STUDIO_MODEL}`
-      : `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${STUDIO_MODEL}`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${STUDIO_MODEL}`;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+    if (env.CF_AI_GATEWAY) headers['cf-aig-gateway-id'] = env.CF_AI_GATEWAY;
+    const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     if (!resp.ok) throw new Error(`Workers AI REST ${resp.status} at ${new URL(url).pathname}`);
     return unwrapWorkersAiRest(await resp.json());
   }

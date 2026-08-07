@@ -21,6 +21,7 @@ import * as impersonationLifecycle from './scenarios/impersonation-lifecycle';
 import * as identityConvergence from './scenarios/identity-convergence';
 import * as revokeIsTotal from './scenarios/revoke-is-total';
 import * as profileTakeoverRefused from './scenarios/profile-takeover-refused';
+import * as studioCodegenRest from './scenarios/studio-codegen-rest';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -45,6 +46,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'identity-convergence': identityConvergence, // one address, two real logins → ONE profileId (no fixture)
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope authority buys nothing (no fixture)
+  'studio-codegen-rest': studioCodegenRest,    // one real codegen turn over the Workers-AI REST transport
 };
 
 async function main(): Promise<void> {
