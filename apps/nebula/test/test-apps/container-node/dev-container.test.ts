@@ -126,7 +126,7 @@ describe('DevContainer command @mesh surface is fully admin-gated', () => {
   it('every @mesh method DevContainer ADDS is requireAdmin-gated — nonAdminMeshMethods(DevContainer) === []', () => {
     // The command channel (applyChanges/exec/viteControl/ensureUp/readFileInContainer)
     // must all carry @mesh(requireAdmin): NebulaContainer.onBeforeCall proves tenant
-    // SCOPE but never access.admin, and `<id>.*` widening admits descendant
+    // SCOPE but never access.scopeAdmin, and `<id>.*` widening admits descendant
     // non-admins. Adding an ungated @mesh method to DevContainer fails this.
     expect(nonAdminMeshMethods(DevContainer)).toEqual([]);
   });

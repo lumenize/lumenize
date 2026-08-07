@@ -13,7 +13,7 @@ import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndP
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', admin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -26,7 +26,7 @@ describe('Identity authority — mint only at authority points', () => {
   it('claim-universe mints the claiming admin identity; a returning email resolves to the SAME sub', async () => {
     const uni = uniqueUniverse();
     const first = await foundUniverse(SELF, uni, 'scope-admin@example.com');
-    expect(first.parsed.access.admin).toBe(true);         // the claiming admin is admin
+    expect(first.parsed.access.scopeAdmin).toBe(true);         // the claiming admin is admin
     expect(first.parsed.access.authScopePattern).toBe(`${uni}.*`);
 
     // Log in AGAIN via the login magic-link (find-and-flip) — must resolve to the SAME sub, never re-mint.
@@ -83,10 +83,10 @@ describe('Identity authority — adminApproved retired, enforced at MINT (edge g
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'admin@example.com');
     // Invite a plain member into a star under the universe; accept + refresh must succeed for a
-    // non-admin (access.admin===false) — the retired router:541 gate would have 403'd this.
+    // non-admin (access.scopeAdmin===false) — the retired router:541 gate would have 403'd this.
     const scope = `${uni}.app.tenant`;
     const member = await inviteAndLogin(SELF, scope, admin.access_token, 'member@example.com');
-    expect(member.parsed.access.admin).toBeUndefined();         // genuinely non-admin
+    expect(member.parsed.access.scopeAdmin).toBeUndefined();         // genuinely non-admin
     expect(member.parsed.sub).toBeDefined();
     // The member's token round-trips a fresh refresh (proves it's a working, gate-free session).
     const again = await refreshAndParse(SELF, scope, member.refreshToken);
@@ -129,18 +129,18 @@ describe('Refresh is a pure KV read — the registry is NOT on the refresh path'
   });
 });
 
-describe('isAdmin convergence into the KV record (ADR-010; M4 expiry preservation)', () => {
+describe('scopeAdmin convergence into the KV record (ADR-010; M4 expiry preservation)', () => {
   it('a real admin-change endpoint converges the KV record; the next refresh reflects it', async () => {
     const uni = uniqueUniverse();
     const admin = await foundUniverse(SELF, uni, 'scope-admin@example.com');
-    expect((await kvRecord(admin.refreshToken)).isAdmin).toBe(true);
+    expect((await kvRecord(admin.refreshToken)).scopeAdmin).toBe(true);
 
     // Drive convergence through the registry's real admin-change RPC (never a direct KV write).
     await getRegistry().setIdentityAdmin(admin.parsed.sub, false, ACTING());
 
-    expect((await kvRecord(admin.refreshToken)).isAdmin).toBe(false); // converged (reds if the push is deleted)
+    expect((await kvRecord(admin.refreshToken)).scopeAdmin).toBe(false); // converged (reds if the push is deleted)
     const refreshed = await refreshAndParse(SELF, uni, admin.refreshToken);
-    expect(refreshed.parsed.access.admin).toBeUndefined();           // demoted; reds if refresh stayed stale
+    expect(refreshed.parsed.access.scopeAdmin).toBeUndefined();           // demoted; reds if refresh stayed stale
   });
 
   it("M4: convergence re-applies the token's ORIGINAL absolute expiry to the KV entry — NOT a fresh 30-day TTL, NOT immortal", async () => {
@@ -158,7 +158,7 @@ describe('isAdmin convergence into the KV record (ADR-010; M4 expiry preservatio
       ctx.storage.sql.exec('INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?,?,?)', tokenHash, sub, shortExpiry);
     });
     await (env as any).REFRESH_TOKEN_KV.put(`refresh:${tokenHash}`,
-      JSON.stringify({ sub, universeGalaxyStarId: uni, isAdmin: true, expiresAt: shortExpiry }),
+      JSON.stringify({ sub, universeGalaxyStarId: uni, scopeAdmin: true, expiresAt: shortExpiry }),
       { expirationTtl: 120 });
 
     // Converge — the registry re-puts the KV record; M4 requires it re-apply kvTtlSeconds(shortExpiry).
@@ -272,7 +272,7 @@ describe('Refresh KV-miss fallback (defensive — login→first-refresh cross-co
 
     const refreshed = await refreshAndParse(SELF, uni, admin.refreshToken); // fallback path
     expect(refreshed.parsed.sub).toBe(admin.parsed.sub);
-    expect(refreshed.parsed.access.admin).toBe(true);
+    expect(refreshed.parsed.access.scopeAdmin).toBe(true);
     // Self-healed: the record is back in KV, so the NEXT refresh hits KV directly (no fallback).
     expect(await kvRecord(admin.refreshToken)).not.toBeNull();
   });

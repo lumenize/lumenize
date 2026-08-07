@@ -16,7 +16,7 @@ import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
 async function craftJwt(options: {
   authScopePattern: string;
   aud: string;
-  admin?: boolean;
+  scopeAdmin?: boolean;
   sub?: string;
 }): Promise<string> {
   const privateKeyPem = (env as any).JWT_PRIVATE_KEY_BLUE;
@@ -35,7 +35,7 @@ async function craftJwt(options: {
     email: 'test@example.com',
     access: {
       authScopePattern: options.authScopePattern,
-      admin: options.admin ?? false,
+      scopeAdmin: options.scopeAdmin ?? false,
     },
   };
 
@@ -47,7 +47,7 @@ describe('matchAccess(authScopePattern, aud) verification', () => {
     const token = await craftJwt({
       authScopePattern: 'acme.*',
       aud: 'acme.app.tenant-a',
-      admin: true,
+      scopeAdmin: true,
     });
 
     const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');

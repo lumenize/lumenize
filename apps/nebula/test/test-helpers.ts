@@ -81,7 +81,7 @@ export function universeOf(scope: string): string {
 }
 
 /**
- * Claim a universe — the **only open admin-minting path** (`#mintIdentity(..., isAdmin: true)`).
+ * Claim a universe — the **only open admin-minting path** (`#mintIdentity(..., scopeAdmin: true)`).
  * Returns the test-mode magic-link URL.
  *
  * ⚠️ Login NEVER mints. `requestMagicLink` creates a link for any email, but consuming it fails
@@ -215,7 +215,7 @@ export async function createSubject(
   authScope: string,
   adminAccessToken: string,
   email: string,
-  options: { isAdmin?: boolean } = {},
+  options: { scopeAdmin?: boolean } = {},
 ): Promise<void> {
   // Admin invites the user via POST /auth/{scope}/invite?_test=true
   const inviteResp = await browser.fetch(authUrl(`${authScope}/invite?_test=true`), {
@@ -298,7 +298,7 @@ export async function browserLogin(
 }
 
 /**
- * Found a universe and log its admin in: claim (mints the universe admin, `isAdmin: true`) → click →
+ * Found a universe and log its admin in: claim (mints the universe admin, `scopeAdmin: true`) → click →
  * refresh. The admin counterpart to {@link browserLogin}.
  *
  * `scope` is the **hierarchy** you want to authenticate within — its universe is what gets
@@ -450,7 +450,7 @@ export async function universeAdminClient<T extends NebulaClient>(
  * Each test-app passes its own client class (e.g., NebulaClientTest).
  *
  * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a universe admin
- * with `isAdmin: true` and pattern `{universe}.*`) and becomes the client's `authScope`, because
+ * with `scopeAdmin: true` and pattern `{universe}.*`) and becomes the client's `authScope`, because
  * that is where the refresh cookie is path-scoped. `activeScope` is the JWT `aud` — any descendant
  * of that universe. ⚠️ **The client's `authScope` is therefore the universe, not `scope`** — passing
  * a star as `scope` still yields a client whose cookie/refresh live at the universe. That is not a
@@ -494,11 +494,11 @@ export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 /**
  * Log in the configured **platform bootstrap admin** (`authScopePattern: '*'`) at `activeScope`.
  *
- * This is the ONE production path to a *second* `access.admin` identity in a universe that already
+ * This is the ONE production path to a *second* `access.scopeAdmin` identity in a universe that already
  * has an admin: `requestMagicLink` mints the bootstrap email at `nebula-platform`
  * (`nebula-auth-registry.ts` — the only email-magic-link mint), and `*` covers every scope. Because
  * the root admin's `__nebula_rootAdminSeeded` latch is already set, this identity receives **no root
- * DAG grant** — which is exactly the shape the D16 stored-bypass fixtures need ("`access.admin`
+ * DAG grant** — which is exactly the shape the D16 stored-bypass fixtures need ("`access.scopeAdmin`
  * with no DAG grant of its own").
  *
  * ⚠️ Only usable where `NEBULA_AUTH_BOOTSTRAP_EMAIL` is bound (baseline project). Without it, login

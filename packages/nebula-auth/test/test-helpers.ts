@@ -130,12 +130,12 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
 }
 
 /**
- * Found a Star end-to-end **as its own star-scoped admin** → an `isAdmin=1` identity at the full 3-segment id
+ * Found a Star end-to-end **as its own star-scoped admin** → an `scopeAdmin=1` identity at the full 3-segment id
  * with an EXACT-STAR `authScopePattern` (`claimStar` stamps it — `nebula-auth-registry.ts`).
  *
  * This is the only real (ADR-009 rung 1) path to a **sub-universe admin** identity, which is what any
- * test needing a token that actually carries `access.admin` under the `mint-narrower-token` `admin`
- * mirror requires. `inviteAndLogin` yields `isAdmin=0`, so it cannot stand in.
+ * test needing a token that actually carries `access.scopeAdmin` under the `mint-narrower-token` `admin`
+ * mirror requires. `inviteAndLogin` yields `scopeAdmin=0`, so it cannot stand in.
  *
  * ⚠️ **Non-obvious prerequisite: the parent galaxy must exist first** or `claim-star` 400s
  * `parent_not_found` — hence the `createGalaxy` hop, which needs the universe admin's token.

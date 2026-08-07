@@ -133,7 +133,7 @@ describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
     const { createNebulaTestToken } = await import('../src/create-nebula-test-token');
     const { env } = await import('cloudflare:test');
     const platform = await createNebulaTestToken({
-      privateKey: (env as any).JWT_PRIVATE_KEY_BLUE, instanceName: 'nebula-platform', activeScope: 'nebula-platform', isAdmin: true,
+      privateKey: (env as any).JWT_PRIVATE_KEY_BLUE, instanceName: 'nebula-platform', activeScope: 'nebula-platform', scopeAdmin: true,
     })();
     const resp = await post('my-scopes', {}, { Authorization: `Bearer ${platform.access_token}` });
     expect(resp.status).toBe(200);

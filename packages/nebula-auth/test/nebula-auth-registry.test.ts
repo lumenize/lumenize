@@ -21,7 +21,7 @@ function freshRegistry(): any {
  *  same address in two scopes is ONE address row with two memberships, and seeding it any other way
  *  would build a shape the real mint cannot produce. */
 async function seed(
-  stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; isAdmin?: boolean }>,
+  stub: any, scopes: string[], members: Array<{ sub: string; scope: string; email: string; scopeAdmin?: boolean }>,
 ): Promise<void> {
   // Ids the real mint supplies. Generated outside the callback (no crypto reliance inside it).
   const emailIds = new Map<string, { emailId: string; profileId: string }>();
@@ -40,15 +40,15 @@ async function seed(
     }
     for (const m of seeded) {
       ctx.storage.sql.exec(
-        'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES (?,?,?,?,?,?)',
-        m.sub, emailIds.get(m.lc)!.emailId, m.scope, m.isAdmin ? 1 : 0,
+        'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES (?,?,?,?,?,?)',
+        m.sub, emailIds.get(m.lc)!.emailId, m.scope, m.scopeAdmin ? 1 : 0,
         '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z',
       );
     }
   });
 }
 
-const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, admin: true });
+const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, scopeAdmin: true });
 
 /** The ADR-016 acting-principal argument for a direct-RPC `executeScopeDeletion` call. Recorded,
  *  never consulted — authorization keys off the separate `callerSub`/`callerAccess` arguments. */
@@ -62,11 +62,11 @@ describe('NebulaAuthRegistry', () => {
       expect(await freshRegistry().discover('nobody@example.com')).toEqual([]);
     });
 
-    it('returns { universeGalaxyStarId, isAdmin } for a claimed universe admin (sub-FREE)', async () => {
+    it('returns { universeGalaxyStarId, scopeAdmin } for a claimed universe admin (sub-FREE)', async () => {
       const r = freshRegistry();
       await r.claimUniverse('acme', 'scope-admin@example.com', 'http://localhost');
       const entries = await r.discover('scope-admin@example.com');
-      expect(entries).toEqual([{ universeGalaxyStarId: 'acme', isAdmin: true }]);
+      expect(entries).toEqual([{ universeGalaxyStarId: 'acme', scopeAdmin: true }]);
       expect(entries[0]).not.toHaveProperty('sub'); // never leak the surrogate identity key
     });
 
@@ -91,11 +91,11 @@ describe('NebulaAuthRegistry', () => {
       expect(await freshRegistry().getAndVerifyIdentity('ghost@example.com', 'acme')).toBeNull();
     });
 
-    it('find-and-flips an existing identity → returns { sub, scope, isAdmin } and sets emailVerified', async () => {
+    it('find-and-flips an existing identity → returns { sub, scope, scopeAdmin } and sets emailVerified', async () => {
       const r = freshRegistry();
       await r.claimUniverse('flipu', 'scope-admin@example.com', 'http://localhost'); // mints the admin identity (emailVerified=0)
       const identity = await r.getAndVerifyIdentity('scope-admin@example.com', 'flipu');
-      expect(identity).toMatchObject({ universeGalaxyStarId: 'flipu', isAdmin: true });
+      expect(identity).toMatchObject({ universeGalaxyStarId: 'flipu', scopeAdmin: true });
       expect(identity.sub).toBeDefined();
     });
   });
@@ -117,7 +117,7 @@ describe('NebulaAuthRegistry', () => {
       const result = await r.claimUniverse('my-universe', 'scope-admin@example.com', 'http://localhost');
       expect(result.magicLinkUrl).toContain('/auth/my-universe/magic-link');
       expect(await r.checkSlugAvailable('my-universe')).toBe(false);
-      expect(await r.discover('scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', isAdmin: true }]);
+      expect(await r.discover('scope-admin@example.com')).toEqual([{ universeGalaxyStarId: 'my-universe', scopeAdmin: true }]);
     });
 
     it('rejects duplicate / reserved / invalid slug / invalid email', async () => {
@@ -131,7 +131,7 @@ describe('NebulaAuthRegistry', () => {
   });
 
   // Two ways a star comes into being, and they partition cleanly by slug class:
-  //   claimStar   — OPEN self-signup. Mints an exact-star `isAdmin` star-scoped admin + emails a claim link.
+  //   claimStar   — OPEN self-signup. Mints an exact-star `scopeAdmin` star-scoped admin + emails a claim link.
   //                 Rejects reserved env names (`dev`). Tenant stars only.
   //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO admin identity. The only
   //                 no-identity path, which is exactly what `{u}.{g}.dev` needs.
@@ -147,16 +147,16 @@ describe('NebulaAuthRegistry', () => {
       expect(result.instanceName).toBe('gal-univ.my-galaxy');
       expect(await r.checkSlugAvailable('gal-univ.my-galaxy')).toBe(false);
       // wildcard-managed: no identity minted in the galaxy.
-      expect(await r.discover('admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', isAdmin: true }]);
+      expect(await r.discover('admin@example.com')).toEqual([{ universeGalaxyStarId: 'gal-univ', scopeAdmin: true }]);
     });
 
     it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
       const r = freshRegistry();
       await r.claimUniverse('gu', 'x@example.com', 'http://localhost');
-      await expect(r.createGalaxy('gu.g', { authScopePattern: 'gu.*', admin: false })).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('gu.g', { authScopePattern: 'gu.*', scopeAdmin: false })).rejects.toThrow(/admin access/);
       await expect(r.createGalaxy('nonexistent.g', ADMIN_OVER('nonexistent'))).rejects.toThrow(/does not exist/);
-      await expect(r.createGalaxy('just-a-universe', { authScopePattern: '*', admin: true })).rejects.toThrow(/2-segment/);
-      await expect(r.createGalaxy('gu.g', { authScopePattern: 'other.*', admin: true })).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('just-a-universe', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/2-segment/);
+      await expect(r.createGalaxy('gu.g', { authScopePattern: 'other.*', scopeAdmin: true })).rejects.toThrow(/admin access/);
       await r.createGalaxy('gu.g', ADMIN_OVER('gu'));
       await expect(r.createGalaxy('gu.g', ADMIN_OVER('gu'))).rejects.toThrow(/already claimed/);
     });
@@ -181,9 +181,9 @@ describe('NebulaAuthRegistry', () => {
     it('rejects non-galaxy-admin / nonexistent parent / non-star tier', async () => {
       const r = freshRegistry();
       await galaxy(r, 'cs-x');
-      await expect(r.createStar('cs-x.app.dev', { authScopePattern: 'cs-x.*', admin: false })).rejects.toThrow(/not an admin of the parent galaxy/);
-      await expect(r.createStar('cs-noparent.app.dev', { authScopePattern: '*', admin: true })).rejects.toThrow(/does not exist/);
-      await expect(r.createStar('cs-bad.app', { authScopePattern: '*', admin: true })).rejects.toThrow(/3-segment/);
+      await expect(r.createStar('cs-x.app.dev', { authScopePattern: 'cs-x.*', scopeAdmin: false })).rejects.toThrow(/not an admin of the parent galaxy/);
+      await expect(r.createStar('cs-noparent.app.dev', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/does not exist/);
+      await expect(r.createStar('cs-bad.app', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/3-segment/);
     });
 
     it('myScopeTree returns the universe + descendants (tier + isDev); [] for a non-admin; scoped to the caller', async () => {
@@ -193,8 +193,8 @@ describe('NebulaAuthRegistry', () => {
       const tree = await r.myScopeTree(ADMIN_OVER('cs-tree'));
       expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
       expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual({ instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
-      expect(await r.myScopeTree({ authScopePattern: 'cs-tree.*', admin: false })).toEqual([]);
-      const exact = await r.myScopeTree({ authScopePattern: 'cs-tree.app.dev', admin: true });
+      expect(await r.myScopeTree({ authScopePattern: 'cs-tree.*', scopeAdmin: false })).toEqual([]);
+      const exact = await r.myScopeTree({ authScopePattern: 'cs-tree.app.dev', scopeAdmin: true });
       expect(exact.map((s: any) => s.instanceName)).toEqual(['cs-tree.app.dev']);
     });
   });
@@ -204,7 +204,7 @@ describe('NebulaAuthRegistry', () => {
     it('plan: a solo `.dev` star → affected is just that star, no attached users (carries tier + isDev)', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
-      await seed(r, ['d1.app.dev'], [{ sub: owner, scope: 'd1.app.dev', email: 'o@x.com', isAdmin: true }]);
+      await seed(r, ['d1.app.dev'], [{ sub: owner, scope: 'd1.app.dev', email: 'o@x.com', scopeAdmin: true }]);
       const plan = await r.planScopeDeletion('d1.app.dev', owner, ADMIN_OVER('d1'));
       expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
       expect(plan.affected).toEqual([{ instanceName: 'd1.app.dev', tier: 'star', isDev: true }]);
@@ -217,8 +217,8 @@ describe('NebulaAuthRegistry', () => {
       const r1 = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r1, ['d3', 'd3.app.dev'], [
-        { sub: owner, scope: 'd3', email: 'o@x.com', isAdmin: true },
-        { sub: crypto.randomUUID(), scope: 'd3.app.dev', email: 'o@x.com', isAdmin: true },
+        { sub: owner, scope: 'd3', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd3.app.dev', email: 'o@x.com', scopeAdmin: true },
       ]);
       // `d3` is the only-parent of the only-child being deleted, holds no OTHER user, and the caller
       // admins it — every condition the prune-up used to fire on. It must still survive.
@@ -228,9 +228,9 @@ describe('NebulaAuthRegistry', () => {
       const r2 = freshRegistry();
       const owner2 = crypto.randomUUID();
       await seed(r2, ['d4', 'd4.app.dev', 'd4.app.other'], [
-        { sub: owner2, scope: 'd4', email: 'o@x.com', isAdmin: true },
-        { sub: crypto.randomUUID(), scope: 'd4.app.dev', email: 'o@x.com', isAdmin: true },
-        { sub: crypto.randomUUID(), scope: 'd4.app.other', email: 'o@x.com', isAdmin: true },
+        { sub: owner2, scope: 'd4', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.dev', email: 'o@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd4.app.other', email: 'o@x.com', scopeAdmin: true },
       ]);
       const plan2 = await r2.planScopeDeletion('d4.app.dev', owner2, ADMIN_OVER('d4'));
       expect(plan2.affected.map((a: any) => a.instanceName)).toEqual(['d4.app.dev']);
@@ -241,8 +241,8 @@ describe('NebulaAuthRegistry', () => {
       const owner = crypto.randomUUID();
       const otherSub = crypto.randomUUID();
       await seed(r, ['d9', 'd9.app.dev'], [
-        { sub: owner, scope: 'd9', email: 'o@x.com', isAdmin: true },
-        { sub: otherSub, scope: 'd9.app.dev', email: 'other@x.com', isAdmin: false },
+        { sub: owner, scope: 'd9', email: 'o@x.com', scopeAdmin: true },
+        { sub: otherSub, scope: 'd9.app.dev', email: 'other@x.com', scopeAdmin: false },
       ]);
       const planned = await r.planScopeDeletion('d9.app.dev', owner, ADMIN_OVER('d9'));
       expect(planned.affectedUsers.total).toBe(1);
@@ -260,7 +260,7 @@ describe('NebulaAuthRegistry', () => {
     it('plan: deleting a higher node cascades DOWN to descendants', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
-      await seed(r, ['d2', 'd2.app.dev'], [{ sub: owner, scope: 'd2', email: 'o@x.com', isAdmin: true }]);
+      await seed(r, ['d2', 'd2.app.dev'], [{ sub: owner, scope: 'd2', email: 'o@x.com', scopeAdmin: true }]);
       const plan = await r.planScopeDeletion('d2', owner, ADMIN_OVER('d2'));
       expect(plan.affected.map((a: any) => a.instanceName).sort()).toEqual(['d2', 'd2.app.dev']);
     });
@@ -271,8 +271,8 @@ describe('NebulaAuthRegistry', () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d5.app.dev'], [
-        { sub: owner, scope: 'd5.app.dev', email: 'owner@x.com', isAdmin: true },
-        { sub: crypto.randomUUID(), scope: 'd5.app.dev', email: 'other@x.com', isAdmin: false },
+        { sub: owner, scope: 'd5.app.dev', email: 'owner@x.com', scopeAdmin: true },
+        { sub: crypto.randomUUID(), scope: 'd5.app.dev', email: 'other@x.com', scopeAdmin: false },
       ]);
       const plan = await r.planScopeDeletion('d5.app.dev', owner, ADMIN_OVER('d5'));
       expect(plan.affectedUsers).toEqual({
@@ -286,11 +286,11 @@ describe('NebulaAuthRegistry', () => {
     it('warning is BOUNDED — >25 attached users yield a full count and a <=25 sample', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
-      const members = [{ sub: owner, scope: 'd8.app.dev', email: 'owner@x.com', isAdmin: true }];
+      const members = [{ sub: owner, scope: 'd8.app.dev', email: 'owner@x.com', scopeAdmin: true }];
       for (let i = 0; i < 30; i++) {
         members.push({
           sub: crypto.randomUUID(), scope: 'd8.app.dev',
-          email: `u${String(i).padStart(2, '0')}@x.com`, isAdmin: false,
+          email: `u${String(i).padStart(2, '0')}@x.com`, scopeAdmin: false,
         });
       }
       await seed(r, ['d8.app.dev'], members);
@@ -303,7 +303,7 @@ describe('NebulaAuthRegistry', () => {
     it('execute: solo delete removes the rows (discover empty, slug free)', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
-      await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', isAdmin: true }]);
+      await seed(r, ['d6.app.dev'], [{ sub: owner, scope: 'd6.app.dev', email: 'solo@x.com', scopeAdmin: true }]);
       const result = await r.executeScopeDeletion('d6.app.dev', owner, ADMIN_OVER('d6'), ACTING(owner, 'd6'));
       expect(result.affected.map((a: any) => a.instanceName)).toEqual(['d6.app.dev']);
       expect(await r.discover('solo@x.com')).toEqual([]);
@@ -313,10 +313,10 @@ describe('NebulaAuthRegistry', () => {
     it('authz: a non-admin / wrong-scope caller is rejected (403); reserved platform cannot be deleted', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
-      await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', isAdmin: true }]);
-      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'd8.*', admin: false })).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'other.*', admin: true })).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('nebula-platform', owner, { authScopePattern: '*', admin: true })).rejects.toThrow(/cannot be deleted/);
+      await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', scopeAdmin: true }]);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'd8.*', scopeAdmin: false })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'other.*', scopeAdmin: true })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('nebula-platform', owner, { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/cannot be deleted/);
     });
 
     // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
@@ -326,15 +326,15 @@ describe('NebulaAuthRegistry', () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d9', 'd9.app.dev'], [
-        { sub: owner, scope: 'd9.app.dev', email: 'o@x.com', isAdmin: true },
+        { sub: owner, scope: 'd9.app.dev', email: 'o@x.com', scopeAdmin: true },
       ]);
-      const plan = await r.planScopeDeletion('d9.app.dev', owner, { authScopePattern: 'd9.app.dev', admin: true });
+      const plan = await r.planScopeDeletion('d9.app.dev', owner, { authScopePattern: 'd9.app.dev', scopeAdmin: true });
       expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 
     it('fail-closed (M2): a callerSub with no identity is refused (403), never "no other users → wipe"', async () => {
       const r = freshRegistry();
-      await seed(r, ['d10.app.dev'], [{ sub: crypto.randomUUID(), scope: 'd10.app.dev', email: 'o@x.com', isAdmin: true }]);
+      await seed(r, ['d10.app.dev'], [{ sub: crypto.randomUUID(), scope: 'd10.app.dev', email: 'o@x.com', scopeAdmin: true }]);
       await expect(
         r.planScopeDeletion('d10.app.dev', 'ghost-sub', ADMIN_OVER('d10')),
       ).rejects.toThrow(/not found|forbidden/i);

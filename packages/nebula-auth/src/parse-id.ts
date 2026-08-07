@@ -157,7 +157,7 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
  * **The single admin-authority predicate**: is this access claim admin *over `scope`*?
  *
  * `admin` alone is never authority — it is only authority over what the claim's
- * `authScopePattern` actually covers. Every guard that consults `access.admin` must ask this
+ * `authScopePattern` actually covers. Every guard that consults `access.scopeAdmin` must ask this
  * question about the node it is running in, or an admin of a child scope acts as admin on its
  * ancestors (the tenant branch of `enforceScopeReach` admits exactly those callers).
  *
@@ -170,6 +170,6 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
  * One predicate, one place to audit (ADR-007) — do not re-inline this comparison anywhere.
  */
 export function hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
-  if (!access?.admin || !access.authScopePattern) return false;
+  if (!access?.scopeAdmin || !access.authScopePattern) return false;
   return matchAccess(access.authScopePattern, scope);
 }

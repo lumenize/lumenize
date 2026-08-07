@@ -45,7 +45,7 @@ class SubscriberProbe extends LumenizeClient {
 
 /** A connected mesh client (probe or writer) with a fully-controlled Nebula JWT. */
 async function meshClient(opts: {
-  profileId?: string; isAdmin?: boolean; instanceName?: string; activeScope?: string;
+  profileId?: string; scopeAdmin?: boolean; instanceName?: string; activeScope?: string;
 }): Promise<SubscriberProbe> {
   const activeScope = opts.activeScope ?? 'acme.app.tenant';
   const browser = new Browser();
@@ -56,7 +56,7 @@ async function meshClient(opts: {
     refresh: createNebulaTestToken({
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope, instanceName: opts.instanceName ?? activeScope,
-      isAdmin: opts.isAdmin ?? false, profileId: opts.profileId, sub: uuid(),
+      scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId, sub: uuid(),
     }),
     fetch: browser.fetch, WebSocket: browser.WebSocket,
     sessionStorage: ctx.sessionStorage, BroadcastChannel: ctx.BroadcastChannel,
@@ -73,7 +73,7 @@ async function meshClient(opts: {
 async function nebulaClient(opts: { activeScope: string }): Promise<NebulaClientTest> {
   const { access_token, sub } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
-    activeScope: opts.activeScope, instanceName: opts.activeScope, isAdmin: false, ttlSeconds: 3600,
+    activeScope: opts.activeScope, instanceName: opts.activeScope, scopeAdmin: false, ttlSeconds: 3600,
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
@@ -200,7 +200,7 @@ describe('Profile DO — Phase 3 (subscribe + fence + fanout)', () => {
     const pid = uuid();
     const yScope = 'universe-y.app.tenant';
     // One client is BOTH the profile owner AND a STAR admin in scope Y; the subscriber X is cross-scope.
-    const owner = await meshClient({ profileId: pid, isAdmin: true, activeScope: yScope, instanceName: yScope });
+    const owner = await meshClient({ profileId: pid, scopeAdmin: true, activeScope: yScope, instanceName: yScope });
     const x = await meshClient({ activeScope: 'universe-x.app.tenant' });
 
     await subscribe(x, pid);

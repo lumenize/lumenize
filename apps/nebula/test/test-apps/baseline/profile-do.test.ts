@@ -33,7 +33,7 @@ function uuid(): string { return crypto.randomUUID(); }
 
 /** A connected mesh client carrying a fully-controlled Nebula JWT (rung-3 mint). */
 async function makeClient(opts: {
-  profileId?: string; isAdmin?: boolean; instanceName?: string; activeScope?: string;
+  profileId?: string; scopeAdmin?: boolean; instanceName?: string; activeScope?: string;
 }): Promise<MeshProbe> {
   const activeScope = opts.activeScope ?? 'acme.app.tenant';
   const browser = new Browser();
@@ -45,7 +45,7 @@ async function makeClient(opts: {
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope,
       instanceName: opts.instanceName ?? activeScope, // drives access.authScopePattern
-      isAdmin: opts.isAdmin ?? false,
+      scopeAdmin: opts.scopeAdmin ?? false,
       profileId: opts.profileId,
       sub: uuid(),
     }),
@@ -84,7 +84,7 @@ async function seedIdentity(profileId: string, scope: string, accepted = true): 
       emailId, `${crypto.randomUUID()}@x.com`, profileId, '2026-01-01T00:00:00.000Z',
     );
     c.storage.sql.exec(
-      `INSERT OR REPLACE INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt)
+      `INSERT OR REPLACE INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt)
        VALUES (?,?,?,0,?,?)`,
       crypto.randomUUID(), emailId, scope,
       accepted ? '2026-01-01T00:00:00.000Z' : null, '2026-01-01T00:00:00.000Z',
@@ -110,7 +110,7 @@ describe('Profile DO — Phase 2', () => {
   it('public read is OPEN — a cross-scope non-admin caller reads, firing ZERO registry reads (#3)', async () => {
     const pid = uuid();
     await seedIdentity(pid, 'other-universe.app.tenant');            // the profile lives in a DIFFERENT scope
-    using caller = await makeClient({ activeScope: 'acme.app.tenant', isAdmin: false }); // cross-scope, non-admin, non-owner
+    using caller = await makeClient({ activeScope: 'acme.app.tenant', scopeAdmin: false }); // cross-scope, non-admin, non-owner
     const snap = await read(caller, pid);
     expect(snap.value).toEqual({});                                 // unwritten → empty public value
     expect(snap.meta.eTag).toBeTruthy();
@@ -124,7 +124,7 @@ describe('Profile DO — Phase 2', () => {
     await write(owner, pid, { name: 'Ada', nickname: 'ada', picture: 'https://x/a.png' });
     await writeNotes(owner, pid, SENTINEL);                         // seed a NON-empty privateNotes sentinel
 
-    using reader = await makeClient({ activeScope: 'other.app.tenant', isAdmin: false });
+    using reader = await makeClient({ activeScope: 'other.app.tenant', scopeAdmin: false });
     const snap = await read(reader, pid);
     expect(snap.value).toEqual({ name: 'Ada', nickname: 'ada', picture: 'https://x/a.png' });
     expect((snap.value as Record<string, unknown>).privateNotes).toBeUndefined();
@@ -141,14 +141,14 @@ describe('Profile DO — Phase 2', () => {
 
     it('SUPER-ADMIN (pattern *) writes pass with ZERO reads — though NOT the owner', async () => {
       const pid = uuid();
-      using su = await makeClient({ instanceName: 'nebula-platform', activeScope: 'nebula-platform', isAdmin: true, profileId: uuid() });
+      using su = await makeClient({ instanceName: 'nebula-platform', activeScope: 'nebula-platform', scopeAdmin: true, profileId: uuid() });
       await expect(write(su, pid, { name: 'X' })).resolves.toBeUndefined();
       expect(registryReads()).toBe(0);
     });
 
     it('NON-admin NON-owner is rejected with ZERO reads', async () => {
       const pid = uuid();
-      using stranger = await makeClient({ isAdmin: false, profileId: uuid() });
+      using stranger = await makeClient({ scopeAdmin: false, profileId: uuid() });
       await expect(write(stranger, pid, { name: 'X' })).rejects.toThrow(/owner or admin/i);
       expect(registryReads()).toBe(0);
     });
@@ -156,7 +156,7 @@ describe('Profile DO — Phase 2', () => {
     it('SCOPED-admin covering the profile scope passes — with EXACTLY ONE read (positive control)', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant');
-      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() }); // pattern acme.*
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', scopeAdmin: true, profileId: uuid() }); // pattern acme.*
       await expect(write(admin, pid, { name: 'X' })).resolves.toBeUndefined();
       expect(registryReads()).toBe(1);                              // proves the counter is genuinely wired (not vacuous)
     });
@@ -179,14 +179,14 @@ describe('Profile DO — Phase 2', () => {
     it('SCOPED-admin over a scope the profile ACCEPTED is permitted', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant');                   // accepted
-      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', scopeAdmin: true, profileId: uuid() });
       await expect(write(admin, pid, { name: 'X' })).resolves.toBeUndefined();
     });
 
     it('SCOPED-admin over a scope the profile NEVER ACCEPTED is refused — the manufactured shape', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant', /* accepted */ false);
-      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
+      using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', scopeAdmin: true, profileId: uuid() });
       // Reds if `getScopesForProfile` drops its acceptance predicate — or swaps it for the address's
       // `emailVerified`, which is 1 here and would hand the attacker the scope.
       await expect(write(admin, pid, { name: 'X' })).rejects.toThrow();
@@ -196,7 +196,7 @@ describe('Profile DO — Phase 2', () => {
     it('SCOPED-admin covering NONE of the profile scopes is rejected (cross-Galaxy admin) — one read, then deny', async () => {
       const pid = uuid();
       await seedIdentity(pid, 'acme.app.tenant');
-      using admin = await makeClient({ instanceName: 'other-universe', activeScope: 'other-universe', isAdmin: true, profileId: uuid() });
+      using admin = await makeClient({ instanceName: 'other-universe', activeScope: 'other-universe', scopeAdmin: true, profileId: uuid() });
       await expect(write(admin, pid, { name: 'X' })).rejects.toThrow(/does not cover/i);
       expect(registryReads()).toBe(1);
     });
@@ -210,7 +210,7 @@ describe('Profile DO — Phase 2', () => {
       await writeNotes(owner, pid, SENTINEL);
       await expect(readNotes(owner, pid)).resolves.toBe(SENTINEL);          // owner reads it
 
-      using stranger = await makeClient({ isAdmin: false, profileId: uuid() });
+      using stranger = await makeClient({ scopeAdmin: false, profileId: uuid() });
       await expect(read(stranger, pid)).resolves.toBeDefined();             // CAN read public fields (open)...
       await expect(readNotes(stranger, pid)).rejects.toThrow(/owner or admin/i); // ...but NOT the blob
     });
@@ -218,7 +218,7 @@ describe('Profile DO — Phase 2', () => {
 
   it('fail-closed: a scoped-admin whose registry read THROWS is DENIED, never allowed (#8)', async () => {
     // ProfileTest.lookupProfileScopes throws for FAIL_CLOSED_PROFILE_ID → #requireOwnerOrAdmin must catch + deny.
-    using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', isAdmin: true, profileId: uuid() });
+    using admin = await makeClient({ instanceName: 'acme', activeScope: 'acme', scopeAdmin: true, profileId: uuid() });
     await expect(write(admin, FAIL_CLOSED_PROFILE_ID, { name: 'X' })).rejects.toThrow(/authz check failed/i);
   });
 
@@ -255,7 +255,7 @@ describe('Profile DO — Phase 2', () => {
     // equality DOES match, and `!claims.act` is the only thing standing between it and ownership.
     expect(impersonating.claims.profileId).toBe(pid);
     expect(impersonating.claims.act?.sub).toBeDefined();
-    expect(impersonating.claims.access.admin).toBeUndefined(); // non-admin subject → branch (2) rejects
+    expect(impersonating.claims.access.scopeAdmin).toBeUndefined(); // non-admin subject → branch (2) rejects
 
     // Mutation: drop `!claims.act` from the owner branch → both of these succeed → this reds.
     await expect(write(impersonating, pid, { name: 'X' })).rejects.toThrow(/owner or admin/i);

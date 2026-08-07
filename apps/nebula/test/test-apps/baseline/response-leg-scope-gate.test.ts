@@ -76,7 +76,7 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
 
     // ── admin reach: a platform-admin origin reaches any node, even with a foreign aud → ADMIT ──
     { label: 'admin reach: platform admin admitted despite a foreign aud', outcome: 'admit',
-      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { admin: true, authScopePattern: '*' } }) },
+      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { scopeAdmin: true, authScopePattern: '*' } }) },
   ];
 
   for (const c of cases) {

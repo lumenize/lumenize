@@ -256,7 +256,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     expect((await waitForSuccess(admin) as TransactionResult).ok).toBe(true);
 
     // The non-admin read is now DENIED — grant wiped + permission cache rebuilt.
-    // Reader must be non-admin: requirePermission short-circuits on access.admin before
+    // Reader must be non-admin: requirePermission short-circuits on access.scopeAdmin before
     // consulting the grant, so an admin reader would green vacuously.
     user.callStarRead(dev, 'v1', rid);
     await waitForResult(user);
@@ -271,7 +271,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client, payload } = await devAdminClient(galaxy, dev);
     await applyOntology(client, dev, 'v1', TODO_V1);
 
-    // This client is a UNIVERSE admin: its `authScopePattern` COVERS this `.dev` Star but is
+    // This client is a UNIVERSE scopeAdmin: its `authScopePattern` COVERS this `.dev` Star but is
     // not EQUAL to it. Warm the Star so `onBeforeCall`'s seed gate runs.
     client.callStarWhoAmI(dev);
     await waitForSuccess(client);

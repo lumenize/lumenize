@@ -108,7 +108,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const { parsed } = await refreshAndParse(SELF, star, refreshToken);
         expect(parsed.access.authScopePattern).toBe(star);
         expect(parsed.access.authScopePattern).not.toContain('*');
-        expect(parsed.access.admin).toBe(true);
+        expect(parsed.access.scopeAdmin).toBe(true);
       });
 
       it('a phantom parent galaxy is rejected BEFORE any write', async () => {
@@ -122,7 +122,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         expect(resp.status).toBe(400);
         expect((await resp.json() as any).error).toBe('parent_not_found');
         // Reds if the claimUniverse-shaped body (which has no parent check) is copied: without it an
-        // unauthenticated caller writes an isAdmin identity under a galaxy that never existed.
+        // unauthenticated caller writes an scopeAdmin identity under a galaxy that never existed.
         expect(await rowsFor(star)).toEqual({ scopes: 0, links: 0 });
       });
 
@@ -196,7 +196,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         const stub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
         const readIdentity = async (email: string) => (runInDurableObject as any)(stub, (_i: any, ctx: any) =>
           [...ctx.storage.sql.exec(
-            `SELECT m.sub AS sub, e.profileId AS profileId, m.isAdmin AS isAdmin, m.acceptedAt AS acceptedAt
+            `SELECT m.sub AS sub, e.profileId AS profileId, m.scopeAdmin AS scopeAdmin, m.acceptedAt AS acceptedAt
              FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
              WHERE e.email = ? AND m.universeGalaxyStarId = ?`,
             email, star,
@@ -206,7 +206,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         await claimStar(SELF, star, starAdmin);
         expect(await readIdentity(starAdmin)).toEqual(before);
 
-        // A PENDING INVITEE at the same scope is (isAdmin 0, never taken up) — exactly what a looser
+        // A PENDING INVITEE at the same scope is (scopeAdmin 0, never taken up) — exactly what a looser
         // predicate would match. Resuming one must not promote it to star admin through an
         // unauthenticated endpoint, and must send it nothing.
         const invitee = 'invitee@example.com';
@@ -217,14 +217,14 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
             inviteeEmailId, invitee, crypto.randomUUID(), '2026-01-01T00:00:00.000Z',
           );
           ctx.storage.sql.exec(
-            'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES (?,?,?,0,NULL,?)',
+            'INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES (?,?,?,0,NULL,?)',
             crypto.randomUUID(), inviteeEmailId, star, '2026-01-01T00:00:00.000Z',
           );
         });
         const linksBefore = (await rowsFor(star)).links;
         const resp = await claimStar(SELF, star, invitee);
         expect(resp.status).toBe(409);
-        expect((await readIdentity(invitee)).isAdmin).toBe(0);
+        expect((await readIdentity(invitee)).scopeAdmin).toBe(0);
         expect((await rowsFor(star)).links).toBe(linksBefore); // no link row → nothing was sent
       });
 
@@ -457,25 +457,25 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     }
 
     it('missing aud → 401', async () => {
-      expect((await post(await signRaw({ access: { authScopePattern: 'some-instance.*', admin: true } }))).status).toBe(401);
+      expect((await post(await signRaw({ access: { authScopePattern: 'some-instance.*', scopeAdmin: true } }))).status).toBe(401);
     });
     it('wrong issuer → 401', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: 'wrong-issuer', aud: 'some-instance', sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
+      const token = await signJwt({ iss: 'wrong-issuer', aud: 'some-instance', sub: crypto.randomUUID(), exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', scopeAdmin: true } } as any, privateKey, 'BLUE');
       expect((await post(token)).status).toBe(401);
     });
     it('missing sub → 401', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
-      const token = await signJwt({ iss: NEBULA_AUTH_ISSUER, aud: 'some-instance', exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', admin: true } } as any, privateKey, 'BLUE');
+      const token = await signJwt({ iss: NEBULA_AUTH_ISSUER, aud: 'some-instance', exp: now + 900, iat: now, jti: crypto.randomUUID(), access: { authScopePattern: 'some-instance.*', scopeAdmin: true } } as any, privateKey, 'BLUE');
       expect((await post(token)).status).toBe(401);
     });
     it('missing access → 401', async () => {
       expect((await post(await signRaw({ aud: 'some-instance' }))).status).toBe(401);
     });
     it('aud not covered by authScopePattern → 403 (target-instance not in wrong-universe.*)', async () => {
-      const token = await signRaw({ aud: 'wrong-universe', access: { authScopePattern: 'wrong-universe.*', admin: true } });
+      const token = await signRaw({ aud: 'wrong-universe', access: { authScopePattern: 'wrong-universe.*', scopeAdmin: true } });
       const resp = await SELF.fetch(new Request(workerUrl('target-instance/invite'), {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
       }));
@@ -486,7 +486,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
 
   describe('Registry JWT validation (create-galaxy)', () => {
     it('missing audience on create-galaxy → 401', async () => {
-      const token = await signRaw({ access: { authScopePattern: 'some-universe.*', admin: true } });
+      const token = await signRaw({ access: { authScopePattern: 'some-universe.*', scopeAdmin: true } });
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

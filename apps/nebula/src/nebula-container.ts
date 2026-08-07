@@ -24,7 +24,7 @@ import { enforceScopeReach, requireAdmin } from './nebula-do';
  * `onBeforeCall()` enforces the SAME structural scope reach as NebulaDO, via the
  * SAME shared {@link enforceScopeReach} helper (composed, not reimplemented —
  * ADR-007's "one place to audit"): a mesh call is accepted iff the caller is an
- * `access.admin` whose authority covers this node's **instance name**, OR its JWT
+ * `access.scopeAdmin` whose authority covers this node's **instance name**, OR its JWT
  * `aud` is covered by the scope encoded in that name. A DevContainer is always
  * addressed by its `parseId`-valid tenant-scoped name `{u}.{g}.dev` (a star-tier
  * id), never a 64-hex DO id, so the derived scope equals the address the caller

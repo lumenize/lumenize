@@ -58,7 +58,7 @@ const AUTHENTICATED_SUFFIXES = new Set(['invite', 'mint-narrower-token']);
 // `checkRateLimit` keys on the verified `payload.sub`, so it never runs on a path with no JWT. The
 // gate lives here and not in the registry method, so a method copied from an already-listed sibling
 // arrives UNGATED and nothing reds — for `claim-star` that would mean an open mutation endpoint that
-// mints `isAdmin` identities and sends mail. (Turnstile bounds scripted abuse — mass squatting, mail
+// mints `scopeAdmin` identities and sends mail. (Turnstile bounds scripted abuse — mass squatting, mail
 // amplification — it is not an approval step.)
 const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star', 'discover']);
 

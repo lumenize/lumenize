@@ -95,7 +95,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     await commit(a, star, { [c1]: { op: 'create', typeName: 'Child', nodeId: priv, value: { parent: P, label: 'c1' } } });
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 
-    // A second admin (access.admin, NO DAG grant) subscribes → sees the private child via the
+    // A second admin (access.scopeAdmin, NO DAG grant) subscribes → sees the private child via the
     // stored accessAdmin bypass; its row carries accessAdmin = 1.
     // ⚠️ PLATFORM bootstrap admin (`*`), not a second universe admin: one admin per universe
     // (`claim-universe` is the sole admin-minting path, slug unique), so the old
@@ -108,7 +108,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     uni.callStarSubscribeQuery(star, query);
     await nextPush(uni, 0);
 
-    // A NON-admin user (a demoted admin's token looks exactly like this: access.admin
+    // A NON-admin user (a demoted admin's token looks exactly like this: access.scopeAdmin
     // false, no DAG grant) subscribes the SAME query → its row stores accessAdmin = 0
     // → DENIED. Mutation: registerQuerySubscriber hardcodes accessAdmin = 1 (keeps the
     // stale bypass) → this non-admin would WRONGLY see c1 → red.

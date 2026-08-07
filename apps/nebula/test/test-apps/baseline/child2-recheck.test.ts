@@ -8,7 +8,7 @@
  * Two pinned behaviors:
  *   1. A subscriber whose read grant is REVOKED stops receiving content pushes but
  *      its sub row REMAINS (no drop — ADR-008 / D5).
- *   2. A `claims.access.admin` subscriber with NO DAG grant still receives pushes
+ *   2. A `claims.access.scopeAdmin` subscriber with NO DAG grant still receives pushes
  *      (the stored-accessAdmin bypass — D16).
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -114,7 +114,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     anchor[Symbol.dispose]();
   });
 
-  it('a claims.access.admin subscriber with NO DAG grant still receives pushes (D16)', async () => {
+  it('a claims.access.scopeAdmin subscriber with NO DAG grant still receives pushes (D16)', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
     // Star-admin connects FIRST → becomes the root admin (the sole ROOT admin grant).
@@ -126,12 +126,12 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const created = await waitForSuccess(admin) as { ok: true; eTags: Record<string, string> };
     const eTag = created.eTags[rid];
 
-    // A second admin connects after the root-admin latch is set → access.admin: true but NO DAG
+    // A second admin connects after the root-admin latch is set → access.scopeAdmin: true but NO DAG
     // grant of its own. Its Subscribers row stores accessAdmin = 1.
     // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
     // admin can exist per universe (`claim-universe` is the sole admin-minting path and the
     // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
-    // bootstrap email is the one production path to a second `access.admin` here, and it reaches
+    // bootstrap email is the one production path to a second `access.scopeAdmin` here, and it reaches
     // this Star because `*` covers every scope.
     const { client: uni, payload: uniPayload } = await createPlatformAdminClient(
       NebulaClientTest, new Browser(), star);
@@ -142,7 +142,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     //       `starAdmin(star)` ran first and set the `__nebula_rootAdminSeeded` latch. If this
     //       identity ever acquired a root grant, the test would stay green while the bypass it
     //       exists to prove went untested.
-    expect(uniPayload.access?.admin).toBe(true);
+    expect(uniPayload.access?.scopeAdmin).toBe(true);
     expect(uniPayload.access?.authScopePattern).toBe('*');
     admin.callStarGetEffectivePermission(star, ROOT_NODE_ID, uniPayload.sub);
     expect(await waitForSuccess(admin)).toBeNull(); // no DAG grant of its own

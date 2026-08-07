@@ -25,13 +25,13 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
     // Reds if the getter honors only index 0, or does a raw String.includes on the joined value
     // ('…, Second-Bootstrap@Example.com' does NOT contain 'second-bootstrap@example.com').
     expect(parsed.access.authScopePattern).toBe('*');
-    expect(parsed.access.admin).toBe(true);
+    expect(parsed.access.scopeAdmin).toBe(true);
   });
 
   it('the FIRST listed bootstrap email → a `*` platform admin', async () => {
     const { parsed } = await platformLogin(SELF, 'bootstrap-admin@example.com');
     expect(parsed.access.authScopePattern).toBe('*');
-    expect(parsed.access.admin).toBe(true);
+    expect(parsed.access.scopeAdmin).toBe(true);
   });
 
   it('a NON-listed email at nebula-platform is NOT minted → login rejected (control: bootstrap ≠ open)', async () => {

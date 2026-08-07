@@ -83,7 +83,7 @@ export class Star extends NebulaDO {
       () => this.#onDagChanged(),
       // Host name as a THUNK, never a captured value — this runs inside `onStart()`, where
       // `this.lmz.instanceName` is not yet stamped, and `resetDevData` re-runs `onStart()` after a
-      // `deleteAll()` that wipes the identity key. It is the scope the `access.admin` bypass is
+      // `deleteAll()` that wipes the identity key. It is the scope the `access.scopeAdmin` bypass is
       // confined to at both confinement points (requirePermission + the subscribe-time writers).
       () => this.lmz.instanceName,
     )
@@ -105,13 +105,13 @@ export class Star extends NebulaDO {
    * first **star-scoped admin** to touch this Star.
    *
    * Two distinct things, in two planes, easily conflated: a *star-scoped admin* is a registry
-   * `Memberships` row (`isAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
+   * `Memberships` row (`scopeAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
    * the *DataPlane root admin* is this DAG grant. This method is the bridge between them, and it runs
    * exactly once — later root admins are added by an ordinary `setPermission`, which is why this one
    * is the **initial** one and not the only possible one.
    *
    * The grant's job is to give the request-access climb a findable terminus *inside the tree*: a
-   * scope-admin holding only the `claims.access.admin` bypass is **not** in the permissions map, so
+   * scope-admin holding only the `claims.access.scopeAdmin` bypass is **not** in the permissions map, so
    * the climb cannot discover them. `setPermission` satisfies its own `admin` gate via that same
    * bypass (dag-tree.ts `requirePermission`), so no un-guarded path is needed.
    *
@@ -141,7 +141,7 @@ export class Star extends NebulaDO {
     // Exact equality, NOT `hasAdminOverScope` — see the EXACT-star note above. This is the one site
     // where the transient scope-admin bypass becomes a DURABLE DAG grant.
     const access = claims?.access
-    if (access?.admin !== true || access.authScopePattern !== this.lmz.instanceName) return
+    if (access?.scopeAdmin !== true || access.authScopePattern !== this.lmz.instanceName) return
     this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }

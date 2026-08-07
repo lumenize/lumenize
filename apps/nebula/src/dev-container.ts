@@ -15,7 +15,7 @@
  *  - **`:9000` command-server** — host-DO-only, reached exclusively by this DO's
  *    internal `containerFetch`. The command `@mesh` methods carry
  *    `@mesh(requireAdmin)` (NebulaContainer.onBeforeCall proves tenant *scope* but
- *    never `access.admin`, and `<id>.*` widening admits descendant non-admins).
+ *    never `access.scopeAdmin`, and `<id>.*` widening admits descendant non-admins).
  *
  * DevStudio invokes the command methods via one-way `lmz.call()` continuations (the
  * continuation-only mesh model, ADR-003 — never raw Workers RPC, never an awaited

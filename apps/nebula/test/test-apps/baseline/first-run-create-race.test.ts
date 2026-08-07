@@ -12,7 +12,7 @@
  * proceed; still absent ⇒ real failure.
  *
  * The clients authenticate as a NON-scope-admin member granted `write` on ROOT, so
- * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.admin`
+ * create-under-ROOT is authorized by the DAG grant alone — a `claims.access.scopeAdmin`
  * user would pass even if the grant were absent/broken (the seeded-root-admin intent).
  *
  * Capable-of-failing: the contended run asserts the loser came back NOT `committed`
@@ -54,8 +54,8 @@ async function setupGrantedMember(star: string) {
   const probe = await createInvitedClient(NebulaClientTest, new Browser(), star, star, 'member@example.com');
   const sub = probe.payload.sub;
   // Guard: the member must NOT be a scope-admin — otherwise create-under-ROOT could
-  // pass via the claims.access.admin bypass and mask a missing/broken DAG grant.
-  expect((probe.payload as { access?: { admin?: boolean } }).access?.admin).toBeFalsy();
+  // pass via the claims.access.scopeAdmin bypass and mask a missing/broken DAG grant.
+  expect((probe.payload as { access?: { scopeAdmin?: boolean } }).access?.scopeAdmin).toBeFalsy();
   probe.client[Symbol.dispose]();
 
   admin.client.callStarSetPermission(star, ROOT_NODE_ID, sub, 'write');

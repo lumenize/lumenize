@@ -40,7 +40,7 @@ async function adminAndMember(memberEmail = 'member@example.com') {
     NebulaClientTest, new Browser(), star, star, memberEmail,
   );
   // Fixture guard: the subject really is a non-admin, which is what makes the mint authority-reducing.
-  expect(member.access.admin).toBeUndefined();
+  expect(member.access.scopeAdmin).toBeUndefined();
   return { universe, star, browser, admin, adminToken, adminPayload, member };
 }
 
@@ -57,7 +57,7 @@ describe('impersonate() — identity', () => {
     expect(child.claims.profileId).toBe(member.profileId);
     expect(child.claims.act?.sub).toBe(adminPayload.sub);
     // Authority-REDUCING: the child carries the subject's (absent) admin bit, not the caller's.
-    expect(child.claims.access.admin).toBeUndefined();
+    expect(child.claims.access.scopeAdmin).toBeUndefined();
 
     // ⚠️ `ready` is asserted by the UNGUARDED dereferences above, not by a separate null check: a
     // `expect(child.claims).not.toBeNull()` here could never red on its own, since `child.claims.sub`

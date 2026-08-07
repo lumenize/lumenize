@@ -118,8 +118,10 @@ export interface ParsedId {
 export interface AccessEntry {
   /** Auth scope pattern — universeGalaxyStarId or wildcard (e.g. "george-solopreneur.*") */
   authScopePattern: string;
-  /** true = admin of this scope; omitted when false (keeps JWT compact) */
-  admin?: boolean;
+  /** true = admin of this scope; omitted when false (keeps JWT compact).
+   *  ⚠️ NOT the Data-plane `admin` grant — that is a permission on an orgTree node, a different
+   *  tree entirely. The `scope` qualifier exists because conflating the two has caused a bug. */
+  scopeAdmin?: boolean;
 }
 
 /**
@@ -189,7 +191,7 @@ export interface Membership {
   /** FK → `Emails.emailId`. Never the address itself: an address changes, this does not. */
   emailId: string;
   universeGalaxyStarId: string;
-  isAdmin: boolean;
+  scopeAdmin: boolean;
   /** When THIS membership was taken up, or absent if never. Distinct from `emailVerified`, which is a
    *  property of the address — an invitation that was never accepted has no value here, and that is
    *  what the Profile's scoped-admin authz check keys on (ADR-012). */
@@ -209,7 +211,7 @@ export interface RefreshTokenIndex {
 export interface RefreshTokenKV {
   sub: string;
   universeGalaxyStarId: string;
-  isAdmin: boolean;
+  scopeAdmin: boolean;
   expiresAt: string;
   /** The bearer's `profileId` — carried so the pure-KV refresh mint can emit the `profileId` JWT claim
    *  without a registry read. Written by all three record writers (record/converge/self-heal);
@@ -237,7 +239,7 @@ export interface InviteToken {
  *  unauthenticated/unthrottled, so it must never leak the surrogate identity key. */
 export interface DiscoveryEntry {
   universeGalaxyStarId: string;
-  isAdmin: boolean;
+  scopeAdmin: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +262,7 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  * `dev` is reserved by structure, not by policy: `nebula-client` hardcodes `${galaxy}.dev` as the
  * user-developer's authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and
  * `#parseScope`'s `isDev` flags the same thing. Without the reject a stranger founds the
- * user-developer's OWN Studio workspace as `isAdmin: true` — their Studio then 409s forever, and the
+ * user-developer's OWN Studio workspace as `scopeAdmin: true` — their Studio then 409s forever, and the
  * squatter's exact-star admin clears `resetDevData`'s `requireAdmin`, i.e. they can wipe it.
  *
  * Reserved **per galaxy**, not globally: uniqueness is on the full `{u}.{g}.{s}`, so every galaxy has

@@ -269,7 +269,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // exception exists to defeat.
     if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
     // (2) Not an admin → reject. NO read.
-    if (!claims?.access?.admin) throw new Error('Forbidden: profile write requires owner or admin');
+    if (!claims?.access?.scopeAdmin) throw new Error('Forbidden: profile write requires owner or admin');
     // (3) Super-admin (pattern '*') covers every scope → pass. NO read.
     if (claims.access.authScopePattern === '*') return;
 

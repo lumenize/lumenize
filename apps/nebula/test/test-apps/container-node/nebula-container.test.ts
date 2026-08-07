@@ -33,7 +33,7 @@ const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
  */
 function onBeforeCallAs(
   instanceName: string | undefined,
-  claims?: { aud?: string; access?: { authScopePattern?: string; admin?: boolean } },
+  claims?: { aud?: string; access?: { authScopePattern?: string; scopeAdmin?: boolean } },
 ): void {
   const fakeThis = {
     lmz: { instanceName, callContext: { originAuth: claims ? { sub: 'sys', claims } : undefined } },
@@ -54,7 +54,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
   it('admits a `{u}.*` admin reaching a descendant {u}.{g}.dev container (no aud narrowing)', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
-      aud: universe, access: { authScopePattern: `${universe}.*`, admin: true },
+      aud: universe, access: { authScopePattern: `${universe}.*`, scopeAdmin: true },
     })).not.toThrow();
   });
 
@@ -91,9 +91,9 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     expect(() => onBeforeCallAs(undefined, { aud: uniqueDevScope() })).toThrow('missing callee instance name');
   });
 
-  // B1: a covering NON-admin does NOT get reach — the gate is access.admin, not pattern-coverage.
-  // Mutation: drop `access?.admin &&` in enforceScopeReach → this would ADMIT → not.toThrow → RED.
-  it('B1: a covering NON-admin (no access.admin) does NOT reach the descendant container', () => {
+  // B1: a covering NON-admin does NOT get reach — the gate is access.scopeAdmin, not pattern-coverage.
+  // Mutation: drop `access?.scopeAdmin &&` in enforceScopeReach → this would ADMIT → not.toThrow → RED.
+  it('B1: a covering NON-admin (no access.scopeAdmin) does NOT reach the descendant container', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
       aud: universe, access: { authScopePattern: `${universe}.*` /* no admin */ },

@@ -5,7 +5,7 @@
  * Capable-of-failing (asserts, does not print): post a `Session` + `Message` carrying a known
  * marker into claude@'s fresh sandbox in ONE atomic transaction, then **read AND subscribe it
  * back** and assert the marker is present. Then the NEGATIVE CONTROL — a base-shape token (flat
- * `isAdmin`, no `access`) and a nebula-shaped-but-no-`access` token are both REJECTED at the
+ * `scopeAdmin`, no `access`) and a nebula-shaped-but-no-`access` token are both REJECTED at the
  * gateway for the same read — proving the admin-promotion token is the *right* shape, not
  * merely that "something read".
  *

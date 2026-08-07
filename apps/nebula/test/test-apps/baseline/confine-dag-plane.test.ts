@@ -65,8 +65,8 @@ async function onNonLeafHost<T>(
 }
 
 // The two principals the whole task turns on. Both are `admin: true`.
-const COVERING = (g: string) => ({ admin: true, authScopePattern: `${g}.*` });   // reaches this host
-const DESCENDANT = (g: string) => ({ admin: true, authScopePattern: `${g}.dev` }); // exact-star, does NOT
+const COVERING = (g: string) => ({ scopeAdmin: true, authScopePattern: `${g}.*` });   // reaches this host
+const DESCENDANT = (g: string) => ({ scopeAdmin: true, authScopePattern: `${g}.dev` }); // exact-star, does NOT
 
 describe('Phase 2 — the DAG permission plane is confined to its host', () => {
   describe('confinement point 1: requirePermission (live claim)', () => {
@@ -74,7 +74,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
       const g = uniqueGalaxy();
       await onNonLeafHost(g, ({ tree, as }) => {
         as('descendant-admin', DESCENDANT(g));
-        // Pre-fix the bare `access.admin` bit short-circuited before any DAG lookup and this
+        // Pre-fix the bare `access.scopeAdmin` bit short-circuited before any DAG lookup and this
         // returned the sub. `{g}.dev` does not cover `{g}`, so the bypass must not apply.
         expect(() => tree.requirePermission(ROOT_NODE_ID, 'admin')).toThrow();
       });

@@ -31,7 +31,7 @@ const SUBSCRIBERS_MARKER_KEY = '__sql_migrations_Subscribers';
  *   id-1 — the FROZEN baseline (matches what already exists in prod, created by the
  *          pre-migration `CREATE IF NOT EXISTS`; so it no-ops on existing Stars and
  *          creates the table on a fresh one);
- *   id-2 — add `accessAdmin` (D16 — the `access.admin` claim for the per-push recheck).
+ *   id-2 — add `accessAdmin` (D16 — the `access.scopeAdmin` claim for the per-push recheck).
  */
 const SUBSCRIBERS_MIGRATIONS: SQLSchemaMigration[] = [
   {
@@ -58,7 +58,7 @@ export interface SubscriberRow {
   clientId: string;
   sub: string;
   /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
-   *  <host instance name>)`, NOT the raw `claims.access.admin` bit. The Galaxy/Universe scope-admin
+   *  <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit. The Galaxy/Universe scope-admin
    *  bypass replicated for the per-push recheck (D16); NOT a Star DAG `admin` grant (that resolves
    *  through `resolvePermission` normally).
    *
@@ -181,7 +181,7 @@ export class Subscriptions {
     // requirePermission bypass for a Galaxy/Universe scope-admin who holds no DAG grant — we don't
     // have the subscriber's live JWT at push time (D16).
     //
-    // ⚠️ `hasAdminOverScope(...)`, NOT `claims?.access?.admin`. This is confinement point 2: the
+    // ⚠️ `hasAdminOverScope(...)`, NOT `claims?.access?.scopeAdmin`. This is confinement point 2: the
     // push path never re-reads the JWT, so confining only the live claim (requirePermission) would
     // leave this back door open — a descendant-scope admin would keep an unconfined bypass for the
     // life of the subscription. Confining at STORE time is the only option: at push time we hold

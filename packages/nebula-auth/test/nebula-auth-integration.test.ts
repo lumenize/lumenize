@@ -80,7 +80,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const u = uni();
       const admin = await browserFoundUniverse(browser, u, 'admin@example.com');
       expect(admin.access.authScopePattern).toBe(`${u}.*`);
-      expect(admin.access.admin).toBe(true);
+      expect(admin.access.scopeAdmin).toBe(true);
       const adminToken = await currentToken(browser, u);
 
       // Cross-scope invite into a star under the universe (admin's `{u}.*` reaches it).
@@ -105,7 +105,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const memberToken = (await memberRefresh.json() as { access_token: string }).access_token;
       const memberPayload = parseJwtUnsafe(memberToken)!.payload as unknown as NebulaJwtPayload;
       expect(memberPayload.access.authScopePattern).toBe(star);
-      expect(memberPayload.access.admin).toBeUndefined();
+      expect(memberPayload.access.scopeAdmin).toBeUndefined();
 
       // Upward-denied: the member's descendant-scoped token cannot act at the UNIVERSE scope.
       const upward = await memberBrowser.fetch(authUrl(`${u}/invite`), {
@@ -125,7 +125,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const email = 'self-signup@example.com';
       const payload = await browserFoundUniverse(browser, slug, email);
 
-      expect(payload.access.admin).toBe(true);
+      expect(payload.access.scopeAdmin).toBe(true);
       expect(payload.access.authScopePattern).toBe(`${slug}.*`);
       expect(payload.sub).toBeDefined();
       expect((payload as any).email).toBeUndefined();          // email is NOT a claim
@@ -135,8 +135,8 @@ describe('@lumenize/nebula-auth — Integration', () => {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
-      const entries = await discover.json() as Array<{ universeGalaxyStarId: string; isAdmin: boolean }>;
-      expect(entries).toEqual([{ universeGalaxyStarId: slug, isAdmin: true }]);
+      const entries = await discover.json() as Array<{ universeGalaxyStarId: string; scopeAdmin: boolean }>;
+      expect(entries).toEqual([{ universeGalaxyStarId: slug, scopeAdmin: true }]);
       expect(entries[0]).not.toHaveProperty('sub');
 
       // Duplicate claim rejected.

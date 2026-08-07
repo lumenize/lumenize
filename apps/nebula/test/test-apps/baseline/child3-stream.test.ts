@@ -93,7 +93,7 @@ describe('child3 Phase 3 — transient progress stream + durable Message (M1/M3)
     using sa = admin.resources.subscribeQuery(sessionQuery); await sa.ready;
     using sd = denied.resources.subscribeQuery(sessionQuery); await sd.ready;
 
-    // Stream to SESSION_NODE_ID: admin (access.admin bypass) is a target; denied is not.
+    // Stream to SESSION_NODE_ID: admin (access.scopeAdmin bypass) is a target; denied is not.
     admin.callDevStudioStreamChunk(scope, DEFAULT_SESSION_ID, messageId, 'thinking…', SESSION_NODE_ID);
     await vi.waitFor(() => expect(admin.streamChunkCount).toBeGreaterThanOrEqual(1));
 

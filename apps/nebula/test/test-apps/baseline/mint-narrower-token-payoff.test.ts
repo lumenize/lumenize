@@ -54,7 +54,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     const { client: memberClient, payload: member } = await createInvitedClient(
       NebulaClientTest, new Browser(), star, star, 'member@example.com',
     );
-    expect(member.access.admin).toBeUndefined(); // fixture guard: the subject really is non-admin
+    expect(member.access.scopeAdmin).toBeUndefined(); // fixture guard: the subject really is non-admin
 
     // The mint, through the production endpoint — via the production client capability.
     using impersonating = await admin.impersonate(member.sub, star);
@@ -63,7 +63,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     expect(impersonating.claims.act?.sub).toBe(adminPayload.sub);
     // The mirror: the subject is non-admin, so the token carries NO admin bit. This is the operand
     // the assertion below actually turns on.
-    expect(impersonating.claims.access.admin).toBeUndefined();
+    expect(impersonating.claims.access.scopeAdmin).toBeUndefined();
 
     // ── The verdict ──────────────────────────────────────────────────────────────────────────────
     const denied = await impersonating.lmz.callAsync('STAR', star,

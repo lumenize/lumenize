@@ -15,7 +15,7 @@
  *   - `registerQuerySubscriber` **always succeeds** — no permission check at
  *     registration (authorize at delivery, D2/D4);
  *   - `sub` + `accessAdmin` are derived from `getCallContext().originAuth` INSIDE
- *     the registry (the `sub` and `claims.access.admin`), never params (D13/D16).
+ *     the registry (the `sub` and `claims.access.scopeAdmin`), never params (D13/D16).
  */
 
 import type { CallContext } from '@lumenize/mesh';
@@ -39,7 +39,7 @@ export interface QuerySubscriberRow {
    *  stored NULL, and read back as `null`/`undefined`. */
   profileId?: string;
   /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
-   *  <host instance name>)`, NOT the raw `claims.access.admin` bit. D16, same as Subscribers
+   *  <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit. D16, same as Subscribers
    *  (see `SubscriberRow.accessAdmin` for the full rationale: confinement point 2, and why the
    *  historical column name is kept). */
   accessAdmin: number;

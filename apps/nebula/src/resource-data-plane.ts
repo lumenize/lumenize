@@ -107,7 +107,7 @@ export class ResourceDataPlane {
 
   /**
    * @param getHostName - The host DO's own instance name, as a **thunk**. Required: it is the scope
-   *   the `access.admin` bypass is confined to (`hasAdminOverScope`), at both confinement points —
+   *   the `access.scopeAdmin` bypass is confined to (`hasAdminOverScope`), at both confinement points —
    *   `DagTree.requirePermission` (live claim) and the two subscribe-time writers (stored verdict).
    *   ⚠️ **Must be lazy.** `ResourceDataPlane` is constructed in the host's `onStart()`, where
    *   `this.lmz.instanceName` is not yet stamped; `Star.resetDevData` also re-runs `onStart()` after
@@ -152,7 +152,7 @@ export class ResourceDataPlane {
    * a host can push a **transient** signal to a query's audience WITHOUT a Resource
    * write (Child 3 option (b): DevStudio's assistant progress/thought stream fans to
    * the session query's subscribers, then commits ONE durable Message). The capability
-   * owns targeting + the `access.admin`-aware read recheck (never re-implemented
+   * owns targeting + the `access.scopeAdmin`-aware read recheck (never re-implemented
    * host-side, D3/D16); the host owns delivery via its own `this.svc.broadcast`.
    *
    * Per-CONNECTION (one entry per subscribed tab, no dedup by `sub`) — every open tab
@@ -542,7 +542,7 @@ export class ResourceDataPlane {
    * subscribing is SKIPPED for this push — never dropped (ADR-008 / D5; readable
    * state returns via the Flow-3 permission rerun when access does). The recheck
    * is an explicit-sub `evaluatePermissions` honoring the row's stored
-   * `accessAdmin` (the `access.admin` bypass, D16), NOT the live caller's
+   * `accessAdmin` (the `access.scopeAdmin` bypass, D16), NOT the live caller's
    * `requirePermission`. Closing it in the capability protects Star AND DevStudio.
    */
   #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {

@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS Memberships (
   sub                  TEXT PRIMARY KEY,
   emailId              TEXT NOT NULL,
   universeGalaxyStarId TEXT NOT NULL,
-  isAdmin              INTEGER NOT NULL DEFAULT 0 CHECK (isAdmin IN (0, 1)),
+  scopeAdmin           INTEGER NOT NULL DEFAULT 0 CHECK (scopeAdmin IN (0, 1)),
   acceptedAt           TEXT,
   createdAt            TEXT NOT NULL,
   UNIQUE (emailId, universeGalaxyStarId)
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS Memberships (
 `;
 
 /** Live refresh-token index → reliable invalidation. The single-writer looks tokens up by `tokenHash`
- *  (logout) and enumerates by `sub` (isAdmin-convergence / revocation), so PK `tokenHash` + a secondary
+ *  (logout) and enumerates by `sub` (scopeAdmin-convergence / revocation), so PK `tokenHash` + a secondary
  *  index on `sub`. `expiresAt` is the token's absolute expiry, re-applied to the KV record on a
  *  convergence re-put (CF KV drops expirationTtl across a put).
  *

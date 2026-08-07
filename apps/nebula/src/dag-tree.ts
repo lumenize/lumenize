@@ -36,7 +36,7 @@ export class DagTree {
   /**
    * @param getHostName - The host DO's instance name as a **thunk** (never a captured value — the
    *   host builds this in `onStart()`, before its identity is stamped). It is the scope the
-   *   `access.admin` bypass is confined to in {@link requirePermission}.
+   *   `access.scopeAdmin` bypass is confined to in {@link requirePermission}.
    */
   constructor(
     ctx: DurableObjectState,
@@ -172,10 +172,10 @@ export class DagTree {
     // Scope-admin bypass — a Galaxy/Universe admin holds no DAG grant, so without this they could
     // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
     //
-    // ⚠️ Confined to THIS host (`hasAdminOverScope`), never the bare `access.admin` bit. The bit
+    // ⚠️ Confined to THIS host (`hasAdminOverScope`), never the bare `access.scopeAdmin` bit. The bit
     // alone is not authority: `enforceScopeReach`'s tenant branch deliberately admits a caller
     // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
-    // on its ancestors. The prior comment here justified the bare bit with "`access.admin` is only
+    // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` inside the admin's authScopePattern" — true, but it establishes
     // aud ⊆ pattern, NOT this-host ⊆ pattern, which is the question actually being asked.
     // (It held only because every DagTree host is a star-tier leaf — an incidental property the

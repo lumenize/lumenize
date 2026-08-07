@@ -265,7 +265,7 @@ export async function connectDriver(
      */
     mint?: {
       reason: string;
-      isAdmin?: boolean;
+      scopeAdmin?: boolean;
       /**
        * The token ISSUER's DO instance (drives `authScopePattern`) — distinct from the client's own
        * gateway instanceName. Default `scope` (admin of its own scope); `'nebula-platform'` mints
@@ -290,7 +290,7 @@ export async function connectDriver(
       activeKey: stack.activeKey,
       activeScope: scope,
       instanceName: opts.mint?.issuerInstanceName ?? scope,
-      isAdmin: opts.mint?.isAdmin ?? true,
+      scopeAdmin: opts.mint?.scopeAdmin ?? true,
       ttlSeconds: 3600,
     })());
   } else {
@@ -352,9 +352,9 @@ export async function connectDriver(
 
 /**
  * Mint a DELIBERATELY-DEGRADED token for the negative control.
- * - `'base'`  → the base mesh/auth shape (`createTestRefreshFunction`-equivalent): flat `isAdmin`,
+ * - `'base'`  → the base mesh/auth shape (`createTestRefreshFunction`-equivalent): flat `scopeAdmin`,
  *   NO `access` claim, base issuer. This is the exact "wrong shape for Nebula" the task names.
- *   ⚠️ The `isAdmin`/`emailVerified`/`adminApproved` flags are passed as `customClaims` but land
+ *   ⚠️ The `scopeAdmin`/`emailVerified`/`adminApproved` flags are passed as `customClaims` but land
  *   FLAT on the token — `createJwtPayload` spreads the bag — so this really is the flat base shape,
  *   not a nested one. That flatness is the point of the control; a nested bag would degrade the
  *   token for a second, uninteresting reason and stop isolating the missing `access` claim.
@@ -377,7 +377,7 @@ export async function mintDegradedToken(
       audience: opts.scope,
       subject: sub,
       expiresInSeconds: 900,
-      customClaims: { emailVerified: true, adminApproved: true, isAdmin: true },
+      customClaims: { emailVerified: true, adminApproved: true, scopeAdmin: true },
     });
     return signJwt(payload as any, privateKey, stack.activeKey);
   }

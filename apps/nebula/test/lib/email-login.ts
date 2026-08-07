@@ -175,7 +175,7 @@ export async function requestMagicLink(options: {
 }
 
 /**
- * POST `claim-star` — the open Star self-signup. Mints an `isAdmin` star-scoped admin AT the star scope and
+ * POST `claim-star` — the open Star self-signup. Mints an `scopeAdmin` star-scoped admin AT the star scope and
  * issues its claim link in one call, so unlike `create-star` there IS an identity to log in as
  * afterwards. Returns the link in test mode, `undefined` in email mode, or `null` on 409 (already
  * claimed — fall through to an ordinary login for the existing identity).
@@ -358,7 +358,7 @@ export async function refreshAccessToken(
  * from a login path"*), so a magic link for a scope with no identity is issued, emailed,
  * and then rejected on consumption — `302 /app?error=invalid_token`, no cookie. The one
  * open, admin-minting entry point today is `claim-universe`, which mints the universe admin
- * with `isAdmin: true` before sending the link.
+ * with `scopeAdmin: true` before sending the link.
  *
  * So: claim the **universe**, log in there for real, then create the galaxy/star beneath
  * it with that admin's token. The returned token's universe-admin reach covers every
@@ -367,7 +367,7 @@ export async function refreshAccessToken(
  *
  * ⚠️ Logging in *directly* at a fresh star is a different thing, and `create-star` cannot get you
  * there — it writes a `Scopes` row with no admin identity, so there is no identity to log in as. The path
- * that can is the open `claim-star` self-signup, which mints an `isAdmin` star-scoped admin at the star scope
+ * that can is the open `claim-star` self-signup, which mints an `scopeAdmin` star-scoped admin at the star scope
  * and emails it a claim link (`tasks/archive/nebula-star-founder-provisioning.md`). Re-ground this helper
  * onto it rather than climbing from the universe (that task's Phase 4).
  *

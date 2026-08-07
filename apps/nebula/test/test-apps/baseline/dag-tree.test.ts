@@ -935,7 +935,7 @@ describe('dag-tree', () => {
   // ─── Authorization Enforcement ────────────────────────────────────
 
   describe('authorization enforcement', () => {
-    it('scope admin (claims.access.admin) bypasses DAG checks', async () => {
+    it('scope admin (claims.access.scopeAdmin) bypasses DAG checks', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
@@ -1218,7 +1218,7 @@ describe('dag-tree', () => {
       const star = uniqueStar();
       const { client: admin } = await adminClient(star);
 
-      // Scope admin creates structure (no DAG grants needed — the claims.access.admin bypass)
+      // Scope admin creates structure (no DAG grants needed — the claims.access.scopeAdmin bypass)
       admin.callStarCreateNode(star, ROOT_NODE_ID, 'org', 'Organization');
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       const orgId = admin.lastResult as string;
@@ -1271,7 +1271,7 @@ describe('dag-tree', () => {
   describe('universe admin (wildcard JWT) has full DAG access', () => {
     // ⚠️ ONE admin per universe — `claim-universe` is the only admin-minting path and the slug is
     // unique, so the old fixture's separate `star-admin@` + `universe-admin@` identities are
-    // unmintable (an invite mints `isAdmin: false`, so there is no "star-level admin" tier either).
+    // unmintable (an invite mints `scopeAdmin: false`, so there is no "star-level admin" tier either).
     // Both clients are therefore the same admin; the property under test is unchanged and is now
     // exercised more precisely, because the second client holds aud = the UNIVERSE while acting on a
     // STAR DO — admission via the *reach* branch (pattern covers the callee), which is what

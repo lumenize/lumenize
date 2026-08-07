@@ -1,7 +1,7 @@
 /**
  * Invite flow — through the Worker over the registry (the dissolved-DO model,
  * tasks/nebula-auth-surrogate-sub.md). Issuance MINTS the invitee identity (an authority point,
- * `isAdmin=0`); accept find-and-flips it; the invite token is single-use.
+ * `scopeAdmin=0`); accept find-and-flips it; the invite token is single-use.
  */
 import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
@@ -31,7 +31,7 @@ describe('Invite Flow', () => {
       expect(accept.headers.get('Set-Cookie')).toContain('refresh-token=');
 
       const disc = await getRegistry().discover('newuser@example.com');
-      expect(disc).toEqual([{ universeGalaxyStarId: scope, isAdmin: false }]);
+      expect(disc).toEqual([{ universeGalaxyStarId: scope, scopeAdmin: false }]);
     });
 
     it('re-inviting the same email is idempotent — ONE identity, not a duplicate', async () => {

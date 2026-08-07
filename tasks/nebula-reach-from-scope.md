@@ -14,7 +14,7 @@
 
 - **A derived second string.** `buildAuthScopePattern(instanceName)` turns a member's scope into a pattern at **token** issuance — login and every refresh — and the result goes in the JWT as `access.authScopePattern`. Star tier passes through unchanged; universe and galaxy get `.*` appended; the reserved `nebula-platform` becomes `*`.
 - **A glob matcher.** `matchAccess(pattern, target)` has three branches: `*` matches everything, `prefix.*` matches the prefix itself and anything beneath, otherwise exact string equality.
-- **The authority predicate.** `hasAdminOverScope(access, scope)` = `access.admin && matchAccess(access.authScopePattern, scope)`, delegated to by `requireAdmin`, `requirePermission`'s bypass, and `enforceScopeReach`.
+- **The authority predicate.** `hasAdminOverScope(access, scope)` = `access.scopeAdmin && matchAccess(access.authScopePattern, scope)`, delegated to by `requireAdmin`, `requirePermission`'s bypass, and `enforceScopeReach`.
 - **Two directions, expressed identically.** `enforceScopeReach` admits on either (a) *higher-admin reach* — `admin` plus the caller's pattern covers this node — or (c/e) *the tenant boundary* — a pattern built from **this node's own name** covers the caller's `aud`. The second is a child reaching its parent, and it confers no authority (ADR-015 clause 3).
 
 **Missing:**
@@ -30,7 +30,7 @@
 Two rules, one predicate, and the **direction is the meaning**:
 
 ```
-authority at this node  =  admin  ∧  isAtOrAbove(my scope, this node)   — downward
+authority at this node  =  scopeAdmin  ∧  isAtOrAbove(my scope, this node)   — downward
 admission at this node  =            isAtOrAbove(this node, my scope)   — upward, no authority
 ```
 
@@ -38,11 +38,15 @@ admission at this node  =            isAtOrAbove(this node, my scope)   — upwa
 
 ⚠️ **The rename drops `Pattern` and nothing else, deliberately.** What changed is that the value stopped being a pattern; it did not stop being an auth scope. `authScopePattern → scope` would overstate the change and collide with `aud`, which is also a scope — and it would force every reader of `docs/vision/auth.md`, which calls it `authScope` throughout, to hold a translation.
 
-**The sibling field is renamed in the same pass: `isAdmin` → `admin`, at rest and in flight.** Today the same bit is spelled `Memberships.isAdmin` and `RefreshTokenKV.isAdmin` in storage but `access.admin` on the token, so every reader holds a second translation on top of the first. Afterwards there is one spelling everywhere, and whether a sentence means the stored column or the claim stops mattering.
+✅ **DONE 2026-08-07, ahead of the rest of this file: `isAdmin` → `scopeAdmin`, at rest and in flight.** Type-check green; 66 files. ⚠️ `packages/auth` and `packages/mesh` keep their own `isAdmin` — a *different* bit (auth's `Subjects` column, and a flat top-level claim mesh mints for auth's gate), and a repo-wide replace would have broken both, the mesh one silently. The rest of this file is unaffected; the original rationale follows. Today the same bit is spelled `Memberships.isAdmin` and `RefreshTokenKV.isAdmin` in storage but `access.admin` on the token, so every reader holds a second translation on top of the first. Afterwards there is one spelling everywhere, and whether a sentence means the stored column or the claim stops mattering.
 
-⚠️ **`admin` is the right name, not merely the shorter one.** The repo's own precedent in this very table set is prefix-free — `Emails.emailVerified`, `Memberships.acceptedAt` — so `isAdmin` was already the outlier. And this completes a convergence rather than starting one: `profileId` is already a single name at rest and on the wire, `authScope` becomes one above, and `admin` makes three for three.
+⚠️ **`scopeAdmin`, not `admin` — the qualifier is the whole point (decided with Larry 2026-08-07).** The word `admin` is doing two unrelated jobs: this bit, which is authority over a **scope** (Universe/Galaxy/Star), and the Data-plane's `admin` **grant on an orgTree node**. They live on different trees and mixing them has already produced a coding mistake. `docs/vision/auth.md` pays for the collision five times over — a blockquote whose only job is *"Not the same `admin`"*, a paragraph opening *"the word is doing two jobs"*, and prose forced to write "Registry admin" at every mention. Per `calibration.md` § *Name for the reader*, needing to explain a name once **is** the evidence to rename it, and a glossary entry is the tell.
 
-✅ **Free now, expensive later, for the same reason as everything else in this file** — nothing about the bit's *value* changes, only its spelling, and the wipe clears both the table and every KV refresh record. Nothing needs migrating.
+⚠️ **Rename THIS side, never the Data-plane's.** That permission is one of a symmetric triple (`CHECK(permission IN ('admin', 'write', 'read'))`), so renaming it drags `resourceWrite` and `resourceRead` along for no gain. This bit is a lone field.
+
+✅ **`scope` is a qualifier, not a prefix, so the prefix-free precedent stands.** `isAdmin` was the outlier because `is` is a type marker carrying no meaning, unlike `Emails.emailVerified` / `Memberships.acceptedAt`; `scope` names which tree the authority is over, which is the disambiguation being bought. The convergence argument is untouched — `scopeAdmin` is still one spelling at rest and in flight, alongside `profileId` and `authScope`. ⚠️ **`registryAdmin` was considered and rejected**: it names where the bit is *stored* rather than what it is authority *over*, and it is actively wrong, since this bit reaches into the Data-plane through the bypass.
+
+✅ **Free now, expensive later, for the same reason as everything else in this file** — nothing about the bit's *value* changes, only its spelling, and the wipe clears both the table and every KV refresh record. Nothing needs migrating. The target changed before the sweep ran, so this costs one string, not a second pass.
 
 ### The conjunction survives — state this or the change becomes a vulnerability
 
@@ -84,7 +88,7 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 | **Non-admin downward reach is dropped** | Keeping it — it has no consumer, and it is exactly the tenant-Star admission the collaborator design was about to accept as a residual. |
 | **Platform is a named special case** | A wildcard that covers it incidentally — the reserved name is not a hierarchical scope, and saying so once is clearer than a grammar that hides it. |
 | **The claim is renamed off `authScopePattern`** | Keeping the name — it asserts a pattern that no longer exists, and a name that has to be explained is the rename signal (calibration §5). |
-| **`isAdmin` → `admin` in the same pass**, so the bit has one spelling at rest and in flight | Keeping `isAdmin` in storage while the token says `admin` — one concept, two spellings, and a translation every reader carries. Also rejected: renaming the token's `access.admin` to `isAdmin` instead, which would fight the repo's own prefix-free precedent (`emailVerified`, `acceptedAt`) and break the convergence `profileId` and `authScope` already have. |
+| **`isAdmin` → `scopeAdmin` in the same pass**, so the bit has one spelling at rest and in flight | Keeping `isAdmin` in storage while the token says `admin` — one concept, two spellings, and a translation every reader carries. Also rejected: renaming the token's `access.admin` to `isAdmin` instead, which would fight the repo's own prefix-free precedent (`emailVerified`, `acceptedAt`) and break the convergence `profileId` and `authScope` already have. |
 | **Land it before identity-mint's review** | After the collapse — every week adds surface describing the old model, and the collapse adds more. Five files already describe it. |
 
 ## Acceptance criteria — input to Pass 2, not yet decomposed into phases
@@ -98,7 +102,7 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 - **Enumeration is unchanged for an admin.** `myScopeTree` returns the same set before and after, for the same identity. *Reds against a bound that narrows the query.*
 - 🌐 **The same, driven as a `/live` scenario.** Real logins at two tiers, real sockets: a universe admin acts in a Star beneath, and a star-scoped member is refused at the Galaxy. ⚠️ **Fidelity, not capability** — pool-workers can assert the predicate, but only a real login proves the claim the *server actually minted* carries what the predicate expects, which is the half a hand-built token cannot check.
 - **No `authScopePattern` survives.** `grep -rn 'authScopePattern' packages apps` returns nothing outside archived task files. Eyeball the remainder.
-- **No `isAdmin` survives either.** `grep -rn 'isAdmin' packages apps` returns nothing outside archived task files — the column, the KV record field, every parameter and every return shape now spell it `admin`. ⚠️ **Eyeball this one carefully:** the same grep also finds the data-plane's `'admin'` permission tier, which is a different concept that keeps its name. A hit is only wrong if it is the Registry bit.
+- **No `isAdmin` survives either.** `grep -rn 'isAdmin' packages/nebula-auth apps/nebula` returns nothing outside archived task files — the column, the KV record field, every parameter and every return shape now spell it `admin`. ⚠️ **Eyeball this one carefully:** the same grep also finds the data-plane's `'admin'` permission tier, which is a different concept that keeps its name. A hit is only wrong if it is the Registry bit.
 - **No standing-guidance statement describes the pattern model.** ADR-015's mechanism, `security.md`'s mint-side invariants, `workflow.md`'s ADR-015 one-liner, and `docs/vision/auth.md` § *Reach*. ⚠️ State it structurally: *no rule or ADR describes reach as a derived pattern*, not a list of files, which goes stale as the diff grows.
 
 ## Non-goals
@@ -120,7 +124,7 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 
 2. ✅ **DECIDED 2026-08-07 (Larry) — the upward rule reads `authScope`, and `activeScope` leaves the security model entirely.** `docs/vision/auth.md` § *Coarse-grained access control* now describes this, so the two arms below are settled; what remains open is the verification in the final bullet, which MUST run before the phases are written.
 
-   The rule becomes: **the node is your own scope or an ancestor of it** (free), or **the node is a descendant of your scope and `admin` is set** (the only way down). `activeScope` is not consulted. The reasoning that produced it:
+   The rule becomes: **the node is your own scope or an ancestor of it** (free), or **the node is a descendant of your scope and `scopeAdmin` is set** (the only way down). `activeScope` is not consulted. The reasoning that produced it:
 
    `activeScope` is not independent: the refresh mint validates it against the session's server-trusted scope (`worker-token.ts` — `matchAccess(buildAuthScopePattern(record.universeGalaxyStarId), body.activeScope)`), so its legal range is fully determined by `authScope`. A security decision made on it is therefore a decision made on an **intermediate value** derived from `authScope`.
 

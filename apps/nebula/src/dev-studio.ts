@@ -8,7 +8,7 @@
  *
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (the
  * `{u}.{g}.dev` scope guard); every method carries `@mesh(requireAdmin)` on top
- * (onBeforeCall proves *scope*, never `access.admin`, and `<id>.*` widening admits
+ * (onBeforeCall proves *scope*, never `access.scopeAdmin`, and `<id>.*` widening admits
  * descendant non-admins). Node↔node calls are mesh only (one-way `lmz.call()`
  * continuations, ADR-003 — never raw Workers RPC, never an awaited result).
  *
@@ -187,7 +187,7 @@ export class DevStudio extends NebulaDO {
       },
       () => { /* no org-tree subscribe channel on DevStudio */ },
       // Host name as a THUNK — `this.lmz.instanceName` is not stamped yet inside `onStart()`.
-      // It is the scope the `access.admin` bypass is confined to at both confinement points.
+      // It is the scope the `access.scopeAdmin` bypass is confined to at both confinement points.
       () => this.lmz.instanceName,
     );
   }
@@ -543,7 +543,7 @@ export class DevStudio extends NebulaDO {
    * under {@link SESSION_NODE_ID} (D-session / Child 3 Phase 1). Called at the start of
    * {@link chat} (an authed admin context, so the create's `write` check passes via the scope-admin
    * bypass — ✅ **confined**: `requirePermission` grants it only to an admin whose
-   * `authScopePattern` covers THIS DevStudio host, not to any bearer of the bare `access.admin`
+   * `authScopePattern` covers THIS DevStudio host, not to any bearer of the bare `access.scopeAdmin`
    * bit; see tasks/nebula-confine-admin-bypass.md) and exposed as an admin-gated entry so a client
    * can guarantee the session exists before subscribing `Message where session == DEFAULT_SESSION_ID`.
    * A second call is a no-op (the capability's create-if-absent). `@mesh(requireAdmin)`

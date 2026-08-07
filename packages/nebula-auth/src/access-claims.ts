@@ -34,8 +34,8 @@ export interface NebulaAccessClaimInput {
   instanceName: string;
   /** JWT `aud` — the active scope this token is bound to. MUST be covered by the pattern. */
   activeScope: string;
-  /** `access.admin` is set only when true (kept omitted otherwise to keep the JWT compact). */
-  isAdmin: boolean;
+  /** `access.scopeAdmin` is set only when true (kept omitted otherwise to keep the JWT compact). */
+  scopeAdmin: boolean;
   /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. Omitted when
    *  absent (a pre-rollout KV record mints gracefully without it). tasks/nebula-profile-store.md. */
   profileId?: string;
@@ -63,7 +63,7 @@ export interface NebulaAccessClaimInput {
 
 /**
  * Build the scoped `access` entry: the tier-aware auth-scope pattern for `instanceName`,
- * plus `admin: true` iff `isAdmin`.
+ * plus `admin: true` iff `scopeAdmin`.
  *
  * `authScopePatternOverride` bounds the pattern to something other than the issuing instance's
  * (the `/mint-narrower-token` scope-bounded mint passes the requested `activeScope`); default derives
@@ -83,12 +83,12 @@ export interface NebulaAccessClaimInput {
  */
 export function buildNebulaAccessEntry(
   instanceName: string,
-  isAdmin: boolean,
+  scopeAdmin: boolean,
   authScopePatternOverride?: string,
 ): AccessEntry {
   const authScopePattern = authScopePatternOverride ?? buildAuthScopePattern(instanceName);
   const access: AccessEntry = { authScopePattern };
-  if (isAdmin) access.admin = true;
+  if (scopeAdmin) access.scopeAdmin = true;
   return access;
 }
 
@@ -131,7 +131,7 @@ export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord 
 }
 
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
-  const access = buildNebulaAccessEntry(input.instanceName, input.isAdmin, input.authScopePattern);
+  const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin, input.authScopePattern);
   if (!matchAccess(access.authScopePattern, input.activeScope)) {
     throw new Error(
       `Requested scope "${input.activeScope}" not covered by access pattern "${access.authScopePattern}"`,

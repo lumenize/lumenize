@@ -31,7 +31,7 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * Orthogonal to onBeforeCall's tenant boundary: onBeforeCall decides *which tenant* may call
  * (admission), `requireAdmin` decides *whether the caller holds admin authority here*.
  *
- * ⚠️ **The bare `access.admin` bit is NOT authority** — it is authority only over what the
+ * ⚠️ **The bare `access.scopeAdmin` bit is NOT authority** — it is authority only over what the
  * caller's `authScopePattern` covers. `enforceScopeReach`'s tenant branch deliberately admits a
  * caller whose `aud` sits *below* this node (a member of a child may reach its parent), so a bare
  * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
@@ -57,7 +57,7 @@ export function requireAdmin(instance: HasCallContext) {
   if (!name) {
     throw new Error('Admin check failed: missing callee instance name');
   }
-  if (!claims?.access?.admin) {
+  if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin access required');
   }
   if (!hasAdminOverScope(claims.access, name)) {
@@ -79,13 +79,13 @@ export function requireAdmin(instance: HasCallContext) {
  * DO/Container harness.
  *
  * Accepts a mesh call iff EITHER:
- * - **higher-admin reach** — the caller is an `access.admin` whose
+ * - **higher-admin reach** — the caller is an `access.scopeAdmin` whose
  *   `authScopePattern` covers this node's instance name (one admin identity
  *   reaches everything in its authority, no per-target `aud` re-mint); OR
  * - **tenant boundary** — the call's active scope (`aud`) is covered by the scope
  *   encoded in the instance name (the original check; all a non-admin ever uses).
  *
- * The reach clause is **gated on `access.admin`**: pattern-coverage alone is not
+ * The reach clause is **gated on `access.scopeAdmin`**: pattern-coverage alone is not
  * authority, so a non-admin with a wildcard pattern keeps today's aud-narrowed
  * behavior exactly (a descendant it doesn't actively scope to is rejected).
  *
@@ -118,7 +118,7 @@ export function enforceScopeReach(
   // fail closed rather than swallow. Before the reach clause for the same reason.
   const pattern = buildAuthScopePattern(name);
 
-  // Higher-admin reach (gated on access.admin — pattern-coverage is NOT authority).
+  // Higher-admin reach (gated on access.scopeAdmin — pattern-coverage is NOT authority).
   // Delegates to the ONE shared predicate (ADR-007); its body is exactly the inline form this
   // previously hand-rolled, truthiness guard included.
   if (hasAdminOverScope(claims?.access, name)) {
@@ -140,7 +140,7 @@ export function enforceScopeReach(
  *
  * onBeforeCall() enforces **structural** scope reach via the shared
  * {@link enforceScopeReach} helper (composed, not reimplemented — ADR-007). A
- * mesh call is accepted iff the caller is an `access.admin` whose authority
+ * mesh call is accepted iff the caller is an `access.scopeAdmin` whose authority
  * covers this DO's **instance name** (higher-admin reach), OR its JWT `aud`
  * (active scope) is covered by the scope encoded in that name (the tenant
  * boundary; the non-admin path). The name is run through `buildAuthScopePattern`

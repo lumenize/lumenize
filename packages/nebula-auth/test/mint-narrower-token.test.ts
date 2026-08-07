@@ -57,7 +57,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
   // Was: "admin bit = CALLER". Inverted deliberately — the caller's bit is what made the token act
   // with admin-derived authority the subject may not have, so `dag-tree.ts`'s scope-admin bypass fired
   // and the denial an admin came to observe never happened.
-  // Mutation: revert `isAdmin` to `payload.access.admin === true` → this reds.
+  // Mutation: revert `scopeAdmin` to `payload.access.scopeAdmin === true` → this reds.
   it('an admin mints for a member — sub=subject, act.sub=caller, admin bit MIRRORS the subject (P1)', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
@@ -70,19 +70,19 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
     expect(parsed.sub).toBe(user.parsed.sub);       // the subject
     expect(parsed.act.sub).toBe(admin.parsed.sub);  // the real actor
-    // `user` is `isAdmin=0`, so the mirror leaves the bit ABSENT (it is omitted, never `false`).
-    expect(parsed.access.admin).toBeUndefined();
+    // `user` is `scopeAdmin=0`, so the mirror leaves the bit ABSENT (it is omitted, never `false`).
+    expect(parsed.access.scopeAdmin).toBeUndefined();
   });
 
   // The P2 twin — the same mirror, with a subject who really IS an admin. Without this, an
-  // implementation that hard-codes `isAdmin: false` would pass the test above.
+  // implementation that hard-codes `scopeAdmin: false` would pass the test above.
   it('...and MIRRORS a TRUE bit for an admin subject — a `claimStar` star-scoped admin (P2)', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const star = `${u}.app.tenant`;
-    // A star-scoped admin is the only real path to a sub-universe `isAdmin=1` identity.
+    // A star-scoped admin is the only real path to a sub-universe `scopeAdmin=1` identity.
     const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
-    expect(starAdmin.parsed.access.admin).toBe(true); // fixture guard — else the assertion below is vacuous
+    expect(starAdmin.parsed.access.scopeAdmin).toBe(true); // fixture guard — else the assertion below is vacuous
 
     const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
       method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
@@ -90,7 +90,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
     expect(parsed.sub).toBe(starAdmin.parsed.sub);
-    expect(parsed.access.admin).toBe(true);
+    expect(parsed.access.scopeAdmin).toBe(true);
     expect(parsed.access.authScopePattern).toBe(star); // exact-star, derived from the requested scope
   });
 
@@ -261,7 +261,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         sub: admin.parsed.sub,
         instanceName: `${u}.gal`,
         activeScope: `${u}.gal`,
-        isAdmin: true,
+        scopeAdmin: true,
       })();
 
       const resp = await adminRequest(SELF, `${u}.gal`, 'mint-narrower-token', narrow.access_token, {
@@ -285,7 +285,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         sub: admin.parsed.sub,
         instanceName: u,
         activeScope: u,
-        isAdmin: true,
+        scopeAdmin: true,
         // → act: { sub: user, profileId } — an already act-bearing token
         actor: { sub: user.parsed.sub, profileId: user.parsed.profileId },
       })();
@@ -298,7 +298,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
 
     // The REAL artifact: re-present a token THIS endpoint minted. Mutation: delete gate 1 → a depth-2
     // chain mints → this reds.
-    // **Principal P2** is load-bearing twice over: a non-admin subject's ABSENT `access.admin` would
+    // **Principal P2** is load-bearing twice over: a non-admin subject's ABSENT `access.scopeAdmin` would
     // let gate 3 mask the deletion (403 either way), and the subject must be a third party to clear
     // the self-narrow rejection.
     it('rejects a token THIS endpoint minted — no chaining off its own output (403)', async () => {
@@ -315,7 +315,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const narrower = (await minted.json() as any).access_token;
       // Fixture guard: the minted token really does carry admin, so gate 3 cannot mask gate 1.
       const parsed = parseJwtUnsafe(narrower)!.payload as any;
-      expect(parsed.access.admin).toBe(true);
+      expect(parsed.access.scopeAdmin).toBe(true);
       expect(parsed.act.sub).toBe(admin.parsed.sub);
 
       const resp = await adminRequest(SELF, star, 'mint-narrower-token', narrower, {
@@ -368,7 +368,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         sub: admin.parsed.sub,
         instanceName: u,
         activeScope: u,
-        isAdmin: true, // ...and deliberately NO `profileId`
+        scopeAdmin: true, // ...and deliberately NO `profileId`
       })();
 
       const resp = await adminRequest(SELF, u, 'mint-narrower-token', noProfile.access_token, {
@@ -433,6 +433,6 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     expect(record.data.actingToken.profileId).toBe(starAdmin.parsed.profileId);
     // (4) The `access` entry — what authority was ASSERTED. Immutable history; never read back as an
     // authz input (that would be ADR-013's stored scope-set). Mutation: drop `access` → reds.
-    expect(record.data.actingToken.access).toEqual({ authScopePattern: star, admin: true });
+    expect(record.data.actingToken.access).toEqual({ authScopePattern: star, scopeAdmin: true });
   });
 });

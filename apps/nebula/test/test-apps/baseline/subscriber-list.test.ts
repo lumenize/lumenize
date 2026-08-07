@@ -38,14 +38,14 @@ const mkQuery = (): QueryDescriptor => ({ queryType: 'parentChild', typeName: 'C
 
 let clients: NebulaClientTest[] = [];
 async function connect(opts: {
-  star: string; sub?: string; profileId?: string; isAdmin?: boolean; tab?: string;
+  star: string; sub?: string; profileId?: string; scopeAdmin?: boolean; tab?: string;
   binding?: 'STAR' | 'DEV_STUDIO';
 }): Promise<NebulaClientTest> {
   const sub = opts.sub ?? uuid();
   const { access_token } = await createNebulaTestToken({
     privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
     activeScope: opts.star, instanceName: opts.star,
-    isAdmin: opts.isAdmin ?? false, profileId: opts.profileId, sub, ttlSeconds: 3600,
+    scopeAdmin: opts.scopeAdmin ?? false, profileId: opts.profileId, sub, ttlSeconds: 3600,
   })();
   const browser = new Browser();
   const ctx = browser.context(ORIGIN);
@@ -63,7 +63,7 @@ async function connect(opts: {
 
 async function admin(star: string): Promise<{ client: NebulaClientTest; sub: string }> {
   const sub = uuid();
-  const client = await connect({ star, sub, isAdmin: true });
+  const client = await connect({ star, sub, scopeAdmin: true });
   client.callStarApplyOntology(star, { version: VERSION, types: TYPES } as OntologyVersionConfig);
   await vi.waitFor(() => expect(client.callCompleted).toBe(true));
   return { client, sub };
@@ -251,7 +251,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
 
     // A brand-new NON-admin watcher with no grants on any node.
     const userSub = uuid();
-    const user = await connect({ star, sub: userSub, isAdmin: false });
+    const user = await connect({ star, sub: userSub, scopeAdmin: false });
     await user.subscribeQuerySubscribers(query).ready;
 
     // An admin data-subscriber joins → the watcher (zero grants) still gets the full roster.

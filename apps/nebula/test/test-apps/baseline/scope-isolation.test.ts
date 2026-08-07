@@ -497,10 +497,10 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
 // Minimal verified claims — enforceScopeReach reads only `aud` + `access`.
 // (verifyNebulaAccessToken upstream guarantees the rest; the gate never sees an
 // unverified token.)
-function claims(opts: { aud?: string; authScopePattern?: string; admin?: boolean }): NebulaJwtPayload {
-  const access: { authScopePattern?: string; admin?: boolean } = {};
+function claims(opts: { aud?: string; authScopePattern?: string; scopeAdmin?: boolean }): NebulaJwtPayload {
+  const access: { authScopePattern?: string; scopeAdmin?: boolean } = {};
   if (opts.authScopePattern !== undefined) access.authScopePattern = opts.authScopePattern;
-  if (opts.admin) access.admin = true;
+  if (opts.scopeAdmin) access.scopeAdmin = true;
   return { aud: opts.aud, access } as unknown as NebulaJwtPayload;
 }
 
@@ -512,27 +512,27 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 
   // ── Higher-admin reach (the new clause) — admit a covering ADMIN ──────────
   it('admits a `*` admin to any tier name (Universe/Galaxy/Star)', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
-    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
-    expect(() => enforceScopeReach('u', claims({ aud: 'u', authScopePattern: '*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
   });
   it('admits a `{u}.*` admin to {u}.{g} and {u}.{g}.{s}', () => {
-    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
-    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
   });
   it('admits a `{u}.{g}.*` admin to {u}.{g}.{s}', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u.g', authScopePattern: 'u.g.*', admin: true }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u.g', authScopePattern: 'u.g.*', scopeAdmin: true }))).not.toThrow();
   });
 
   // ── B1 — the admin GATE: pattern-coverage alone is NOT authority ──────────
-  // Mutation: drop `access?.admin &&` from the reach clause → the reject below
+  // Mutation: drop `access?.scopeAdmin &&` from the reach clause → the reject below
   // becomes an accept → RED. This is the latent-non-admin-wildcard hole guard.
-  it('B1: a covering NON-admin (no access.admin) is rejected reaching a descendant', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*' /* no admin */ })))
+  it('B1: a covering NON-admin (no access.scopeAdmin) is rejected reaching a descendant', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*' /* no scopeAdmin */ })))
       .toThrow('Active-scope mismatch');
   });
-  it('B1 control: the SAME wildcard pattern WITH access.admin reaches it (admin is the gate)', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', admin: true }))).not.toThrow();
+  it('B1 control: the SAME wildcard pattern WITH access.scopeAdmin reaches it (admin is the gate)', () => {
+    expect(() => enforceScopeReach('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
   });
 
   // ── Tenant boundary (the non-admin path, unchanged) ──────────────────────
@@ -543,7 +543,7 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 
   // ── Isolation: admin authority that doesn't cover the target → aud also misses ─
   it('rejects a `{u1}.*` admin reaching {u2} (cross-tenant: pattern miss + aud miss)', () => {
-    expect(() => enforceScopeReach('u2.g.s', claims({ aud: 'u1', authScopePattern: 'u1.*', admin: true })))
+    expect(() => enforceScopeReach('u2.g.s', claims({ aud: 'u1', authScopePattern: 'u1.*', scopeAdmin: true })))
       .toThrow('Active-scope mismatch');
   });
 
@@ -563,7 +563,7 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
       .toThrow(/Invalid slug/);
   });
   it('(c) throws when aud is absent and the reach clause does not fire', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.g.s' /* no aud, no admin */ })))
+    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.g.s' /* no aud, no scopeAdmin */ })))
       .toThrow('Missing active scope');
   });
   it('(e) rejects when aud is not covered by the name and there is no admin-reach', () => {
@@ -576,29 +576,29 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
   // these if the clause were placed first. Mutation: move the reach clause above
   // the platform reject / buildAuthScopePattern → both of these go RED.
   it('M1: a `*` admin still cannot reach the platform name (b before reach)', () => {
-    expect(() => enforceScopeReach('nebula-platform', claims({ aud: 'u', authScopePattern: '*', admin: true })))
+    expect(() => enforceScopeReach('nebula-platform', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true })))
       .toThrow('Active-scope mismatch');
   });
   it('M1: a `*` admin still fails closed on a malformed name (d before reach)', () => {
-    expect(() => enforceScopeReach('a.b.c.d', claims({ aud: 'u', authScopePattern: '*', admin: true })))
+    expect(() => enforceScopeReach('a.b.c.d', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true })))
       .toThrow(/dot-separated segments/);
   });
 
   // ── Pattern-but-no-aud (m2): admitted by the reach clause; unreachable from a
   // verified token (verifyNebulaAccessToken requires aud), documented not gated. ─
   it('m2: an admin+pattern token with no aud is admitted by the reach clause (documented unreachable)', () => {
-    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.*', admin: true /* no aud */ }))).not.toThrow();
+    expect(() => enforceScopeReach('u.g.s', claims({ authScopePattern: 'u.*', scopeAdmin: true /* no aud */ }))).not.toThrow();
   });
 });
 
-// ── The `access.admin` confinement (tasks/nebula-confine-admin-bypass.md Phase 1) ──
+// ── The `access.scopeAdmin` confinement (tasks/nebula-confine-admin-bypass.md Phase 1) ──
 // The escalation this closes, end to end, with a REAL principal:
 //   1. `enforceScopeReach`'s TENANT branch admits a caller whose `aud` sits BELOW this node —
 //      intended (a member of a child may reach its parent).
-//   2. `requireAdmin` used to key on the bare `access.admin` bit with no reference to which node it
+//   2. `requireAdmin` used to key on the bare `access.scopeAdmin` bit with no reference to which node it
 //      was running in → that admitted descendant-scope admin acted as admin on the ANCESTOR.
 //
-// The principal is a **real star-scoped admin** (`claimStar` stamps `isAdmin=1` at the full 3-segment id),
+// The principal is a **real star-scoped admin** (`claimStar` stamps `scopeAdmin=1` at the full 3-segment id),
 // whose exact-star `authScopePattern` is inert at every ancestor (ADR-015): admitted-but-not-admin at
 // the Universe DO, which is the host `driveUniverse` drives. That is exactly the shape the escalation
 // needed — reached by a real login rather than by a mint.
@@ -606,7 +606,7 @@ describe('enforceScopeReach (pure shared guard — admin-gated reach + branch ma
 // ⚠️ This fixture used to narrow a universe admin to `{u}.{g}` through `/mint-narrower-token` passing
 // its OWN `sub`. That is SELF-narrowing, which the endpoint now rejects (400) — and it never needed
 // the endpoint at all: `foundStarAndLogin` yields the same principal via a real path.
-describe('access.admin is confined to the node it covers (Phase 1)', () => {
+describe('access.scopeAdmin is confined to the node it covers (Phase 1)', () => {
   async function starAdminPrincipal() {
     const browser = new Browser();
     const universe = `conf-${crypto.randomUUID().slice(0, 8)}`;
@@ -630,7 +630,7 @@ describe('access.admin is confined to the node it covers (Phase 1)', () => {
     const { universe, star, starAdmin } = await starAdminPrincipal();
     // If any of these drift the escalation tests below stop testing an escalation at all.
     expect(starAdmin.payload.aud).toBe(star);
-    expect(starAdmin.payload.access?.admin).toBe(true);
+    expect(starAdmin.payload.access?.scopeAdmin).toBe(true);
     expect(starAdmin.payload.access?.authScopePattern).toBe(star); // exact star — never `${star}.*`
     // ...and it does NOT cover the Universe DO — the whole point.
     expect(matchAccess(star, universe)).toBe(false);

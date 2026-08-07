@@ -56,7 +56,7 @@ const fire = (
   args: unknown[] = [],
   claims: any = {
     aud: instance,
-    access: { admin: true, authScopePattern: `${instance.split('.')[0]}.*` },
+    access: { scopeAdmin: true, authScopePattern: `${instance.split('.')[0]}.*` },
   },
 ) =>
   binding.getByName(instance).__executeOperation({
@@ -155,7 +155,7 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
   it('operand 2 — rejects an admin whose pattern does NOT cover this node, naming the scope', () => {
     // A star-scoped admin (exact pattern) reaching a SIBLING node: admin bit set, pattern misses.
     // This is the escalation the confinement closes; pre-fix it returned silently.
-    const foreign = { aud: 'u.y.other', access: { admin: true, authScopePattern: 'u.y.other' } };
+    const foreign = { aud: 'u.y.other', access: { scopeAdmin: true, authScopePattern: 'u.y.other' } };
     expect(guard(foreign)).toThrow(`Admin access required for ${NODE}`);
     expect(guard(foreign)).toThrow('your admin scope is u.y.other'); // distinct from operand 1
   });
@@ -163,15 +163,15 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
   it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
     // Permanently undefined on a LumenizeWorker; must never coerce (`?? ''` would deny every
     // scoped admin, `!` would open the hole).
-    const admin = { access: { admin: true, authScopePattern: 'u.*' } };
+    const admin = { access: { scopeAdmin: true, authScopePattern: 'u.*' } };
     expect(guardNoName(admin)).toThrow('missing callee instance name');
   });
 
   it('admits an admin whose pattern covers this node (exact and wildcard)', () => {
-    expect(guard({ access: { admin: true, authScopePattern: 'u.*' } })).not.toThrow();
-    expect(guard({ access: { admin: true, authScopePattern: 'u.y.*' } })).not.toThrow();
-    expect(guard({ access: { admin: true, authScopePattern: NODE } })).not.toThrow();
-    expect(guard({ access: { admin: true, authScopePattern: '*' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScopePattern: 'u.*' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScopePattern: 'u.y.*' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScopePattern: NODE } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScopePattern: '*' } })).not.toThrow();
   });
 
   it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {

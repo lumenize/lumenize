@@ -200,7 +200,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * un-verify an address the person had already proved — the parameter's absence makes that impossible
    * rather than merely discouraged.
    */
-  #mintIdentity(email: string, universeGalaxyStarId: string, isAdmin: boolean): string {
+  #mintIdentity(email: string, universeGalaxyStarId: string, scopeAdmin: boolean): string {
     const lc = normalizeEmail(email);
     const nowIso = new Date().toISOString();
 
@@ -228,19 +228,19 @@ export class NebulaAuthRegistry extends DurableObject {
     // `acceptedAt` stays NULL: minting a membership is not taking it up. That NULL is what the Profile
     // DO's scoped-admin authz check keys on (ADR-012), so it is load-bearing, not bookkeeping.
     this.ctx.storage.sql.exec(
-      `INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt)
+      `INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt)
        VALUES (?, ?, ?, ?, NULL, ?)`,
-      sub, emailId, universeGalaxyStarId, isAdmin ? 1 : 0, nowIso,
+      sub, emailId, universeGalaxyStarId, scopeAdmin ? 1 : 0, nowIso,
     );
     debug('nebula-auth.Registry.identity.minted').info('Membership minted', {
-      sub, emailId, universeGalaxyStarId, email: lc, isAdmin,
+      sub, emailId, universeGalaxyStarId, email: lc, scopeAdmin,
     });
     return sub;
   }
 
   /**
    * Login **verify** — find the membership for `(address, scope)`, record that the mailbox is proved and
-   * the membership taken up, and return `{ sub, universeGalaxyStarId, isAdmin, profileId }`. Returns
+   * the membership taken up, and return `{ sub, universeGalaxyStarId, scopeAdmin, profileId }`. Returns
    * `null` if **no membership exists** (the load-bearing "a row ⇒ authorized member" invariant — a
    * stranger who requested a login link for a scope they were never minted into is rejected here).
    * NEVER mints. Public so the token layer can drive it, but only reached via the consume RPCs.
@@ -251,10 +251,10 @@ export class NebulaAuthRegistry extends DurableObject {
    * writes to set values that are already set. Guarded, a repeat login writes nothing.
    */
   getAndVerifyIdentity(email: string, universeGalaxyStarId: string):
-    { sub: string; universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
+    { sub: string; universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
     const lc = normalizeEmail(email);
     const rows = this.#sql`
-      SELECT m.sub AS sub, m.isAdmin AS isAdmin, m.emailId AS emailId, e.profileId AS profileId
+      SELECT m.sub AS sub, m.scopeAdmin AS scopeAdmin, m.emailId AS emailId, e.profileId AS profileId
       FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
       WHERE e.email = ${lc} AND m.universeGalaxyStarId = ${universeGalaxyStarId}
     `;
@@ -277,7 +277,7 @@ export class NebulaAuthRegistry extends DurableObject {
     if (accepted.rowsWritten > 0) {
       debug('nebula-auth.Registry.identity.membershipAccepted').info('Membership accepted', { sub });
     }
-    return { sub, universeGalaxyStarId, isAdmin: Boolean(rows[0].isAdmin), profileId: rows[0].profileId as string };
+    return { sub, universeGalaxyStarId, scopeAdmin: Boolean(rows[0].scopeAdmin), profileId: rows[0].profileId as string };
   }
 
   /**
@@ -309,17 +309,17 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /** Resolve a `sub` → its scope + admin bit + `profileId`. `null` if unknown. Used by the refresh
-   *  KV-miss self-heal, the `isAdmin` convergence re-put, and mint-narrower-token — each threads
+   *  KV-miss self-heal, the `scopeAdmin` convergence re-put, and mint-narrower-token — each threads
    *  `profileId` into the record it rebuilds so the claim survives. */
-  getIdentityScope(sub: string): { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null {
+  getIdentityScope(sub: string): { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
     const rows = this.#sql`
-      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.isAdmin AS isAdmin, e.profileId AS profileId
+      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin, e.profileId AS profileId
       FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE m.sub = ${sub}
     `;
     if (rows.length === 0) return null;
     return {
       universeGalaxyStarId: rows[0].universeGalaxyStarId as string,
-      isAdmin: Boolean(rows[0].isAdmin),
+      scopeAdmin: Boolean(rows[0].scopeAdmin),
       profileId: rows[0].profileId as string,
     };
   }
@@ -329,7 +329,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * directly on refresh). Workers KV is eventually consistent, so on the login→first-refresh hop a
    * cross-colo read can miss the just-written record; the singleton `RefreshTokenIndex` is
    * strongly-consistent, so reconstruct the record from it (+ the current membership row, which gives
-   * the CURRENT `isAdmin`/scope — fresher than a stale KV copy) and **self-heal KV** (re-put, so
+   * the CURRENT `scopeAdmin`/scope — fresher than a stale KV copy) and **self-heal KV** (re-put, so
    * subsequent refreshes hit KV directly — bounding the fallback to at most once per token per
    * propagation gap). Returns `null` for a genuinely-invalid / expired / revoked token (not in the
    * index → the Worker 401s). A bogus-token probe costs 1 indexed read, no write.
@@ -343,7 +343,7 @@ export class NebulaAuthRegistry extends DurableObject {
     const scope = this.getIdentityScope(sub);
     if (!scope) return null; // identity deleted
     const record: RefreshTokenKV = {
-      sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin: scope.isAdmin, expiresAt,
+      sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin: scope.scopeAdmin, expiresAt,
       profileId: scope.profileId, // writer (c): self-heal must carry profileId or the claim vanishes for the token's life
     };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), { expirationTtl: kvTtlSeconds(expiresAt) });
@@ -399,17 +399,17 @@ export class NebulaAuthRegistry extends DurableObject {
   /**
    * Email-based scope discovery. Unauthenticated. `sub`-FREE by design (§Phase 3): `discover` is
    * unthrottled, so returning the surrogate identity key would widen the enumeration oracle. Returns
-   * `{ universeGalaxyStarId, isAdmin }` per scope the email belongs to.
+   * `{ universeGalaxyStarId, scopeAdmin }` per scope the email belongs to.
    * (Inherited + deferred oracle-narrowing — see backlog.md § Nebula Auth `discover(email)` oracle.)
    */
   discover(email: string): DiscoveryEntry[] {
     const rows = this.#sql`
-      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.isAdmin AS isAdmin
+      SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin
       FROM Emails e JOIN Memberships m ON m.emailId = e.emailId WHERE e.email = ${normalizeEmail(email)}
     `;
     return rows.map(r => ({
       universeGalaxyStarId: r.universeGalaxyStarId as string,
-      isAdmin: Boolean(r.isAdmin),
+      scopeAdmin: Boolean(r.scopeAdmin),
     }));
   }
 
@@ -426,7 +426,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row (with
-   * data-use consent opt-IN), MINTS the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0` — the
+   * data-use consent opt-IN), MINTS the claiming admin `Identity` (`scopeAdmin=1`, `emailVerified=0` — the
    * claimer still proves via the magic link, which find-and-flips `emailVerified`), and issues a
    * magic link. An authority point — this is where a Universe's first admin identity is minted.
    *
@@ -468,8 +468,8 @@ export class NebulaAuthRegistry extends DurableObject {
         throw err;
       }
       // MINT the claiming admin identity (authority point). A bootstrap email founding `nebula-platform` is
-      // the reserved platform-admin path — same isAdmin stamp, distinguished only by the reserved slug.
-      this.#mintIdentity(email, slug, /* isAdmin */ true);
+      // the reserved platform-admin path — same scopeAdmin stamp, distinguished only by the reserved slug.
+      this.#mintIdentity(email, slug, /* scopeAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
     });
     log.info('Universe claimed', { slug, email: lc });
@@ -549,7 +549,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // MINT the star-scoped admin at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
       // stores none, and `buildAuthScopePattern` derives exact-star from a 3-segment scope at
       // token-mint time. Passing `parsed.universe` here would silently yield `{u}.*`.
-      this.#mintIdentity(lc, universeGalaxyStarId, /* isAdmin */ true);
+      this.#mintIdentity(lc, universeGalaxyStarId, /* scopeAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
     });
     log.info('Star claimed', { universeGalaxyStarId, email: lc });
@@ -573,9 +573,9 @@ export class NebulaAuthRegistry extends DurableObject {
    * Its rejection is caught here so it can't surface as an unhandled rejection. (Guaranteed delivery —
    * outbox/retries — is deferred: `tasks/backlog.md` § internal email reliability.)
    *
-   * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `isAdmin = 1` clause is
+   * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `scopeAdmin = 1` clause is
    * load-bearing: `issueInvites` mints pending invitees as non-admin and un-taken-up at the same scope,
-   * so a looser predicate matches them — and "resuming" one by setting `isAdmin = 1` would promote an
+   * so a looser predicate matches them — and "resuming" one by setting `scopeAdmin = 1` would promote an
    * invitee to star admin through an unauthenticated endpoint.
    *
    * ⚠️ The unfinished-claim test is `acceptedAt IS NULL` — "was this membership ever taken up?" — NOT
@@ -592,7 +592,7 @@ export class NebulaAuthRegistry extends DurableObject {
   ): void {
     const claimer = [...this.ctx.storage.sql.exec(
       `SELECT m.sub AS sub FROM Memberships m JOIN Emails e ON e.emailId = m.emailId
-       WHERE e.email = ? AND m.universeGalaxyStarId = ? AND m.isAdmin = 1 AND m.acceptedAt IS NULL`,
+       WHERE e.email = ? AND m.universeGalaxyStarId = ? AND m.scopeAdmin = 1 AND m.acceptedAt IS NULL`,
       lcEmail, universeGalaxyStarId,
     )];
     if (claimer.length === 0) return; // not the unverified claimer — an ordinary slug_taken, no mail
@@ -679,7 +679,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // (slugs are `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible). The bit only decides
     // "is this principal an admin at all", and a non-admin gets `[]`. Confining it against a node
     // would be meaningless: this method has no callee node — it spans the caller's whole subtree.
-    if (!callerAccess?.admin) return [];
+    if (!callerAccess?.scopeAdmin) return [];
     const pattern = callerAccess.authScopePattern;
     let rows: any[];
     if (pattern === '*') {
@@ -721,7 +721,7 @@ export class NebulaAuthRegistry extends DurableObject {
       const link = await this.#prepareMagicLink();
       this.ctx.storage.transactionSync(() => {
         this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
-        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* isAdmin */ true);
+        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* scopeAdmin */ true);
         this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
       });
       return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
@@ -806,7 +806,7 @@ export class NebulaAuthRegistry extends DurableObject {
   /**
    * Issue invites into an EXISTING scope. **Admin-gating is the Worker's job** (it verified the JWT +
    * scope + `admin` before calling — RPC drops custom Error props, so this method stays throw-free for
-   * expected client errors). For each email: MINT the invitee `Identity` (`isAdmin=0`,
+   * expected client errors). For each email: MINT the invitee `Identity` (`scopeAdmin=0`,
    * `emailVerified=0` — an authority point, pre-creating the "authorized member" row that
    * `getAndVerifyIdentity` will later find-and-flip) and insert a single-use `InviteTokens` row
    * (HASHED), then send the invite email. In test mode the raw links are returned instead of sent.
@@ -826,7 +826,7 @@ export class NebulaAuthRegistry extends DurableObject {
       }
       try {
         // Pre-create the invitee identity (idempotent on (email, scope)) — the authority point.
-        this.#mintIdentity(email, universeGalaxyStarId, /* isAdmin */ false);
+        this.#mintIdentity(email, universeGalaxyStarId, /* scopeAdmin */ false);
 
         const rawToken = generateRandomString(32);
         const tokenHash = await hashString(rawToken);
@@ -894,7 +894,7 @@ export class NebulaAuthRegistry extends DurableObject {
       });
       return null;
     }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.scopeAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
     debug('nebula-auth.Registry.login.succeeded').info('Magic link login', { targetSub: identity.sub });
     return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
   }
@@ -923,7 +923,7 @@ export class NebulaAuthRegistry extends DurableObject {
       });
       return null;
     }
-    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.isAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
+    await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.scopeAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
     debug('nebula-auth.Registry.login.succeeded').info('Invite accepted', { targetSub: identity.sub });
     return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
   }
@@ -931,13 +931,13 @@ export class NebulaAuthRegistry extends DurableObject {
   /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3).
    *  Writer (a) of `profileId` into the KV record (the login funnel). */
   async #recordRefreshToken(
-    sub: string, universeGalaxyStarId: string, isAdmin: boolean, profileId: string, tokenHash: string, expiresAt: string,
+    sub: string, universeGalaxyStarId: string, scopeAdmin: boolean, profileId: string, tokenHash: string, expiresAt: string,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       'INSERT OR REPLACE INTO RefreshTokenIndex (tokenHash, sub, expiresAt) VALUES (?, ?, ?)',
       tokenHash, sub, expiresAt,
     );
-    const record: RefreshTokenKV = { sub, universeGalaxyStarId, isAdmin, expiresAt, profileId };
+    const record: RefreshTokenKV = { sub, universeGalaxyStarId, scopeAdmin, expiresAt, profileId };
     await this.#refreshKv.put(`refresh:${tokenHash}`, JSON.stringify(record), {
       expirationTtl: kvTtlSeconds(expiresAt),
     });
@@ -1037,19 +1037,19 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Change an identity's admin bit and CONVERGE the denormalized `isAdmin` in every live KV refresh
+   * Change an identity's admin bit and CONVERGE the denormalized `scopeAdmin` in every live KV refresh
    * record for that `sub` (the ADR-010 convergence writer). ⚠️ On the KV re-put, re-apply the record's
    * ORIGINAL absolute expiry (`RefreshTokenIndex.expiresAt`) — CF KV drops `expirationTtl` across a
    * put, so a fresh TTL would EXTEND a demoted user's token and omitting it would make it IMMORTAL (M4).
    */
-  async setIdentityAdmin(sub: string, isAdmin: boolean, callerClaims: NebulaJwtPayload): Promise<void> {
-    this.ctx.storage.sql.exec('UPDATE Memberships SET isAdmin = ? WHERE sub = ?', isAdmin ? 1 : 0, sub);
+  async setIdentityAdmin(sub: string, scopeAdmin: boolean, callerClaims: NebulaJwtPayload): Promise<void> {
+    this.ctx.storage.sql.exec('UPDATE Memberships SET scopeAdmin = ? WHERE sub = ?', scopeAdmin ? 1 : 0, sub);
     const scope = this.getIdentityScope(sub);
     if (!scope) return;
     const tokens = this.#sql`SELECT tokenHash, expiresAt FROM RefreshTokenIndex WHERE sub = ${sub}`;
     for (const t of tokens) {
       const record: RefreshTokenKV = {
-        sub, universeGalaxyStarId: scope.universeGalaxyStarId, isAdmin, expiresAt: t.expiresAt as string,
+        sub, universeGalaxyStarId: scope.universeGalaxyStarId, scopeAdmin, expiresAt: t.expiresAt as string,
         profileId: scope.profileId, // writer (b): re-put must carry profileId forward or the claim vanishes after an admin change
       };
       // Re-apply the ORIGINAL absolute expiry as the ttl — never a fresh TTL (M4).
@@ -1058,8 +1058,8 @@ export class NebulaAuthRegistry extends DurableObject {
       });
     }
     // ADR-016: this is the authority change itself — the record must name every party.
-    debug('nebula-auth.Registry.identity.roleUpdated').info('isAdmin converged', {
-      sub, isAdmin, tokens: tokens.length, actingToken: projectActingToken(callerClaims),
+    debug('nebula-auth.Registry.identity.roleUpdated').info('scopeAdmin converged', {
+      sub, scopeAdmin, tokens: tokens.length, actingToken: projectActingToken(callerClaims),
     });
   }
 

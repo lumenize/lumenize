@@ -1059,7 +1059,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     }
     // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
     // a reconnect after token expiry re-subscribes with the fresh token, so a
-    // demoted admin's new (non-admin) `access.admin` is re-derived server-side and
+    // demoted admin's new (non-admin) `access.scopeAdmin` is re-derived server-side and
     // the stored `accessAdmin` is cleared. The window subs ride the single-resource
     // re-subscribe loop above.
     for (const entry of this.#queryEntries.values()) {

@@ -5,7 +5,7 @@
  * This is the **local** identity path of the live self-verification harness
  * (`tasks/archive/claude-live-verification.md` Phase 1). It is the Nebula analogue of mesh's
  * `createTestRefreshFunction`, with the critical difference the task turns on: the base
- * util signs a **flat `isAdmin`** payload with **no `access` claim** — the *base* mesh/auth
+ * util signs a **flat `scopeAdmin`** payload with **no `access` claim** — the *base* mesh/auth
  * shape — which Nebula's gateway rejects (`router.verifyNebulaAccessToken`, the
  * `access.authScopePattern` gate). This util instead composes the shared
  * {@link buildNebulaJwtPayload} claim-builder, so the token carries the real
@@ -58,17 +58,17 @@ export interface CreateNebulaTestTokenOptions {
   /** Subject UUID. Default: a stable `crypto.randomUUID()` generated once per factory call. */
   sub?: string;
   /**
-   * Mint an admin token (sets `access.admin`). Default `true`.
+   * Mint an admin token (sets `access.scopeAdmin`). Default `true`.
    *
    * ⚠️ **The bit alone no longer enables the scope-admin bypass** — the guards confine it to the
    * callee node via `hasAdminOverScope`, so what actually decides is whether `authScopePattern`
    * — which this factory always derives from `instanceName`, exposing no override — covers the node
    * being called. A token minted with
-   * `isAdmin: true` at a STAR `instanceName` gets an exact-star pattern and is therefore NOT an
+   * `scopeAdmin: true` at a STAR `instanceName` gets an exact-star pattern and is therefore NOT an
    * admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose authority you
    * actually want. See tasks/nebula-confine-admin-bypass.md.
    */
-  isAdmin?: boolean;
+  scopeAdmin?: boolean;
   /**
    * The bearer's PUBLIC profile address → the bare `profileId` claim. Omitted when absent (a token
    * with no `profileId` claim). Seed it explicitly to exercise the Profile owner short-circuit
@@ -99,7 +99,7 @@ export function createNebulaTestToken(
     activeScope,
     instanceName = activeScope,
     sub = crypto.randomUUID(),
-    isAdmin = true,
+    scopeAdmin = true,
     profileId,
     actor,
     ttlSeconds,
@@ -111,7 +111,7 @@ export function createNebulaTestToken(
       sub,
       instanceName,
       activeScope,
-      isAdmin,
+      scopeAdmin,
       profileId,
       actor,
       ttlSeconds,

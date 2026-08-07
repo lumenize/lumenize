@@ -397,7 +397,7 @@ export class DevContainerServeStub extends DurableObject {
 // Guard for client-side methods
 function requireAdminCaller(instance: NebulaClientTest) {
   const claims = instance.lmz.callContext.originAuth?.claims as unknown as NebulaJwtPayload;
-  if (!claims?.access?.admin) {
+  if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin caller required');
   }
 }

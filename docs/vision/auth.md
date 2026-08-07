@@ -79,7 +79,7 @@ A whole token, annotated — a Galaxy admin who is currently looking at one of t
   "aud": "acme.crm.bigco",     // activeScope — where I am working
   "access": {
     "authScope": "acme.crm",   // where I am a member
-    "admin": true              // see Coarse-grained access control
+    "scopeAdmin": true         // see Coarse-grained access control
   },
   "profileId": "1a9d…",        // my public profile — see Profiles
   // "act": { "sub": "…" },    // present only when impersonating — see Impersonation
@@ -98,36 +98,36 @@ Some decisions need nothing but the token. Whether you reach into a node comes f
 
 The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
 
-Three things decide it: where you are a member (`authScope`), whether you are an admin there (`admin`), and the scope of the node being called. The decision is a comparison among the three. 
+Three things decide it: where you are a member (`authScope`), whether you are an admin there (`scopeAdmin`), and the scope of the node being called. The decision is a comparison among the three. 
 
-> **Not the same `admin`.** The data-plane `admin` grant is a different thing from the `admin` we are talking about here. It's on a different tree, the DAG orgTree, covered in § *The data plane* below.
+> **Why the `scope` qualifier.** There is also a data-plane `admin` — a grant on a node of the DAG orgTree, covered in § *The data plane* below. Different tree, different thing. The two were both called `admin` until 2026-08-07, and conflating them caused a bug.
 
 `activeScope` plays no part in this decision, though a reader arriving from its section above would reasonably expect it to. It is chosen by the client, and a value the caller picks can never be a boundary; the mint already confines it inside `authScope`, so it can only ever name somewhere you could already reach. It says which part of the mesh you are looking at, not which part you may touch.
 
 There are exactly two ways in, and both compare the same two things — where you are a member, and where the node you are calling sits:
 
-- **The node is your own auth scope, or an ancestor of it.** Free; no `admin` needed.
-- **The node is a descendant of your auth scope, and `admin` is set.** The only way to reach *downward*.
+- **The node is your own auth scope, or an ancestor of it.** Free; no `scopeAdmin` needed.
+- **The node is a descendant of your auth scope, and `scopeAdmin` is set.** The only way to reach *downward*.
 
-In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `admin`**.
+In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `scopeAdmin`**.
 
 Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
 Seven example calls, all in the same Universe:
 
-| Case | `authScope` | `admin` | Node called | Usually can |
+| Case | `authScope` | `scopeAdmin` | Node called | Usually can |
 |---|---|---|---|---|
 | **Lateral** | `u.g.s1` | no | `u.g.s2` | **nothing** — lateral movement, refused; the case this layer exists for |
 | Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
 | Upward | `u.g` | no | `u` | read the organizational-level agentic coding standing guidance |
-| Upward, `admin` below the node | `u.g` | **yes** | `u` | the same as the row above — the admin bit sits beneath `u`, so it buys nothing |
-| Upward, `admin` at the node | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
+| Upward, `scopeAdmin` below the node | `u.g` | **yes** | `u` | the same as the row above — the bit sits beneath `u`, so it buys nothing |
+| Upward, `scopeAdmin` at the node | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
 | Downward | `u.g` | **yes** | `u.g.s` | everything in that Star, via the bypass |
-| Downward, no `admin` | `u.g` | no | `u.g.s` | **nothing** — no method ever runs |
+| Downward, no `scopeAdmin` | `u.g` | no | `u.g.s` | **nothing** — no method ever runs |
 
 **Lateral** is refused by both rules at once, which is why sideways movement needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so there is nothing for either comparison to match. A sibling Galaxy or a whole other Universe fails the same way, less interestingly.
 
-**Ordinary** through **Upward, `admin` at the node** are one rule, not four: the node is your own scope or an ancestor of it. Calling into your own Star, reaching up into its Galaxy, and reaching further up into the Universe are the same comparison against different nodes, and none of them needs `admin`. What the bit changes is what you can do *once inside* — and that turns entirely on where it sits relative to the node it is read in. The two **Upward, `admin`** rows carry the same bit and mean opposite things.
+**Ordinary** through **Upward, `scopeAdmin` at the node** are one rule, not four: the node is your own scope or an ancestor of it. Calling into your own Star, reaching up into its Galaxy, and reaching further up into the Universe are the same comparison against different nodes, and none of them needs `scopeAdmin`. What the bit changes is what you can do *once inside* — and that turns entirely on where it sits relative to the node it is read in. The two **Upward, `scopeAdmin`** rows carry the same bit and mean opposite things.
 
 The last two rows are a minimal pair: same member, same node, differing only in the bit. That is the whole of the second rule — descending into your own subtree is the one movement `admin` exists to authorize. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
@@ -139,7 +139,7 @@ So a node can read something the scope above it offers. There is one app definit
 
 What upward reach is really for is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app reads the whole stack upward.
 
-What they may *change* is a separate question, and the answer is where their `admin` sits. A Galaxy member evolves that Galaxy's guidance and nothing above it. A Universe admin who notices — in the retro at the end of a piece of work — that something would help every app in the organization can edit the Universe layer, which is row four. The product improves itself recursively, the same loop we run on this repo.
+What they may *change* is a separate question, and the answer is where their `scopeAdmin` sits. A Galaxy member evolves that Galaxy's guidance and nothing above it. A Universe admin who notices — in the retro at the end of a piece of work — that something would help every app in the organization can edit the Universe layer, which is row four. The product improves itself recursively, the same loop we run on this repo.
 
 That getting in buys nothing by itself is the point, not a limitation. A tenant admitted into their Galaxy can call it; every method still runs its own `@mesh()` guard against a caller who is not an admin there. Reaching in starts the conversation. The guard on each method decides whether it continues.
 
@@ -147,7 +147,7 @@ That getting in buys nothing by itself is the point, not a limitation. A tenant 
 
 An admin whose scope is at or above a node gets a bypass in that node's Data-plane: full read, write and admin over its whole orgTree, with no grant ever written. That is what makes a Universe admin an admin of every Star beneath them, including ones created later, and it is deliberate — an owner should not have to grant themselves access to their own work.
 
-The bypass is evaluated against the node it is running in, never against the bare `admin` bit, and that distinction has teeth. A guard that once read the bit alone admitted a `u.g.dev` admin — legitimately reaching up into its Galaxy, row three's shape one level down — and then handed them admin over the Galaxy's entire tree. Every admin check is now confined to the node it runs in, which is what keeps reaching up into a node from making you an admin of it.
+The bypass is evaluated against the node it is running in, never against the bare `scopeAdmin` bit, and that distinction has teeth. A guard that once read the bit alone admitted a `u.g.dev` admin — legitimately reaching up into its Galaxy, row three's shape one level down — and then handed them admin over the Galaxy's entire tree. Every admin check is now confined to the node it runs in, which is what keeps reaching up into a node from making you an admin of it.
 
 ## Inside the node
 
@@ -209,9 +209,9 @@ Widening access covers granting permissions to others, and it also covers the st
 
 Permissions trickle down the orgTree. To alter a Resource's value, or create one, a user needs `write` or `admin` on the node it is attached to, or on any one of that node's ancestors. Because the orgTree is a DAG, a node can have several parents and therefore several ancestor paths. A grant on any one path is enough, and where paths disagree the highest permission wins.
 
-It matters which kind of admin you mean, because the word is doing two jobs. A data-plane `admin` is a grant on an orgTree node. A Registry `admin` is a bit on a membership, carried on the token. They are different things, and the second one reaches into the first: an admin of the scope a data-plane entity lives in gets a bypass over that entity's whole orgTree, so a Galaxy admin can read, write and administer inside that Galaxy and every Star beneath it without ever being granted a node.
+The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse: an admin of the scope a data-plane entity lives in gets a bypass over that entity's whole orgTree, so a Galaxy admin can read, write and administer inside that Galaxy and every Star beneath it without ever being granted a node.
 
-The bypass is evaluated against the node it is running in, never against the bare admin bit, so it reaches down and never up. A Star's own admin does not depend on it — founding a Star writes a real `admin` grant on that Star's root node.
+The bypass is evaluated against the node it is running in, never against the bare `scopeAdmin` bit, so it reaches down and never up. A Star's own admin does not depend on it — founding a Star writes a real `admin` grant on that Star's root node.
 
 ## Profiles
 
@@ -268,7 +268,7 @@ Here is that mirroring, in the same shape as the token in § *The access token* 
 }
 ```
 
-Every identity claim names the tenant. `admin` is gone entirely, because it is the intersection of the two: the admin has it, the tenant does not, so the token does not. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
+Every identity claim names the tenant. `scopeAdmin` is gone entirely, because it is the intersection of the two: the admin has it, the tenant does not, so the token does not. The only trace of who is really driving is `act`, and nothing that decides access is allowed to look at it.
 
 One test governs when a check may look at `act` at all: only where impersonation would otherwise grant the actor something they could not already do themselves. Everywhere else it buys nothing, since an admin can already do anything to anyone beneath them. The one case today is profile ownership, which sits outside the scope tree. Such a check may look at whether `act` is present, never at who the actor is.
 
@@ -282,7 +282,7 @@ The future is a sink behind that log — one destination collecting those record
 
 ## Grants
 
-**Registry grants** — memberships and the admin bit — are all done inside the Registry.
+**Registry grants** — memberships and `scopeAdmin` — are all done inside the Registry.
 
 **Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by endpoints and `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. Those may be the same endpoints used directly.
 

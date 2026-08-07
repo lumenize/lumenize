@@ -180,7 +180,7 @@ export async function mintAccessToken(
   opts: {
     sub: string;
     universeGalaxyStarId: string;
-    isAdmin: boolean;
+    scopeAdmin: boolean;
     activeScope: string;
     /** The bearer's PUBLIC profile address → the bare `profileId` claim (omitted when absent). */
     profileId?: string;
@@ -210,7 +210,7 @@ export async function mintAccessToken(
     sub: opts.sub,
     instanceName: opts.universeGalaxyStarId,
     activeScope: opts.activeScope,
-    isAdmin: opts.isAdmin,
+    scopeAdmin: opts.scopeAdmin,
     profileId: opts.profileId,
     actor: opts.actor,
     authScopePattern: opts.authScopePattern,
@@ -297,7 +297,7 @@ export async function handleAcceptInvite(request: Request, env: Env, instanceNam
  * Exchange the refresh cookie for an access token — a **pure KV read**, no registry, no writes on the
  * hot path. ⚠️ M1: `activeScope` is validated against the KV record's server-trusted
  * `universeGalaxyStarId`, NOT the request path or body — deriving the pattern from client input would
- * let a caller mint a token for any scope they name. `isAdmin` comes from the KV record.
+ * let a caller mint a token for any scope they name. `scopeAdmin` comes from the KV record.
  */
 export async function handleRefreshToken(request: Request, env: Env): Promise<Response> {
   const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
@@ -344,7 +344,7 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: record.sub,
     universeGalaxyStarId: record.universeGalaxyStarId,
-    isAdmin: record.isAdmin,
+    scopeAdmin: record.scopeAdmin,
     profileId: record.profileId,
     activeScope: body.activeScope,
     ttlSeconds: body.ttlSeconds as number | undefined,
@@ -414,7 +414,7 @@ export async function handleInvite(
   // `issueInvites` from member-minting into ADMIN-minting, and that task's §2 requires the safety
   // not rest on a single Worker line — it adds an in-method re-assertion in `issueInvites`,
   // matching `createGalaxy`/`createStar`. Do not treat this line as sufficient after that lands.
-  if (verifiedAccess.admin !== true) return errorResponse(403, 'forbidden', 'Admin access required');
+  if (verifiedAccess.scopeAdmin !== true) return errorResponse(403, 'forbidden', 'Admin access required');
 
   let body: { emails?: string[] };
   try { body = await request.json() as typeof body; }
@@ -493,7 +493,7 @@ export async function mintNarrowerToken(
   // narrowing would break least-privilege minting; re-checking that the minted pattern is a
   // subset of the caller's would be redundant, since narrowing already implies subset.
   //
-  // Narrowing is nevertheless how the `access.admin` escalation was reachable: a `{u}.*` admin can
+  // Narrowing is nevertheless how the `access.scopeAdmin` escalation was reachable: a `{u}.*` admin can
   // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `enforceScopeReach`'s tenant branch then
   // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
   // never here; it was downstream, and it is fixed there** (`hasAdminOverScope` in `requireAdmin` /
@@ -518,7 +518,7 @@ export async function mintNarrowerToken(
   //   (b) its `denied` log line;
   //   (c) its distinct `forbidden` code and caller-facing message.
   // Eligibility strictly subsumes this gate's *verdict*, so do not read a pass here as authority.
-  if (!payload.access.admin) {
+  if (!payload.access.scopeAdmin) {
     debug('nebula-auth.worker.narrower.denied').warn('Non-admin narrower-token attempt', {
       sub: payload.sub, subOfNarrowerToken: body.subOfNarrowerToken,
     });
@@ -527,7 +527,7 @@ export async function mintNarrowerToken(
 
   // The subject (`subOfNarrowerToken`) must be a real identity — 404 otherwise (parity + traceability).
   const subjectIdentity = await registry(env).getIdentityScope(body.subOfNarrowerToken) as
-    { universeGalaxyStarId: string; isAdmin: boolean; profileId: string } | null;
+    { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null;
   if (!subjectIdentity) return errorResponse(404, 'not_found', 'Subject not found');
 
   // ── (1) ELIGIBILITY — run BEFORE the scope mirror ────────────────────────────────────────────────
@@ -558,7 +558,7 @@ export async function mintNarrowerToken(
 
   // Bind the minted token to the REQUESTED scope, mirroring the SUBJECT's `admin` bit.
   //
-  // ⚠️ `caller.admin && subject.isAdmin` is an INTERSECTION, never either side's copy. Under
+  // ⚠️ `caller.admin && subject.scopeAdmin` is an INTERSECTION, never either side's copy. Under
   // eligibility the conjunction EQUALS the subject's bit, so the `&&` is belt-and-braces against a
   // future caller reaching this line without eligibility having run (`security.md` rule (2) forbids
   // copying the subject's bit alone, because a bare copy can exceed the caller). The `profileId` claim
@@ -566,7 +566,7 @@ export async function mintNarrowerToken(
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: body.subOfNarrowerToken,
     universeGalaxyStarId: body.activeScope,
-    isAdmin: payload.access.admin === true && subjectIdentity.isAdmin,
+    scopeAdmin: payload.access.scopeAdmin === true && subjectIdentity.scopeAdmin,
     profileId: subjectIdentity.profileId,
     activeScope: body.activeScope,
     // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to

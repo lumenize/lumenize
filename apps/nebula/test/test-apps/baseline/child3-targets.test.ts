@@ -6,7 +6,7 @@
  * COMPOUND gate (`accessAdmin || resolvePermission`). testing.md:29 requires each
  * operand be exercised + mutation-checked independently. Three subscribers on
  * DevStudio's session query, all on ONE node:
- *   - admin@example.com  → access.admin, NO DAG grant → IN via the accessAdmin operand
+ *   - admin@example.com  → access.scopeAdmin, NO DAG grant → IN via the accessAdmin operand
  *   - granted (non-admin) → explicit read grant       → IN via the resolvePermission operand
  *   - denied  (non-admin) → no grant                  → OUT (the negative)
  *
@@ -44,7 +44,7 @@ describe('child3 Phase 2 — targetsForQuery per-operand (M4)', () => {
     const query: QueryDescriptor = { queryType: 'parentChild', typeName: 'Message', field: 'session', value: S };
 
     // A node the admin has NO explicit grant on (DevStudio seeds no root admin — the
-    // admin acts purely via the access.admin bypass), so the admin subscriber exercises
+    // admin acts purely via the access.scopeAdmin bypass), so the admin subscriber exercises
     // the accessAdmin operand in isolation.
     const node = await admin.orgTree.createNode(crypto.randomUUID(), ROOT_NODE_ID, 'sess', 'Session node');
 

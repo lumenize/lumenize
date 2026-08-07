@@ -88,7 +88,7 @@ describe('structural tier-DO scope binding', () => {
       );
       // Fixture guard: the wildcard pattern is the premise of this case.
       expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
-      expect(payload.access?.admin).toBe(true);
+      expect(payload.access?.scopeAdmin).toBe(true);
       adminClient.callStarGetConfig(star);
       await vi.waitFor(() => { expect(adminClient.callCompleted).toBe(true); });
       expect(adminClient.lastError).toBeUndefined();
@@ -172,7 +172,7 @@ describe('structural tier-DO scope binding', () => {
       // ever widens, open self-signup silently becomes an escalation.
       expect(payload.access?.authScopePattern).toBe(starA);
       expect(payload.access?.authScopePattern).not.toContain('*');
-      expect(payload.access?.admin).toBe(true);
+      expect(payload.access?.scopeAdmin).toBe(true);
       expect(payload.aud).toBe(starA);
     });
   });

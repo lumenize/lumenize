@@ -131,10 +131,10 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
       // already reaches it — so "no members" is the normal steady state, not an abandoned one.
       ctx.storage.sql.exec("INSERT INTO Scopes (universeGalaxyStarId) VALUES ('memberless.app')");
       // (b) An un-taken-up claimer, on a DIFFERENT scope: the row `#resumeClaimIfOwner` is designed to
-      // read AFTER its link expires, matching its `isAdmin = 1 AND acceptedAt IS NULL` predicate.
+      // read AFTER its link expires, matching its `scopeAdmin = 1 AND acceptedAt IS NULL` predicate.
       ctx.storage.sql.exec("INSERT INTO Scopes (universeGalaxyStarId) VALUES ('claimed.app')");
       ctx.storage.sql.exec("INSERT INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES ('e-keep','k@x','p-keep',0,?)", '2020-01-01T00:00:00.000Z');
-      ctx.storage.sql.exec("INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES ('s-keep','e-keep','claimed.app',1,NULL,?)", '2020-01-01T00:00:00.000Z');
+      ctx.storage.sql.exec("INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES ('s-keep','e-keep','claimed.app',1,NULL,?)", '2020-01-01T00:00:00.000Z');
     });
 
     expect(await runDurableObjectAlarm(stub)).toBe(true);
@@ -149,7 +149,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
 
     // And the scope is still ENUMERABLE — one of the four readers that need the row, and the one a
     // user-developer would notice: a Galaxy vanishing from their tree.
-    const tree = (await stub.myScopeTree({ authScopePattern: '*', admin: true }))
+    const tree = (await stub.myScopeTree({ authScopePattern: '*', scopeAdmin: true }))
       .map((s: any) => s.instanceName);
     expect(tree).toContain('memberless.app');
   });
@@ -158,9 +158,9 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     const stub: any = env.NEBULA_AUTH_REGISTRY.getByName(`reg-fresh-${crypto.randomUUID()}`);
     const r = await (runInDurableObject as any)(stub, (_instance: any, ctx: any) => {
       ctx.storage.sql.exec("INSERT INTO Emails (emailId, email, profileId, emailVerified, createdAt) VALUES ('e1','a@x.com','p1',1,'2026-01-01T00:00:00.000Z')");
-      ctx.storage.sql.exec("INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, isAdmin, acceptedAt, createdAt) VALUES ('s1','e1','acme',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')");
+      ctx.storage.sql.exec("INSERT INTO Memberships (sub, emailId, universeGalaxyStarId, scopeAdmin, acceptedAt, createdAt) VALUES ('s1','e1','acme',1,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')");
       return {
-        row: ctx.storage.sql.exec("SELECT sub, isAdmin AS a FROM Memberships WHERE sub = 's1'").toArray()[0],
+        row: ctx.storage.sql.exec("SELECT sub, scopeAdmin AS a FROM Memberships WHERE sub = 's1'").toArray()[0],
         marker: ctx.storage.kv.get(MARKER_KEY),
       };
     });

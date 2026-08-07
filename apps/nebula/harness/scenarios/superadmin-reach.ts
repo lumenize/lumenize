@@ -2,7 +2,7 @@
  * Phase-3a acceptance B2-(i), realized via the Phase-1 client (the natural home for "drive a real
  * resource op") — `tasks/archive/claude-live-verification.md`.
  *
- * Capable-of-failing on the ENFORCEMENT path (not just the isAdmin flag): a `*` super-admin token
+ * Capable-of-failing on the ENFORCEMENT path (not just the scopeAdmin flag): a `*` super-admin token
  * (issued by `nebula-platform` → `access.authScopePattern: '*'`, admin) reaches a scope it has NO
  * DAG grant on and SUCCEEDS via the scope-admin bypass in `DagTree.requirePermission`; a non-`*`
  * non-admin token for the SAME scope is DENIED the same op — proving the success is the bypass, not
@@ -22,7 +22,7 @@
  * `aud ⊆ authScopePattern`, so a token whose pattern misses its own aud is unmintable. The shape
  * that IS denied is a pattern covering the token's own `aud` but **not the node it calls** — reach
  * it by setting `issuerInstanceName` strictly below the node under test. That escalation shape is
- * covered by scope-isolation.test.ts's `access.admin` confinement tests (whose principal is a real
+ * covered by scope-isolation.test.ts's `access.scopeAdmin` confinement tests (whose principal is a real
  * exact-star-scoped admin), not here.
  */
 import assert from 'node:assert/strict';
@@ -34,7 +34,7 @@ import { connectDriver } from '../lib/harness';
 const TARGET = 'claude-reach.sandbox.dev';
 
 export async function run(stack: DevStack): Promise<void> {
-  // A `*` super-admin: token issued by nebula-platform → authScopePattern '*', admin. Its aud is
+  // A `*` super-scopeAdmin: token issued by nebula-platform → authScopePattern '*', admin. Its aud is
   // TARGET (covered by '*'), but it holds no DAG grant there.
   const admin = await connectDriver(stack, {
     scope: TARGET,
@@ -54,7 +54,7 @@ export async function run(stack: DevStack): Promise<void> {
         'real login CANNOT produce this identity: logging in at TARGET makes you its admin, hence ' +
         'admin — and a NON-admin at TARGET is exactly the control this scenario needs.',
       issuerInstanceName: TARGET,
-      isAdmin: false,
+      scopeAdmin: false,
     },
   });
 
@@ -70,7 +70,7 @@ export async function run(stack: DevStack): Promise<void> {
     assert.equal(
       adminOut.kind,
       'committed',
-      `* admin should reach an ungranted scope via the access.admin bypass, got kind=${adminOut.kind}`,
+      `* admin should reach an ungranted scope via the access.scopeAdmin bypass, got kind=${adminOut.kind}`,
     );
 
     const controlOut = await control.client.resources.transaction({

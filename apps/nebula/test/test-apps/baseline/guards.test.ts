@@ -77,7 +77,7 @@ describe('guard enforcement', () => {
     // ⚠️ ONE admin per universe. `claim-universe` is the only admin-minting path and the slug is
     // unique, so a universe cannot hold two distinct admins — the old fixture's separate
     // `star-admin@` + `universe-admin@` identities are unmintable. There is likewise no "star-level
-    // admin" tier: an invite mints `isAdmin: false`, so every admin's pattern is `{u}.*` (or `*`).
+    // admin" tier: an invite mints `scopeAdmin: false`, so every admin's pattern is `{u}.*` (or `*`).
     // The property under test survives intact, and is now exercised more precisely: the second client
     // holds aud = the UNIVERSE while calling a STAR DO, so admission comes from the *reach* branch
     // (pattern covers the callee node) rather than the tenant branch — which is exactly what

@@ -17,7 +17,7 @@ import {
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', admin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -97,7 +97,7 @@ describe('Phase 1 — profileId rides all THREE KV-record writers → the claim 
     const refreshed = await refreshAndParse(SELF, uni, admin.refreshToken);
     expect(refreshed.parsed.profileId).toBe(profileId);
     // ...while the admin bit genuinely converged (positive control the re-put actually ran).
-    expect(refreshed.parsed.access.admin).toBeUndefined();
+    expect(refreshed.parsed.access.scopeAdmin).toBeUndefined();
   });
 
   it('(c) a FORCED KV-miss self-heal reconstructs the record WITH profileId → the minted JWT keeps the claim', async () => {

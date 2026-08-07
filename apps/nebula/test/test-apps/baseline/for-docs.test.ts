@@ -313,7 +313,7 @@ describe('for-docs runtime examples (real Star)', () => {
     // ── coding-your-ui § Gating admin-only UI ──
     // @doc coding-your-ui.md § Gating admin-only UI
     const isAppAdmin = computed(() =>
-      client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+      client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
       store.lmz.orgTree?.value?.permissions
         .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
     );
