@@ -63,7 +63,7 @@ The contrast, at a glance:
 
 ## The access token
 
-An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. That is what lets a guard ask "may this caller act here?" without going back to the Registry.
+An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking, and carries no authority of its own.
 
 A whole token, annotated — a Galaxy admin who is currently looking at one of their tenants:
 
@@ -82,41 +82,48 @@ A whole token, annotated — a Galaxy admin who is currently looking at one of t
 }
 ```
 
-Some decisions need nothing but the token. Whether you reach into a node comes from `access` and `aud`, which is why a guard can answer it without leaving the node. Others need the token *and* a lookup — whether you may write someone's private profile fields depends on the `profileId` here plus an accepted membership that only the Registry knows about.
+Some decisions need nothing but the token. Whether you reach into a node comes from `access` alone, which is why a guard can answer it without leaving the node. Others need the token *and* a lookup — whether you may write someone's private profile fields depends on the `profileId` here plus an accepted membership that only the Registry knows about.
 
 ## Coarse-grained access control
 
-> Today the JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
+> Today the JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here. That task has also not yet ratified deciding reach from `authScope` alone, which this section now describes.
+
+**This layer exists to make lateral movement impossible.** If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node exists to be called. That is the first row of the table below, and it is the case this whole layer is built around. Vertical movement is the part that is allowed, and only in the two specific forms described here.
 
 The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information.
 
 Three things decide it: where you are a member (`authScope`), whether you are an admin there (`admin`), and the scope of the node being called. Reach is a comparison among the three, never a property of the token on its own. The scope says where you sit; `admin` is what makes sitting there mean anything. And it is not the data-plane `admin` grant — that is a different thing on a different tree, covered under **The data plane**.
 
-There are exactly two ways in:
+`activeScope` plays no part in this decision, though a reader arriving from its section above would reasonably expect it to. It is chosen by the client, and a value the caller picks can never be a boundary; the mint already confines it inside `authScope`, so it can only ever name somewhere you could already reach. It says which part of the mesh you are looking at, not which part you may touch.
 
-- **Your `activeScope` is at or below the node.** No `admin` needed. This covers your own scope and every ancestor above it.
-- **Your `authScope` is at or above the node, and `admin` is set.** The only way to reach *downward*.
+There are exactly two ways in, and both compare the same two things — where you are a member, and where the node sits:
+
+- **The node is your own scope, or an ancestor of it.** Free; no `admin` needed.
+- **The node is a descendant of your scope, and `admin` is set.** The only way to reach *downward*.
+
+In one line: your scope and the node must be on the same vertical line, upward is free, and downward needs `admin`.
 
 Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
-Six calls, all in the same Universe:
+Seven example calls, all in the same Universe:
 
-| Case | `authScope` | `admin` | `activeScope` | Node called | Usually can |
-|---|---|---|---|---|---|
-| Ordinary | `u.g.s` | no | `u.g.s` | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
-| Upward | `u.g` | no | `u.g` | `u` | read the organizational-level agentic coding standing guidance |
-| Upward, `admin` below the node | `u.g` | **yes** | `u.g` | `u` | the same as the row above — the admin bit sits beneath `u`, so it buys nothing |
-| Upward, `admin` at the node | `u` | **yes** | `u.g` | `u` | everything at the Universe, including editing the standing guidance |
-| Downward | `u.g` | **yes** | `u.g` | `u.g.s` | everything in that Star, via the bypass |
-| Refused | `u.g` | no | `u.g` | `u.g.s` | **nothing** — no method ever runs |
+| Case | `authScope` | `admin` | Node called | Usually can |
+|---|---|---|---|---|
+| **Lateral** | `u.g.s1` | no | `u.g.s2` | **nothing** — lateral movement, refused; the case this layer exists for |
+| Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
+| Upward | `u.g` | no | `u` | read the organizational-level agentic coding standing guidance |
+| Upward, `admin` below the node | `u.g` | **yes** | `u` | the same as the row above — the admin bit sits beneath `u`, so it buys nothing |
+| Upward, `admin` at the node | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
+| Downward | `u.g` | **yes** | `u.g.s` | everything in that Star, via the bypass |
+| Downward, no `admin` | `u.g` | no | `u.g.s` | **nothing** — no method ever runs |
 
-The first four rows are one rule, not four: your `activeScope` is at or below the node you are calling. Reaching into your own Galaxy and reaching up into its Universe are the same comparison against two different nodes. What separates them is the `admin` bit — and, decisively, where it sits relative to the node it is read in. Rows three and four carry the same bit and mean opposite things.
+**Lateral** is refused by both rules at once, which is why sideways movement needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so there is nothing for either comparison to match. A sibling Galaxy or a whole other Universe fails the same way, less interestingly.
 
-Row five is the only one admitted by the second rule. Its `activeScope` sits *above* the node, so the first rule cannot help and nothing but `admin` gets it in — a Galaxy admin whose view is still the Galaxy, calling into one of its Stars to summarize it. An admin who has switched their view to that Star lands in the first rule instead, and gets the same bypass once inside.
+**Ordinary** through **Upward, `admin` at the node** are one rule, not four: the node is your own scope or an ancestor of it. Calling into your own Star, reaching up into its Galaxy, and reaching further up into the Universe are the same comparison against different nodes, and none of them needs `admin`. What the bit changes is what you can do *once inside* — and that turns entirely on where it sits relative to the node it is read in. The two **Upward, `admin`** rows carry the same bit and mean opposite things.
 
-That makes rows five and six a minimal pair: same session, same view, same node, differing only in the bit. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
+The last two rows are a minimal pair: same member, same node, differing only in the bit. That is the whole of the second rule — descending into your own subtree is the one movement `admin` exists to authorize. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-Neither rule ever crosses to a sibling, and neither crosses between Universes. Platform is the exception: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere.
+Neither rule ever crosses to a sibling, and neither crosses between Universes. There are two exceptions. Platform is one: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere. The Profile is the other, and it is deliberate — see **Profiles**.
 
 ### Why upward exists
 
@@ -199,6 +206,8 @@ It matters which kind of admin you mean, because the word is doing two jobs. A d
 The bypass is evaluated against the node it is running in, never against the bare admin bit, so it reaches down and never up. A Star's own admin does not depend on it — founding a Star writes a real `admin` grant on that Star's root node.
 
 ## Profiles
+
+**It is best not to think of a Profile as a full mesh node.** It participates in the mesh and uses its code and conventions, but its coarse-grained access control is intentionally different: it is the one place where lateral movement is the *point*. The same person works in several applications in one Universe; coaches and contract workers are invited into different organizations entirely. Some will want a distinct persona in each, but most do not want to re-type their name and upload their picture again for every one. So a Profile is reachable sideways, by design, and the rules above do not apply to it.
 
 A Profile holds two categories of data, public and private, and nothing in between. There is no orgTree inside a Profile and no acl structure of its own.
 

@@ -118,6 +118,20 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 
    ✅ **Today's behaviour is defensible and should not be assumed a bug.** The mint already runs a faithfulness check bounding `activeScope` inside the subject's own reach, then derives the pattern from that — so the token is deliberately *narrower* than the person, which is the least-privilege reading. Whichever way this lands, say so in the ADR-015 amendment; the answer is not derivable from "the claim carries the member's scope" alone.
 
+2. ✅ **DECIDED 2026-08-07 (Larry) — the upward rule reads `authScope`, and `activeScope` leaves the security model entirely.** `docs/vision/auth.md` § *Coarse-grained access control* now describes this, so the two arms below are settled; what remains open is the verification in the final bullet, which MUST run before the phases are written.
+
+   The rule becomes: **the node is your own scope or an ancestor of it** (free), or **the node is a descendant of your scope and `admin` is set** (the only way down). `activeScope` is not consulted. The reasoning that produced it:
+
+   `activeScope` is not independent: the refresh mint validates it against the session's server-trusted scope (`worker-token.ts` — `matchAccess(buildAuthScopePattern(record.universeGalaxyStarId), body.activeScope)`), so its legal range is fully determined by `authScope`. A security decision made on it is therefore a decision made on an **intermediate value** derived from `authScope`.
+
+   Restating the upward rule as *"`authScope` at or below the node"* was checked against all eight rows of the `docs/vision/auth.md` table and reproduces every verdict — and it **collapses the two Downward rows into one**, which is correct, since they differ only in `activeScope` and have identical capability.
+
+   ⚠️ **The argument is not elegance, it is where the control lives.** If reach reads `activeScope`, then the mint's `matchAccess` check *is* load-bearing authorization sitting in a token endpoint — a bug there becomes a reach bug, and nobody reviewing an authz change would think to look at it. If reach reads `authScope`, that check degrades to a UX nicety and `activeScope` becomes what it is meant to be: a view hint.
+
+   ✅ **The codebase already agrees on the substantive point.** `/mint-narrower-token` performs real narrowing by narrowing the **pattern** (`authScopePattern: buildAuthScopePattern(body.activeScope)`), not by setting a narrower `aud` alone — so the mechanism that genuinely bounds a token already treats `authScope` as the bound and `activeScope` as the view.
+
+   ⚠️ **Still to verify, and it is the one thing not settled:** whether any consumer relies on `activeScope` narrowing reach *within* a session, and whether dropping it forfeits blast-radius containment on a leaked access token. Neither looks live — an admin reaches downward regardless of `activeScope` today — but both are assertions to check against the code, not to assume. If either turns out to be load-bearing, the decision above reopens.
+
 ## Relationships
 
 - **Amends [ADR-015](../docs/adr/015-scope-authority-flows-downward.md)** — commitment intact, mechanism replaced. Stated as an amendment, per § *Relationships* conventions.
