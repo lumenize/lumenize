@@ -521,43 +521,6 @@ without amendment; these are the additions specific to this document's argument.
 
 ---
 
-## Working notes — proposed edits to `auth.md`, not yet applied
-
-⚠️ **Deliberately not applied.** `auth.md` is being actively edited; these are paste-ready rather than landed
-so nothing collides. Delete this section once they are placed. Both are deliberately short — the argument
-lives here, and `auth.md` should point rather than summarize.
-
-**(a) Append to `auth.md` § *Reading the history*,** after the paragraph ending "…so the work is the sink and
-the viewer, not a change to what gets written":
-
-> One path is already durable, and it is the highest-volume one. Every Resource write records who made it, so
-> "what changed, when, and by whom" is an ordinary query rather than a forensic exercise — and because history
-> is the substrate rather than a feature ([ADR-004](../adr/004-snodgrass-temporal-resources.md)), that record
-> cannot be destroyed by a later write. The same field is what will name an agent acting on a person's behalf:
-> the platform prepends itself as an actor inside the human's own call, so the record reads as *this human,
-> via Nebula* rather than as either one alone. Why that matters, and what still has to be captured alongside
-> it, is [`_ai-security.md`](_ai-security.md) § *Attribution*.
-
-**(b) Add to `auth.md`, as a short new section after § *Impersonation*** (or fold into it — your call; the
-`act`-chain material is adjacent):
-
-> ### What travels with a call
->
-> The verified claims do not stop at the boundary they were checked on. The Gateway builds them from the
-> verified token once, at accept, and every `lmz.call()` inherits them **unchanged** — so a node five hops
-> deep reads the same `sub`, the same `access`, and the same `act` chain the first node saw, without a
-> lookup and without any caller threading them by hand. That is what lets a decision be local (§ *Coarse-grained
-> access control*) and what lets a Resource write record its author from context alone.
->
-> Travelling alongside them is `callChain` — the immutable list of mesh nodes the call has passed through,
-> `[origin, …, caller]`, extended automatically at each hop. The claims answer *who*; this answers *through
-> what path*. It is provenance, never an authorization input, and only its first element is verified: the
-> Gateway stamps the origin from verified sources and preserves what the client supplied beyond it, while
-> everything appended downstream is framework-stamped. Why both halves matter, and what still has to be done
-> with them, is [`_ai-security.md`](_ai-security.md) § *Attribution*.
-
----
-
 ## Appendix — source artifact, 2026-08-06
 
 ⚠️ **Frozen. Do not edit, sync, or correct for code drift.** This is the interview as sent, and its value is

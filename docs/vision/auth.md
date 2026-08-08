@@ -1,8 +1,29 @@
+---
+status: Draft — actively edited (2026-08-07)
+working_agreement: |
+  Written for TOMORROW. The prose describes the TARGET state in present tense,
+  including mechanisms that are not built yet, so nothing here has to be
+  unlearned when a gap closes.
+
+  Anything true only of TODAY'S CODE goes in a blockquote opening with
+  "**Today's code differs.**" — never in the prose, and never as a hedge inside
+  a sentence. That keeps the narrative stable and makes every remaining gap
+  enumerable in one command:
+
+      grep -n '^> \*\*Today' docs/vision/auth.md
+
+  A blockquote opening any other way is an ordinary aside, not a gap.
+---
+
 # Authentication and Access Control
 
 ## Lumenize Nebula mesh
 
-Nebula is made up of a highly distributed mesh of nodes. Nearly all communication between them goes through `lmz.call()`, an RPC system that sits on top of Cloudflare's Workers RPC as the transport within Cloudflare and WebSockets as the transport to and from the outside world. The auth Registry is the notable exception; it has its own section below. We use Cloudflare's Durable Object instance name feature as the address of each durable node.
+Nebula is made up of a highly distributed mesh of nodes. Communication between them goes through `lmz.call()`, an RPC system that sits on top of Cloudflare's Workers RPC as the transport within Cloudflare and WebSockets as the transport to and from clients, usually in browsers but possible anywhere that has JavaScript and WebSockets.
+
+Two things named throughout this document are not mesh nodes at all, so neither is an exception to that. The auth Registry sits outside the mesh and is reached over HTTP. See § *The Registry*. The Gateway is mesh mechanics, not a mesh node. The Profile is a different case again — it *is* a node, but it is best not thought of as a full one. See § *Profiles* for how it behaves differently and why.
+
+**A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary `lmz.call()`, not a separate delivery mechanism. Two things do differ: the **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in and checked on the way out, which is why it appears throughout this document without ever being a node itself.
 
 ### High-level auth overview
 
@@ -10,19 +31,21 @@ We use **defense in depth** and **zero trust** to secure the mesh.
 
 You enter by authenticating, which sets a long-lived refresh cookie. That cookie mints short-lived access tokens in the form of signed JWTs. You then open a connection by presenting one, and its contents ride along with everything you do inside the mesh — through long chains of `lmz.call()`s — and can be a factor in every permission decision below.
 
-From there, calls pass the same layers in the same order, even if some of them are intentionally a no-op. None of them is sufficient on its own:
+One design decision runs underneath several of the layers below: **Nebula addresses everything by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
+
+After authentication, calls pass the same layers in the same order, even if in some instances they are intentionally a no-op:
 
 1. **Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
-2. **The name stamp.** Cloudflare gives a durable node two addresses: an instance name and a 64-character hex id. The mesh substrate accepts either, but **Nebula addresses everything by name**, and for a scoped node, **the name *is* its scope** — so the address stops being only *where* a call lands and becomes part of *who* may call it. The first time a node is addressed it records the name it was reached by, and any later mismatch throws: a node can neither change its name nor be handed a different one. The stamp is what makes that input trustworthy rather than merely conventional.
-3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of and where you are currently working. This is where we decide whether that lets you reach into this node at all. It's our coarse-grained access control.
-4. **The `@mesh()` allowlist.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is unreachable from outside it.
+2. **The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
+3. **`onBeforeCall()`.** The scopes in your JWT say to which part of the mesh you are a member. This is where we decide whether that lets you reach into this node at all. It's our coarse-grained access control.
+4. ** `@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
 5. **The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
-6. **Checks at the top of the method.** A guard sees the node instance but never the method's arguments, so any decision that combines the two — what was asked for, weighed against what this node knows — cannot live in one. By convention those checks run first thing inside the method, and throw an explanatory error that travels back over the `lmz.call()` response so the caller learns why it was denied.
-7. **The Data-plane DAG (ReBAC).** The commonest such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller has no permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
+6. **Checks at the top of the method.** A guard does not see the call's arguments, so any decision that needs to consider those parameters weighed against what this node knows cannot live in an `@mesh()` guard. By convention those checks run first thing inside the method, and throw an explanatory error that travels back over the `lmz.call()` response so the caller learns why it was denied.
+7. **The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
 
-**Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do, and the split falls along the list above — the `admin` bit the scope gate reads is the coarse, role-like half, and the DAG is the fine-grained half.
+**Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `admin` bit the scope gate reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
-The sections that follow expand on each.
+The sections that follow expand on the model above.
 
 ## Scopes
 
@@ -34,11 +57,11 @@ Examples:
 - `u.g`. Indicates a Galaxy, which contains `u.g.s` and many other Stars.
 - `u`. Indicates a Universe, which contains `u.g` and other Galaxies.
 
-Two Nebula nodes are named by something other than a scope: the Profile, named by its `profileId`, and the Registry, a singleton with a fixed name. They are also the two nodes the scope gate does not apply to — which is the same fact twice, since a gate that reads the name has nothing to read when the name is not a scope.
+The Profile and the Registry are named by something other than a scope — the Profile by its `profileId`, the Registry as a singleton with a fixed name. They are also where scope is not needed.
 
 Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This matters for § *Coarse-grained access control* below.
 
-## `authScope` (Sessions)
+## `authScope` (sessions)
 
 A session has one `authScope`, represented by the refresh cookie set at login. It outlives any particular access token, tab, or client and has a long TTL. Reloading the page reuses it, and logging in at a different scope starts another one without removing the current one so more than one can be active at any given time, each with a different `Path` and expiration.
 
@@ -48,47 +71,43 @@ Browsers decide which cookies to send by starts-with-style matching the request 
 
 ## `activeScope`
 
-An access token is a signed JWT. It has one `activeScope` — where you are working right now, carried as the `aud` claim.
+An access token is a signed JWT. It has one `activeScope` — the scope the client holding is working in, carried as the `aud` claim. One session mints a token per client, and those clients can sit at different active scopes at once.
 
-The client asks for it. Each time it refreshes, it names the scope it wants to work in, and the server checks that against the session's own record rather than against anything the client sent. So you may ask for any scope your session reaches into, and for no other (more on this in a later section).
+The client asks for it on each refresh and the server confines it to what the session already reaches, so it can only ever name somewhere `authScope` allows. It is restrained by `authScope`, but is not an independent factor in an access-control decision.
 
-One session can mint access tokens at different active scopes over its life. That is what a user-developer moving around their own Universe is doing: authenticated at `u`, working in `u.g` while editing an app, then in `u.g.s` while looking at one of its tenants. The two differing is the ordinary case, not an unusual one.
-
-`activeScope` decides nothing about reach — § *Coarse-grained access control* explains why — but it is not decorative. The Gateway uses it to route **pushes**: a message produced by a call in one scope is delivered only to connections whose token names that same scope. Two tabs belonging to one Galaxy admin, open on `u.g.s1` and `u.g.s2`, carry the same `authScope` and the same `admin` bit, so nothing but `activeScope` tells them apart — and a subscription update from one tenant must not surface in the other. This still grants nothing. The client picks both sides of that comparison, so the most it can do is keep its own tabs from bleeding into each other; it can never reach anything `authScope` does not already allow. The Profile is exempt, for the reason it is exempt everywhere else — its pushes carry public fields only, and cross-scope delivery is the point.
-
-`activeScope` should also agree with what the URL says you are looking at. Today it can drift, which breaks sharing a link — the recipient lands on the right page pointed at the wrong scope. [ADR-017](../adr/017-the-url-is-the-view-state.md) is the not-fully-implemented commitment that closes that.
+What it does do is fence the Gateway's **outbound** leg. A call heading out to a client is refused if its `aud` differs from the one that connection presented, so a person's own clients cannot bleed into each other. Since the client picks both sides of that comparison, the fence can only withhold a call — never reach anything new. The Profile is exempt, deliberately: calls out of it carry public fields only, and cross-scope delivery is the point.
 
 The contrast, at a glance:
 
 | | `authScope` | `activeScope` |
 |---|---|---|
 | Belongs to | the session | each access token |
-| What it is | where you authenticated | where you are working right now |
+| What it is | where you authenticated | the scope one client works in |
 | Where it lives | the refresh cookie's path, and the JWT's `access` claim | the JWT `aud` |
-| Who sets it | fixed at login | the client asks, on each refresh |
+| Who sets it | fixed at login | the client asks on each refresh; the server confines it to what the session reaches |
 
 ## The access token
 
-An access token carries both scopes: the session's auth scope in its `access` claim, and the active scope as `aud`. The first is what lets a guard ask "may this caller reach in here?" without going back to the Registry. The second says where the client is looking. It confers no authority, which is not the same as doing nothing — the Gateway routes pushes by it, per § *`activeScope`* above.
-
-A whole token, annotated — a Galaxy admin who is currently looking at one of their tenants:
+A whole token, annotated — a Galaxy admin whose client is working in one of their tenants. Each comment names the section that expands it:
 
 ```jsonc
 {
-  "sub": "8f3c…",              // the membership: one address in one scope
-  "aud": "acme.crm.bigco",     // activeScope — where I am working
+  "sub": "8f3c…",              // the membership — see § Identity and membership
+  "aud": "acme.crm.bigco",     // activeScope — fences calls out to me, grants nothing
   "access": {
-    "authScope": "acme.crm",   // where I am a member
-    "scopeAdmin": true         // see Coarse-grained access control
+    "authScope": "acme.crm",   // where I am a member — decides reach, no Registry hop
+    "scopeAdmin": true         // see § Coarse-grained access control
   },
-  "profileId": "1a9d…",        // my public profile — see Profiles
-  // "act": { "sub": "…" },    // present only when impersonating — see Impersonation
+  "profileId": "1a9d…",        // my public profile — see § Profiles
+  // "act": { "sub": "…" },    // present only when impersonating — see § Impersonation
   // the standard JWT claims
   "iss": "…", "exp": 1754400000, "iat": 1754399100, "jti": "…"
 }
 ```
 
-Some decisions need nothing but the token. Whether you reach into a node comes from `access` alone, which is why a guard can answer it without leaving the node. Others need the token *and* a lookup — whether you may write someone's private profile fields depends on the `profileId` here plus an accepted membership that only the Registry knows about.
+## How the claims travel
+
+The verified claims do not stop at the boundary they were checked on. The Gateway builds them once, when it accepts the connection and verifies the JWT, and every `lmz.call()` from there inherits them **unchanged** — so a node five hops deep reads the same `sub`, the same `access`, and the same `act` chain the first node saw, without a lookup and without any caller threading them by hand. That is what makes the decision in § *Coarse-grained access control* local, and what lets a Resource write record its author from context alone.
 
 ## Coarse-grained access control
 
@@ -98,20 +117,14 @@ Some decisions need nothing but the token. Whether you reach into a node comes f
 
 The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
 
-Three things decide it: where you are a member (`authScope`), whether you are an admin there (`scopeAdmin`), and the scope of the node being called. The decision is a comparison among the three. 
-
-> **Why the `scope` qualifier.** There is also a data-plane `admin` — a grant on a node of the DAG orgTree, covered in § *The data plane* below. Different tree, different thing. The two were both called `admin` until 2026-08-07, and conflating them caused a bug.
-
-`activeScope` plays no part in this decision, though a reader arriving from its section above would reasonably expect it to. It is chosen by the client, and a value the caller picks can never be a boundary; the mint already confines it inside `authScope`, so it can only ever name somewhere you could already reach. It says which part of the mesh you are looking at, not which part you may touch.
-
-There are exactly two ways in, and both compare the same two things — where you are a member, and where the node you are calling sits:
+The decision compares where you are a member (`authScope`) against the scope of the node being called, and there are exactly two ways in:
 
 - **The node is your own auth scope, or an ancestor of it.** Free; no `scopeAdmin` needed.
 - **The node is a descendant of your auth scope, and `scopeAdmin` is set.** The only way to reach *downward*.
 
 In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `scopeAdmin`**.
 
-Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
+Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and for anything touching Resources, by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
 Seven example calls, all in the same Universe:
 
@@ -125,29 +138,33 @@ Seven example calls, all in the same Universe:
 | Downward | `u.g` | **yes** | `u.g.s` | everything in that Star, via the bypass |
 | Downward, no `scopeAdmin` | `u.g` | no | `u.g.s` | **nothing** — no method ever runs |
 
-**Lateral** is refused by both rules at once, which is why sideways movement needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so there is nothing for either comparison to match. A sibling Galaxy or a whole other Universe fails the same way, less interestingly.
+**Lateral** needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so both comparisons simply fail. A sibling Galaxy or another Universe fails identically.
 
-**Ordinary** through **Upward, `scopeAdmin` at the node** are one rule, not four: the node is your own scope or an ancestor of it. Calling into your own Star, reaching up into its Galaxy, and reaching further up into the Universe are the same comparison against different nodes, and none of them needs `scopeAdmin`. What the bit changes is what you can do *once inside* — and that turns entirely on where it sits relative to the node it is read in. The two **Upward, `scopeAdmin`** rows carry the same bit and mean opposite things.
+The four rows between it and **Downward** are one rule against different nodes, and none of them needs `scopeAdmin` to get in. What the bit changes there is what you can do *once inside*, and that turns on where it sits relative to the node reading it — which is why the two **Upward, `scopeAdmin`** rows carry the same bit and mean opposite things.
 
-The last two rows are a minimal pair: same member, same node, differing only in the bit. That is the whole of the second rule — descending into your own subtree is the one movement `admin` exists to authorize. The last row is the invited collaborator on one app. They reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
+The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-Neither rule ever crosses to a sibling, and neither crosses between Universes. There are two exceptions. Platform is one: `nebula-platform` is a single reserved scope rather than a place in the hierarchy, so `admin` there means everywhere. The Profile is the other, and it is deliberate — see § *Profiles*.
+Two things sit outside all of this. `nebula-platform` is one reserved scope rather than a place in the hierarchy, so `scopeAdmin` there means everywhere. The Profile is the other, deliberately — § *Profiles*.
 
 ### Why upward exists
 
-So a node can read something the scope above it offers. There is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below. Stars once fetched the app's UI code this way; that now goes to the Galaxy directly, since Galaxies are lightly loaded and the responses cache well.
+Upward exists so a node can read something the scope above it offers. There is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below.
 
-What upward reach is really for is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app reads the whole stack upward.
+A good example is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app reads the whole stack upward.
 
-What they may *change* is a separate question, and the answer is where their `scopeAdmin` sits. A Galaxy member evolves that Galaxy's guidance and nothing above it. A Universe admin who notices — in the retro at the end of a piece of work — that something would help every app in the organization can edit the Universe layer, which is row four. The product improves itself recursively, the same loop we run on this repo.
+Reading the stack is free; **writing is where `scopeAdmin` decides**. A Galaxy member evolves that Galaxy's guidance and nothing above it. When a retro turns up something that would help every app in the organization, lifting it to the Universe layer takes `scopeAdmin` there, so a Universe admin is the one who makes that edit. That is the product improving itself recursively — the same loop we run on this repo.
 
-That getting in buys nothing by itself is the point, not a limitation. A tenant admitted into their Galaxy can call it; every method still runs its own `@mesh()` guard against a caller who is not an admin there. Reaching in starts the conversation. The guard on each method decides whether it continues.
+That is a limit on who *writes*, not on who *proposes*. Nothing here would stop a feature that lets that Galaxy member suggest a Universe-level change and routes it for attention over email.
+
+> **Today's code differs.** The guidance hierarchy is not built. Upward reach works, but nothing yet stores, reads, or writes standing guidance at any of the three levels, so it has no consumer in the running system.
 
 ### Why downward is generous for admins
 
-An admin whose scope is at or above a node gets a bypass in that node's Data-plane: full read, write and admin over its whole orgTree, with no grant ever written. That is what makes a Universe admin an admin of every Star beneath them, including ones created later, and it is deliberate — an owner should not have to grant themselves access to their own work.
+Downward authority is total. It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
 
-The bypass is evaluated against the node it is running in, never against the bare `scopeAdmin` bit, and that distinction has teeth. A guard that once read the bit alone admitted a `u.g.dev` admin — legitimately reaching up into its Galaxy, row three's shape one level down — and then handed them admin over the Galaxy's entire tree. Every admin check is now confined to the node it runs in, which is what keeps reaching up into a node from making you an admin of it.
+That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-scope-authority-flows-downward.md)).
+
+What that totality means for user data — a bypass over a Star's whole permission tree, with no grant ever written — is discussed more in § *The data plane*.
 
 ## Inside the node
 
@@ -157,41 +174,7 @@ Only methods decorated with `@mesh` are callable over `lmz.call()` at all. Every
 
 A decorated method may also carry a guard, which runs before the method body. Read-only operations usually carry none, because passing the boundary was already enough. Almost anything that changes state carries one — a check that the caller is an admin of this node, say.
 
-A guard is handed only the node instance, never the method's arguments. So any decision that depends on *which* record, or *which* orgTree node, you are touching cannot live in a guard — it has no way to see which one you named. Those checks run at the top of the method instead, and throw an explanatory error that travels back over the `lmz.call()` response, so the caller learns why rather than getting a bare refusal. `PermissionDeniedError` from the data plane is the one you will meet most.
-
-## Identity and membership
-
-Access is anchored to the mailbox. Identity is anchored to the person.
-
-A membership is one address in one scope. It is what a token's `sub` names, and it is what "member" means everywhere in this document. Someone who belongs to three scopes holds three memberships.
-
-A Profile is the person. Name, nickname and picture follow them across every scope, Star and Universe, and one Profile can span several of their addresses — the model allows that today, though the flow for adding a second address is not built yet. A Profile survives its last membership, so work stays attributed to a real person long after they have left.
-
-That split is a deliberate bet against how GitHub does it. There, your account determines access, so email is a contact detail and organization membership outlives your leaving. Removing you takes an admin action, and if nobody takes it, access persists indefinitely. We keep the half worth keeping, which is the portable identity, and reject the half that leaks. Here, deactivating a company mailbox offboards the person automatically. There is no admin action to forget and no revocation feature to remember to build.
-
-Two consequences we accept.
-
-A live session outlives the mailbox by up to the refresh token's lifetime. Losing the mailbox stops new logins immediately, but a session already issued keeps working until its refresh token expires. That is bounded where GitHub's is indefinite, and in practice a company wiping a laptop takes the cookie with it — but that is their capability, not our guarantee.
-
-The same mechanism can lock out an owner. A user-developer who claims a Universe with an employer address and later loses it is locked out of work they own, and none of the rules above bend to help. The answer is a warning at signup: use an address you will keep, and invite the work address afterwards. If it happens anyway and they can establish the work is theirs, a superuser re-invites them. That is a new invitation, not a re-pointing of the old address.
-
-Changing an address is possible and takes proof of both. Proof of the new one, and fresh proof of the old one at the time of the change — a live session is not proof, because sessions outlive mailbox control. That one rule separates every case with no special handling:
-
-| Case | Old address still reachable | Outcome |
-|---|---|---|
-| Name change | yes — the new one is provisioned while the old still delivers | allowed, memberships preserved |
-| Moving providers | yes | allowed |
-| Departing employee | no — the company killed it | refused; access dies with the mailbox |
-
-The last row is the point, not a gap.
-
-## The Registry
-
-The Registry is the single source of truth for who exists, what scopes exist, and who is a member where. It is reached over HTTP rather than `lmz.call()`, which is why it sits outside the mesh even though everything in the mesh depends on it.
-
-Scope existence is independent of membership. Creating a Galaxy or a Star writes a scope row and nothing else, so a real, working scope routinely has zero members — the creator's own scope already reaches down to it. Only the claim paths mint an identity, because until one exists nobody holds a token that reaches the new scope.
-
-Everything else it owns has its own section: sessions and their cookies, memberships and the addresses they hang off, and the scope and admin bit that the coarse-grained gate reads out of every token.
+Unfortunately, because of the way TS decorators work, the guard is not handed the method's arguments at runtime. So any decision that needs to consider those parameters weighed against what this node knows cannot live in an `@mesh()` guard. Those checks run at the top of the method instead, and throw an explanatory error that travels back over the `lmz.call()` response, so the caller learns why rather than getting a bare refusal. `PermissionDeniedError` from the data plane is the one you will meet most.
 
 ## The data plane
 
@@ -209,9 +192,58 @@ Widening access covers granting permissions to others, and it also covers the st
 
 Permissions trickle down the orgTree. To alter a Resource's value, or create one, a user needs `write` or `admin` on the node it is attached to, or on any one of that node's ancestors. Because the orgTree is a DAG, a node can have several parents and therefore several ancestor paths. A grant on any one path is enough, and where paths disagree the highest permission wins.
 
-The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse: an admin of the scope a data-plane entity lives in gets a bypass over that entity's whole orgTree, so a Galaxy admin can read, write and administer inside that Galaxy and every Star beneath it without ever being granted a node.
+The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse: an admin of the scope a data-plane entity lives in gets a bypass over that entity's whole orgTree — full read, write and admin, with no grant ever written. That is § *Why downward is generous for admins* arriving where user data lives. A Star's own admin does not depend on it: founding a Star writes a real `admin` grant on that Star's root node. The two are independent in the other direction too — someone granted `admin` on a Star's root node holds no Registry standing at all, so they grant and revoke freely anywhere in that orgTree and still cannot invite anyone into the scope, create a sibling, or delete anything at the Registry level.
 
-The bypass is evaluated against the node it is running in, never against the bare `scopeAdmin` bit, so it reaches down and never up. A Star's own admin does not depend on it — founding a Star writes a real `admin` grant on that Star's root node.
+Getting in and holding authority are different questions, and the bypass answers the second. It asks whether the caller's authority covers *this node*, never whether the bit is set. Same admin bit, two directions:
+
+| `authScope` | `scopeAdmin` | Node reached | Bypass there |
+|---|---|---|---|
+| `u.g` | yes | `u.g.dev` | **yes** — the node sits inside their authority |
+| `u.g.dev` | yes | `u.g` | **no** — their authority sits below the node |
+
+Both callers get *in*: upward reach is free (§ *Coarse-grained access control*), so the second row's admin legitimately lands inside `u.g`. Only the first holds authority once there. A guard reading the bare bit would grant both, turning an admin of a child into an admin of its parent — exactly the upward authority the model forbids.
+
+The comment that once defended that bare check was true on its own terms: the bit is only minted with an `aud` inside the admin's own scope. But that says where the **caller** sits, not where **this node** sits, and the second is the question being asked.
+
+## Identity and membership
+
+Access is anchored to the mailbox and managed by the Registry. Identity is anchored to the person and captured in the Profile.
+
+A membership is one address in one scope. It is what a token's `sub` names, and it is what "member" means everywhere in this document. Someone who belongs to three scopes holds three memberships and all of that is recorded in the Registry.
+
+A Profile is the person. Name, nickname and picture follow them across every scope, Star and Universe, and one Profile can span several of their addresses. A Profile survives its last membership, so work stays attributed to a real person long after they have left.
+
+> **Today's code differs.** The data model already lets one Profile span several addresses, but the flow for adding a second one is not built.
+
+That split is a deliberate bet against how GitHub does it. There, your account determines access, so email is a contact detail and organization membership outlives your leaving. Removing you takes an admin action, and if nobody takes it, access persists indefinitely. We keep the half worth keeping, which is the portable identity, and reject the half that leaks. Here, deactivating a company mailbox offboards the person automatically. There is no admin action to forget and no revocation feature to remember to build.
+
+Two consequences we accept.
+
+A live session outlives the mailbox by up to the refresh token's lifetime. Losing the mailbox stops new logins immediately, but a session already issued keeps working until its refresh token expires. That is bounded where GitHub's is indefinite, and in practice a company wiping a laptop takes the cookie with it — but that is their capability, not our guarantee.
+
+The same mechanism can lock out an owner. A user-developer who claims a Universe with an employer address and later loses it is locked out of work they own, and none of the rules above bend to help. The answer is a warning at signup: use an address you will keep, and invite the work address afterwards. If it happens anyway and they can establish the work is theirs, a support ticket will allow them to retake possession.
+
+Changing an email address is possible and takes proof of both. Proof of the new one, and fresh proof of the old one at the time of the change — a live session is not proof, because sessions outlive mailbox control. That one rule separates every case with no special handling:
+
+| Case | Old address still reachable | Outcome |
+|---|---|---|
+| Name change | yes — the new one is provisioned while the old still delivers | allowed, memberships preserved |
+| Moving providers | yes | allowed |
+| Departing employee | no — the company killed it | refused; access dies with the mailbox |
+
+The last row is the point, not a gap.
+
+## The Registry
+
+The Registry is the single source of truth for who exists, what scopes exist, and who is a member where.
+
+It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. That said, the seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
+
+The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
+
+Scope existence is independent of membership. Creating a Galaxy or a Star writes a scope row and nothing else, so a real, working scope routinely has zero members — the creator's own scope already reaches down to it. Only the claim paths mint an identity, because until one exists nobody holds a token that reaches the new scope.
+
+Everything else it owns has its own section: sessions and their cookies, memberships and the addresses they hang off, and the scope and admin bit that the coarse-grained gate reads out of every token.
 
 ## Profiles
 
@@ -219,11 +251,11 @@ The bypass is evaluated against the node it is running in, never against the bar
 
 A Profile holds two categories of data, public and private, and nothing in between. There is no orgTree inside a Profile and no acl structure of its own.
 
-Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, no reach, and no relationship between reader and subject is consulted, and the read touches no Registry data. The connection is authenticated once, when the Gateway accepts it and verifies the JWT. Nothing re-checks it per read.
+Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, no reach, and no relationship between reader and subject is consulted, and the read touches no Registry data.
 
 A Profile is not a web resource. There is no HTTPS endpoint for one — no route and no `fetch()` handler — so it cannot be curled, crawled, or linked to from outside. The only way in is a mesh call on an already-authenticated connection.
 
-The `profileId` being random and unguessable stops enumeration, not access. Anyone who obtains an id, by whatever means, can read that profile's public fields. There will never be more gating than that. If a user doesn't want their real name or picture reachable that way, they are free to obfuscate themselves.
+The `profileId` being random and unguessable stops enumeration, not access. Any authenticated client who obtains an id, by whatever means, can read that profile's public fields. There will never be more gating than that. If a user doesn't want their real name or picture reachable that way, they are free to obfuscate themselves.
 
 Private data can be read and written only by the owner of the profile, a superuser, or a Registry admin over a scope where that person holds an **accepted** membership.
 
@@ -240,6 +272,8 @@ There is an array of superusers determined by an environment variable that has s
 ## Impersonation
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
+
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence: profile ownership is decided by `act` being *absent* (§ *Profiles*), so anything else that prepended an actor into one would silently strip a person of their own profile. Chains grow on the **record** instead — § *Reading the history*.
 
 It produces a token but not a session. There is no refresh cookie behind it, which is why ending it means tearing down the client and never calling the logout endpoint — that would spend the cookie of the session that minted it, ending the admin's own.
 
@@ -274,23 +308,37 @@ One test governs when a check may look at `act` at all: only where impersonation
 
 There is no consent step, deliberately. An admin can already read and write anything in their scope under their own name, so impersonation grants them nothing new. It only changes attribution, and it improves it by naming both parties — gating it would push an admin toward the less traceable path. This changes if a customer requires consent during a security review and the deal is worth it.
 
+### When Nebula is the actor
+
+Studio's agent writes Resources on a user-developer's behalf, and it holds **no authority of its own** — no membership, no access token, no login. The write runs inside the triggering person's own call, carrying their `sub` and their permissions, and the platform adds itself as an **actor on the record**, never on the token. So the record reads *this human, via Nebula*, and authorization is unchanged: the agent can do exactly what that person could, because it is that person's authority doing it.
+
+The actor id is `agent:nebula` — self-describing and syntactically not a human, so a server-composed actor stays distinguishable from a token-attested one at a glance ([ADR-016](../adr/016-record-the-acting-principal.md)). It is only ever an actor, never a subject; `sub` names the person who prompted the turn. Nebula does hold a Profile, so it renders like any other participant (§ *Profiles*), but it has no membership and the Registry knows nothing about it.
+
+Two inversions are tempting and both are wrong. Giving the agent its own login would **grant** it authority that then has to be confined, where this design has nothing to confine. And the actor is composed server-side: a client able to name its own actor would defeat the record entirely.
+
+> **Today's code differs.** Nothing prepends Nebula yet, so every `act` chain in a record comes from impersonation alone.
+
 ### Reading the history
 
-Every action that changes who can do what, or removes state, records the acting token: the subject, the whole actor chain, and the `access` it asserted. Today that goes to the debug log and nowhere durable.
+Two kinds of record. Every Resource write records who made it, and because history is the substrate rather than a feature ([ADR-004](../adr/004-snodgrass-temporal-resources.md)), that record cannot be destroyed by a later write. Every action that changes who can do what, removes state, or establishes a session records the acting token — the subject, the whole actor chain, and the `access` it asserted — into a durable sink of its own.
 
-The future is a sink behind that log — one destination collecting those records, and an interface over it that shows each person only what their scope entitles them to see. It is not built and nothing depends on it yet. The records already carry what such a view needs, so the work is the sink and the viewer, not a change to what gets written.
+A record's actor chain can run deeper than any access token's, since the platform names itself here as well (§ *When Nebula is the actor*).
+
+One interface reads both and shows each person only what their scope entitles them to see, so "what changed, when, and by whom" is an ordinary query rather than a forensic exercise. What still has to be captured alongside these records is [`_ai-security.md`](_ai-security.md) § *Attribution*.
+
+> **Today's code differs.** Only the Resource half is durable and queryable. The acting-token records go to the debug log — retained for a window rather than forever, and readable by nobody filtered to their own scope. Those records already carry what such a view needs, so the work is the sink and the viewer, not a change to what gets written.
+
+`callChain` is the one thing travelling with a call that decides nothing. It is the list of mesh nodes the call has passed through — `[origin, …, caller]`, extended automatically at each hop — so where the claims answer *who*, it answers *through what path*. It is provenance, and it could not safely be more: **only its first element is verified.** The Gateway stamps the origin from the verified connection and preserves whatever the client supplied beyond it; everything appended further down is framework-stamped. It sits in this section because a record of what happened will want it, not because anything reads it to decide.
 
 ## Grants
 
 **Registry grants** — memberships and `scopeAdmin` — are all done inside the Registry.
 
-**Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by endpoints and `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. Those may be the same endpoints used directly.
+**Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. There is no HTTP path to granting.
 
-One ordering falls out of that and is worth stating once, because every scenario below obeys it. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first. You cannot grant a permission to an email address.
+One ordering falls out of that and is worth stating once. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first. You cannot grant a permission to an email address.
 
-### Scenarios
-
-#### Founder of a Star
+### Founding a Star
 
 The trickiest, because a Star — like any Durable Object — has no dedicated create operation on Cloudflare's platform. It comes into being the first time it is accessed.
 
@@ -301,39 +349,6 @@ The claim is a single unauthenticated call that validates and then writes atomic
 Nothing is granted until the person proves the mailbox. The claim writes the membership unaccepted, and clicking the emailed link is what marks it accepted and logs them in. If that link is lost or expires, re-claiming the same slug from the same address re-sends it. A different address gets a conflict.
 
 The Data-plane grant comes last and comes from the Star itself. The first time an admin whose scope is exactly that Star touches it, the Star writes them an `admin` grant on its root node. An admin from further up reaches everything through the bypass and deliberately does not take that grant by arriving first — otherwise a support visit would leave a durable grant behind that nobody asked for.
-
-#### Adding a Galaxy to your Universe
-
-The one that surprises people: creating a scope mints no identity at all.
-
-A Universe admin creates a Galaxy, and that writes a scope row and nothing else. No membership, no identity, no grant. Nobody needs one, because the creator's own scope already reaches down to it.
-
-So a real, working scope routinely has zero members, and membership is never how existence is determined. The same holds for a Star created by an admin rather than claimed by a founder. Only the claim paths mint an identity, and they have to — until one exists, nobody holds a token that reaches the new scope.
-
-#### Additional root admin of a Star who is not a Registry admin
-
-Two steps, in the order the rule above forces.
-
-First, in the Registry: invite the person into that Star as a plain member. They accept, which is what creates their `sub`.
-
-Then, in the Data-plane: an existing root admin grants `admin` on the root node to that `sub`.
-
-The result is full Data-plane admin in that Star and none at all at the Registry. They can grant and revoke permissions anywhere in the orgTree, and they cannot invite anyone into the scope, create a sibling scope, or delete anything at the Registry level.
-
-#### Member of a Star with write permission over a non-root orgTree node
-
-The same two steps, and only the grant differs: `write` on one node instead of `admin` on the root.
-
-They can read and write that node and everything beneath it, since permissions trickle down. They cannot grant permissions to anyone, which is what `admin` adds. They also cannot re-parent the node, because that would widen access to everyone above the new parent, and widening access needs `admin` on the child.
-
-#### An admin corrects a member's display name
-
-No Data-plane grant is involved, because Profiles have no orgTree.
-
-What the admin needs is Registry admin over a scope where that person holds an accepted membership. Accepted is what makes it safe: an invitation the person never took up confers nothing, so nobody can manufacture admin rights over a stranger's profile by inviting an address they guessed.
-
-Impersonating the person does not help here, because impersonation never makes you the owner. The admin does not need it — they qualify in their own name, and the record names them rather than the person whose profile changed.
-
 
 ## Working notes — delete this section when this doc gets its home
 
