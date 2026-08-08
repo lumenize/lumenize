@@ -38,10 +38,10 @@ After authentication, calls pass the same layers in the same order, even if in s
 
 1. **Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 2. **The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-3. **`onBeforeCall()`.** The scopes in your JWT say to which part of the mesh you are a member. This is where we decide whether that lets you reach into this node at all. It's our coarse-grained access control.
-4. ** `@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
+3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of. This is where we decide whether that lets you reach into this node at all. It's our coarse-grained access control.
+4. **`@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
 5. **The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
-6. **Checks at the top of the method.** A guard does not see the call's arguments, so any decision that needs to consider those parameters weighed against what this node knows cannot live in an `@mesh()` guard. By convention those checks run first thing inside the method, and throw an explanatory error that travels back over the `lmz.call()` response so the caller learns why it was denied.
+6. **Checks at the top of the method.** A guard's only output is refusal — one yes/no for the whole call — so a decision that has to come out finer than that, or that resolves into something other than a *no*, runs inside the method instead, where it can explain itself over the `lmz.call()` response.
 7. **The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
 
 **Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `admin` bit the scope gate reads is the coarse, role-like half, and the DAG is the fine-grained half.
@@ -72,7 +72,7 @@ Browsers decide which cookies to send by starts-with-style matching the request 
 
 ## `activeScope`
 
-An access token is a signed JWT. It has one `activeScope` — the scope the client holding is working in, carried as the `aud` claim. One session mints a token per client, and those clients can sit at different active scopes at once.
+An access token is a signed JWT. It has one `activeScope` — the scope the client holding it is working in, carried as the `aud` claim. One session mints a token per client, and those clients can sit at different active scopes at once.
 
 The client asks for it on each refresh and the server confines it to what the session already reaches, so it can only ever name somewhere `authScope` allows. It is restrained by `authScope`, but is not an independent factor in an access-control decision.
 
@@ -125,7 +125,7 @@ The decision compares where you are a member (`authScope`) against the scope of 
 
 In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `scopeAdmin`**.
 
-Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and for anything touching Resources, by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
+Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
 Seven example calls, all in the same Universe:
 
@@ -175,7 +175,7 @@ Only methods decorated with `@mesh` are callable over `lmz.call()` at all. Every
 
 A decorated method may also carry a guard, which runs before the method body. Read-only operations usually carry none, because passing the boundary was already enough. Almost anything that changes state carries one — a check that the caller is an admin of this node, say.
 
-Unfortunately, because of the way TS decorators work, the guard is not handed the method's arguments at runtime. So any decision that needs to consider those parameters weighed against what this node knows cannot live in an `@mesh()` guard. Those checks run at the top of the method instead, and throw an explanatory error that travels back over the `lmz.call()` response, so the caller learns why rather than getting a bare refusal. `PermissionDeniedError` from the data plane is the one you will meet most.
+Sometimes it's preferable to not use a guard method. A guard's only output is refusal — one yes/no for the whole call — so a decision that has to come out finer than that, or that resolves into something other than a *no*, belongs in the method instead. Resource permission is a good example. A transaction reports *which* resources were refused and at what tier, which is what lets a client climb the orgTree to the right admin. Also, deciding that in a guard would double the required reads: once to judge it and again to act on it. Those checks therefore run at the top of the method, and what comes back depends on the shape of the call. A single read throws an explanatory error that travels over the `lmz.call()` response. A transaction catches that same error per operation and reports one entry per refused resource — the finer answer a guard could not have given, and the reason the client hears about every refusal rather than only the first. `PermissionDeniedError` from the data plane is what you meet either way: thrown, or as the entry it becomes.
 
 ## The data plane
 
@@ -252,7 +252,7 @@ Everything else it owns has its own section: sessions and their cookies, members
 
 A Profile holds two categories of data, public and private, and nothing in between. There is no orgTree inside a Profile and no acl structure of its own.
 
-Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, no reach, and no relationship between reader and subject is consulted, and the read touches no Registry data.
+Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, no reach, and no relationship between reader and subject is consulted. The read touches no Registry data.
 
 A Profile is not a web resource. There is no HTTPS endpoint for one — no route and no `fetch()` handler — so it cannot be curled, crawled, or linked to from outside. The only way in is a mesh call on an already-authenticated connection.
 
@@ -268,13 +268,13 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-There is an array of superusers determined by an environment variable that has superuser permission over everything, which is the equivalent of having Registry admin over every Universe — essentially God.
+An environment variable names an array of superusers, who hold permission over everything — the equivalent of having Registry admin over every Universe — essentially God.
 
 ## Impersonation
 
 An admin can act as someone they administer. The token names both people: the top-level `sub` is the person being acted as, and `act.sub` is the admin doing it. The token format allows nesting, but impersonation does not chain — to act as someone else you go back to your original session.
 
-`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence: profile ownership is decided by `act` being *absent* (§ *Profiles*), so anything else that prepended an actor into one would silently strip a person of their own profile. Chains grow on the **record** instead — § *Reading the history*.
+`act` in an **access token** means impersonation and nothing else, and that is an invariant rather than a coincidence: profile ownership is decided by `act` being *absent* (§ *Profiles*), so anything else that prepended an actor into one would silently strip a person of their own profile. Chains grow on the **record** instead — § *Attribution*.
 
 It produces a token but not a session. There is no refresh cookie behind it, which is why ending it means tearing down the client and never calling the logout endpoint — that would spend the cookie of the session that minted it, ending the admin's own.
 
