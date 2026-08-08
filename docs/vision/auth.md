@@ -1,5 +1,6 @@
 ---
-status: Draft — actively edited (2026-08-07)
+status: accepted
+status_dated: 2026-08-07
 working_agreement: |
   Written for TOMORROW. The prose describes the TARGET state in present tense,
   including mechanisms that are not built yet, so nothing here has to be
@@ -160,7 +161,7 @@ That is a limit on who *writes*, not on who *proposes*. Nothing here would stop 
 
 ### Why downward is generous for admins
 
-Downward authority is total. It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
+Downward authority is total ([ADR-015](../adr/015-scope-authority-flows-downward.md), which defines the term: authority is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
 
 That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-scope-authority-flows-downward.md)).
 
@@ -344,19 +345,14 @@ One ordering falls out of that and is worth stating once. A data-plane grant nam
 
 ### Founding a Star
 
-The trickiest, because a Star — like any Durable Object — has no dedicated create operation on Cloudflare's platform. It comes into being the first time it is accessed.
+**Cloudflare has no create operation for a Durable Object.** A Star comes into being the first time it is addressed, placed near whoever addressed it — which is the default you want, since a tenant's data should sit close to the people using it. That makes founding a **sequencing** problem rather than a create step: whoever touches the Star first decides where it lives, and the only person reliably near its users is the founder.
 
-Anyone can claim an unclaimed Star. There is no invitation and no approval step, only Turnstile. That openness is the product, not an oversight.
+So the flow keeps everyone else off the Star until the founder arrives — the Registry most of all, since it is a global singleton sitting wherever it was first touched, and a Star created by a call from it would land beside the Registry rather than beside its founder. Three steps, and only the last one addresses it:
 
-The claim is a single unauthenticated call that validates and then writes atomically: the scope row, an admin membership at the full three-segment id, and a magic link. The validation order is deliberate and each step is a different kind of check — the address must be well formed, the id must be three segments, the slug must not be a reserved environment name like `dev`, the parent Galaxy must already exist, and the slug must be free. Parent-exists is an integrity check rather than an admin gate; nobody is authenticated at this point in the flow.
+1. **The claim writes to the Registry, never to the Star.** A single unauthenticated call, fronted by Turnstile — anyone may claim an unclaimed Star, with no invitation and no approval step, and that openness is the product rather than an oversight. It validates and then writes atomically: the scope row, an admin membership at the full three-segment id, and a magic link. The parent Galaxy must already exist, but that is an integrity check rather than an admin gate; nobody is authenticated at this point in the flow.
+2. **The mailbox proves the person.** The membership is written *unaccepted*, and clicking the emailed link is what marks it accepted and logs them in. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
+3. **The founder's first touch creates and places it.** Now authenticated at exactly that Star, they address it — and that call is what brings the Durable Object into existence, near them. The Star writes them an `admin` grant on its root node.
 
-Nothing is granted until the person proves the mailbox. The claim writes the membership unaccepted, and clicking the emailed link is what marks it accepted and logs them in. If that link is lost or expires, re-claiming the same slug from the same address re-sends it. A different address gets a conflict.
+An admin from further up never takes that grant by arriving first — the Star writes it only for an admin whose scope is exactly that Star. They already reach everything through the bypass (§ *The data plane*), so a grant would buy them nothing and leave a durable one behind that nobody asked for.
 
-The Data-plane grant comes last and comes from the Star itself. The first time an admin whose scope is exactly that Star touches it, the Star writes them an `admin` grant on its root node. An admin from further up reaches everything through the bypass and deliberately does not take that grant by arriving first — otherwise a support visit would leave a durable grant behind that nobody asked for.
-
-## Working notes — delete this section when this doc gets its home
-
-Edits this document has caused elsewhere, to process once its own wording settles. **Only items triggered by "this doc stopped changing" belong here.** Anything a *build* makes true belongs as a phase criterion in the task file doing that build — two owners for one edit means it fires twice or not at all.
-
-- **Sweep "authority" out of ADR-015 and ADR-016.** Judged unclear on 2026-08-06 and removed from this doc; both ADRs still use it as core vocabulary. Each site needs its own rewording rather than a mechanical replace, which is exactly why it waits for the phrasing here to settle. Class (c) per `docs/adr/README.md` — wording, decision unmoved, no supersession needed even for an Accepted one.
-- **Pick a home for this document, and decide whether to split it.** `CLAUDE.md` scopes `docs/vision/*.md` to product strategy plus the `/review-task` product lens. The overview fits that; the rest has become a system explainer synthesizing ADR-008, 012, 013, 015 and 016 into one narrative — a job no surface in the repo currently has. Candidate split: overview stays in vision, remainder moves to an internal `docs/` home. Whatever it gets, it needs a discovery path — an unindexed explainer is one nobody loads.
+Placement is the second reason to stay away, and there it is **a bet rather than a check**: a support visit is a first touch like any other, and nothing would refuse the call. What holds it is the sequencing above — until the founder clicks their link, nothing addresses the Star at all.

@@ -1,3 +1,8 @@
+---
+status: draft
+status_dated: 2026-06-21
+---
+
 # Nebula Enterprise Strategy — the Intrapreneur Expansion
 
 > The enterprise play is the **expansion, not a second strategy**: same product, same secure-by-default wedge, different buyer, a later clock. Read [`strategy.md`](strategy.md) first — this doc only adds the enterprise-specific depth.

@@ -1,3 +1,8 @@
+---
+status: draft
+status_dated: 2026-06-21
+---
+
 # Nebula Product Strategy
 
 > **Nebula is where domain experts build secure SaaS apps — and get paid.**
@@ -66,7 +71,7 @@ Each of these is pinned as an **Architecture Decision Record** — a short writt
 
 **Secure *and* agentic — one claim, not two.** That last rung — the agentic one — is the one Nebula closes by construction. Every app ships with a chat that lets end users query their own data in natural language, and the same ReBAC/DAG substrate that secures the app governs what that chat can read, so it answers only from data the user already has access to. Everyone else bolts AI on after the fact and the model sees more than the user should; here, an AI that **can never read what the asking user can't read** is the default, not a hardening project. (State the claim exactly that way — it is the bounded, defensible one. Prompt injection can still misuse data *within* the user's legitimate scope; what the substrate guarantees is that the blast radius of any such attack is capped at what that user could already see. "An AI that can't leak," unqualified, is an absolute a CISO-grade reviewer will break.)
 
-**Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)), turning the security boundary from a wall into a governed, auditable membrane. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
+**Least-privilege without the quality tax.** The obvious objection — if the AI only sees what the user may see, aren't its answers worse than one that sees everything? — has two answers. First, DAG-based ReBAC makes the user's *legitimate* reach precise rather than coarse: they automatically get everything their relationships entitle them to, so the model rarely lacks data it should have had. Second, when an answer would be materially better with data the user *can't* yet see, the system doesn't silently degrade — it routes a just-in-time access request to whoever holds that grant authority up the org tree (the [access-request flow](enterprise.md)). The security boundary stops being a dead end and becomes a junction: the refusal arrives naming the person who can lift it, and the track onward gets laid as soon as they say yes. Secure-by-default and best-answer stop being a tradeoff — which is the part competitors with no real access model can't follow.
 
 ### Independent corroboration — YC's Fall 2026 RFS (added 2026-07-31)
 

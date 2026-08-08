@@ -21,7 +21,7 @@ For both, the guiding principles are quality and great LLM DX. Prioritize clear 
 | `.claude/rules/calibration.md` | **known training biases and their corrections** — not conventions |
 | `.claude/skills/*/SKILL.md` | multi-step procedures, loaded when invoked |
 | `docs/adr/*.md` | repo-shaping commitments (full text in `/review-task`; one-liners always) |
-| `docs/vision/*.md` | product strategy + the `/review-task` product lens |
+| `docs/vision/*.md` | product strategy, **and** durable prose on how the product works; `/review-task` reads them and weights each by its frontmatter `status` (`docs/vision/_review-lens.md` § *Status convention*) |
 | agent memory | durable facts about the user, project, and past decisions |
 | JSDoc + code comments | local invariants, contracts, and warnings at the site |
 

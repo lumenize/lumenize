@@ -1,3 +1,8 @@
+---
+status: rough draft
+status_dated: 2026-08-07
+---
+
 # AI Security — Reversibility, Attribution, and the Feedback Loop
 
 > **You cannot inspect your way to a secure agent.** Behaviour that is generated fresh at runtime cannot be
@@ -8,7 +13,7 @@
 | | |
 |---|---|
 | **Status** | Draft as of 2026-08-07, from a source artifact of 2026-08-06 (§ *Appendix*). ⚠️ **Unlike [`auth.md`](auth.md), most of this describes work NOT YET BUILT.** Per-claim build status is in § *What backs the position, and what does not yet* — read that table before citing anything here as a property of the system. |
-| **Audience** | **Internal — `_`-prefixed per [`_review-lens.md`](_review-lens.md), so the pitch/leave-behind process ignores this file** (decided 2026-08-07). It still feeds the `/review-task` product lens, which is its main job: use it on any task touching Studio's agent loop, chat/Message Resources, attribution records, or the AI surface generated apps ship. ⚠️ The argument here **does** have an external expression — the interview in § *Appendix* and the blog draft cited in § *This argument was settled twice already* — but those are the surfaces that go out, written for it. Nothing in this file is pitch-ready as written; see § *Claim discipline* for which lines break on contact. |
+| **Audience** | **Internal — `_`-prefixed per [`_review-lens.md`](_review-lens.md), so the pitch/leave-behind process ignores this file** (decided 2026-08-07). It still feeds the `/review-task` product lens — as every `docs/vision/*.md` with a `status:` field now does ([`_review-lens.md`](_review-lens.md) § *Status convention*) — which is its main job: use it on any task touching Studio's agent loop, chat/Message Resources, attribution records, or the AI surface generated apps ship. ⚠️ At `rough draft` it is **never a blocker**: a conflict between this file and a task means *this file* needs to catch up. ⚠️ The argument here **does** have an external expression — the interview in § *Appendix* and the blog draft cited in § *This argument was settled twice already* — but those are the surfaces that go out, written for it. Nothing in this file is pitch-ready as written; see § *Claim discipline* for which lines break on contact. |
 | **Relationship** | Sibling of [`strategy.md`](strategy.md), which owns the security **wedge** and its claim discipline; where the two conflict, `strategy.md` wins. Depends on [`auth.md`](auth.md) for who-may-do-what, and joins [`self-improving-platform.md`](self-improving-platform.md) at attribution — the same primitive both need (§ *One primitive, two payoffs*). |
 
 ---
@@ -457,6 +462,72 @@ adds is the two commitments that keep it true *after* an answer exists:
 
 Both are level-agnostic. A generated app's chat and Studio's chat get them from the same substrate.
 
+## A worked scenario — why the refusal is structural
+
+The cast, one Galaxy deep:
+
+- **Jennifer** is Universe admin of `gigi`, and creates the app `gigi.kaizen`.
+- **Austen** is invited as a UX designer: a plain member of `gigi.kaizen`, and `scopeAdmin` over
+  `gigi.kaizen.dev` so she can experiment in the workspace Star. She has no authority over any
+  tenant Star.
+- The app launches and acquires tenants.
+
+Austen opens Studio and asks a question that requires reading across all of them:
+
+> **Austen:** @Nebula, I'm building a feature that expands on our zorch feature. When the feature is used it creates one or more `zorch`
+> Resources. What percentage of users active in the last week have
+> ever created one? And what percentage of tenants have any user who has?
+>
+> **Nebula:** I tried, and I don't have permission — I act as you, and you don't have access to
+> tenant data. I can ask someone who does. Jennifer is the nearest. Shall I (a) ping her here, or
+> (b) email her?
+>
+> **Austen:** (a)
+>
+> **Nebula:** @Jennifer — do you want me to (a) answer Austen's two questions, (b) grant Austen
+> admin over `gigi.kaizen` permanently, so she can keep asking (note: that is read **and** write
+> **and** admin over every Star in the app), (c) the same grant, expiring after a period you choose, of (d) none of the above?
+>
+> **Jennifer:** (a)
+>
+> **Nebula:** 5% of weekly-active users have created a zorch. 2% of tenants have any user who has.
+
+Had Jennifer picked (b) or (c), the answer would have been identical — Austen could simply have kept asking.
+
+**The refusal is not a policy the model could be talked out of.** Nebula holds no authority of its
+own; it acts as the person who prompted it, and the query carries *that person's* reach
+([`auth.md`](auth.md) § *When Nebula is the actor*). There is no phrasing, no jailbreak and no
+system-prompt edit that makes Austen's token reach a tenant Star, because the check never consults
+the model at all. Standing guidance that merely *discourages* the answer would be a lock a
+sufficiently clever prompt picks; this is a lock with no keyhole on the model's side.
+
+**The escalation is the same primitive, pointed up the tree.** Nebula does not invent an approval
+flow: it fires the ordinary request-access climb to the nearest ancestor holding `admin`
+(`tasks/nebula-request-access.md`), which is resolvable client-side precisely because the org tree
+and its grants are universally visible ([ADR-008](../adr/008-full-org-tree-visibility.md)). Nothing
+is auto-granted. A human with the authority decides, and options (b) and (c) are grants like any
+other — with (c) time-boxed, which is the option most reviewers forget exists.
+
+**This is not a Studio feature.** Every app built on Nebula ships an AI chat by default, over the
+same substrate, so a tenant's own end user asking their own too-broad question meets the identical
+wall and the identical offer to route it upward. Level 2 and level 3 differ in who is asking, not
+in what stops them (§ *Three places AI runs*).
+
+⇒ **The security boundary is a junction, not a dead end** — a refusal that arrives with the name of
+the person who can lift it, and a one-click path to asking them. `strategy.md` § *Least-privilege
+without the quality tax* is where this claim is made in the abstract; this is what it looks like
+from inside. The reason it can be laid quickly is that the track and the switch are the same
+mechanism the app already runs on: a grant on a DAG node, requested by a climb the client computes
+locally.
+
+> ⏳ **Designed, not built.** The *refusal* is real today — Austen's query fails the data-plane check
+> because her token cannot reach those Stars. Everything after it is design: the request-access
+> notify/approve transport is unspecced, AI-initiated elevation is explicitly post-demo in its own
+> task file, the time-boxed grant in option (c) has no mechanism yet, and Nebula does not yet appear
+> as an actor on the resulting records (`auth.md` § *When Nebula is the actor*). Read this as the
+> target, not a demo script.
+
+---
 ---
 
 ## Claim discipline

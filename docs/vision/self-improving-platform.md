@@ -1,3 +1,8 @@
+---
+status: draft
+status_dated: 2026-07-05
+---
+
 # Nebula as a Self-Improving Platform — the Compounding Moat
 
 > **Every app built on Nebula makes the next one better.** The platform's generation, defaults, and security posture compound from real-world outcomes — a self-improving *system* (not a self-improving *model*), and a moat competitors structurally can't copy. **Committed in direction, gated in timing, not day-one.**
