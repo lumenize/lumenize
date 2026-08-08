@@ -318,17 +318,21 @@ Two inversions are tempting and both are wrong. Giving the agent its own login w
 
 > **Today's code differs.** Nothing prepends Nebula yet, so every `act` chain in a record comes from impersonation alone.
 
-### Reading the history
+### Attribution
 
-Two kinds of record. Every Resource write records who made it, and because history is the substrate rather than a feature ([ADR-004](../adr/004-snodgrass-temporal-resources.md)), that record cannot be destroyed by a later write. Every action that changes who can do what, removes state, or establishes a session records the acting token — the subject, the whole actor chain, and the `access` it asserted — into a durable sink of its own.
+An attribution record answers two questions.
 
-A record's actor chain can run deeper than any access token's, since the platform names itself here as well (§ *When Nebula is the actor*).
+- **Identity** — *who acted* — is the acting principal: the subject, the `access` that token asserted, and the **actor chain** (`act` in the JWT) when an admin and/or Nebula acts on the subject's behalf.
+- **Topology** — *through what path* — is `callChain`, the `[origin, …, caller]` list of mesh nodes a call travelled, extended automatically at each hop so provenance is never something a caller threads by hand. Naming who acted without how they reached the node is half an answer, so both belong in what gets written.
 
-One interface reads both and shows each person only what their scope entitles them to see, so "what changed, when, and by whom" is an ordinary query rather than a forensic exercise. What still has to be captured alongside these records is [`_ai-security.md`](_ai-security.md) § *Attribution*.
+Two kinds of action write an attribution record, and **the same function builds both** — no site assembles its own fields — so the two cannot drift apart ([ADR-016](../adr/016-record-the-acting-principal.md)).
 
-> **Today's code differs.** Only the Resource half is durable and queryable. The acting-token records go to the debug log — retained for a window rather than forever, and readable by nobody filtered to their own scope. Those records already carry what such a view needs, so the work is the sink and the viewer, not a change to what gets written.
+- **A Resource write** adds what changed and when. A Resource is a sequence of snapshots and the record rides every one of them: a write **closes the current snapshot and opens a new one** rather than overwriting, committed history is immutable, and even a delete is itself a snapshot transition ([ADR-004](../adr/004-snodgrass-temporal-resources.md)). No later write can erase it, because none of them destroys anything.
+- **An action that changes who can do what, removes state, or establishes a session** writes its record to a durable sink of its own.
 
-`callChain` is the one thing travelling with a call that decides nothing. It is the list of mesh nodes the call has passed through — `[origin, …, caller]`, extended automatically at each hop — so where the claims answer *who*, it answers *through what path*. It is provenance, and it could not safely be more: **only its first element is verified.** The Gateway stamps the origin from the verified connection and preserves whatever the client supplied beyond it; everything appended further down is framework-stamped. It sits in this section because a record of what happened will want it, not because anything reads it to decide.
+APIs and UIs allow the querying and inspection of both. These records are access controlled so they only show each person what their scope entitles them to see.
+
+> **Today's code differs.** Neither half is readable as history. Resource snapshots are durable, but every read path returns the current one only — prior versions accumulate with no way to retrieve them and no query surface over them. Their attribution is also narrower than the above: the subject and the actor chain, without `profileId` or the asserted `access`. The acting-token records go to the debug log — retained for a window rather than forever, and readable by nobody filtered to their own scope. And topology is written down nowhere at all; `callChain` survives only for the duration of a call. So identity already rides both records and most of the remaining work is the sink, the reader and the viewer — but the path is a genuine addition. We do not yet meet the full vision of [`_ai-security.md`](_ai-security.md) § *Attribution*.
 
 ## Grants
 
