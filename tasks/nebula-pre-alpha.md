@@ -1,6 +1,6 @@
 # Nebula — Pre-alpha (master plan)
 
-**Status (2026-07-29):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04 — the mesh continuation-only refactor + `callAsync`, reactive chat-as-Resources-subscriptions, and the DevContainer stuck-flag fix are live there. ⚠️ **Everything since is UNDEPLOYED and prod is far behind `pre-alpha`** — the auth foundation (surrogate `sub`), the profile store + Profile DO, the `/live` harness on real email login, the `access.scopeAdmin` confinement, open Star self-signup (`claim-star`), `/mint-narrower-token`, and the DO-`exports`/toolchain upgrade have all landed green and all wait on the **single batched wipe+redeploy gate** below. That batching is deliberate (one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until it fires. **Paused-next = F&F invites**, gated on the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** (capture-live, consent UI, preview-survives-redeploys). Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md). (`callAsync` itself ✅ done + archived → [archive/mesh-client-callasync.md](archive/mesh-client-callasync.md).)
+**Status (2026-07-29):** prod `nebula.lumenize.com` is **still at `ada3f31`**, deployed 2026-07-04 — the mesh continuation-only refactor + `callAsync`, reactive chat-as-Resources-subscriptions, and the DevContainer stuck-flag fix are live there. ⚠️ **Everything since is UNDEPLOYED and prod is far behind `pre-alpha`** — the auth foundation (surrogate `sub`), the profile store + Profile DO, the `/live` harness on real email login, the `access.scopeAdmin` confinement, open Star self-signup (`claim-star`), `/mint-narrower-token`, and the DO-`exports`/toolchain upgrade have all landed green and all wait on the **single batched wipe+redeploy gate** below. That batching is deliberate (one CF-dashboard worker-delete + redeploy, not two), so **do not read prod as evidence of current behaviour** — and F&F invites stay paused until it fires. **Paused-next = F&F invites**, gated on the ⚠️ items under **[Remaining → Invite-gated](#invite-gated-needed-before-the-first-ff-invite)** (capture-live, consent UI, preview-survives-redeploys, login-prove-then-choose). Sole open mesh threads = the `callAsync`-inventory follow-ups — `#pendingTurns` (chat) homed in [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md); `#pendingSubscribes` + the m6 abort-commit for-docs proof in [backlog.md](backlog.md). (`callAsync` itself ✅ done + archived → [archive/mesh-client-callasync.md](archive/mesh-client-callasync.md).)
 
 **This is the living master plan** — the plan at design-detail **plus** accumulated learnings. Child task files are written **ONE AT A TIME**; on completion their nuggets are extracted **up into this file** and the child is **archived** (never left in `tasks/`, never pre-created as a stub — we lost hours to stale stubs before the demo). See [[feedback_task_file_one_at_a_time]].
 
@@ -50,6 +50,12 @@ The remaining provisioning / capture / inspection work builds on these:
     A single `/live` scenario answers it, per `live.md` (drive the running system rather than infer from the
     code). **Do that before assuming this block is whole**; if it turns up gaps, that is when a child task
     file earns its existence, and not before.
+    - ✅ **The discover → select-the-platform-scope half turned up a gap and is now owned** (2026-08-09): the
+      platform membership is minted *by* the request for a platform-scoped link, so before a superuser's
+      first login discovery returns nothing and the front door offers them a Universe claim. Owned by
+      [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) — its § *Open questions* also
+      carries how the platform entry is presented once it does appear. **The impersonate half remains
+      undriven**, so the `/live` scenario above is still owed.
 - **Impersonation core** — `POST {prefix}/mint-narrower-token` (RFC-8693 `act.sub`, recursive chain,
   `actorsAuthorized`, audited). NEW piece still needed = **synthetic-subject provisioning**.
 - **Enumerate-all-users** — `NebulaAuthRegistry` (singleton DO; global email→scope index; `discover` /
@@ -119,6 +125,19 @@ The remaining provisioning / capture / inspection work builds on these:
   this is the human consent *moment*, so it must ship **before the first non-Larry user is invited** (Larry
   owns + accepts responsibility; pre-invite he's the only subject). *(It's "Phase 4" in the frozen archived
   consent file [`archive/nebula-consent-flag.md`](archive/nebula-consent-flag.md) — named descriptively here.)*
+  ⚠️ **The screen it renders on is being re-ordered** — see the login gate below; the claim/slug-pick prompt
+  moves behind the magic-link click, so build the two together or this notice ships into a flow that no
+  longer exists.
+- ⚠️ **GATE — login: prove the mailbox, then choose the workspace (NOT built).** Studio calls `discover(email)`
+  **before** anyone proves anything, and three costs fall out of that one ordering: an address with more than
+  one membership hits a dead end (the UI logs that a picker is a later feature), a new user spends **two**
+  emails to claim a Universe on the open self-signup path, and any caller can ask which scopes an address
+  belongs to and administers — narrowing the response does not close it, because at Galaxy/Universe tiers
+  membership *is* admin-ship and at the reserved `nebula-platform` scope it *is* superuser-ship. The target
+  re-orders to: one scope-less link → the click proves the mailbox → *then* the scopes come back and you
+  choose one. Every pre-alpha user meets this screen first, which is why it lands before invites (Larry,
+  2026-08-09). → design intent, decisions, and three open questions:
+  **[nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)** § *The target*.
 - ⚠️ **GATE — preview survives redeploys (NOT built; found live on prod 2026-07-04).** Every pre-alpha redeploy re-rolls the DevContainer application (ANY container-config change restarts instances — e.g. the `instance_type` sync `standard`→`standard-1` applied on the 07-04 deploy), so each deploy **cold-boots every active preview**, and a cold boot reverts the container disk to the baked image (Flow 1c). Observed for `larry.2026-07-01-larry-1.dev` right after the 07-04 redeploy: the preview stuck on the **"Waking your preview…"** interstitial that **does NOT self-heal on a plain cold boot** — `wakingPreviewPage`'s `autoRecover` is gated on the stuck-`running`-flag signature (`isStuckFlagResponse`) ONLY, so a normal cold boot shows a **manual-only Reload button that feels dead** for the minutes the boot takes; and once the container came up it served the **baked default** (`App.vue` = "Your app is warming up…", `appVersion:""`) — the user's generated app was **gone until a new codegen turn re-pushed it**. **We redeploy a lot during pre-alpha, so every F&F user's live preview breaks after every deploy and does not come back on its own → must be seamless before/right-after inviting.** Candidate directions (pin at `/review-task`, do NOT pre-pin): **(a)** the waking page **bounded-auto-polls the cold-boot case too** (with backoff), not just the stuck-flag case, so a legit boot self-heals with no clicking; **(b)** **auto-restore on preview-open** — DevStudio holds the durable source (git `Workspace`), so a cold-booted container should be re-pushed on preview-open/return (Flow 1c) **without** requiring a new codegen turn (the existing app returns by itself); **(c)** **deploy pre-warms** the known-active containers (or re-pushes) so users never hit a cold preview post-deploy; **(d)** a codegen push onto an **unavailable** container must **surface/retry visibly**, never silently land on the baked placeholder with `appVersion:""`. Direct follow-on to the wakeup fix (`tasks/archive/nebula-container-wakeup-fix.md`, same `dev-container.ts` preview/waking-page path): that fix handled the RARE stuck-`running` race; this is the **common** post-redeploy/idle cold-boot UX it explicitly deferred.
   - **Acceptance / verify (the bar for "confident"):** after a **container-re-rolling** redeploy (or a >5m idle), the preview **self-heals to the running app within ~60s with zero manual clicks.** Checkable with a post-deploy probe that polls `GET /dev-container/{scope}/` and classifies the body — `Waking your preview` = stuck/cold, `warming up` = baked default (source not re-pushed), `nebula-scope` meta = app serving. ⚠️ **Repro is conditional:** a pure worker-code redeploy that leaves the container image/config unchanged may NOT re-roll the container (preview stays warm), so to actually exercise this, deploy a container-touching change (or let it idle >5m) first.
 
@@ -183,16 +202,22 @@ re-deriving here. *(The first two surfaced from typed-error work, 2026-08-06.)*
   **Split into three on 2026-08-05, by dependency rather than topic:**
   **(a)** the invite MECHANISM — [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md), buildable
   now, no collapse dependency: per-invitee `scopeAdmin`, the minted `sub` in the response, a client method.
-  It names no collaborator. **(b)** the COLLABORATOR —
-  [nebula-collaborator-tiers.md](nebula-collaborator-tiers.md), trigger fired 2026-08-05,
-  **gated on the collapse** (it needs `write@Galaxy-root`, and the Galaxy is not a `DagTree` host until
-  the collapse makes it one). **(c)** the SYNTHETIC subjects — below, still unowned.
+  It names no collaborator. **(b)** the COLLABORATOR — ⏸️ **ON HOLD and OUT of pre-alpha
+  (2026-08-09, Larry)**, [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md).
+  Its design mixes the **Registry domain and the mesh domain** — the registry structurally cannot
+  pre-stage a DAG grant, Nebula structurally cannot mint a membership — and that is worth not thinking
+  hard about until after pre-alpha unless forced. **Pre-alpha pays for the pause with training or a code
+  workaround** for its handful of users; the interim shape is the Galaxy-admin-via-bypass enrollment
+  [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) already carries, which is
+  broader than the bundle and deliberately so. ⚠️ **The collapse gate still holds and is not why it
+  paused** — resuming is a scheduling call, first consumer being `docs/vision/enterprise.md`
+  § *The invitation is the land motion*. **(c)** the SYNTHETIC subjects — below, still unowned.
   🔄 **A pinned decision was reversed here (2026-08-05):** `collaborator = admin at the invited scope`
   (pinned 2026-07-19) is retired. It was not the narrowest thing that worked — an exact-star invite at
   `{u}.{g}.dev` reaches that Star and nothing else and needs zero grant machinery — and shipping a
   named-but-wrong collaborator would cost more in re-reading than it saved (`workflow.md` § *unlearning
-  tax*). Reasoning lives in (b)'s § *Why this exists*.
-  ⚠️ **(a) and (b) have task files. (c) is NEEDED and UNOWNED** — called out here so it stops being a
+  tax*). Reasoning lives in (b)'s § *Decisions*, first row.
+  ⚠️ **(a) has a task file and (b) has one on hold. (c) is NEEDED and UNOWNED** — called out here so it stops being a
   clause inside someone else's bullet. Neither invite path exercises a data-plane permission model: (a)
   mints a membership and (b) grants a bundle, but both are people with mailboxes. For a Star to be
   exercised it needs **non-admin members driven under test**, and the pre-alpha answer is **synthetic

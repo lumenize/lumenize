@@ -94,7 +94,7 @@ This is not an audit-trail improvement. The env-var path leaves a git commit *an
 ### Future state
 
 - **The per-entry envelope is the extension point.** A named role later replaces the boolean (`{ email, role }`) with no second reshape of the envelope.
-- **The returned `sub` is what makes an orchestrator possible.** A Nebula-side endpoint that invites a person *and* pre-stages their data-plane grants needs a handle on the identity the registry just minted; that is [nebula-collaborator-tiers.md](nebula-collaborator-tiers.md), and this is the field it consumes.
+- **The returned `sub` is what makes an orchestrator possible.** A Nebula-side endpoint that invites a person *and* pre-stages their data-plane grants needs a handle on the identity the registry just minted; that is [nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md), and this is the field it consumes.
 - **F&F invites ride the same `/invite`** ([nebula-pre-alpha.md](nebula-pre-alpha.md) § Invite-gated), flag omitted.
 - ⚠️ **Design consideration:** a demote endpoint is a thin admin-gated wrapper over `setIdentityAdmin(sub, false, callerClaims)`, which already converges KV and already records its acting principal. Shape and a last-super-admin guard are pinned in [backlog.md](backlog.md) § Nebula Auth. This task must not foreclose it; it also must not build it.
 
@@ -155,7 +155,7 @@ The cases are distinguished by **whether the address is already known**, and the
 Three concerns moved out of this file on 2026-08-05. Each was here for historical reasons, none of them dependency.
 
 - **Profile-DO conformance to the ADR-012 acceptance gate** → [nebula-profile-accepted-membership-gate.md](nebula-profile-accepted-membership-gate.md). It lives in `profile.ts`, not on the invite path, and never shared anything with this work but a file. Next up after this one.
-- **The collaborator — a person granted less than a scope admin** → [nebula-collaborator-tiers.md](nebula-collaborator-tiers.md), resumed 2026-08-05. Post-collapse: it needs the Galaxy to be a `DagTree` host, which the collapse creates. This file is its substrate, not its competitor — the orchestrator consumes the `sub` returned above.
+- **The collaborator — a person granted less than a scope admin** → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md). Resumed 2026-08-05, then ⏸️ **paused and taken out of pre-alpha 2026-08-09** — it mixes the Registry and mesh domains, which is post-pre-alpha work; the collapse gate it also carries is not why. This file is its substrate, not its competitor, and **that is unaffected by the pause** — the orchestrator consumes the `sub` returned above whenever it resumes, so nothing here waits on it.
 - **The `ui-smoke` `.dev`-login test debt** → [backlog.md](backlog.md) § Testing & Quality, which already holds the verified analysis and two candidate unblocks. It was never blocked on anything here: the lane needs a `.dev` login, and the invite-into-`.dev` premise fails for an unrelated reason (`delete-scope.test.ts` acts at galaxy tier, so `createGalaxy`'s `#hasAdminOverUniverse` gate rejects the exact-star pattern a `.dev` invite yields).
 
 Also out of scope, and staying out:
