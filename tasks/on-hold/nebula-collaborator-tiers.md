@@ -6,7 +6,7 @@
 
 ⚠️ **The gate is unchanged and is NOT what paused this** — it still needs the collapse to make the Galaxy a `DagTree` host. Resuming is a scheduling decision, not a dependency one: when the collapse has landed *and* an external-launch consumer exists ([`docs/vision/enterprise.md`](../../docs/vision/enterprise.md) § *The invitation is the land motion* is the first), this comes back. ⚠️ Its vocabulary predates [nebula-reach-from-scope.md](../nebula-reach-from-scope.md) in at least three places (the ADR-015 constraint bullet, the first acceptance criterion, § *Two memberships*); that file's sweep criterion now names this path explicitly, so do not assume a clean grep means clean prose.
 
-> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order.
+> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** ⚠️ **Paused before Stage 1, so no review has run on this file at all.** On resume the path is `/review-task` **Stage 1** → resolve and edit → write phases → **Stage 2**; § *Acceptance criteria* is Pass-2 input, saying what must be true and deliberately not in what order. **Re-read § *Context and current state* against disk first** — its claims were verified 2026-08-05 and the pause is open-ended.
 
 **Objective — an admin can invite someone who gets exactly the access they need and no more.** Concretely: a person who can work on the app and test it, without authority over the tenant Stars beneath it, and without the ability to invite others or manage the app.
 
@@ -14,12 +14,12 @@
 
 **Built already:**
 
-- **The invite mechanism** — per-invitee `isAdmin`, and the minted `sub` returned in the response ([nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md)). Step 3 below consumes that `sub`; there is no other address→`sub` path.
 - **The scope-admin bypass** — `hasAdminOverScope(access, <this node's instance name>)` short-circuits `requirePermission` on the node it runs in, so a scope admin needs no DAG grant. Confined per ADR-015.
 - **DAG grants** — `Permissions(nodeId, sub, permission)` over `'admin' | 'write' | 'read'`, resolved by climbing every ancestor path and taking the highest grant found (`getEffectivePermission`).
 
 **Missing:**
 
+0. **The invite mechanism itself** — per-invitee admin bit, and the minted `sub` in the response ([nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md), **not built; buildable now**). Step 3 below consumes that `sub`, and there is no other address→`sub` path. ⚠️ This bullet used to sit under *Built already*, which was simply false — that file is the thing that builds it. Numbered `0` because the three below are append-only handles.
 1. **A permission surface on the Galaxy.** ✅ **Checkable claim:** `DagTree` is composed by `star.ts` and `dev-studio.ts` only (verified 2026-08-05) — so `write@Galaxy-root` cannot be granted, because there is no Galaxy orgTree to grant on. [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) creates it. **This is what gates the file.**
 2. **A carrier for grants chosen at invite time.** An invite mints a membership; nothing carries the inviter's per-node choices from the invite to the moment the invitee first arrives.
 3. **An orchestrating endpoint.** Nothing applies a membership and a grant bundle as one bounded, validated operation.
@@ -54,9 +54,9 @@ The inviter's UI composes a JSON payload of `(node, tier)` grants; **auth carrie
 - **Apply:** grants land **Nebula-side**, pre-staged at issue time. The generic primitive both flows share is *a pending grant recorded Nebula-side, keyed by `sub`, applied idempotently at first touch* — only the authorizer differs (invite = the inviting admin's bounded choice; self-signup = the scope's policy).
 - **Cleanup:** piggybacks on the single-use invite token — the `DELETE FROM InviteTokens` on accept also deletes `Contexts[hash]`; `INVITE_TTL` is the backstop.
 
-### Two memberships, two sessions — and the over-reach is gone
+### Two memberships, two sessions
 
-✅ **Resolved 2026-08-05 by [nebula-reach-from-scope.md](../nebula-reach-from-scope.md), which lands first.** Once reach is `isAdmin ∧ scope-at-or-above`, a non-admin has **no downward reach at all**, so the collaborator cannot knock on a tenant Star even to be denied there. The residual this section used to describe — a Galaxy collaborator necessarily over-reaching into every tenant Star, filed as a disclosure question to decide — **stops existing rather than getting answered.**
+Once reach is `scopeAdmin ∧ scope-at-or-above` ([nebula-reach-from-scope.md](../nebula-reach-from-scope.md), which lands first), a non-admin has **no downward reach at all**, so a collaborator cannot knock on a tenant Star even to be denied there. There is no over-reach to disclose or decide about.
 
 What remains is a shape, not a problem: a collaborator holds **one membership per scope she works in** — `{u}.{g}` for the app, `{u}.{g}.dev` for testing — and therefore one session each. A JWT carries `access: AccessEntry`, one entry per token, so this was always going to be two sessions; what changes is that the alternative is no longer a wider pattern.
 
