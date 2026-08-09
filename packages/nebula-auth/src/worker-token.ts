@@ -445,7 +445,7 @@ export async function handleInvite(
  *     subject's `admin` bit, the subject's reach, bounded to the requested `activeScope`.
  *
  *  ⇒ Therefore no minted token can exceed the caller. Eligibility has already placed the subject's
- *  entire scope inside the caller's authority, so the mirror faithfulness produces can only ever be
+ *  entire scope inside the caller's dominion, so the mirror faithfulness produces can only ever be
  *  narrower than the caller's own token. **Escalation-safety is a consequence of the two rules, not a
  *  third property to maintain separately.** Faithfulness is the property the use case needs: mirroring
  *  the subject's `admin` bit is what puts `resolvePermission` back in the decision, so an admin can
@@ -511,7 +511,7 @@ export async function mintNarrowerToken(
 
   // The ADMIN branch is the only surviving mint path (the AuthorizedActor path is cut).
   //
-  // ⚠️ **This gate is NOT the authority check** — the bare `admin` bit is never authority by itself
+  // ⚠️ **This gate is NOT the dominion check** — the bare `admin` bit is never dominion by itself
   // (ADR-015 §2); eligibility below is. It stays for three narrow reasons, none of them subsumable:
   //   (a) ORDERING — it fires BEFORE the registry read, so a non-admin never reaches the
   //       subject-existence check and cannot probe which `sub`s exist;
@@ -547,7 +547,7 @@ export async function mintNarrowerToken(
 
   // ── (2) FAITHFULNESS — the scope mirror ──────────────────────────────────────────────────────────
   // `activeScope` must also sit within the SUBJECT's own reach, so the token is a mirror of that
-  // person rather than merely something inside the caller's authority. Without it, a subject scoped at
+  // person rather than merely something inside the caller's dominion. Without it, a subject scoped at
   // `{u}.{g}.{s1}` would get a token admin over all of `{u}.{g}` — not an escalation (eligibility
   // already bounded it), but not that person's access either, which is the property the use case needs.
   const subjectPattern = buildAuthScopePattern(subjectIdentity.universeGalaxyStarId);

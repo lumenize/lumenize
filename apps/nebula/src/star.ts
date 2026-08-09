@@ -120,7 +120,7 @@ export class Star extends NebulaDO {
    * grant — and because the KV flag is one-shot with no re-seed path, that Star's climb would
    * terminate at the covering admin **forever**, routing its tenants' access requests away from their
    * own Star admin. Requiring the pattern to equal this Star's id makes the grant follow ownership
-   * rather than arrival order. This costs the covering admin nothing: ADR-015 keeps their authority
+   * rather than arrival order. This costs the covering admin nothing: ADR-015 keeps their dominion
    * total via the bypass — only climb *discoverability* is at stake.
    *
    * ⚠️ A Star with no star-scoped admin (`createStar` mints no identity — the `.dev` workspace) simply

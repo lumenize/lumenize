@@ -154,9 +154,9 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
 }
 
 /**
- * **The single admin-authority predicate**: is this access claim admin *over `scope`*?
+ * **The single dominion predicate**: is this access claim admin *over `scope`*?
  *
- * `admin` alone is never authority — it is only authority over what the claim's
+ * `admin` alone is never dominion — it is only dominion over what the claim's
  * `authScopePattern` actually covers. Every guard that consults `access.scopeAdmin` must ask this
  * question about the node it is running in, or an admin of a child scope acts as admin on its
  * ancestors (the tenant branch of `enforceScopeReach` admits exactly those callers).

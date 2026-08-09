@@ -6,7 +6,7 @@
  * `POST /auth/{scope}/refresh-token` and must come back **401** from the running Worker.
  *
  * ⚠️ **Fidelity is the reason, and the in-lane arm is not deficient — it is blind to a different
- * thing.** `packages/nebula-auth/test/identity-authority.test.ts` asserts what no client can see:
+ * thing.** `packages/nebula-auth/test/identity-mint-point.test.ts` asserts what no client can see:
  * that no `RefreshTokenIndex` row and no `refresh:{tokenHash}` key survives. That is the invariant,
  * and it must stay in-lane. But miniflare's KV is strongly consistent, so an in-lane 401 proves the
  * record is gone from a store that behaves unlike production. This proves a session a real browser

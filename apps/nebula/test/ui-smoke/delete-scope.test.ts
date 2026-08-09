@@ -115,7 +115,7 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   // admin at the invited scope) — that file carries the acceptance criterion for this deferral.
   // The registry-level equivalent IS covered today: `nebula-auth-registry.test.ts`
   // "warning: another user on the target is reported, and the delete still succeeds" +
-  // `identity-authority.test.ts` "a genuinely shared scope is deleted, not refused".
+  // `identity-mint-point.test.ts` "a genuinely shared scope is deleted, not refused".
   it.skip('deletes a scope WITH another user attached, showing the bounded warning', async () => {
     // Invite a second user into `target`, then assert: the confirm screen shows
     // "Warning — 1 other user will lose access: {target} (peer@…)", the Delete button is still

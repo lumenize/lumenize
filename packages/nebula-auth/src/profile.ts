@@ -251,7 +251,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // and ADR-012 licenses it explicitly. Under impersonation the token carries the SUBJECT's
     // `profileId`, so without this clause the admin driving it would own that person's profile:
     // writing their public fields and reading their `privateNotes`. What licenses the exception is
-    // *global*: a profile sits outside the scope tree, and scope authority over one can be
+    // *global*: a profile sits outside the scope tree, and dominion over one can be
     // MANUFACTURED (claim a Universe, invite any address), so a manufactured scope contains nothing
     // of the victim's except this global object.
     //
@@ -277,13 +277,13 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // so a thrown registry error would arrive shapeless — deny rather than trust it).
     //
     // ⚠️ **WHAT MAKES THIS BRANCH SAFE IS NOT HERE — it is the ACCEPTED-membership predicate inside
-    // `getScopesForProfile`.** Ungated, this authority is MANUFACTURABLE: Universe self-signup is open
+    // `getScopesForProfile`.** Ungated, this dominion is MANUFACTURABLE: Universe self-signup is open
     // by design and an invite mints the membership immediately, so anyone could claim a Universe,
     // invite an address they guessed, and become "an admin of a scope that stranger's profile
     // touches" — over a *global* object. Only memberships the person actually took up count, and the
     // accepted marker is written solely by the login verify path, which requires consuming a link
     // delivered to the mailbox. See ADR-012, and the manufacture test in `nebula-auth`'s
-    // `identity-authority.test.ts`, which reds if the predicate is dropped.
+    // `identity-mint-point.test.ts`, which reds if the predicate is dropped.
     //
     // ⚠️ So: do NOT "optimize" the registry call into a plain `profileId → scopes` lookup, and do not
     // widen this branch to unaccepted memberships. Two residuals are accepted deliberately in ADR-012
@@ -292,7 +292,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     //
     // ⚠️ `!claims.act` on branch (1) does NOT fence impersonation out of the profile — an admin
     // impersonating someone with an accepted membership in a covered scope arrives HERE, by their own
-    // authority. That follows from impersonation meaning what it says; it is not a gap in (1).
+    // dominion. That follows from impersonation meaning what it says; it is not a gap in (1).
     let scopes: string[];
     try {
       // Marker: the ONLY place a Profile authz check reads the registry (the read-counter the

@@ -76,7 +76,7 @@ export interface NebulaAccessClaimInput {
  *
  * ⚠️ **`aud` ⊆ pattern is NOT the property the guards need.** The old `dag-tree.ts` comment
  * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
- * only that the caller's ACTIVE SCOPE sits inside their authority. The guards ask a different
+ * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
  * question: does the pattern cover **the callee node**? `enforceScopeReach`'s tenant branch
  * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
  * gap between them was the escalation. See tasks/nebula-confine-admin-bypass.md.

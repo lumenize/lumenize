@@ -173,7 +173,7 @@ export class DagTree {
     // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
     //
     // ⚠️ Confined to THIS host (`hasAdminOverScope`), never the bare `access.scopeAdmin` bit. The bit
-    // alone is not authority: `enforceScopeReach`'s tenant branch deliberately admits a caller
+    // alone is not dominion: `enforceScopeReach`'s tenant branch deliberately admits a caller
     // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` inside the admin's authScopePattern" — true, but it establishes

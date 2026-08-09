@@ -13,7 +13,7 @@
  *
  * ⚠️ **Why this exists when two in-lane tests already cover it.** They cover it on **stacked
  * fixtures** — `profile-do.test.ts` hand-`INSERT`s the registry rows (`seedIdentity`) *and* mints a
- * synthetic token (`createNebulaTestToken`, ADR-009 rung 3), while `identity-authority.test.ts`
+ * synthetic token (`createNebulaTestToken`, ADR-009 rung 3), while `identity-mint-point.test.ts`
  * asserts at the registry level rather than on the refusal a caller actually receives. Neither proves
  * an attacker is refused; they prove a hand-built approximation of one is.
  *

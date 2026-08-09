@@ -161,9 +161,9 @@ That is a limit on who *writes*, not on who *proposes*. Nothing here would stop 
 
 ### Why downward is generous for admins
 
-Downward authority is total ([ADR-015](../adr/015-scope-authority-flows-downward.md), which defines the term: authority is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
+Downward dominion is total ([ADR-015](../adr/015-dominion-flows-downward.md), which defines the term: dominion is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
 
-That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-scope-authority-flows-downward.md)).
+That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-dominion-flows-downward.md)).
 
 What that totality means for user data — a bypass over a Star's whole permission tree, with no grant ever written — is discussed more in § *The data plane*.
 
@@ -195,14 +195,14 @@ Permissions trickle down the orgTree. To alter a Resource's value, or create one
 
 The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse: an admin of the scope a data-plane entity lives in gets a bypass over that entity's whole orgTree — full read, write and admin, with no grant ever written. That is § *Why downward is generous for admins* arriving where user data lives. A Star's own admin does not depend on it: founding a Star writes a real `admin` grant on that Star's root node. The two are independent in the other direction too — someone granted `admin` on a Star's root node holds no Registry standing at all, so they grant and revoke freely anywhere in that orgTree and still cannot invite anyone into the scope, create a sibling, or delete anything at the Registry level.
 
-Getting in and holding authority are different questions, and the bypass answers the second. It asks whether the caller's authority covers *this node*, never whether the bit is set. Same admin bit, two directions:
+Passage and dominion are different questions, and the bypass answers the second. It asks whether the caller's dominion covers *this node*, never whether the bit is set. Same admin bit, two directions:
 
 | `authScope` | `scopeAdmin` | Node reached | Bypass there |
 |---|---|---|---|
-| `u.g` | yes | `u.g.dev` | **yes** — the node sits inside their authority |
-| `u.g.dev` | yes | `u.g` | **no** — their authority sits below the node |
+| `u.g` | yes | `u.g.dev` | **yes** — the node sits inside their dominion |
+| `u.g.dev` | yes | `u.g` | **no** — their dominion sits below the node |
 
-Both callers get *in*: upward reach is free (§ *Coarse-grained access control*), so the second row's admin legitimately lands inside `u.g`. Only the first holds authority once there. A guard reading the bare bit would grant both, turning an admin of a child into an admin of its parent — exactly the upward authority the model forbids.
+Both callers get *in* — passage upward is free (§ *Coarse-grained access control*), so the second row's admin legitimately lands inside `u.g`. Only the first holds dominion once there. A guard reading the bare bit would grant both, turning an admin of a child into an admin of its parent — exactly the upward dominion the model forbids.
 
 The comment that once defended that bare check was true on its own terms: the bit is only minted with an `aud` inside the admin's own scope. But that says where the **caller** sits, not where **this node** sits, and the second is the question being asked.
 

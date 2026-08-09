@@ -5,7 +5,7 @@
  * reddens it. tasks/nebula-profile-store.md Phase 1.
  *
  * Grounding: rung 2 (test-mode issuance) through the real Worker → registry → KV → JWT-mint paths
- * (ADR-009) — the same vehicle as identity-authority.test.ts. `foundUniverse`/`inviteAndLogin` mint
+ * (ADR-009) — the same vehicle as identity-mint-point.test.ts. `foundUniverse`/`inviteAndLogin` mint
  * real identities; `refreshAndParse` returns the parsed minted JWT so we assert the claim end-to-end.
  */
 import { describe, it, expect } from 'vitest';

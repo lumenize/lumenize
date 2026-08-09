@@ -29,9 +29,9 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * Used with @mesh(requireAdmin) on subclass methods.
  *
  * Orthogonal to onBeforeCall's tenant boundary: onBeforeCall decides *which tenant* may call
- * (admission), `requireAdmin` decides *whether the caller holds admin authority here*.
+ * (admission), `requireAdmin` decides *whether the caller holds dominion here*.
  *
- * ⚠️ **The bare `access.scopeAdmin` bit is NOT authority** — it is authority only over what the
+ * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
  * caller's `authScopePattern` covers. `enforceScopeReach`'s tenant branch deliberately admits a
  * caller whose `aud` sits *below* this node (a member of a child may reach its parent), so a bare
  * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
@@ -81,12 +81,12 @@ export function requireAdmin(instance: HasCallContext) {
  * Accepts a mesh call iff EITHER:
  * - **higher-admin reach** — the caller is an `access.scopeAdmin` whose
  *   `authScopePattern` covers this node's instance name (one admin identity
- *   reaches everything in its authority, no per-target `aud` re-mint); OR
+ *   reaches everything in its dominion, no per-target `aud` re-mint); OR
  * - **tenant boundary** — the call's active scope (`aud`) is covered by the scope
  *   encoded in the instance name (the original check; all a non-admin ever uses).
  *
  * The reach clause is **gated on `access.scopeAdmin`**: pattern-coverage alone is not
- * authority, so a non-admin with a wildcard pattern keeps today's aud-narrowed
+ * dominion, so a non-admin with a wildcard pattern keeps today's aud-narrowed
  * behavior exactly (a descendant it doesn't actively scope to is rejected).
  *
  * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
@@ -118,7 +118,7 @@ export function enforceScopeReach(
   // fail closed rather than swallow. Before the reach clause for the same reason.
   const pattern = buildAuthScopePattern(name);
 
-  // Higher-admin reach (gated on access.scopeAdmin — pattern-coverage is NOT authority).
+  // Higher-admin reach (gated on access.scopeAdmin — pattern-coverage is NOT dominion).
   // Delegates to the ONE shared predicate (ADR-007); its body is exactly the inline form this
   // previously hand-rolled, truthiness guard included.
   if (hasAdminOverScope(claims?.access, name)) {
@@ -140,7 +140,7 @@ export function enforceScopeReach(
  *
  * onBeforeCall() enforces **structural** scope reach via the shared
  * {@link enforceScopeReach} helper (composed, not reimplemented — ADR-007). A
- * mesh call is accepted iff the caller is an `access.scopeAdmin` whose authority
+ * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
  * covers this DO's **instance name** (higher-admin reach), OR its JWT `aud`
  * (active scope) is covered by the scope encoded in that name (the tenant
  * boundary; the non-admin path). The name is run through `buildAuthScopePattern`
@@ -162,7 +162,7 @@ export class NebulaDO extends LumenizeDO {
    * `Star.resetDevData`, which wipes then RE-INITS to keep the live `.dev` sandbox usable:
    * teardown does not re-init, because the node is being removed from existence, not reset.
    *
-   * `@mesh(requireAdmin)` + `onBeforeCall`'s scope-reach gate it — only an admin whose authority
+   * `@mesh(requireAdmin)` + `onBeforeCall`'s scope-reach gate it — only an admin whose dominion
    * covers this instance can fire it (the same wall as every other admin mutator; not in the
    * non-admin frozen surface). `deleteAll()` is the sanctioned async-storage exception (no sync
    * variant); it clears the entire private store (SQL + KV + alarms). `blockConcurrencyWhile`

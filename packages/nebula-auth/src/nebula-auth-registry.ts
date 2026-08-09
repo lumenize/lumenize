@@ -17,7 +17,7 @@
  *   refresh-token lifecycle. The Worker generates the raw refresh token (cookie) and passes only its
  *   hash; this DO writes the index + KV.
  *
- * Identity authority: `sub` is minted ONLY at authority points — Universe/Star claim + invite
+ * Identity minting: `sub` is minted ONLY at mint points — Universe/Star claim + invite
  * issuance. Login **verify** (`getAndVerifyIdentity`) find-and-flips an EXISTING identity and REJECTS
  * if none, so a minted token proves authorized membership by construction (the retired `adminApproved`
  * gate).
@@ -73,7 +73,7 @@ export interface ScopeDeletionPlan {
   /** The cascade set: target + descendants, wipe order. Deletion cascades DOWN only. */
   affected: AffectedScope[];
   /**
-   * Who else is attached — a **warning, never a refusal**. Authority flows downward (ADR-015): a
+   * Who else is attached — a **warning, never a refusal**. Dominion flows downward (ADR-015): a
    * covering admin may delete any descendant, and restraint is the UI's job, not authorization's.
    */
   affectedUsers: ScopeDeletionAffectedUsers;
@@ -182,11 +182,11 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   // ============================================
-  // Identity authority — mint (authority points) + verify (find-and-flip)
+  // Identity minting — mint (mint points) + verify (find-and-flip)
   // ============================================
 
   /**
-   * MINT a membership in a scope — an **authority-point-only** operation (Universe/Star claim + invite
+   * MINT a membership in a scope — an **mint-point-only** operation (Universe/Star claim + invite
    * issuance). Returns the surrogate `sub`. NEVER call from a login path.
    *
    * Find-or-create at BOTH levels, so it is idempotent twice over: an address that already exists keeps
@@ -357,7 +357,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * and each address several scopes, so this can return many.
    *
    * ⚠️ **ONLY ACCEPTED memberships count — `acceptedAt IS NOT NULL` is load-bearing AUTHZ here, not a
-   * tidy-up.** Without it, scope authority over a profile can be MANUFACTURED, and a profile is a
+   * tidy-up.** Without it, dominion over a profile can be MANUFACTURED, and a profile is a
    * *global* object: claim a Universe (unauthenticated, Turnstile only) → invite any address you can
    * guess → you now "administer a scope that profile touches" → the Profile DO's scoped-admin branch
    * hands you write on their public fields and read/write on their private ones. `acceptedAt` is
@@ -368,8 +368,8 @@ export class NebulaAuthRegistry extends DurableObject {
    * ⚠️ **Do NOT swap this predicate for `Emails.emailVerified`.** They are not interchangeable: the
    * address is proved once and globally, so `emailVerified` would count every scope a person was ever
    * *invited* into once they had proved the mailbox anywhere — which is exactly the manufactured
-   * authority this guard exists to refuse. See ADR-012, and the manufacture test in
-   * `identity-authority.test.ts`, which reds if the predicate is dropped or swapped.
+   * dominion this guard exists to refuse. See ADR-012, and the manufacture test in
+   * `identity-mint-point.test.ts`, which reds if the predicate is dropped or swapped.
    *
    * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
    * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors), so the
@@ -428,7 +428,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row (with
    * data-use consent opt-IN), MINTS the claiming admin `Identity` (`scopeAdmin=1`, `emailVerified=0` — the
    * claimer still proves via the magic link, which find-and-flips `emailVerified`), and issues a
-   * magic link. An authority point — this is where a Universe's first admin identity is minted.
+   * magic link. An mint point — this is where a Universe's first admin identity is minted.
    *
    * ⚠️ Self-signup idempotency (mints the scope itself, so `UNIQUE(email,scope)` can't backstop a
    * double-submit) is deferred for pre-alpha — §Founder / Phase-1 success criteria (m6).
@@ -467,7 +467,7 @@ export class NebulaAuthRegistry extends DurableObject {
         });
         throw err;
       }
-      // MINT the claiming admin identity (authority point). A bootstrap email founding `nebula-platform` is
+      // MINT the claiming admin identity (mint point). A bootstrap email founding `nebula-platform` is
       // the reserved platform-admin path — same scopeAdmin stamp, distinguished only by the reserved slug.
       this.#mintIdentity(email, slug, /* scopeAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, slug, link.expiresAt);
@@ -479,10 +479,10 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * **Open Star self-signup** — a stranger becomes the star-scoped admin of a Star inside someone else's Galaxy,
-   * with no admin in the loop. An AUTHORITY POINT: this is where a Star's star-scoped admin identity is minted.
+   * with no admin in the loop. An MINT POINT: this is where a Star's star-scoped admin identity is minted.
    *
    * That openness is the product, not a defect to engineer away. A star-scoped admin holds an **exact-star**
-   * `authScopePattern`, which `hasAdminOverScope` makes inert at every ancestor (ADR-015: authority
+   * `authScopePattern`, which `hasAdminOverScope` makes inert at every ancestor (ADR-015: dominion
    * flows strictly downward), so a squatter gains a slug and nothing else — and a covering admin can
    * delete the squatted Star. **Do not add an approval step, invite code, or per-Galaxy on/off switch.**
    *
@@ -672,7 +672,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * surface a galaxy you just created; this reads `Scopes` directly. Flat list; the client nests by id.
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
-    // ✅ SELF-CONFINING — the bare bit is safe here because it is not the authority decision; the
+    // ✅ SELF-CONFINING — the bare bit is safe here because it is not the dominion decision; the
     // QUERY is. Every branch below is BOUNDED BY `authScopePattern`, so the result set can never
     // exceed the caller's own reach no matter what `admin` says: the `*` branch selects every scope
     // (correct — `*` reach IS every scope), and the other two bind `${prefix}` / `${pattern}`
@@ -709,7 +709,7 @@ export class NebulaAuthRegistry extends DurableObject {
     // The Worker validates the email format before this RPC (Workers RPC drops custom Error props, so
     // client-error gates stay Worker-side) — here we just normalize + create the row.
     const lc = normalizeEmail(email);
-    // Bootstrap authority point (the ONLY email-magic-link mint): a configured bootstrap email at the
+    // Bootstrap mint point (the ONLY email-magic-link mint): a configured bootstrap email at the
     // reserved `nebula-platform` scope is minted platform-admin (idempotent) so it can log in and get a
     // `*` token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
     // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
@@ -807,7 +807,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * Issue invites into an EXISTING scope. **Admin-gating is the Worker's job** (it verified the JWT +
    * scope + `admin` before calling — RPC drops custom Error props, so this method stays throw-free for
    * expected client errors). For each email: MINT the invitee `Identity` (`scopeAdmin=0`,
-   * `emailVerified=0` — an authority point, pre-creating the "authorized member" row that
+   * `emailVerified=0` — an mint point, pre-creating the "authorized member" row that
    * `getAndVerifyIdentity` will later find-and-flip) and insert a single-use `InviteTokens` row
    * (HASHED), then send the invite email. In test mode the raw links are returned instead of sent.
    */
@@ -825,7 +825,7 @@ export class NebulaAuthRegistry extends DurableObject {
         continue;
       }
       try {
-        // Pre-create the invitee identity (idempotent on (email, scope)) — the authority point.
+        // Pre-create the invitee identity (idempotent on (email, scope)) — the mint point.
         this.#mintIdentity(email, universeGalaxyStarId, /* scopeAdmin */ false);
 
         const rawToken = generateRandomString(32);
@@ -1099,7 +1099,7 @@ export class NebulaAuthRegistry extends DurableObject {
   async executeScopeDeletion(
     target: string, callerSub: string, callerAccess: AccessEntry, callerClaims: NebulaJwtPayload,
   ): Promise<{ affected: AffectedScope[] }> {
-    // No `scope_in_use` refusal: authority flows downward (ADR-015), so a covering admin may delete any
+    // No `scope_in_use` refusal: dominion flows downward (ADR-015), so a covering admin may delete any
     // descendant regardless of who else is attached. `affectedUsers` is a UI warning, never a gate.
     const plan = this.#computeDeletionPlan(target, callerSub, callerAccess);
 
