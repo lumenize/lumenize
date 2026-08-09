@@ -21,7 +21,7 @@
 
 Denormalization follows ADR-010's replication rule: the immutable handle may be denormalized **only where it self-heals or is permanently frozen** — two cases, both licensed, and nothing else:
 
-- **Self-healing:** the JWT and the KV refresh record carry the *bearer's own* `profileId` (ephemeral, re-minted on refresh; a re-point mutates it and joins `isAdmin`'s convergence re-put).
+- **Self-healing:** the JWT and the KV refresh record carry the *bearer's own* `profileId` (ephemeral, re-minted on refresh; a re-point mutates it and joins `scopeAdmin`'s convergence re-put).
 - **Write-time-pinned and permanently immutable:** `profileId` MAY be stamped on a snapshot's **attribution metadata**, captured from the writer's verified JWT claim at write time. ⚠️ **HARD INVARIANT: the stamped value NEVER changes.** It is history, not a cache — a future unification re-point does **not** re-point historical snapshots, so each record keeps the handle its author held at write time. There is therefore no staleness and no re-key: the immutability that makes a *mutable* copy dangerous is here the point. It stays **display-only**, never read as a key, FK, or authz input. (Motivated by resolving a **departed** author's display name, which the roster cache cannot cover because it holds only active subscribers.) Live resolution remains the path for the *current* name: an active participant's name still updates off the roster/Profile subscription, while the stamp answers only "who authored this, at the time".
 
 ⚠️ **authZ scope-sets are resolved live, never stored** — a stored scope-set goes stale on a re-point or a scope teardown, and stale authz is a security bug.
