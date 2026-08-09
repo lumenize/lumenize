@@ -96,6 +96,17 @@ export class LumenizeAuth extends DurableObject {
     return [...new Set(raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean))];
   }
   get #inviteTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_INVITE_TTL) || 604800; }
+  /**
+   * The FIRST of two required test-mode factors, and never sufficient alone: every gate also
+   * requires a per-request `?_test=true`, so a leaked binding on a deployed Worker can only reach
+   * requests that deliberately opted in.
+   *
+   * ⚠️ Do not collapse a call site to this getter by itself, and do not add a helper that folds
+   * both factors behind one name — either turns a two-factor gate into a one-factor gate silently.
+   * The second factor is this package's only line of defence, because the binding alone is exactly
+   * what the sibling `nebula-auth` registry gates on (its decision happens inside a DO reached by
+   * RPC, with no request URL to read), and a leak there reaches ordinary traffic.
+   */
   get #isTestMode(): boolean { return (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true'; }
 
   /**

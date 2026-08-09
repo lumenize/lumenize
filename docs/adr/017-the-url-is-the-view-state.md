@@ -34,7 +34,7 @@ The test, when it is unclear: **would the sender be surprised that the recipient
 | **Component-local state only** (status quo) | Cheapest to write and it never fails for the author — which is exactly the defect. The breakage is only visible to the person who receives the link, so it is never caught by the person who caused it. This is the state that produced the `activeScope` bug. |
 | **`localStorage` / `sessionStorage` restore** | Solves a different problem — *your own* reload — and does nothing for sharing. Worse, it actively **hides** the defect: your scope survives your refresh, so nobody notices it was never in the URL. Complementary at best; never a substitute. |
 | **Server-side view state behind a share id** | Works, but buys storage, a lifetime, and a garbage-collection question to solve what the URL solves for free — and it inverts the safety story: a share id is a *new* credential to protect, where a plain URL is safe precisely because it grants nothing. |
-| **Put everything in the URL, including drafts and credentials** | Violates the boundary: credentials and personal data must not ride a URL (they leak via logs, referrers, and history — `.claude/rules/security.md` already forbids logging `request.url` for exactly this reason). Unsaved drafts are also not view state; they are unsaved work. |
+| **Put everything in the URL, including drafts and credentials** | Violates the boundary: credentials and personal data must not ride a URL (they leak via logs, referrers, and history — `.claude/rules/critical.md` already forbids logging `request.url` for exactly this reason). Unsaved drafts are also not view state; they are unsaved work. |
 
 ## Consequences
 
