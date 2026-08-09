@@ -112,7 +112,7 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 ## Coarse-grained access control
 
-> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here. That task has also not yet ratified deciding reach from `authScope` alone, which this section now describes.
+> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
 
 **This layer exists to make lateral movement impossible.** If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node exists to be called. That is the first row of the table below, and it is the case this whole layer is built around. Vertical movement is the part that is allowed, and only in the two specific forms described here.
 
@@ -238,7 +238,9 @@ The last row is the point, not a gap.
 
 The Registry is the single source of truth for who exists, what scopes exist, and who is a member where.
 
-It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. That said, the seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
+It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — your own scope or an ancestor is free, a descendant needs `scopeAdmin` — so there is one reach model, not one per surface.
+
+> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) applies the two rules here as well as at the mesh boundary. That said, the seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
 
 The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
 
@@ -268,7 +270,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable names an array of superusers, who hold permission over everything — the equivalent of having Registry admin over every Universe — essentially God.
+An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds permission over everything — the equivalent of having Registry admin over every Universe — essentially God.
 
 ## Impersonation
 
