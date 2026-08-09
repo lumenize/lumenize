@@ -41,7 +41,7 @@ HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts <scenario>   # stream wrang
 Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
 - **`message-roundtrip`** — API driver: mint a correct-shape token → round-trip a `Message` marker
   (transaction + read + subscribe) → negative controls (base / no-`access` tokens get 403).
-- **`superadmin-reach`** — a `*` super-admin reaches an ungranted scope via the `access.admin` bypass;
+- **`superadmin-reach`** — a `*` super-admin reaches an ungranted scope via the `access.scopeAdmin` bypass;
   a non-admin is denied the same op.
 - **`studio-chat-reload`** — browser driver (real magic-link login): login → chat → reload, capturing
   screenshot + a11y + console/network to `harness/.artifacts/` (before AND after the transition, so an

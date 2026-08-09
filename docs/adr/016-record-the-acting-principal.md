@@ -19,7 +19,7 @@ A separate reflex is to scope the rule to *irreversible* actions. That is a loop
 
 ## Decision
 
-**Every action that destroys or removes state, and every change to a principal's authority, records the FULL verified claims of the acting token** — the authority `sub`, the **complete `act` chain**, `profileId`, and the `access` entry (`authScopePattern` + `admin`) — as a **write-time-pinned, immutable** record.
+**Every action that destroys or removes state, and every change to a principal's authority, records the FULL verified claims of the acting token** — the authority `sub`, the **complete `act` chain**, `profileId`, and the `access` entry (`authScopePattern` + `scopeAdmin`) — as a **write-time-pinned, immutable** record.
 
 - **Reversibility is not an exemption.** The trigger is *destroys/removes state* or *changes authority*, not *cannot be undone*.
 - **The stored `access` entry is what the bearer ASSERTED at that moment.** It is immutable history and **must never be read back as an authz input** — doing so would be a stored-scope-set, which [ADR-013](013-identity-profileid-resolution.md) rejects as a security bug. It answers "what authority was claimed here," never "what authority does this principal have."
