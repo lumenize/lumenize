@@ -212,7 +212,7 @@ The same `client.claims.sub` keying works in script too — the [Forms](#forms-e
 "Admin" has **two** independent sources, and admin-only UI checks both:
 
 - **App admin** — a user holding `admin` on the relevant org-tree node. App-wide admin is `admin` on the root node; per-area admin is `admin` (directly or cascaded) on that area's node. This lives in the reactive tree at `store.lmz.orgTree`, so the UI tracks grants as they change.
-- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.admin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
+- **Scope admin** — a Galaxy- or Universe-level operator, carried in the JWT as `client.claims.access.scopeAdmin`. They have effective admin everywhere in the scope, but — being a scope property, not a node grant — they do **not** appear in the org-tree's `permissions` map (see [the note in Resources](./access-control.md)). So you can't discover them from the tree; you read the claim.
 
 A `computed` that covers both:
 
@@ -222,7 +222,7 @@ import { ROOT_NODE_ID } from '@lumenize/nebula/frontend';
 import { store, client } from './nebula';
 
 const isAppAdmin = computed(() =>
-  client.claims.access.admin ||                                     // Galaxy/Universe scope admin
+  client.claims.access.scopeAdmin ||                                     // Galaxy/Universe scope admin
   store.lmz.orgTree?.value?.permissions
     .get(ROOT_NODE_ID)?.get(client.claims.sub) === 'admin'          // app admin (grant on root)
 );

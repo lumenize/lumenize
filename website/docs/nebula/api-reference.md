@@ -682,18 +682,21 @@ NebulaClient extends [`LumenizeClient`](/docs/mesh/lumenize-client), so `client.
 
 The fields app code relies on (full payload is minted by nebula-auth):
 
-```typescript @skip-check
-interface NebulaJwtPayload {
-  sub: string;        // subject UUID — keys per-user resources and org-tree grants
-  aud: string;        // the active universeGalaxyStarId this token is scoped to
-  email: string;
-  access: {
-    authScopePattern: string;   // scope or wildcard, e.g. "george-solopreneur.*"
-    admin?: boolean;            // true = Galaxy/Universe scope admin; omitted when false
-  };
-  // ...standard JWT claims (iss, exp, iat, jti) plus nebula-auth extras
+```typescript @check-example('packages/nebula-auth/src/types.ts')
+export interface NebulaJwtPayload {
+  iss: string;
+  aud: string;
+  sub: string;
+  exp: number;
+  iat: number;
+  jti: string;
+  access: AccessEntry;
+  profileId?: string;
+  act?: ActClaim;
 }
 ```
+
+`access` carries `authScopePattern` (the scope or wildcard this token reaches, e.g. `"george-solopreneur.*"`) and `scopeAdmin` (`true` for a Galaxy/Universe scope admin, omitted when false). `profileId` is the bearer's own public profile handle; `act` is present only under impersonation.
 
 **Availability contract (pinned).** Under the hood `claims` is `null` until the client's first token refresh completes, and `client` is not Vue-reactive — claims-gated bindings never re-evaluate on their own. Studio-generated apps close this window structurally: the bootstrap top-level-awaits the factory's [`ready`](#createnebulaclient) promise, so **`client.claims` is populated by the time any component renders** — which is exactly what makes the non-null narrowing sound. Code that runs *outside* that contract (admin tools, scripts, anything before `ready`) is the one place the narrowing over-promises: there, treat `claims` as possibly-null and guard with `?.`.
 

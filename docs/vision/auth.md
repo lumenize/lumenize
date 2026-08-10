@@ -270,7 +270,9 @@ The Registry is the single source of truth for who exists, what scopes exist, an
 
 It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) applies the two rules here as well as at the mesh boundary. That said, the seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
+> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) applies the two rules here as well as at the mesh boundary.
+
+The seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
 
 The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
 

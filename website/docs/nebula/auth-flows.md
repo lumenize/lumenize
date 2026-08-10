@@ -294,7 +294,7 @@ sequenceDiagram
 
     rect rgba(200, 240, 200, 0.3)
         Note over DO,M: Layer 4 — Method-level guard
-        Note over M: requireAdmin(instance):<br/>check originAuth.claims.access.admin
+        Note over M: requireAdmin(instance):<br/>check originAuth.claims.access.scopeAdmin
         alt Guard rejects
             M-->>DO: Error: Admin access required
             DO-->>GW: Error propagated
