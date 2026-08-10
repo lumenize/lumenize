@@ -84,7 +84,7 @@ This is not an audit-trail improvement. The env-var path leaves a git commit *an
 
 ### Constraints
 
-- **[ADR-015](../docs/adr/015-dominion-flows-downward.md)** — authority flows downward only; the bare `admin` bit is never authority; restraint is a UI warning, never an authz refusal.
+- **[ADR-015](../docs/adr/015-passage-and-dominion.md)** — authority flows downward only; the bare `admin` bit is never authority; restraint is a UI warning, never an authz refusal.
 - **[ADR-016](../docs/adr/016-record-the-acting-principal.md)** — an authority change records the acting token's full verified claims, through the one shared projection.
 - **[ADR-009](../docs/adr/009-real-auth-path.md)** — assert through a real login where a criterion can.
 - **ADR-001** — validate at the boundary; TypeScript types are the schema.

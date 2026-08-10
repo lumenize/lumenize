@@ -38,7 +38,7 @@ After authentication, calls pass the same layers in the same order, even if in s
 
 1. **Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 2. **The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of. This is where we decide whether that lets you reach into this node at all. It's our coarse-grained access control.
+3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of. This is where we decide whether that grants you *passage* into this node at all. It's our coarse-grained access control.
 4. **`@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
 5. **The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
 6. **Checks at the top of the method.** A guard's only output is refusal — one yes/no for the whole call — so a decision that has to come out finer than that, or that resolves into something other than a *no*, runs inside the method instead, where it can explain itself over the `lmz.call()` response.
@@ -78,6 +78,14 @@ The client asks for it on each refresh and the server confines it to what the se
 
 What it does do is fence the Gateway's **outbound** leg. A call heading out to a client is refused if its `aud` differs from the one that connection presented, so a person's own clients cannot bleed into each other. Since the client picks both sides of that comparison, the fence can only withhold a call — never reach anything new. The Profile is exempt, deliberately: calls out of it carry public fields only, and cross-scope delivery is the point.
 
+The UI has controls for moving between scopes for the people who most often work in more than one — admins and coaches. Someone working in `u.g1` who wants to do some work in `u.g2` picks it from a list of every scope they are a member of, and the URL changes to name it, because the scope you are working in is view state ([ADR-017](../adr/017-the-url-is-the-view-state.md)). Whether the browser makes that a full navigation or a client-side one does not matter: either way the old client is disposed and a new one connects at the new `activeScope`, since a connection carries for its life the one `aud` it presented. They work there until they change it again.
+
+That list is over memberships rather than over what the current token reaches, so it spans sessions — **and a different session is a different cookie, at a different `Path`** (§ *`authScope` (sessions)*). Where the destination is inside the session already open, the move is what this section describes: a new token, a new `aud`, the same cookie. Where it is a different membership, the session changes first, and it is the cookie at *that* scope's `Path` that mints the new token. Those cookies are long-lived and coexist, so an already-open session just works, and only an expired or absent one puts a login in front of it.
+
+Because one person can hold memberships at several addresses, the list is keyed on the **person** — their `profileId` — rather than on any one address (§ *Identity and membership*), and it takes an authenticated caller.
+
+> **Today's code differs.** Switching already disposes the client and rebuilds it at the new `activeScope`, but the URL never changes — the divergence [ADR-017](../adr/017-the-url-is-the-view-state.md) was written against. Neither endpoint behind the picker exists yet either. The only move available is opening a Star within the session already open, and the only person-wide list is `discover`, which is keyed on the email address and unauthenticated — filed as an enumeration oracle in [backlog.md](../../tasks/backlog.md) § *Nebula Auth*, whose fix is the authentication half of what this section describes. The `profileId`-keyed list is not built.
+
 The contrast, at a glance:
 
 | | `authScope` | `activeScope` |
@@ -96,7 +104,7 @@ A whole token, annotated — a Galaxy admin whose client is working in one of th
   "sub": "8f3c…",              // the membership — see § Identity and membership
   "aud": "acme.crm.bigco",     // activeScope — fences calls out to me, grants nothing
   "access": {
-    "authScope": "acme.crm",   // where I am a member — decides reach, no Registry hop
+    "authScope": "acme.crm",   // where I am a member — passage and dominion both read it
     "scopeAdmin": true         // see § Coarse-grained access control
   },
   "profileId": "1a9d…",        // my public profile — see § Profiles
@@ -114,18 +122,40 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 > **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
 
-**This layer exists to make lateral movement impossible.** If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node exists to be called. That is the first row of the table below, and it is the case this whole layer is built around. Vertical movement is the part that is allowed, and only in the two specific forms described here.
+**This layer exists to make lateral movement impossible while allowing certain kinds of vertical movement.** If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node exists to be called. That is the first row of the table below, and it is the case this whole layer is built around. Vertical passage is the part that is allowed, and only in the two specific forms described here.
 
-The `onBeforeCall()` guard sits at the node's outer boundary and decides if the `lmz.call()` should proceed based upon scope information. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
+The `onBeforeCall()` guard sits at the node's outer boundary, and the one question it asks is whether the `lmz.call()` gets **passage** past it — decided from scope information alone. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
 
-The decision compares where you are a member (`authScope`) against the scope of the node being called, and there are exactly two ways in:
+It compares where you are a member (`authScope`) against the scope of the node being called, and there are two ways passage is granted:
 
-- **The node is your own auth scope, or an ancestor of it.** Free; no `scopeAdmin` needed.
-- **The node is a descendant of your auth scope, and `scopeAdmin` is set.** The only way to reach *downward*.
+- **Passage upward is free.** The node is your own auth scope, or an ancestor of it. No `scopeAdmin` needed.
+- **Passage downward takes dominion.** The node is a descendant of your auth scope *and* `scopeAdmin` is set — the pair, never the bit on its own.
 
-In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs `scopeAdmin`**.
+In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs dominion**.
 
-Getting past the boundary is only that. What you can then do is decided by the `@mesh()` guards on the methods the node exposes, by the checks at the top of those methods, and — for anything touching Resources — by the Data-plane's own grants. So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
+*Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them).
+
+Think of `scopeAdmin` at a scope as a title over it — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings and has dominion over everything — § *Superuser seed*.
+
+Two predicates express all of it, and no guard re-derives either ([ADR-007](../adr/007-shared-node-security-core.md)). [ADR-015](../adr/015-passage-and-dominion.md) is the definition home; where it and this section disagree, it wins:
+
+```
+isAtOrAbove(myScope, node)  — my scope covers the node
+isAtOrBelow(myScope, node)  — my scope sits at or beneath the node
+
+dominion(access, node) = access.scopeAdmin ∧ ( isPlatformInstance(access.authScope)
+                                             ∨ isAtOrAbove(access.authScope, node) )
+
+passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
+```
+
+Passage is only getting past the outer border of the node. What you can then do is decided by the "rules" of that node:
+
+-  `@mesh()` guards on the methods the node exposes;
+- the checks at the top of those methods, and;
+- for anything touching Resources, by the Data-plane's own grants. 
+
+So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 
 Seven example calls, all in the same Universe:
 
@@ -141,35 +171,35 @@ Seven example calls, all in the same Universe:
 
 **Lateral** needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so both comparisons simply fail. A sibling Galaxy or another Universe fails identically.
 
-The four rows between it and **Downward** are one rule against different nodes, and none of them needs `scopeAdmin` to get in. What the bit changes there is what you can do *once inside*, and that turns on where it sits relative to the node reading it — which is why the two **Upward, `scopeAdmin`** rows carry the same bit and mean opposite things.
+The four rows between it and **Downward** are one rule against different nodes, and none of them needs `scopeAdmin` to get in — passage is doing all the work. What the bit changes there is what you can do *once inside*, which is the dominion question, and that turns on where the bit sits relative to the node reading it — which is why the two **Upward, `scopeAdmin`** rows carry the same bit and mean opposite things.
 
 The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-Two things sit outside all of this. `nebula-platform` is one reserved scope rather than a place in the hierarchy, so `scopeAdmin` there means everywhere. The Profile is the other, deliberately — § *Profiles*.
+Two things sit outside all of this. `nebula-platform` is one reserved scope rather than a place in the hierarchy, so dominion there covers everywhere — it is the `isPlatformInstance` arm above, needed because no honest hierarchy comparison puts a reserved name over `acme.crm`. The Profile is the other, deliberately — § *Profiles*.
 
 ### Why upward exists
 
-Upward exists so a node can read something the scope above it offers. There is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below.
+Upward passage exists so a node can read something the scope above it offers. There is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below.
 
 A good example is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app reads the whole stack upward.
 
-Reading the stack is free; **writing is where `scopeAdmin` decides**. A Galaxy member evolves that Galaxy's guidance and nothing above it. When a retro turns up something that would help every app in the organization, lifting it to the Universe layer takes `scopeAdmin` there, so a Universe admin is the one who makes that edit. That is the product improving itself recursively — the same loop we run on this repo.
+Reading the stack is free; **writing is where dominion decides**. Passage carried the Galaxy member up to the Universe's guidance and gave them nothing there, which is the whole distinction in one sentence. A Galaxy member evolves that Galaxy's guidance and nothing above it. When a retro turns up something that would help every app in the organization, lifting it to the Universe layer takes dominion over the Universe, so a Universe admin is the one who makes that edit. That is the product improving itself recursively — the same loop we run on this repo.
 
 That is a limit on who *writes*, not on who *proposes*. Nothing here would stop a feature that lets that Galaxy member suggest a Universe-level change and routes it for attention over email.
 
-> **Today's code differs.** The guidance hierarchy is not built. Upward reach works, but nothing yet stores, reads, or writes standing guidance at any of the three levels, so it has no consumer in the running system.
+> **Today's code differs.** The guidance hierarchy is not built. Upward passage works, but nothing yet stores, reads, or writes standing guidance at any of the three levels, so it has no consumer in the running system.
 
 ### Why downward is generous for admins
 
-Downward dominion is total ([ADR-015](../adr/015-dominion-flows-downward.md), which defines the term: dominion is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
+Downward dominion is total ([ADR-015](../adr/015-passage-and-dominion.md), which defines the term: dominion is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
 
-That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-dominion-flows-downward.md)).
+That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-passage-and-dominion.md)).
 
 What that totality means for user data — a bypass over a Star's whole permission tree, with no grant ever written — is discussed more in § *The data plane*.
 
 ## Inside the node
 
-Getting past a node's outer boundary means a call will be accepted. Three things still stand between it and any state.
+Passage means the call is accepted at the node's outer boundary. Three things still stand between it and any state.
 
 Only methods decorated with `@mesh` are callable over `lmz.call()` at all. Everything else on the node — its storage, its helpers, its private methods — is unreachable from outside, so the node's callable surface is exactly what it chose to publish and nothing more.
 
@@ -238,7 +268,7 @@ The last row is the point, not a gap.
 
 The Registry is the single source of truth for who exists, what scopes exist, and who is a member where.
 
-It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — your own scope or an ancestor is free, a descendant needs `scopeAdmin` — so there is one reach model, not one per surface.
+It sits outside the mesh, so rather than `lmz.call()`, HTTP REST endpoints are used for login and other needs. Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
 > **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) applies the two rules here as well as at the mesh boundary. That said, the seam is unusually clean: everything discussed above runs off the token. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
 
@@ -250,11 +280,11 @@ Everything else it owns has its own section: sessions and their cookies, members
 
 ## Profiles
 
-**It is best not to think of a Profile as a full mesh node.** It participates in the mesh and uses its code and conventions, but its coarse-grained access control is intentionally different: it is the one place where lateral movement is the *point*. The same person works in several applications in one Universe; coaches and contract workers are invited into different organizations entirely. Some will want a distinct persona in each, but most do not want to re-type their name and upload their picture again for every one. So a Profile is reachable sideways, by design, and the rules above do not apply to it.
+**It is best not to think of a Profile as a full mesh node.** It participates in the mesh and uses its code and conventions, but its coarse-grained access control is intentionally different: it is the one place where lateral passage is the *point*. The same person works in several applications in one Universe; coaches and contract workers are invited into different organizations entirely. Some will want a distinct persona in each, but most do not want to re-type their name and upload their picture again for every one. So a Profile is reachable sideways, by design, and the rules above do not apply to it.
 
 A Profile holds two categories of data, public and private, and nothing in between. There is no orgTree inside a Profile and no acl structure of its own.
 
-Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, no reach, and no relationship between reader and subject is consulted. The read touches no Registry data.
+Public data includes name, nickname, and picture. It is open to every Nebula client. Reading it takes an authenticated connection and the `profileId`, and nothing else — no scope, no membership, and no relationship between reader and subject is consulted. The read touches no Registry data.
 
 A Profile is not a web resource. There is no HTTPS endpoint for one — no route and no `fetch()` handler — so it cannot be curled, crawled, or linked to from outside. The only way in is a mesh call on an already-authenticated connection.
 
@@ -270,7 +300,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds permission over everything — the equivalent of having Registry admin over every Universe — essentially God.
+An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry admin over every Universe — essentially God. That is the `isPlatformInstance` arm of dominion (§ *Coarse-grained access control*), and it is why the arm exists: `nebula-platform` is not a place in the scope tree, so nothing about being at-or-above would ever reach it.
 
 ## Impersonation
 
@@ -285,7 +315,7 @@ Two rules, pointing opposite ways:
 - Authorization reads the subject and never the actor. Otherwise the admin carries their own power into the user's seat and never sees what that user sees.
 - The record names both. A record carrying only the subject names the person acted upon as the person who acted, which is worse than no record because it will be believed.
 
-It is never an escalation. You can only act as someone whose scope you already fully administer, and the token mirrors that person's access rather than your own.
+It is never an escalation. You can only act as someone whose scope your dominion already covers, and the token mirrors that person's access rather than your own.
 
 Here is that mirroring, in the same shape as the token in § *The access token* above. The admin from that example — `8f3c…`, with profile `1a9d…` — is now acting as one of their tenants:
 
@@ -355,6 +385,6 @@ So the flow keeps everyone else off the Star until the founder arrives — the R
 2. **The mailbox proves the person.** The membership is written *unaccepted*, and clicking the emailed link is what marks it accepted and logs them in. Re-claiming from the same address re-sends the link; a different address gets a conflict, so a pending claim cannot be taken over.
 3. **The founder's first touch creates and places it.** Now authenticated at exactly that Star, they address it — and that call is what brings the Durable Object into existence, near them. The Star writes them an `admin` grant on its root node.
 
-An admin from further up never takes that grant by arriving first — the Star writes it only for an admin whose scope is exactly that Star. They already reach everything through the bypass (§ *The data plane*), so a grant would buy them nothing and leave a durable one behind that nobody asked for.
+An admin from further up never takes that grant by arriving first — the Star writes it only for an admin whose scope is exactly that Star. Their dominion already reaches everything there through the bypass (§ *The data plane*), so a grant would buy them nothing and leave a durable one behind that nobody asked for.
 
 Placement is the second reason to stay away, and there it is **a bet rather than a check**: a support visit is a first touch like any other, and nothing would refuse the call. What holds it is the sequencing above — until the founder clicks their link, nothing addresses the Star at all.
