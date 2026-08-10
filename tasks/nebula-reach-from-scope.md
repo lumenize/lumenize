@@ -1,4 +1,9 @@
-# Reach derives from the scope, not a pattern
+# Passage and dominion, computed from the scope
+
+<!-- Filename kept as nebula-reach-from-scope.md deliberately: it is this file's handle,
+     cited from 16 places, and unlike an ADR there is no number underneath it to survive
+     a rename. The title carries the current vocabulary; the filename is only an address. -->
+
 
 **Status:** Active child, **next in the queue** — ahead of [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md), whose design intent is written entirely in the vocabulary this replaces. Decided with Larry 2026-08-05. Not built, except the `isAdmin` → `scopeAdmin` rename, which landed 2026-08-07 (§ *The target*).
 
@@ -6,7 +11,9 @@
 
 > ✅ **NOT wipe-gated, and that is verified rather than assumed.** `authScopePattern` appears nowhere in `schemas.ts`; the KV refresh record stores `universeGalaxyStarId`; the pattern is re-derived on every token issuance and persisted nowhere. **No stored data changes shape**, so this does not have to race the pre-alpha wipe. It is sequenced early for unlearning cost, not for a window.
 
-**Objective — a token carries the member's scope, and reach is computed from it.** One string, the same one that is in the URL and the `Memberships` row. No second derived string, no wildcard grammar.
+**Objective — a token carries the member's scope; `passage` and `dominion` are computed from it, and every site that needs either calls one of them.** One string, the same one that is in the URL and the `Memberships` row. No second derived string, no wildcard grammar, and no site re-deriving half the model inline.
+
+⚠️ **The second half of that objective is not decoration, and it is what this file was under-scoped on until 2026-08-10.** ADR-007 says one predicate expresses the model and no site re-derives it. Today **nine** sites delegate to `hasAdminOverScope` and **nine more call the containment check directly**, each re-deriving half the conjunction by hand — plus three that compare a claim to a string literal. `passage` does not exist as a callable thing anywhere: `enforceScopeReach` is the only place both arms appear together, and every other surface that needs it either re-implements one arm or skips the question. **That is the defect, and the claim rename is the occasion to fix it — not the whole job.**
 
 ## Context and current state
 
@@ -15,14 +22,40 @@
 - **A derived second string.** `buildAuthScopePattern(instanceName)` turns a member's scope into a pattern at **token** issuance — login and every refresh — and the result goes in the JWT as `access.authScopePattern`. Star tier passes through unchanged; universe and galaxy get `.*` appended; the reserved `nebula-platform` becomes `*`.
 - **A glob matcher.** `matchAccess(pattern, target)` has three branches: `*` matches everything, `prefix.*` matches the prefix itself and anything beneath, otherwise exact string equality.
 - **The dominion predicate.** `hasAdminOverScope(access, scope)` = `access.scopeAdmin && matchAccess(access.authScopePattern, scope)`, delegated to by `requireAdmin`, `requirePermission`'s bypass, and `enforceScopeReach`.
-- **A SECOND enforcement surface, on the registry's HTTP routes.** `router.ts:359` gates every scoped registry route with a bare `matchAccess(payload.access.authScopePattern, instanceName)` and **no `scopeAdmin` conjunction** — so a non-admin at `{u}` passes it for `{u}.{g}.{s}` today. That is `Missing` item 3 again, on the surface this file had not named. ⚠️ **Both the obvious translation and the obvious fix are wrong here:** swapping in a hierarchy predicate keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and adding a bare `scopeAdmin &&` would refuse a non-admin at their **own** scope. The site needs the same *two ways in* the mesh boundary uses.
+- **A SECOND enforcement surface, on the registry's HTTP routes.** `verifyInstanceJwt` ([router.ts](../packages/nebula-auth/src/router.ts), the `matchAccess(payload.access.authScopePattern, instanceName)` gate) is the only scope check every instance-scoped registry route passes through. It is `Missing` item 4.
 - **Two directions, expressed identically.** `enforceScopeReach` grants passage on either (a) *higher-admin reach* — `admin` plus the caller's pattern covers this node — or (c/e) *the tenant boundary* — a pattern built from **this node's own name** covers the caller's `aud`. The second is a child reaching its parent, and it confers no dominion (ADR-015 clause 3).
+
+### Every site that asks the model, by transport
+
+`docs/vision/auth.md` names **two transports** — Workers RPC inside Cloudflare, WebSockets to and from clients — and the Registry is a third path that is not on the mesh at all, reached over HTTP. Enumerated 2026-08-10; **re-run the greps rather than trusting this table**, which is a snapshot of a shape, not an inventory to maintain:
+
+```sh
+grep -rn 'hasAdminOverScope(\|matchAccess(\|isPlatformInstance(' packages/*/src apps/nebula/src --include='*.ts'
+grep -rn "authScopePattern ===\|authScopePattern !==" packages/*/src apps/nebula/src --include='*.ts'
+```
+
+| Transport | Site | Asks for | Today |
+|---|---|---|---|
+| **Mesh, inbound** | `enforceScopeReach` platform reject, `nebula-do.ts` | masquerade guard | ✅ keep, re-justify |
+| | its admin arm | **dominion** | ✅ delegates |
+| | its tenant arm | **passage**, upward | ⚠️ computed from `aud` |
+| | `requireAdmin` | **dominion** | ✅ delegates |
+| **Mesh, outbound** | `NebulaClientGateway.onBeforeCallToClient` | `aud` equality | ✅ neither, deliberately — see § *Constraints* |
+| **HTTP, Registry** | `router.ts` `verifyInstanceJwt` | **passage** | ❌ **neither** — bare containment, no `scopeAdmin` |
+| | `verify.ts` internal-consistency check | token-internal invariant | ✅ keep, re-word |
+| **Token mint** | refresh `activeScope` confine; `/mint-narrower-token` (a),(b),(d) | **dominion** | ⚠️ (d) delegates; the rest re-derive |
+| **Data plane** | `dag-tree.ts` bypass; both subscribe-time verdicts | **dominion** | ✅ delegates |
+| **Registry admin** | `#hasAdminOverScope` + the universe/galaxy helpers | **dominion** | ✅ delegates |
+| **Profile** | scoped-admin branch | **dominion** over a set | ⚠️ re-derives |
+| | super-admin short-circuit | platform | ⚠️ string literal, not `isPlatformInstance` |
+| **Exact identity** | `star.ts` root-admin seed | **neither, deliberately** | ✅ must NOT become hierarchical |
 
 **Missing:**
 
 1. **One fact is carried by two strings.** The scope lives in the URL and in `Memberships.universeGalaxyStarId`; the JWT carries something derived from it that exists nowhere else. A reader must hold the derivation in their head to reconcile the three.
 2. **The two directions look like one mechanism.** Both are glob matches against `buildAuthScopePattern` output. Nothing in the shape of the code says one grants dominion and the other deliberately does not.
-3. **Non-admin downward reach exists and has no consumer.** ✅ **No separate work — it falls out of the upward-branch substitution.** Only that branch reads `aud`; comparing against the member's scope instead refuses `{u}.{g}.{s}` for a non-admin at `{u}` by construction. Keep the behaviour criterion; do not decompose this into its own phase. A non-admin at `{u}` has passage to every Star in the Universe and authorized at none — pure disclosure surface (ADR-008 makes the org tree and presence visible to Star-reachable callers) with no use case behind it.
+3. **Non-admin downward movement exists at the MESH boundary and has no consumer.** ✅ **No separate work *at `enforceScopeReach`*** — only its tenant arm reads `aud`, so computing passage from the member's scope instead refuses `{u}.{g}.{s}` for a non-admin at `{u}` by construction. Keep the behaviour criterion. A non-admin at `{u}` today has passage to every Star in the Universe and dominion over none — pure disclosure surface (ADR-008 makes the org tree and presence visible to Star-reachable callers) with no use case behind it.
+4. **The Registry's HTTP routes compute NEITHER passage nor dominion.** `router.ts` `verifyInstanceJwt` gates every scoped registry route on bare containment with no `scopeAdmin` conjunction, so a non-admin at `{u}` passes it for `{u}.{g}.{s}` — downward movement without the bit, which is by definition neither. ⚠️ **This is separate work from item 3, in a different package, and both obvious fixes are wrong:** a hierarchy predicate keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and a bare `scopeAdmin &&` refuses a non-admin at their **own** scope. The site must compute `passage(access, node)` — the same predicate the mesh boundary computes. That one line replaces both wrong answers, because the definition excludes them.
 
 ## Design intent, constraints, and future state
 
@@ -48,7 +81,18 @@ passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access
 
 ⚠️ **`passage` is the UNION, not the upward arm alone.** An admin at `{u}` calling `{u}.{g}.{s}` has passage *because* they hold dominion there — writing passage as upward-only refuses the whole downward rule, and contradicts every downward criterion below.
 
-⚠️ **`dominion` and `passage` are RESERVED terms — see [ADR-015](../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home.** They replaced `authority` and `admission` on 2026-08-09 because both were general enough to carry four meanings apiece, and the ambiguity had already cost real bugs and repeated task-file churn. The live code symbol `hasAdminOverScope` becomes **`hasDominionOver`** in this work.
+⚠️ **`dominion` and `passage` are RESERVED terms — see [ADR-015](../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home.** They replaced `authority` and `admission` on 2026-08-09 because both were general enough to carry four meanings apiece, and the ambiguity had already cost real bugs and repeated task-file churn.
+
+**The symbols this work pins, so no phase invents one** (three tiers, and the tier decides the naming style — a **structural fact** gets a literal name, a **verdict** gets a reserved word, and **data** keeps its field name):
+
+| Today | Becomes | Tier | Note |
+|---|---|---|---|
+| `matchAccess(pattern, target)` | `isAtOrAbove(myScope, node)` + `isAtOrBelow(myScope, node)` | structural | `Access` in the old name was vestigial — it takes two strings and never sees an `AccessEntry` |
+| `hasAdminOverScope(access, node)` | `hasDominionOver(access, node)` | verdict | already the shared predicate; only the name moves |
+| *(does not exist)* | `hasPassage(access, node)` | verdict | the finding — `enforceScopeReach` computes it inline and nothing else can call it |
+| `enforceScopeReach(name, claims)` | `enforcePassage(name, claims)` | verdict | it computes passage across both arms while carrying `Reach`, the general word § *Constraints* bans below |
+| `isPlatformInstance(id)` | unchanged | structural | already correctly tiered |
+| `access` / `authScope` / `activeScope` / `scopeAdmin` | unchanged | data | always a possessed field, never a bare noun — which is what kept them out of the trouble `authority` got into |
 
 `buildAuthScopePattern` is deleted. `matchAccess`'s glob grammar becomes a hierarchy predicate. The claim becomes **`access.authScope`**, holding the member's scope verbatim.
 
@@ -64,11 +108,14 @@ The predicate therefore needs an explicitly named branch, because `isAtOrAbove('
 
 ⚠️ **This is the change's largest silent-failure surface, and a superuser is the case that breaks.** Today `matchAccess('*', …)` is true, so every site that touches the pattern treats a superuser as reaching everywhere *without knowing it*. Afterwards, any site that does not carry the platform branch stops recognizing them. **The invariant to hold: a superuser is authorized at every scope, may point `aud` at any scope, passes every registry route, and enumerates every scope** — a Universe admin of every Universe, plus the platform-named surfaces.
 
-Enumerate with `grep -rn 'hasAdminOverScope\|matchAccess\|=== .\*.' packages/*/src apps/*/src` and give **every hit a verdict by class**, not by site list:
+Classify every hit from the greps in § *Every site that asks the model* by **which predicate it should end up calling** — four classes, exhaustive by construction, because a site either wants one of the two verdicts, wants a structural fact, or wants neither:
 
-1. **Routes through the dominion predicate** — safe by construction once the branch is in the shared predicate, and the largest class. `requireAdmin` / `enforceScopeReach`'s admin arm, the Data-plane bypass, both subscribe-time confinement points, the mint's eligibility check, and the registry's admin helpers all land here.
-2. **Calls the containment check DIRECTLY, outside the conjunction** — each needs its own verdict, and this is where the regressions live. ⚠️ **[`verify.ts:48`](../packages/nebula-auth/src/verify.ts) is the one to fix first: it is token *verification*, so leaving it unconverted does not degrade a superuser's dominion — it makes a superuser token fail to verify at all.** Same shape at the mint-time `aud` check, the refresh-path `activeScope` check, both `/mint-narrower-token` bounds, and the registry route gate.
-3. **Literal `'*'` comparisons** — the accept-all branch inside `matchAccess`, the Profile super-admin zero-read short-circuit, and `myScopeTree`'s select-every-scope arm. Each becomes `isPlatformInstance(...)`.
+1. **Should call `dominion(access, node)`** — the largest class, and safe by construction once the platform branch lives in the shared predicate. `requireAdmin`, `enforceScopeReach`'s admin arm, the Data-plane bypass, both subscribe-time confinement points, the mint's eligibility check, the registry's admin helpers, and the Profile's scoped-admin branch (which re-derives it over a *set* of scopes and should map over the predicate rather than inline it).
+2. **Should call `passage(access, node)`** — today **nothing does**, which is the finding. `enforceScopeReach` computes it inline across two arms; the registry route gate computes neither half correctly (item 4). Both become callers.
+3. **Wants a structural fact, not a verdict** — `isAtOrAbove` / `isAtOrBelow` / `isPlatformInstance` directly, with **no** `scopeAdmin` in sight because the question is about the tree, not about a principal. ⚠️ **[`verify.ts`](../packages/nebula-auth/src/verify.ts)'s internal-consistency check is the one to convert first: it is token *verification*, so leaving it unconverted does not degrade a superuser's dominion — it makes a superuser token fail to verify at all.** The refresh-path `activeScope` confine and the `'*'` literals (`myScopeTree`'s select-every-scope arm, the Profile super-admin short-circuit) are the same class.
+4. **Wants EXACT IDENTITY, and must never become hierarchical** — `star.ts`'s root-admin seed asks *"is this Star my own scope?"*, not *"does my scope cover it?"*. ⚠️ **A sweeper who "translates" this one hands a Star's root grant to whichever covering admin arrives first, permanently** — the seed latch is one-shot with no re-seed. The new model makes the site *more* honest, since `authScope === instanceName` now literally reads "my scope is this Star". Rename only. The pinned lift in [`on-hold/nebula-dataplane-root-admin.md`](on-hold/nebula-dataplane-root-admin.md) is the same class.
+
+⚠️ **Class 3 is not a lesser class, and the temptation is to fold it into 1 or 2.** A structural fact has no principal in it; wrapping one in a verdict would put a `scopeAdmin` conjunction where none belongs and break token verification for every superuser.
 
 ⚠️ **The mesh boundary keeps its platform-name reject, re-justified.** [nebula-do.ts:113](../apps/nebula/src/nebula-do.ts) refuses every caller at a node *named* `nebula-platform`, and its comment justifies that entirely by the `'*'` collapse this file deletes — but the guard's real reason survives independently: **no node may be reachable by masquerading at the reserved name.** Rewrite the comment; do not remove the branch.
 
@@ -116,10 +163,10 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
   - **(c)** the minted bit is `caller.scopeAdmin && subject.scopeAdmin` — an **intersection**, never either side's copy.
   - **(d)** the subject is a *different* `sub`, and the caller holds dominion over the **subject's** scope.
   ⚠️ **Read (a) or (b) as "within X's *reach*" and a `{u}.{g}` admin impersonating a `{u}.{g}.{s}` subject can mint `activeScope = {u}` — a universe-admin token.** Today only (b) blocks that, and (b) is written entirely over `buildAuthScopePattern`, which this task deletes. `docs/vision/auth.md` § *Impersonation*: impersonation "is never an escalation."
-- ⚠️ **Vocabulary: this file MUST NOT say "reach" for both directions.** Say **passage** for the upward, dominion-free direction and **dominion** for the downward one. The two are separated in § *The target*'s predicate block and nowhere else, which is what makes the mint mistranslation available. This is the same defect the file already fixed for `admin` → `scopeAdmin`: one word doing two unrelated jobs has already produced a coding mistake here.
+- ⚠️ **Vocabulary: this file MUST NOT use "reach" as a noun for either verdict.** Three terms, one meaning each: **`isAtOrBelow`** is the upward *structural* relation, **`dominion`** is the downward verdict, and **`passage`** is the boundary verdict — **the union of both, never the upward arm alone**. ⚠️ **That last distinction slipped in this very bullet and is worth the warning.** It previously read *"say passage for the upward, dominion-free direction"* — a wording inherited from when the upward arm was called *admission*, carried through the 2026-08-09 rename mechanically, and flatly contradicting § *The target*'s predicate block. Corrected 2026-08-10. Collapsing passage to its upward arm is precisely what makes the mint mistranslation below available, so the two errors are the same error.
 - **[`docs/vision/auth.md`](../docs/vision/auth.md) — `status: accepted`.** Its § *Coarse-grained access control* already states this file's target model in present tense. Per `docs/vision/_review-lens.md` § *Status convention*, contradicting an accepted doc is a **blocker**, so that section is the statement to conform to rather than a reference to consult. The deliverable here is deleting its `> **Today's code differs.**` blockquote, not rewriting its prose.
 - **[ADR-008](../docs/adr/008-full-org-tree-visibility.md)** — unchanged, but its blast radius shrinks: fewer callers are Star-reachable.
-- ⚠️ **`aud` stays on the token and on the wire — this phase touches the reach decision ONLY.** `NebulaClientGateway.onBeforeCallToClient` compares the originating call's `aud` to the receiving connection's and refuses a mismatch, so a call out to a client reaches only connections in that scope. `authScope` cannot replace it: two tabs of one Galaxy admin on sibling Stars share `authScope` and `scopeAdmin`, so comparing those would deliver one tenant's subscription updates to the other. Removing or stripping `aud` is out of scope and would be a cross-tenant disclosure bug.
+- ⚠️ **`aud` stays on the token and on the wire — this phase touches the passage decision ONLY.** `NebulaClientGateway.onBeforeCallToClient` compares the originating call's `aud` to the receiving connection's and refuses a mismatch, so a call out to a client reaches only connections in that scope. `authScope` cannot replace it: two tabs of one Galaxy admin on sibling Stars share `authScope` and `scopeAdmin`, so comparing those would deliver one tenant's subscription updates to the other. Removing or stripping `aud` is out of scope and would be a cross-tenant disclosure bug.
 - **`verify.ts`'s internal-consistency check is KEPT, and re-worded.** `matchAccess(authScopePattern, aud)` stops guarding reach — reach no longer reads `aud` — and starts guarding only the token-internal invariant the Gateway's outbound fence assumes. Its comment currently claims a reach purpose and must not survive that way.
 - **Pre-alpha** — no users, and not wipe-gated, so the claim rename is free now and a compatibility problem later.
 
@@ -150,7 +197,8 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 - 🔒 **The mint cannot widen.** A `{u}.{g}` admin impersonating a `{u}.{g}.{s}` subject is refused when requesting `activeScope = {u}`; the minted `scopeAdmin` is the intersection of caller and subject, never either side's copy; and no caller can mint outside the **subject's** scope. *Reds against restating mint invariant (a) or (b) in the passage sense — the privilege escalation this change makes easiest to write. No criterion exercised `/mint-narrower-token` before this one.*
 - 🔒 **A superuser is unchanged everywhere.** A `nebula-platform` admin's token **verifies**; they are authorized at every scope; they may refresh to any `activeScope`; they pass every instance-scoped registry route; `myScopeTree` returns every scope; and they pass the Profile owner/admin gate with **zero registry reads**. *Reds against any consumer of `access` that lost the platform branch when `'*'` stopped being the value — and note the verification limb fails CLOSED and TOTAL, so a miss there is a superuser who cannot log in, not one who quietly loses admin.*
 - **A mesh call to a node NAMED `nebula-platform` is still refused**, for that same superuser. *Reds against removing the platform-name reject once its `'*'`-collapse justification is re-derived away — the guard's reason is masquerade prevention, which survives the grammar.*
-- **The registry's HTTP routes enforce the same two rules.** A non-admin at `{u}` gets `insufficient_scope` on an instance-scoped registry route for `{u}.{g}.{s}`, while still reaching its own scope's routes; an admin at `{u}` reaches both. *Reds against translating `router.ts`'s gate mechanically, which preserves exactly the reach this file exists to delete — on the one surface no other criterion covers.*
+- 🔒 **The Registry's HTTP routes compute `passage`, and by calling it.** A non-admin at `{u}` gets `insufficient_scope` on an instance-scoped registry route for `{u}.{g}.{s}`, while still passing its own scope's routes; an admin at `{u}` passes both. *Reds against translating the gate mechanically — which preserves exactly the downward movement this file exists to delete — and against a bare `scopeAdmin &&`, which would refuse a non-admin at their own scope.* ⚠️ **Assert the CALL, not only the behaviour**: a hand-inlined two-arm check passes every behavioural limb above while leaving `passage` uncallable, which is the defect (`Missing` item 4) rather than a stylistic preference.
+- **No site re-derives either verdict.** `grep -rn 'isAtOrAbove(\|isAtOrBelow(' packages/*/src apps/nebula/src` returns hits **only** inside `hasDominionOver`, `hasPassage`, and sites classified structural (class 3) — never alongside a `scopeAdmin` conjunction assembled by hand. *Reds against the pre-2026-08-10 shape of this task, where nine sites re-derived half the model and the fix was applied one site at a time.*
 - 🔒 **A derived token is indistinguishable from a self-minted one.** An admin impersonating a subject whose membership sits **above** the chosen `activeScope` gets a token whose `authScope` is the **subject's membership**, whose `aud` is the chosen scope, and whose `myScopeTree` returns exactly what the subject's own token returns. *Reds against deriving `authScope` from `activeScope` — today's behaviour, and the one this decision changes.*
 - **Enumeration is unchanged for an admin.** `myScopeTree` returns the same set before and after, for the same identity. *Reds against a bound that narrows the query.*
 - 🌐 **The same, driven as a `/live` scenario.** Real logins at two tiers, real sockets: a universe admin acts in a Star beneath, and a star-scoped member is refused at the Galaxy. ⚠️ **Fidelity, not capability** — pool-workers can assert the predicate, but only a real login proves the claim the *server actually minted* carries what the predicate expects, which is the half a hand-built token cannot check.
