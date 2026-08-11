@@ -273,18 +273,29 @@ The spine: every later phase reads `access.authScope`. **Atomic by nature** — 
 
 **Criteria:** *A non-admin reaches its own scope and nothing beneath it* · *An admin reaches downward, totally* · *Upward is nil for dominion* · 🔒 *The scope is still the bound* · *The tenant direction survives, without dominion* · *Platform means everywhere* · *A mesh call to a node NAMED `nebula-platform` is still refused* · *`aud` survives on the token and on the wire*.
 
-### Phase 3 — The Registry gate stops borrowing its safety
+### Phase 3 — Every Registry route states its own restrictions
 
-🚨 **SUPERSEDED 2026-08-11 and NOT YET RE-DERIVED — do not implement as written below.** Stage 2 established there is no hole here and that `hasPassage` at this gate is an **escalation** (§ *Objective*). The phase needs rewriting against the corrected table: the plausible shapes are *gate per route* (`hasPassage` for read-shaped routes, `hasDominionOver` for authority-changing ones) or *move the conjunction into the gate* and delete the two handlers' bare bits — which is the shape the objective's "no site re-derives" clause actually points at. **Its criterion also needs an admin-UPWARD limb**, which exists nowhere in this file today: *a `scopeAdmin` at `{u}.{g}.{s}` is refused at `/auth/{u}.{g}/invite` and `/auth/{u}/invite`.* Without it a mechanical swap passes.
+**Re-derived 2026-08-11 after Stage 2.** There is no hole here. The conjunction is real, and **its Worker-side half is where the rules require it to be** — `raw-comm.md` says an RPC-called DO method must not throw a status-carrying error the caller inspects (Workers RPC drops custom Error props), so expected client errors are gated *before* the RPC. `handleInvite`'s own comment says exactly that. ⚠️ **So the location never drifted; what is defective is that the guard asks HALF a question** — a bare `scopeAdmin` read that is correct only because an upstream containment check in another file happens to cover the rest. This phase makes each route state what it requires, completely, in a list you can read without opening a handler.
 
-The text below is retained only so the re-derivation has something to diff against.
+✅ **Every guard here is a pure claim-read — `access` plus the URL's instance, no storage — so this costs the singleton nothing** (auth.md: *"this decision is completely local. No network hop is needed."*). The one Registry read on these routes is the mint's subject lookup, which is keyed on the request body and therefore belongs inside the handler rather than on the route. **Keep the existing RPC to the DO rather than switching to `stub.fetch`**: burden is one round trip either way, and RPC's real cost — lossy errors, hence pre-gating — is already paid by these very guards.
 
-~~The invite gate. `verifyInstanceJwt` computes neither verdict today; it computes one, by calling it.~~
+**The shape** — a linear step pipeline, deliberately hono-shaped so a later migration is close to mechanical (`raw-comm.md` forbids the *dependency*, not the pattern). A step returns a `Response` to terminate, a `Request` to replace the one it received, or `null`/`undefined` to pass it through — the convention `routeDORequest`'s `onBeforeCall`/`onBeforeRequest` already use:
 
-- ⚠️ **Both obvious fixes are wrong and the definition excludes them**: a hierarchy predicate alone keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and a bare `scopeAdmin &&` refuses a non-admin at their own scope.
-- The refusal names **which of the two rules failed**, not just that one did — its current `insufficient_scope` message describes a satisfied scope relationship, which would be actively misleading on the new path (ADR-008 discloses the denial).
+```
+'invite':              [requirePassage, requireOwnScopeOrDominion, handleInvite]
+'mint-narrower-token': [requirePassage, requireDominionOverTarget,  mintNarrowerToken]
+```
 
-**Criteria:** 🔒 *The Registry's HTTP routes compute `passage`, and by calling it* — including its shape limb, since an inline two-arm re-assembly passes every behavioural limb · the **registry-route limb** of 🔒 *A superuser is unchanged everywhere*.
+- **`requirePassage` replaces the router's containment check** and is the same verdict the mesh boundary computes — which is what makes `docs/vision/auth.md` § *The Registry* true rather than aspirational; it currently claims the scoped routes are gated by the same two rules, and they are not.
+- **Each handler's bare `scopeAdmin` read becomes a named guard** that asks one complete question. `/invite` takes `requireOwnScopeOrDominion` (per auth.md § *Grants*, and the bit it confers is **derived** — `requested && hasDominionOver(...)` — never honoured as asked). `/mint-narrower-token` takes `requireDominionOverTarget`, since minting confers authority.
+- **Claims travel in an explicit `ctx`**, populated by the verify step — `{ env, instanceName, access? }`. ⚠️ **Not on `this`, and not only because the router is Worker-side free functions with no `this` to use:** a DO serves concurrent requests, so per-request claims on instance state would let one request's authz read another's (`durable-objects.md` § *No mutable instance state*, with a security blast radius).
+- Refusals name **which** rule failed. The existing `insufficient_scope` message describes a *satisfied* scope relationship and would be actively misleading on the new path (ADR-008 discloses the denial).
+
+🚨 **The middleware swap and the handler guards MUST land in the same commit — this is the phase's binding constraint.** Today's router check is downward-shaped, so it is the only thing refusing an upward invite. `requirePassage` admits upward *by design*. Swap the router first and leave the handlers holding bare bits, even for one commit, and a Star `scopeAdmin` can POST `/auth/{u}/invite` and mint identities at the Universe. Splitting this "for reviewability" is the one thing that must not happen.
+
+⚠️ **Scope: the two authenticated routes only, and the boundary is principled rather than fatigue.** The pipeline exists to *compose guards*; the five auth-flow routes have none to compose, and a one-step pipeline is not one. Leave a note at that branch saying so, and convert it if one ever gains a guard. Migrating all 15 routes is filed, not done — it would put a mechanical restructure in the same diff as the change that must not be gotten wrong.
+
+**Criteria:** 🔒 *The Registry's HTTP routes compute `passage`, and by calling it* — including its shape limb, since an inline re-assembly passes every behavioural limb · 🔒 **NEW — a `scopeAdmin` at `{u}.{g}.{s}` is refused at `/auth/{u}.{g}/invite` and `/auth/{u}/invite`.** *Reds against a mechanical `requirePassage` swap that leaves the handler guards behind — the escalation this phase is most likely to ship, and a limb that exists nowhere else in this file.* · 🔒 **a non-admin at their own scope succeeds at `/auth/{u}.{g}.{s}/invite`, and the minted membership carries `scopeAdmin` false however the request asks** · the **registry-route limb** of 🔒 *A superuser is unchanged everywhere*.
 
 ### Phase 4 — The mint asks one question
 
