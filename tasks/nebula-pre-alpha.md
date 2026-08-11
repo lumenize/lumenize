@@ -41,7 +41,7 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Super-admin** — login at the reserved `nebula-platform` instance with `NEBULA_AUTH_BOOTSTRAP_EMAIL`
   → `access { authScopePattern:'*', scopeAdmin:true }`; `matchAccess('*', …)` always true; bootstrap admin is
   modify-protected. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
-  - ⏳ **The claims shape changes with [nebula-reach-from-scope.md](nebula-reach-from-scope.md)** — `authScope`
+  - ⏳ **The claims shape changes with [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md)** — `authScope`
     becomes the literal `nebula-platform` and the `'*'` sentinel disappears, so *"`matchAccess('*', …)` always
     true"* stops being the mechanism. That file owns the sweep; this row is one of its targets.
   - ⚠️ **"Already exists" is unverified end-to-end, and the coaching use case is what depends on it.** The
@@ -193,7 +193,7 @@ re-deriving here. *(The first two surfaced from typed-error work, 2026-08-06.)*
   user), never `act` (the admin). For **all Universe/Galaxy admins editing their apps going forward**, not
   just pre-alpha. This is the **push** half; shares the subject/grant/scope core with
   `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
-  ⚠️ **Sequenced ahead of all three: [nebula-reach-from-scope.md](nebula-reach-from-scope.md)** (2026-08-05) — a
+  ⚠️ **Sequenced ahead of all three: [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md)** (2026-08-05) — a
   token carries the member's scope and reach becomes `scopeAdmin ∧ scope-at-or-above-this-node`, deleting
   the derived wildcard pattern. ✅ **NOT wipe-gated** (nothing stored changes shape — verified); it goes
   first because five files already describe the model it replaces and the collapse would add more. It

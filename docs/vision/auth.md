@@ -120,7 +120,7 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 ## Coarse-grained access control
 
-> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) replaces that with what is described here.
+> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) replaces that with what is described here.
 
 **This layer exists to make lateral movement impossible while allowing certain kinds of vertical movement.**
 
@@ -265,7 +265,7 @@ The Registry is the one thing in this document that sits entirely outside the me
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-reach-from-scope.md](../../tasks/nebula-reach-from-scope.md) applies the two rules here as well as at the mesh boundary.
+> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) applies the two rules here as well as at the mesh boundary.
 
 The seam is unusually clean. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
 

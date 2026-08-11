@@ -39,7 +39,9 @@ Reaching for "the ADR must be wrong" whenever it is inconvenient is not testing,
 
 ### Ready to accept when it stops changing under contact
 
-Not "after N consumers" — after the **change rate drops**. An ADR still generating wording fixes is still teaching you something. It is a signal anyone can check rather than a judgment call: ADR-016 changed three times in two days (not ready); ADR-015 has not moved since it was written while being cited constantly, including as a settled constraint in another file's design (ready).
+Not "after N consumers" — after the **change rate drops**. An ADR still generating wording fixes is still teaching you something. It is a signal anyone can check rather than a judgment call: ADR-016 changed three times in two days (not ready).
+
+⚠️ **Citation is not contact, and mistaking the two is how a text gets accepted while still defective.** ADR-015 sat unmoved for two weeks while being cited constantly — including as a settled constraint in another file's design — and read as ready on exactly that basis. Then its terms were used in prose written for a reader, and it took two rounds of fixes in two days: a definition that denied the superuser dominion anywhere, a characterisation of passage that two readers read oppositely, and a Decision clause stating dominion as position alone. The decision never moved; the statement was wrong the whole time and nothing had pressed on it. **Count changes made under contact, not quiet time since the last edit.**
 
 ### Record what the battle-testing found
 
@@ -54,6 +56,8 @@ An exception proposed against an ADR and **rejected on its merits** goes into **
 - ⚠️ **Conditional, not a pipeline step.** Most task files exercise no `Proposed` ADR; a fixed stage would fire spuriously and get ignored, which is worse than not having it.
 
 ## Forward-facing discipline
+
+⚠️ **Where the body describes something the code has not reached, record it in a blockquote opening `**Today's code differs.**`** — never as a "today" or "currently" hedge inside the commitment itself. A hedge makes the decision read as provisional, which is the opposite of what an ADR is for; a blockquote states the commitment in the present tense and puts the divergence beside it, where it is enumerable: `grep -rn '^> \*\*Today' docs/adr/`. This is [`docs/vision/auth.md`](../vision/auth.md)'s convention and it works the same way here. It is also what makes ratifying **before** the work lands coherent — see § *The ratification gate*.
 
 An ADR reads as if written fresh for the **current** design — it is not an append-log. When reality drifts, **rewrite the body** so it describes the decision as it now stands; a superseded approach moves into *Alternatives considered* (it is exactly that — an approach considered and rejected, and the growing list is *useful* signal for the next reviewer). Don't accrete dated "Amended …" notes or a mechanism-history section in the body — that's the noise a fresh review panel has to wade through, and **git is the record** that preserves how the decision evolved. Keep the Status line current: `Proposed`, `Accepted`, `Superseded by ADR-NNN`, or `Deprecated` (§ *Lifecycle*).
 

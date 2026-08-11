@@ -4,7 +4,7 @@
 
 **Why it is paused, in his words: the design mixes the Registry domain and the mesh domain, and that is tricky enough to be worth not thinking hard about until after pre-alpha unless forced.** That mixing is not incidental — it is what §§ *Where the endpoint lives* and *The carried context payload* exist to resolve, since the registry structurally cannot pre-stage a DAG grant and Nebula structurally cannot mint a membership. **Pre-alpha pays for the pause with training or a code workaround for its handful of users** (accepted, same date); the interim shape is the one [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) already carries — a collaborator enrolls as a Galaxy admin via the scope-admin bypass, which is broader than this file's bundle and deliberately so.
 
-⚠️ **The gate is unchanged and is NOT what paused this** — it still needs the collapse to make the Galaxy a `DagTree` host. Resuming is a scheduling decision, not a dependency one: when the collapse has landed *and* an external-launch consumer exists ([`docs/vision/enterprise.md`](../../docs/vision/enterprise.md) § *The invitation is the land motion* is the first), this comes back. ⚠️ Its vocabulary predates [nebula-reach-from-scope.md](../nebula-reach-from-scope.md) in at least three places (the ADR-015 constraint bullet, the first acceptance criterion, § *Two memberships*); that file's sweep criterion now names this path explicitly, so do not assume a clean grep means clean prose.
+⚠️ **The gate is unchanged and is NOT what paused this** — it still needs the collapse to make the Galaxy a `DagTree` host. Resuming is a scheduling decision, not a dependency one: when the collapse has landed *and* an external-launch consumer exists ([`docs/vision/enterprise.md`](../../docs/vision/enterprise.md) § *The invitation is the land motion* is the first), this comes back. ⚠️ Its vocabulary predates [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md) in at least three places (the ADR-015 constraint bullet, the first acceptance criterion, § *Two memberships*); that file's sweep criterion now names this path explicitly, so do not assume a clean grep means clean prose.
 
 > 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** ⚠️ **Paused before Stage 1, so no review has run on this file at all.** On resume the path is `/review-task` **Stage 1** → resolve and edit → write phases → **Stage 2**; § *Acceptance criteria* is Pass-2 input, saying what must be true and deliberately not in what order. **Re-read § *Context and current state* against disk first** — its claims were verified 2026-08-05 and the pause is open-ended.
 
@@ -56,7 +56,7 @@ The inviter's UI composes a JSON payload of `(node, tier)` grants; **auth carrie
 
 ### Two memberships, two sessions
 
-Once reach is `scopeAdmin ∧ scope-at-or-above` ([nebula-reach-from-scope.md](../nebula-reach-from-scope.md), which lands first), a non-admin has **no downward reach at all**, so a collaborator cannot knock on a tenant Star even to be denied there. There is no over-reach to disclose or decide about.
+Once reach is `scopeAdmin ∧ scope-at-or-above` ([nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which lands first), a non-admin has **no downward reach at all**, so a collaborator cannot knock on a tenant Star even to be denied there. There is no over-reach to disclose or decide about.
 
 What remains is a shape, not a problem: a collaborator holds **one membership per scope she works in** — `{u}.{g}` for the app, `{u}.{g}.dev` for testing — and therefore one session each. A JWT carries `access: AccessEntry`, one entry per token, so this was always going to be two sessions; what changes is that the alternative is no longer a wider pattern.
 
@@ -104,11 +104,11 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 - **The per-invitee `isAdmin` mechanism and the returned `sub`** → [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md). This file consumes both.
 - **A UI for composing bundles.** Which combinations are offered is an open question below; the affordance is out of scope until it is answered.
 - **Self-signup** — consumer #2 of the same carrier, later.
-- **Changing the scope-pattern grammar** → [nebula-reach-from-scope.md](../nebula-reach-from-scope.md), which owns it and lands first.
+- **Changing the scope-pattern grammar** → [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which owns it and lands first.
 
 ## Open questions
 
-1. ✅ **Closed 2026-08-05** — *"accept tenant-Star admission, or change the pattern grammar?"* The grammar is being changed, by [nebula-reach-from-scope.md](../nebula-reach-from-scope.md). Kept as a numbered handle so the remaining questions do not renumber.
+1. ✅ **Closed 2026-08-05** — *"accept tenant-Star admission, or change the pattern grammar?"* The grammar is being changed, by [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md). Kept as a numbered handle so the remaining questions do not renumber.
 2. **Pre-stage from the inviter's client, or an auth `onRedeem(scope, sub, context)` hook at accept?** Pre-stage is pinned for the invite flow; self-signup has no present admin, so it *must* use the hook. Confirm one primitive serves both before building either. *(The hook's exact signature, and where the Nebula impl runs without crossing the `nebula-auth` → `apps/nebula` dependency boundary, rides this answer.)*
 3. **Which `(node, tier)` combinations does the inviter's UI offer, and how is "valid for the situation" computed?**
 
