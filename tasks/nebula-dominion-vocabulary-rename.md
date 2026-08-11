@@ -49,7 +49,7 @@ A **structural fact** gets a literal name · a **verdict** gets a reserved word 
 ### Constraints
 
 - **[ADR-015](../docs/adr/015-passage-and-dominion.md)** — the definition home for both reserved terms. This file does not amend it and does not exercise it; it adopts its vocabulary. ⚠️ **Ratification is Larry's ad-hoc call and is gated on nothing** — no phase here owns it, and none may.
-- **[ADR-007](../docs/adr/007-shared-comms-guards-core.md)** — one predicate expresses the model. This file does not add or remove a caller; it renames the one that exists.
+- **[ADR-007](../docs/adr/007-shared-node-security-core.md)** — one predicate expresses the model. This file does not add or remove a caller; it renames the one that exists.
 - ⚠️ **Vocabulary: this file MUST NOT use "reach" as a noun.** Three terms, one meaning each — `isAtOrBelow` is the upward structural relation, `dominion` the downward verdict, `passage` the boundary verdict (**the union of both, never the upward arm alone**).
 - ⚠️ **`packages/auth` and `packages/mesh` are OUT OF SCOPE and MUST NOT be swept.** They keep their own `isAdmin` — a *different* bit (auth's `Subjects` column, and a flat top-level claim mesh mints for auth's gate). A repo-wide replace breaks both, **the mesh one silently**. This is not hypothetical; it is why the 2026-08-07 sweep was scoped by hand.
 - ⚠️ **The Data-plane's `admin` permission is NOT renamed.** It is one of a symmetric triple (`CHECK(permission IN ('admin','write','read'))`), so renaming it drags `resourceWrite` and `resourceRead` along for no gain. This file renames the **Registry-scope** bit's verdicts only.
