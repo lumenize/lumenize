@@ -87,6 +87,14 @@ The enterprise tier is **governance and assurance layered on top of the one secu
 
 **Structural advantage:** much of this rides on substrate Nebula *already has*. Nothing on Nebula is ever silently destroyed — every change is a new version — so the audit trail is a property of the data model, not a bolt-on *(internally: ADR-004)*. The ReBAC/DAG access model is the same machinery org-governance needs. The audit substrate is the product, not a feature we have to graft on later.
 
+### Identity is a commodity; align with WorkOS (added 2026-08-10)
+
+Enterprise identity is settled, and it has one consensus winner — [WorkOS](https://workos.com), what Vercel, Replit, Cursor, Perplexity, OpenAI and Anthropic all run. **We do not fight that and we do not rebuild it, because none of our value sits on that side of the line.** SSO/SAML is a third login channel reaching the same `getAndVerifyIdentity` call `consumeMagicLink` and `consumeInvite` already do; SCIM is the enterprise form of `issueInvites`. Nothing downstream moves.
+
+**Which is the answer to "why not just use WorkOS for all of it?"** What they sell stops at the app's front door — authentication plus an org directory. Everything Nebula claims is on the far side of it: authorization *inside* the data model ([`auth.md`](auth.md), [ADR-008](../adr/008-full-org-tree-visibility.md)). Note who is on that customer list: WorkOS makes **Replit-the-company** enterprise-ready and does nothing whatsoever for the security of the app a domain expert builds **on** Replit. That gap is our wedge — evidenced by a competitor's own procurement choice.
+
+⚠️ **Align on the proof, not the session.** Identity ends at *"which verified human is this, and what groups are they in."* Take the vendor's session token too and you seat a third-party issuer inside our own, importing their claims shape and refresh semantics over ours (`.claude/rules/security.md` § *Refresh tokens*).
+
 ---
 
 ## Timing gates — what "proven and mature" means
@@ -115,7 +123,7 @@ Until these hold, enterprise effort is premature investment and pulls focus from
 
 Flag a task that:
 
-1. **Builds governance/SSO/audit/admin surface before the timing gates are met** — the expansion is gated behind a proven self-serve wedge.
+1. **Builds governance/SSO/audit/admin surface before the timing gates are met** — the expansion is gated behind a proven self-serve wedge. ⚠️ For SSO/SAML/SCIM, "later" also means **align, don't build** — implementing either in `nebula-auth` is off-plan regardless of timing (§ *Identity is a commodity*).
 2. **Forks the security model** into a separate "enterprise" variant rather than layering governance on the one secure-by-default core.
 3. **Treats enterprise as a parallel strategy** pulling focus from the self-serve wedge today.
 4. **Weakens the intrapreneur self-serve on-ramp** (the champion path) in the name of top-down selling — the bottoms-up motion *is* the land motion.
