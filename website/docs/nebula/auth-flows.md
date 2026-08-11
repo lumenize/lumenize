@@ -29,9 +29,9 @@ The Nebula entrypoint parses this once and threads it as a single `cors` config 
 
 Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and is **rejected** if none exists — this is what closes stranger-self-join. Memberships are minted only at authority points:
 
-- **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`isAdmin=true`) + the scope.
+- **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`scopeAdmin=true`) + the scope.
 - **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, identity-minting star self-signup.
-- **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`isAdmin=false`, not yet taken up), and `accept-invite` records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
+- **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`scopeAdmin=false`, not yet taken up), and `accept-invite` records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
 
 ## First-time login (self-signup — founding a Universe)
 
@@ -58,7 +58,7 @@ sequenceDiagram
         Note over UI,R: 2. Claim a Universe — MINTS the claiming admin identity
         UI->>W: POST /auth/claim-universe { slug, email, cf-turnstile-response }
         W->>R: claimUniverse(slug, email)
-        Note over R: register Scope + mint admin membership<br/>(isAdmin, not yet taken up) + create MagicLink
+        Note over R: register Scope + mint admin membership<br/>(scopeAdmin, not yet taken up) + create MagicLink
         R-->>W: send magic-link email
         W-->>UI: Show "Check your email"
     end
@@ -68,7 +68,7 @@ sequenceDiagram
         UI->>W: GET /auth/{slug}/magic-link?one_time_token=...
         W->>R: consumeMagicLink(tokenHash, refreshTokenHash, expiresAt)
         Note over R: find-and-flip that Identity<br/>write RefreshTokenIndex (sync) THEN
-        R->>KV: put refresh:{tokenHash} = { sub, scope, isAdmin, expiresAt }
+        R->>KV: put refresh:{tokenHash} = { sub, scope, scopeAdmin, expiresAt }
         R-->>W: { sub, universeGalaxyStarId }
         W-->>UI: Set-Cookie (path /auth/{slug}) + 302 to /app/{slug}
     end
@@ -77,7 +77,7 @@ sequenceDiagram
         Note over UI,GW: 4. Get access token and connect
         UI->>W: POST /auth/{slug}/refresh-token { activeScope: "{slug}" }
         W->>KV: get refresh:{tokenHash}
-        KV-->>W: { sub, scope, isAdmin, expiresAt }
+        KV-->>W: { sub, scope, scopeAdmin, expiresAt }
         Note over W: mint JWT (aud = activeScope, access from the KV record)<br/>NO Registry round-trip
         W-->>UI: Access token (stored in memory)
         Note over NC: NebulaClient created with access token
@@ -112,7 +112,7 @@ sequenceDiagram
         Note over UI,R: 1. Discovery
         UI->>W: POST /auth/discover { email }
         W->>R: discover(email)
-        R-->>W: [{ universeGalaxyStarId, isAdmin }, ...]
+        R-->>W: [{ universeGalaxyStarId, scopeAdmin }, ...]
         W-->>UI: Scope list
         Note over UI: User selects scope
     end
@@ -121,7 +121,7 @@ sequenceDiagram
         Note over UI,GW: 2. Refresh succeeds — cookie exists and path matches
         UI->>W: POST /auth/acme.app.tenant-a/refresh-token<br/>{ activeScope: "acme.app.tenant-a" }
         W->>KV: get refresh:{tokenHash} (browser sent the path-matched cookie)
-        KV-->>W: { sub, scope, isAdmin, expiresAt }
+        KV-->>W: { sub, scope, scopeAdmin, expiresAt }
         Note over W: mint JWT (aud: "acme.app.tenant-a")
         W-->>UI: Access token (stored in memory)
         Note over NC: NebulaClient created with access token
@@ -165,7 +165,7 @@ sequenceDiagram
     rect rgba(200, 220, 240, 0.3)
         Note over UI,W: 1. User navigates to login page and runs discovery
         UI->>W: POST /auth/discover { email }
-        W-->>UI: [{ universeGalaxyStarId, isAdmin }, ...]
+        W-->>UI: [{ universeGalaxyStarId, scopeAdmin }, ...]
         Note over UI: User selects "acme.app.tenant-b"<br/>(can back out here — old client stays alive)
     end
 
