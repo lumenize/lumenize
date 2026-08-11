@@ -1,6 +1,6 @@
 # Profile DO — conform to the accepted-membership gate
 
-**Status:** STUB, created 2026-08-05 by splitting [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md), where this rode along for historical reasons only. **Next up after that file.** The security half already landed in code; what remains is Profile-DO conformance and re-pointing tests written for a design that was reversed.
+**Status:** STUB, created 2026-08-05 by splitting [nebula-invite.md](nebula-invite.md), where this rode along for historical reasons only. **Next up after that file.** The security half already landed in code; what remains is Profile-DO conformance and re-pointing tests written for a design that was reversed.
 
 **Objective — the Profile DO matches what [ADR-012](../docs/adr/012-global-profile-visibility.md) now says**, and no test still asserts the design it replaced.
 
@@ -38,6 +38,6 @@
 
 - **Modifies shipped code** — touches [archive/nebula-profile-store.md](archive/nebula-profile-store.md) Phases 1–3 and replaces some of its tests.
 - ⚠️ **Invalidates a premise in the collapse task.** [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) § *Preserved — Nebula gets its own `Profile`* argues that write-authz needs no special-casing because *"everyone else is cleanly denied (the scoped-admin branch's Registry miss **fails closed** to `Forbidden`, not a 500)"*. The conclusion survives, but its stated mechanism assumed the branch was being removed. Update that bullet when this lands.
-- **Independent of** [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) — it is in `profile.ts`, not on the invite path. Sequenced after it by preference, not dependency.
+- **Independent of** [nebula-invite.md](nebula-invite.md) — it is in `profile.ts`, not on the invite path. Sequenced after it by preference, not dependency.
 - **One shared site with** [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) — `#requireOwnerOrAdmin`'s `scopes.some(s => matchAccess(pattern, s))` becomes the new reach predicate there. The acceptance contract this file owns is unaffected, so write the criteria over acceptance semantics and they survive either model.
 - **Constrained by** [ADR-012](../docs/adr/012-global-profile-visibility.md) and [ADR-013](../docs/adr/013-identity-profileid-resolution.md).

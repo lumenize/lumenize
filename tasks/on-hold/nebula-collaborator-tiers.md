@@ -1,6 +1,6 @@
 # The collaborator — a person granted less than a scope admin
 
-**Status:** ⏸️ **ON HOLD, and out of pre-alpha entirely — paused 2026-08-09 by Larry.** Still the only home for the collaborator: [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md) ships the invite *mechanism* and names no role. Design pinned with Larry 2026-07-18/19; endpoint placement pinned 2026-08-05; not built.
+**Status:** ⏸️ **ON HOLD, and out of pre-alpha entirely — paused 2026-08-09 by Larry.** Still the only home for the collaborator: [nebula-invite.md](../nebula-invite.md) ships the invite *mechanism* and names no role. Design pinned with Larry 2026-07-18/19; endpoint placement pinned 2026-08-05; not built.
 
 **Why it is paused, in his words: the design mixes the Registry domain and the mesh domain, and that is tricky enough to be worth not thinking hard about until after pre-alpha unless forced.** That mixing is not incidental — it is what §§ *Where the endpoint lives* and *The carried context payload* exist to resolve, since the registry structurally cannot pre-stage a DAG grant and Nebula structurally cannot mint a membership. **Pre-alpha pays for the pause with training or a code workaround for its handful of users** (accepted, same date); the interim shape is the one [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) already carries — a collaborator enrolls as a Galaxy admin via the scope-admin bypass, which is broader than this file's bundle and deliberately so.
 
@@ -21,7 +21,7 @@
 
 **Missing:**
 
-0. **The invite mechanism itself** — per-invitee admin bit, and the minted `sub` in the response ([nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md), **not built; buildable now**). Step 3 below consumes that `sub`, and there is no other address→`sub` path. ⚠️ This bullet used to sit under *Built already*, which was simply false — that file is the thing that builds it. Numbered `0` because the three below are append-only handles.
+0. **The invite mechanism itself** — per-invitee admin bit, and the minted `sub` in the response ([nebula-invite.md](../nebula-invite.md), **not built; buildable now**). Step 3 below consumes that `sub`, and there is no other address→`sub` path. ⚠️ This bullet used to sit under *Built already*, which was simply false — that file is the thing that builds it. Numbered `0` because the three below are append-only handles.
 1. **A permission surface on the Galaxy.** ✅ **Checkable claim:** `DagTree` is composed by `star.ts` and `dev-studio.ts` only (verified 2026-08-05) — so `write@Galaxy-root` cannot be granted, because there is no Galaxy orgTree to grant on. [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) creates it. **This is what gates the file.**
 2. **A carrier for grants chosen at invite time.** An invite mints a membership; nothing carries the inviter's per-node choices from the invite to the moment the invitee first arrives.
 3. **An orchestrating endpoint.** Nothing applies a membership and a grant bundle as one bounded, validated operation.
@@ -103,7 +103,7 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 
 ## Non-goals
 
-- **The per-invitee `isAdmin` mechanism and the returned `sub`** → [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md). This file consumes both.
+- **The per-invitee `isAdmin` mechanism and the returned `sub`** → [nebula-invite.md](../nebula-invite.md). This file consumes both.
 - **A UI for composing bundles.** Which combinations are offered is an open question below; the affordance is out of scope until it is answered.
 - **Self-signup** — consumer #2 of the same carrier, later.
 - **Changing the scope-pattern grammar** → [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which owns it and lands first.
@@ -117,5 +117,5 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 ## Relationships
 
 - **Gated on** [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) — it lands the first `DagTree` on a non-leaf node, which is the permission surface `write@Galaxy-root` needs.
-- **Built on** [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md) — its per-entry envelope grows into this grant spec (a pre-alpha wire break, fine), and its returned `sub` is what step 3 consumes.
+- **Built on** [nebula-invite.md](../nebula-invite.md) — its per-entry envelope grows into this grant spec (a pre-alpha wire break, fine), and its returned `sub` is what step 3 consumes.
 - **Shares substrate with** [nebula-request-access.md](../nebula-request-access.md) (the **pull** half to this **push** half) and the paused F&F invites ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § Invite-gated) — one `/invite` / `accept-invite` / `InviteTokens` path, not a fork.

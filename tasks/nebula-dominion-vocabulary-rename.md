@@ -1,6 +1,6 @@
 # The dominion vocabulary, renamed — no behaviour changes
 
-**Status:** Active child, **first of four** in the passage/dominion sequence — ahead of [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), [nebula-registry-route-guards.md](nebula-registry-route-guards.md) and [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md). Carved out of the first of those on 2026-08-11 (§ *Why this is its own file*). Not built.
+**Status:** Active child, **first of four** in the passage/dominion sequence — ahead of [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), [nebula-registry-route-guards.md](nebula-registry-route-guards.md) and [nebula-invite.md](nebula-invite.md). Carved out of the first of those on 2026-08-11 (§ *Why this is its own file*). Not built.
 
 > 📐 **`/write-task` Pass 2 — design intent and phases are both written.** The content is carved from a file that had Stage 1 (×2) and Stage 2 resolved, so the *decisions* below are reviewed; the **shape of this file is new** and has had no panel. From here: `/review-task`, then `/build-task`.
 
@@ -16,7 +16,7 @@ Splitting it out buys three things:
 
 - **The reviewable property is stated and checkable:** nothing here changes what any code *does*. A diff hunk that changes control flow is a defect in this file, by definition.
 - **The wipe gate collapses onto one small file.** The other three stop being wipe-gated at all.
-- **It settles the vocabulary before anything designs against it.** [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) currently parks a naming decision — its wire field is `invitees[].isAdmin` while the column is `Memberships.scopeAdmin` — on the grounds that *"deciding it here would be designing this endpoint from another task's cleanup."* After this file the cleanup has landed and that decision costs one line.
+- **It settles the vocabulary before anything designs against it.** [nebula-invite.md](nebula-invite.md) currently parks a naming decision — its wire field is `invitees[].isAdmin` while the column is `Memberships.scopeAdmin` — on the grounds that *"deciding it here would be designing this endpoint from another task's cleanup."* After this file the cleanup has landed and that decision costs one line.
 
 ## Context and current state
 
@@ -37,14 +37,14 @@ A **structural fact** gets a literal name · a **verdict** gets a reserved word 
 | `hasAdminOverScope(access, node)` | `hasDominionOver(access, node)` | verdict | already the shared predicate; only the name moves. ⚠️ The `isPlatformInstance` arm it eventually gains is **NOT part of this file** — today `buildAuthScopePattern('nebula-platform')` yields `'*'` and `matchAccess('*', …)` is true, so platform works for free and adding the arm now would be dead code |
 | `requireAdmin` (58 uses) | `requireDominion` | verdict | ⚠️ **it is the dominion guard wearing the bit's name** — "require admin" is one reading away from *the bare bit is dominion*, the bug that has shipped twice. It already delegates |
 | `hasAdminOverUniverse` / `hasAdminOverGalaxy` | `hasDominionOverUniverse` / `…Galaxy` | verdict | registry helpers; they delegate already, only the names lag |
-| `enforceScopeReach(name, claims)` | `enforcePassage(name, claims)` | verdict | ✅ **a pure rename TODAY, which is not obvious.** It is already the only place both arms appear together, so it already *computes* passage — the name simply becomes honest about what the body does. Its tenant arm's **input** changes in the next file; nothing about it changes here |
+| `enforceScopeReach(name, claims)` | `requirePassage(name, claims)` | verdict | ✅ **a pure rename TODAY, which is not obvious.** It is already the only place both arms appear together, so it already *computes* passage — the name simply becomes honest about what the body does. Its tenant arm's **input** changes in the next file; nothing about it changes here. ⚠️ **`require`, not `enforce` (decided with Larry 2026-08-11).** `enforce` was a **one-member category** whose verb implied a distinction it never carried: it throws exactly as `requireDominion` and `requirePermission` do. `require` is both the repo's incumbent (59 sites) and the dominant-ecosystem spelling for *throws* (Solidity `require`, `assert`). ⇒ **`enforce*` disappears from the repo**, and `require*` means **throws**, everywhere |
 | `Subscribers.accessAdmin` (35 uses, **a column**) | `dominionAtSubscribe` | verdict | a **frozen** dominion verdict, named for the claim field it is not. The `AtSubscribe` half is load-bearing: it is confined at subscribe time and never re-read live |
 
 ⚠️ **Three things look like they belong here and MUST NOT be taken.** Each would smuggle a behaviour change into a file whose whole claim is that it has none:
 
 - **`matchAccess` → `isAtOrAbove` / `isAtOrBelow` is NOT a rename.** A glob matcher becomes a hierarchy predicate — different grammar, different answers on colliding segment names. It belongs to [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md).
 - **The six `const pattern = …` locals are correctly named TODAY.** They hold `claims.access.authScopePattern`, which *is* a pattern. They only become misnamed once the claim carries a scope, so renaming them here would make them wrong for the duration of two files.
-- **`hasPassage` cannot be born here.** It is `isAtOrBelow ∨ dominion`, and `isAtOrBelow` does not exist yet. ✅ **This file makes its absence VISIBLE rather than fixing it** — after the rename, `enforcePassage` is a function computing passage inline that nothing else can call, which is the next file's finding stated in one name.
+- **`hasPassage` cannot be born here.** It is `isAtOrBelow ∨ dominion`, and `isAtOrBelow` does not exist yet. ✅ **This file makes its absence VISIBLE rather than fixing it** — after the rename, `requirePassage` is a function computing passage inline that nothing else can call, which is the next file's finding stated in one name.
 
 ### Constraints
 
@@ -59,7 +59,8 @@ A **structural fact** gets a literal name · a **verdict** gets a reserved word 
 | Decision | Rejected alternative — why |
 |---|---|
 | **The renames land in their own file, first** | Folding them into the behaviour changes — a rename inside a diff that also moves control flow is unreviewable as a rename, and this is 58 + 35 call sites of noise laid over the changes that must not be gotten wrong. |
-| **`enforceScopeReach` → `enforcePassage` lands HERE**, though its input changes later | Holding it until the input changes — the body already computes passage across both arms, so the new name is true on arrival, and holding it means the next file's diff carries a rename on its most load-bearing function. |
+| **`enforceScopeReach` → `requirePassage` lands HERE**, though its input changes later | Holding it until the input changes — the body already computes passage across both arms, so the new name is true on arrival, and holding it means the next file's diff carries a rename on its most load-bearing function. |
+| **`require*` means THROWS, repo-wide; a step that RETURNS a `Response` is `*Guard`** | Keeping `enforce` vs `require` as the carrier — it points the wrong way (`require` throws in Solidity and in `assert`, and in 59 of this repo's own sites) and would rename all 59 to `enforce*` to say what `require*` already says. The route steps in [nebula-registry-route-guards.md](nebula-registry-route-guards.md) take `*Guard` instead; that file's § *The shape* carries the table, because a route step named `require…` returns a **500** where a 403 belongs. |
 | **`hasDominionOver` does NOT gain the platform arm here** | Adding it now "while we are in the file" — with `'*'` still the value, `isPlatformInstance` would be unreachable dead code inside a security predicate, which § *Decisions* of the next file rejects for the same reason it rejects a dead conjunction operand. |
 | **The stored column is renamed with a NUMBERED migration, never a collapsed baseline** | Renumbering or rebaselining — local and test storage have applied the old list, and a list starting below their high-water mark matches nothing, writes nothing and **throws nothing**. |
 
@@ -78,7 +79,7 @@ Two phases. Each leaves the suite green.
 
 ### Phase 1 — The verdict names, in code
 
-`hasAdminOverScope` → `hasDominionOver` · `requireAdmin` → `requireDominion` · `hasAdminOver{Universe,Galaxy}` → `hasDominionOver{…}` · `enforceScopeReach` → `enforcePassage`. Exported from `index.ts` and `testing.ts` exactly as before — ⚠️ **the export surface does not narrow**; `testing.ts` re-exports the predicate precisely so a test never re-inlines the `scopeAdmin ∧ scope-at-or-above` conjunction by hand.
+`hasAdminOverScope` → `hasDominionOver` · `requireAdmin` → `requireDominion` · `hasAdminOver{Universe,Galaxy}` → `hasDominionOver{…}` · `enforceScopeReach` → `requirePassage`. Exported from `index.ts` and `testing.ts` exactly as before — ⚠️ **the export surface does not narrow**; `testing.ts` re-exports the predicate precisely so a test never re-inlines the `scopeAdmin ∧ scope-at-or-above` conjunction by hand.
 
 ⚠️ **Use an LSP / `ts-morph` rename, then verify with a BARE-identifier grep** (`workflow.md` § *Symbol renames*). A quoted-literal replace silently misses member/type-position access (`x.Old`, `rels.Old.field`) and doc comments, which survive, compile, and surface as a runtime failure — that exact defect bit the `Turn` → `Message` rename **twice**.
 
@@ -104,6 +105,6 @@ Two phases. Each leaves the suite green.
 
 ## Relationships
 
-- **Blocks** [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) — that file changes what `enforcePassage`'s tenant arm reads and what `hasDominionOver`'s second operand means, so it wants the names already settled.
-- **Unblocks a parked decision in** [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md) — its wire-field naming question (`invitees[].isAdmin` vs the `scopeAdmin` column) becomes a one-line consequence once the vocabulary is uniform.
+- **Blocks** [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) — that file changes what `requirePassage`'s tenant arm reads and what `hasDominionOver`'s second operand means, so it wants the names already settled.
+- **Unblocks a parked decision in** [nebula-invite.md](nebula-invite.md) — its wire-field naming question (`invitees[].isAdmin` vs the `scopeAdmin` column) becomes a one-line consequence once the vocabulary is uniform.
 - **Carries the wipe gate for all four files** — see [nebula-pre-alpha.md](nebula-pre-alpha.md) § *The wipe is a CLOSING WINDOW for free schema surgery*.

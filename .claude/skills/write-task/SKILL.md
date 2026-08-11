@@ -11,7 +11,7 @@ Drafts a task file in **two passes with a gate**: write the *design intent* and 
 
 The failure this exists to prevent: phases and mechanism written before the design intent is settled, so the lower half of the file encodes assumptions the reviewer then has to *overcome* rather than confirm. That is expensive in the one resource that is actually scarce — reviewer time.
 
-Empirically (`tasks/nebula-auth-identity-mint.md`, 2026-07-25/26): a mechanism was specified before the question it depended on was answered, survived **two** `/review-task` Stage-1 passes, and was then deleted outright once the underlying model was decided. A separate stated rationale ("both changes are on the same call chain") was simply false and went unnoticed for a week. Both are design-intent defects, and both are the kind a gate catches cheaply.
+Empirically (`tasks/nebula-invite.md`, 2026-07-25/26): a mechanism was specified before the question it depended on was answered, survived **two** `/review-task` Stage-1 passes, and was then deleted outright once the underlying model was decided. A separate stated rationale ("both changes are on the same call chain") was simply false and went unnoticed for a week. Both are design-intent defects, and both are the kind a gate catches cheaply.
 
 ⚠️ **The gate is the mechanism. The section is just where the gate's subject lives.** Writing a design-intent section and then continuing straight into phases in the same pass gets you the cost and none of the benefit.
 

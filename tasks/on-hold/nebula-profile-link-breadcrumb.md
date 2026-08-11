@@ -1,6 +1,6 @@
 # Profile linking — recognizing one human under two email addresses
 
-**Status:** ON HOLD (2026-07-19). ⏳ **Resume trigger: a real human presents two different email addresses across scopes and wants them merged.** Until then the interim convention is **one email per human** — which is sufficient, because same-email-any-scope is already handled by [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md) §3 (email match at `getAndVerifyIdentity`, on first proof of the mailbox).
+**Status:** ON HOLD (2026-07-19). ⏳ **Resume trigger: a real human presents two different email addresses across scopes and wants them merged.** Until then the interim convention is **one email per human** — which is sufficient, because same-email-any-scope is already handled by [nebula-invite.md](../nebula-invite.md) §3 (email match at `getAndVerifyIdentity`, on first proof of the mailbox).
 
 ⚠️ **The design below is NOT settled spec — it is broken in three independent ways** (found by the `/review-task` framing panel, 2026-07-19, and verified against source). It is preserved as a starting point, not a plan. Anyone resuming this **redesigns**; they do not implement.
 
@@ -29,6 +29,6 @@ The one case the server cannot see: **different email, same person, same browser
 - **Deferred alternatives** if a live-session proof proves insufficient: a magic-link round-trip to the candidate's email, or parking the candidate and asking from its own next session.
 
 ## Relationships
-- **Depends on** [nebula-auth-identity-mint.md](../nebula-auth-identity-mint.md) §3 (`profileId` join at verification) — this is the *remainder* of that model, covering only the case email-match cannot see.
+- **Depends on** [nebula-invite.md](../nebula-invite.md) §3 (`profileId` join at verification) — this is the *remainder* of that model, covering only the case email-match cannot see.
 - **Would supply** the collapse task's blocking profile-completion modal with a second branch ([nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) § profile-completion). That modal has **no link branch today**, and adding one is part of this work, not a prerequisite of it.
 - **Lineage:** was `icebox/nebula-profile-p2-global-person.md` (parked 2026-07-15) → un-iced + merged into the identity-mint task 2026-07-19 → cut back out the same day when the panel showed the mechanism unbuildable. The `#mintIdentity` email-match half **stayed** in the identity-mint task; only the breadcrumb/linking half is here.
