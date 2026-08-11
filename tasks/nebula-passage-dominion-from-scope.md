@@ -2,7 +2,7 @@
 
 **Status:** Active child, **next in the queue** — ahead of [nebula-auth-identity-mint.md](nebula-auth-identity-mint.md), whose design intent is written entirely in the vocabulary this replaces. Decided with Larry 2026-08-05. Not built, except the `isAdmin` → `scopeAdmin` rename, which landed 2026-08-07 (§ *The target*).
 
-> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** Stage 1 **ran and was resolved 2026-08-09** (23 findings, commit `1855369`), and a **second Stage 1 was run deliberately** because that resolution rewrote 135 lines — the reviewed artifact was no longer the current one. From here: resolve this pass → run the gating verification → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input.
+> 📐 **`/write-task` Pass 2 — design intent AND phases are written.** Stage 1 ran twice and both were resolved (2026-08-09, `1855369`, 23 findings; and 2026-08-10, 22 findings — rerun deliberately because the first resolution rewrote 135 lines). The gating verification ran 2026-08-11 (§ *Objective*, the per-caller audit). **From here: `/review-task` Stage 2, then `/build-task`.** ⚠️ Stage 2 will read a `security.md` that was rescoped to Nebula on 2026-08-09 and a `docs/vision/auth.md` that reached `status: accepted` on 08-07 — neither was true when Stage 1 last ran, so its conformance lens is genuinely reading new inputs.
 
 > ✅ **NOT wipe-gated, and that is verified rather than assumed.** `authScopePattern` appears nowhere in `schemas.ts`; the KV refresh record stores `universeGalaxyStarId`; the pattern is re-derived on every token issuance and persisted nowhere. **No stored data changes shape**, so this does not have to race the pre-alpha wipe.
 
@@ -227,6 +227,70 @@ Accepted for three reasons: the surfaces are usually already separate (Studio on
 - **`docs/vision/auth.md`'s gaps are closed.** Both of its `> **Today's code differs.**` blockquotes about this model — in § *Coarse-grained access control* and § *The Registry* — are deleted, and `grep -n '^> \*\*Today' docs/vision/auth.md` returns no entry for either. Its prose needs no edit; it already describes the target on both surfaces. ⚠️ **Delete the blockquotes ONLY — both are now gap-only, and that was not true until 2026-08-10.** The Registry one used to end with the token-seam paragraph (*"everything discussed above runs off the token … No node calls the Registry"*), which is true after the gap closes, is the section's only statement of that property, and is what the following paragraph's *"The one exception is a Profile write"* takes its antecedent from. It has been lifted into the body — per auth.md's own frontmatter agreement, which reserves the blockquote for today-only content — so the deletion is now safe. **Re-read each blockquote before deleting it** rather than trusting this note; the criterion's own grep goes green either way.
 - **`nebula-pre-alpha.md`'s Super-admin building block states the new claims shape.** Its row still describes `authScopePattern:'*'` and *"`matchAccess('*', …)` always true"* as the mechanism; both go. ⚠️ That file is the **living master**, so it is read every session — leaving it describing the deleted model is the highest-traffic version of the unlearning cost this task exists to stop paying. (Its `scopeAdmin` spellings were swept 2026-08-09; only the `authScopePattern` mentions remain — `grep -c 'authScopePattern' tasks/nebula-pre-alpha.md` returned **3** on 2026-08-09. Re-run it rather than trusting that number.)
 - **No active task file states dominion as pattern-coverage.** `grep -rn 'authScopePattern\|pattern-covers' tasks/*.md tasks/on-hold/*.md tasks/icebox/*.md` returns nothing (frozen `tasks/archive/` is exempt). ⚠️ **The glob must cover `on-hold/` and `icebox/`, and that is load-bearing rather than tidy:** `nebula-collaborator-tiers.md` carries the deleted vocabulary in at least three places and **moved to `on-hold/` on 2026-08-09**, so a bare `tasks/*.md` now passes this criterion *because the file left the glob* — green while the prose it was written to catch sits untouched. ⚠️ **The work is wider than that one file — run the grep before sizing it.** On 2026-08-09 it returned **nine** files, five of which this task file names nowhere (`backlog.md`, `on-hold/mesh-active-callcontext-guard.md`, `on-hold/spike-r2-olap-latency.md`, `on-hold/nebula-dataplane-root-admin.md`, `icebox/think-nebula-integration.md`). Leaving those places re-anchors the next panel on the model this file deletes, which is the whole reason this lands before identity-mint's review.
+
+## Phases
+
+**Six phases, ordered by dependency, not by risk.** ⚠️ **The live hole (`Missing` item 4) is fixed in Phase 3, not Phase 1, and that is deliberate.** Fixing it correctly requires `hasPassage`, which requires the verdicts, which require the claim to carry the scope — so fixing it *first* means writing it twice, once in pattern vocabulary and once in scope vocabulary. That interim would be a consumer nobody needs (`workflow.md` § *Evaluating alternatives*). It is safe to wait: invites are paused, so the hole is reachable only by Larry. **If invites are un-paused before this lands, that calculus changes and Phase 3 gets pulled forward on its own.**
+
+Each phase leaves the suite green. Criteria named below are the ones in § *Acceptance criteria*; a phase is done when its own criteria red against the pre-phase code and pass after. **All of them are allocated except one** — ✅ *No `isAdmin` survives*, satisfied on 2026-08-07 and kept as a regression check, so it belongs to no phase and needs no work. ⚠️ **Two criteria span phases and are named in each**: 🔒 *A superuser is unchanged everywhere* has limbs in Phases 1, 3 and 5, and *No `authScopePattern` survives* is satisfied by Phase 1 in code but only fully by Phase 6 across docs and task files.
+
+### Phase 1 — The claim carries the scope, and containment becomes a hierarchy predicate
+
+The spine: every later phase reads `access.authScope`. **Atomic by nature** — a half-renamed claim is a broken system, so this lands in one commit even though it is the largest diff.
+
+- `access.authScopePattern` → **`access.authScope`**, holding the member's scope verbatim. `buildAuthScopePattern` is deleted.
+- `matchAccess`'s glob grammar → **`isAtOrAbove(myScope, node)`** and **`isAtOrBelow(myScope, node)`**, both `(myScope, node)`, exported from `index.ts` and `testing.ts`.
+- The reserved scope stops being `'*'` and becomes **`nebula-platform` verbatim**.
+- Sites in the **structural** class convert here, because they need a fact and not a verdict: `verify.ts`'s internal-consistency check, `access-claims.ts`'s construction invariant, the refresh `activeScope` confine, the mint's subject mirror. ⚠️ **None of them gains a `scopeAdmin` conjunction** — see § *Every site that asks the model*, where each is audited ✅.
+- Every fixture constructing the old sentinel moves to `authScope: 'nebula-platform'` — **size it with the grep in § *Platform*, which found 19 across 12 files, including two harness files.**
+
+**Criteria:** 🔒 *Segment boundaries hold under colliding names* · *No `authScopePattern` survives* · the **verification limb** of 🔒 *A superuser is unchanged everywhere* (their token verifies at all — it fails closed and total, so a miss here is a superuser who cannot log in).
+
+### Phase 2 — The two verdicts exist, and the mesh boundary calls them
+
+- **`hasDominionOver(access, node)`** — `hasAdminOverScope` renamed, gaining the `isPlatformInstance` arm.
+- **`hasPassage(access, node)`** — new, and the point: `isAtOrBelow ∨ dominion`. Nothing can call it today.
+- `enforceScopeReach` → **`enforcePassage`**, delegating to `hasPassage`. Its tenant arm stops reading `aud` and reads `authScope`, which is what kills non-admin downward movement **by construction** (`Missing` item 3 — no separate work, and no separate phase).
+- `nebula-do.ts`'s platform-name reject **stays**, with its comment re-justified on masquerade prevention rather than the `'*'` collapse this task deletes.
+
+**Criteria:** *A non-admin reaches its own scope and nothing beneath it* · *An admin reaches downward, totally* · *Upward is nil for dominion* · 🔒 *The scope is still the bound* · *The tenant direction survives, without dominion* · *Platform means everywhere* · *A mesh call to a node NAMED `nebula-platform` is still refused* · *`aud` survives on the token and on the wire*.
+
+### Phase 3 — The Registry's HTTP routes call `hasPassage` — the hole closes
+
+The invite gate. `verifyInstanceJwt` computes neither verdict today; it computes one, by calling it.
+
+- ⚠️ **Both obvious fixes are wrong and the definition excludes them**: a hierarchy predicate alone keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and a bare `scopeAdmin &&` refuses a non-admin at their own scope.
+- The refusal names **which of the two rules failed**, not just that one did — its current `insufficient_scope` message describes a satisfied scope relationship, which would be actively misleading on the new path (ADR-008 discloses the denial).
+
+**Criteria:** 🔒 *The Registry's HTTP routes compute `passage`, and by calling it* — including its shape limb, since an inline two-arm re-assembly passes every behavioural limb · the **registry-route limb** of 🔒 *A superuser is unchanged everywhere*.
+
+### Phase 4 — The mint asks one question
+
+The four invariants become **`canMintFor(callerClaims, subject, activeScope)`**, each limb delegating rather than re-deriving. See § *Constraints* for why one caller does not make this YAGNI.
+
+**Criteria:** 🔒 *The mint cannot widen* · 🔒 *The mint asks ONE question* · 🔒 *A derived token is indistinguishable from a self-minted one*.
+
+### Phase 5 — The remaining callers, and nothing re-derives
+
+- Profile's scoped-admin branch maps over `hasDominionOver` instead of re-deriving the conjunction across 37 lines; its `=== '*'` short-circuit becomes `isPlatformInstance`.
+- `myScopeTree`'s select-every-scope arm becomes `isPlatformInstance`.
+- ⚠️ **`star.ts`'s root-admin seed is RENAME-ONLY and MUST NOT become hierarchical.** It asks *"is this Star my own scope?"* — exact identity. Making it hierarchical hands a Star's root grant to whichever covering admin arrives first, **permanently**, because the seed latch is one-shot with no re-seed. The new claim makes the site read *more* honestly, not less.
+- `verify.ts`'s comment stops claiming a passage purpose; it guards a token-internal invariant.
+- 🌐 **The `/live` scenario runs here**, after all code lands: real logins at two tiers, real sockets.
+
+**Criteria:** *No site re-derives either verdict* · *Enumeration is unchanged for an admin* · the remaining limbs of 🔒 *A superuser is unchanged everywhere* (`myScopeTree`, and the Profile gate with **zero registry reads**) · 🌐 *The same, driven as a `/live` scenario*.
+
+### Phase 6 — Standing guidance and published docs
+
+Code is done; this is the unlearning-cost half, and it is what stops the next reader re-deriving the deleted model.
+
+- **ADR-015** — every normative sentence naming a pattern, **and its rejected-alternative row**, which forbids this exact change. Retire it by citing auth.md's table rows, not by re-arguing (§ *Constraints*).
+- **`security.md`** mint invariants restated in scope terms · **`workflow.md`**'s ADR-015 one-liner · **`nebula-pre-alpha.md`**'s Super-admin building block · **auth.md**'s two gap blockquotes deleted — ⚠️ **the blockquotes only**, per the criterion's own warning.
+- **Sibling task files** — `nebula-auth-identity-mint.md`, `on-hold/nebula-collaborator-tiers.md`, `nebula-profile-accepted-membership-gate.md` (whose criterion is written over the deleted `'*'` literal and must be re-worded over *behaviour*).
+- ⚠️ **`website/docs` is covered by no other criterion and has already shipped one wrong instruction from this task's landed half.** `grep -rni 'authscopepattern' website/docs`, and run `cd website && npm run check-examples` — it is not in CI, `npm test`, or `test:doc`, so nothing else will catch a drifted example.
+- **`.claude/skills/` and agent memory** — neither is reachable by a grep over `.claude/rules docs/adr tasks`.
+
+**Criteria:** *No standing-guidance statement forbids narrowing `enforceScopeReach`'s tenant branch* · *No standing-guidance statement describes the pattern model* · *`docs/vision/auth.md`'s gaps are closed* · *`nebula-pre-alpha.md`'s Super-admin building block states the new claims shape* · *No active task file states dominion as pattern-coverage*.
 
 ## Non-goals
 
