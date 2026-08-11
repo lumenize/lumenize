@@ -229,7 +229,7 @@ Permissions trickle down the orgTree. To alter a Resource's value, or create one
 
 The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse. Someone whose dominion covers the node hosting a data plane gets a bypass over that entity's whole orgTree — full read, write and admin, with no data-plane-level grant ever written. Dominion over *that host* is the whole test, never the bare bit, so an admin of a child scope whom passage legitimately lets into the parent holds no bypass once there. That is § *Why downward is generous for admins* arriving where user data lives.
 
-A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. The overlap is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too: a root-node `admin` without `scopeAdmin` grants and revokes freely in that orgTree and still cannot invite anyone into the scope, create a sibling, or delete it.
+A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. The overlap is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
 
 ## Identity and membership
 
@@ -271,7 +271,7 @@ The seam is unusually clean. Once a client presents a valid signed JWT at connec
 
 The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
 
-Scope existence is independent of membership. Creating a Galaxy or a Star writes a scope row and nothing else, so a real, working scope can have zero members — the creator's own scope already reaches down to it. Only the claim paths mint an identity, because until one exists nobody holds a token that reaches the new scope.
+Scope existence is independent of membership. Creating a Galaxy or a Star writes a scope row and nothing else, so a real, working scope can have zero members — the creator's own scope already reaches down to it. Of the operations that *create a scope*, only the claim paths also mint an identity — because until one exists nobody holds a token that reaches the new scope. Invites mint identities too, but into a scope that already exists (§ *Grants*).
 
 Everything else the Registry owns has its own section: sessions and their cookies, memberships and the addresses they hang off, and the scope and admin bit that the coarse-grained gate reads out of every token.
 
@@ -364,6 +364,21 @@ APIs and UIs allow the querying and inspection of both. These records are access
 ## Grants
 
 **Registry grants** — memberships and `scopeAdmin` — are all done inside the Registry.
+
+**Who may invite is an endpoint's decision, not the boundary's.** Passage carries a call to the Registry's routes and says nothing about what it may do once there (§ *Coarse-grained access control*) — so the rule lives in the endpoint's own guards, and it is one line:
+
+**Anyone may invite a non-admin at their own scope. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.**
+
+**Growth is why, and that is not a soft reason.** This business is a function of how many people are on the platform, so friction in the path to getting someone *onto* it is not caution — it is failure. It is why a stranger may claim a Universe or an unclaimed Star and become its `scopeAdmin` with nobody's approval, and it is the same reason a member may bring in a peer. **Any rule that makes onboarding wait on someone holding Registry standing is a tax on the thing the company is trying to do** — and it would buy nothing, because inviting a non-admin peer is not an act of dominion. It transfers nothing the inviter does not already hold: the newcomer gets a membership at a scope the inviter already belongs to, carrying the same passage and the same org-tree visibility ([ADR-008](../adr/008-full-org-tree-visibility.md)), and no authority at all. It is strictly weaker than self-signup, where a stranger mints themselves the admin bit.
+
+Two bounds hold it there, both structural rather than checks a caller could talk past:
+
+- **"Their own scope" is an identity test, never a hierarchy one.** Passage answers *yes* upward, so a Star member gated on passage could invite into the Universe — the one shape this rule must never take.
+- **`scopeAdmin` is derived from the inviter's own dominion, never requested.** A caller cannot ask for a bit they do not hold, so the data plane never becomes a path to Registry authority (§ *The data plane*).
+
+What is left is abuse, not escalation: a member can mail invites where they choose. That is rate-limiting and attribution, and an invite carries a verified identity where self-signup carries only Turnstile.
+
+> **Today's code differs.** `/invite` requires `scopeAdmin` over the target scope — the Worker checks the bit after the Registry's router has proved the caller's scope covers the route's, so the two halves sit in different files. Both the own-scope path and the derived-bit rule above are unbuilt.
 
 **Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. There is no HTTP path to granting.
 
