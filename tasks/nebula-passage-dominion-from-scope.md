@@ -324,6 +324,8 @@ The mint's authorization becomes **one predicate call**, behind a thin `canMintF
 
 ⚠️ **No criterion in this file catches that window**, and that is the point of stating it. Every limb of 🔒 *The mint cannot widen* asserts the **end state**, which is correct once both halves land; the hazard lives in an intermediate commit no criterion observes. Same shape as Phase 3's escalation — a guard whose safety depends on a sibling edit that has not happened yet — which is why that phase states the constraint instead of relying on its criteria, and why this one now does too.
 
+**Criteria:** 🔒 *The mint cannot widen, and an upward impersonation is refused* · 🔒 *The mint asks ONE question, and `activeScope` is not part of it* · 🔒 *A derived token is indistinguishable from a self-minted one*.
+
 ### Phase 5 — The remaining callers, and nothing re-derives
 
 - Profile's scoped-admin branch maps over `hasDominionOver` instead of re-deriving the conjunction across 37 lines; its `=== '*'` short-circuit becomes `isPlatformInstance`.
