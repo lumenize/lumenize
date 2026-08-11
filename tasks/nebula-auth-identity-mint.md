@@ -1,10 +1,12 @@
 # The invite mechanism — per-invitee admin, and a client method
 
-**Status:** The substrate every collaborator design needs, extracted from the collaborator task it used to be. `/invite` can currently issue one flat batch of non-admin memberships; this makes it say what *each* invitee gets, return the `sub` it minted, and be reachable from app code. No collapse dependency — buildable now.
+**Status:** Active child, **fourth and last** in the passage/dominion sequence — after [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md), [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) and [nebula-registry-route-guards.md](nebula-registry-route-guards.md). **Rescoped 2026-08-11: this file now owns WHO MAY INVITE**, not only what an invite carries (§ *The openness question*). `/invite` can currently issue one flat batch of non-admin memberships under an admin-only gate; this makes it say what *each* invitee gets, return the `sub` it minted, be reachable from app code, and be open to the right people. No collapse dependency.
 
-> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2** (`/write-task` § *Where the review stages go*). § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order. The 2026-07-25/26 Stage-1 passes do not carry — they reviewed a file with a different scope, a different Profile decision, and a pre-split storage layer.
+> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order. ⚠️ **The 2026-07-25/26 Stage-1 passes do not carry** — they reviewed a file with a different scope, a different Profile decision, and a pre-split storage layer.
 
-> 🔄 **Rescoped 2026-08-05, reversing a pinned business decision.** This file used to be *"invite a peer who becomes a Galaxy admin"*, with `collaborator = admin at the invited scope` pinned with Larry 2026-07-19. That is retired — reasoning in § *Decisions*. Three concerns moved out (§ *Non-goals*), leaving the mechanism, which is what all three of them sit on.
+> 🔄 **Rescoped twice.** (1) **2026-08-05**, reversing a pinned business decision: this file used to be *"invite a peer who becomes a Galaxy admin"*, with `collaborator = admin at the invited scope` pinned 2026-07-19. Retired — reasoning in § *Decisions*; three concerns moved out (§ *Non-goals*). (2) **2026-08-11**, in the four-way split of the passage/dominion pile: **the openness question landed here.** [nebula-registry-route-guards.md](nebula-registry-route-guards.md) places `/invite`'s guard in the route pipeline at **today's verdict** and changes no caller's outcome; **this file decides what that guard becomes.** The two files previously both reached for the rule, which is what the split was diagnosing.
+>
+> ✅ **The wire-field naming question is UNPARKED.** This file used to leave `invitees[].isAdmin`-vs-`Memberships.scopeAdmin` undecided because *"deciding it here would be designing this endpoint from another task's cleanup."* That cleanup is now [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md) and lands **first**, so the answer is a one-line consequence rather than a cross-task negotiation — and § *Reach and authority* below no longer has to hedge it.
 
 **Objective — `/invite` expresses what each invitee gets, returns the identity it minted, and is reachable from app code.** Today it takes `{ emails: string[] }`, hardcodes `isAdmin=false`, returns emails only, and has no client method — so no caller can say "make this one an admin," and no caller can act on the identity that was created.
 
@@ -28,29 +30,31 @@
 
 ## Design intent, constraints, and future state
 
-### Reach and authority are two axes, and this endpoint sets only one
+### What this endpoint sets, and what it does not
 
-> 🔄 **The reach half is being replaced — [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) lands FIRST (decided 2026-08-05).** A token will carry the member's scope, and reach will be `scopeAdmin ∧ scope-at-or-above-this-node`, with no derived pattern. **Nothing in this file's mechanism changes** — an invite still mints a membership at the path scope with a per-entry admin bit — but the vocabulary below and the tier table are written against the model being deleted. **Write the criteria against the target, and do not let `/review-task` anchor on the pattern grammar.**
->
-> ⚠️ **UNRESOLVED, and it is a NAMING decision this file owns, not a sweep: the wire field below is still `invitees[].isAdmin`, while the column it writes is now `Memberships.scopeAdmin`** (renamed 2026-08-07, `packages/nebula-auth/src/schemas.ts`). That is the exact defect reach-from-scope's Decisions table records itself as deleting — *"one concept, two spellings, and a translation every reader carries"* — relocated from storage-vs-token to **wire-vs-storage**. The field is unbuilt, so per `calibration.md` § *Name for the reader* the call-site cost is nil and the rename is a one-line edit. ⚠️ § *Inherited* also still describes `Memberships` as holding `isAdmin`, which is now simply false about the schema. Flagged 2026-08-09 during the standing-guidance prose sweep; **left undecided deliberately** — deciding it here would be designing this endpoint from another task's cleanup.
+> ✅ **The three files ahead of this one have landed by the time this builds, so the vocabulary below is the TARGET, not a translation.** A token carries the member's scope; `dominion` is `scopeAdmin ∧ scope-at-or-above` and `passage` is the boundary verdict; there is no derived pattern. ⚠️ **The tier table that used to sit here was written in the deleted grammar** — a `Minted pattern` column of `{u}.{g}.*` and `'*'` — and is gone rather than translated, because a criterion phrased over a pattern string would red on correct code.
 
-This endpoint sets two things and only two: the **scope** (from the URL path) and the **`isAdmin` bit** (per invitee entry). It never widens reach beyond the invited scope. What a token then derives from that scope is the other file's concern.
-
-The table below describes reach **as it works today**, kept because the mechanism must keep behaving correctly through the transition:
-
-**The mint invariant:** the identity lands at the **path** scope, and what is minted never exceeds the inviter's own standing there. No self-elevation, at any tier.
-
-⚠️ **Amended 2026-08-11 — "the caller administers it" is no longer the only way to qualify.** [`docs/vision/auth.md`](../docs/vision/auth.md) § *Grants* (`accepted`) now says: **anyone may invite a non-admin at their own scope; dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.** So there are two ways past this endpoint's guard, and the bit an invite confers is **derived from the inviter's dominion rather than requested** — which also settles the `invitees[].isAdmin` wire-field question below: the field is honoured only under dominion and forced false otherwise, so a caller cannot ask for what they do not hold.
-
-| Invited at | Minted pattern | Reaches |
-|---|---|---|
-| `{u}.{g}.{s}` (star) | `{u}.{g}.{s}` (exact) | that Star only |
-| `{u}.{g}` (galaxy) | `{u}.{g}.*` | the Galaxy + every Star beneath |
-| `{u}` (universe) | `{u}.*` | everything in the Universe |
-| `nebula-platform` | `'*'` | everything — a **super-admin invites a super-admin**, and only a super-admin can, since `matchAccess(pattern, 'nebula-platform')` holds only for `'*'` |
+This endpoint sets two things and only two: the **scope** (from the URL path) and the **admin bit** (per invitee entry). It never widens beyond the invited scope. **The mint invariant:** the identity lands at the **path** scope, and what is minted never exceeds the inviter's own standing there. No self-elevation, at any tier — the mechanism is uniform across tiers, so a star-, universe- or platform-tier invite each lands a membership at the scope named in the path, and the resulting token reaches exactly what the dominion rule says it should.
 
 **Authentication happens at the Universe; a Galaxy is named in `activeScope`.** No membership row can exist at a 2-segment scope by claim — `create-galaxy` mints no identity and there is no `claim-galaxy` — so a Galaxy membership arises only from an invite.
 
+### The openness question — THIS FILE'S SUBJECT, and it is not yet decided
+
+🔓 **Larry, 2026-08-11: *"We want it to be more open, but combined with everything else, it's hard to know if we are opening it up the right amount or the right way."*** That is the decision this file exists to make, and it is deliberately **not** made here yet.
+
+**Where it stands.** [`docs/vision/auth.md`](../docs/vision/auth.md) § *Grants* is `status: accepted` and already describes a target:
+
+> Two bounds hold it there, both structural rather than checks a caller could talk past:
+> - **"Their own scope" is an identity test, never a hierarchy one.** Passage answers *yes* upward, so a Star member gated on passage could invite into the Universe — the one shape this rule must never take.
+> - **`scopeAdmin` is derived from the inviter's own dominion, never requested.**
+>
+> What is left is abuse, not escalation: a member can mail invites where they choose. That is rate-limiting and attribution.
+
+⚠️ **Accepted does not mean calibrated.** That section fixes the *shape* of the answer — an identity test plus a derived bit — and it is a blocker to contradict. What it does not settle is the **amount**: whether every member may invite, whether an unaccepted membership may, what the abuse bound actually is in numbers, and how this composes with open Star self-signup (a **pinned** business decision — never propose an admin gate on it), F&F invites, super-admin invitability, and the collaborator design that is on-hold. ⚠️ **Its own gap blockquote says both halves are unbuilt**, so nothing in the running system has ever exercised it.
+
+**What the panel got wrong, for the record.** A Stage-2 conformance pass framed the own-scope path as a *collision* between two task files and offered "pick one owner" — which is true about ownership and wrong about direction; it read the widening as a risk to be resolved rather than as the goal. It is the goal. The open question is calibration, not whether.
+
+⚠️ **Do not answer this by translating the accepted prose into a guard.** The four surfaces above pull in different directions, and the reason this is its own file is that answering it needs them in one place.
 ### The `/invite` contract
 
 ```jsonc
@@ -74,7 +78,7 @@ The table below describes reach **as it works today**, kept because the mechanis
 
 ### The accepted cost of a galaxy-tier admin, stated loudly
 
-The mechanism is uniform across tiers, so it can mint a galaxy-tier admin, and that grant is large: `{u}.{g}.*` plus the bit is **read and write of end-user data in every current *and future* Star under that Galaxy** (including production tenant Stars, which ADR-008's boundary explicitly disclaims); `create-star` and `delete-scope`; the ability to **invite further admins**; and **no way to undo it short of DB surgery**.
+The mechanism is uniform across tiers, so it can mint a galaxy-tier admin, and that grant is large: a `{u}.{g}` membership plus the bit is **dominion over**  **read and write of end-user data in every current *and future* Star under that Galaxy** (including production tenant Stars, which ADR-008's boundary explicitly disclaims); `create-star` and `delete-scope`; the ability to **invite further admins**; and **no way to undo it short of DB surgery**.
 
 Per ADR-015 clause 1, restraint here is a **UI warning carrying decision-grade information, never a refusal in the authorization layer**. There is no invite affordance in `apps/nebula-studio-ui/src` yet, so **whoever builds the first one owns that warning**.
 
@@ -141,7 +145,7 @@ The cases are distinguished by **whether the address is already known**, and the
 
 - **Assert the PERSISTED bit, never the `/invite` 200**, which is identical for `true` and `false`: (i) a net-new `isAdmin:true` yields `getIdentityScope(sub).isAdmin === true`, or stronger, drive accept→refresh and assert `access.admin` in the JWT (ADR-009); (ii) **re-inviting an existing `isAdmin=0` member with `isAdmin:true` yields an accepted JWT carrying `access.admin`** — *reds against the membership early-return*; (iii) an omitted flag, an explicit `isAdmin:false`, and a wrong-typed `isAdmin:"false"` each leave `isAdmin=0`.
 - **A mixed batch** — one call with `[{a, isAdmin:true}, {b}]` mints `a` admin and `b` not. *Reds against a batch-level flag.*
-- **Tier coverage** — a star-tier, a universe-tier and a platform-tier invite each land a membership **at the scope named in the path**, and the resulting token reaches what the reach model says it should. ⚠️ **Phrase this over the membership and the observed reach, never over a pattern string** — [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) deletes the pattern, so a criterion asserting `{u}.{g}.*` would red on correct code the week after it is written.
+- **Tier coverage** — a star-tier, a universe-tier and a platform-tier invite each land a membership **at the scope named in the path**, and the resulting token has dominion over exactly what the rule says it should. ⚠️ **Phrase this over the membership and the OBSERVED verdict, never over a pattern string** — [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) deletes the pattern before this builds, so a criterion asserting `{u}.{g}.*` would red on correct code.
 - **The response carries a usable `sub`** — take the `sub` from an invite response and resolve it with `getIdentityScope`, or stronger, drive that person's accept→refresh and assert the JWT's `sub` matches. *Reds against a response that returns emails only.*
 - 🔒 **A non-admin at the SAME scope may invite — a non-admin peer, and only that.** ⚠️ **Inverted 2026-08-11**: this criterion previously asserted that caller was *refused*, which is now exactly backwards and would have enforced the model [`docs/vision/auth.md`](../docs/vision/auth.md) § *Grants* retired. Assert both limbs, because the permission and its bound fail independently: they succeed in minting a member, **and** the minted membership carries `scopeAdmin` false however the request asks for it. *Reds against gating the endpoint on the bit alone, and against honouring a caller-supplied admin flag.*
 - **Negatives, split so each is independently mutation-capable** (two disjoint gates, both 403 — assert the *body*): **(a)** a non-admin at a **different** scope than the path's is refused, body `forbidden` — *delete that line and it reds*. ⚠️ Same-scope is now the permitted case above, so this limb must be written over a scope the caller is **not** a member of, or it tests nothing; **(b)** an admin whose pattern does **not** cover the target — a *sibling* galaxy under a galaxy-scoped admin, **not** a Universe `{u}.*` admin — is refused by the router's `matchAccess` check, body `insufficient_scope` — *relax it and it reds*.
