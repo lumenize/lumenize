@@ -6,13 +6,17 @@
 
 > ⚠️ **ONE stored column changes shape, so this SHOULD land before the wipe — amended 2026-08-11.** The claim itself is not wipe-gated: `authScopePattern` appears nowhere in `schemas.ts`, the KV refresh record stores `universeGalaxyStarId`, and the pattern is re-derived at every token issuance and persisted nowhere. But the identifier sweep renames **`Subscribers.accessAdmin` → `dominionAtSubscribe`**, which is a real column (`ALTER TABLE Subscribers ADD COLUMN accessAdmin`). Decided with Larry 2026-08-11: **do it now, because it is far cheaper before the wipe than after** — the same argument the `isAdmin` → `scopeAdmin` rename already ran on. It still owes a numbered migration rather than a collapsed baseline, since local and test storage have applied the old list (`durable-objects.md` § *Initialization* — a renumbered list matches nothing and throws nothing).
 
-> ⚠️ **Why it is next changed on 2026-08-11, and the old reason is retired.** It was sequenced early for **unlearning cost** — five files described the model it replaces. That cost has since been paid *in prose*: the `dominion`/`passage` sweeps corrected auth.md, ADR-015, the rules, the task files and the code comments without the code changing, so that argument no longer carries it. What does is `Missing` **item 4** — a live hole letting a non-admin reach a descendant scope's Registry routes. That is not an unlearning concern; it is a defect that must not be live when the first invite goes out. ⇒ **This file belongs in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated*, not Wave 2, and moving it there is part of this work.**
+> 🚨 **The queue position is UNRESOLVED as of 2026-08-11 — it rested on a premise Stage 2 falsified.** It was sequenced early for **unlearning cost** (five files described the model it replaces); that cost has since been paid *in prose* by the `dominion`/`passage` sweeps, so the original argument retired itself. It was then re-justified on `Missing` item 4 being **a live hole**, and it is not (§ *Objective*). ⚠️ **That means the move to [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated* — committed `872a3af` — also rests on the false premise and probably reverts to Wave 2.** Re-derive on the **inspectability** argument (§ *Objective*'s "you cannot tell which are, from the call site"), which survives Stage 2 intact, and move pre-alpha to match whatever that yields. **Do not write phases against the invite-gated framing until this is settled.**
 
 **Objective — a token carries the member's scope; `passage` and `dominion` are computed from it, and every site that needs either calls one of them.** One string, the same one that is in the URL and the `Memberships` row. No second derived string, no wildcard grammar, and no site re-deriving half the model inline.
 
 ⚠️ **The second half of that objective is not decoration, and it is what this file was under-scoped on until 2026-08-10.** ADR-007 says one predicate expresses the model and no site re-derives it. Today nine sites delegate to `hasAdminOverScope` while nine more call the containment check directly, and `passage` does not exist as a callable thing anywhere — `enforceScopeReach` is the only place both arms appear together. **The claim rename is the occasion to fix that, not the whole job.**
 
-✅ **Every direct caller was audited 2026-08-11, and the result is the opposite of what both the panel and the author expected — one hole, not many.** Five of the nine are **structural** checks with no principal in them (token-internal consistency, mint-time self-consistency, the `activeScope` confinements, the subject mirror), where a `scopeAdmin` conjunction would be actively *wrong*. Two hold the conjunction, just spelled across a function rather than expressed by a predicate. One is the known tenant arm. **Exactly one — the Registry route gate — is a live hole** (`Missing` item 4). Per-site verdicts are the last column of § *Every site that asks the model*.
+✅ **Audited 2026-08-11, re-audited the same day after Stage 2 overturned the first pass: there are ZERO live holes.** Five sites are **structural** checks with no principal in them (token-internal consistency, mint-time self-consistency, the `activeScope` confinements, the subject mirror), where a `scopeAdmin` conjunction would be actively *wrong*. The rest hold the conjunction — some inside a predicate, some spelled across a function, and **one spelled across a FILE boundary**. Per-site verdicts are the last column of § *Every site that asks the model*.
+
+⚠️ **The first audit called the Registry gate a hole. It is not, and the correction is the more useful finding.** `verifyInstanceJwt` fronts exactly two routes and **both handlers re-read `scopeAdmin` themselves** — `handleInvite`'s comment states the invariant outright: the router proves containment, *so the bare bit legitimately completes the conjunction, and this line must never be copied to a site that lacks the router's check.* The first pass missed it by reading each site's **enclosing function**, which cannot see a conjunction whose other half lives one hop away in the callers. ⇒ **Read the consumers.** What is actually wrong there is narrower and still worth fixing: a downward-open gate whose correctness is **borrowed from every consumer re-checking the bit**, falsified the day someone adds a third entry to `AUTHENTICATED_SUFFIXES` — a `Set` that reads like ordinary route registration.
+
+🚨 **Therefore `hasPassage` at that gate would be an ESCALATION, and it was this file's Phase 3 until 2026-08-11.** `passage` admits upward for free; the handler's bare bit then completes the conjunction, so a Star `scopeAdmin` could POST `/auth/{u}/invite` and mint identities at the Universe. `matchAccess` refuses exactly that today. It would violate ADR-015 *"upward is nil"* and falsify an `accepted` `docs/vision/auth.md` table row (*"the bit sits beneath `u`, so it buys nothing"*) — the *"bare bit is dominion"* bug § *The conjunction survives* says has already shipped twice, re-created by the change meant to prevent it.
 
 ⚠️ **The reason to convert them is therefore NOT that they are dangerous — it is that you cannot tell which are, from the call site.** `profile.ts:309`, `worker-token.ts:507` and `router.ts:359` are textually identical bare containment checks; two are correct because the missing half sits ~40 lines away, and one is a hole because it sits nowhere. Today that question costs a full function read per site, which is why the hole was found by a panel reading a *task file* rather than by anyone reading the code. Afterwards a bare containment check outside the structural class is non-conformant **by definition**, so the next one surfaces in a grep. **The buy is inspectability, not a stack of latent CVEs — do not let a phase justify itself on urgency the audit did not find.**
 
@@ -33,9 +37,12 @@
 ```sh
 grep -rn 'hasAdminOverScope(\|matchAccess(\|isPlatformInstance(' packages/*/src apps/nebula/src --include='*.ts'
 grep -rn "authScopePattern ===\|authScopePattern !==" packages/*/src apps/nebula/src --include='*.ts'
+grep -rn '\bscopeAdmin\b' packages/nebula-auth/src apps/nebula/src --include='*.ts'   # then EYEBALL
 ```
 
-**Verdict column audited per site 2026-08-11** by reading each enclosing function, not the call line — which is the only way to tell a hole from a spelled-out conjunction:
+⚠️ **The third instrument is not optional, and its absence is what made the 2026-08-11 audit wrong.** The first two key on the **containment** half, so a site reading `access.scopeAdmin` with no containment call beside it is structurally invisible to them — which is precisely the *"bare bit is dominion"* shape this task exists to kill. Both missing rows below were found only by grepping the bit. ⚠️ Do **not** narrow it to `access\??\.scopeAdmin`: under BSD BRE the `?` makes `s` optional and is matched literally, so it silently drops `verifiedAccess.scopeAdmin` — the exact read that matters.
+
+**Verdict column re-audited 2026-08-11 after Stage 2 overturned the first pass.** ⚠️ **Read the CONSUMERS, not just the enclosing function.** The first audit read each site's enclosing function and concluded the Registry gate was a hole; it is not — the other half of its conjunction lives in its *callers*, one hop past the enclosure. A conjunction can be split across a **file boundary**, and that is the case an enclosing-function read cannot see.
 
 | Transport | Site | Asks for | Verdict |
 |---|---|---|---|
@@ -44,15 +51,18 @@ grep -rn "authScopePattern ===\|authScopePattern !==" packages/*/src apps/nebula
 | | its tenant arm | **passage**, upward | ⚠️ correct today, wrong INPUT — reads `aud` (item 3) |
 | | `requireAdmin` | **dominion** | ✅ delegates |
 | **Mesh, outbound** | `NebulaClientGateway.onBeforeCallToClient` | `aud` equality | ✅ neither, deliberately — see § *Constraints* |
-| **HTTP, Registry** | `router.ts` `verifyInstanceJwt` | **passage** | ❌ **HOLE** — no `scopeAdmin` anywhere in the path (item 4) |
-| | `verify.ts` internal-consistency | structural | ✅ correct — no principal; `scopeAdmin` would be wrong |
-| **Token mint** | `access-claims.ts` construction invariant | structural | ✅ correct — self-consistency at mint time |
-| | refresh `activeScope` confine | structural | ✅ correct — confines against the KV record's server-trusted scope |
+| **HTTP, Registry** | `router.ts` `verifyInstanceJwt` | containment only, **on purpose** | ⚠️ **BORROWED SAFETY — not a hole** (item 4). See the two rows below |
+| | `worker-token.ts` `handleInvite`'s bare `scopeAdmin` | the **other half** of the gate's conjunction | ⚠️ split across a FILE boundary; its own comment states the invariant |
+| | `worker-token.ts` `/mint-narrower-token`'s bare `scopeAdmin` | same | ⚠️ same split, second and last consumer |
+| | `verify.ts` internal-consistency | structural | ✅ correct — no principal; `scopeAdmin` would be wrong. ⚠️ needs the platform disjunct |
+| **Token mint** | `access-claims.ts` construction invariant | structural | ✅ correct — self-consistency at mint time. ⚠️ needs the platform disjunct, or a superuser token is **unmintable** |
+| | refresh `activeScope` confine | structural | ✅ correct — confines against the KV record's server-trusted scope. ⚠️ needs the platform disjunct, or a superuser can refresh to **no** scope |
 | | `/mint-narrower-token` (a) | redundant | ✅ benign — `:521` checks the bit, `:543` delegates |
 | | (b) the subject mirror | structural | ✅ correct — faithfulness, explicitly not an escalation gate |
 | | (d) eligibility | **dominion** | ✅ delegates |
 | **Data plane** | `dag-tree.ts` bypass; both subscribe-time verdicts | **dominion** | ✅ delegates |
 | **Registry admin** | `#hasAdminOverScope` + universe/galaxy helpers | **dominion** | ✅ delegates |
+| | `myScopeTree`'s bare `scopeAdmin` + `LIKE prefix.%` | **dominion**, hand-rolled | ⚠️ re-derives both halves inline — found only by the bit grep |
 | **Profile** | scoped-admin branch | **dominion** over a set | ✅ benign — `scopeAdmin` gated 37 lines earlier |
 | | super-admin short-circuit | platform | ✅ benign — literal `'*'` after that same gate |
 | **Exact identity** | `star.ts` root-admin seed | **neither, deliberately** | ✅ must NOT become hierarchical |
@@ -64,7 +74,7 @@ grep -rn "authScopePattern ===\|authScopePattern !==" packages/*/src apps/nebula
 1. **One fact is carried by two strings.** The scope lives in the URL and in `Memberships.universeGalaxyStarId`; the JWT carries something derived from it that exists nowhere else. A reader must hold the derivation in their head to reconcile the three.
 2. **The two directions look like one mechanism.** Both are glob matches against `buildAuthScopePattern` output. Nothing in the shape of the code says one grants dominion and the other deliberately does not.
 3. **Non-admin downward movement exists at the MESH boundary and has no consumer.** ✅ **No separate work *at `enforceScopeReach`*** — only its tenant arm reads `aud`, so computing passage from the member's scope instead refuses `{u}.{g}.{s}` for a non-admin at `{u}` by construction. Keep the behaviour criterion. A non-admin at `{u}` today has passage to every Star in the Universe and dominion over none — pure disclosure surface (ADR-008 makes the org tree and presence visible to Star-reachable callers) with no use case behind it.
-4. **The Registry's HTTP routes compute NEITHER passage nor dominion.** `router.ts` `verifyInstanceJwt` gates every scoped registry route on bare containment with no `scopeAdmin` conjunction, so a non-admin at `{u}` passes it for `{u}.{g}.{s}` — downward movement without the bit, which is by definition neither. ⚠️ **This is separate work from item 3, in a different package, and both obvious fixes are wrong:** a hierarchy predicate keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and a bare `scopeAdmin &&` refuses a non-admin at their **own** scope. The site must compute `passage(access, node)` — the same predicate the mesh boundary computes. That one line replaces both wrong answers, because the definition excludes them.
+4. **The Registry's HTTP routes BORROW their dominion from their consumers.** `router.ts` `verifyInstanceJwt` proves containment only; the `scopeAdmin` half lives in each of the two handlers it can reach, which re-read the bit themselves. The conjunction is therefore real but **split across a file boundary**, and its safety is a property of the current consumer set rather than of the gate. ⚠️ **The failure mode is a third entry in `AUTHENTICATED_SUFFIXES` that forgets** — a one-line addition to a `Set` that reads like ordinary route registration, with no test and no grep that would catch it. ⚠️ **This is NOT a live hole, and the obvious fix is an escalation** — see § *Objective*. Whether the answer is per-route gating or moving the conjunction into the gate is the open question Phase 3 must settle; the latter is what the objective's "no site re-derives" clause points at.
 
 ## Design intent, constraints, and future state
 
@@ -263,9 +273,13 @@ The spine: every later phase reads `access.authScope`. **Atomic by nature** — 
 
 **Criteria:** *A non-admin reaches its own scope and nothing beneath it* · *An admin reaches downward, totally* · *Upward is nil for dominion* · 🔒 *The scope is still the bound* · *The tenant direction survives, without dominion* · *Platform means everywhere* · *A mesh call to a node NAMED `nebula-platform` is still refused* · *`aud` survives on the token and on the wire*.
 
-### Phase 3 — The Registry's HTTP routes call `hasPassage` — the hole closes
+### Phase 3 — The Registry gate stops borrowing its safety
 
-The invite gate. `verifyInstanceJwt` computes neither verdict today; it computes one, by calling it.
+🚨 **SUPERSEDED 2026-08-11 and NOT YET RE-DERIVED — do not implement as written below.** Stage 2 established there is no hole here and that `hasPassage` at this gate is an **escalation** (§ *Objective*). The phase needs rewriting against the corrected table: the plausible shapes are *gate per route* (`hasPassage` for read-shaped routes, `hasDominionOver` for authority-changing ones) or *move the conjunction into the gate* and delete the two handlers' bare bits — which is the shape the objective's "no site re-derives" clause actually points at. **Its criterion also needs an admin-UPWARD limb**, which exists nowhere in this file today: *a `scopeAdmin` at `{u}.{g}.{s}` is refused at `/auth/{u}.{g}/invite` and `/auth/{u}/invite`.* Without it a mechanical swap passes.
+
+The text below is retained only so the re-derivation has something to diff against.
+
+~~The invite gate. `verifyInstanceJwt` computes neither verdict today; it computes one, by calling it.~~
 
 - ⚠️ **Both obvious fixes are wrong and the definition excludes them**: a hierarchy predicate alone keeps the hole (`{u}` is still at-or-above `{u}.{g}.{s}`), and a bare `scopeAdmin &&` refuses a non-admin at their own scope.
 - The refusal names **which of the two rules failed**, not just that one did — its current `insufficient_scope` message describes a satisfied scope relationship, which would be actively misleading on the new path (ADR-008 discloses the denial).
