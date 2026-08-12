@@ -17,7 +17,7 @@ The few repo-shaping commitments — single digits, ever. The bar is not abstrac
 
 ## Format
 
-`NNN-short-slug.md`, about one page: **Context, Decision, Alternatives considered, Consequences.** Header carries Date / Status / Deciders. Link out for history; don't inline it.
+`NNN-short-slug.md`, about one page: **Context, Decision, Alternatives considered, Consequences.** Header carries Date / Status / Deciders, and an **Evidence** line naming the code and the incidents the decision answers to — the body may defer to it rather than re-telling them. Link out for history; don't inline it.
 
 ## Lifecycle — what `Proposed` and `Accepted` mean
 

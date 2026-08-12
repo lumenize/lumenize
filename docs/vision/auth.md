@@ -231,6 +231,8 @@ The two admins meet here, and the direction is one-way. A data-plane `admin` is 
 
 A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. The overlap is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
 
+> **Today's code differs.** The climb is not built — [`tasks/nebula-request-access.md`](../../tasks/nebula-request-access.md) is still a stub, so nothing today walks the orgTree looking for someone to ask. The root-admin grant that gives it a terminus *is* built and seeded (`apps/nebula/src/star.ts`), which is why the Star writes a grant whose only consumer does not exist yet.
+
 ## Identity and membership
 
 Access is anchored to the mailbox and managed by the Registry. Identity is anchored to the person and captured in the Profile.

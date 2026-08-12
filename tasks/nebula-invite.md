@@ -92,7 +92,7 @@ This is not an audit-trail improvement. The env-var path leaves a git commit *an
 
 ### Constraints
 
-- **[ADR-015](../docs/adr/015-passage-and-dominion.md)** — authority flows downward only; the bare `admin` bit is never authority; restraint is a UI warning, never an authz refusal.
+- **[ADR-015](../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; the bare `scopeAdmin` bit is never dominion; restraint is a UI warning, never an authz refusal. ⚠️ It does **not** say an action requires dominion — lacking it leaves the decision to the node's own guards, which is what licenses a peer-level invite.
 - **[ADR-016](../docs/adr/016-record-the-acting-principal.md)** — an authority change records the acting token's full verified claims, through the one shared projection.
 - **[ADR-009](../docs/adr/009-real-auth-path.md)** — assert through a real login where a criterion can.
 - **ADR-001** — validate at the boundary; TypeScript types are the schema.
@@ -167,7 +167,7 @@ Three concerns moved out of this file on 2026-08-05. Each was here for historica
 
 - **Profile-DO conformance to the ADR-012 acceptance gate** → [nebula-profile-accepted-membership-gate.md](nebula-profile-accepted-membership-gate.md). It lives in `profile.ts`, not on the invite path, and never shared anything with this work but a file. Next up after this one.
 - **The collaborator — a person granted less than a scope admin** → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md). Resumed 2026-08-05, then ⏸️ **paused and taken out of pre-alpha 2026-08-09** — it mixes the Registry and mesh domains, which is post-pre-alpha work; the collapse gate it also carries is not why. This file is its substrate, not its competitor, and **that is unaffected by the pause** — the orchestrator consumes the `sub` returned above whenever it resumes, so nothing here waits on it.
-- **The `ui-smoke` `.dev`-login test debt** → [backlog.md](backlog.md) § Testing & Quality, which already holds the verified analysis and two candidate unblocks. It was never blocked on anything here: the lane needs a `.dev` login, and the invite-into-`.dev` premise fails for an unrelated reason (`delete-scope.test.ts` acts at galaxy tier, so `createGalaxy`'s `#hasAdminOverUniverse` gate rejects the exact-star pattern a `.dev` invite yields).
+- **The `ui-smoke` `.dev`-login test debt** → [backlog.md](backlog.md) § Testing & Quality, which already holds the verified analysis and two candidate unblocks. It was never blocked on anything here: the lane needs a `.dev` login, and the invite-into-`.dev` premise fails for an unrelated reason (`delete-scope.test.ts` acts at galaxy tier, so `createGalaxy`'s `#hasDominionOverUniverse` gate rejects the exact-star pattern a `.dev` invite yields).
 
 Also out of scope, and staying out:
 
