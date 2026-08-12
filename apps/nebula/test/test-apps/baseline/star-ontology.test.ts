@@ -49,13 +49,13 @@ async function adminClient(star: string) {
 /**
  * A client that can write the GALAXY's ontology.
  *
- * ⚠️ `appendOntologyVersion` is `@mesh(requireAdmin)` **on the Galaxy**, so a star-scoped admin is
+ * ⚠️ `appendOntologyVersion` is `@mesh(requireDominionHere)` **on the Galaxy**, so a star-scoped admin is
  * correctly refused ("Admin access required for …") — its exact-star pattern is inert at every
  * ancestor (ADR-015). This is the real model, not a fixture detail: the app developer publishes the
  * ontology from the tier that owns it; a tenant only consumes it.
  *
  * The old universe-admin-for-everything fixture hid this distinction entirely — every one of these
- * tests passed a *star* scope while silently exercising *galaxy* authority.
+ * tests passed a *star* scope while silently exercising *galaxy* dominion.
  */
 async function galaxyOntologyAdmin(star: string) {
   const browser = new Browser();

@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
-import { ROOT_NODE_ID, Star, requireAdmin } from '@lumenize/nebula';
+import { ROOT_NODE_ID, Star, requireDominionHere } from '@lumenize/nebula';
 import type { Snapshot, TransactionResult } from '@lumenize/nebula';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
@@ -163,7 +163,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client.callStarSetConfig(starA, 'survives', 'yes');
     await waitForSuccess(client);
 
-    // Admin caller (requireAdmin passes) but the .dev guard throws. Capable-of-failing:
+    // Admin caller (requireDominionHere passes) but the .dev guard throws. Capable-of-failing:
     // mutating the guard to always-pass → deleteAll runs → the config below is gone.
     client.callStarResetDevData(starA);
     await waitForResult(client);
@@ -276,7 +276,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     client.callStarWhoAmI(dev);
     await waitForSuccess(client);
 
-    // No grant. Reds if star.ts's gate is relaxed back to `hasAdminOverScope`, which a
+    // No grant. Reds if star.ts's gate is relaxed back to `hasDominionOver`, which a
     // covering admin satisfies — the arrival-order bug this rule exists to prevent
     // (the seed latch is one-shot, so a wrong winner would hold root forever).
     client.callStarInspectRootAdmin(dev, payload.sub);
@@ -363,7 +363,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
 });
 
 // Walk a class's OWN prototype, returning its mesh-callable methods whose guard is
-// requireAdmin. Copied from scope-isolation.test.ts (B5).
+// requireDominionHere. Copied from scope-isolation.test.ts (B5).
 function adminMeshMethods(ctor: { prototype: object }): string[] {
   const proto = ctor.prototype;
   const out: string[] = [];
@@ -371,7 +371,7 @@ function adminMeshMethods(ctor: { prototype: object }): string[] {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) !== requireAdmin) continue;
+    if (getMeshGuard(fn) !== requireDominionHere) continue;
     out.push(name);
   }
   return out.sort();
@@ -382,7 +382,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     const fn = (Star.prototype as unknown as Record<string, unknown>).resetDevData as (...a: unknown[]) => unknown;
     expect(typeof fn).toBe('function');
     expect(isMeshCallable(fn)).toBe(true);
-    expect(getMeshGuard(fn)).toBe(requireAdmin);
+    expect(getMeshGuard(fn)).toBe(requireDominionHere);
   });
 
   it('Star.prototype @mesh-surface-freeze: the admin-gated set equals the frozen allow-list', () => {
@@ -390,7 +390,7 @@ describe('resetDevData capability surface (Star.prototype)', () => {
     // setStarConfig are the admin-gated @mesh methods; a new one must be added deliberately +
     // re-reviewed. `installOntology` is the atomic wipe+install (ADR-006) DevStudio fires as
     // ONE continuation-only call() — it composes the already-frozen resetDevData + setOntology,
-    // so it adds no capability beyond them. Mutation-validated: removing requireAdmin from any
+    // so it adds no capability beyond them. Mutation-validated: removing requireDominionHere from any
     // of them drops it from this set → != frozen list → RED.
     expect(adminMeshMethods(Star)).toEqual(['installOntology', 'resetDevData', 'setOntology', 'setStarConfig']);
   });

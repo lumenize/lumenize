@@ -15,7 +15,7 @@
 import { mesh } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
 import { Star } from '../../../src/star';
-import { requireAdmin } from '../../../src/nebula-do';
+import { requireDominionHere } from '../../../src/nebula-do';
 import { DEFAULT_LOOP_CONFIG, TOOL_ARGS_BUNDLE_ID, TOOL_ARGS_TYPES } from '../../../src/codegen-loop';
 import type { ChatMessage, ModelParams, CodegenLoopConfig, LoopResult } from '../../../src/codegen-loop';
 import { getParserValidatorFacet, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
@@ -51,7 +51,7 @@ export class DevStudioLoopProbe extends DevStudio {
 
   /** Test-only entry: replay `script` through the real loop driver, return the
    *  LoopResult + the per-round transcripts. Admin-gated like every DevStudio method. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async runLoopForTest(
     userRequest: string,
     script: unknown[],
@@ -75,7 +75,7 @@ export class DevStudioLoopProbe extends DevStudio {
   /** Parse a value through the Session/Turn facet, with the tool-args facet ALSO
    *  mounted in THIS DO first — a passing Turn parse therefore proves no Worker-Loader
    *  bundleId cross-wiring (M2) on top of the ADR-006 embed-guard (SC3). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async parseSessionTurnForTest(typeName: string, value: unknown): Promise<ParseResult> {
     // If the Session/Turn bundleId collided with the tool-args id, the facet
     // below would serve THIS validator and a valid Turn would fail to parse.
@@ -85,7 +85,7 @@ export class DevStudioLoopProbe extends DevStudio {
   }
 
   /** The fixed Session/Turn ontology version (server-sourced) — for the wipe/re-init check. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   resourceOntologyVersionForTest(): string {
     return createResourceOntologyProvider(this.ctx, this.env.LOADER)().version;
   }
@@ -93,13 +93,13 @@ export class DevStudioLoopProbe extends DevStudio {
   /** Child 2 Phase 0: the relationship metadata the widened `getOntology()` seam
    *  (D11) carries — exercises the REAL provider closure (this.ctx/this.env.LOADER),
    *  so dropping `relationships` from the provider returns `undefined` here (red). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   resourceRelationshipsForTest(): unknown {
     return createResourceOntologyProvider(this.ctx, this.env.LOADER)().relationships;
   }
 
   /** Re-run onStart to simulate a DO restart / re-init (M3 wipe-recovery). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async reInitForTest(): Promise<void> {
     await this.onStart();
   }
@@ -109,7 +109,7 @@ export class DevStudioLoopProbe extends DevStudio {
 // `Star` at a `{u}.{g}.dev` instance — no DevStar subclass.
 export class DevStarOntologyProbe extends Star {
   /** Test-only: the ontology version index (proves `setOntology` installed). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectOntologyIndex(): string[] {
     return this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
   }

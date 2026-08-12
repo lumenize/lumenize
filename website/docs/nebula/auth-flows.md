@@ -25,9 +25,9 @@ By default Nebula serves the UI and the API from the same origin (e.g. `https://
 
 The Nebula entrypoint parses this once and threads it as a single `cors` config through both the `/auth/*` router (`routeNebulaAuthRequest`) and the `/gateway/*` router (`routeDORequest`), so a browser frontend at an approved origin can hit both magic-link / refresh-token endpoints and the WebSocket mesh with the same allowlist. Empty or unset → no CORS headers (safe default).
 
-## Who can create a scope (identity is minted only at authority points)
+## Who can create a scope (identity is minted only at mint points)
 
-Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and is **rejected** if none exists — this is what closes stranger-self-join. Memberships are minted only at authority points:
+Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and is **rejected** if none exists — this is what closes stranger-self-join. Memberships are minted only at mint points:
 
 - **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`scopeAdmin=true`) + the scope.
 - **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, identity-minting star self-signup.
@@ -260,7 +260,7 @@ sequenceDiagram
     participant EP as Entrypoint<br/>(onBeforeConnect)
     participant GW as NebulaClientGateway<br/>(onBeforeAccept)
     participant DO as NebulaDO<br/>(onBeforeCall)
-    participant M as mesh guard<br/>(e.g. requireAdmin)
+    participant M as mesh guard<br/>(e.g. requireDominionHere)
 
     rect rgba(200, 220, 240, 0.3)
         Note over C,EP: Layer 1 — Entrypoint JWT verification
@@ -294,7 +294,7 @@ sequenceDiagram
 
     rect rgba(200, 240, 200, 0.3)
         Note over DO,M: Layer 4 — Method-level guard
-        Note over M: requireAdmin(instance):<br/>check originAuth.claims.access.scopeAdmin
+        Note over M: requireDominionHere(instance):<br/>check originAuth.claims.access.scopeAdmin
         alt Guard rejects
             M-->>DO: Error: Admin access required
             DO-->>GW: Error propagated

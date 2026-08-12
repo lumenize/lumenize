@@ -3,7 +3,7 @@
  *
  * Driven via `__executeOperation` envelopes (no Gateway/JWT) carrying an admin claim
  * at the `{u}.{g}.dev` scope, so the real receive seam runs (onBeforeCall scope guard
- * + requireAdmin). Proves:
+ * + requireDominionHere). Proves:
  *  - **source-of-truth round-trip** (the "testable now" half of success criterion #3):
  *    `writeSource` commits to the shell Workspace (distinct git oids), `readSource`
  *    returns the latest, `getSourceTree` returns the tracked tree + HEAD;
@@ -22,7 +22,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
-import { requireAdmin } from '../../../src/nebula-do';
+import { requireDominionHere } from '../../../src/nebula-do';
 
 const ONTOLOGY_PATH = 'src/ontology.d.ts';
 const TODO_V1 = `interface Todo { title: string; done: boolean; }`;
@@ -46,8 +46,8 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // full-suite parallel load (85 files sharing the box), and the symptom is a MOVING failure — a
 // different one of these times out each run, which reads as an unrelated flake. Raising the
 // ceiling weakens nothing: an effect that never lands still reds, just later.
-// ⚠️ `authScopePattern` is REQUIRED in the default claims, not decoration: `requireAdmin` confines
-// the admin bit to the callee node (`hasAdminOverScope`), so a pattern-less admin claim is denied —
+// ⚠️ `authScopePattern` is REQUIRED in the default claims, not decoration: `requireDominionHere` confines
+// the admin bit to the callee node (`hasDominionOver`), so a pattern-less admin claim is denied —
 // and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
 // downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
 // that reaches a `.dev` Star: a universe admin, whose pattern is `{universe}.*`.
@@ -132,11 +132,11 @@ describe('DevStudio compile-and-apply — installs a content-addressed ontology 
   });
 });
 
-describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
-  // The @mesh(requireAdmin) guard, tested PURE (the guard function directly). WIRING — which methods
-  // carry requireAdmin (writeSource/compileAndInstallOntology/recordTurn/…) — is the static
+describe('DevStudio command surface is admin-gated (requireDominionHere)', () => {
+  // The @mesh(requireDominionHere) guard, tested PURE (the guard function directly). WIRING — which methods
+  // carry requireDominionHere (writeSource/compileAndInstallOntology/recordTurn/…) — is the static
   // frozen-surface test in devstudio-resource-surface.test.ts ("codegen/source methods stay
-  // requireAdmin"); the framework invoking a wired guard is covered in @lumenize/mesh.
+  // requireDominionHere"); the framework invoking a wired guard is covered in @lumenize/mesh.
   // The guard has THREE independent operands; each gets its own probe so a mutation to one reds a
   // distinct test (testing.md § compound conditions). Node under test: `u.y.dev`.
   const NODE = 'u.y.dev';
@@ -144,9 +144,9 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
   // that has a default triggers the default, so `guard(claims, undefined)` would silently test the
   // named node instead of the absent-name path — a test that cannot fail.
   const guard = (claims: unknown) =>
-    () => requireAdmin({ lmz: { callContext: { originAuth: { claims } }, instanceName: NODE } } as any);
+    () => requireDominionHere({ lmz: { callContext: { originAuth: { claims } }, instanceName: NODE } } as any);
   const guardNoName = (claims: unknown) =>
-    () => requireAdmin({ lmz: { callContext: { originAuth: { claims } } } } as any);
+    () => requireDominionHere({ lmz: { callContext: { originAuth: { claims } } } } as any);
 
   it('operand 1 — rejects a non-admin claim', () => {
     expect(guard({ aud: NODE })).toThrow('Admin access required');
@@ -175,9 +175,9 @@ describe('DevStudio command surface is admin-gated (requireAdmin)', () => {
   });
 
   it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {
-    // `matchAccess(undefined, x)` would throw at `.endsWith`; `hasAdminOverScope` returns false so
+    // `matchAccess(undefined, x)` would throw at `.endsWith`; `hasDominionOver` returns false so
     // the caller gets the clean scope-naming denial. Mutation: drop the truthiness guard in
-    // `hasAdminOverScope` → this reds with a TypeError instead.
+    // `hasDominionOver` → this reds with a TypeError instead.
     expect(guard({ access: { scopeAdmin: true } })).toThrow('Admin access required for');
   });
 });

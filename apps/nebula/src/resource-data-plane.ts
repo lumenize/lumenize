@@ -107,7 +107,7 @@ export class ResourceDataPlane {
 
   /**
    * @param getHostName - The host DO's own instance name, as a **thunk**. Required: it is the scope
-   *   the `access.scopeAdmin` bypass is confined to (`hasAdminOverScope`), at both confinement points —
+   *   the `access.scopeAdmin` bypass is confined to (`hasDominionOver`), at both confinement points —
    *   `DagTree.requirePermission` (live claim) and the two subscribe-time writers (stored verdict).
    *   ⚠️ **Must be lazy.** `ResourceDataPlane` is constructed in the host's `onStart()`, where
    *   `this.lmz.instanceName` is not yet stamped; `Star.resetDevData` also re-runs `onStart()` after
@@ -165,7 +165,7 @@ export class ResourceDataPlane {
     return this.#querySubs
       .forQueryHash(canonicalQueryHash(query))
       .filter((r) =>
-        this.#dagTree.evaluatePermissions([nodeId], 'read', r.sub, Boolean(r.accessAdmin)).allowed.size > 0)
+        this.#dagTree.evaluatePermissions([nodeId], 'read', r.sub, Boolean(r.dominionOverHostAtSubscribe)).allowed.size > 0)
       .map((r) => ({ bindingName: r.subscriberBinding, instanceName: r.clientId }));
   }
 
@@ -175,7 +175,7 @@ export class ResourceDataPlane {
   /**
    * The DISTINCT-by-`sub` roster for a query — a set of PEOPLE, not connections. `forQueryHash` returns
    * one row per connection (per tab), so dedup by `sub`, and a defined `profileId` never loses to an
-   * absent one (M3). Advisory / display-only: carries no `accessAdmin`/permission data (ADR-008). Reused
+   * absent one (M3). Advisory / display-only: carries no `dominionOverHostAtSubscribe`/permission data (ADR-008). Reused
    * verbatim from the presence build; the standalone reshape changed the AUDIENCE (watchers), not this.
    */
   #rosterFor(queryHash: string): SubscriberEntry[] {
@@ -290,7 +290,7 @@ export class ResourceDataPlane {
    * ✅ **Confined, via the ordinary path — no special-casing here.** This method holds no admin
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
    * is confinement point 1. So the platform-seed path (DevStudio's `ensureSession` running under
-   * the admin's call) is admitted **iff that admin's `authScopePattern` covers THIS host** — the
+   * the admin's call) has passage **iff that admin's `authScopePattern` covers THIS host** — the
    * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
    */
   async ensureResource(
@@ -472,7 +472,7 @@ export class ResourceDataPlane {
     const noDenial: QuerySubscriberRow[] = [];
     for (const t of targets) {
       const { allowed, denied } = this.#dagTree.evaluatePermissions(
-        matchNodeIds, 'read', t.sub, Boolean(t.accessAdmin),
+        matchNodeIds, 'read', t.sub, Boolean(t.dominionOverHostAtSubscribe),
       );
       if (denied.size === 0) {
         noDenial.push(t);
@@ -542,7 +542,7 @@ export class ResourceDataPlane {
    * subscribing is SKIPPED for this push — never dropped (ADR-008 / D5; readable
    * state returns via the Flow-3 permission rerun when access does). The recheck
    * is an explicit-sub `evaluatePermissions` honoring the row's stored
-   * `accessAdmin` (the `access.scopeAdmin` bypass, D16), NOT the live caller's
+   * `dominionOverHostAtSubscribe` (the `access.scopeAdmin` bypass, D16), NOT the live caller's
    * `requirePermission`. Closing it in the capability protects Star AND DevStudio.
    */
   #broadcast(mutations: Map<string, Snapshot>, originatorClientId: string): void {
@@ -552,7 +552,7 @@ export class ResourceDataPlane {
         .filter((sub) => sub.clientId !== originatorClientId)
         .filter((sub) =>
           this.#dagTree.evaluatePermissions(
-            [snapshot.meta.nodeId], 'read', sub.sub, Boolean(sub.accessAdmin),
+            [snapshot.meta.nodeId], 'read', sub.sub, Boolean(sub.dominionOverHostAtSubscribe),
           ).allowed.size > 0)
         .map((sub) => ({ bindingName: sub.subscriberBinding, instanceName: sub.clientId }));
       this.#bridge.broadcastResourceUpdate(resourceId, snapshot, targets);

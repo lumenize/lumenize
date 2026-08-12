@@ -14,7 +14,7 @@ import {
   generateParseModule,
 } from '@lumenize/ts-runtime-parser-validator';
 import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
-import { NebulaDO, requireAdmin } from './nebula-do';
+import { NebulaDO, requireDominionHere } from './nebula-do';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -127,7 +127,7 @@ export function compileOntologyVersion(
 // ─── Galaxy DO ───────────────────────────────────────────────────────
 
 export class Galaxy extends NebulaDO {
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   setGalaxyConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;
@@ -144,7 +144,7 @@ export class Galaxy extends NebulaDO {
    * malformed types reject at submit time, and writes the row + index in a
    * single sync transaction.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   appendOntologyVersion(versionConfig: OntologyVersionConfig) {
     if (!VERSION_LABEL_RE.test(versionConfig.version)) {
       throw new Error(
@@ -219,7 +219,7 @@ export class Galaxy extends NebulaDO {
    * model/applied/hasError are extracted as a query index. `INSERT OR REPLACE`
    * keeps it idempotent on the DevStudio-supplied `id` (1 write, not 2).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   recordTurn(record: TurnRecord): void {
     this.#ensureTurns();
     this.ctx.storage.sql.exec(
@@ -238,7 +238,7 @@ export class Galaxy extends NebulaDO {
    * `since` filters by `createdAt` (ms); `limit` caps the return (default 100,
    * hard max 1000) so a large corpus doesn't ship in one envelope.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   getTurns(opts: { since?: number; limit?: number } = {}): TurnRecord[] {
     this.#ensureTurns();
     const limit = Math.min(opts.limit ?? 100, 1000);

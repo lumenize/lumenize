@@ -263,7 +263,7 @@ export const REGISTRY_INSTANCE_NAME = 'registry';
  * user-developer's authoring workspace, `Star.resetDevData` gates on `s[2] === 'dev'`, and
  * `#parseScope`'s `isDev` flags the same thing. Without the reject a stranger founds the
  * user-developer's OWN Studio workspace as `scopeAdmin: true` — their Studio then 409s forever, and the
- * squatter's exact-star admin clears `resetDevData`'s `requireAdmin`, i.e. they can wipe it.
+ * squatter's exact-star admin clears `resetDevData`'s `requireDominionHere`, i.e. they can wipe it.
  *
  * Reserved **per galaxy**, not globally: uniqueness is on the full `{u}.{g}.{s}`, so every galaxy has
  * its own `{u}.{g}.dev`. Extend this with any environment name the Galaxy collapse pins for its

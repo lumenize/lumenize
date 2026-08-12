@@ -792,7 +792,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Produce a working client that acts as another person — the admin-debug capability behind
    * *"why can't this user do X?"*.
    *
-   * Authority-**reducing**: the returned client carries the subject's permissions, which are
+   * Dominion-**reducing**: the returned client carries the subject's permissions, which are
    * narrower than the caller's. It is a full `NebulaClient` — `resources`, `orgTree`, `subscribe`
    * all work unchanged — and `claims` answers both questions structurally: top-level `sub` /
    * `profileId` are the person being acted as, and the presence of `act` is what makes it an
@@ -809,7 +809,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    *
    * @param sub The subject's surrogate `sub` — the person to act as.
    * @param activeScope The scope to act in. Required and explicit: it is the token's `aud`, bounded
-   *   by the subject's reach rather than equal to it, so deriving it would pick the WIDEST valid
+   *   by the subject's dominion rather than equal to it, so deriving it would pick the WIDEST valid
    *   value — the wrong end of the range for a debug session, which wants the specific star where
    *   the trouble is.
    * @throws {ImpersonationChainError} when this client is itself impersonating — before any network
@@ -1060,7 +1060,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
     // a reconnect after token expiry re-subscribes with the fresh token, so a
     // demoted admin's new (non-admin) `access.scopeAdmin` is re-derived server-side and
-    // the stored `accessAdmin` is cleared. The window subs ride the single-resource
+    // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the single-resource
     // re-subscribe loop above.
     for (const entry of this.#queryEntries.values()) {
       this.lmz.call(this.#resourceHostBinding, this.#activeScope,

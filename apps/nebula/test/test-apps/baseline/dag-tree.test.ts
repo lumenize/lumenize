@@ -1274,7 +1274,7 @@ describe('dag-tree', () => {
     // unmintable (an invite mints `scopeAdmin: false`, so there is no "star-level admin" tier either).
     // Both clients are therefore the same admin; the property under test is unchanged and is now
     // exercised more precisely, because the second client holds aud = the UNIVERSE while acting on a
-    // STAR DO — admission via the *reach* branch (pattern covers the callee), which is what
+    // STAR DO — admission via the *dominion* branch (pattern covers the callee), which is what
     // "universe admin has full DAG access to a descendant Star" actually means.
     it('universe admin bypasses all DAG checks via the scope-admin claim', async () => {
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
@@ -1294,7 +1294,7 @@ describe('dag-tree', () => {
       const { client: uniAdmin, payload } = await universeAdminClient(
         NebulaClientTest, uniBrowser, universe, universe, 'admin@example.com',
       );
-      // Guard the fixture: a star aud here would test the tenant branch, not cross-tier reach.
+      // Guard the fixture: a star aud here would test the tenant branch, not cross-tier dominion.
       expect(payload.aud).toBe(universe);
       expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
 
@@ -1311,7 +1311,7 @@ describe('dag-tree', () => {
 
   // ─── evaluatePermissions batch eval (Child 2 Phase 1, D16) ───────────
   describe('evaluatePermissions (Child 2 Phase 1)', () => {
-    it('complete denied set; grant flips one; accessAdmin bypasses; Star DAG admin resolves allow-all', async () => {
+    it('complete denied set; grant flips one; dominionOverHostAtSubscribe bypasses; Star DAG admin resolves allow-all', async () => {
       const star = uniqueStar();
       const { client: admin, payload: adminPayload } = await adminClient(star);
       const starAdminSub = adminPayload.sub; // admin on ROOT (starAdmin seed)
@@ -1351,8 +1351,8 @@ describe('dag-tree', () => {
       expect(res.allowed.has(nB)).toBe(false);
       expect(res.denied.has(nB)).toBe(true);
 
-      // accessAdmin:true → ALL allowed even with no grant on nB (Galaxy/Universe
-      // scope-admin bypass replicated, D16). Mutation: ignore accessAdmin → nB denied → red.
+      // dominionOverHostAtSubscribe:true → ALL allowed even with no grant on nB (Galaxy/Universe
+      // scope-admin bypass replicated, D16). Mutation: ignore dominionOverHostAtSubscribe → nB denied → red.
       admin.callStarEvaluatePermissions(star, [nA, nB], 'read', userSub, true);
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       res = admin.lastResult as Eval;
@@ -1360,7 +1360,7 @@ describe('dag-tree', () => {
       expect(res.denied.size).toBe(0);
 
       // A Star DAG `admin` grant (the seeded root admin) resolves allow-all
-      // through resolvePermission with accessAdmin:false (no JWT bypass needed).
+      // through resolvePermission with dominionOverHostAtSubscribe:false (no JWT bypass needed).
       admin.callStarEvaluatePermissions(star, [nA, nB], 'read', starAdminSub, false);
       await vi.waitFor(() => expect(admin.lastResult).toBeDefined());
       res = admin.lastResult as Eval;

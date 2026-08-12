@@ -68,7 +68,7 @@ sequenceDiagram
 **Success Criteria** (capable-of-failing tests + a captured findings note):
 - [ ] **Separate timers by concern from the start.** The `@lumenize/fetch` **double-duty alarm** (`.claude/rules/mesh.md` §Two-one-way) is the cautionary reference: one timer served *both* the operation-timeout and the executor-liveness backstop — which is why it broke past ~90s and for concurrent in-flight requests. The fresh design must not repeat it.
 - [ ] **Concurrent durable delivery proven**: N in-flight durable calls on one caller DO all deliver; survive an induced hibernation between dispatch and response; past-budget + long-running deliveries land.
-- [ ] **Durable-path forgery**: a response for an unknown/duplicate durable-call id is rejected (the durable tier DOES keep a persisted backstop record to check against — unlike best-effort); responder identity checkable (inherits parent D5's gate: responses dispatch via `executeEnvelope`, so `onBeforeCall`/`enforceScopeReach` identifies the responder; @mesh allowlist off).
+- [ ] **Durable-path forgery**: a response for an unknown/duplicate durable-call id is rejected (the durable tier DOES keep a persisted backstop record to check against — unlike best-effort); responder identity checkable (inherits parent D5's gate: responses dispatch via `executeEnvelope`, so `onBeforeCall`/`requirePassage` identifies the responder; @mesh allowlist off).
 - [ ] Findings note: mechanism that worked + alternatives that failed → reference memory or rule.
 
 ## Phase 1 — `callDurable` (storage tier) + retry

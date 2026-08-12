@@ -14,7 +14,7 @@
  *    `LumenizeContainer.fetch()` so the public path can NEVER reach `:9000`.
  *  - **`:9000` command-server** — host-DO-only, reached exclusively by this DO's
  *    internal `containerFetch`. The command `@mesh` methods carry
- *    `@mesh(requireAdmin)` (NebulaContainer.onBeforeCall proves tenant *scope* but
+ *    `@mesh(requireDominionHere)` (NebulaContainer.onBeforeCall proves tenant *scope* but
  *    never `access.scopeAdmin`, and `<id>.*` widening admits descendant non-admins).
  *
  * DevStudio invokes the command methods via one-way `lmz.call()` continuations (the
@@ -37,7 +37,7 @@
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import { NebulaContainer } from './nebula-container';
-import { requireAdmin } from './nebula-do';
+import { requireDominionHere } from './nebula-do';
 
 /** The command-server's port — distinct from vite's `defaultPort` (5173).
  *  Reachable ONLY via the DO's internal `containerFetch(req, CMD_PORT)`; the public
@@ -383,7 +383,7 @@ export class DevContainer extends NebulaContainer {
    * ⚠️ Verified live (`extends Container` can't construct under pool-workers) — see
    * [[feedback_test_container_changes_with_wrangler_dev]].
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async ensureUp(): Promise<{ ok: boolean }> {
     try {
       return await this.#cmdJson('/healthz');
@@ -453,7 +453,7 @@ export class DevContainer extends NebulaContainer {
    * this before signalling the client, so the auto-refresh lands on a serving preview,
    * not a mid-boot one. ⚠️ Verified live ([[feedback_test_container_changes_with_wrangler_dev]]).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async awaitPreviewReady(): Promise<{ ok: boolean; ready: boolean }> {
     return this.#cmdJson('/vite/ready');
   }
@@ -464,7 +464,7 @@ export class DevContainer extends NebulaContainer {
    * the command-server re-validates at the write boundary), then forwards the batch
    * so a single bad path writes nothing. vite picks up the writes → HMR.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async applyChanges(files: SourceFile[]): Promise<{ ok: boolean; written: number }> {
     for (const f of files) assertSafeRelPath(f.path);
     debug('nebula.DevContainer.applyChanges').debug('apply', {
@@ -482,7 +482,7 @@ export class DevContainer extends NebulaContainer {
    * sequential local `containerFetch` round-trips instead of across two racing hops.
    * ⚠️ Run with `wrangler dev` + Docker (can't construct under pool-workers).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async bootAndApply(files: SourceFile[]): Promise<{ ok: boolean; written: number }> {
     await this.ensureUp();
     return this.applyChanges(files);
@@ -495,7 +495,7 @@ export class DevContainer extends NebulaContainer {
    * sequential local `containerFetch` round-trips. Long-running is fine (early-ack, no
    * held Promise). ⚠️ Run with `wrangler dev` + Docker (can't construct under pool-workers).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async warmAndAwaitReady(files: SourceFile[]): Promise<{ ok: boolean; ready: boolean }> {
     await this.ensureUp();
     await this.applyChanges(files);
@@ -504,7 +504,7 @@ export class DevContainer extends NebulaContainer {
 
   /** Run a buffered command in the container (host-DO-only by construction — the
    *  public path can't reach `:9000`). Used for `vite build` at publish + tooling. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async exec(payload: { cmd: string; args?: string[]; shell?: boolean; cwd?: string }): Promise<{
     stdout: string;
     stderr: string;
@@ -515,13 +515,13 @@ export class DevContainer extends NebulaContainer {
   }
 
   /** Start/stop/restart the dev server (used at publish + recovery). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async viteControl(action: 'restart' | 'stop' | 'start'): Promise<{ ok: boolean; action: string }> {
     return this.#postJson(`/vite/${action}`);
   }
 
   /** Read a file back from the working tree (test/inspection of a landed push). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async readFileInContainer(path: string): Promise<{ content: string }> {
     assertSafeRelPath(path);
     return this.#postJson('/read', { path });
@@ -536,7 +536,7 @@ export class DevContainer extends NebulaContainer {
    * container cold-boots — only the disk reverts), never request-supplied. Sync
    * (a single `kv.put`, no container round-trip).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   setAppVersion(version: string): void {
     this.ctx.storage.kv.put(VERSION_KEY, version);
   }

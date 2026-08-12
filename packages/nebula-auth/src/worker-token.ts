@@ -20,7 +20,7 @@
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
 import { buildNebulaJwtPayload } from './access-claims';
-import { buildAuthScopePattern, hasAdminOverScope, matchAccess, parseId } from './parse-id';
+import { buildAuthScopePattern, hasDominionOver, matchAccess, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
@@ -438,11 +438,11 @@ export async function handleInvite(
  * **Two rules, and a consequence that falls out of them** (tasks/nebula-mint-narrower-token.md):
  *
  *  1. **Eligibility** — you may only impersonate someone you already administer *entirely*:
- *     `hasAdminOverScope(caller.access, subjectIdentity.universeGalaxyStarId)`. A caller narrower than
+ *     `hasDominionOver(caller.access, subjectIdentity.universeGalaxyStarId)`. A caller narrower than
  *     the subject in *either* scope or the `admin` bit is refused outright, and the subject must be
  *     somebody else.
  *  2. **Faithfulness** — the minted token mirrors THAT PERSON's access, not the caller's: the
- *     subject's `admin` bit, the subject's reach, bounded to the requested `activeScope`.
+ *     subject's `admin` bit, the subject's dominion, bounded to the requested `activeScope`.
  *
  *  ⇒ Therefore no minted token can exceed the caller. Eligibility has already placed the subject's
  *  entire scope inside the caller's dominion, so the mirror faithfulness produces can only ever be
@@ -483,7 +483,7 @@ export async function mintNarrowerToken(
     return errorResponse(400, 'invalid_request', 'subOfNarrowerToken must be a different sub than the caller');
   }
 
-  // activeScope must be within the CALLER's own verified reach (the escalation fix — never derive the
+  // activeScope must be within the CALLER's own verified dominion (the escalation fix — never derive the
   // grant from the subject or the issuing scope).
   //
   // ⚠️ **This is an UPPER bound, and that is CORRECT — do not "fix" it.** It stops widening; it
@@ -494,9 +494,9 @@ export async function mintNarrowerToken(
   // subset of the caller's would be redundant, since narrowing already implies subset.
   //
   // Narrowing is nevertheless how the `access.scopeAdmin` escalation was reachable: a `{u}.*` admin can
-  // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `enforceScopeReach`'s tenant branch then
+  // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `requirePassage`'s tenant branch then
   // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
-  // never here; it was downstream, and it is fixed there** (`hasAdminOverScope` in `requireAdmin` /
+  // never here; it was downstream, and it is fixed there** (`hasDominionOver` in `requireDominionHere` /
   // `requirePermission` / the subscribe-time writers). Post-fix the narrower token is denied on the
   // ancestor and nothing is residual. See tasks/nebula-confine-admin-bypass.md § Decisions.
   //
@@ -540,13 +540,13 @@ export async function mintNarrowerToken(
   // WHERE the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
   // 403 body may name the subject's scope; echo the caller's own pattern or nothing. (Subject
   // EXISTENCE is disclosed either way by the 404 above — pre-existing and unchanged.)
-  if (!hasAdminOverScope(payload.access, subjectIdentity.universeGalaxyStarId)) {
+  if (!hasDominionOver(payload.access, subjectIdentity.universeGalaxyStarId)) {
     return errorResponse(403, 'forbidden',
       `Caller pattern "${payload.access.authScopePattern}" does not administer this subject`);
   }
 
   // ── (2) FAITHFULNESS — the scope mirror ──────────────────────────────────────────────────────────
-  // `activeScope` must also sit within the SUBJECT's own reach, so the token is a mirror of that
+  // `activeScope` must also sit within the SUBJECT's own dominion, so the token is a mirror of that
   // person rather than merely something inside the caller's dominion. Without it, a subject scoped at
   // `{u}.{g}.{s1}` would get a token admin over all of `{u}.{g}` — not an escalation (eligibility
   // already bounded it), but not that person's access either, which is the property the use case needs.

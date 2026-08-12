@@ -10,7 +10,7 @@
  * records just the method name), and it extends the vue-free, browser-safe
  * `NebulaClient` from `@lumenize/nebula/client`.
  *
- * `appendOntologyVersion` is `@mesh(requireAdmin)`, so this must connect as an
+ * `appendOntologyVersion` is `@mesh(requireDominionHere)`, so this must connect as an
  * admin (the harness's bootstrapped admin cookie) — a raw-RPC seed route can't
  * carry that auth context.
  */

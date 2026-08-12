@@ -5,8 +5,8 @@
  * addition to the host hook). Covered: the grant hole (granting read with NO
  * resource write makes the newly-readable resources appear); revoking shrinks the
  * set + adds the node to `deniedNodes`; and the demote-self-heal foundation (D16) —
- * `accessAdmin` is derived per subscribe-time token, so a non-admin token stores
- * `accessAdmin = 0` and is denied (a demoted admin's re-subscribe clears the bypass).
+ * `dominionOverHostAtSubscribe` is derived per subscribe-time token, so a non-admin token stores
+ * `dominionOverHostAtSubscribe = 0` and is denied (a demoted admin's re-subscribe clears the bypass).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -82,7 +82,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     a[Symbol.dispose](); user[Symbol.dispose]();
   });
 
-  it('demote self-heal (D16): accessAdmin is derived per subscribe-time token', async () => {
+  it('demote self-heal (D16): dominionOverHostAtSubscribe is derived per subscribe-time token', async () => {
     const universe = uniqueUniverse();
     const star = `${universe}.app.tenant-a`;
     // Star-scoped admin first (sole ROOT admin grant) creates a private child.
@@ -96,7 +96,7 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     const query = { queryType: 'parentChild' as const, typeName: 'Child', field: 'parent', value: P };
 
     // A second admin (access.scopeAdmin, NO DAG grant) subscribes → sees the private child via the
-    // stored accessAdmin bypass; its row carries accessAdmin = 1.
+    // stored dominionOverHostAtSubscribe bypass; its row carries dominionOverHostAtSubscribe = 1.
     // ⚠️ PLATFORM bootstrap admin (`*`), not a second universe admin: one admin per universe
     // (`claim-universe` is the sole admin-minting path, slug unique), so the old
     // `universe-admin@example.com` identity is unmintable. `*` covers this Star.
@@ -109,8 +109,8 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     await nextPush(uni, 0);
 
     // A NON-admin user (a demoted admin's token looks exactly like this: access.scopeAdmin
-    // false, no DAG grant) subscribes the SAME query → its row stores accessAdmin = 0
-    // → DENIED. Mutation: registerQuerySubscriber hardcodes accessAdmin = 1 (keeps the
+    // false, no DAG grant) subscribes the SAME query → its row stores dominionOverHostAtSubscribe = 0
+    // → DENIED. Mutation: registerQuerySubscriber hardcodes dominionOverHostAtSubscribe = 1 (keeps the
     // stale bypass) → this non-admin would WRONGLY see c1 → red.
     const adminBrowser = new Browser();
     await foundAndLogin(adminBrowser, star, 'admin@example.com', star);
@@ -121,14 +121,14 @@ describe('child2 query rerun on permission change (Phase 5)', () => {
     expect(ex.lastQueryUpdate?.result.resourceIds ?? []).toEqual([]);
     expect(ex.lastQueryUpdate?.result.deniedNodes).toEqual([priv]);
 
-    // Inspect the stored accessAdmin flags: admin row = 1 (one row), ex row = 0.
+    // Inspect the stored dominionOverHostAtSubscribe flags: admin row = 1 (one row), ex row = 0.
     a.callStarInspectQuerySubscribers(star);
     const rows = await waitForSuccess(a) as QuerySubscriberRow[];
     const uniRows = rows.filter((r) => r.clientId === uni.lmz.instanceName);
     expect(uniRows).toHaveLength(1);
-    expect(uniRows[0].accessAdmin).toBe(1);
+    expect(uniRows[0].dominionOverHostAtSubscribe).toBe(1);
     const exRow = rows.find((r) => r.clientId === ex.lmz.instanceName);
-    expect(exRow?.accessAdmin).toBe(0);
+    expect(exRow?.dominionOverHostAtSubscribe).toBe(0);
 
     a[Symbol.dispose](); uni[Symbol.dispose](); ex[Symbol.dispose]();
   });

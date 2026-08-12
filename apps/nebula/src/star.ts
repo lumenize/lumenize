@@ -24,7 +24,7 @@ import {
   getParserValidatorFacet,
 } from '@lumenize/ts-runtime-parser-validator';
 import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
-import { NebulaDO, requireAdmin } from './nebula-do';
+import { NebulaDO, requireDominionHere } from './nebula-do';
 import type { DagTree } from './dag-tree';
 import { ROOT_NODE_ID } from './dag-ops';
 import { TreeSubscriptions } from './tree-subscriptions';
@@ -115,8 +115,8 @@ export class Star extends NebulaDO {
    * the climb cannot discover them. `setPermission` satisfies its own `admin` gate via that same
    * bypass (dag-tree.ts `requirePermission`), so no un-guarded path is needed.
    *
-   * ⚠️ **EXACT-star, not `hasAdminOverScope`** (2026-08-02). A covering Galaxy/Universe admin passes
-   * `hasAdminOverScope` here, so under the old predicate whichever admin wandered in first took the
+   * ⚠️ **EXACT-star, not `hasDominionOver`** (2026-08-02). A covering Galaxy/Universe admin passes
+   * `hasDominionOver` here, so under the old predicate whichever admin wandered in first took the
    * grant — and because the KV flag is one-shot with no re-seed path, that Star's climb would
    * terminate at the covering admin **forever**, routing its tenants' access requests away from their
    * own Star admin. Requiring the pattern to equal this Star's id makes the grant follow ownership
@@ -138,7 +138,7 @@ export class Star extends NebulaDO {
     const auth = this.lmz.callContext.originAuth
     const claims = auth?.claims as NebulaJwtPayload | undefined
     if (!auth?.sub || !this.lmz.instanceName) return
-    // Exact equality, NOT `hasAdminOverScope` — see the EXACT-star note above. This is the one site
+    // Exact equality, NOT `hasDominionOver` — see the EXACT-star note above. This is the one site
     // where the transient scope-admin bypass becomes a DURABLE DAG grant.
     const access = claims?.access
     if (access?.scopeAdmin !== true || access.authScopePattern !== this.lmz.instanceName) return
@@ -319,19 +319,19 @@ export class Star extends NebulaDO {
    * Galaxy fetch. It REPLACES `DevStar.deployToDev`'s Galaxy round-trip (deleted in
    * Phase 4); do not route dev compile through the Galaxy DO.
    *
-   * `@mesh(requireAdmin)`: like the other bespoke `@mesh` mutators it does NOT pass
+   * `@mesh(requireDominionHere)`: like the other bespoke `@mesh` mutators it does NOT pass
    * through the DAG `requirePermission` checks, and `onBeforeCall` proves only
    * tenant *scope* (and `<id>.*` widening admits descendant non-admins) — so it
    * carries its own admin gate. An unguarded remote ontology-install would let any
    * in-scope caller swap the validator — so this is the SOLE ontology-install entry,
-   * `@mesh(requireAdmin)`-gated and frozen in the `Star.prototype` `@mesh`-surface test.
+   * `@mesh(requireDominionHere)`-gated and frozen in the `Star.prototype` `@mesh`-surface test.
    *
    * `row.version` MUST be content-unique (DevStudio derives it via `git.hashBlob` of
    * the ontology source): the Worker Loader caches the validator bundle by
    * `bundleId = galaxyId/version`, so a reused label silently serves a STALE
    * validator (durable-objects.md § Worker Loader cache).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   setOntology(row: OntologyVersionRow): void {
     const prevIndex = this.ctx.storage.kv.get<string[]>(INDEX_KEY) ?? [];
     const history = prevIndex.includes(row.version) ? prevIndex : [...prevIndex, row.version];
@@ -346,7 +346,7 @@ export class Star extends NebulaDO {
    * `.dev`-guarded reset (`resetDevData` throws off the `.dev` Star), so the guard is
    * preserved. The install's effect reaches the live preview via `broadcastReload`.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async installOntology(row: OntologyVersionRow, opts?: { wipe?: boolean }): Promise<void> {
     if (opts?.wipe) await this.resetDevData();
     this.setOntology(row);
@@ -368,9 +368,9 @@ export class Star extends NebulaDO {
    * a tenant `Star` *structurally* couldn't carry a data-wiping reset; the single-
    * `Star` collapse ends that, so the wipe now ships on EVERY `Star`, gated only by
    * this runtime throw. Compensating controls: the hard `.dev` guard + `@mesh(
-   * requireAdmin)` + the `Star.prototype` `@mesh`-surface-freeze test.
+   * requireDominionHere)` + the `Star.prototype` `@mesh`-surface-freeze test.
    *
-   * **`async` + `@mesh(requireAdmin)`** — `requireAdmin` is a *synchronous* guard and
+   * **`async` + `@mesh(requireDominionHere)`** — `requireDominionHere` is a *synchronous* guard and
    * the `.dev` check below is sync, so `blockConcurrencyWhile` (the first awaited
    * work) still closes the gate before any yield. `deleteAll()` is the sanctioned
    * async-storage exception (no sync variant); it wipes the entire private SQLite DB
@@ -385,7 +385,7 @@ export class Star extends NebulaDO {
    * and the wipe-in-a-save flow reloads those previews onto the clean Star
    * (Decision 12 / Flow 1d); forgetting them would strand the preview.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async resetDevData(): Promise<void> {
     const s = this.lmz.instanceName?.split('.') ?? [];
     if (!(s.length === 3 && s[2] === 'dev')) {
@@ -419,7 +419,7 @@ export class Star extends NebulaDO {
 
   // ─── Config ────────────────────────────────────────────────────────
 
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   setStarConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;
@@ -523,7 +523,7 @@ export class Star extends NebulaDO {
    * Handler 1: register a query subscription + push the initial membership. **Void**
    * (ADR-003 / D7) — the client computed the canonical `queryHash` locally and keys
    * its handle before firing; the initial state arrives as a `handleQueryUpdate`
-   * push. `@mesh()` not `@mesh(requireAdmin)`: query subs are non-admin but
+   * push. `@mesh()` not `@mesh(requireDominionHere)`: query subs are non-admin but
    * DAG-gated (authorization is per-push at delivery, D4). No ontology-version gate —
    * the query validates against the capability's current `relationships` and the
    * membership enumerates current snapshots (version-independent). `clientId` /
@@ -632,7 +632,7 @@ export class Star extends NebulaDO {
    * was deleted in Phase 4 (vite owns compile now). The channel survives as the
    * **publish-refresh signal** — when publish lands a new app-version, it will fan
    * out `broadcastReload` so live previews re-fetch. `@mesh()` not
-   * `@mesh(requireAdmin)` — gated only by `onBeforeCall`'s aud-lock, like
+   * `@mesh(requireDominionHere)` — gated only by `onBeforeCall`'s aud-lock, like
    * `subscribeTree`. There is no initial snapshot to push (the preview's own GET
    * loads the current bundle); subscribing just registers for future reloads.
    */

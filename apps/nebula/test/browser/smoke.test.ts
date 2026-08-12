@@ -151,7 +151,7 @@ describe('browser harness', () => {
       //    on a cache miss; the compiled validator must be PUSHED via setOntology.
       //    `StarTest.applyOntologyForTest` compiles server-side (this Node-side
       //    client can't import the Worker-only `compileOntologyVersion`). Bootstrap
-      //    admin (root admin at first instance) satisfies the requireAdmin gate.
+      //    admin (root admin at first instance) satisfies the requireDominionHere gate.
       client.callStarApplyOntology(scope, { version: ONTOLOGY_VERSION, types: TEST_TYPES });
       await vi.waitFor(() => {
         expect(client.callCompleted).toBe(true);

@@ -19,7 +19,7 @@ Cloudflare Container running real **vite** that fronts the Studio dev-loop previ
 - `:5173` **vite** — public preview shell + HMR, reached via `DevContainer.fetch()`
   (which strips `cf-container-target-port`, so the public path can never reach `:9000`).
 - `:9000` **command-server** — host-DO-only, reached exclusively by `DevContainer`'s
-  internal `containerFetch`; the command `@mesh` methods carry `@mesh(requireAdmin)`.
+  internal `containerFetch`; the command `@mesh` methods carry `@mesh(requireDominionHere)`.
 
 ## Run with `wrangler dev`
 `extends Container` cannot construct under vitest-pool-workers, so the assembled image

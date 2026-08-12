@@ -54,9 +54,9 @@ An unknown path is a `404` **at the edge** — the singleton never sees it. Regi
 
 Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, scope)`** — the same person in two scopes has two `sub`s. `email` is a plain mutable attribute owned only by the registry; nothing keys off it, so an email change is a one-row `UPDATE` with no cascade and no token re-issue. A `profileId` (a second, *public* UUID) is minted in the same INSERT as `sub` — see [`tasks/nebula-profile-store.md`](../../tasks/nebula-profile-store.md).
 
-**Minting happens only at authority points:**
+**Minting happens only at mint points:**
 
-| Authority point | What is minted |
+| Mint point | What is minted |
 |---|---|
 | `claimUniverse` (open self-signup) | `Scopes` row **+** the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0`) |
 | `issueInvites` (admin) | invitee `Identity` (`isAdmin=0`, `emailVerified=0`), pre-created |
@@ -79,14 +79,14 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 ⚠️ **Revocation is KV-eventually-consistent.** Logout deletes the KV record and its index entry (KV-delete-first, so an interruption never strands a live-but-unindexed token), but a revoked or demoted token keeps working for the KV propagation window (~edge `cacheTtl`) **plus** the full access-token TTL, repeatably within that window. The short `ACCESS_TOKEN_TTL` is the mitigation.
 
-### Admin authority
+### Dominion
 
-`hasAdminOverScope(access, scope)` is the single admin predicate: **`access.admin` alone is never authority** — authority is `admin` *and* `authScopePattern` covering the node in question. Authority flows strictly downward and only downward (ADR-015). Every guard delegates to that one predicate; none may re-inline `admin && matchAccess(...)`.
+`hasDominionOver(access, scope)` is the single dominion predicate: **`access.scopeAdmin` alone is never dominion** — dominion is that bit *and* `authScopePattern` covering the node in question ([ADR-015](../../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home for `dominion` and `passage`). Dominion flows strictly downward and only downward (ADR-015). Every guard delegates to that one predicate; none may re-inline `admin && matchAccess(...)`.
 
 The gate lands in two places depending on the route shape:
 
 - **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the Worker verifies the Bearer/WebSocket token and requires `matchAccess(pattern, instanceName)` before dispatching. `handleInvite` then checks the bare `admin` bit — safe *only* because the router already proved scope coverage, which is why that line must never be copied to a site lacking the router's check.
-- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasAdminOverScope` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — every query branch is bounded by the caller's own `authScopePattern`, so the result set can never exceed their reach.
+- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — every query branch is bounded by the caller's own `authScopePattern`, so the result set can never exceed their reach.
 
 ### Worker gating pipeline
 
@@ -300,7 +300,7 @@ sequenceDiagram
     C->>W: POST /auth/create-galaxy { universeGalaxyId } [admin JWT]
     W->>W: verify the JWT, rate limit
     W->>R: forward with verifiedAccess injected into the body
-    R->>R: hasAdminOverScope(verifiedAccess, parent universe)
+    R->>R: hasDominionOver(verifiedAccess, parent universe)
     R->>R: parent exists, and the slug is available
     R->>R: INSERT the Scopes row (no Identity, no email)
     R-->>W: 201 { instanceName }
@@ -349,7 +349,7 @@ sequenceDiagram
     Note over C,KV: The CLIENT then fans out platform-DO teardown over the mesh
 ```
 
-`callerSub` is the caller's **verified** surrogate sub from the JWT, never client-supplied — the registry resolves it to an email internally to exclude the caller from the "other users attached" count, and **fails closed** if that resolution comes back empty. That count is a **warning, not a gate** — `delete-scope` never returns `409 scope_in_use`; an admin over the target can always delete it (ADR-015: downward authority is non-vetoable, so a descendant's members can never block an admin above them). `planScopeDeletion` returns `affectedUsers: { total, sample }` — an exact `COUNT(DISTINCT email)` plus up to 25 sample rows — so the confirm screen can warn with real numbers on a Star with thousands of users. The registry cannot reach platform DOs (dependency direction), so it returns the affected set and the caller tears them down.
+`callerSub` is the caller's **verified** surrogate sub from the JWT, never client-supplied — the registry resolves it to an email internally to exclude the caller from the "other users attached" count, and **fails closed** if that resolution comes back empty. That count is a **warning, not a gate** — `delete-scope` never returns `409 scope_in_use`; an admin over the target can always delete it (ADR-015: downward dominion is non-vetoable, so a descendant's members can never block an admin above them). `planScopeDeletion` returns `affectedUsers: { total, sample }` — an exact `COUNT(DISTINCT email)` plus up to 25 sample rows — so the confirm screen can warn with real numbers on a Star with thousands of users. The registry cannot reach platform DOs (dependency direction), so it returns the affected set and the caller tears them down.
 
 ### Multi-scope sessions
 
@@ -594,7 +594,7 @@ export { NebulaEmailSender } from './nebula-email-sender';
 
 // Scope parsing and access matching
 export { parseId, isValidSlug, isPlatformInstance, getParentId,
-         buildAuthScopePattern, matchAccess, hasAdminOverScope } from './parse-id';
+         buildAuthScopePattern, matchAccess, hasDominionOver } from './parse-id';
 
 // Types:     Tier, ParsedId, AccessEntry, NebulaJwtPayload, DiscoveryEntry,
 //            AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan

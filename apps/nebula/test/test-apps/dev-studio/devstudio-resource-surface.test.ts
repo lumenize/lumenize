@@ -4,7 +4,7 @@
  * Two things, neither needing a Gateway/client (the real client resource round-trip
  * + the non-admin-DAG-granted read/write + version-stamp are Phase 5):
  *  1. **Frozen @mesh surface (m5):** the new resource methods are non-admin
- *     (`@mesh()`, DAG-gated — D4); codegen/source methods stay `requireAdmin`.
+ *     (`@mesh()`, DAG-gated — D4); codegen/source methods stay `requireDominionHere`.
  *  2. **Facet behavior on DevStudio:** the composed Session/Message provider mounts +
  *     enforces the ADR-006 embed-guard (SC3), coexists with the tool-args facet in
  *     one DO without bundleId cross-wiring (M2), and survives an `onStart` re-init
@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { DevStudio } from '../../../src/dev-studio';
-import { requireAdmin } from '../../../src/nebula-do';
+import { requireDominionHere } from '../../../src/nebula-do';
 import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resource-ontology';
 
 // ─── driver — direct in-DO call ────────────────────────────────────────────
@@ -22,8 +22,8 @@ import { SESSION_MESSAGE_ONTOLOGY_VERSION } from '../../../src/devstudio-resourc
 // cross-DO call), so run them directly in-DO to get the RETURN VALUE. Driving them through the mesh
 // `__executeOperation` path is no longer usable here: it EARLY-ACKS (returns `{$ack}`) and runs the
 // chain in a detached `waitUntil` task, so the result would travel via fire-back, unobservable from
-// a bare envelope. The admin `@mesh(requireAdmin)` guard is not what these facet-behavior tests
-// exercise (the m5/requireAdmin *surface* is frozen statically above), so bypassing it is correct.
+// a bare envelope. The admin `@mesh(requireDominionHere)` guard is not what these facet-behavior tests
+// exercise (the m5/requireDominionHere *surface* is frozen statically above), so bypassing it is correct.
 const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
 async function callStudio(instance: string, method: string, args: unknown[] = []) {
   const stub = (env as any).DEV_STUDIO.getByName(instance);
@@ -38,14 +38,14 @@ function meshMethods(admin: boolean): string[] {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if ((getMeshGuard(fn) === requireAdmin) === admin) out.push(name);
+    if ((getMeshGuard(fn) === requireDominionHere) === admin) out.push(name);
   }
   return out.sort();
 }
 
 describe('DevStudio @mesh surface freeze (m5)', () => {
   // Freeze the non-admin surface: a resource method accidentally shipped with
-  // requireAdmin LEAVES this set (→ red); a codegen method accidentally shipped
+  // requireDominionHere LEAVES this set (→ red); a codegen method accidentally shipped
   // non-admin ENTERS it (→ red). Both gate sets are thus pinned.
   it('non-admin @mesh surface == the resource surface, exactly', () => {
     expect(meshMethods(false)).toEqual(
@@ -61,7 +61,7 @@ describe('DevStudio @mesh surface freeze (m5)', () => {
     );
   });
 
-  it('codegen/source methods stay requireAdmin', () => {
+  it('codegen/source methods stay requireDominionHere', () => {
     const admin = meshMethods(true);
     for (const m of [
       'writeSource', 'readSource', 'getSourceTree',

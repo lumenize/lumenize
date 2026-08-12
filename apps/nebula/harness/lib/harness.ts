@@ -269,7 +269,7 @@ export async function connectDriver(
       /**
        * The token ISSUER's DO instance (drives `authScopePattern`) — distinct from the client's own
        * gateway instanceName. Default `scope` (admin of its own scope); `'nebula-platform'` mints
-       * a `*` super-admin whose `aud` is `scope` but whose reach is global.
+       * a `*` super-admin whose `aud` is `scope` but whose dominion is global.
        */
       issuerInstanceName?: string;
     };

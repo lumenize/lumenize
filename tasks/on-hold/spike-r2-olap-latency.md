@@ -28,7 +28,7 @@ Hot/interactive → **DO SQLite** (sub-ms–few-ms at thousands–low-millions o
 
 ## Arms (two stores only)
 
-1. **DO SQLite** — a **`NebulaDO`** fixture (Star-like: this is how resource history would really be queried). **Queried via the real mesh path** (`lmz.call` / `callRaw` through the Gateway), NOT raw DO access — so the measurement includes the `lmz.call` + `onBeforeCall` scope-check + `@mesh(requireAdmin)` overhead. *(Larry: 95% sure mesh overhead is negligible; a 5% surprise is cheaper to find now. Fall back to `LumenizeDO` only if the Nebula auth harness proves disproportionate — that still captures the core mesh overhead, just not the Nebula scope-check delta.)*
+1. **DO SQLite** — a **`NebulaDO`** fixture (Star-like: this is how resource history would really be queried). **Queried via the real mesh path** (`lmz.call` / `callRaw` through the Gateway), NOT raw DO access — so the measurement includes the `lmz.call` + `onBeforeCall` scope-check + `@mesh(requireDominionHere)` overhead. *(Larry: 95% sure mesh overhead is negligible; a 5% surprise is cheaper to find now. Fall back to `LumenizeDO` only if the Nebula auth harness proves disproportionate — that still captures the core mesh overhead, just not the Nebula scope-check delta.)*
 2. **R2 SQL over R2 Data Catalog (Iceberg)** — data ingested to an Iceberg table in R2; queried via the R2 SQL surface (binding from a Worker and/or HTTP API/CLI — pin in step 0). For client-vantage parity with arm 1 (client → CF edge → query → client), run the R2 query through a thin deployed Worker rather than only the raw API.
 
 ## Datasets
@@ -49,7 +49,7 @@ Reuse the `experiments/dag-sql-perf/test/measure.mjs` pattern: a **Node.js harne
 
 ## Auth (the accepted downside of arm 1)
 
-A `NebulaDO` enforces scope isolation (`onBeforeCall`: instanceName → `authScopePattern` → `matchAccess`) + `@mesh(requireAdmin)`. So the Node harness must present a valid JWT with the matching **`activeScope` (`aud`)** for the fixture's instance + admin claims (the two-scope model). Use the established test path — minted `activeScope` per the browser-harness pattern + `LUMENIZE_AUTH_TEST_MODE` / bootstrap-admin binding in `miniflare.bindings` (memory `lumenize-auth-bootstrap-email-for-tests`). This setup is the cost of measuring the faithful path.
+A `NebulaDO` enforces scope isolation (`onBeforeCall`: instanceName → `authScopePattern` → `matchAccess`) + `@mesh(requireDominionHere)`. So the Node harness must present a valid JWT with the matching **`activeScope` (`aud`)** for the fixture's instance + admin claims (the two-scope model). Use the established test path — minted `activeScope` per the browser-harness pattern + `LUMENIZE_AUTH_TEST_MODE` / bootstrap-admin binding in `miniflare.bindings` (memory `lumenize-auth-bootstrap-email-for-tests`). This setup is the cost of measuring the faithful path.
 
 ## Step 0 — findings (verified 2026-06-22, all green)
 

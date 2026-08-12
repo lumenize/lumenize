@@ -44,7 +44,7 @@ import {
   nextRecoverAttempt,
   wakingPreviewPage,
 } from '../../../src/dev-container';
-import { requireAdmin } from '../../../src/nebula-do';
+import { requireDominionHere } from '../../../src/nebula-do';
 
 describe('DevContainer writeFile path-traversal guard (assertSafeRelPath)', () => {
   // Positive control: an in-tree relative path is accepted (no throw). If this
@@ -107,7 +107,7 @@ describe('DevContainer scope injection (injectScopeMeta — pure derivation)', (
 });
 
 // Walk DevContainer's OWN prototype, returning its mesh-callable methods whose guard
-// is NOT requireAdmin. Derived dynamically so a newly-added non-admin @mesh method
+// is NOT requireDominionHere. Derived dynamically so a newly-added non-admin @mesh method
 // changes the set and fails the freeze (forcing a deliberate admin classification).
 function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
   const proto = ctor.prototype;
@@ -116,27 +116,27 @@ function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) === requireAdmin) continue;
+    if (getMeshGuard(fn) === requireDominionHere) continue;
     out.push(name);
   }
   return out.sort();
 }
 
 describe('DevContainer command @mesh surface is fully admin-gated', () => {
-  it('every @mesh method DevContainer ADDS is requireAdmin-gated — nonAdminMeshMethods(DevContainer) === []', () => {
+  it('every @mesh method DevContainer ADDS is requireDominionHere-gated — nonAdminMeshMethods(DevContainer) === []', () => {
     // The command channel (applyChanges/exec/viteControl/ensureUp/readFileInContainer)
-    // must all carry @mesh(requireAdmin): NebulaContainer.onBeforeCall proves tenant
+    // must all carry @mesh(requireDominionHere): NebulaContainer.onBeforeCall proves tenant
     // SCOPE but never access.scopeAdmin, and `<id>.*` widening admits descendant
     // non-admins. Adding an ungated @mesh method to DevContainer fails this.
     expect(nonAdminMeshMethods(DevContainer)).toEqual([]);
   });
 
-  it('the command methods are mesh-callable + requireAdmin (spot-check applyChanges/exec/setAppVersion)', () => {
+  it('the command methods are mesh-callable + requireDominionHere (spot-check applyChanges/exec/setAppVersion)', () => {
     for (const name of ['ensureUp', 'applyChanges', 'exec', 'viteControl', 'readFileInContainer', 'setAppVersion']) {
       const fn = (DevContainer.prototype as unknown as Record<string, unknown>)[name] as (...a: unknown[]) => unknown;
       expect(typeof fn).toBe('function');
       expect(isMeshCallable(fn)).toBe(true);
-      expect(getMeshGuard(fn)).toBe(requireAdmin);
+      expect(getMeshGuard(fn)).toBe(requireDominionHere);
     }
   });
 });

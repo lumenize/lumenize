@@ -137,7 +137,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         expect(resp.status).toBe(400);
         // Assert the CODE, not just the status — that is what distinguishes this from the sibling
         // rejects. A squatter here would 409 the user-developer's own Studio forever AND clear
-        // resetDevData's requireAdmin, i.e. they could wipe it.
+        // resetDevData's requireDominionHere, i.e. they could wipe it.
         expect((await resp.json() as any).error).toBe('reserved_slug');
         expect(await rowsFor(devStar)).toEqual({ scopes: 0, links: 0 });
       });

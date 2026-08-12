@@ -27,8 +27,8 @@ describe('structural tier-DO scope binding', () => {
     // ⚠️ INVITED MEMBERS, not star admins. This test's whole subject is the TENANT branch
     // (`matchAccess(buildAuthScopePattern(name), aud)`), which requires an **exact-star**
     // `authScopePattern` — mintable only by invite, since `claim-universe` (the sole admin-minting path)
-    // always yields a universe-tier `{u}.*`. With star admins here, `enforceScopeReach` would return
-    // early at the REACH clause and the tenant branch would never run: green, but testing the
+    // always yields a universe-tier `{u}.*`. With star admins here, `requirePassage` would return
+    // early at the DOMINION clause and the tenant branch would never run: green, but testing the
     // sibling test's mechanism instead of its own. It would also collapse the deliberate contrast
     // with the `admin wildcard` case below into a duplicate.
     it('accepts the matching star aud, rejects a foreign star aud (TENANT branch)', async () => {
@@ -48,11 +48,11 @@ describe('structural tier-DO scope binding', () => {
         NebulaClientTest, browserA, starA, starA, 'alice@example.com',
       );
       // Fixture guard: an exact-star pattern is the premise. A `{u}.*` here silently moves the
-      // positive case onto the reach branch.
+      // positive case onto the dominion branch.
       expect(payloadA.access?.authScopePattern).toBe(starA);
 
       // Own star → accepted, and specifically BY the tenant branch (the caller is non-admin, so
-      // the reach clause is gated off entirely).
+      // the dominion clause is gated off entirely).
       clientA.callStarGetConfig(starA);
       await vi.waitFor(() => { expect(clientA.callCompleted).toBe(true); });
       expect(clientA.lastError).toBeUndefined();
@@ -72,17 +72,17 @@ describe('structural tier-DO scope binding', () => {
     });
 
     // The deliberate CONTRAST to the tenant-branch test above: same DO, same accepted outcome,
-    // different mechanism. Here the caller is a universe admin (`{u}.*`, admin), so `enforceScopeReach`
-    // returns at the REACH clause and the tenant branch is never reached. Keeping the two distinct
+    // different mechanism. Here the caller is a universe admin (`{u}.*`, admin), so `requirePassage`
+    // returns at the DOMINION clause and the tenant branch is never reached. Keeping the two distinct
     // is the point — if both used the same principal shape this test would prove nothing the
     // other doesn't.
-    it('admin wildcard: a universe admin refreshed to the star activeScope is accepted (REACH branch)', async () => {
+    it('admin wildcard: a universe admin refreshed to the star activeScope is accepted (DOMINION branch)', async () => {
       const browser = new Browser();
       const universe = `uni-${crypto.randomUUID().slice(0, 8)}`;
       const star = `${universe}.app.tenant-a`;
 
       // Universe admin authenticates at the universe but refreshes activeScope to the star. Its
-      // pattern is `{universe}.*`, which COVERS the Star's instance name → admitted by reach.
+      // pattern is `{universe}.*`, which COVERS the Star's instance name → admitted by dominion.
       const { client: adminClient, payload } = await universeAdminClient(
         NebulaClientTest, browser, universe, star, 'admin@example.com',
       );

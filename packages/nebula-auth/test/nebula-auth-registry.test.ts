@@ -136,7 +136,7 @@ describe('NebulaAuthRegistry', () => {
   //   createStar  — admin-gated over the parent galaxy, `Scopes` row only, NO admin identity. The only
   //                 no-identity path, which is exactly what `{u}.{g}.dev` needs.
   // The open claim is safe because a star-scoped admin's exact-star pattern is inert above its own Star
-  // (ADR-015: authority flows strictly downward) — see tasks/archive/nebula-star-founder-provisioning.md.
+  // (ADR-015: dominion flows strictly downward) — see tasks/archive/nebula-star-founder-provisioning.md.
 
   // ── createGalaxy (Scopes-only, admin-gated) ─────────────────────────────────────────────────────
   describe('createGalaxy', () => {
@@ -321,7 +321,7 @@ describe('NebulaAuthRegistry', () => {
 
     // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
     // duplicate of the cascade-never-climbs test above. What this uniquely covers is the AUTHZ shape —
-    // an exact-star (non-wildcard) pattern satisfying `#hasAdminOverScope` on its own star.
+    // an exact-star (non-wildcard) pattern satisfying `#hasDominionOver` on its own star.
     it('authz: an exact-star (non-wildcard) pattern can delete its own star', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();

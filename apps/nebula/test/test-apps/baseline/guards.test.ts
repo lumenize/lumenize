@@ -27,7 +27,7 @@ describe('guard enforcement', () => {
         NebulaClientTest, userBrowser, star, star, 'user@example.com',
       );
 
-      // Non-admin calls setStarConfig → rejected by requireAdmin guard
+      // Non-admin calls setStarConfig → rejected by requireDominionHere guard
       userClient.callStarSetConfig(star, 'key', 'value');
       await vi.waitFor(() => {
         expect(userClient.lastError).toContain('Admin access required');
@@ -79,7 +79,7 @@ describe('guard enforcement', () => {
     // `star-admin@` + `universe-admin@` identities are unmintable. There is likewise no "star-level
     // admin" tier: an invite mints `scopeAdmin: false`, so every admin's pattern is `{u}.*` (or `*`).
     // The property under test survives intact, and is now exercised more precisely: the second client
-    // holds aud = the UNIVERSE while calling a STAR DO, so admission comes from the *reach* branch
+    // holds aud = the UNIVERSE while calling a STAR DO, so admission comes from the *dominion* branch
     // (pattern covers the callee node) rather than the tenant branch — which is exactly what
     // "universe admin reaches star-level admin methods" means.
     it('universe admin (wildcard) can call star-level setStarConfig', async () => {
@@ -102,7 +102,7 @@ describe('guard enforcement', () => {
       const { client: universeAdmin, payload } = await universeAdminClient(
         NebulaClientTest, browser, universe, universe, 'admin@example.com',
       );
-      // Guard the fixture: aud must be the universe, or this stops testing cross-tier reach.
+      // Guard the fixture: aud must be the universe, or this stops testing cross-tier dominion.
       expect(payload.aud).toBe(universe);
       expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
 

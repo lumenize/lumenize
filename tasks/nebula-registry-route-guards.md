@@ -1,6 +1,6 @@
 # Every Registry route states its own restrictions
 
-**Status:** Active child, **third of four** in the passage/dominion sequence — after [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md) and [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), before [nebula-invite.md](nebula-invite.md). Carved out of the second of those on 2026-08-11, where it was Phases 3 and 4. Not built.
+**Status:** Active child, **third of four** in the passage/dominion sequence — after ✅ [nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) (**BUILT + archived 2026-08-11**) and [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), before [nebula-invite.md](nebula-invite.md). Carved out of the second of those on 2026-08-11, where it was Phases 3 and 4. Not built.
 
 > 📐 **`/write-task` Pass 2 — design intent and phases are both written.** Its content carries a Stage-1 (×2) and Stage-2 heritage plus a **scoped Stage-2 pass on exactly this material** (2026-08-11, 34 raised / 30 survived), whose findings are worked in. The **shape of this file is new** and has had no panel. From here: `/review-task`, then `/build-task`.
 
@@ -162,7 +162,7 @@ The guard pipeline, `ctx` carrying full claims, `passageGuard` + `dominionOverIn
 - 🔓 **WHO may invite, and what bit an invite confers** → [nebula-invite.md](nebula-invite.md). This file places `/invite`'s guard in the pipeline at **today's verdict** and changes no caller's outcome; that file opens it. ⚠️ **Do not "helpfully" widen it here** — accepted `auth.md` § *Grants* describes the target, but calibrating it depends on the collaborator design, F&F invites, super-admin invitability and the abuse bound all at once, which is a file's worth of design and not a guard swap.
 - **Migrating the five auth-flow routes** to the pipeline — filed, not done.
 - **The claim's shape, the containment predicates, `hasPassage` itself** → [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), which lands first.
-- **The verdict renames** → [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md).
+- **The verdict renames** → [nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md).
 
 ## Relationships
 

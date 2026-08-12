@@ -11,7 +11,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasAdminOverScope } from '@lumenize/nebula-auth';
+import { hasDominionOver } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
@@ -31,7 +31,18 @@ const SUBSCRIBERS_MARKER_KEY = '__sql_migrations_Subscribers';
  *   id-1 — the FROZEN baseline (matches what already exists in prod, created by the
  *          pre-migration `CREATE IF NOT EXISTS`; so it no-ops on existing Stars and
  *          creates the table on a fresh one);
- *   id-2 — add `accessAdmin` (D16 — the `access.scopeAdmin` claim for the per-push recheck).
+ *   id-2 — add the confined dominion verdict for the per-push recheck.
+ *
+ * ⚠️ **id-2's column was RENAMED BY EDITING THIS ENTRY IN PLACE on 2026-08-11** (git carries the
+ * old spelling), which the APPEND-ONLY rule above otherwise forbids. That was a
+ * ONE-TIME, dated licence and it is spent: it was legitimate only because no deploy stood between
+ * the edit and the pre-alpha wipe, and every local/test store is recreated from scratch — so no
+ * storage could ever run pre-rename code against a post-rename schema. **APPEND-ONLY binds from
+ * here on.** An `ALTER TABLE … RENAME COLUMN` entry would have been actively worse than the
+ * in-place edit: `clear()` replays this list inline on every version-changing ontology install, so
+ * a rename entry would create the table under the old name and rename it again, forever.
+ * See `.claude/rules/durable-objects.md` § *Initialization* for the high-water-mark rule this
+ * defers to in every other case.
  */
 const SUBSCRIBERS_MIGRATIONS: SQLSchemaMigration[] = [
   {
@@ -48,32 +59,26 @@ const SUBSCRIBERS_MIGRATIONS: SQLSchemaMigration[] = [
   },
   {
     idMonotonicInc: 2,
-    description: 'add accessAdmin column (D16)',
-    sql: `ALTER TABLE Subscribers ADD COLUMN accessAdmin INTEGER NOT NULL DEFAULT 0`,
+    description: 'add dominionOverHostAtSubscribe column',
+    sql: `ALTER TABLE Subscribers ADD COLUMN dominionOverHostAtSubscribe INTEGER NOT NULL DEFAULT 0`,
   },
 ];
 
-export interface SubscriberRow {
+export type SubscriberRow = {
   resourceId: string;
   clientId: string;
   sub: string;
-  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
+  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasDominionOver(access,
    *  <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit. The Galaxy/Universe scope-admin
-   *  bypass replicated for the per-push recheck (D16); NOT a Star DAG `admin` grant (that resolves
+   *  bypass replicated for the per-push recheck; NOT a Star DAG `admin` grant (that resolves
    *  through `resolvePermission` normally).
-   *
-   *  ⚠️ The column name is historical — it holds a *verdict*, not the claim. (Renaming it was
-   *  considered and rejected: the blast radius is test-side and invisible to type-check — a
-   *  hand-rolled `CREATE TABLE Subscribers` in `test-apps/baseline/index.ts` that does not replay
-   *  migrations — and the milestone wipes this data anyway. See tasks/nebula-confine-admin-bypass.md
-   *  § Decisions.)
    *
    *  Storing a verdict rather than the claim is what closes the push-path back door: the push path
    *  never re-reads the JWT, so confining only the live claim would leave this bypass unconfined.
    *  Sound per ADR-013 because the stored value is **monotonically narrowing** — a strict
    *  conjunct-subset of the old raw bit, and the host instance name is immutable for the DO's
    *  lifetime, so drift can only ever go 1→0 (under-privilege), never 0→1. */
-  accessAdmin: number;
+  dominionOverHostAtSubscribe: number;
   subscriberBinding: string;
   subscribedAt: string;
 }
@@ -101,7 +106,7 @@ export class Subscriptions {
     this.#getHostName = getHostName;
     // Run the Subscribers schema migrations once, eagerly (the constructor runs in
     // onStart, before any request). id-gated + atomic; brings an existing prod Star's
-    // pre-accessAdmin table up to date without a hand-rolled ALTER guard.
+    // pre-dominionOverHostAtSubscribe table up to date without a hand-rolled ALTER guard.
     new SQLSchemaMigrations({
       doStorage: this.#ctx.storage,
       markerKey: SUBSCRIBERS_MARKER_KEY,
@@ -177,23 +182,23 @@ export class Subscriptions {
     const cc = this.#getCallContext();
     const sub = cc.originAuth?.sub;
     if (!sub) throw new Error('Authentication required');
-    // Store the CONFINED scope-admin verdict so the per-push recheck (D3) can replicate the
+    // Store the CONFINED scope-admin verdict so the per-push recheck can replicate the
     // requirePermission bypass for a Galaxy/Universe scope-admin who holds no DAG grant — we don't
-    // have the subscriber's live JWT at push time (D16).
+    // have the subscriber's live JWT at push time.
     //
-    // ⚠️ `hasAdminOverScope(...)`, NOT `claims?.access?.scopeAdmin`. This is confinement point 2: the
+    // ⚠️ `hasDominionOver(...)`, NOT `claims?.access?.scopeAdmin`. This is confinement point 2: the
     // push path never re-reads the JWT, so confining only the live claim (requirePermission) would
     // leave this back door open — a descendant-scope admin would keep an unconfined bypass for the
     // life of the subscription. Confining at STORE time is the only option: at push time we hold
     // neither the live claim nor the pattern, only this bit.
     const hostName = this.#getHostName();
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
-    const accessAdmin = hostName && hasAdminOverScope(claims?.access, hostName) ? 1 : 0;
+    const dominionOverHostAtSubscribe = hostName && hasDominionOver(claims?.access, hostName) ? 1 : 0;
 
     this.#ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO Subscribers (resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt)
+      `INSERT OR REPLACE INTO Subscribers (resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      resourceId, clientId, sub, accessAdmin, subscriberBinding, new Date().toISOString(),
+      resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, new Date().toISOString(),
     );
 
     return snapshot;
@@ -237,12 +242,12 @@ export class Subscriptions {
    * secondary index needed.
    */
   forResource(resourceId: string): SubscriberRow[] {
-    const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+    const rows = this.#ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
        FROM Subscribers WHERE resourceId = ?`,
       resourceId,
     ).toArray();
-    return rows as unknown as SubscriberRow[];
+    return rows;
   }
 
   /**
@@ -250,9 +255,9 @@ export class Subscriptions {
    * use `forResource(resourceId)`.
    */
   list(): SubscriberRow[] {
-    const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt FROM Subscribers`,
+    const rows = this.#ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt FROM Subscribers`,
     ).toArray();
-    return rows as unknown as SubscriberRow[];
+    return rows;
   }
 }

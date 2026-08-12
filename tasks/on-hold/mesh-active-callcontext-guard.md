@@ -5,11 +5,11 @@
 
 ## Objective
 
-Make a `@mesh` method **refuse to execute outside a mesh callContext**, so a direct Workers-RPC call (`stub.method()` / `env.X.get(id).method()`) to a `@mesh`-decorated method **fails closed** instead of silently running with no `onBeforeCall`, no identity, and no `@mesh(requireAdmin)` guard. This upgrades "structural for mesh-routed calls" to "structural, period," completing the thesis of the scope-isolation task.
+Make a `@mesh` method **refuse to execute outside a mesh callContext**, so a direct Workers-RPC call (`stub.method()` / `env.X.get(id).method()`) to a `@mesh`-decorated method **fails closed** instead of silently running with no `onBeforeCall`, no identity, and no `@mesh(requireDominionHere)` guard. This upgrades "structural for mesh-routed calls" to "structural, period," completing the thesis of the scope-isolation task.
 
 ## The gap (verified)
 
-`onBeforeCall` and every `@mesh(guard)` run only inside `executeEnvelope` ([lmz-api.ts:894-895](../../packages/mesh/src/lmz-api.ts#L894)) — `runWithCallContext(...) → node.onBeforeCall() → __executeChain(...)`. A raw `stub.method()` enters the DO method directly, skipping `executeEnvelope` entirely: no `callContext` installed, no `onBeforeCall`, no decorator. So any *public* method on a tenant-scoped DO is reachable cross-tenant by a foreign DO holding a raw stub — including `@mesh(requireAdmin)` methods. Today this is held shut only by the "no raw RPC in Nebula" convention (`mesh.md`), not by structure.
+`onBeforeCall` and every `@mesh(guard)` run only inside `executeEnvelope` ([lmz-api.ts:894-895](../../packages/mesh/src/lmz-api.ts#L894)) — `runWithCallContext(...) → node.onBeforeCall() → __executeChain(...)`. A raw `stub.method()` enters the DO method directly, skipping `executeEnvelope` entirely: no `callContext` installed, no `onBeforeCall`, no decorator. So any *public* method on a tenant-scoped DO is reachable cross-tenant by a foreign DO holding a raw stub — including `@mesh(requireDominionHere)` methods. Today this is held shut only by the "no raw RPC in Nebula" convention (`mesh.md`), not by structure.
 
 ## Design sketch (to be hardened before "go")
 

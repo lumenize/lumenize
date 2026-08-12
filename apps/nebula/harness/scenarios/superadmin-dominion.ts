@@ -64,13 +64,13 @@ export async function run(stack: DevStack): Promise<void> {
         op: 'create',
         typeName: 'Message',
         nodeId: ROOT_NODE_ID,
-        value: { session: crypto.randomUUID(), role: 'user', content: '* super-admin reach' },
+        value: { session: crypto.randomUUID(), role: 'user', content: '* super-admin dominion' },
       },
     });
     assert.equal(
       adminOut.kind,
       'committed',
-      `* admin should reach an ungranted scope via the access.scopeAdmin bypass, got kind=${adminOut.kind}`,
+      `* admin should act on an ungranted scope via the access.scopeAdmin bypass, got kind=${adminOut.kind}`,
     );
 
     const controlOut = await control.client.resources.transaction({

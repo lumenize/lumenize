@@ -64,7 +64,7 @@ export interface SubscriberEntry {
 
 /** A subscriber-list roster push payload — the DISTINCT-by-`sub` roster of a query's data-subscribers,
  *  delivered on the dedicated `handleQuerySubscribersUpdate` channel to the query's WATCHERS (never folded
- *  into a query-data push). Advisory/display-only; carries no `accessAdmin`/permission data (ADR-008). */
+ *  into a query-data push). Advisory/display-only; carries no `dominionOverHostAtSubscribe`/permission data (ADR-008). */
 export type SubscriberRosterPayload = SubscriberEntry[];
 
 /**

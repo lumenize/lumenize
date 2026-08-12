@@ -39,7 +39,7 @@ A long authoring session exceeds the ~900s access-token TTL. Is "a DO holding th
 
 ## Key files to read fresh (main repo)
 
-`packages/mesh/src/{lumenize-client-gateway.ts,lmz-api.ts}` (where `originAuth` is minted from the verified JWT); `apps/nebula/src/nebula-do.ts` (`onBeforeCall` scope-lock, `requireAdmin`); `apps/nebula/src/dag-tree.ts` (`requirePermission` + admin-bypass); `apps/nebula/src/entrypoint.ts` (`verifyNebulaAccessToken`); `packages/nebula-auth/` (JWT mint/verify, two-scope model). Plus the shim files in the worktree.
+`packages/mesh/src/{lumenize-client-gateway.ts,lmz-api.ts}` (where `originAuth` is minted from the verified JWT); `apps/nebula/src/nebula-do.ts` (`onBeforeCall` scope-lock, `requireDominionHere`); `apps/nebula/src/dag-tree.ts` (`requirePermission` + admin-bypass); `apps/nebula/src/entrypoint.ts` (`verifyNebulaAccessToken`); `packages/nebula-auth/` (JWT mint/verify, two-scope model). Plus the shim files in the worktree.
 
 ## First-pass findings (2026-06-16 — against `@cloudflare/think` 0.8.3 / `agents` 0.14.2, pre-bump; re-confirm after the 0.8.4/0.14.3 bump)
 

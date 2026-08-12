@@ -68,9 +68,9 @@ The `@mesh()` allowlist is checked **only on a chain's entry op** (the first met
 
 ```typescript
 // Callee — onlyAdmins() is the ONLY @mesh door; it returns a capability instance
-@mesh(requireAdmin)
+@mesh(requireDominionHere)
 onlyAdmins(): AdminOps {
-  return new AdminOps(this);                 // you only get an AdminOps by passing requireAdmin
+  return new AdminOps(this);                 // you only get an AdminOps by passing requireDominionHere
 }
 // The capability surface — a plain class; NO @mesh on its methods
 class AdminOps {
@@ -79,11 +79,11 @@ class AdminOps {
   resetTenant(id: string): void { /* privileged work via this.#node */ }
 }
 
-// Caller — one hop: the gate runs (requireAdmin), then resetTenant on what it returned
+// Caller — one hop: the gate runs (requireDominionHere), then resetTenant on what it returned
 this.lmz.call('MY_DO', instanceName, this.ctn<MyDO>().onlyAdmins().resetTenant(tenantId));
 ```
 
-A caller can't shortcut the gate: `ctn<MyDO>().resetTenant(...)` fails the entry `@mesh` check (`resetTenant` isn't `@mesh` — it isn't even on `MyDO`). Reach for this when a **cluster** of privileged ops sits behind one check (gate once instead of `@mesh(requireAdmin)` on each), or when the capability should carry scoped state (the returned instance can close over *what* the caller may touch). It's powerful but **underused** — the per-method `@mesh(guard)` shape is the default reflex (and what LLM training knows); use whichever is clearer, but know this exists. Rationale: ADR-007; entry-only mechanism lives in `packages/mesh/src/ocan/execute.ts`. (`svc.*` chains are the framework's built-in version — they skip the entry check entirely.)
+A caller can't shortcut the gate: `ctn<MyDO>().resetTenant(...)` fails the entry `@mesh` check (`resetTenant` isn't `@mesh` — it isn't even on `MyDO`). Reach for this when a **cluster** of privileged ops sits behind one check (gate once instead of `@mesh(requireDominionHere)` on each), or when the capability should carry scoped state (the returned instance can close over *what* the caller may touch). It's powerful but **underused** — the per-method `@mesh(guard)` shape is the default reflex (and what LLM training knows); use whichever is clearer, but know this exists. Rationale: ADR-007; entry-only mechanism lives in `packages/mesh/src/ocan/execute.ts`. (`svc.*` chains are the framework's built-in version — they skip the entry check entirely.)
 
 ## Multi-hop / direct delivery
 A continuation names its *final* destination, so a call can hop client → Star → Worker → **directly back to the client** without unwinding through the intermediate hops — each hop fires a one-way call to the next node instead of awaiting and backtracking. This is architecturally motivated (skip the backtrack), independent of any cost argument, and is the pattern to reach for. Canonical: a spell-check kicked off by a doc edit reports straight to the client, not back through the document DO. See [calls.mdx](../../website/docs/mesh/calls.mdx) § Direct Delivery.
@@ -96,7 +96,7 @@ Mesh code MUST schedule with `this.svc.alarms.schedule(delaySeconds, this.ctn().
 
 ## `lmz.call` 4-arg — the result-handler mechanics
 (The 3-arg/4-arg/`onErrorOnly` basics are in the surface section above; this is *how* the outcome reaches your handler.)
-- **The outcome rides a fire-back, not an awaited return.** The callee acks early, runs the chain, then fires the filled handler back one-way. Your handler receives the success value OR the Error in its `$result` slot — a remote `@mesh` throw arrives as that Error (structured errors like `ClientDisconnectedError` keep `name` + custom props). It runs at the caller's `__handleResponse` sink under the naturally-propagated response-leg `callContext`, re-gated by `onBeforeCall`/`enforceScopeReach` (allowlist-off, **scope-check-ON**). There is **no `callRaw` rethrow** — the Error is delivered *to* the handler.
+- **The outcome rides a fire-back, not an awaited return.** The callee acks early, runs the chain, then fires the filled handler back one-way. Your handler receives the success value OR the Error in its `$result` slot — a remote `@mesh` throw arrives as that Error (structured errors like `ClientDisconnectedError` keep `name` + custom props). It runs at the caller's `__handleResponse` sink under the naturally-propagated response-leg `callContext`, re-gated by `onBeforeCall`/`requirePassage` (allowlist-off, **scope-check-ON**). There is **no `callRaw` rethrow** — the Error is delivered *to* the handler.
 - **The handler is NOT necessarily local.** DO/Worker: it *travels* in the envelope and runs on the callee's fire-back (on a cold, storage-restored caller if the caller was evicted). Client: it stays *in-heap* keyed by callId and delivery re-resolves to the current socket. Either way you never `await` it.
 - **`onErrorOnly` + broadcast-to-clients:** the error path is only *delivery* failures — the Gateway (NOT a mesh node; it does not early-ack — the one deliberately-awaited hop) awaits the bounded client delivery and returns `ClientDisconnectedError`, routed to your handler locally as a *delivered* error rather than a sync throw. Never the client's own app error (delivery to the client is one-way). So `onErrorOnly` is for delivery reactions (drop a dead subscriber), not catching the callee's app errors.
 

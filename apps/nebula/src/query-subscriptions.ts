@@ -1,7 +1,7 @@
 /**
  * QuerySubs — per-host query-subscription registry (Child 2).
  *
- * A near-clone of {@link Subscriptions} (D13): same constructor injection
+ * A near-clone of {@link Subscriptions}: same constructor injection
  * `(ctx, getCallContext, dagTree, resources)`, same `clear()`/`all()` shapes, same
  * `INSERT OR REPLACE` / `WITHOUT ROWID` / deploy-driven `clear()` cleanup, same
  * dead-client reactive cleanup. Deliberate divergences:
@@ -13,13 +13,13 @@
  *     `resourceId` (the hash is query-shape-agnostic, so a future `queryType` needs
  *     no schema change);
  *   - `registerQuerySubscriber` **always succeeds** — no permission check at
- *     registration (authorize at delivery, D2/D4);
- *   - `sub` + `accessAdmin` are derived from `getCallContext().originAuth` INSIDE
- *     the registry (the `sub` and `claims.access.scopeAdmin`), never params (D13/D16).
+ *     registration (authorize at delivery, never at registration);
+ *   - `sub` + `dominionOverHostAtSubscribe` are derived from `getCallContext().originAuth` INSIDE
+ *     the registry (the `sub` and `claims.access.scopeAdmin`), never params.
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasAdminOverScope } from '@lumenize/nebula-auth';
+import { hasDominionOver } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { stringify } from '@lumenize/structured-clone';
 import { canonicalQueryHash } from './query-hash';
@@ -27,7 +27,7 @@ import type { QueryDescriptor } from './query-hash';
 import type { DagTree } from './dag-tree';
 import type { Resources } from './resources';
 
-export interface QuerySubscriberRow {
+export type QuerySubscriberRow = {
   queryHash: string;
   /** The full query object, structured-clone-stringified — parsed in Flow 3 to
    *  read `typeName` (rerun selection) + `onPartial` (per-push shape). */
@@ -38,11 +38,11 @@ export interface QuerySubscriberRow {
    *  handle (tasks/nebula-subscriber-lists.md). OPTIONAL: the claim is absent on a pre-rollout token,
    *  stored NULL, and read back as `null`/`undefined`. */
   profileId?: string;
-  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasAdminOverScope(access,
-   *  <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit. D16, same as Subscribers
-   *  (see `SubscriberRow.accessAdmin` for the full rationale: confinement point 2, and why the
+  /** The **confined** scope-admin verdict at subscribe time (0/1) — `hasDominionOver(access,
+   *  <host instance name>)`, NOT the raw `claims.access.scopeAdmin` bit — same as Subscribers
+   *  (see `SubscriberRow.dominionOverHostAtSubscribe` for the full rationale: confinement point 2, and why the
    *  historical column name is kept). */
-  accessAdmin: number;
+  dominionOverHostAtSubscribe: number;
   subscriberBinding: string;
   subscribedAt: string;
 }
@@ -82,7 +82,7 @@ export class QuerySubs {
         clientId          TEXT NOT NULL,
         sub               TEXT NOT NULL,
         profileId         TEXT,
-        accessAdmin       INTEGER NOT NULL DEFAULT 0,
+        dominionOverHostAtSubscribe       INTEGER NOT NULL DEFAULT 0,
         subscriberBinding TEXT NOT NULL,
         subscribedAt      TEXT NOT NULL,
         PRIMARY KEY (queryHash, clientId)
@@ -109,8 +109,8 @@ export class QuerySubs {
 
   /**
    * Register a query subscriber. **Always succeeds** — no permission check at
-   * registration (authorization is at delivery, D2/D4). Computes the canonical
-   * `queryHash`, derives `sub`/`accessAdmin` from `originAuth` (never params, D16),
+   * registration (authorization is at delivery, never at registration). Computes the canonical
+   * `queryHash`, derives `sub`/`dominionOverHostAtSubscribe` from `originAuth` (never params),
    * stores the whole query object (for Flow-3 re-eval). `INSERT OR REPLACE` keyed
    * by `(queryHash, clientId)` — idempotent, 1 billed write; a re-subscribe (same
    * canonical query) reuses the row.
@@ -137,7 +137,7 @@ export class QuerySubs {
     // for the life of the subscription. Store-time is the only option: at push time we hold neither
     // the live claim nor the pattern. Fail closed if the host name is absent (no bypass granted).
     const hostName = this.#getHostName();
-    const accessAdmin = hostName && hasAdminOverScope(claims?.access, hostName) ? 1 : 0;
+    const dominionOverHostAtSubscribe = hostName && hasDominionOver(claims?.access, hostName) ? 1 : 0;
     // Subscriber-list roster: capture the public profileId claim alongside sub (bind NULL when absent —
     // a pre-rollout token omits it). The roster projection (tasks/nebula-subscriber-lists.md) reads it back.
     const profileId = claims?.profileId ?? null;
@@ -152,14 +152,14 @@ export class QuerySubs {
 
     this.#ctx.storage.sql.exec(
       `INSERT OR REPLACE INTO QuerySubscribers
-         (queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt)
+         (queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      queryHash, queryBlob, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt,
+      queryHash, queryBlob, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt,
     );
 
     return {
       queryHash,
-      row: { queryHash, query: queryBlob, clientId, sub, profileId: profileId ?? undefined, accessAdmin, subscriberBinding, subscribedAt },
+      row: { queryHash, query: queryBlob, clientId, sub, profileId: profileId ?? undefined, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt },
       isNewSub,
     };
   }
@@ -184,21 +184,21 @@ export class QuerySubs {
 
   /** All subscribers of one query (Flow-3 delivery: the rows sharing a `queryHash`). */
   forQueryHash(queryHash: string): QuerySubscriberRow[] {
-    const rows = this.#ctx.storage.sql.exec(
-      `SELECT queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt
+    const rows = this.#ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
        FROM QuerySubscribers WHERE queryHash = ?`,
       queryHash,
     ).toArray();
-    return rows as unknown as QuerySubscriberRow[];
+    return rows;
   }
 
   /** Every live query-sub row — the Flow-3 rerun selection groups these by
    *  `queryHash` (parsing each `query` for its `typeName`). */
   all(): QuerySubscriberRow[] {
-    const rows = this.#ctx.storage.sql.exec(
-      `SELECT queryHash, query, clientId, sub, profileId, accessAdmin, subscriberBinding, subscribedAt
+    const rows = this.#ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT queryHash, query, clientId, sub, profileId, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
        FROM QuerySubscribers`,
     ).toArray();
-    return rows as unknown as QuerySubscriberRow[];
+    return rows;
   }
 }

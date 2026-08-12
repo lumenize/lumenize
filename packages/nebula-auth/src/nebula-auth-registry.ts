@@ -34,7 +34,7 @@ import {
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
-import { parseId, isValidSlug, matchAccess, hasAdminOverScope } from './parse-id';
+import { parseId, isValidSlug, matchAccess, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
@@ -482,7 +482,7 @@ export class NebulaAuthRegistry extends DurableObject {
    * with no admin in the loop. An MINT POINT: this is where a Star's star-scoped admin identity is minted.
    *
    * That openness is the product, not a defect to engineer away. A star-scoped admin holds an **exact-star**
-   * `authScopePattern`, which `hasAdminOverScope` makes inert at every ancestor (ADR-015: dominion
+   * `authScopePattern`, which `hasDominionOver` makes inert at every ancestor (ADR-015: dominion
    * flows strictly downward), so a squatter gains a slug and nothing else — and a covering admin can
    * delete the squatted Star. **Do not add an approval step, invite code, or per-Galaxy on/off switch.**
    *
@@ -613,7 +613,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO identity minted + NO email. The
-   * parent-Universe admin manages the new galaxy via their `{u}.*` wildcard reach (§Founder — no local
+   * parent-Universe admin manages the new galaxy via their `{u}.*` wildcard dominion (§Founder — no local
    * admin stamped). Caller (Worker) pre-verifies the JWT and passes the verified access claim.
    */
   createGalaxy(universeGalaxyId: string, callerAccess: AccessEntry): { instanceName: string } {
@@ -624,7 +624,7 @@ export class NebulaAuthRegistry extends DurableObject {
     if (parsed.tier !== 'galaxy') {
       throw new RegistryError(400, 'invalid_tier', 'create-galaxy requires a 2-segment id (universe.galaxy)');
     }
-    if (!this.#hasAdminOverUniverse(callerAccess, parsed.universe)) {
+    if (!this.#hasDominionOverUniverse(callerAccess, parsed.universe)) {
       throw new RegistryError(403, 'forbidden', 'Caller does not have admin access to the parent universe');
     }
     if (this.checkSlugAvailable(parsed.universe)) {
@@ -640,7 +640,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Create a Star IN-SESSION — admin-gated over the parent galaxy, `Scopes` row only, NO identity minted + NO
-   * email (the admin already holds a session that reaches the new Star via wildcard reach). Mirrors
+   * email (the admin already holds a session that reaches the new Star via wildcard dominion). Mirrors
    * {@link createGalaxy} one tier down.
    */
   createStar(universeGalaxyStarId: string, callerAccess: AccessEntry): { instanceName: string } {
@@ -651,7 +651,7 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(400, 'invalid_tier', 'create-star requires a 3-segment id (universe.galaxy.star)');
     }
     const parentGalaxy = `${parsed.universe}.${parsed.galaxy}`;
-    if (!this.#hasAdminOverGalaxy(callerAccess, parentGalaxy)) {
+    if (!this.#hasDominionOverGalaxy(callerAccess, parentGalaxy)) {
       throw new RegistryError(403, 'forbidden', `Caller is not an admin of the parent galaxy "${parentGalaxy}"`);
     }
     if (this.checkSlugAvailable(parentGalaxy)) {
@@ -666,7 +666,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * The caller's manageable scope tree — every scope under their admin authority (Universe +
+   * The caller's manageable scope tree — every scope under their dominion (Universe +
    * descendants), for the Scopes hierarchy view. Keyed on the verified admin SCOPE, NOT email:
    * `createGalaxy`/`createStar` register a scope with no member, so `discover` (email-keyed) wouldn't
    * surface a galaxy you just created; this reads `Scopes` directly. Flat list; the client nests by id.
@@ -674,8 +674,8 @@ export class NebulaAuthRegistry extends DurableObject {
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
     // ✅ SELF-CONFINING — the bare bit is safe here because it is not the dominion decision; the
     // QUERY is. Every branch below is BOUNDED BY `authScopePattern`, so the result set can never
-    // exceed the caller's own reach no matter what `admin` says: the `*` branch selects every scope
-    // (correct — `*` reach IS every scope), and the other two bind `${prefix}` / `${pattern}`
+    // exceed the caller's own dominion no matter what `admin` says: the `*` branch selects every scope
+    // (correct — `*` dominion IS every scope), and the other two bind `${prefix}` / `${pattern}`
     // (slugs are `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible). The bit only decides
     // "is this principal an admin at all", and a non-admin gets `[]`. Confining it against a node
     // would be meaningless: this method has no callee node — it spans the caller's whole subtree.
@@ -1170,7 +1170,7 @@ export class NebulaAuthRegistry extends DurableObject {
     try { parsed = parseId(target); }
     catch { throw new RegistryError(400, 'invalid_id', 'Invalid scope id'); }
 
-    if (!this.#hasAdminOverScope(callerAccess, target)) {
+    if (!hasDominionOver(callerAccess, target)) {
       throw new RegistryError(403, 'forbidden', `Caller is not an admin of "${target}"`);
     }
 
@@ -1387,27 +1387,26 @@ export class NebulaAuthRegistry extends DurableObject {
   // Authorization helpers
   // ============================================
 
-  // All three delegate to the ONE shared predicate (ADR-007 — one guard path, one place to audit).
-  // They are kept as named private wrappers only because their call sites read better with the tier
-  // named; none of them may reintroduce an inline `admin && matchAccess(...)`.
-
-  /** Admin over `scope` iff the access claim is admin AND its pattern covers the scope. */
-  #hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
-    return hasAdminOverScope(access, scope);
-  }
+  // Both delegate to the ONE shared predicate (ADR-007 — one guard path, one place to audit).
+  // They are kept as named private wrappers only because their call sites read better with the TIER
+  // named; neither may reintroduce an inline `scopeAdmin && matchAccess(...)`.
+  //
+  // ⚠️ A third wrapper, `#hasDominionOver`, was deleted: it shadowed the imported predicate under
+  // the identical name and added nothing, so its one caller now calls `hasDominionOver` directly.
+  // Adding a tier to the name is what earns a wrapper here; re-spelling the same name is not.
 
   /**
-   * Admin over a universe. Delegates to the shared predicate: on a single dot-free segment
+   * Dominion over a universe. Delegates to the shared predicate: on a single dot-free segment
    * `matchAccess` reduces exactly to the three cases this used to hand-roll (`*`, `u.*`, exact `u`),
    * and its sole caller passes `parsed.universe`, which `isValidSlug` guarantees is dot-free.
    */
-  #hasAdminOverUniverse(access: AccessEntry | undefined, universe: string): boolean {
-    return hasAdminOverScope(access, universe);
+  #hasDominionOverUniverse(access: AccessEntry | undefined, universe: string): boolean {
+    return hasDominionOver(access, universe);
   }
 
-  /** Admin over a galaxy via the canonical hierarchy matcher (`*` / `u.*` / `u.g.*` / exact `u.g`). */
-  #hasAdminOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
-    return hasAdminOverScope(access, galaxyId);
+  /** Dominion over a galaxy via the canonical hierarchy matcher (`*` / `u.*` / `u.g.*` / exact `u.g`). */
+  #hasDominionOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
+    return hasDominionOver(access, galaxyId);
   }
 }
 

@@ -27,7 +27,7 @@
 1. **`DevStudio`** names the codegen engine (server DO). The browser chat app is **"Studio UI"**; the running generated app is the **"Preview app"**; the product/experience is **"Studio"** (reserved for prose). `Dev*` = dev-loop-only classes → `DevStudio` + `DevContainer`; `Star` is the cross-cutting one.
 2. **No `DevStar` class.** Collapse to one `Star` on one `STAR` binding; the dev Star is the `{u}.{g}.dev` instance (own SQLite → already isolated from prod). `compileSFC` is deleted anyway (vite owns compile); only **`resetDevData`** (the wipe) is **hard-guarded to the `.dev` STAR-tier instance** — segment-precise, not a suffix test: `const s = instanceName.split('.'); if (!(s.length === 3 && s[2] === 'dev')) throw` (a bare `endsWith('.dev')` would also admit a galaxy-tier `acme.dev`) — setting the current ontology is a general Star op (Decision 11). The `DEV_STAR` binding + its smart-match guard disappear; `#starBinding()` collapses to always `STAR`.
 3. **Studio UI is served from Workers Assets** — closes the open hosting question; same-origin with `/auth`, `/gateway`, `/dev-container`.
-4. **Publish is DevStudio-orchestrated** (`Studio UI → DevStudio → DevContainer → Galaxy`). Studio UI talks only to DevStudio, so command-auth (`requireAdmin`) lives in one place; publish is a *fast command*, not a file push (DevContainer already holds the live checkout). The big artifact bytes go `DevContainer → Galaxy` directly.
+4. **Publish is DevStudio-orchestrated** (`Studio UI → DevStudio → DevContainer → Galaxy`). Studio UI talks only to DevStudio, so command-auth (`requireDominionHere`) lives in one place; publish is a *fast command*, not a file push (DevContainer already holds the live checkout). The big artifact bytes go `DevContainer → Galaxy` directly.
 5. **DevStudio is the sole writer of source and the durable source-of-truth** (its shell `Workspace` + local git). LLM turns read/write *locally* against it (the hot, latency-sensitive path stays local). The container is a disposable **working copy** that DevStudio pushes changed source to (**`applyChanges`**). *Rejected Option 1 (truth in DevContainer DO):* it makes DevStudio pull its own writes back every turn and couples durable state to the disposable container.
 6. **`@cloudflare/shell` IS the implementation — NOT gated on Artifacts** (proven end-to-end 2026-06-19, `experiments/interim-dev-loop`). DevStudio's shell `Workspace` (SQLite+R2) is the source-of-truth with **real local git** (isomorphic-git: commit/log/branch; **"checkpoint" = a git tag** via raw `isomorphic-git`, user-facing term unchanged). DevStudio **pushes** changed source to DevContainer (`applyChanges`, mesh). This is the **shipping design — no external service.** **Artifacts is an OPTIONAL future optimization** behind the same (free) seam (`createGit` already has `remote()`/`push()`/`pull()`): it would let the container `git pull` *incrementally* from a remote decoupled from DevStudio. Adopt if/when it helps (large repos / export / resilience) — **we don't care when, or if.** Depend on `@cloudflare/shell` (codemode transitive dep accepted).
 7. **Convergence — one source home.** This supersedes the **three conflicting source-durability designs** scattered across the task files: (a) Galaxy dual-write, (b) DevContainer DO store, (c) `file`-resources on the dev Star. All collapse into **DevStudio's shell `Workspace`** (local git). The realignment must purge (a)/(b)/(c).
@@ -87,7 +87,7 @@ sequenceDiagram
 
     Note over UI,ST: A · session start / wake (DevStudio-driven)
     UI->>STU: open session {u}.{g}.dev (chat WS)
-    STU->>DC: ensureUp + applyChanges(full tree) (mesh, @mesh requireAdmin)
+    STU->>DC: ensureUp + applyChanges(full tree) (mesh, @mesh requireDominionHere)
     Note over DC: boot from image + write source → vite serves (deps baked — see Flow 1c)
     STU-->>UI: ready
     PV->>DC: GET /dev-container/{u}.{g}.dev/ (same-origin)
@@ -104,7 +104,7 @@ sequenceDiagram
     opt ontology .d.ts changed — gate FIRST (Flow 1b)
         Note over STU,ST: compile validator + Flow 1b (prompt, WAIT for wipe decision via callback, set ontology) — gates the push so the preview never lands new code on stale data
     end
-    STU->>DC: applyChanges(changed files) (mesh, @mesh requireAdmin)
+    STU->>DC: applyChanges(changed files) (mesh, @mesh requireDominionHere)
     Note over DC: update working tree → vite HMR
     DC-->>PV: HMR js-update — patch in place (data reshapes via the subscription if ontology changed)
     STU-->>UI: turn complete (read-only code shown in chat if asked)
@@ -256,7 +256,7 @@ sequenceDiagram
 
     Note over UI,G: Publish (deliberate user action — a fast command, not a file push)
     UI->>STU: publish {u}.{g}.dev
-    STU->>DC: build & publish (viteControl, @mesh requireAdmin)
+    STU->>DC: build & publish (viteControl, @mesh requireDominionHere)
     Note over DC: vite build from the current checkout (already at HEAD via push)
     DC->>DC: vite build (~4.7 s) → built bundle + ~2 kB gz CSS
     DC->>G: push built app-version (bundle + assets → R2 asset set)
@@ -299,7 +299,7 @@ In the flows, **DevContainer is one unit**. Inside, it's a **persistent DO super
 ```mermaid
 flowchart LR
     PV["Preview app<br/>(public · ungated)"]
-    STU["DevStudio<br/>(mesh · requireAdmin)"]
+    STU["DevStudio<br/>(mesh · requireDominionHere)"]
 
     subgraph DO["DevContainer DO — persists (identity, no durable source)"]
         F["fetch() proxy<br/>strips cf-container-target-port"]
@@ -327,7 +327,7 @@ flowchart LR
 | Mode | Port | Runs | Entered via | Reachable by |
 |---|---|---|---|---|
 | **Preview** | `:5173` vite | app shell + HMR | DO `fetch()` proxy (header stripped, scope injected) | **public / ungated** (browsers) |
-| **Command** | `:9000` command-server | `exec` / `writeFile` / `viteControl` (+ git) | DO `containerFetch` from `@mesh(requireAdmin)` methods | **host DO-only** (the container's own DevContainer DO) — never the public surface |
+| **Command** | `:9000` command-server | `exec` / `writeFile` / `viteControl` (+ git) | DO `containerFetch` from `@mesh(requireDominionHere)` methods | **host DO-only** (the container's own DevContainer DO) — never the public surface |
 
 **Persistence:** the **DO persists** (identity + the `applyChanges`/`fetch()` machinery) but holds **no durable source**; the **container is ephemeral** (disk reverts to the image on cold boot, repopulated by DevStudio's **push**); the **source-of-truth is DevStudio**. Neither layer here is durable source — which is why DevStudio holds it.
 
@@ -339,7 +339,7 @@ All of DevStudio's source handling goes through one small interface, so Artifact
 
 **The interface (two halves; method names proven in `experiments/interim-dev-loop`):**
 - **DevStudio side** — `writeSource(path, content)` (write working copy + `git commit`), `readSource(path)` (local read — the LLM hot path), `head()`, and it **pushes** changed files to the container (**`applyChanges(files)`**). Plus `git push` to the Artifacts remote in the optional target.
-- **DevContainer side** — **`applyChanges(files)` (`@mesh(requireAdmin)`)**: the container writes DevStudio's pushed files into the working tree (no git in the container). *(The optional Artifacts path swaps this for `pull()` — a real `git pull` from the remote.)*
+- **DevContainer side** — **`applyChanges(files)` (`@mesh(requireDominionHere)`)**: the container writes DevStudio's pushed files into the working tree (no git in the container). *(The optional Artifacts path swaps this for `pull()` — a real `git pull` from the remote.)*
 
 **The remote is the only swap point:**
 

@@ -7,7 +7,7 @@
  * **pushes** changed source to the DevContainer (`applyChanges`) — Flow 1 / 1b / 1c.
  *
  * `extends NebulaDO` for the structural tenant-isolation `onBeforeCall` (the
- * `{u}.{g}.dev` scope guard); every method carries `@mesh(requireAdmin)` on top
+ * `{u}.{g}.dev` scope guard); every method carries `@mesh(requireDominionHere)` on top
  * (onBeforeCall proves *scope*, never `access.scopeAdmin`, and `<id>.*` widening admits
  * descendant non-admins). Node↔node calls are mesh only (one-way `lmz.call()`
  * continuations, ADR-003 — never raw Workers RPC, never an awaited result).
@@ -36,7 +36,7 @@ import {
   getParserValidatorFacet,
   type ParserValidator,
 } from '@lumenize/ts-runtime-parser-validator';
-import { NebulaDO, requireAdmin } from './nebula-do';
+import { NebulaDO, requireDominionHere } from './nebula-do';
 import { compileOntologyVersion } from './galaxy';
 import type { Galaxy, TurnRecord } from './galaxy';
 import type { Star } from './star';
@@ -212,7 +212,7 @@ export class DevStudio extends NebulaDO {
    * "writeSource persists to the Workspace + git commit") and the container push
    * stays deploy-isolated.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async writeSource(path: string, content: string): Promise<{ oid: string; path: string }> {
     const rel = path.replace(/^\/+/, '');
     await this.#fs.writeFile('/' + rel, content);
@@ -228,7 +228,7 @@ export class DevStudio extends NebulaDO {
   }
 
   /** Local read — the LLM hot path (read relevant files into context). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async readSource(path: string): Promise<string> {
     return this.#fs.readFile('/' + path.replace(/^\/+/, ''));
   }
@@ -236,7 +236,7 @@ export class DevStudio extends NebulaDO {
   /** Full source tree + HEAD — what DevStudio re-pushes to a cold-booted DevContainer
    *  (Flow 1c). Full-tree by design (dev apps are small; the Artifacts swap would make
    *  it incremental — Decision 6). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async getSourceTree(): Promise<{ head: string | null; files: SourceFile[] }> {
     const files: SourceFile[] = [];
     for (const p of this.#trackedPaths()) files.push({ path: p, content: await this.#fs.readFile('/' + p) });
@@ -288,7 +288,7 @@ export class DevStudio extends NebulaDO {
    * `setOntology` so the new validator applies to a clean Star. The engine gates the
    * source-push on this completing (so the preview never lands new code on stale data).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async compileAndInstallOntology({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { types, version } = await this.#readOntology();
     const row = compileOntologyVersion({ version, types });
@@ -314,7 +314,7 @@ export class DevStudio extends NebulaDO {
    * a live container (same constraint as `ensureUp`/`syncToDevContainer`); the Star
    * half (`compileAndInstallOntology`) is independently testable.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async applyOntologyChange({ wipe = false }: { wipe?: boolean } = {}): Promise<{ version: string }> {
     const { version } = await this.#readOntology();
     const instance = this.lmz.instanceName!;
@@ -333,7 +333,7 @@ export class DevStudio extends NebulaDO {
    * `extends Container` can't construct under vitest-pool-workers; exercised on a
    * deployed Worker (the assembled e2e `it.skip`).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async ensureUp(): Promise<void> {
     const instance = this.lmz.instanceName!;
     const tree = await this.getSourceTree(); // local (shell Workspace)
@@ -348,7 +348,7 @@ export class DevStudio extends NebulaDO {
    * Default = the full tracked tree; pass `paths` to push a subset. ⚠️ Run with `wrangler dev`
    * (same reason as `ensureUp`).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async syncToDevContainer(paths?: string[]): Promise<void> {
     const want = paths ? new Set(paths.map((p) => p.replace(/^\/+/, ''))) : this.#trackedPaths();
     const files: SourceFile[] = [];
@@ -384,7 +384,7 @@ export class DevStudio extends NebulaDO {
    * ⚠️ Run with `wrangler dev` — `ensureUp`/`syncToDevContainer` need a live container and the loop
    * calls `env.AI.run`; runs under `wrangler dev` + Docker Desktop, not vitest-pool-workers.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async chat(turnId: string, clientId: string, message: string): Promise<{ reply: string; thought: string }> {
     await this.ensureUp(); // Flow 1c: container up + source pushed
     await this.ensureSession(); // D-session: the default Session exists before turns FK to it
@@ -484,7 +484,7 @@ export class DevStudio extends NebulaDO {
    *
    * ⚠️ Run with `wrangler dev` — needs a live container (same constraint as `ensureUp`).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async warmPreview(clientId: string): Promise<void> {
     const instance = this.lmz.instanceName!;
     const tree = await this.getSourceTree(); // local (shell Workspace)
@@ -529,7 +529,7 @@ export class DevStudio extends NebulaDO {
 
   // ─── Resource data-plane surface (chat Session/Message Resources, Child 1) ─────────
   //
-  // `@mesh()` — **NOT** `@mesh(requireAdmin)` (unlike every codegen/source method
+  // `@mesh()` — **NOT** `@mesh(requireDominionHere)` (unlike every codegen/source method
   // above): chat participants are non-admin but DAG-granted (D4). `onBeforeCall`
   // (NebulaDO base) still aud-locks `{u}.{g}.dev`; the per-op DAG read/write check
   // lives inside the data-plane (Resources/DagTree), exactly as on Star. These are
@@ -546,11 +546,11 @@ export class DevStudio extends NebulaDO {
    * `authScopePattern` covers THIS DevStudio host, not to any bearer of the bare `access.scopeAdmin`
    * bit; see tasks/nebula-confine-admin-bypass.md) and exposed as an admin-gated entry so a client
    * can guarantee the session exists before subscribing `Message where session == DEFAULT_SESSION_ID`.
-   * A second call is a no-op (the capability's create-if-absent). `@mesh(requireAdmin)`
+   * A second call is a no-op (the capability's create-if-absent). `@mesh(requireDominionHere)`
    * — a platform seed on the session node, distinct from the non-admin data-plane surface
    * below. Internal `this.ensureSession()` calls bypass the decorator (direct method call).
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async ensureSession(): Promise<void> {
     await this.#dataPlane.ensureResource(DEFAULT_SESSION_ID, 'Session', SESSION_NODE_ID, { title: 'Studio chat' });
   }
@@ -913,7 +913,7 @@ export class DevStudio extends NebulaDO {
    * failure must never break the dev loop, so it's a 3-arg fire-and-forget mesh
    * call wrapped in try/catch. The Galaxy's scope pattern `{u}.{g}.*` covers this
    * dev star's `aud` and the origin user is a galaxy admin, so `recordTurn`'s
-   * onBeforeCall + requireAdmin both pass. The corpus seeds the eval suite —
+   * onBeforeCall + requireDominionHere both pass. The corpus seeds the eval suite —
    * see tasks/nebula-agentic-development-engine.md Part 2.
    */
   #recordTurn(record: TurnRecord): void {

@@ -101,7 +101,7 @@ Ordered by readiness (1–3 are spike-proven; 4–5 need their own gates). Each 
 **Goal**: Promote the vault from `test/` to `src/`; store per-tenant secrets encrypted at rest in the tenant's own DO; resolve across levels per the Galaxy-governed mode.
 **Promotes**: `apps/nebula/test/spike-secrets-vault/vault.ts` → `apps/nebula/src/`.
 **Success criteria**:
-- [ ] `@mesh(requireAdmin)` `setGalaxySecret` / `setStarSecret` seal into KV (dedicated keys — never readable via `getGalaxyConfig`); mode set per-secret-name in Galaxy config by the Galaxy admin.
+- [ ] `@mesh(requireDominionHere)` `setGalaxySecret` / `setStarSecret` seal into KV (dedicated keys — never readable via `getGalaxyConfig`); mode set per-secret-name in Galaxy config by the Galaxy admin.
 - [ ] Star-side `resolveSecret(name)` honors all 3 modes (mesh call to Galaxy for the galaxy level; Star decrypts; both share the master key).
 - [ ] Master key from the `NEBULA_SECRETS_KEY` Workers Secret (root `.dev.vars` + miniflare bindings for tests; `wrangler secret put` for prod) — never committed.
 - [ ] A non-admin cannot set or read a secret; cross-tenant resolution is impossible (rides DO scope isolation).

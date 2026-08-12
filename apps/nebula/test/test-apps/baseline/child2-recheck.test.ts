@@ -9,7 +9,7 @@
  *   1. A subscriber whose read grant is REVOKED stops receiving content pushes but
  *      its sub row REMAINS (no drop — ADR-008 / D5).
  *   2. A `claims.access.scopeAdmin` subscriber with NO DAG grant still receives pushes
- *      (the stored-accessAdmin bypass — D16).
+ *      (the stored-dominionOverHostAtSubscribe bypass — D16).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
@@ -71,7 +71,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     user.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);
     await waitForUpdateCount(user, 1); // initial push
 
-    // A second always-granted subscriber (admin → accessAdmin bypass) acts as the
+    // A second always-granted subscriber (admin → dominionOverHostAtSubscribe bypass) acts as the
     // deterministic anchor: once IT receives a push, the broadcast loop for that
     // mutation has run, so the user's (non-)push has been decided — no setTimeout.
     const { client: anchor } = await adminClientAt(
@@ -127,7 +127,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     const eTag = created.eTags[rid];
 
     // A second admin connects after the root-admin latch is set → access.scopeAdmin: true but NO DAG
-    // grant of its own. Its Subscribers row stores accessAdmin = 1.
+    // grant of its own. Its Subscribers row stores dominionOverHostAtSubscribe = 1.
     // ⚠️ It must be the PLATFORM bootstrap admin (`*`), not a second universe admin: only one
     // admin can exist per universe (`claim-universe` is the sole admin-minting path and the
     // slug is unique), so the old `universe-admin@example.com` identity is unmintable. The
@@ -150,8 +150,8 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     await waitForUpdateCount(uni, 1);
 
     // The star-scoped admin mutates → the universe admin RECEIVES the push purely via the stored
-    // accessAdmin bypass (it holds no DAG grant). Mutation: ignore stored
-    // accessAdmin → evaluatePermissions denies it → no push → red.
+    // dominionOverHostAtSubscribe bypass (it holds no DAG grant). Mutation: ignore stored
+    // dominionOverHostAtSubscribe → evaluatePermissions denies it → no push → red.
     admin.callStarTransaction(star, ONTOLOGY_VERSION, {
       [rid]: { op: 'put', eTag, value: { title: 'v1' } },
     });

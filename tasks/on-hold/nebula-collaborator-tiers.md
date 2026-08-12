@@ -16,7 +16,7 @@
 
 **Built already:**
 
-- **The scope-admin bypass** — `hasAdminOverScope(access, <this node's instance name>)` short-circuits `requirePermission` on the node it runs in, so a scope admin needs no DAG grant. Confined per ADR-015.
+- **The scope-admin bypass** — `hasDominionOver(access, <this node's instance name>)` short-circuits `requirePermission` on the node it runs in, so a scope admin needs no DAG grant. Confined per ADR-015.
 - **DAG grants** — `Permissions(nodeId, sub, permission)` over `'admin' | 'write' | 'read'`, resolved by climbing every ancestor path and taking the highest grant found (`getEffectivePermission`).
 
 **Missing:**
@@ -68,7 +68,7 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 
 ### Constraints
 
-- **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** — authority flows downward only; authority is `admin` ∧ pattern-covers-this-node; restraint is a UI warning, never an authz refusal.
+- **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; authority is `admin` ∧ pattern-covers-this-node; restraint is a UI warning, never an authz refusal.
 - **[ADR-008](../../docs/adr/008-full-org-tree-visibility.md)** — within a Star the org tree is visible to members by design; enforcement is at the point of action.
 - **[ADR-003](../../docs/adr/003-continuation-messaging.md)** — the pre-stage is a one-way `lmz.call`; no node holds a reply channel open across a hop.
 - **[ADR-016](../../docs/adr/016-record-the-acting-principal.md)** — the endpoint moves authority, so it records the acting token's full verified claims.

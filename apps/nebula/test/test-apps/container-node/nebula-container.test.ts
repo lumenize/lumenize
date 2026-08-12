@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import { NebulaContainer } from '../../../src/nebula-container';
-import { requireAdmin } from '../../../src/nebula-do';
+import { requireDominionHere } from '../../../src/nebula-do';
 
 // A DevContainer is always addressed by a parseId-valid `{u}.{g}.dev` star id (M3). uuid segments
 // are valid slugs (hex + single hyphens).
@@ -27,7 +27,7 @@ const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
  *
  * The framework's job — stamping `instanceName` from the envelope's `metadata.callee` and invoking
  * this guard at admission — is covered in `@lumenize/mesh`; here we test the structural-isolation
- * LOGIC and that NebulaContainer delegates to the shared `enforceScopeReach` (ADR-007, one audit
+ * LOGIC and that NebulaContainer delegates to the shared `requirePassage` (ADR-007, one audit
  * point). The end-to-end admitted write is exercised by the ui-smoke lane. Rejection lands PRE-ack
  * regardless, so this is also the honest shape post-continuation-only.
  */
@@ -49,8 +49,8 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     expect(() => onBeforeCallAs(scope, { aud: scope })).not.toThrow();
   });
 
-  // Higher-admin reach parity (ADR-007): a `{u}.*` admin reaches a descendant {u}.{g}.dev container
-  // with no aud narrowing — the container delegates to the SAME enforceScopeReach as NebulaDO.
+  // Downward-dominion parity (ADR-007): a `{u}.*` admin reaches a descendant {u}.{g}.dev container
+  // with no aud narrowing — the container delegates to the SAME requirePassage as NebulaDO.
   it('admits a `{u}.*` admin reaching a descendant {u}.{g}.dev container (no aud narrowing)', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
@@ -58,7 +58,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     })).not.toThrow();
   });
 
-  // Reject cases — each a distinct branch of enforceScopeReach (mutation-checked by the operand it
+  // Reject cases — each a distinct branch of requirePassage (mutation-checked by the operand it
   // exercises): cross-scope (m5), a >3-segment / illegal-slug / 64-hex name (M3), the platform-name
   // sink, a missing aud, a missing callee name.
   it('m5: rejects a genuinely-minted cross-scope caller', () => {
@@ -91,8 +91,8 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     expect(() => onBeforeCallAs(undefined, { aud: uniqueDevScope() })).toThrow('missing callee instance name');
   });
 
-  // B1: a covering NON-admin does NOT get reach — the gate is access.scopeAdmin, not pattern-coverage.
-  // Mutation: drop `access?.scopeAdmin &&` in enforceScopeReach → this would ADMIT → not.toThrow → RED.
+  // B1: a covering NON-admin does NOT get dominion — the gate is access.scopeAdmin, not pattern-coverage.
+  // Mutation: drop `access?.scopeAdmin &&` in requirePassage → this would ADMIT → not.toThrow → RED.
   it('B1: a covering NON-admin (no access.scopeAdmin) does NOT reach the descendant container', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
@@ -102,7 +102,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
 });
 
 // Walk NebulaContainer's own prototype, returning its mesh-callable methods
-// whose guard is NOT requireAdmin (identity comparison). Derived dynamically so
+// whose guard is NOT requireDominionHere (identity comparison). Derived dynamically so
 // a newly-added non-admin @mesh method changes the set and fails the freeze.
 function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
   const proto = ctor.prototype;
@@ -111,7 +111,7 @@ function nonAdminMeshMethods(ctor: { prototype: object }): string[] {
     if (name === 'constructor') continue;
     const fn = (Object.getOwnPropertyDescriptor(proto, name) as PropertyDescriptor | undefined)?.value;
     if (typeof fn !== 'function' || !isMeshCallable(fn)) continue;
-    if (getMeshGuard(fn) === requireAdmin) continue;
+    if (getMeshGuard(fn) === requireDominionHere) continue;
     out.push(name);
   }
   return out.sort();

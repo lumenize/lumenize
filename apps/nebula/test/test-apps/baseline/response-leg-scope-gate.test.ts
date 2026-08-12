@@ -2,7 +2,7 @@
  * Response-leg scope gate matrix (B5 / D5, mesh-continuation-only-calls crit 4).
  *
  * The mandatory security carve-out: the fire-back RESPONSE leg lands on `__handleResponse`, which
- * runs the SAME shared `executeEnvelope` → `onBeforeCall` (= `enforceScopeReach`) as the request
+ * runs the SAME shared `executeEnvelope` → `onBeforeCall` (= `requirePassage`) as the request
  * leg — only the per-method @mesh allowlist is toggled off (`requireMeshDecorator:false`). So the
  * response door is scope-gated BY CONSTRUCTION (D5): a legitimate response leg is admitted, and a
  * forged cross-scope response is rejected.
@@ -10,7 +10,7 @@
  * The gate re-checks **origin→node containment** (the propagated origin's `aud` vs THIS node's own
  * `buildAuthScopePattern(instanceName)`), NOT responder identity (M1/N4) — so the admit and reject
  * cases use DIFFERENT origin scopes by construction. Each reject is capable-of-failing: with the
- * gate off (drop `enforceScopeReach` in `NebulaDO.onBeforeCall`, or make `matchAccess` return true),
+ * gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `matchAccess` return true),
  * the forged envelope would admit ({$ack}) and every reject assertion flips RED.
  *
  * This is the RESPONSE-leg mirror of the request-leg `scope-isolation.test.ts` branch fan-out.
@@ -74,8 +74,8 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
     { label: 'unparseable callee name (branch d) → rejected', outcome: 'reject',
       opts: () => ({ instanceName: 'a.b.c.d.e', aud: 'a.b.c.d.e' }) },
 
-    // ── admin reach: a platform-admin origin reaches any node, even with a foreign aud → ADMIT ──
-    { label: 'admin reach: platform admin admitted despite a foreign aud', outcome: 'admit',
+    // ── admin dominion: a platform-admin origin reaches any node, even with a foreign aud → ADMIT ──
+    { label: 'admin dominion: platform admin admitted despite a foreign aud', outcome: 'admit',
       opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { scopeAdmin: true, authScopePattern: '*' } }) },
   ];
 
@@ -96,7 +96,7 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
         // are what prove the gate is live; this proves it does not false-negative a legit leg.)
         expect(r).toEqual({ $ack: true });
       } else {
-        // Rejected at admission by enforceScopeReach on the RESPONSE door (returned wrapped).
+        // Rejected at admission by requirePassage on the RESPONSE door (returned wrapped).
         expect(r.$error, 'gate must reject on the response leg').toBeDefined();
         if (c.match) expect(postprocess(r.$error).message).toMatch(c.match);
       }

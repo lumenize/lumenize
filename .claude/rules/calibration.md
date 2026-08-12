@@ -70,7 +70,7 @@ Two failure modes, opposite directions, same root — treating the suite as an o
 
 **Both errors are live here:**
 - *Trusting a dead justification* — `changeEmail`'s JSDoc says *"`email` is a mutable attribute that NOTHING keys off"*, so a single-row update is safe. `UNIQUE (email, universeGalaxyStarId)` **is** the `discover` lookup, so the premise was already false and the conclusion with it.
-- *Deleting on a dead justification* — `tasks/archive/nebula-confine-admin-bypass.md` has to warn *"do NOT 'fix' this by tightening `enforceScopeReach`'s tenant branch"*: the comment defending it was wrong, the branch was right.
+- *Deleting on a dead justification* — `tasks/archive/nebula-confine-admin-bypass.md` has to warn *"do NOT 'fix' this by tightening `enforceScopeReach`'s tenant branch"* (today `requirePassage`): the comment defending it was wrong, the branch was right.
 
 **The generalized form is that file's own encoded lesson:** *a guard justified by an incidental property, rather than an enforced invariant, is a guard that silently expires.* When you re-derive, name the **invariant** — never the incidental property that happens to hold today.
 

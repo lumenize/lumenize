@@ -159,7 +159,7 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
  * `admin` alone is never dominion — it is only dominion over what the claim's
  * `authScopePattern` actually covers. Every guard that consults `access.scopeAdmin` must ask this
  * question about the node it is running in, or an admin of a child scope acts as admin on its
- * ancestors (the tenant branch of `enforceScopeReach` admits exactly those callers).
+ * ancestors (the tenant branch of `requirePassage` admits exactly those callers).
  *
  * ⚠️ **The `authScopePattern` truthiness check is load-bearing, not defensive noise.**
  * `matchAccess(undefined as any, x)` throws `TypeError` at `.endsWith`, so omitting it converts a
@@ -169,7 +169,7 @@ export function matchAccess(authScopePattern: string, targetId: string): boolean
  *
  * One predicate, one place to audit (ADR-007) — do not re-inline this comparison anywhere.
  */
-export function hasAdminOverScope(access: AccessEntry | undefined, scope: string): boolean {
+export function hasDominionOver(access: AccessEntry | undefined, scope: string): boolean {
   if (!access?.scopeAdmin || !access.authScopePattern) return false;
   return matchAccess(access.authScopePattern, scope);
 }

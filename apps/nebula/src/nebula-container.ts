@@ -16,13 +16,13 @@ import { LumenizeContainer } from '@lumenize/mesh/container';
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { enforceScopeReach, requireAdmin } from './nebula-do';
+import { requirePassage, requireDominionHere } from './nebula-do';
 
 /**
  * NebulaContainer — base class for Nebula container nodes.
  *
- * `onBeforeCall()` enforces the SAME structural scope reach as NebulaDO, via the
- * SAME shared {@link enforceScopeReach} helper (composed, not reimplemented —
+ * `onBeforeCall()` enforces the SAME structural passage as NebulaDO, via the
+ * SAME shared {@link requirePassage} helper (composed, not reimplemented —
  * ADR-007's "one place to audit"): a mesh call is accepted iff the caller is an
  * `access.scopeAdmin` whose dominion covers this node's **instance name**, OR its JWT
  * `aud` is covered by the scope encoded in that name. A DevContainer is always
@@ -46,7 +46,7 @@ export class NebulaContainer extends LumenizeContainer {
     // path is observable from a debug sink. See nebula-container.test.ts.
     debug('nebula.NebulaContainer.onBeforeCall').debug('entry', { instanceName: name });
 
-    enforceScopeReach(
+    requirePassage(
       name,
       this.lmz.callContext.originAuth?.claims as NebulaJwtPayload | undefined,
     );
@@ -74,12 +74,12 @@ export class NebulaContainer extends LumenizeContainer {
   /**
    * Tear this container node down — destroy the running container instance AND wipe its storage.
    * The NebulaContainer counterpart of `NebulaDO.teardown` (the deprovision-cascade primitive),
-   * `@mesh(requireAdmin)`-gated by the same wall. `destroy()` (from `@cloudflare/containers`) is
+   * `@mesh(requireDominionHere)`-gated by the same wall. `destroy()` (from `@cloudflare/containers`) is
    * the NebulaContainer-specific step beyond the DO wipe — it fully stops + removes the container;
    * it's best-effort (a container that never started has nothing to destroy, and an idle container
    * sleeps to zero instances regardless). Stop compute first, then clear the DO store.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async teardown(): Promise<void> {
     try {
       await this.destroy();

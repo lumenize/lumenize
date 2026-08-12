@@ -7,7 +7,7 @@
  */
 
 import type { CallContext } from '@lumenize/mesh';
-import { hasAdminOverScope } from '@lumenize/nebula-auth';
+import { hasDominionOver } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import {
   ROOT_NODE_ID,
@@ -172,8 +172,8 @@ export class DagTree {
     // Scope-admin bypass — a Galaxy/Universe admin holds no DAG grant, so without this they could
     // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
     //
-    // ⚠️ Confined to THIS host (`hasAdminOverScope`), never the bare `access.scopeAdmin` bit. The bit
-    // alone is not dominion: `enforceScopeReach`'s tenant branch deliberately admits a caller
+    // ⚠️ Confined to THIS host (`hasDominionOver`), never the bare `access.scopeAdmin` bit. The bit
+    // alone is not dominion: `requirePassage`'s tenant branch deliberately admits a caller
     // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` inside the admin's authScopePattern" — true, but it establishes
@@ -184,7 +184,7 @@ export class DagTree {
     // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
     // it would flow into `matchAccess`, where a `*` pattern matches any string.
     const hostName = this.#getHostName()
-    if (hostName && hasAdminOverScope(claims?.access, hostName)) return sub
+    if (hostName && hasDominionOver(claims?.access, hostName)) return sub
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {
       throw new PermissionDeniedError(tier, nodeId)
     }
@@ -456,12 +456,12 @@ export class DagTree {
    *   2. **No short-circuit** — every `nodeId` is evaluated so the `denied` set is
    *      COMPLETE (it drives request-access; a query caller already named these
    *      nodes — ADR-008 / D14). Do NOT early-return on the first denial.
-   *   3. **Explicit `sub` + stored `accessAdmin` VERDICT** — at push time we don't hold the
+   *   3. **Explicit `sub` + stored `hasDominionOverHost` VERDICT** — at push time we don't hold the
    *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (a Galaxy/Universe
    *      admin who holds no DAG grant) is replicated here from the flag stored on the subscriber
-   *      row at subscribe time (D16). `accessAdmin:true` ⇒ ALL allowed. Otherwise
+   *      row at subscribe time (D16). `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise
    *      `resolvePermission` per node, which already honors a **Star** DAG `admin` grant (so a
-   *      Star admin needs no `accessAdmin`).
+   *      Star admin needs no `hasDominionOverHost`).
    *
    * ⚠️ **This method takes no pattern and no host name, so it is NOT a confinement point** — do not
    * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources
@@ -471,10 +471,10 @@ export class DagTree {
    *     matters, and the one tasks/nebula-confine-admin-bypass.md closes.
    *   - **Wire path** — `Star.dagTree()` / `DevStudio.dagTree()` are bare `@mesh()`, and mesh's
    *     "gate once, then chain" checks the allowlist only on a chain's ENTRY op, so a caller can
-   *     reach this method directly with an attacker-chosen `accessAdmin`. **That is harmless for a
+   *     reach this method directly with an attacker-chosen `hasDominionOverHost`. **That is harmless for a
    *     separate reason**: this method is read-only, non-throwing, and echoes back only the
    *     caller's OWN `nodeIds` — disclosing nothing ADR-008 doesn't already make Star-wide visible.
-   *     A forged `accessAdmin:true` therefore grants no capability, it only relabels a set the
+   *     A forged `hasDominionOverHost:true` therefore grants no capability, it only relabels a set the
    *     caller already named. Keep these two justifications distinct; conflating them would assert
    *     an invariant nothing enforces.
    *
@@ -485,12 +485,12 @@ export class DagTree {
     nodeIds: string[],
     tier: PermissionTier,
     sub: string,
-    accessAdmin: boolean,
+    hasDominionOverHost: boolean,
   ): { allowed: Set<string>; denied: Set<string> } {
     const allowed = new Set<string>()
     const denied = new Set<string>()
     for (const nodeId of nodeIds) {
-      if (accessAdmin || resolvePermission(this.#view, sub, nodeId, tier)) {
+      if (hasDominionOverHost || resolvePermission(this.#view, sub, nodeId, tier)) {
         allowed.add(nodeId)
       } else {
         denied.add(nodeId)

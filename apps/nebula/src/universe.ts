@@ -3,10 +3,10 @@
  */
 
 import { mesh } from '@lumenize/mesh';
-import { NebulaDO, requireAdmin } from './nebula-do';
+import { NebulaDO, requireDominionHere } from './nebula-do';
 
 export class Universe extends NebulaDO {
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   setUniverseConfig(key: string, value: unknown) {
     const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;

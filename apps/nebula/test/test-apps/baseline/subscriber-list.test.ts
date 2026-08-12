@@ -262,7 +262,7 @@ describe('subscriber-list — the STANDALONE roster of a query subscription', ()
     const s = JSON.stringify(user.lastQuerySubscribersUpdate!.roster);
     expect(s).not.toContain('deniedNodes');
     expect(s).not.toContain('resourceIds');
-    expect(s).not.toContain('accessAdmin');
+    expect(s).not.toContain('dominionOverHostAtSubscribe');
   });
 
   it('GENERICITY — the standalone subscriber-list rides a DevStudio host too (same shared ResourceDataPlane + bridge)', async () => {

@@ -110,7 +110,7 @@ describe('gateway abuse cases', () => {
       });
 
       // Client calls StarTest.callClient which calls back to client's echo method
-      // StarTest.callClient is @mesh(requireAdmin) — admin JWT passes the guard
+      // StarTest.callClient is @mesh(requireDominionHere) — admin JWT passes the guard
       adminClient.lmz.call(
         'STAR',
         star,

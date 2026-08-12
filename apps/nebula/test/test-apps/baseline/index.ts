@@ -47,7 +47,7 @@ import {
   Galaxy,
   DevStudio,
   NebulaClient,
-  requireAdmin,
+  requireDominionHere,
   ROOT_NODE_ID,
   compileOntologyVersion,
 } from '@lumenize/nebula';
@@ -68,7 +68,7 @@ export class StarTest extends Star {
    * value so a test can prove the structural gate ignores it. The new
    * onBeforeCall never reads this key — it's inert dead data left in place.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   seedScopeKeyForTest(value: string): void {
     this.ctx.storage.kv.put('__nebula_universeGalaxyStarId', value);
   }
@@ -88,7 +88,7 @@ export class StarTest extends Star {
     debug('nebula.test.Star.selfPing').debug('fired', { instanceName: this.lmz.instanceName });
   }
 
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   callClient(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
     this.lmz.call(
@@ -103,7 +103,7 @@ export class StarTest extends Star {
    *  the message) and echo the result straight back to that client via `onChatResult`
    *  (the direct-delivery pattern). Proves `NebulaClient.chat` fires `turnId`+`clientId`
    *  correctly and the client correlates the result by `turnId`. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   runFakeTurn(turnId: string, clientId: string, message: string): void {
     const ctn = this.ctn() as any;
     this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId,
@@ -114,7 +114,7 @@ export class StarTest extends Star {
    *  echo `handlePreviewReady` (scope = this Star's instanceName) back to the client, proving
    *  `warmPreview` fires `clientId` correctly and the client's `handlePreviewReady` invokes
    *  the `onPreviewReady` hook. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   runFakePreviewWarm(clientId: string): void {
     const ctn = this.ctn() as any;
     this.lmz.call('NEBULA_CLIENT_GATEWAY', clientId, ctn.handlePreviewReady(this.lmz.instanceName));
@@ -125,7 +125,7 @@ export class StarTest extends Star {
    * single-row invariant (Phase 4 lifecycle checks). Returns the ordered
    * `_index` plus the list of `ontology:<version>` rows actually present.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectOntologyKv(): { index: string[]; rowVersions: string[] } {
     const index = this.ctx.storage.kv.get<string[]>('ontology:_index') ?? [];
     const rowVersions: string[] = [];
@@ -149,7 +149,7 @@ export class StarTest extends Star {
    * `NebulaClientTest.callStarApplyOntology` (which compiles client-side from a
    * pool-workers test). Same admin gate as the real `setOntology`.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   applyOntologyForTest(versionConfig: OntologyVersionConfig): void {
     this.setOntology(compileOntologyVersion(versionConfig));
   }
@@ -159,28 +159,28 @@ export class StarTest extends Star {
    * and row content. PK-ordered. Admin-gated to avoid client tests leaking
    * the registry shape unintentionally.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectSubscribers(): SubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT resourceId, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+    const rows = this.ctx.storage.sql.exec<SubscriberRow>(
+      `SELECT resourceId, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
        FROM Subscribers ORDER BY resourceId, clientId`,
     ).toArray();
-    return rows as unknown as SubscriberRow[];
+    return rows;
   }
 
   /** Test-only (Child 2): dump the QuerySubscribers table — idempotency / M3
    *  single-row checks + content. PK-ordered. Admin-gated. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectQuerySubscribers(): QuerySubscriberRow[] {
-    const rows = this.ctx.storage.sql.exec(
-      `SELECT queryHash, query, clientId, sub, accessAdmin, subscriberBinding, subscribedAt
+    const rows = this.ctx.storage.sql.exec<QuerySubscriberRow>(
+      `SELECT queryHash, query, clientId, sub, dominionOverHostAtSubscribe, subscriberBinding, subscribedAt
        FROM QuerySubscribers ORDER BY queryHash, clientId`,
     ).toArray();
-    return rows as unknown as QuerySubscriberRow[];
+    return rows;
   }
 
   /** Test-only: dump the TreeSubscribers table (the dedicated org-tree channel). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectTreeSubscribers(): Array<{ clientId: string; subscriberBinding: string; subscribedAt: string }> {
     const rows = this.ctx.storage.sql.exec(
       `SELECT clientId, subscriberBinding, subscribedAt FROM TreeSubscribers ORDER BY clientId`,
@@ -191,7 +191,7 @@ export class StarTest extends Star {
   /** Test-only (Phase 5): dump the ReloadSubscribers table (the dev-preview reload
    *  channel) — used to assert connect-gated auto-subscribe + preservation across
    *  resetDevData (Decision 12 / Flow 1d). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectReloadSubscribers(): Array<{ clientId: string; subscriberBinding: string }> {
     const rows = this.ctx.storage.sql.exec(
       `SELECT clientId, subscriberBinding FROM ReloadSubscribers ORDER BY clientId`,
@@ -206,7 +206,7 @@ export class StarTest extends Star {
    * (disconnect cleanup) means subscriber rows persist across WS close, so
    * a missing resubscribe wouldn't be visible. Admin-gated.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   clearSubscribersForTest(): void {
     this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS Subscribers;`);
     this.ctx.storage.sql.exec(`
@@ -214,7 +214,7 @@ export class StarTest extends Star {
         resourceId TEXT NOT NULL,
         clientId TEXT NOT NULL,
         sub TEXT NOT NULL,
-        accessAdmin INTEGER NOT NULL DEFAULT 0,
+        dominionOverHostAtSubscribe INTEGER NOT NULL DEFAULT 0,
         subscriberBinding TEXT NOT NULL,
         subscribedAt TEXT NOT NULL,
         PRIMARY KEY (resourceId, clientId)
@@ -302,7 +302,7 @@ export class StarTest extends Star {
    * `nodeCount` confirm the wipe (Nodes re-seeds ROOT only → 1); `orphanCount`
    * proves no `Snapshots.nodeId → Nodes` FK orphans survive the wipe + re-init.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectReset(): { snapshotCount: number; nodeCount: number; orphanCount: number } {
     const one = (sql: string): number =>
       (this.ctx.storage.sql.exec(sql).toArray()[0] as { c: number }).c;
@@ -322,7 +322,7 @@ export class StarTest extends Star {
    * reseed; `resetDevData` is a DIRECT in-class call, so nothing reseeds the root admin
    * grant. Reading it here observes the brief grantless window. Returns `false`.
    */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async resetAndProbeRootAdmin(starAdminSub: string): Promise<boolean> {
     await this.resetDevData();
     return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
@@ -331,7 +331,7 @@ export class StarTest extends Star {
   /** Test-only (P3 criterion 7): does `starAdminSub` hold ROOT `admin`? Called as the
    *  "next admin call" — its own `onBeforeCall` reseeds (latch wiped), so a root-admin
    *  caller observes `true`, documenting reseed-on-next-touch. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectRootAdmin(starAdminSub: string): boolean {
     return this.dagTree().getEffectivePermission(ROOT_NODE_ID, starAdminSub) === 'admin';
   }
@@ -349,7 +349,7 @@ export class DevStudioTest extends DevStudio {
   /** Child 3 Phase 2 (M4): the permission-filtered query targets for the per-operand
    *  accessor test. Returns the clientIds among the query's subscribers that may read
    *  `nodeId` (targetsForQuery via the protected `queryTargets` seam). Admin-gated. */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   inspectQueryTargets(query: QueryDescriptor, nodeId: string): string[] {
     return this.queryTargets(query, nodeId).map((t) => t.instanceName);
   }
@@ -358,13 +358,13 @@ export class DevStudioTest extends DevStudio {
    *  is wrangler-dev-only, so tests drive `streamProgress` directly with synthetic
    *  progress). Kept separate from the commit so a test can observe a chunk arriving
    *  BEFORE the durable Message (M3 transient-surface assertion). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   streamChunkForTest(sessionId: string, messageId: string, chunk: string, nodeId: string): void {
     this.streamProgress(sessionId, messageId, chunk, nodeId);
   }
 
   /** Child 3 Phase 3: commit the durable assistant Message (the completion step). */
-  @mesh(requireAdmin)
+  @mesh(requireDominionHere)
   async commitAssistantForTest(sessionId: string, messageId: string, content: string, nodeId: string): Promise<void> {
     await this.commitAssistantMessage(sessionId, messageId, content, nodeId, 'synthetic thought');
   }
@@ -700,13 +700,13 @@ export class NebulaClientTest extends NebulaClient {
   }
 
   /** Child 2 Phase 1: drive the non-throwing batch eval (explicit sub + stored
-   *  accessAdmin). Returns `{ allowed: Set, denied: Set }` — structured-clone
+   *  hasDominionOverHost). Returns `{ allowed: Set, denied: Set }` — structured-clone
    *  preserves the Sets across the mesh. */
   callStarEvaluatePermissions(
-    starName: string, nodeIds: string[], tier: PermissionTier, sub: string, accessAdmin: boolean,
+    starName: string, nodeIds: string[], tier: PermissionTier, sub: string, hasDominionOverHost: boolean,
   ): void {
     this.resetResults();
-    const remote = this.ctn<Star>().dagTree().evaluatePermissions(nodeIds, tier, sub, accessAdmin);
+    const remote = this.ctn<Star>().dagTree().evaluatePermissions(nodeIds, tier, sub, hasDominionOverHost);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 

@@ -19,7 +19,7 @@ D15's premise (if false, the "no per-node-type `waitUntil` branch" breaks and mu
 
 2. **A caller's `bindingName` must be a REAL, resolvable binding.** The callee fires back to `env[returnAddr.bindingName].getByName(returnAddr.instanceName)`. The old local-handler model tolerated a fabricated caller binding (e.g. tests using `CALLER_DO`); the traveling model does not. Holds automatically in production (identity comes from real routing) — but it's a migration/doc note (Phase 3), and it broke ~6 existing `call()` tests that used fake identities.
 
-3. **@mesh-block and method-throws are now POST-ack, not on the ack.** The @mesh allowlist + guard + the method body all run in `executeOperationChain` *after* the early ack. So a non-@mesh call or a thrown Error no longer returns `{$error}` from `__executeOperation` — it rides the **fire-back** (4-arg) or is **logged** ("post-ack chain threw", 3-arg / no-response). Admission failures (version/callContext/identity/`onBeforeCall`/`enforceScopeReach`) still return `{$error}` on the ack. This split changed how the container-seam + scope tests observe rejects (debug-sink for post-ack, `{$error}` for admission).
+3. **@mesh-block and method-throws are now POST-ack, not on the ack.** The @mesh allowlist + guard + the method body all run in `executeOperationChain` *after* the early ack. So a non-@mesh call or a thrown Error no longer returns `{$error}` from `__executeOperation` — it rides the **fire-back** (4-arg) or is **logged** ("post-ack chain threw", 3-arg / no-response). Admission failures (version/callContext/identity/`onBeforeCall`/`requirePassage`) still return `{$error}` on the ack. This split changed how the container-seam + scope tests observe rejects (debug-sink for post-ack, `{$error}` for admission).
 
 4. **`{$ack:true}` is the admission-success shape.** No `{$result}` ever comes back from a mesh node's `__executeOperation`/`__handleResponse` — results are delivered by fire-back (DO/Worker), re-resolved RESULT (client), or discarded (3-arg). Every hand-built-envelope test asserts `{$ack:true}` on admit.
 
@@ -31,7 +31,7 @@ D15's premise (if false, the "no per-node-type `waitUntil` branch" breaks and mu
 |---|---|---|
 | pool-workers (`main` + for-docs) | the whole DO/Worker/Container/client/Gateway mechanism | 398/398 green |
 | pool-workers (`container`) | LumenizeContainer composition (seam mirrors the new recipe) | 14 pass / 1 skip |
-| pool-workers (`baseline`, nebula) | `enforceScopeReach` gates the RESPONSE door (D5, mutation-validated) | 7/7 green |
+| pool-workers (`baseline`, nebula) | `requirePassage` gates the RESPONSE door (D5, mutation-validated) | 7/7 green |
 | real chromium + wrangler-dev (`browser`) | client leg over a real WS: subscribe → save → broadcast → direct-delivery | 4/4 green |
 
 ### Browser e2e (real client leg) — CONFIRMED

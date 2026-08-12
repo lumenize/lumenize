@@ -795,7 +795,7 @@ export interface EnvelopeExecutorNode {
  * - `discard` (3-arg): drop a success; **log** a post-ack throw (D6) — it has nowhere to go.
  * - `mesh` (4-arg DO/Worker): fill the traveling handler and fire it one-way to
  *   `returnAddr.__handleResponse`. The sink's ack carries `{ $error }` only if the
- *   response leg was **rejected at admission** (e.g. `enforceScopeReach`, D5) — logged
+ *   response leg was **rejected at admission** (e.g. the D5 scope gate, now `requirePassage`) — logged
  *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
  * - `client` (D16): delivered via the Gateway door — built in the client-leg phase.
  *

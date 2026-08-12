@@ -51,7 +51,7 @@ export interface NebulaAccessClaimInput {
    * Override the minted `access.authScopePattern` (default: {@link buildAuthScopePattern} of `instanceName`).
    * Set ONLY by the `/mint-narrower-token` mint, to bind the token to the **requested** `activeScope`
    * — never the issuing instance's pattern. That scope is separately bounded by BOTH the caller's
-   * reach and the subject's (`worker-token.mintNarrowerToken`), so the derived pattern can exceed
+   * dominion and the subject's (`worker-token.mintNarrowerToken`), so the derived pattern can exceed
    * neither. MUST still cover `activeScope` (the internal-consistency self-check below enforces it).
    */
   authScopePattern?: string;
@@ -71,13 +71,13 @@ export interface NebulaAccessClaimInput {
  *
  * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `admin` and
  * `authScopePattern` are produced together, so `admin` is never emitted without a pattern — which
- * is what lets `hasAdminOverScope` treat a missing pattern as fail-closed rather than as a normal
+ * is what lets `hasDominionOver` treat a missing pattern as fail-closed rather than as a normal
  * case. `buildNebulaJwtPayload` below adds the other mint-side guarantee: `aud` ⊆ `authScopePattern`.
  *
  * ⚠️ **`aud` ⊆ pattern is NOT the property the guards need.** The old `dag-tree.ts` comment
  * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
  * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
- * question: does the pattern cover **the callee node**? `enforceScopeReach`'s tenant branch
+ * question: does the pattern cover **the callee node**? `requirePassage`'s tenant branch
  * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
  * gap between them was the escalation. See tasks/nebula-confine-admin-bypass.md.
  */

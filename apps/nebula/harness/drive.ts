@@ -13,7 +13,7 @@
  */
 import { bootDevStack, HAS_DOCKER } from './lib/harness';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
-import * as superadminReach from './scenarios/superadmin-reach';
+import * as superadminDominion from './scenarios/superadmin-dominion';
 import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
 import * as impersonationExpiry from './scenarios/impersonation-expiry';
@@ -38,14 +38,14 @@ interface Scenario {
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
 const SCENARIOS: Record<string, Scenario> = {
   'message-roundtrip': messageRoundtrip,   // Phase 1 — API driver round-trip + negative control
-  'superadmin-reach': superadminReach,     // Phase 3a B2-(i) — * admin bypass vs non-admin denied
+  'superadmin-dominion': superadminDominion,     // Phase 3a B2-(i) — * admin bypass vs non-admin denied
   'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
   'impersonation-lifecycle': impersonationLifecycle, // impersonate() end-to-end: identity → refusals → teardown
   'identity-convergence': identityConvergence, // one address, two real logins → ONE profileId (no fixture)
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
-  'profile-takeover-refused': profileTakeoverRefused, // manufactured scope authority buys nothing (no fixture)
+  'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
   'studio-codegen-rest': studioCodegenRest,    // one real codegen turn over the Workers-AI REST transport
 };
 

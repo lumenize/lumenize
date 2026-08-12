@@ -112,7 +112,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
         const d = querySubs.registerQuerySubscriber(query, 'client-d', 'BINDING');
         as('covering-admin', COVERING(g));
         const c = querySubs.registerQuerySubscriber(query, 'client-c', 'BINDING');
-        return { descendant: d.row.accessAdmin, covering: c.row.accessAdmin };
+        return { descendant: d.row.dominionOverHostAtSubscribe, covering: c.row.dominionOverHostAtSubscribe };
       });
       // Pre-fix BOTH were 1 (the raw bit). The stored value is a verdict, not a claim.
       expect(descendant).toBe(0);
@@ -143,7 +143,7 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
         as('descendant-admin', DESCENDANT(g));
         subs.subscribe('TestResource', 'some-rid', 'client-d', 'BINDING');
         const row = subs.forResource('some-rid').find((r) => r.clientId === 'client-d');
-        expect(row?.accessAdmin).toBe(0); // admitted by the seeded grant, but NOT as admin
+        expect(row?.dominionOverHostAtSubscribe).toBe(0); // admitted by the seeded grant, but NOT as admin
       });
     });
   });
@@ -161,8 +161,8 @@ describe('Phase 2 — the DAG permission plane is confined to its host', () => {
         as('covering-admin', COVERING(g));
         const c = querySubs.registerQuerySubscriber(query, 'client-c', 'BINDING');
         // Neither holds a DAG grant, so ONLY the stored verdict can allow them.
-        const dEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'descendant-admin', Boolean(d.row.accessAdmin));
-        const cEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'covering-admin', Boolean(c.row.accessAdmin));
+        const dEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'descendant-admin', Boolean(d.row.dominionOverHostAtSubscribe));
+        const cEval = tree.evaluatePermissions([ROOT_NODE_ID], 'read', 'covering-admin', Boolean(c.row.dominionOverHostAtSubscribe));
         return { dAllowed: dEval.allowed.has(ROOT_NODE_ID), cAllowed: cEval.allowed.has(ROOT_NODE_ID) };
       });
       // Reverting the store-side confinement makes dAllowed true → this reds.

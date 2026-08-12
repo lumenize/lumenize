@@ -1,6 +1,16 @@
 # The dominion vocabulary, renamed — no behaviour changes
 
-**Status:** Active child, **first of four** in the passage/dominion sequence — ahead of [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), [nebula-registry-route-guards.md](nebula-registry-route-guards.md) and [nebula-invite.md](nebula-invite.md). Carved out of the first of those on 2026-08-11 (§ *Why this is its own file*). Not built.
+**Status:** ✅ **BUILT 2026-08-11.** First of four in the passage/dominion sequence. ⚠️ **This file is ARCHIVED and therefore FROZEN** — the code is the authority now; do not update it for link fixups, terminology syncs or code drift (`tasks/README.md` § *Archive is frozen*).
+
+> ✅ **What shipped.** Phase 1 renamed the verdict identifiers across 40 files — `hasAdminOverScope` → `hasDominionOver`, `requireAdmin` → `requireDominionHere`, `hasAdminOver{Universe,Galaxy}` → `hasDominionOver{…}`, `enforceScopeReach` → `requirePassage` — and **deleted** the `#hasAdminOverScope` pass-through, repointing its one caller at the shared predicate. Phase 2 renamed the stored column to **`dominionOverHostAtSubscribe`** and, separately, `DagTree.evaluatePermissions`' parameter to **`hasDominionOverHost`**, via three in-place DDL edits and **no migration**. `enforce*` is gone from the repo.
+>
+> ✅ **Verified.** Suite **3713 passed / 3 failed / 12 skipped — identical to the recorded baseline**, same three known-red `@lumenize/nebula` browser-lane tests ([backlog.md](../backlog.md) § *Testing & Quality* owns them). Type-check green across all packages. Two adversarial verifier passes; pass 1 found 2 blockers + 4 majors, pass 2 confirmed every fix and found 2 more majors, all worked.
+>
+> 📌 **The durable conventions this work authored live in [`.claude/rules/coding-style.md`](../../.claude/rules/coding-style.md)** § *Guard naming* and § *Security-verdict identifiers* — `require*` MUST throw, a step that RETURNS a `Response` takes the `*Guard` suffix, and the three naming tiers. **Read the rule, not this file.**
+>
+> ⚠️ **Three traps this build proved are real**, each recorded in the rule or at the site rather than here: mesh's `ADMISSION`/`ADMITTED` pre-ack dispatch phase and ADR-016's *authority principal* are **preserved** senses, `reach` stays a **verb**, and refusal strings are out of scope for a vocabulary sweep (five tests pin them, and the interpolation changes when the claim does).
+>
+> ⏳ **Spent licence:** migration id-2 in `subscriptions.ts` was edited **in place**, which APPEND-ONLY otherwise forbids. That was legitimate only because no deploy stood between the edit and the pre-alpha wipe. **The header JSDoc at that site records it and restates APPEND-ONLY as binding from here on** — that note, not this file, is the durable record.
 
 > 📐 **`/write-task` Pass 2 — design intent and phases are both written.** Content carved from a file that had Stage 1 (×2) and Stage 2 resolved; **this file's shape is new** and its own Stage 1 ran 2026-08-11 (22 findings, 0 refuted, all resolved below). From here: `/review-task` Stage 2, then `/build-task`.
 
