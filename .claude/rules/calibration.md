@@ -223,6 +223,24 @@ what its signal was. If the answer is "it broke immediately and I saw it", that 
 the guard rail, not for it — and it is worth asking what ELSE this build changed that would have
 stayed green if it were wrong.
 
+## 10. You will open a paragraph with a sweep, and be accurate only underneath it
+
+**The reflex:** lead with a confident topic sentence, then follow it with the precise statement. The opener reads as command of the material — but it is written *before* the precise part is checked against, and it routinely overstates it. Fluency produces it; nothing in the drafting loop tests it.
+
+**The correction: where a paragraph holds both a sweep and an enumeration, the enumeration is the claim.** Write that first, then ask whether the opener survives it. Usually it does not, and cutting it costs nothing, because the accurate sentence was already there. ⚠️ **The overclaim is also the sentence most likely to be quoted back** — short, quotable, and load-bearing-sounding — so its error travels further than the correct list beneath it. That inverts the usual "close enough" calculus: in a document whose whole value is precision about who may do what, the summary is the worst place to be loose.
+
+**Where it bit (2026-08-10/11, `docs/vision/auth.md`) — three times in one document in one session, every one caught by Larry rather than by me:**
+
+| The opener | What falsifies it |
+|---|---|
+| *"Everything above is a mesh node."* | the Gateway — which the same document's third paragraph calls "mesh mechanics, not a mesh node" |
+| *"Everything discussed above runs off the token."* | sessions (a Registry round trip), `activeScope` (confined server-side at each refresh), and § *Identity and membership* outright |
+| *"Today the only instance is the Resource orgTree."* | the subscribe-time writers, listed separately in the same file's own Evidence line — and it is a **count of a growing set**, so it rots even where it starts true |
+
+**The sibling failure, same session, same root.** After two reserved words landed (`passage`, `dominion`), the sweep applying them also **amplified** them: the passage-is-not-dominion point ended up stated five times in one document, and three of those were cut in consecutive turns. Adopting a precise term is a **rename** — not an invitation to re-explain the concept at every site that previously said it vaguely. Precise words need *fewer* repetitions, not more, which is the whole reason for coining them.
+
+**The tell:** the first clause of a paragraph contains *everything*, *every*, *the only*, *always*, or *never*, and the sentences after it are specific. Read the first clause against the last ones before moving on.
+
 ---
 
 ---
