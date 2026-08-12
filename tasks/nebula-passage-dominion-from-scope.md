@@ -286,7 +286,7 @@ Code is done; this is the unlearning-cost half, and it is what stops the next re
 
 ## Non-goals
 
-- 🔀 **The verdict RENAMES** (`requireAdmin`, `hasAdminOver*`, `enforceScopeReach`, the `accessAdmin` column) → [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md), which lands FIRST, carries this sequence's only wipe gate, and has already renamed them by the time this builds.
+- 🔀 **The verdict RENAMES** (`requireAdmin`, `hasAdminOver*`, `enforceScopeReach`, the `accessAdmin` column) → [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md), which lands FIRST and has already renamed them by the time this builds. ⚠️ **Its gating is stated in its own banner and is NOT restated here** — the previous wording asserted it "carries this sequence's only wipe gate" and went stale the day that file re-derived its own gate.
 - 🔀 **The Registry route guards and the mint** → [nebula-registry-route-guards.md](nebula-registry-route-guards.md). This file gives it `hasPassage`; it gives the routes a caller.
 - 🔀 **WHO may invite, and what bit an invite confers** → [nebula-invite.md](nebula-invite.md).
 

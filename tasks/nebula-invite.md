@@ -8,6 +8,8 @@
 >
 > ✅ **The wire-field naming question is UNPARKED.** This file used to leave `invitees[].isAdmin`-vs-`Memberships.scopeAdmin` undecided because *"deciding it here would be designing this endpoint from another task's cleanup."* That cleanup is now [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md) and lands **first**, so the answer is a one-line consequence rather than a cross-task negotiation — and § *Reach and authority* below no longer has to hedge it.
 
+> ✅ **Gated on the three files ahead of it, and nothing else. Code only — no stored shape changes** (verified 2026-08-11: the per-invitee bit writes an existing `Memberships` column; no rename, no new column). ⚠️ **Each file in this sequence states its OWN gating here, and siblings do not restate it.**
+
 **Objective — `/invite` expresses what each invitee gets, returns the identity it minted, and is reachable from app code.** Today it takes `{ emails: string[] }`, hardcodes `isAdmin=false`, returns emails only, and has no client method — so no caller can say "make this one an admin," and no caller can act on the identity that was created.
 
 ## Context and current state

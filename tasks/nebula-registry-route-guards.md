@@ -4,7 +4,7 @@
 
 > 📐 **`/write-task` Pass 2 — design intent and phases are both written.** Its content carries a Stage-1 (×2) and Stage-2 heritage plus a **scoped Stage-2 pass on exactly this material** (2026-08-11, 34 raised / 30 survived), whose findings are worked in. The **shape of this file is new** and has had no panel. From here: `/review-task`, then `/build-task`.
 
-> ✅ **Not wipe-gated and not invite-gated.** Code only. The wipe gate for this sequence lives entirely in [nebula-dominion-vocabulary-rename.md](nebula-dominion-vocabulary-rename.md) § *Phase 2*.
+> ✅ **Gated on nothing. Code only — no stored shape changes here** (verified 2026-08-11: this file touches no column; `Memberships` already stores `universeGalaxyStarId` and `scopeAdmin` under their final names). ⚠️ **Each file in this sequence states its OWN gating in its own banner, and siblings do not restate it** — an earlier version of this line asserted where the sequence's wipe gate lived, and went stale the moment that file re-derived it. If you need another file's gating, open its banner.
 
 **Objective — each of the Registry's authenticated HTTP routes states what it requires, completely, in a list you can read without opening a handler; and the mint asks one question.** Today the requirement for both routes is a conjunction split across a **file boundary**, and the mint assembles four invariants inline.
 
