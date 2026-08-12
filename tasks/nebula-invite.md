@@ -139,6 +139,8 @@ The cases are distinguished by **whether the address is already known**, and the
 
 ## Acceptance criteria — input to Pass 2, not yet decomposed into phases
 
+⚠️ **When Pass 2 writes phases, a phase is done against the recorded suite BASELINE, not against "green".** The suite is RED today (3 known failures in `@lumenize/nebula`'s browser lane, one root). Measure as a **delta** — same set passes, no NEW failure, no NEW skip. Baseline and the three named tests live in [backlog.md](backlog.md) § *Testing & Quality*; **do not restate the numbers here**, and do not write "leaves the suite green", which is unachievable today and teaches a builder to read past the criterion.
+
 ⚠️ Grouped by surface, deliberately not ordered. Pass 2 homes each group in a phase; nothing here is built from this section directly (`/build-task` transcribes phases, not floating criteria).
 
 ### A — the per-invitee mint (auth)

@@ -137,7 +137,7 @@ mint:       { sub, authScope, scopeAdmin } ← all the SUBJECT's;  aud ← reque
 
 ## Phases
 
-Two phases, ordered by dependency. Each leaves the suite green.
+Two phases, ordered by dependency. Each leaves the suite **no worse than the recorded baseline** — ⚠️ **not "green"**: the suite is RED today (3 known failures in `@lumenize/nebula`'s browser lane, one root). Measure as a **delta** — same set passes, no NEW failure, no NEW skip. Baseline and the three named tests live in [backlog.md](backlog.md) § *Testing & Quality*; do not restate the numbers here.
 
 ### Phase 1 — The route pipeline
 
