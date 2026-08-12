@@ -47,6 +47,8 @@ Scope deletion (`executeScopeDeletion`) · identity-authority changes (`setIdent
 
 ⚠️ **Deliberately excluded, with the reason stated so it can expire correctly:** a **token refresh** (it changes no authority and re-establishes nothing — the session already exists), and an **unattended sweep** of rows that are already inert on lookup (nothing is done on anyone's behalf, so there is no principal to record — not even a server-composed one). Both exclusions rest on *"no authority moves and nobody is acted for"*, never on *"it is only hygiene"*: widen a sweep to reap something a live path still reads and the exclusion has to be re-derived, not inherited.
 
+⚠️ **Where a site is a judgement call, record.** *Authority* is used broadly above — what a principal may do, which is wider than dominion and takes in a data-plane grant — and that breadth leaves real borderline cases. Decide them in one direction, because the asymmetry is not close: an action whose actor was never captured cannot be reconstructed, while one recorded needlessly costs a log line. ⚠️ This is a tie-breaker for the genuinely unclear, **not** licence to trim the two exclusions above by taste — those are derivations, and they carry the volume claim in § *Consequences*: a token refresh is the one high-frequency path, so sweeping it in on a loose reading is what would make "negligible at these volumes" false.
+
 ## Alternatives considered
 
 | Approach | Why rejected |
