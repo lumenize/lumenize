@@ -9,7 +9,7 @@
 
 Delegation is real in this system: `/mint-narrower-token` mints a token whose top-level `sub` is one person and whose `act` chain names another. The read-side invariant is deliberate and correct — **authz decisions read the authority principal (`sub` + its `access`) and never the `act` chain** (`security.md` rule (1)). An impersonating admin therefore acts *with the subject's authority*, which is the whole point of the capability.
 
-That endpoint goes further: it mints a deliberate **mirror** of the subject — same `sub`, the subject's `admin` bit, the subject's reach — so that an admin sees exactly what that person sees. **`act` is therefore the only field distinguishing an impersonated token from one the subject minted themselves.** Every other field is identical by design.
+That endpoint goes further: it mints a deliberate **mirror** of the subject — same `sub`, the subject's `scopeAdmin` bit, the subject's scope — so that an admin sees exactly what that person sees. **`act` is therefore the only field distinguishing an impersonated token from one the subject minted themselves.** Every other field is identical by design.
 
 Which is exactly why the **record** cannot key off `sub` alone. When authz keys off the subject, the subject is the only identity the acting code naturally has in hand — so a record built from it names **the person who was acted upon as the person who acted**. That is not an incomplete record; it is an affirmatively wrong one, and it is worse than no record, because it will be believed. Drop `act` and the two sessions are indistinguishable by construction, forever.
 
