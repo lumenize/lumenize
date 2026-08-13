@@ -139,16 +139,20 @@ In one line: **your auth scope and the node called must be on the same vertical 
 
 *Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them). However, the analogy below should help you remember them.
 
-Think of `scopeAdmin` a feudal lord with title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings and has dominion over everything — § *Superuser seed*.
+Think of `scopeAdmin` a feudal lord with title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings — the root of the realm rather than an exception to it — and has dominion over everything, by the same downward rule every lord holds. § *Superuser seed*.
 
 Two predicates express all of it, and no guard re-derives either ([ADR-007](../adr/007-shared-node-security-core.md)). [ADR-015](../adr/015-passage-and-dominion.md) is the definition home; where it and this section disagree, it wins:
 
 ```
-isAtOrAbove(myScope, node)  — my scope covers the node
-isAtOrBelow(myScope, node)  — my scope sits at or beneath the node
+isAtOrAbove(myScope, node)  — my scope covers the node: the same scope, or an ancestor of it.
+                              The reserved platform scope is the ROOT of the tree, so it is
+                              at or above every node.
+isAtOrBelow(myScope, node)  — my scope sits at or beneath the node: the same scope, or a
+                              descendant of it. Every scope is at or below the platform root.
+                              Exactly isAtOrAbove with the arguments flipped:
+                              isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(access, node) = access.scopeAdmin ∧ ( isPlatformInstance(access.authScope)
-                                             ∨ isAtOrAbove(access.authScope, node) )
+dominion(access, node) = access.scopeAdmin ∧ isAtOrAbove(access.authScope, node)
 
 passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
 ```
@@ -179,7 +183,7 @@ The four rows between it and **Downward** are one rule against different nodes, 
 
 The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-Two things sit outside all of this. `nebula-platform` is one reserved scope rather than a place in the hierarchy, so dominion there covers everywhere — it is the `isPlatformInstance` arm above, needed because no honest hierarchy comparison puts a reserved name over `acme.crm`. The Profile is the other, deliberately — § *Profiles*.
+One thing sits outside all of this: the Profile, deliberately — § *Profiles*. `nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means everyone has passage *up* to the platform scope.
 
 ### Why upward exists
 
@@ -299,7 +303,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry admin over every Universe — essentially God. That is the `isPlatformInstance` arm of dominion (§ *Coarse-grained access control*), and it is why the arm exists: `nebula-platform` is not a place in the scope tree, so nothing about being at-or-above would ever reach it.
+An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry admin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every node (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
 
 ## Impersonation
 

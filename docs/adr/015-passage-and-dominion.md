@@ -35,11 +35,15 @@ Who holds either, exactly, is the predicate pair in § *Decision*.
 **Dominion flows strictly downward along the scope tree, and only downward.** Two predicates say it exactly:
 
 ```
-isAtOrAbove(myScope, node)  — my scope covers the node
-isAtOrBelow(myScope, node)  — my scope sits at or beneath the node
+isAtOrAbove(myScope, node)  — my scope covers the node: the same scope, or an ancestor of it.
+                              The reserved platform scope is the ROOT of the tree, so it is
+                              at or above every node.
+isAtOrBelow(myScope, node)  — my scope sits at or beneath the node: the same scope, or a
+                              descendant of it. Every scope is at or below the platform root.
+                              Exactly isAtOrAbove with the arguments flipped:
+                              isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(access, node) = access.scopeAdmin ∧ ( isPlatformInstance(access.authScope)
-                                             ∨ isAtOrAbove(access.authScope, node) )
+dominion(access, node) = access.scopeAdmin ∧ isAtOrAbove(access.authScope, node)
 
 passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
 ```
