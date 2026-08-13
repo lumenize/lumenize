@@ -51,14 +51,14 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
 ```
-/auth/{scope}/invite    [rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
+/auth/:scope/invite     [rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
 /auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
 ```
 
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no list returns 404 and reaches no handler.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/{scope}/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step reads it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step reads it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
 - **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
 - **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
 - **R5 — `passageGuard`.** Calls `hasPassage` — the same verdict M3 computes, with R2's scope as the `node` argument.
@@ -69,7 +69,7 @@ Every step refuses the same way: return a `Response` with an appropriate HTTP co
 
 One authenticated route carries no scope at all: `my-scopes` returns the scopes the caller can reach, so there is no target to decide about. R2 has nothing to parse and R5 nothing to compare — the answer *is* the set, and it is computed from the caller's own claims.
 
-> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` also take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/{scope}/…` puts it back in front of the handler.
+> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` also take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` puts it back in front of the handler.
 
 **Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
@@ -77,7 +77,7 @@ The sections that follow expand on the model above.
 
 ## Scopes
 
-A scope is the instanceName half of a node's address, and it is what the coarse-grained gate reads. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope.
+A scope is the instanceName half of a node's address, and it is what the coarse-grained gate reads. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope. Braces stand in for a value here and throughout; `:scope` in the route table above is literal `URLPattern` syntax, which is why the two differ.
 
 Examples:
 
