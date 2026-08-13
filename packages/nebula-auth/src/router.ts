@@ -214,7 +214,7 @@ async function handleRegistryPath(request: Request, env: Env, endpoint: string):
     body.verifiedAccess = jwtResult.payload.access;
     body.callerSub = jwtResult.payload.sub;
     // ADR-016: a destructive action records the FULL verified claims of the ACTING token — the
-    // authority `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
+    // subject `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
     // impersonation `callerSub` alone is the person acted UPON, so a `sub`-only record names them as
     // the person who acted. (`delete-scope-plan` writes no record and ignores this field.)
     body.callerClaims = jwtResult.payload;

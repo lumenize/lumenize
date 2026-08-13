@@ -421,7 +421,7 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
       e.namespace === 'nebula-auth.Registry.executeScopeDeletion' && e.message === 'Scope deleted');
     expect(record).toBeDefined();
 
-    // (1) The authority `sub` — the person acted upon. Mutation: drop `sub` from the record → reds.
+    // (1) The subject `sub` — the person acted upon. Mutation: drop `sub` from the record → reds.
     expect(record.data.actingToken.sub).toBe(starAdmin.parsed.sub);
     // (2) The complete `act` chain — WHO ACTUALLY DROVE IT. This is the element whose absence makes
     // the record affirmatively wrong. Mutation: drop `act` → reds.

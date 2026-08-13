@@ -1119,7 +1119,7 @@ export class NebulaAuthRegistry extends DurableObject {
     }
 
     // ADR-016 — the FULL verified claims of the ACTING token, write-time-pinned. All four elements:
-    // the authority `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
+    // the subject `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
     // impersonation `sub` is the person acted UPON, so `act` is what names who actually drove this;
     // a `sub`-only record is affirmatively wrong, not merely incomplete.
     log.info('Scope deleted', {
