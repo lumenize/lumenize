@@ -34,15 +34,42 @@ You enter by authenticating, which sets a long-lived refresh cookie. That cookie
 
 One design decision runs underneath several of the layers below: **Nebula addresses everything by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
 
-After authentication, calls pass the same layers in the same order, even if in some instances they are intentionally a no-op:
+After authentication, a call passes a fixed sequence of layers — but **there are two sequences**, because a call to a mesh node and a call to a Registry endpoint arrive by different routes. Both compute the same two verdicts from the same claims: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?), from `authScope` and `scopeAdmin` against the scope being addressed. § *Coarse-grained access control* defines both. Some Registry endpoints present no access token — those that get you one, and those that present a refresh cookie instead — and § *The Registry* covers what stands in for the steps they skip.
 
-1. **Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
-2. **The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-3. **`onBeforeCall()`.** The scopes in your JWT say which part of the mesh you are a member of and if you're a `scopeAdmin`. `onBeforeCall()` uses that to decide whether to grant you *passage* into this node at all. It's our coarse-grained access control.
-4. **`@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
-5. **The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
-6. **Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
-7. **The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
+⚠️ **The two sequences differ in where the addressed scope comes from.** On the mesh path the node's name *is* its scope, pinned at creation, so M3 compares against something the caller cannot influence. On the Registry path one DO serves every scope and the scope arrives as a URL segment. R2 is the step that checks it, and the mesh path has no equivalent because M1 and M2 already did that work.
+
+**Mesh nodes.** Every layer runs in order, even where a given call makes one a no-op:
+
+- **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
+- **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
+- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassage(access, node)`. The `node` argument is this node's own name, pinned by M2. Our coarse-grained access control.
+- **M4 — `@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
+- **M5 — The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
+- **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
+- **M7 — The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
+
+**Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
+
+```
+/auth/{scope}/invite    [rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
+/auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
+```
+
+The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
+
+- **R1 — The route table.** The table above is the registration: a path with no list returns 404 and reaches no handler.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/{scope}/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step reads it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
+- **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
+- **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
+- **R5 — `passageGuard`.** Calls `hasPassage` — the same verdict M3 computes, with R2's scope as the `node` argument.
+- **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope.
+- **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
+
+Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
+
+One authenticated route carries no scope at all: `my-scopes` returns the scopes the caller can reach, so there is no target to decide about. R2 has nothing to parse and R5 nothing to compare — the answer *is* the set, and it is computed from the caller's own claims.
+
+> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` also take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/{scope}/…` puts it back in front of the handler.
 
 **Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
@@ -271,7 +298,17 @@ The Registry is the one thing in this document that sits entirely outside the me
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's instance without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) applies the two rules here as well as at the mesh boundary.
+> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) applies the two rules here as well as at the mesh boundary.
+
+#### Endpoints that present no access token
+
+This case has two families, and neither reaches R4 or R5 — with no verified claims there is nothing for `passageGuard` to decide about. Both take R1, R2 and R3, then whatever steps that endpoint needs.
+
+**Getting a token.** Claiming a scope, requesting a magic link, consuming one, discovering where you are a member. These cannot verify a token because they are how a person obtains one. Two things stand in: `turnstileGuard` proves a human is present, running after rate limiting because it costs a `siteverify` round trip; and the credential itself arrives out of band, because access is anchored to the mailbox (§ *Identity and membership*).
+
+**Presenting the refresh cookie.** `refresh-token` exchanges the refresh cookie for an access token; `logout` ends the session. The caller is authenticated here by cookie rather than by JWT. The cookie's `Path` is `/auth/{authScope}` and browsers match whole segments, so `/auth/{u}/refresh-token` only ever receives a cookie set at `/auth/{u}` or shallower — but that decides which cookie is *sent*, never what it is worth. The scope is read server-side from the stored refresh record, and the requested `activeScope` is confined inside it; it is never taken from the cookie or from the URL.
+
+That is also why the scope segment on these routes is not what R2 describes — never a scope being acted on.
 
 The seam is unusually clean. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
 
