@@ -26,9 +26,9 @@ Two things named throughout this document are not mesh nodes at all, so neither 
 
 **A client is a full peer node**, which surprises people. A server-side node calls one exactly the way it calls anything else — a binding, an instance name, a continuation — so a subscription update travelling out to a browser is an ordinary `lmz.call()`, not a separate delivery mechanism. Two things do differ: the **transport** is a WebSocket rather than Workers RPC, and the client is the one node we do not trust. **The Gateway bridges both.** It terminates the socket, and it is where a client's claims are established on the way in and checked on the way out, which is why it appears throughout this document without ever being a node itself.
 
-### High-level auth overview
+## The layers a call passes
 
-We use **defense in depth** and **zero trust** to secure the mesh.
+We use **defense in depth** and **zero trust** throughout.
 
 You enter by authenticating, which sets a long-lived refresh cookie. That cookie mints short-lived access tokens in the form of signed JWTs. You then open a connection by presenting one, and its contents ride along with everything you do inside the mesh — through long chains of `lmz.call()`s — and can be a factor in every permission decision below.
 
@@ -55,9 +55,11 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 /auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
 ```
 
+⚠️ **The first example elides two steps to stay readable** — `rateLimitGuard` sits where R3 does, `dominionOverScopeGuard` where R6 does.
+
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
-- **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`. ⚠️ The example elides two steps to stay readable — `rateLimitGuard` sits where R3 does, `dominionOverScopeGuard` where R6 does.
+- **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
 - **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
 - **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
 - **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
