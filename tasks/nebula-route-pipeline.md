@@ -143,6 +143,50 @@ The todo app grows REST-shaped routes. This phase exists because a runner shaped
 - 🔒 **Order decides between two entries that can both take one request**, and the earlier wins. *Mutation: iterate the table in reverse → the wrong handler answers.*
 - 🔒 **The runner module imports nothing of `nebula-auth`'s own.** `grep -nE 'parseId|AccessEntry|matchAccess|hasDominionOver' ` over the runner's files returns nothing, and its only imports are its own types. *Mutation: have the runner import `parseId` to validate a capture → reds.* ⚠️ **This is where goal 3 is checkable, not in the mini-app** — the app lives under `test/` and would import the runner relatively either way, so grepping it for the string `nebula-auth` tests an import spelling rather than a dependency. The app's own limb is narrower and still worth asserting: **its only pipeline import is the runner module.**
 
+## Build record — 2026-08-13
+
+**Landed.** `packages/nebula-auth/src/route-pipeline.ts` (the runner; **zero imports**) ·
+`packages/nebula-auth/test/route-pipeline-app/{app.ts,route-pipeline.test.ts}` (the todo app + 17 tests).
+No existing file changed.
+
+**Suite delta** (`nebula-auth`, `--project main`): 17 files / 263 passed / 5 skipped / 17 errors →
+**18 / 280 / 5 / 17**. No new failure, no new skip, and the workerd unhandled-rejection count is
+unchanged, so none of this code contributes one.
+
+**Verifier panel: both phases CONFORM.** Four of its minor findings were fixed rather than filed:
+
+- 🚨 **The table's `method` was compared raw.** The platform normalises only the standard verbs — measured: `{method:'get'}` arrives as `GET`, `{method:'patch'}` stays `patch` — so an entry spelled `'get'` could never match and the request 405'd **silently**. The table's method is now uppercased at compile time. The request's is deliberately NOT: HTTP methods are case-sensitive (RFC 9110 §9.1), and the mutation removing that half reddened nothing, which is what exposed it as dead code rather than untested code. This one mattered because the sibling hand-writes every entry against that field.
+- **The settled name `routeState` was absent from source** — the type was `RouteParams` and the step's parameter `state`, while the sibling is already written against `routeState`. Renamed to `RouteState` / `routeState`.
+- **The 405 carried no `Allow`**, which RFC 9110 §15.5.6 requires and only the table can build.
+- **No test said why `/live` was declined**, which `live.md` and `testing.md` both state as a MUST. The reason now heads the test file, naming the sibling as the tier's owner.
+
+Also strengthened: criterion 10's *later step* and *handler* limbs had collapsed onto one mechanism (only handlers read what a step added), so `auditActorStep` now reads `token` between `authGuard` and the handler.
+
+**Mutation-validated — every criterion reds its intended test.** Runner mutation → intended failure:
+
+| Mutation | Reds |
+|---|---|
+| no-match mints a 404 | `returns undefined when no entry's path matches` |
+| exhausted list returns the no-match answer | `returns 500 for a matched entry whose steps run out` |
+| `params` gets the whole `URLPatternResult` | `lands path captures flat` |
+| continue past a `Response` | `short-circuits on a Response` |
+| ignore a returned `Request` | `replaces the request for later steps` |
+| treat `undefined` as terminal | `continues past a step that returns undefined` |
+| **drop the `await`** | `awaits a step before narrowing` — plus 7 others; this is the fail-open case |
+| catch throws and answer 500 | both propagation tests |
+| fresh state per step | `threads routeState` |
+| refuse on first method mismatch | `lets two entries share a path` |
+| `undefined` for a wrong verb too | `separates a wrong verb from an absent route` |
+| absent `method` means `'GET'` | `lets an entry with no method take any verb` |
+| hoist the state object to module scope | `carries no state from one run to the next` |
+| iterate the table in reverse | `resolves two entries by listing order` |
+| widen the state param to a bag | **type-check**: `TS2578 Unused '@ts-expect-error' directive` |
+
+⚠️ **Measured during the build and recorded on `StepResult`:** building a replacement `Request` from
+the original **consumes the original's body** (`bodyUsed` flips on the original, not the copy), which
+is why the runner threads the replacement to every later step. A comment asserting incoming headers
+are immutable was written and then **falsified** by probe (`headersMutable: true`) — removed.
+
 ## Non-goals
 
 - **Migrating `router.ts`.** [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s, which owns the route table and consumes this runner.
