@@ -51,18 +51,18 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
 ```
-/auth/:scope/invite     [rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
+/auth/:scope/invite     [parseScopeGuard, verifyJwtGuard, passageGuard, handleInvite]
 /auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
 ```
 
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
-- **R1 — The route table.** The table above is the registration: a path with no list returns 404 and reaches no handler.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step reads it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
+- **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`. ⚠️ The example elides two steps to stay readable — `rateLimitGuard` sits where R3 does, `dominionOverScopeGuard` where R6 does.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
 - **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
 - **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
 - **R5 — `passageGuard`.** Calls `hasPassage` — the same verdict M3 computes, with R2's scope as the `node` argument.
-- **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope.
+- **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope — `dominionOverScopeGuard` on both routes that take one.
 - **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
 
 Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
