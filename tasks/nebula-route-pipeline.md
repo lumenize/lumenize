@@ -37,7 +37,7 @@ These are the goals, in the order they matter:
 
 **The route table's keys *are* the set of routes**. This is what makes goal 1 structural.
 
-**`routeState` carries per-request knowledge a later step or the handler needs — `{ params, claims }` as the sibling has it today.** Members arrive two ways and both qualify: the runner matches `params` out of the URL, the verify step establishes `claims`.
+**`routeState` carries per-request knowledge a later step or the handler needs — `{ params, claims }` as the sibling has it today.** The runner matches `params` out of the URL; the verify step establishes `claims`. What qualifies a field is that it is per-request — not which step produced it.
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 4.
 
@@ -50,7 +50,7 @@ These are the goals, in the order they matter:
 ### Constraints
 
 - **[`docs/vision/auth.md`](../docs/vision/auth.md) § *Coarse-grained access control* — `status: accepted`.** R1–R7 are the behaviour this must produce. Per `docs/vision/_review-lens.md` § *Status convention*, contradicting it is a blocker.
-- **[nebula-registry-route-guards.md](nebula-registry-route-guards.md)** owns the route table's contents, the guards and their operands, and which members `routeState` carries (this file decides only that URL captures land on `params`). It lands first and does not depend on this file.
+- **[nebula-registry-route-guards.md](nebula-registry-route-guards.md)** owns the route table's contents, the guards and their operands, and which fields `routeState` carries (this file decides only that URL captures land on `params`). It lands first and does not depend on this file.
 - **`.claude/rules/coding-style.md` § *Guard naming*** — the `*Guard` suffix and the return-a-`Response` contract.
 - **`.claude/rules/raw-comm.md`** permits a hono dependency only *"unless you have more than a dozen routes and/or significant middleware needs"* — a threshold the 15 routes above and this file's own subject both satisfy, so the rule no longer argues against it either way.
 - **A dependency needs explicit approval** (`CLAUDE.md`), and **startup cost is the criterion, measured rather than inferred** (`workflow.md` § *Startup cost is the criterion*). `nebula-auth` fronts the Registry singleton and a DO pays for its whole Worker's import graph, so the measurement is per-Worker-bundle and the `packages/auth` precedent does not transfer.
