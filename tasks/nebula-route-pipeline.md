@@ -19,6 +19,8 @@ These are the goals, in the order they matter:
 2. **A contract for each step and the runner.** A step refuses by returning a `Response` which short circuits the remaining steps. It adds context by modifying `routeState` or returning an altered `Request`. If the step returns `undefined` then it just moves on to the next step using the existing `Request`. `router.ts` catches thrown Errors and answers `500`. 
 3. **Build with Registry routes as the 1st consumer without foreclosing future consumers.** The Registry may remain the only consumer. Regardless, do not encode Registry-specifics in the contract and evaluate the design on flexibility or extensibility for future consumers.
 
+**Scope is the worked example of goal 3, and it takes two steps.** Matching `/auth/:scope/invite` into `params` is generic: any consumer with a URL pattern gets that from the runner. Turning `params.scope` into a validated scope is Registry-specific — the `{u}.{g}.{s}` grammar is `nebula-auth`'s alone — so it is a **step**, and the per-step Needs/Adds types carry its result to the guards that want it. That is the seam: the runner never learns what a scope is, and a route that needs one says so in its own list.
+
 ## Context and current state
 
 **Built already**, and each part has a different fate. `packages/nebula-auth/src/router.ts` routes every Registry endpoint by hand:
@@ -54,9 +56,7 @@ const handleClaimUniverse: Step                                    // needs neit
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 3.
 
-**The runner knows nothing about scopes, so R2 is a step.** A scope is a `nebula-auth` concept — the `{u}.{g}.{s}` grammar and its parse — and goal 3 keeps Registry-specifics out of the contract, so the runner produces `params` and stops. R1 is the runner's: the table *is* the registration.
-
-**R2 is `parseScopeGuard`, first in every scoped route's list.** A malformed scope gets a `Response`; a well-formed one lands on `routeState` parsed and validated. That is the Needs/Adds contract's first real use — it needs `params` and adds `scope`, so every guard comparing against a scope declares it needs `scope` rather than the raw capture.
+**R1 is the runner's — the table *is* the registration. R2 is `parseScopeGuard`**, first in every scoped route's list. A malformed scope gets a `Response`; a well-formed one lands on `routeState` parsed and validated. That is the Needs/Adds contract's first real use — it needs `params` and adds `scope`, so every guard comparing against a scope declares it needs `scope` rather than the raw capture.
 
 ⚠️ **The example above elides the middle of that list** — `…` stands for the guards [nebula-registry-route-guards.md](nebula-registry-route-guards.md) owns; the shape is the pattern, an ordered list, and a handler last. **`auth.md`'s worked example carries neither the parse step nor the elision yet.** Its layers are mechanism-neutral so nothing there is wrong, but it is the authority when the two disagree, so it and the sibling's table both take `parseScopeGuard` next.
 
