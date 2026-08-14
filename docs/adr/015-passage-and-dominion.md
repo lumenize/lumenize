@@ -7,18 +7,18 @@
 
 ## Context
 
-Scopes form a strict tree: universe → galaxy → star, and every principal carries a scope naming the subtree it governs. That much was never in doubt. Which direction dominion flows along that tree, and whether the `scopeAdmin` bit means anything on its own, was **assumed everywhere and written down nowhere**.
+Scopes form a strict tree: platform → universe → galaxy → star, and every principal carries a scope naming the subtree it governs. That much was never in doubt. Which direction dominion flows along that tree, and whether the `scopeAdmin` bit means anything on its own, was **assumed everywhere and written down nowhere**.
 
 An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
 ## Terminology — this ADR is the definition home
 
-- **Dominion** — an *unconditional* right to act on a node: where it applies, nothing the node itself decides can stand against it. **Downward only.**
-- **Passage** — the right for a call to *arrive* at a node's boundary without being refused there. It confers nothing.
+- **Dominion** — an *unconditional* right to act on a node. Where it applies, nothing the node itself decides can stand against it. **Downward only.**
+- **Passage** — the right for a call to *pass* a node's outer boundary without being refused there. It confers nothing except  that.
 
 Who holds either, exactly, is the predicate pair in § *Decision*.
 
-**The two nest: dominion implies passage**, since you cannot act somewhere you cannot arrive. So for any principal, passage is never the smaller set, and what it adds is everything at-or-above that principal's own scope — the whole of a non-admin's passage, and no one's dominion. The two coincide only at the platform instance, which covers everything.
+**The two nest: dominion implies passage**, since you cannot act somewhere you cannot arrive. So for any principal, passage is never the smaller set, and what it adds is everything at-or-above that principal's own scope — the whole of a non-admin's passage, and no one's dominion. The two coincide only at the platform scope, which covers everything. ⚠️ **At the platform scope the two separate as far as they can**: passage there is universal, because the upward arm asks `isAtOrAbove('nebula-platform', anything)` and the root satisfies it for everyone; dominion over it asks the reverse, `isAtOrAbove(myScope, 'nebula-platform')`, which holds only when your own scope IS the platform scope — so a superuser alone administers it.
 
 ⚠️ **Lacking dominion is not a denial.** It is an override, not a gate: hold it and nothing the node decides can stand in the way; lack it and the node's own guards decide — freely, and often in the caller's favour. A caller with passage but no dominion may still be granted a great deal by the methods it reaches, and a peer-level invite is exactly that shape.
 
@@ -28,7 +28,7 @@ Who holds either, exactly, is the predicate pair in § *Decision*.
 
 **What is mechanism here, and what is not.** The predicates in § *Decision* are the commitment — which conjunction, which disjunction, which arms — and they do not vary. What varies is how `isAtOrAbove` is *computed*, over the member's scope carried verbatim. One property of that computation is contract rather than implementation, because getting it wrong is silent: it compares whole dot-separated segments, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2`.
 
-> **Today's code differs.** Coverage is a derived wildcard pattern (`access.authScopePattern` matched against the node) rather than a comparison over the member's scope, and a non-admin reaches downward — so the predicates in § *Decision* are not yet what runs. [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md) closes both.
+> **Today's code differs.** Coverage is a derived wildcard pattern (`access.authScopePattern` matched against the node) rather than a comparison over the member's scope, a non-admin reaches downward, and **a call to a node named `nebula-platform` is refused outright** — so the predicates in § *Decision* are not yet what runs. [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two; the third is a **name reservation** and closes when the name goes from **rejected to bound**, never by being opened.
 
 ## Decision
 
@@ -48,19 +48,19 @@ dominion(access, node) = access.scopeAdmin ∧ isAtOrAbove(access.authScope, nod
 passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
 ```
 
-Neither arm of that conjunction is ever enough alone, and the platform instance satisfies the position half rather than escaping it. Passage confers nothing when it lands: which reads are tenant-facing is a per-method guard decision, never a narrowing of passage.
+Neither arm of that conjunction is ever enough alone, and the platform scope satisfies the position half rather than escaping it. Passage confers nothing when it lands: which reads are tenant-facing is a per-method guard decision, never a narrowing of passage.
 
 Three things follow that no predicate can state, because they govern how these are used:
 
-1. **Dominion is total and non-vetoable.** Dominion over a node is dominion over everything beneath it, and it is unconditional. Descendants — including a scope's own members — can never veto, block, or attenuate an admin above them. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
+1. **Dominion is total and non-vetoable.** Dominion over a scope is dominion over everything beneath it, and it is unconditional. Descendants — including a scope's own members — can never veto, block, or attenuate an admin above them. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 
-2. **It binds every finer-grained permission mechanism the node runs, not just its boundary.** Such a mechanism decides for principals *without* dominion and is overridden for one who has it — otherwise a descendant's own permission model becomes exactly the attenuation point 1 forbids, and the more expressive that model is, the more of the decision it quietly takes back. The Resource orgTree is the worked example: a covering admin acts there with no grant ever written (`apps/nebula/src/dag-tree.ts` `requirePermission`). Anything built later inherits this without being asked.
+2. **Dominion binds every finer-grained permission mechanism the node runs, not just its boundary.** Such a mechanism decides for principals *without* dominion and is overridden for one who has it — otherwise a descendant's own permission model becomes exactly the attenuation point 1 forbids, and the more expressive that model is, the more of the decision it quietly takes back. The Resource orgTree is the worked example: a covering scopeAdmin acts there with no grant ever written (`apps/nebula/src/dag-tree.ts` `requirePermission`). Anything built later inherits this without being asked.
 
-3. **One predicate, one implementation.** Every site needing either verdict calls the shared predicate against the node it is acting on, rather than re-inlining the conjunction ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations above fixable in one place instead of N. The live symbol is `hasDominionOver(access, node)`.
+3. **One predicate, one implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining the conjunction ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations above fixable in one place instead of N. The live symbol is `hasDominionOver(access, node)`.
 
 ## Alternatives considered
 
-- **Let members block deletion of a shared scope.** The status quo before this ADR. Protects real users from a careless admin, but inverts the model: it makes dominion conditional on the consent of those it governs. Under open Star self-signup it also becomes an attack — a squatter holds a slug hostage precisely because they are an "other user."
+- **Let members block deletion of a shared scope.** The status quo before this ADR. Protects real users from a careless admin, but inverts the model: it makes dominion conditional on the consent of those it governs. In the case of Star self-signup it also becomes an attack — a squatter holds a slug hostage precisely because they are an "other user."
 - **A narrow carve-out: only unblock when the scope has a single member.** Proposed and rejected 2026-07-21. It treats the symptom; the veto is wrong for every descendant, not just the single-member case, and a predicate carve-out leaves the inverted principle in place to resurface elsewhere.
 - **Close the upward leak by tightening `requirePassage`'s tenant branch.** Rejected: that branch is passage, not dominion. Narrowing it breaks legitimate non-admin upward reads (a Star fetching its app's ontology) while leaving the actual defect — guards trusting a bare bit — untouched. ⚠️ **This row is retired by [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md), and the retirement is not a reversal.** That work changes the branch's *input* from the client-chosen `aud` to the server-trusted scope, which refuses the descendant case while preserving the upward read this row defends — `docs/vision/auth.md` § *Coarse-grained access control* (`accepted`) carries that read as its own table row. The branch survives; only what it compares changes.
 - **Rely on review to catch violations.** Empirically insufficient: both violations survived multiple passes, and a third was proposed during the very session that fixed the second.

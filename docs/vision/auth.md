@@ -153,7 +153,7 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 ## Coarse-grained access control
 
-> **Today's code differs.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself, and a non-admin reaches downward. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) replaces that with what is described here.
+> **Today's code differs, in three ways.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself; a non-admin reaches downward; and **a call to a node named `nebula-platform` is refused outright**, so the universal passage described here does not yet hold at the root. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two. The third is a **name reservation** — nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system — so it closes when the name goes from **rejected to bound**, never by being opened.
 
 **This layer exists to make lateral movement impossible while allowing certain kinds of vertical movement.**
 
@@ -216,7 +216,7 @@ The four rows between it and **Downward** are one rule against different nodes, 
 
 The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-`nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means everyone has passage *up* to the platform scope.
+`nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means the two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal** — the upward arm asks `isAtOrAbove('nebula-platform', anything)`, which the root satisfies for everyone — while **dominion over it is superuser-only**, because that asks the reverse, `isAtOrAbove(myScope, 'nebula-platform')`, which holds only when your own scope *is* the platform scope.
 
 One thing sits outside all of this: the Profile, deliberately — § *Profiles*. 
 
