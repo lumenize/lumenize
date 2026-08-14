@@ -76,6 +76,8 @@ The "sanctioned citizen development" budget line has owners: **Microsoft Power P
 
 ⚠️ **This moves the buyer, NOT the gates.** A smaller buyer needing less surface is not permission to build governance surface early — § *Timing gates* below and `strategy.md` check 7 stand unchanged, and the smaller surface is an argument for building *less later*, not *something now*. ⚠️ It is also not a retreat from large enterprises; it is where the wedge lands **first**. The estate a big org eventually buys to govern is still the prize.
 
+**The follow-on question, and it is a sharper one — answered below.** Both objections above are *"why won't an incumbent eat you?"*; a technical reader who accepts the third bullet then asks the moat version: **if the incumbents lack relationship-based control inside the app, why can't they just buy it?** See § *Identity is a commodity* — what is purchasable is the front door, which is the part we align on rather than rebuild.
+
 ## What "the secure way" requires — the governance tier
 
 The enterprise tier is **governance and assurance layered on top of the one secure-by-default core** — never a forked, separate security model. Concretely:
