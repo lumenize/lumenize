@@ -3,7 +3,8 @@
  *
  * Deliberately knows nothing about Nebula: no scope grammar, no claims, no bindings. A consumer
  * supplies a table of `{ path, method?, steps }` and the runner matches, then folds the list.
- * See `tasks/nebula-route-pipeline.md` for the contract's reasoning.
+ * See `tasks/archive/nebula-route-pipeline.md` for the contract's reasoning — archived, so frozen and
+ * stable to cite (`workflow.md` § *Referring to things across files*).
  */
 
 /**
