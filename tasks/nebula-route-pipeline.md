@@ -1,6 +1,6 @@
 # Every Registry route runs the same pipeline
 
-**Status:** 📐 **`/write-task` Pass 1 — design intent only; phases are deliberately unwritten and this file MUST NOT be built from.** Replaces the stub of the same name (2026-08-13). The runner that [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s route table runs on. **This file builds it and lands first; that file consumes it.** ⚠️ The sibling still reads as though it builds its own pipeline (its Phase 1 is titled *The route pipeline*) — that is out of date and is corrected in the same pass as this one.
+**Status:** 📐 **`/write-task` Pass 2 — design intent and phases both written.** Design intent was hand-reviewed and took a `/review-task` Stage-1 panel (2026-08-13, 19 verified findings merged to 9, all dispositioned). Next: Stage 2, then `/build-task`. Replaces the stub of the same name (2026-08-13). The runner that [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s route table runs on. **This file builds it and lands first; that file consumes it.** ⚠️ The sibling still reads as though it builds its own pipeline (its Phase 1 is titled *The route pipeline*) — that is out of date and is corrected in the same pass as this one.
 
 [nebula-registry-route-guards.md](nebula-registry-route-guards.md) puts every Registry route in one table and deletes today's enumerations, so this runner is what executes those lists. `/review-task` Stage 1 ran 2026-08-13 and its findings are applied here; the sibling's half of them is outstanding. Next: phases.
 
@@ -101,3 +101,49 @@ const handleClaimUniverse: Step                                    // needs neit
 | **`parseScopeGuard`** | `validScopeGuard` — *valid* means something different at every layer here (well-formed? existing? reachable?) and this guard means only the first. `wellFormedScopeGuard` — the most precise, and the longest, which costs real legibility in a table goal 1 needs readable: a sixth step took that route to 125 characters before the elision. `parse` coins nothing, being already the repo's word (`parseId`, `parse-id.ts`). |
 | **An array literal, not a builder chain** | A builder chain — it threads types naturally and stops reading like a table. Two levels of list exist (§ *Design intent*), and the array is the form that reads as a table at **both**; the entrypoint's outer list is a sequence of calls today, and a builder there would read worse. With the tuple fold declined — the *steps declare what they need* row — the builder's one real advantage is gone. |
 | **The runner's test consumer is a mini-app with nothing to do with Nebula** — a todo app | Synthetic steps and a mock `env`. `calibration.md` §3(d) is not about fixtures being ugly, it is about a fixture **defining the design**: a harness built to return the expected answer passes whether the runner is right or wrong, and mutation cannot catch it, because mutating the code reddens a safe fixture too. A mini-app has no expected answer to build in — it works as an app or it does not. ⚠️ **It is also an executable check on goal 3:** if the runner needs anything Registry-shaped, a todo app cannot be written against it, so the non-Nebula subject is the point rather than colour. ⚠️ **Not a revival of the retired `for-docs/` pattern** — `live.md` records those lapsing because we build an app rather than libraries; this runner is library-shaped, which is the case they fit. ⚠️ **Why not `/live`, which `live.md` makes the default:** a lane exists — the mini-app would boot under `wrangler dev` — and it is declined as unnecessary rather than impossible. The mini-app already runs in workerd under pool-workers; what is absent is Nebula's login, DO and browser machinery, and there is no Nebula here for the running system to diverge from. 🔀 **Real `/live` coverage is the sibling's**, where the actual routes and logins are; naming the owner is what stops a declined tier lapsing (`calibration.md` §6). ⚠️ The safe-fixture half of the argument above is `live.md` § *`/live` is the DEFAULT tier* and `calibration.md` §6; §3(d) is the fixture-defines-the-design half. |
+
+## Phases
+
+Two phases. Each leaves the suite **no worse than the recorded baseline** — ⚠️ **not "green"**: the suite is RED today. Measure as a **delta**; the baseline and its named failures live in [backlog.md](backlog.md) § *Testing & Quality*, and are not restated here.
+
+**Where it lands:** a new module under `packages/nebula-auth/src/`, per § *Decisions*' `Not packages/routing` row — private and `UNLICENSED`, so it is free to move once a second consumer exists. The mini-app and its tests sit beside it.
+
+### Phase 1 — The runner matches a request to an entry and runs its steps
+
+The `Step<Needs, Adds>` type, the table type `{ path, method?, steps }`, `URLPattern` matching, and the executor. A todo mini-app with single-method routes is the consumer; there is no other, by design.
+
+**Criteria (capable of failing).** Each names the single change that reds it.
+
+- 🔒 **A request matching no entry's path returns 404, and no step runs.** Assert the no-step limb through a step that records it, not through the status — a 404 and a refusal look identical to a caller. *Mutation: return 404 only after running the first entry's list → the recorder fires.*
+- 🔒 **Path captures land on `routeState.params`, flat.** `/todos/:id` against `/todos/7` gives `params.id === '7'`. *Mutation: assign `exec()`'s `pathname.groups` record itself → the step reads `params.pathname.groups.id` and the flat read reds.*
+- 🔒 **A step returning a `Response` short-circuits.** The next step in the list does not run and its recorder stays empty. *Mutation: continue the loop after a `Response` → the recorder fires.*
+- 🔒 **A step returning a `Request` replaces the one later steps receive.** A later step reads a header the replacement added. *Mutation: ignore the returned `Request` → the later step sees the original.*
+- 🔒 **A step returning `undefined` continues with the existing `Request`.** *Mutation: treat `undefined` as terminal → the handler never runs.*
+- 🔒 **A throw propagates out of the runner, uncaught.** `expect(() => run(...)).rejects` — the runner answers no status of its own. *Mutation: wrap the loop in `try/catch` returning 500 → the assertion that the throw escapes reds.* ⚠️ This is the contract goal 2 states; `router.ts`'s blanket 500 is one embedder's answer and is not this runner's.
+- 🔒 **`routeState` threads.** A value one step adds is visible to a later step and to the handler. *Mutation: pass a fresh object per step → the later read is `undefined`.*
+
+### Phase 2 — The mini-app is a real app, and that is the goal-3 check
+
+The todo app grows REST-shaped routes. This phase exists because a runner shaped around the Registry passes Phase 1 intact — every criterion above holds for a table where each path takes exactly one verb.
+
+- 🔒 **Two entries share a path with different methods, and each request reaches its own handler.** `GET /todos` lists, `POST /todos` adds. *Mutation: refuse on the first method mismatch instead of continuing the scan → the `POST` reds with 405.* ⚠️ **This is the criterion the Stage-1 panel's blocker asks for**, and the case a Registry-only table cannot produce.
+- 🔒 **405 distinguishes a wrong method from an absent route.** `DELETE /todos` returns 405 (the path exists, no entry takes the verb); `DELETE /nope` returns 404. *Mutation: answer 404 for both → the 405 limb reds.*
+- 🔒 **An entry with no `method` takes any verb.** *Mutation: treat an absent `method` as `'GET'` → the `POST` reds.*
+- 🔒 **Order decides between two entries that can both take one request**, and the earlier wins. *Mutation: iterate the table in reverse → the wrong handler answers.*
+- 🔒 **The mini-app imports nothing from `nebula-auth`.** A grep over the app's sources returns no `nebula-auth`, no `hasPassage`/`hasDominionOver`, no scope grammar. *Reds against a runner that needed a Registry concept to be usable — which is goal 3 stated as a command rather than a hope.*
+
+## Non-goals
+
+- **Migrating `router.ts`.** [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s, which owns the route table and consumes this runner.
+- **The guards themselves** — `parseScopeGuard`, `passageGuard`, `dominionOverScopeGuard`, `turnstileGuard`, `sameOriginGuard`. Named here only as examples of the contract; the sibling builds them.
+- **The entrypoint's outer router.** § *Decisions* says why it is not migrated.
+- **Landing in `packages/routing`.** § *Decisions* carries the argument; revisit only when a second consumer exists.
+- **A predicate callback in place of `method`.** § *Design considerations* records why the extension is obvious and why it is not built.
+- **`/live` coverage.** The sibling's, where the real routes and logins are.
+
+## Relationships
+
+- **Blocks** [nebula-registry-route-guards.md](nebula-registry-route-guards.md) — that file's tables execute on this runner, and its § *The shape — a linear step pipeline* points here for the contract rather than restating it. Its § *Relationships* names this dependency.
+- **Conforms to** `accepted` [`docs/vision/auth.md`](../docs/vision/auth.md) § *Coarse-grained access control* — R1 is the table, R2 is a step, R3–R7 are the list. Contradicting it is a blocker.
+- **Owes the sibling an un-skip obligation:** real `/live` coverage of the pipeline is the sibling's, and this file declines the tier on the strength of that. If the sibling ships without it, the tier lapsed rather than moved.
+- **Leaves a reconciliation to the sibling:** `auth.md` and the sibling's tables disagree today (neither carries `parseScopeGuard`; the sibling spells guards bare; the two give `claim-universe` different lists). `auth.md` is the authority; the sibling reconciles. This file tracks no list of it.
