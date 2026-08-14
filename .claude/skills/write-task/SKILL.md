@@ -30,8 +30,12 @@ Write the file down to and including *Design intent, constraints, and future sta
 
 **Objective — [the capability, in the sentence a stranger would need].**
 
+[Often: **N goals, in the order they matter** — the properties that make the objective worth delivering,
+ranked. See the goals rules below.]
+
 ## Context and current state
-Built already: [what exists, anchored on symbol + quoted fragment — never line numbers]
+Built already: [what exists, anchored on symbol + quoted fragment — never line numbers —
+                AND what becomes of each part: carried over, adapted, or left behind]
 Missing: [numbered, specific, each a thing this task adds or changes]
 
 ## Design intent, constraints, and future state
@@ -46,9 +50,14 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 - **State every load-bearing assumption as a checkable claim.** If the intent depends on "these two changes share a call chain" or "this test is blocked only on X", write it as a claim so review can falsify it. Both of those examples were false in a real file.
 - **Constraints:** which ADRs bind this, which rules apply, what the milestone allows. Cite; do not restate.
 - **Future state:** what this makes possible next, and what it must not foreclose. Mark forward guidance inline as `⚠️ Design consideration:` — it gates nothing and must not become a tracked open question (`tasks/README.md`).
+- **Goals, when the objective needs more than one sentence.** The objective is the *deliverable*; goals are the *properties that make it worth building*, ranked — and say "in the order they matter" out loud, because that ranking is what lets a reviewer weigh a trade-off instead of guessing. A goal that restates the objective is not a goal; cut it.
+  - ⚠️ **If the goals and the `Missing` list come out near-parallel, MERGE them** — give each goal its own "today, this is how it goes wrong" clause and delete `Missing`. Keep both lists only where they sit on genuinely different axes (`Missing` = specific defects, goals = outcome properties, as in `nebula-passage-dominion-from-scope.md`). Two parallel lists say everything twice and then drift, which is the defect this skill exists to prevent, reproduced inside one file.
+- **`Built already` states a FATE, not just an inventory.** For each part: carried over unchanged, adapted, or left behind. "What exists" alone leaves a cold implementer to guess which existing code they may keep, and the guess is usually "all of it". The verdicts are also load-bearing evidence — a part carried over unchanged is why a change is a migration rather than a rewrite, and that is a fact a reviewer wants when pricing it.
 - **Open questions** are decisions that must be MADE and that gate something. If the honest answer to *"what happens if we never decide this?"* is "nothing — we keep a seam open," it is a design consideration, not an open question.
 
 **Then stop.** Present the section and ask for a read. Expect to iterate here — it is cheaper than iterating on phases.
+
+⚠️ **Two Pass-2 artifacts MAY be started during the gate, and often should be: the Decisions table and a draft list of things that must end up in the criteria.** Both are *outputs* of the design conversation rather than inputs to the phases, so writing them while the intent is being argued captures reasoning at the moment it is cheapest — a rejected alternative is easy to state when it was just rejected and expensive to reconstruct a week later. **Only settled things go in**; an open question written as a decision is the defect the gate exists to prevent. Phases stay unwritten either way.
 
 ## Where the review stages go: Stage 1 → phases → Stage 2
 

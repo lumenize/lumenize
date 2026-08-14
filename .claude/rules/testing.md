@@ -40,6 +40,14 @@ A test that passes regardless of the implementation's correctness is worse than 
 
 When introducing a new test pattern (harness, fixture, mock layer), you MUST write a probe that *should fail* (feed a value the path can't preserve) and verify it fails, then fix the path to make it pass. If you can't write a failing probe, the test layer isn't testing anything.
 
+⚠️ **A suite BASELINE MUST be taken by moving the file out, not by `vitest run --exclude`** — the
+CLI flag is **silently ignored**, so the "before" and "after" runs are the same run and report
+identical counts. That reads as *"my change added no failures"* when it is really *"my change was
+never excluded"*, and the two are indistinguishable from the summary line. Bit 2026-08-13; caught
+only because the arithmetic did not work — 15 new tests cannot leave the total unchanged. **Check the
+totals move by the number of tests you added**, and if they do not, distrust the baseline before the
+code.
+
 **Mutation-check added tests, not just new harnesses.** A test added to an already-green or ported suite can be vacuous — a redundant guard or unrelated path already forces its assertion, and the green neighbors hide it. Comment out the exact code path the new test targets, confirm *that* test goes red, then restore. **Mutate + restore MUST use the `Edit` tool (a reverse `Edit` restores it), and MUST NOT use `perl -i`/`sed -i` in place followed by `git checkout`/`git restore`/`git stash` to "reset": on a working tree of uncommitted build changes, `git checkout <file>` discards ALL of them, not just the mutation (bit 2026-07-15 mid-`/build-task` — a one-line mutation revert clobbered a whole file's uncommitted work; recovered only because the edits were still in context).
   - ⚠️ **The prohibition is on ANY scripted string replace, not on `sed`/`perl` specifically** — a Python or Node in-place rewrite is the same hazard wearing a different name, and reaching for one because "it isn't sed" is how this recurs. **A mutation string that is a SUFFIX (or prefix, or substring) of some OTHER statement corrupts that statement on RESTORE**, silently and in a file you are not looking at. Bit 2026-08-04 mid-`/build-task`: mutating `'…SET emailVerified = 1 WHERE emailId = ? AND emailVerified = 0'` down to `'…WHERE emailId = ?'` was fine, but the restore re-appended the guard to **`changeEmail`'s** `'UPDATE Emails SET email = ? WHERE emailId = ?'`, which also ends in that fragment — quietly breaking the email re-point.
   - **If you script it anyway, assert the match COUNT is exactly 1 before replacing, both directions.** ⚠️ And treat an unexpected count as the finding: the same session ran `grep -c` on the mutated fragment, saw **2** where it expected 1, wrote "expected 1?" — and moved on. The count was the whole bug, printed and ignored.

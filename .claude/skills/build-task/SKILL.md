@@ -46,7 +46,15 @@ only things that have ever caught this class:
    `undefined` does nothing, assigning an unread property always succeeds, reading a missing field
    yields `undefined`. Type-checking cannot help — the access is behind `as any` — and neither can
    a different runtime, since all three are no-ops everywhere.
-4. **When a mutation does NOT red, suspect the FIXTURE before the mutation.** Twice in that build the
+4. **When a mutation does NOT red, there are THREE causes — and for code you just wrote, the third
+   is the likely one.** (a) The fixture is the safe shape. (b) The assertion is vacuous. (c) **The
+   code is unnecessary** — you cannot red a line nothing depends on. Measured 2026-08-13: a route
+   runner normalised both the table's HTTP method and the *request's*; removing the request half
+   reddened nothing, which is what exposed it as dead code rather than untested code (the platform
+   already uppercases standard verbs, and HTTP methods are case-sensitive, so it was inventing
+   lenient matching). ⚠️ The reflex is to write a test for the un-redded line; ask first whether the
+   line should exist. A test written to cover unnecessary code ossifies it.
+5. **When (a) is the cause, suspect the FIXTURE before the mutation.** Twice in that build the
    conclusion "this cannot be tested here" was wrong; the truth was "my fixture is the safe shape."
    Both times the fix was to construct the *dangerous* shape the design docs already named — one
    subject at two scopes rather than two subjects; an admin logged in AT the scope they impersonate
