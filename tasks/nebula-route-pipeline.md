@@ -9,7 +9,7 @@
 What a route and its list look like, from [`docs/vision/auth.md`](../docs/vision/auth.md) § *Coarse-grained access control*, which is the authority if the two ever disagree:
 
 ```
-/auth/:scope/invite     [rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
+/auth/:scope/invite     [parseScopeGuard, rateLimitGuard, verifyJwtGuard, passageGuard, dominionOverScopeGuard, handleInvite]
 /auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
 ```
 
@@ -54,9 +54,11 @@ const handleClaimUniverse: Step                                    // needs neit
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 3.
 
-**The runner knows nothing about scopes, so R2 is a step.** A scope is a `nebula-auth` concept — the `{u}.{g}.{s}` grammar and its parse — and goal 3 keeps Registry-specifics out of the contract, so the runner produces `params` and stops. R1 is the runner's: the table *is* the registration. R2 is a step placed first in every scoped route's list, and the Needs/Adds contract carries the dependency — it needs `params` and adds the parsed scope, and the guards comparing against a scope declare they need that rather than the raw capture.
+**The runner knows nothing about scopes, so R2 is a step.** A scope is a `nebula-auth` concept — the `{u}.{g}.{s}` grammar and its parse — and goal 3 keeps Registry-specifics out of the contract, so the runner produces `params` and stops. R1 is the runner's: the table *is* the registration. R2 is a step placed first in every scoped route's list — `parseScopeGuard` above, which is where the name is open. ⚠️ **Whether it ADDS anything is open with it:** `hasPassage` compares scope strings, so the guard may only refuse a malformed one and leave `params.scope` where it is, in which case it needs `params` and adds nothing. The Needs/Adds contract expresses either.
 
-⚠️ **`auth.md`'s worked example shows R3–R7 with no parse step.** The doc is mechanism-neutral on purpose, so it is not a contradiction — but the example and the step's name both live in [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s table, which is where the gap gets closed.
+⚠️ **`auth.md`'s worked example shows R3–R7 with no parse step**, and the example above now diverges from it deliberately, to make the shape visible. The doc is mechanism-neutral, so this is not a contradiction — but `auth.md` is the authority when the two disagree, so it gets the step once the name settles, and the sibling's table gets it at the same time.
+
+⚠️ **The name is the open part, and the line length is evidence.** `parseScopeGuard` reuses `parseId` / `parse-id.ts`, already the repo's word for this, so it coins nothing. Rejected: `validScopeGuard` — *valid* carries a different meaning in every layer here (well-formed? existing? reachable?), and this guard means only the first. `wellFormedScopeGuard` says exactly the right thing and is the longest, which matters because a sixth step already pushes that first route past 120 characters — goal 1 is legibility of the table, so guard names are paying rent by the character.
 
 **Refusal has one shape: return a `Response`.** The runner stops at the first step that returns one. `coding-style.md` § *Guard naming* already binds this and explains the cost of the alternative; the runner's contract makes it the only thing a step *can* do, rather than a rule each step follows.
 
