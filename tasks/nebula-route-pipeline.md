@@ -50,7 +50,7 @@ const passageGuard:   Step<Params & { claims: NebulaJwtPayload }>  // needs clai
 const handleClaimUniverse: Step                                    // needs neither
 ```
 
-⚠️ **Nothing enforces the ORDER, and nothing should.** The array is read top to bottom, and that reading *is* the audit — which is why goal 1 wants an array at all. § *Decisions* carries the type-level alternative and why it is not taken.
+⚠️ **Nothing enforces the ORDER, and nothing should.** The array is read left to right, and that reading *is* the audit — which is why goal 1 wants an array at all. § *Decisions* carries the type-level alternative and why it is not taken.
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 3.
 
