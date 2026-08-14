@@ -14,6 +14,10 @@ working_agreement: |
       grep -n '^> \*\*Today' docs/vision/auth.md
 
   A blockquote opening any other way is an ordinary aside, not a gap.
+
+  Note, these blocks will go stale as we close the gaps. Confirm any claims
+  in them before relying upon them and when you discover one that has gone
+  stale suggest that this document be altered (despite its "accepted" status)
 ---
 
 # Authentication and Access Control
@@ -32,7 +36,7 @@ We use **defense in depth** and **zero trust** throughout.
 
 You enter by authenticating, which sets a long-lived refresh cookie. That cookie mints short-lived access tokens in the form of signed JWTs. You then open a connection by presenting one, and its contents ride along with everything you do inside the mesh — through long chains of `lmz.call()`s — and can be a factor in every permission decision below.
 
-One design decision runs underneath several of the layers below: **Nebula addresses everything by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
+One design decision runs underneath several of the layers below: **Nebula addresses Durable Objects (DOs) by name** (never using the 64-character hex id), and for a scoped node, **the name *is* its scope**. That is what turns an address from a routing fact into something authorization can base decisions upon.
 
 After authentication, a call passes a fixed sequence of layers — but **there are two sequences**, because a call to a mesh node and a call to a Registry endpoint arrive by different routes. Both compute the same two verdicts from the same claims: **passage** (may this caller arrive at this scope?) and **dominion** (may this caller override what the node decides?), from `authScope` and `scopeAdmin` against the scope being addressed. § *Coarse-grained access control* defines both. Some Registry endpoints present no access token — those that get you one, and those that present a refresh cookie instead — and § *The Registry* covers what stands in for the steps they skip.
 
@@ -47,6 +51,8 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 - **M5 — The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
 - **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
 - **M7 — The Data-plane DAG (ReBAC).** The most common such error is `PermissionDeniedError`, thrown when an operation is attempted on a Resource the caller lacks permission for. The data plane keeps its own `admin`, `write`, and `read` grants on an orgTree shaped as a directed acyclic graph (DAG), so it can model the real-world messiness of organizations (people on loan to another department, teams reporting into two business units, etc.). This is a specific form of relationship-based access control (ReBAC).
+
+**Why relationships rather than roles?** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
@@ -72,8 +78,6 @@ Every step refuses the same way: return a `Response` with an appropriate HTTP co
 One authenticated route carries no scope at all: `my-scopes` returns the scopes the caller can reach, so there is no target to decide about. R2 has nothing to parse and R5 nothing to compare — the answer *is* the set, and it is computed from the caller's own claims.
 
 > **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` also take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` puts it back in front of the handler.
-
-**Why relationships rather than roles.** We believe relationships are far more flexible than the roles you see in most systems, and [AuthZed, who sell a ReBAC service, make that case in detail](https://authzed.com/learn/rbac-vs-rebac-when-to-use-which). The failure they name is *role explosion*: getting fine-grained with roles takes roughly one role per resource per action, and nested groups, resource hierarchies, and delegated access all fit badly — which are precisely the shapes an org tree is made of. Their own conclusion is not that ReBAC replaces RBAC, though. Most B2B SaaS ends up running both: roles for coarse policy, relationships at the resource level. That is already what we do. The `scopeAdmin` bit that dominion reads is the coarse, role-like half, and the DAG is the fine-grained half.
 
 The sections that follow expand on the model above.
 
@@ -161,14 +165,14 @@ The `onBeforeCall()` guard sits at the node's outer boundary, and the one questi
 
 It compares where you are a member (`authScope`) against the scope of the node being called, and there are two ways passage is granted:
 
-- **Passage upward is free.** The node can be your own auth scope, or an ancestor of it. No `scopeAdmin` needed.
+- **Passage upward is free.** The node you are calling can be your own auth scope, or an ancestor of it. No `scopeAdmin` needed.
 - **Passage downward takes dominion.** The node is a descendant of your auth scope *and* `scopeAdmin` is set — the pair, never the bit on its own.
 
 In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
 
 *Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them). However, the analogy below should help you remember them.
 
-Think of `scopeAdmin` a feudal lord with title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings — the root of the realm rather than an exception to it — and has dominion over everything, by the same downward rule every lord holds. § *Superuser seed*.
+Think of `scopeAdmin` as a feudal lord's title over some land (scope) — King of a Universe, Duke of a Galaxy, Count of a Star. A Duke does whatever they want in every County of their Duchy. In the Kingdom above, they may use what the Kingdom's rules leave open — the wood, the road — but decide nothing there and change nothing. Dominion is the combination of the title (`scopeAdmin`) *and* the land (scope), never the bare `scopeAdmin` bit, and it runs only downward. Passage is the right of way, and it runs both ways: the Duke rides down into their own Counties because they hold them, and up to the King's wood because the Kingdom's rules say that it stands open to everyone in the Kingdom — while the neighbouring Duchy's border is closed to them. God sits above the Kings — the root of the realm rather than an exception to it — and has dominion over everything, by the same downward rule every lord holds. § *Superuser seed*.
 
 Two predicates express all of it, and no guard re-derives either ([ADR-007](../adr/007-shared-node-security-core.md)). [ADR-015](../adr/015-passage-and-dominion.md) is the definition home; where it and this section disagree, it wins:
 
@@ -212,7 +216,9 @@ The four rows between it and **Downward** are one rule against different nodes, 
 
 The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-One thing sits outside all of this: the Profile, deliberately — § *Profiles*. `nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means everyone has passage *up* to the platform scope.
+`nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means everyone has passage *up* to the platform scope.
+
+One thing sits outside all of this: the Profile, deliberately — § *Profiles*. 
 
 ### Why upward exists
 
@@ -262,7 +268,7 @@ Permissions trickle down the orgTree. To alter a Resource's value, or create one
 
 The two admins meet here, and the direction is one-way. A data-plane `admin` is a grant on an orgTree node; `scopeAdmin` is a bit on a membership, carried on the token. `scopeAdmin` reaches into the data plane, never the reverse. Someone whose dominion covers the node hosting a data plane gets a bypass over that entity's whole orgTree — full read, write and admin, with no data-plane-level grant ever written. Dominion over *that host* is the whole test, never the bare bit, so an admin of a child scope whom passage legitimately lets into the parent holds no bypass once there. That is § *Why downward is generous for admins* arriving where user data lives.
 
-A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. The overlap is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
+A Star's own admin does not depend on that bypass: founding one writes a real `admin` grant on its root node (§ *Founding a Star*), so a founder holds both. A Resources-level admin added later, likely does not hold a Registry-level authAdmin. The overlap for the founder is **visibility, not access** — the bypass is nowhere in the orgTree, so a client climbing it for someone who can grant what it needs (§ *Inside the node*) cannot see a bypass-only admin, and would climb to the root and find nobody to ask. The real grant gives that climb a terminus inside the Star. Independence runs the other way too, though not to zero: a data-plane `admin` on **any** node of the orgTree, holding `scopeAdmin` nowhere, grants and revokes freely inside that orgTree — and has a little authority in the Registry as well. They may invite a peer into their own scope (§ *Grants*), including one who will hold data-plane `admin` themselves. What they cannot do is make anyone a `scopeAdmin`, create a sibling scope, or delete this one.
 
 > **Today's code differs.** The climb is not built — [`tasks/nebula-request-access.md`](../../tasks/nebula-request-access.md) is still a stub, so nothing today walks the orgTree looking for someone to ask. The root-admin grant that gives it a terminus *is* built and seeded (`apps/nebula/src/star.ts`), which is why the Star writes a grant whose only consumer does not exist yet.
 
@@ -342,7 +348,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry admin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every node (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
+An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry scopeAdmin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every node (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
 
 ## Impersonation
 
@@ -382,7 +388,7 @@ There is no consent step, deliberately. An admin can already read and write anyt
 
 ### When Nebula is the actor
 
-Studio's agent writes Resources on a user-developer's behalf, and it holds **no authority of its own** — no membership, no access token, no login. The write runs inside the triggering person's own call, carrying their `sub` and their permissions, and the platform adds itself as an **actor on the record**, never on the token. So the record reads *this human, via Nebula*, and authorization is unchanged: the agent can do exactly what that person could, because it is that person's authority doing it.
+Studio's agent writes Resources on a user-developer's behalf, and it holds **no authority of its own** — no membership, no access token, no login. The write runs inside the triggering person's own call, carrying their `sub` and their permissions, and the platform adds itself as an **actor on the record**, never on the token. So the record reads *this human, via Nebula*, and authorization is unchanged: the agent can do exactly what that person could and nothing more, because it is that person's authority doing it.
 
 The actor id is `agent:nebula` — self-describing and syntactically not a human, so a server-composed actor stays distinguishable from a token-attested one at a glance ([ADR-016](../adr/016-record-the-acting-principal.md)). It is only ever an actor, never a subject; `sub` names the person who prompted the turn. Nebula does hold a Profile, so it renders like any other participant (§ *Profiles*), but it has no membership and the Registry knows nothing about it.
 
@@ -402,7 +408,7 @@ Two kinds of action write an attribution record, and **the same function builds 
 - **A Resource write** adds what changed and when. A Resource is a sequence of snapshots and the record rides every one of them: a write **closes the current snapshot and opens a new one** rather than overwriting, committed history is immutable, and even a delete is itself a snapshot transition ([ADR-004](../adr/004-snodgrass-temporal-resources.md)). No later write can erase it, because none of them destroys anything.
 - **An action that changes who can do what, removes state, or establishes a session** writes its record to a durable sink of its own.
 
-APIs and UIs allow the querying and inspection of both. These records are access controlled so they only show each person what their scope entitles them to see.
+APIs and UIs allow the querying and inspection of both. These records are access controlled so they only show each person what their scope and authAdmin status entitles them to see.
 
 > **Today's code differs.** Neither half is readable as history. Resource snapshots are durable, but every read path returns the current one only — prior versions accumulate with no way to retrieve them and no query surface over them. Their attribution is also narrower than the above: the subject and the actor chain, without `profileId` or the asserted `access`. The acting-token records go to the debug log — retained for a window rather than forever, and readable by nobody filtered to their own scope. And topology is written down nowhere at all; `callChain` survives only for the duration of a call. So identity already rides both records and most of the remaining work is the sink, the reader and the viewer — but the path is a genuine addition. We do not yet meet the full vision of [`_ai-security.md`](_ai-security.md) § *Attribution*.
 
@@ -431,7 +437,7 @@ One ordering falls out of that and is worth stating once. A data-plane grant nam
 
 ### Founding a Star
 
-**Cloudflare has no create operation for a Durable Object.** A Star comes into being the first time it is addressed, placed near whoever addressed it — which is the default you want, since a tenant's data should sit close to the people using it. That makes founding a **sequencing** problem rather than a create step: whoever touches the Star first decides where it lives, and the person mostly likely near its users is the founder.
+**Cloudflare has no create operation for a Durable Object.** A Star is a DO instance and comes into being the first time it is addressed, placed near whoever addressed it — which is the default you want, since a tenant's data should sit close to the people using it. That makes founding a **sequencing** problem rather than a create step: whoever touches the Star first decides where it lives *forever*, and the person mostly likely near its users is the founder.
 
 So the flow keeps everyone else off the Star until the founder arrives. Having the Registry create the Star would be the worst case, since it is a global singleton sitting wherever it was first touched, and a Star created by a call from it would land beside the Registry rather than beside the Star's founder. Three steps make this happen:
 
