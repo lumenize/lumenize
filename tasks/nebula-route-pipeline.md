@@ -54,7 +54,7 @@ const handleClaimUniverse: Step                                    // needs neit
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 3.
 
-⚠️ **Design consideration:** `params` holds **raw** captures, so R2's *"refused if malformed before any step reads it"* is not something matching gives you. Whether that validation is the first step in every scoped route's list or something the runner does is open; the contract here must not imply captures arrive validated.
+**R1 and R2 are the runner's; R3–R7 are the list.** The table is the registration, and the runner parses the addressed scope, refusing a malformed one before the list runs. `auth.md`'s worked example is what maps them: its five entries are R3 through R7 and no parse step appears among them, so `params.scope` reaches the first step already valid.
 
 **Refusal has one shape: return a `Response`.** The runner stops at the first step that returns one. `coding-style.md` § *Guard naming* already binds this and explains the cost of the alternative; the runner's contract makes it the only thing a step *can* do, rather than a rule each step follows.
 
