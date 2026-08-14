@@ -54,7 +54,9 @@ const handleClaimUniverse: Step                                    // needs neit
 
 **`env` is not in `routeState`.** It is ambient and identical on every request, so it fails the per-request test. How a step reaches it instead is § *Open questions* 3.
 
-**R1 and R2 are the runner's; R3–R7 are the list.** The table is the registration, and the runner parses the addressed scope, refusing a malformed one before the list runs. `auth.md`'s worked example is what maps them: its five entries are R3 through R7 and no parse step appears among them, so `params.scope` reaches the first step already valid.
+**The runner knows nothing about scopes, so R2 is a step.** A scope is a `nebula-auth` concept — the `{u}.{g}.{s}` grammar and its parse — and goal 3 keeps Registry-specifics out of the contract, so the runner produces `params` and stops. R1 is the runner's: the table *is* the registration. R2 is a step placed first in every scoped route's list, and the Needs/Adds contract carries the dependency — it needs `params` and adds the parsed scope, and the guards comparing against a scope declare they need that rather than the raw capture.
+
+⚠️ **`auth.md`'s worked example shows R3–R7 with no parse step.** The doc is mechanism-neutral on purpose, so it is not a contradiction — but the example and the step's name both live in [nebula-registry-route-guards.md](nebula-registry-route-guards.md)'s table, which is where the gap gets closed.
 
 **Refusal has one shape: return a `Response`.** The runner stops at the first step that returns one. `coding-style.md` § *Guard naming* already binds this and explains the cost of the alternative; the runner's contract makes it the only thing a step *can* do, rather than a rule each step follows.
 
