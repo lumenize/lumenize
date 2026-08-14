@@ -182,10 +182,18 @@ Also strengthened: criterion 10's *later step* and *handler* limbs had collapsed
 | iterate the table in reverse | `resolves two entries by listing order` |
 | widen the state param to a bag | **type-check**: `TS2578 Unused '@ts-expect-error' directive` |
 
-⚠️ **Measured during the build and recorded on `StepResult`:** building a replacement `Request` from
-the original **consumes the original's body** (`bodyUsed` flips on the original, not the copy), which
-is why the runner threads the replacement to every later step. A comment asserting incoming headers
-are immutable was written and then **falsified** by probe (`headersMutable: true`) — removed.
+⚠️ **The mini-app's fixture is more permissive than the runtime, and one test holds that line.**
+Measured through a real `SELF.fetch()`: an **incoming** request's headers are immutable, a
+test-constructed one's are not. So `requestIdStep` mutating in place — which throws in production —
+passed **every** test here except the one added for it (🔒 *leaves the request it was handed
+unmodified*). That is `testing.md`'s fixture-can't-distinguish trap, caught by review rather than by
+the suite.
+
+⚠️ **Building a replacement MOVES the body onto it** — nothing is copied or re-serialized, and the
+original merely stops being readable. Recorded on `StepResult` because the hazard is building one and
+**not** returning it, not the move itself. Two earlier framings were wrong and are noted so they are
+not restored: *consumes the body* (it does not — the replacement holds it) and an unmeasured claim
+that a constructed request's headers are immutable (they are mutable; the incoming ones are not).
 
 ## Non-goals
 

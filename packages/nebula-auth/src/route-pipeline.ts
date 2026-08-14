@@ -13,11 +13,10 @@
  * `undefined` continues with the request unchanged. A step that throws is NOT caught here — the
  * rejection propagates to whatever embeds the runner, and that embedder answers.
  *
- * ⚠️ Building a replacement TRANSFERS the request's body rather than reading it: after
- * `new Request(req, { headers })` the original reports `bodyUsed` and only the replacement can be
- * read. Measured as avoidable three ways — pass `body` explicitly, `clone()` first, or have no body
- * at all. **The hazard is building one and NOT returning it**: the runner keeps handing later steps
- * the original, whose body is now gone. Build a replacement only when you mean to return it.
+ * ⚠️ Building a replacement MOVES the body onto it — nothing is copied or re-serialized, but the
+ * original stops being readable. Harmless when you return the replacement, which is the only reason
+ * to build one. **The hazard is building one and NOT returning it**, since the runner goes on
+ * handing later steps the original.
  */
 export type StepResult = Response | Request | void;
 

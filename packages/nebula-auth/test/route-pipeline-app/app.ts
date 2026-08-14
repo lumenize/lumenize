@@ -37,10 +37,10 @@ export function createTodoApp() {
   /** Stamps a correlation id by REPLACING the request, so later steps see it. */
   const requestIdStep: Step = (request) => {
     audit.push('requestId');
-    // ⚠️ A test-CONSTRUCTED request's headers are mutable (measured), so in-place mutation would
-    // pass here — the replacement is built anyway because returning one is the contract's mechanism
-    // for changing what later steps see. Returning it is then mandatory rather than stylistic: it
-    // owns the body (see the runner's `StepResult` docs).
+    // ⚠️ Measured through a real `SELF.fetch()`: an INCOMING request's headers are immutable, while
+    // a test-constructed one's are not — so `request.headers.set(...)` would pass in this fixture and
+    // throw in production. The test *leaves the request it was handed unmodified* is what holds that
+    // line; without it the fixture is more permissive than the runtime.
     const headers = new Headers(request.headers);
     headers.set('x-request-id', crypto.randomUUID());
     return new Request(request, { headers });

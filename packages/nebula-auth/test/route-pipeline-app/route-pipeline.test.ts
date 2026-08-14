@@ -232,3 +232,18 @@ describe('the table is forgiving about verb spelling, and says what it would acc
     expect(res?.headers.get('allow')).toBe('GET, POST');
   });
 });
+
+describe('the fixture is more permissive than the runtime, so this holds the line', () => {
+  it('leaves the request it was handed unmodified', async () => {
+    const app = createTodoApp();
+    const handedIn = post('/todos', { title: 'unmodified' }, AUTH);
+
+    expect((await app.fetch(handedIn)).status).toBe(201);
+
+    // `requestIdStep` must build a replacement, not mutate in place. A real incoming request's
+    // headers are immutable (measured via SELF.fetch), but a test-constructed one's are not — so an
+    // in-place variant would pass every other test here and throw in production. This is the only
+    // assertion that reds against it.
+    expect(handedIn.headers.get('x-request-id')).toBeNull();
+  });
+});
