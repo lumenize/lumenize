@@ -48,9 +48,11 @@ dominion(access, node) = access.scopeAdmin ∧ isAtOrAbove(access.authScope, nod
 passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
 ```
 
-Neither arm of that conjunction is ever enough alone, and the platform scope satisfies the position half rather than escaping it. Passage confers nothing when it lands: which reads are tenant-facing is a per-method guard decision, never a narrowing of passage.
+**The bare `scopeAdmin` bit is never dominion, and neither is position without it** — dominion is the conjunction, and reading either operand on its own is the bug this ADR exists to stop.
 
-Three things follow that no predicate can state, because they govern how these are used:
+**Passage gets a call past a node's outer boundary and no further.** What happens after that is the node's own: an `@mesh()` method with no guard function and no checks inside it is callable by anyone who arrived. Restricting who may call what is a per-method decision, never a narrowing of passage.
+
+These things follow:
 
 1. **Dominion is total and non-vetoable.** Dominion over a scope is dominion over everything beneath it, and it is unconditional. Descendants — including a scope's own members — can never veto, block, or attenuate an admin above them. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
 
@@ -69,4 +71,4 @@ Three things follow that no predicate can state, because they govern how these a
 
 - **Positive.** Two predicates to audit instead of a scattered conjunction. Open Star self-signup becomes implementable: a star-scoped admin's scope is inert above its own Star by construction, which is what makes an unauthorized signup safe. Remediation works: a covering admin can always clean up beneath them.
 - **Negative / accepted.** A careless admin can destroy a descendant scope that other people are actively using; the only guard is the warning surface. That is deliberate, and the reason is not only that the alternative inverts the model. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in **who you hand it to**, never in what the platform will permit once they hold it. These admins have their own customers to serve, and cannot administer that relationship through a platform that second-guesses them. What it does raise is the stakes on delete-confirmation UX, which must carry enough context (attached users, last login, activity) for an informed decision. `docs/vision/auth.md` § *Why downward is generous for admins* is the fuller argument.
-- **Deliberately open.** Which reads are tenant-facing is a per-method guard decision (§ *Decision*), not covered here. An allocation inherited from before a tier existed is a latent trap: re-confirm each non-admin `@mesh()` on an ancestor against who can actually reach it today, and record the reason.
+- **Deliberately open.** Which methods restrict who may call them is a per-method guard decision (§ *Decision*), not covered here. An allocation inherited from before a tier existed is a latent trap: re-confirm each non-admin `@mesh()` on an ancestor against who can actually reach it today, and record the reason.
