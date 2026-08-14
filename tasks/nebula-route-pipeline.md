@@ -46,6 +46,7 @@ These are the goals, in the order they matter:
 ```ts
 type Step<Needs extends object = {}, Adds extends object = {}> =
   (request: Request, state: Needs & Partial<Adds>) => Response | Request | void
+type Params = { params: Record<string, string> }
 
 const verifyJwtGuard: Step<{}, { claims: NebulaJwtPayload }>       // adds claims
 const passageGuard:   Step<Params & { claims: NebulaJwtPayload }>  // needs claims
@@ -70,7 +71,6 @@ const handleClaimUniverse: Step                                    // needs neit
 - **[nebula-registry-route-guards.md](nebula-registry-route-guards.md)** owns the route table's contents, the guards and their operands, and which fields `routeState` carries (this file decides only that URL captures land on `params`). It lands first and does not depend on this file.
 - **`.claude/rules/coding-style.md` § *Guard naming*** — the `*Guard` suffix and the return-a-`Response` contract.
 
-
 ### Design considerations
 
 - ⚠️ **Design consideration: the method field is the narrow case of a predicate, and the widening is obvious.** `routeDORequest` selects on the **WebSocket upgrade header**, not on a method — so a consumer that ever replaced it with this runner would want a callback where `method` sits today. YAGNI now: nothing needs it, and `method` is what all 15 Registry routes actually use. Recorded because the extension path being this cheap is evidence the shape is right — the runner selects on *something about the request*, and an HTTP method is one instance of that.
@@ -79,7 +79,7 @@ const handleClaimUniverse: Step                                    // needs neit
 
 ## Decisions
 
-⏳ **Started during the Pass-1 gate; open questions above are deliberately absent — only settled things go here.**
+⏳ **Started during the Pass-1 gate — only settled things go here.** Everything that was open when it opened has since been decided; the section that held them is gone.
 
 | Decision | Rejected alternative — why |
 |---|---|
