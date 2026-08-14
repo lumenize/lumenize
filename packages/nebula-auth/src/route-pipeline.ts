@@ -111,12 +111,15 @@ async function runSteps(
 ): Promise<Response> {
   // Built per call. Hoisting this would leak one request's state into the next in a reused isolate.
   const routeState: RouteState = { params: { ...match.pathname.groups } };
-  let current = request;
 
+  // ⚠️ The PARAMETER is reassigned on purpose, rather than tracked in a second `current` binding:
+  // two bindings would keep the superseded request alive for the rest of the loop. Usually that is a
+  // husk (its body moved to the replacement), but a step that `clone()`s instead of transferring
+  // leaves both bodies live, and this is what would pin the first one.
   for (const step of entry.steps) {
-    const result = await step(current, routeState);
+    const result = await step(request, routeState);
     if (result instanceof Response) return result;
-    if (result instanceof Request) current = result;
+    if (result instanceof Request) request = result;
   }
 
   return new Response('Route produced no response', { status: 500 });
