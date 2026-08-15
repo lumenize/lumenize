@@ -46,7 +46,7 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 
 - **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 - **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassage(access, node)`. The `node` argument is this node's own name, pinned by M2. Our coarse-grained access control.
+- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(access, node)`. The `node` argument is this node's own name, pinned by M2. Our coarse-grained access control.
 - **M4 — `@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
 - **M5 — The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
 - **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
@@ -69,7 +69,7 @@ The layers below describe the first of the examples above — a route whose call
 - **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
 - **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
 - **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
-- **R5 — `passageGuard`.** Calls `hasPassage` — the same verdict M3 computes, with R2's scope as the `node` argument.
+- **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `node` argument.
 - **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope — `dominionOverScopeGuard` on both routes that take one.
 - **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
 
@@ -83,7 +83,13 @@ The sections that follow expand on the model above.
 
 ## Scopes
 
-A scope is the instanceName half of a node's address, and it is what the coarse-grained gate reads. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope. Braces stand in for a value here and throughout; `:scope` in the route table above is literal `URLPattern` syntax, which is why the two differ.
+Scope is the driver for coarse-grained access control.
+
+It often appears in a segment of a URL, but it can also be a paramater of a mesh call or in the body of a Request.
+
+In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope. Braces stand in for a value here and throughout; `:scope` in the route table above is literal `URLPattern` syntax, which is why the two differ.
+
+In the mesh domain, scope serves an additional purpose. It is the instanceName half of a node address.
 
 Examples:
 
@@ -185,9 +191,9 @@ isAtOrBelow(myScope, node)  — my scope sits at or beneath the node: the same s
                               Exactly isAtOrAbove with the arguments flipped:
                               isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(access, node) = access.scopeAdmin ∧ isAtOrAbove(access.authScope, node)
+dominion(myScope, scopeAdmin, node) = scopeAdmin ∧ isAtOrAbove(myScope, node)
 
-passage(access, node)  = isAtOrBelow(access.authScope, node) ∨ dominion(access, node)
+passage(myScope, scopeAdmin, node)  = isAtOrBelow(myScope, node) ∨ dominion(myScope, scopeAdmin, node)
 ```
 
 Passage is only getting past the outer border of the node. What you can then do is decided by the "rules" of that node:
