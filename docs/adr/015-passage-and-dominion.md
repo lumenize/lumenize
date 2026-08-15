@@ -7,7 +7,9 @@
 
 ## Context
 
-Scopes form a strict tree: platform → universe → galaxy → star, and every principal carries a scope naming the subtree it governs. That much was never in doubt. Which direction dominion flows along that tree, and whether the `scopeAdmin` bit means anything on its own, was **assumed everywhere and written down nowhere**.
+**Coarse-grained access control is determined by three concepts this ADR defines — scope, dominion and passage — working together to make lateral movement impossible while allowing certain kinds of vertical movement.**
+
+Scopes form a strict tree: platform → universe → galaxy → star, and every principal carries a scope naming the subtree it governs. **That hierarchy is also what identifies lateral movement** — holding a scope in one branch while calling into a scope that is neither linearly above nor linearly below your own. The tree itself was never in doubt. **Vertical is what this ADR decides**: which direction dominion flows along it, and whether the `scopeAdmin` bit means anything on its own, was **assumed everywhere and written down nowhere**.
 
 An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
