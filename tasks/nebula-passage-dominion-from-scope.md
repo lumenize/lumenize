@@ -23,10 +23,10 @@ isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: t
                                      platform root. Exactly isAtOrAbove with the arguments
                                      flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(myScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(myScope, targetScope)
+dominion(authScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(authScope, targetScope)
 
-passage(myScope, scopeAdmin, targetScope)  = isAtOrBelow(myScope, targetScope)
-                                             ∨ dominion(myScope, scopeAdmin, targetScope)
+passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScope)
+                                               ∨ dominion(authScope, scopeAdmin, targetScope)
 ```
 
 ⚠️ **Both verdicts take exactly two inputs**: the caller's **`authScope`**, carried on the token — **never `activeScope`** — and the **`targetScope`** being acted on.
@@ -139,7 +139,7 @@ The instruments say **where**; the class is judgment. It is obvious at most site
 
 § *Objective* states the model. This section pins **which symbols carry it and how each is named** — nothing here restates a predicate.
 
-⚠️ **Both predicates take `(myScope, targetScope)` in that order, always — never flipped.** § *Objective*'s block states the identity that makes this dangerous: a transposed call is not a type error and not a test failure, it silently inverts the security model. That identity is also why `isAtOrBelow` exists as its own symbol; without it the upward arm would be spelled `isAtOrAbove(targetScope, myScope)`, putting the same function on adjacent lines with flipped arguments. ⚠️ **Implement one as the other with the arguments swapped**, so the identity — and the platform-root branch with it — is structural rather than a property two functions must both remember.
+⚠️ **Both structural predicates take `(myScope, targetScope)` in that order, always — never flipped.** § *Objective*'s block states the identity that makes this dangerous: a transposed call is not a type error and not a test failure, it silently inverts the security model. That identity is also why `isAtOrBelow` exists as its own symbol; without it the upward arm would be spelled `isAtOrAbove(targetScope, myScope)`, putting the same function on adjacent lines with flipped arguments. ⚠️ **Implement one as the other with the arguments swapped**, so the identity — and the platform-root branch with it — is structural rather than a property two functions must both remember.
 
 ⚠️ **`passage` is the UNION, not the upward arm alone.** An admin at `{u}` calling `{u}.{g}.{s}` has passage *because* they hold dominion there; writing passage as upward-only refuses the whole downward rule. It is also why `hasPassageInto` at the Registry gate would be an escalation (see [nebula-registry-route-guards.md](nebula-registry-route-guards.md) § *There is no authorization hole here*) — the same union misread in the opposite direction.
 

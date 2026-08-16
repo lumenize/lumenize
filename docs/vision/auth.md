@@ -207,17 +207,19 @@ isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: t
                                      platform root. Exactly isAtOrAbove with the arguments
                                      flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(myScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(myScope, targetScope)
+dominion(authScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(authScope, targetScope)
 
-passage(myScope, scopeAdmin, targetScope)  = isAtOrBelow(myScope, targetScope)
-                                             ∨ dominion(myScope, scopeAdmin, targetScope)
+passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScope)
+                                               ∨ dominion(authScope, scopeAdmin, targetScope)
 ```
 
-Passage is only getting past the outer border of the node. What you can then do is decided by the "rules" of that node:
+Passage is only getting past the outer border. What you can then do is decided by the rules of whatever you reached — on the mesh path (M5–M7):
 
 -  `@mesh()` guards on the methods the node exposes;
 - the checks at the top of those methods, and;
 - for anything touching Resources, by the Data-plane's own grants.
+
+A Registry endpoint is the same shape one layer shorter (R6–R7): its own guard functions, then the checks in its handler. It reaches no Resources, so there is no third.
 
 So the last column below is what a caller of that shape *usually* ends up able to do. It characterizes the common case; it is not a rule.
 

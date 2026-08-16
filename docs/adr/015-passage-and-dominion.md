@@ -13,13 +13,13 @@ Scopes form a strict tree: platform → universe → galaxy → star. **That hie
 
 Every caller presents its `authScope`, a `scopeAdmin` bit, and the `targetScope` it is acting on, as part of every call. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
 
-Previously, this model was assumed everywhere and written down precisely nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
+Previously, this model was assumed everywhere and in a precise written form nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
 
 > **Today's code differs.** Coverage is a derived wildcard pattern (`access.authScopePattern` matched against the target scope) rather than a comparison over the member's scope, a non-admin reaches downward, and **a call to a node named `nebula-platform` is refused outright** — so the predicates in § *Decision* are not yet what runs. [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two; the third is a **name reservation** and closes when the name goes from **rejected to bound**, never by being opened.
 
 ## Decision
 
-### Terminology — this ADR is the definition home
+### Terminology
 
 - **Scope** is the driver for coarse-grained access control. It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope.
 - **Dominion** — an *unconditional* right to act within a scope. Where it applies, nothing decided inside that scope can stand against it. **Downward only.**
@@ -42,19 +42,19 @@ isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: t
                                      platform root. Exactly isAtOrAbove with the arguments
                                      flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(myScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(myScope, targetScope)
+dominion(authScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(authScope, targetScope)
 
-passage(myScope, scopeAdmin, targetScope)  = isAtOrBelow(myScope, targetScope)
-                                             ∨ dominion(myScope, scopeAdmin, targetScope)
+passage(authScope, scopeAdmin, targetScope)  = isAtOrBelow(authScope, targetScope)
+                                               ∨ dominion(authScope, scopeAdmin, targetScope)
 ```
 
 **One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(access, targetScope)` and `hasPassageInto(access, targetScope)`.
 
-**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: `myScope` and `scopeAdmin` ride the caller's token as `access.authScope` and `access.scopeAdmin`, so they are passed as that one `access` claim. `targetScope` is passed separately.
+**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: `authScope` and `scopeAdmin` are both fields of the caller's `access` claim, so they are passed as that one claim. `targetScope` is passed separately.
 
 **Scope comparisons are hierarchical by dot-separated segments**, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2` — the second is the one a naive `startsWith` gets wrong.
 
-**The bare `scopeAdmin` bit is never dominion, and neither is position without it** — dominion is the conjunction, and reading either operand on its own is the bug this ADR exists to stop.
+**The bare `scopeAdmin` bit is never dominion, and neither is position without it** — dominion is the conjunction, and reading either operand on its own is a bug.
 
 **Passage gets a call past a callee's outer boundary and no further.** What happens after that is the callee's own decision. Reads are often generously granted, writes are almost always further restricted.
 
