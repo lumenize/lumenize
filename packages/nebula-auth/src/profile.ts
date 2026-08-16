@@ -35,7 +35,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ComposedMeshDO, mesh, newContinuation, type Continuation } from '@lumenize/mesh';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
-import { isAtOrAbove, isPlatformScope } from './parse-id';
+import { hasDominionOver, isPlatformScope } from './parse-id';
 import { REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 
@@ -269,6 +269,11 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // exception exists to defeat.
     if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
     // (2) Not an admin → reject. NO read.
+    // ⚠️ **ALLOW-LISTED off the shared predicate — a bare `scopeAdmin` test standing alone.** It is
+    // work avoidance, not the dominion decision: branch (4) below asks `hasDominionOver` about each
+    // scope the profile actually touches, and this only spares the registry read for a caller who
+    // could not pass it under any scope. Deleting it changes no verdict; replacing it with the
+    // predicate is impossible, since the predicate needs the very list this exists to avoid fetching.
     if (!claims?.access?.scopeAdmin) throw new Error('Forbidden: profile write requires owner or admin');
     // (3) Super-admin — the reserved platform scope is the ROOT, so it covers every scope → pass. NO
     // read. ⚠️ An IDENTITY test, deliberately not `hasDominionOver`: this is a work-avoidance
@@ -308,7 +313,10 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       });
       throw new Error('Forbidden: profile authz check failed');
     }
-    if (scopes.some((s) => isAtOrAbove(claims.access.authScope, s))) return;
+    // The END shape: the ONE shared dominion predicate, asked about each scope this profile
+    // actually touches. Its `scopeAdmin` conjunction is re-checked here rather than assumed from
+    // branch (2) — that is the point of routing through the predicate, and it costs one boolean.
+    if (scopes.some((s) => hasDominionOver(claims.access, s))) return;
     throw new Error('Forbidden: admin does not cover any of the profile scopes');
   }
 

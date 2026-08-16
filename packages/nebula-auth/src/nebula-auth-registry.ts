@@ -492,8 +492,8 @@ export class NebulaAuthRegistry extends DurableObject {
    * under galaxies that never existed — including fully-orphan stars no covering admin can remediate);
    * the **reserved-slug** reject (without it, a stranger founds the user-developer's own `.dev` Studio
    * workspace and can wipe it); and minting at the **3-segment star id** (minting at the universe
-   * scope would derive `{u}.*` — a universe admin wearing a star's name; the confinement *enforces*
-   * a pattern, it does not *validate* it).
+   * scope would put `{u}` in their claim — a universe admin wearing a star's name; the confinement
+   * *enforces* a scope, it does not *validate* it).
    *
    * ⚠️ Turnstile is NOT applied here — the gate is `TURNSTILE_ENDPOINTS` in `router.ts`, a separate
    * `Set` this method never touches. Removing `claim-star` from it silently ships an ungated open

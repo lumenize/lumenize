@@ -135,7 +135,7 @@ export class QuerySubs {
     // ⚠️ The CONFINED verdict, not the raw bit — confinement point 2. The push path never re-reads
     // the JWT, so storing the bare claim would leave a descendant-scope admin an unconfined bypass
     // for the life of the subscription. Store-time is the only option: at push time we hold neither
-    // the live claim nor the pattern. Fail closed if the host name is absent (no bypass granted).
+    // the live claim nor the caller's scope. Fail closed if the host name is absent (no bypass granted).
     const hostName = this.#getHostName();
     const dominionOverHostAtSubscribe = hostName && hasDominionOver(claims?.access, hostName) ? 1 : 0;
     // Subscriber-list roster: capture the public profileId claim alongside sub (bind NULL when absent —

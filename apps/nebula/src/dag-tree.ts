@@ -463,7 +463,7 @@ export class DagTree {
    *      `resolvePermission` per node, which already honors a **Star** DAG `admin` grant (so a
    *      Star admin needs no `hasDominionOverHost`).
    *
-   * ⚠️ **This method takes no pattern and no host name, so it is NOT a confinement point** — do not
+   * ⚠️ **This method takes no scope and no host name, so it is NOT a confinement point** — do not
    * add one, and do not claim it "inherits confinement from the store." It has TWO operand sources
    * and only one of them comes from the store:
    *   - **Push path** (`resource-data-plane.ts` `targetsForQuery` / query-push / mutation-broadcast)

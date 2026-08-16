@@ -29,7 +29,7 @@
 import type { SQLSchemaMigration } from '@lumenize/sql-migrations';
 
 /** Scope-existence registry. Existence is INDEPENDENT of membership — an admin-created child scope has
- *  a row here and zero `Memberships`, because the creator's own wildcard pattern already reaches it.
+ *  a row here and zero `Memberships`, because the creator's own scope already sits at or above it.
  *  Four readers need this row and none of them is access control: slug uniqueness, parent-exists,
  *  enumeration (so an admin can find a scope they hold no membership in), and the deletion cascade. */
 export const SCOPES_SCHEMA = `

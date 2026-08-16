@@ -135,7 +135,33 @@ export async function run(stack: DevStack): Promise<void> {
     );
   }
 
-  // ── LIMB 5: the Profile gate passes with ZERO registry reads ─────────────────────────────────
+  // ── LIMB 5: the scope GRAMMAR is enforced at the refresh boundary, even here ─────────────────
+  // 🚨 A deliberate verdict change: a four-segment `activeScope` answers **400** where today's code
+  // answers 200 at every tier. `buildAuthScopePattern`'s wildcard placement was silently encoding
+  // `parseId`'s 1–3-segment grammar; `isAtOrAbove` is deliberately grammar-free, so the grammar is
+  // restored at the request boundary.
+  //
+  // ⚠️ **Asserted for the SUPERUSER on purpose.** They hold dominion over every scope, so if anyone
+  // could talk the endpoint into minting an ungrammatical one it is them — which makes this the
+  // strongest place to prove the refusal is about the GRAMMAR and not about authority. A 403 here
+  // would mean the parse never ran and a containment check refused it instead.
+  const ungrammatical = `${someUniverse}.app.tenant.extra`;
+  const badRes = await fetch(`${origin}/auth/${PLATFORM_SCOPE}/refresh-token`, {
+    method: 'POST',
+    headers: { Cookie: `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeScope: ungrammatical }),
+  });
+  assert.equal(
+    badRes.status, 400,
+    `a four-segment activeScope must be refused at the boundary with 400, got ${badRes.status} ` +
+    `(500 would mean a bare parseId throw reached router.ts's blanket catch; 403 would mean the ` +
+    `parse never ran)`,
+  );
+  const badBody = await badRes.json() as { error?: string; access_token?: string };
+  assert.equal(badBody.error, 'invalid_request', `wrong error code: ${badBody.error}`);
+  assert.equal(badBody.access_token, undefined, 'an ungrammatical scope was minted into a token');
+
+  // ── LIMB 6: the Profile gate passes with ZERO registry reads ─────────────────────────────────
   // Profile's super-admin branch is the second value-coupled site. It is a work-avoidance
   // short-circuit — it must answer BEFORE the one registry read the scoped-admin branch makes — so
   // a superuser writing a stranger's profile is what proves the branch still fires.
@@ -164,6 +190,6 @@ export async function run(stack: DevStack): Promise<void> {
 
   console.error(
     `[superuser-end-to-end] real bootstrap login verified, refreshed into a foreign Star, ` +
-    `enumerated ${ids.length} scope(s), and passed the Profile gate`,
+    `enumerated ${ids.length} scope(s), was refused an ungrammatical scope, and passed the Profile gate`,
   );
 }

@@ -190,7 +190,7 @@ export class Subscriptions {
     // push path never re-reads the JWT, so confining only the live claim (requirePermission) would
     // leave this back door open — a descendant-scope admin would keep an unconfined bypass for the
     // life of the subscription. Confining at STORE time is the only option: at push time we hold
-    // neither the live claim nor the pattern, only this bit.
+    // neither the live claim nor the caller's scope, only this bit.
     const hostName = this.#getHostName();
     const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
     const dominionOverHostAtSubscribe = hostName && hasDominionOver(claims?.access, hostName) ? 1 : 0;

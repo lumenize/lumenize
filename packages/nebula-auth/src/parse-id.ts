@@ -6,6 +6,52 @@
  *
  * This module is the source of truth for the id format and for the two structural containment
  * predicates the coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).
+ *
+ * ---
+ *
+ * ## The containment allow-list
+ *
+ * **A call to {@link isAtOrAbove} or {@link isAtOrBelow} outside {@link hasDominionOver},
+ * {@link hasPassageInto}, or this list is non-conformant by definition** — that is what makes the
+ * next one show up in a grep rather than in a review:
+ *
+ * ```sh
+ * grep -rn 'isAtOrAbove(\|isAtOrBelow(' packages/*&#47;src apps/nebula/src --include='*.ts' \
+ *   | grep -vE ':[0-9]+: *(\*|//|/\*)' | grep -v 'parse-id.ts'
+ * ```
+ *
+ * ⚠️ **A short list of EXCEPTIONS, never an inventory of sites.** An inventory rots on the next
+ * unrelated edit; this fails loudly the moment a hit appears that is not on it. Every entry carries
+ * its class and its reason, because "it looked fine" is how the wrong one gets added:
+ *
+ * - **`verify.ts` — token-internal consistency · STRUCTURAL.** Asserts `aud` is at or below the
+ *   token's own `authScope`. There is no principal question here and it takes **no `scopeAdmin`
+ *   conjunction**; the Gateway's outbound `aud` fence assumes this holds.
+ * - **`access-claims.ts` `buildNebulaJwtPayload` — mint-side construction invariant · STRUCTURAL.**
+ *   The same assertion on the way out, so an inconsistent token is impossible to *construct* rather
+ *   than merely rejected downstream. Again no `scopeAdmin` operand.
+ * - **`router.ts` `verifyInstanceJwt` — DOMINION, split across a FILE boundary · sibling named.**
+ *   The containment half only. `worker-token.ts`'s `handleInvite` completes the conjunction with its
+ *   bare `scopeAdmin` read, and that split is *required*: `raw-comm.md` puts expected client-errors
+ *   on the Worker before the RPC. ⚠️ Adding the bit here hardens nothing and breaks every
+ *   non-admin route; the two halves are one decision and must be read together.
+ * - **`worker-token.ts` `handleRefreshToken` — the `activeScope` confine · STRUCTURAL.** Bounds a
+ *   client-supplied scope inside the KV record's server-trusted one. The record *is* the authority,
+ *   so no claim is consulted and no bit applies.
+ * - **`worker-token.ts` `mintNarrowerToken` caller bound — DOMINION, split within THIS file.**
+ *   Completed by the `hasDominionOver` eligibility check a few lines below; it survives for its
+ *   distinct `insufficient_scope` code and its caller-facing message.
+ * - **`worker-token.ts` `mintNarrowerToken` subject bound — STRUCTURAL.** Bounds `activeScope`
+ *   inside the *subject's* own scope so the minted token mirrors that person. Not a question about
+ *   any principal's authority, so it takes no bit.
+ *
+ * ⚠️ **A second class this grep is structurally blind to: containment computed BY VALUE.**
+ * `b === a || b.startsWith(a + '.')` in TypeScript and `LIKE ${prefix + '.%'}` in SQL both compute
+ * `isAtOrAbove` without spelling it. Two such sites are allow-listed, both in
+ * `nebula-auth-registry.ts` (`myScopeTree`'s enumeration and `#computeDeletionPlan`'s cascade), each
+ * with its reason at the site: the query **is** the bound, and routing per row would require
+ * fetching every scope first — the work those arms exist to avoid. Sweep them with
+ * `grep -rnE "startsWith\(.*'\.'|\. *%"`.
  */
 
 import type { AccessEntry, ParsedId, Tier } from './types';

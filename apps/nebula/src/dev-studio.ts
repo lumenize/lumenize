@@ -911,8 +911,8 @@ export class DevStudio extends NebulaDO {
    * Fire-and-forget: persist one codegen turn to this sandbox's Galaxy (`{u}.{g}`
    * derived from the `{u}.{g}.dev` instance). Best-effort telemetry — a recording
    * failure must never break the dev loop, so it's a 3-arg fire-and-forget mesh
-   * call wrapped in try/catch. The Galaxy's scope pattern `{u}.{g}.*` covers this
-   * dev star's `aud` and the origin user is a galaxy admin, so `recordTurn`'s
+   * call wrapped in try/catch. The origin user's `authScope` is the Galaxy `{u}.{g}`, which sits
+   * at or above this dev star, and they are a galaxy admin — so `recordTurn`'s
    * onBeforeCall + requireDominionHere both pass. The corpus seeds the eval suite —
    * see tasks/nebula-agentic-development-engine.md Part 2.
    */
