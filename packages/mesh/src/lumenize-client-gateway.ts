@@ -580,7 +580,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
       // Build envelope - chain is already preprocessed by client. The client keeps its handler
-      // IN-HEAP (D16), so nothing travels except a `response` descriptor telling the callee to
+      // IN-HEAP, so nothing travels except a `response` descriptor telling the callee to
       // fire the RESULT back to THIS Gateway (addressed to the client + callId), which we then
       // re-resolve to the client's current socket. `attachment.bindingName` is this Gateway's
       // own binding (from the routing header at WS accept), so the callee can reach us.
@@ -625,7 +625,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
         stub = this.env[binding];
       }
 
-      // Early ack (D15): the callee acks on admission, BEFORE the chain runs. On success the
+      // Early ack: the callee acks on admission, BEFORE the chain runs. On success the
       // result returns LATER via our __handleResponse door — nothing is relayed to the client yet
       // (it is fire-and-forget, holding its in-heap handler). On an admission reject we synthesize
       // an ERROR RESULT for this callId so the client's handler is never stranded (Q4).
@@ -655,7 +655,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
   }
 
   /**
-   * The Gateway response door (D17): a mesh node fires a client-originated call's RESULT back
+   * The Gateway response door: a mesh node fires a client-originated call's RESULT back
    * here (via `lmz.call`'s `response.kind:'client'` fire-back), addressed to this client + callId.
    * We re-resolve delivery to the client's CURRENT socket (survives reconnect — D8/D16), so a
    * result is never bound to the socket the call left on. Zero socket → bounded grace → drop

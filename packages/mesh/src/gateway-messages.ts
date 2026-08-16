@@ -122,7 +122,7 @@ export interface CallMessage {
   /** Preprocessed operation chain (contains method args which may be any type) */
   chain: any;
   /**
-   * True for a 4-arg client `call()` — the client keeps its handler in-heap (D16) and expects a
+   * True for a 4-arg client `call()` — the client keeps its handler in-heap and expects a
    * RESULT fired back for this `callId`. Absent/false ⇒ a 3-arg client call, truly fire-and-forget
    * (the Gateway attaches no fire-back descriptor). See `LumenizeClientGateway.#handleClientCall`.
    */

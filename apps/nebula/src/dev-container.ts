@@ -571,7 +571,7 @@ export class DevContainer extends NebulaContainer {
   }
 
   /**
-   * Bounded fresh probe corroborating the stuck signature (D4). A frozen-stuck container
+   * Bounded fresh probe corroborating the stuck signature. A frozen-stuck container
    * (`running=true`, port dead) hangs the proxy → the `AbortSignal.timeout` fires → the base
    * returns/throws the proxy-path signature (`isStuckFlagResponse` true) or the probe itself
    * rejects (treated as stuck). A healthy `200`, a `503`/`429`/provisioning, or a crash-loop

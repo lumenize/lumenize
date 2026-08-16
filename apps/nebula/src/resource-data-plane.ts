@@ -125,10 +125,10 @@ export class ResourceDataPlane {
   ) {
     this.#getOntology = getOntology;
     this.#bridge = bridge;
-    // The capability hangs the Flow-3 trigger B (D6) rerun off DagTree's onChanged,
+    // The capability hangs the Flow-3 trigger B rerun off DagTree's onChanged,
     // IN ADDITION to the host's hook (Star's org-tree broadcast / DevStudio's no-op).
     // A permission change reruns ALL live queries (a grant changes readability across
-    // every type → no typeName filter); cheap at v1 scale, no drops (D5). The host
+    // every type → no typeName filter); cheap at v1 scale, no drops. The host
     // hook runs first, then the query rerun. (Fires only AFTER construction — on a
     // real DAG mutation — so `#querySubs`, assigned below, always exists by then.)
     this.#dagTree = new DagTree(ctx, getCallContext, () => {
@@ -453,7 +453,7 @@ export class ResourceDataPlane {
    * The single membership-delivery primitive (generic over `queryType`) — called by
    * Flow 1 (the one new subscriber) and Flow 3 (each query's subscribers, on commit
    * or permission change). Evaluates the query to its current result set, evaluates
-   * each target's read permission (no short-circuit), then PARTITIONS (D4):
+   * each target's read permission (no short-circuit), then PARTITIONS:
    *   - **no-denial** targets (can read every match) share ONE identical payload
    *     (the full `resourceIds`) → `bridge.broadcastQueryUpdate` (svc.broadcast);
    *   - **has-denial** targets each get an individualized `bridge.deliverQueryUpdate`

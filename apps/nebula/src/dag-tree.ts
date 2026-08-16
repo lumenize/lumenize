@@ -449,7 +449,7 @@ export class DagTree {
 
   /**
    * Batch permission evaluation for an EXPLICIT subscriber `sub` (NOT the live
-   * caller) — the per-push read recheck (D3) + the query-membership filter (D4)
+   * caller) — the per-push read recheck + the query-membership filter
    * use this. Distinct from {@link requirePermission} on three axes:
    *   1. **Non-throwing** — returns `{ allowed, denied }` Sets, never throws (a
    *      lost-read subscriber is skipped, never dropped — D5).
@@ -459,7 +459,7 @@ export class DagTree {
    *   3. **Explicit `sub` + stored `hasDominionOverHost` VERDICT** — at push time we don't hold the
    *      subscriber's live JWT, so `requirePermission`'s scope-admin bypass (a Galaxy/Universe
    *      admin who holds no DAG grant) is replicated here from the flag stored on the subscriber
-   *      row at subscribe time (D16). `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise
+   *      row at subscribe time. `hasDominionOverHost:true` ⇒ ALL allowed. Otherwise
    *      `resolvePermission` per node, which already honors a **Star** DAG `admin` grant (so a
    *      Star admin needs no `hasDominionOverHost`).
    *

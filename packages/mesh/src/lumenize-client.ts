@@ -94,7 +94,7 @@ import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 const MAX_QUEUE_SIZE = 100;
 
 /**
- * Default `callAsync` timeout (D4). A public awaitable escape hatch with no default would re-arm the
+ * Default `callAsync` timeout. A public awaitable escape hatch with no default would re-arm the
  * exact "Promise hangs to reload" gap `callAsync` exists to close, so the common path is bounded by
  * construction. `0`/`Infinity` disables (rare long awaits). 30s matches the mesh→client push budget
  * (`CLIENT_CALL_TIMEOUT_MS`, `lumenize-client-gateway.ts`).
@@ -365,7 +365,7 @@ export interface LmzApiClient {
 // ============================================
 
 /**
- * A 4-arg `call()`'s response handler, kept IN-HEAP keyed by callId (D16). The JS heap survives
+ * A 4-arg `call()`'s response handler, kept IN-HEAP keyed by callId. The JS heap survives
  * a tab freeze AND a WebSocket reconnect, so the handler outlives every failure short of
  * discard/reload — the client bug this fixes is delivery-bound-to-a-transient-socket, not holding
  * the handler. `capturedContext` is the callContext active at the call site, restored when the
@@ -379,7 +379,7 @@ interface InHeapHandler {
 }
 
 /**
- * A `callAsync` in-flight Promise, kept IN-HEAP keyed by callId (D16) and settled by the RESULT
+ * A `callAsync` in-flight Promise, kept IN-HEAP keyed by callId and settled by the RESULT
  * fired back for that callId (`#handleCallResponse`). Parallel to `#inHeapHandlers`: `callAsync`
  * settles a Promise, it has no handler *chain*. `signal`/`onAbort` are retained so a normal settle
  * can remove the abort listener (no leak) and an abort can drop the entry.
@@ -393,7 +393,7 @@ interface PendingAsyncCall {
 
 /**
  * Compose the caller's optional `AbortSignal` (external cancel) with the built-in default-timeout
- * signal (D4) into one. Uses the web-standard `AbortSignal.any`; returns the lone signal unwrapped
+ * signal into one. Uses the web-standard `AbortSignal.any`; returns the lone signal unwrapped
  * when only one is present, `undefined` when neither is.
  */
 function combineAbortSignals(...signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
@@ -448,7 +448,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   #refreshInFlight: Promise<void> | null = null;
   // D16: 4-arg call handlers kept in-heap keyed by callId (survives freeze + reconnect).
   #inHeapHandlers = new Map<string, InHeapHandler>();
-  // callAsync (D16): Promise settlers kept in-heap keyed by callId — parallel to #inHeapHandlers.
+  // callAsync: Promise settlers kept in-heap keyed by callId — parallel to #inHeapHandlers.
   #pendingAsyncCalls = new Map<string, PendingAsyncCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -662,8 +662,8 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     }
 
     // Explicit teardown: drop in-heap 4-arg handlers (no result will arrive). A transient WS
-    // drop/reconnect does NOT reach here — those handlers survive in the heap (D16); on a full
-    // reload the client re-issues + reconciles (D8). disconnect() is a deliberate discard.
+    // drop/reconnect does NOT reach here — those handlers survive in the heap; on a full
+    // reload the client re-issues + reconciles. disconnect() is a deliberate discard.
     this.#inHeapHandlers.clear();
 
     // callAsync Promises DO have an awaiting caller (unlike the fire-and-forget in-heap handlers
@@ -1210,7 +1210,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
   }
 
   /**
-   * Handle a RESULT for a client-originated 4-arg call (D16). Looks up the IN-HEAP handler by
+   * Handle a RESULT for a client-originated 4-arg call. Looks up the IN-HEAP handler by
    * callId, runs it with the delivered value OR Error (D6 — `handler($result)`), and removes it.
    * The delete-on-delivery IS the dedup: a duplicate RESULT for the same callId finds no handler
    * and is dropped (M4). An unknown callId (a 3-arg call, or an already-handled one) is dropped.
@@ -1414,7 +1414,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     // 2. Capture the call-site context synchronously (threaded explicitly — no ALS in the browser).
     const capturedContext = this.#currentCallContext ?? undefined;
 
-    // 3. A 4-arg call keeps its handler IN-HEAP keyed by callId (D16) — it survives tab freeze +
+    // 3. A 4-arg call keeps its handler IN-HEAP keyed by callId — it survives tab freeze +
     //    reconnect, and the RESULT re-resolves to the current socket. A 3-arg call is truly
     //    fire-and-forget (no in-heap entry; expectsResult:false).
     const callId = crypto.randomUUID();
@@ -1436,7 +1436,7 @@ export abstract class LumenizeClient<TClaims extends { sub: string } = JwtPayloa
     //    continuation — D6 tier 1, same as `call()`; a developer error, never a rejection).
     const { remoteChain } = extractCallChains(remoteContinuation, undefined);
 
-    // 2. Compose the caller's signal (external cancel) with the built-in default timeout (D4), so
+    // 2. Compose the caller's signal (external cancel) with the built-in default timeout, so
     //    the common path can't hang and `signal` stays free for unmount/user-cancel. 0/Infinity off.
     const timeoutMs = options?.timeoutMs ?? DEFAULT_CALLASYNC_TIMEOUT_MS;
     const timeoutSignal = timeoutMs > 0 && Number.isFinite(timeoutMs)

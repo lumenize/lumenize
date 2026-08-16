@@ -55,7 +55,7 @@ export class Star extends NebulaDO {
       // Ontology-provider seam: Star's source is the Galaxy-cached row. The row
       // already carries `relationships` (compiled by `compileOntologyVersion`),
       // so widening the seam to surface it for `subscribeQuery` field validation
-      // (D11) costs nothing here.
+      // costs nothing here.
       () => {
         const { row, facet } = this.#ensureFacet();
         return { version: row.version, facet, relationships: row.relationships };
@@ -437,7 +437,7 @@ export class Star extends NebulaDO {
    *  framework fires it back to the caller's `callAsync` (D5 pattern (a)). On a stale version RETURN
    *  the `OntologyStaleError` as a VALUE (resolve, not reject): the client's submit wrapper maps it to
    *  the engine's `{ontologyStale}` signal (asymmetric with `read`, which THROWS on stale). The
-   *  version-gate is Galaxy-multi-version-specific and stays on Star (D8); the capability never sees
+   *  version-gate is Galaxy-multi-version-specific and stays on Star; the capability never sees
    *  `appVersion`. */
   @mesh()
   transaction(appVersion: string, newETag: string, ops: Record<string, OperationDescriptor>): Promise<TransactionResult> | OntologyStaleError {
@@ -764,7 +764,7 @@ export class Star extends NebulaDO {
   }
 
   /**
-   * Host-side fanout for a query membership push to the NO-DENIAL group (D17) — the
+   * Host-side fanout for a query membership push to the NO-DENIAL group — the
    * {@link ResourceHostBridge} `broadcastQueryUpdate` impl. One shared payload (the
    * full `resourceIds`) via `svc.broadcast`; drop-on-failed-fanout cleanup rides
    * `onQueryBroadcastResult` keyed by `queryHash` (m6).

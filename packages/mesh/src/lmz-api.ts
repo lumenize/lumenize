@@ -226,7 +226,7 @@ async function dispatchEnvelope(
   const errorObj = error instanceof Error ? error : new Error(String(error));
 
   if (!handlerChain) {
-    // 3-arg dispatch/admission failure has no handler to receive it → log (D6), never throw async.
+    // 3-arg dispatch/admission failure has no handler to receive it → log, never throw async.
     log.error('dispatch/admission failure on a 3-arg call (no handler to receive the error)', {
       error: errorObj.message,
     });
@@ -328,12 +328,12 @@ function callShared(
  * envelope — alarms, fetch executor-delivery — and on the fire-back envelope
  * itself, since a handler never re-fires).
  *
- * Present ⇒ the callee, **after its early ack** (D15), runs the chain under
+ * Present ⇒ the callee, **after its early ack**, runs the chain under
  * `ctx.waitUntil` and then delivers the outcome per `kind`:
  * - `discard` — 3-arg fire-and-forget: run, drop the result; a post-ack throw is logged.
  * - `mesh` — 4-arg DO/Worker caller: fill `handler` with the outcome and fire it one-way
  *   to `returnAddr.__handleResponse` (run there at `requireMeshDecorator:false`, D5/D10).
- * - `client` — 4-arg client-via-Gateway caller (D16): fire the bare outcome to the Gateway's
+ * - `client` — 4-arg client-via-Gateway caller: fire the bare outcome to the Gateway's
  *   `__handleResponse` door keyed by `callId`; the client runs its own in-heap handler.
  *
  * `onErrorOnly` (N6) is evaluated **callee-side**: the success fire-back is skipped.
@@ -766,7 +766,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
  * Node interface for the shared `executeEnvelope` receive path.
  *
  * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer` all satisfy this structurally.
- * The node's `ctx.waitUntil` (D15) and `env` (fire-back stub) are NOT on this interface —
+ * The node's `ctx.waitUntil` and `env` (fire-back stub) are NOT on this interface —
  * they're `protected` on the base classes, so each node threads them into `executeEnvelope`'s
  * options from inside its own method (where protected access is allowed). `__executeChain`
  * is intentionally absent: `executeEnvelope` calls
@@ -792,12 +792,12 @@ export interface EnvelopeExecutorNode {
  * `ctx.waitUntil`. Never rejects — every failure is logged, so a bad handler or a
  * rejected response leg can never crash the callee node or become an unhandled rejection.
  *
- * - `discard` (3-arg): drop a success; **log** a post-ack throw (D6) — it has nowhere to go.
+ * - `discard` (3-arg): drop a success; **log** a post-ack throw — it has nowhere to go.
  * - `mesh` (4-arg DO/Worker): fill the traveling handler and fire it one-way to
  *   `returnAddr.__handleResponse`. The sink's ack carries `{ $error }` only if the
  *   response leg was **rejected at admission** (e.g. the D5 scope gate, now `requirePassage`) — logged
  *   here; a handler that throws *post-ack at the sink* (N8) is logged on the sink itself.
- * - `client` (D16): delivered via the Gateway door — built in the client-leg phase.
+ * - `client`: delivered via the Gateway door — built in the client-leg phase.
  *
  * `onErrorOnly` (N6) is honored here, callee-side: a success fire-back is skipped.
  *
@@ -893,9 +893,9 @@ async function fireResponse(
  * `LumenizeDO`/`LumenizeWorker`/`LumenizeContainer`, for BOTH RPC entries:
  * `__executeOperation` (requests, `requireMeshDecorator: true`) and `__handleResponse`
  * (fire-backs, `requireMeshDecorator: false`). `onBeforeCall` runs on **both** — the
- * response leg is scope-gated by construction (D5), only the @mesh allowlist toggles.
+ * response leg is scope-gated by construction, only the @mesh allowlist toggles.
  *
- * **Early ack (D15):** admission (version/callContext/identity/`onBeforeCall`) runs first
+ * **Early ack:** admission (version/callContext/identity/`onBeforeCall`) runs first
  * and returns `{ $ack: true }` the instant the callee is admitted — BEFORE the chain. The
  * chain + fire-back then run as a **detached task** (started eagerly, re-bound to the envelope's
  * `callContext` via `runWithCallContext` — a fresh scope, not a captured closure). `ctx.waitUntil`
@@ -913,7 +913,7 @@ export async function executeEnvelope(
     includeInstanceName?: boolean;
     requireMeshDecorator?: boolean;
     /** The node's `ctx.waitUntil`. Keeps an ephemeral `LumenizeWorker` alive for the detached
-     * post-ack tail (D15); a **no-op on DOs** (Worker-API parity only — see the ADMITTED block). */
+     * post-ack tail; a **no-op on DOs** (Worker-API parity only — see the ADMITTED block). */
     waitUntil?: (promise: Promise<any>) => void;
     /** The node's bindings — used to resolve the fire-back return-address stub. */
     env?: any;
@@ -1055,7 +1055,7 @@ export function ComposedMeshDO<TBase extends AbstractConstructor>(Base: TBase, n
 
     /**
      * Request seam a remote `lmz.call` dispatches to: acks early, then runs the chain + fire-back
-     * under `ctx.waitUntil` (D15) via the shared `executeEnvelope`. @internal
+     * under `ctx.waitUntil` via the shared `executeEnvelope`. @internal
      */
     async __executeOperation(envelope: CallEnvelope): Promise<any> {
       const base = this as unknown as { ctx: DurableObjectState; env: any };

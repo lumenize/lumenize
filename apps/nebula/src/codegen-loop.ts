@@ -142,7 +142,7 @@ export interface CodegenLoopDeps {
   callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown>;
   /** Persist one file (DevStudio.writeSource → Workspace + git commit). */
   writeFile(path: string, content: string): Promise<{ oid: string; path: string }>;
-  /** typia shape validation of tool args (D5). Async — the validator is a facet. */
+  /** typia shape validation of tool args. Async — the validator is a facet. */
   validateToolArgs(toolName: string, args: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Progress/thought emit seam (Child 3 Phase 3). Called per round with the model's
@@ -159,9 +159,9 @@ export interface CodegenLoopDeps {
 export interface CodegenLoopConfig {
   /** Max model inferences per turn (D4 — the runaway stop). */
   maxToolDepth: number;
-  /** Per-call params (D6): full temp for the first/generate pass. */
+  /** Per-call params: full temp for the first/generate pass. */
   generateParams: ModelParams;
-  /** Lower temp once self-correcting on a compile error (D6). */
+  /** Lower temp once self-correcting on a compile error. */
   fixParams: ModelParams;
 }
 
@@ -171,14 +171,14 @@ export const DEFAULT_LOOP_CONFIG: CodegenLoopConfig = {
   fixParams: { temperature: 0.2, max_tokens: 4096 },
 };
 
-// ─── Prompt assembly (D7) ────────────────────────────────────────────────
+// ─── Prompt assembly ─────────────────────────────────────────────────────
 
 /**
  * Assemble the layered codegen prompt. The system layer is a **cascade of
  * composable bundles** (NOT a single hardcoded string) — the future insertion
  * seam for the Platform/Universe/Galaxy practice cascade (on-hold/nebula-skills.md);
  * out of scope to fill now, but the shape must not foreclose it. The **ontology
- * `.d.ts` is pinned in its own stable system block** (D7). The user layer carries
+ * `.d.ts` is pinned in its own stable system block**. The user layer carries
  * the request + current source (+ error-tail on a fix round, added by the loop).
  */
 export function assembleCodegenPrompt(opts: {

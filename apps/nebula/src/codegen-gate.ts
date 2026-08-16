@@ -125,8 +125,8 @@ declare module 'lucide-vue-next';
 `;
 
 /**
- * Strip host-absolute paths + bundler/workerd-internal frames and bound the length
- * (D8). Raw `@vue/compiler-sfc` / `tsc` output can embed absolute paths or internal
+ * Strip host-absolute paths + bundler/workerd-internal frames and bound the length.
+ * Raw `@vue/compiler-sfc` / `tsc` output can embed absolute paths or internal
  * stack frames; unbounded it bloats the prompt and harms eval-fixture portability
  * (the corpus persists this in `TurnRecord.error`).
  */
@@ -214,7 +214,7 @@ export function compileVueSfc(content: string): GateResult & { templateCode?: st
 }
 
 /** The ontology Rung-1 gate: compile the `.d.ts` to a validator and discard the
- *  bundle, mapping throw/no-throw → `{ ok, errorTail }` (D3). */
+ *  bundle, mapping throw/no-throw → `{ ok, errorTail }`. */
 function compileOntologyGate(content: string): GateResult {
   try {
     compileOntologyVersion({ version: 'gate', types: content });
@@ -226,7 +226,7 @@ function compileOntologyGate(content: string): GateResult {
 
 /**
  * Path-dispatched Rung-1 compile — the loop's self-correction signal. Normalizes
- * the path first (D3), then dispatches by extension: `*.d.ts` → ontology gate,
+ * the path first, then dispatches by extension: `*.d.ts` → ontology gate,
  * `*.vue` → SFC two-pass gate, anything else → write-only `{ ok: true }`.
  *
  * Pure + synchronous; no container, no AI binding. The caller (the loop driver)

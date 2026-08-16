@@ -109,7 +109,7 @@ export function unwrapWorkersAiRest(json: unknown): unknown {
 }
 
 /** Minimal, *structural* system bundle for the tool-calling loop — the seed of the
- *  composable cascade (D7). The make-it-data-bound *content* is the engine file's
+ *  composable cascade. The make-it-data-bound *content* is the engine file's
  *  exploratory concern; this only establishes the tool protocol + output constraints.
  *  Model-agnostic (`studio-model-agnostic-naming`) — no vendor name appears. */
 const STUDIO_LOOP_SYSTEM_PROMPT = `You are Studio, an assistant that builds a small web app as a Vue 3 Single-File Component (src/App.vue).
@@ -530,7 +530,7 @@ export class DevStudio extends NebulaDO {
   // ─── Resource data-plane surface (chat Session/Message Resources, Child 1) ─────────
   //
   // `@mesh()` — **NOT** `@mesh(requireDominionHere)` (unlike every codegen/source method
-  // above): chat participants are non-admin but DAG-granted (D4). `onBeforeCall`
+  // above): chat participants are non-admin but DAG-granted. `onBeforeCall`
   // (NebulaDO base) still aud-locks `{u}.{g}.dev`; the per-op DAG read/write check
   // lives inside the data-plane (Resources/DagTree), exactly as on Star. These are
   // **Handler 1** wrappers; Handler 2 lives in the capability. The ontology-version
@@ -669,7 +669,7 @@ export class DevStudio extends NebulaDO {
   }
 
   /** Watch `query`'s live subscriber-LIST roster (the STANDALONE watcher sub — NOT a data-subscriber).
-   *  Void (D7); initial roster arrives via `handleQuerySubscribersUpdate`. See `Star.subscribeQuerySubscribers`. */
+   *  Void; initial roster arrives via `handleQuerySubscribersUpdate`. See `Star.subscribeQuerySubscribers`. */
   @mesh()
   subscribeQuerySubscribers(query: QueryDescriptor): void {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
@@ -718,7 +718,7 @@ export class DevStudio extends NebulaDO {
     }
   }
 
-  /** Host-side fanout for a query membership push to the no-denial group (D17). One
+  /** Host-side fanout for a query membership push to the no-denial group. One
    *  shared payload via `svc.broadcast`; dead-client cleanup rides
    *  {@link onQueryBroadcastResult} keyed by `queryHash` (m6). */
   #broadcastQueryUpdate(queryHash: string, resourceIds: string[], targets: BroadcastTarget[]): void {
@@ -859,7 +859,7 @@ export class DevStudio extends NebulaDO {
    * first populator of `TurnRecord.toolCalls` / `.error` / `.validate`). Returns the
    * loop result. `chat()` will call this (Phase 4); install/wipe stays the separate,
    * human-gated apply step fired AFTER a clean finish (Flow 1b) — never reachable
-   * from the loop's `write_file` tool (D2).
+   * from the loop's `write_file` tool.
    *
    * `protected` (not `@mesh`): an internal capability, not a remote API. The test
    * harness reaches it through a test-only `@mesh` entry on a subclass.

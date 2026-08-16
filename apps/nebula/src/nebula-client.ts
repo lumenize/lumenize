@@ -554,7 +554,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
         // a reconnect (registry is empty anyway).
         if (this.#prevConnectionState === 'reconnecting' && state === 'connected') {
           // The in-flight mesh transaction recovers on its own: its `callAsync` Promise survives the
-          // drop (D16) and its RESULT re-resolves to the new socket (D17), or the default timeout (D4)
+          // drop and its RESULT re-resolves to the new socket, or the default timeout
           // rejects → the engine retries. No submit-gate to clear (retired, D7).
           this.#resubscribeAll();
         }
@@ -948,13 +948,13 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
 
   /**
    * The engine's `submitBatch` hook: submit a batch as one atomic mesh transaction via `callAsync`
-   * and resolve with the raw server facts. The submit-gate is RETIRED (D7) — `callAsync` correlates
+   * and resolve with the raw server facts. The submit-gate is RETIRED — `callAsync` correlates
    * each transaction by its own `callId`, so concurrent independent-resource batches run in parallel
    * (the engine's per-resource queue still serializes same-resource writes; ADR-005 + `resources.ts`
    * Step 4.5a/6.5 own no-double-commit). Ontology-stale arrives as a RETURNED `OntologyStaleError`
    * (resolve → `{ontologyStale}`, not reject); an infra throw/timeout rejects → the engine's
    * infrastructure-error. Resilient across reconnect (D16/D17): a dropped RESULT re-resolves to the
-   * new socket, or `callAsync`'s default timeout (D4) rejects → the engine retries.
+   * new socket, or `callAsync`'s default timeout rejects → the engine retries.
    */
   #meshSubmit(subs: QueueSubmission[]): Promise<ServerBatchResponse> {
     // One mesh `newETag` per batch (the server writes it as every resource's eTag — resources.ts
@@ -1057,7 +1057,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     for (const profileId of this.#profileRefcount.keys()) {
       this.lmz.call('PROFILE', profileId, this.ctn<ProfileSubscribeTarget>().subscribe());
     }
-    // Re-fire every live query sub too. This is the demote self-heal vehicle (D16):
+    // Re-fire every live query sub too. This is the demote self-heal vehicle:
     // a reconnect after token expiry re-subscribes with the fresh token, so a
     // demoted admin's new (non-admin) `access.scopeAdmin` is re-derived server-side and
     // the stored `dominionOverHostAtSubscribe` is cleared. The window subs ride the single-resource
@@ -1326,7 +1326,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * holds the Promise in-heap keyed by callId and its delivery re-resolves to the
    * current socket, so a WS reconnect or tab freeze no longer strands it (D16 — a
    * local Promise over one-way fire + re-resolvable fire-back, NOT a socket-bound
-   * awaited RPC); a lost RESULT rejects on `callAsync`'s default timeout (D4) rather
+   * awaited RPC); a lost RESULT rejects on `callAsync`'s default timeout rather
    * than hanging, and a full reload/discard triggers orgTree-resync. Idempotent/retry-safe.
    * `createNode` takes a **client-supplied** nodeId (a v4 UUID), so it is
    * server-idempotent too: a dropped/replayed call returns the same node.
@@ -1560,7 +1560,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     void resourceType;
     const version = options?.appVersion ?? this.#appVersion;
     // `callAsync` returns the snapshot (framework fire-back, D5 pattern (a)) — resilient across
-    // reconnect/freeze, bounded by the default timeout (D4). Concurrent reads are correlated by the
+    // reconnect/freeze, bounded by the default timeout. Concurrent reads are correlated by the
     // primitive's `callId`. On a stale version `Star.read` throws `OntologyStaleError` → the reject
     // path fires `onShouldRefreshUI` (relocated from the old push handler) before re-rejecting.
     return this.lmz.callAsync<Snapshot | null>(this.#resourceHostBinding, this.#activeScope,
@@ -1606,8 +1606,8 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Fire an `orgTree.*` mutation via `callAsync` — the Mesh client primitive that returns a Promise
    * settled by the re-resolvable RESULT (D16/D17): resolves with the mutation's value (`createNode`
    * → nodeId; other mutators → undefined) or rejects with its Error (e.g. permission denied). Resilient
-   * by construction (survives WS reconnect + tab freeze) and bounded by `callAsync`'s default timeout
-   * (D4), so a lost RESULT rejects rather than hanging. No per-call `requestId` / settler handler — the
+   * by construction (survives WS reconnect + tab freeze) and bounded by `callAsync`'s default timeout,
+   * so a lost RESULT rejects rather than hanging. No per-call `requestId` / settler handler — the
    * primitive owns correlation + dedup.
    */
   #orgTreeMutate(remote: any): Promise<any> {

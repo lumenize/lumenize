@@ -16,7 +16,7 @@ import { ROOT_NODE_ID } from './dag-ops';
  * Client and server agree on it as a **constant** — a fresh or late-joining client
  * subscribes `Message where session == DEFAULT_SESSION_ID` with NO discovery lookup.
  * Multi-session (many ids + a session-list/discovery surface) is deferred with the
- * management UI (D4). A fixed v4-shaped UUID so it round-trips the same id validation
+ * management UI. A fixed v4-shaped UUID so it round-trips the same id validation
  * as any client-supplied resource id.
  */
 export const DEFAULT_SESSION_ID = '00000000-0000-4000-8000-000000000001';

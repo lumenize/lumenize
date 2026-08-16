@@ -4,7 +4,7 @@
  * `Turn`→`Message` rename + field enrichment in Child 3 Phase 0).
  *
  * This is the ontology for the Studio chat's own Resources — **platform code,
- * not user data**: a fixed version defined here in source (D8), compiled **on
+ * not user data**: a fixed version defined here in source, compiled **on
  * DevStudio** via the same `compileOntologyVersion` Galaxy uses (so the ADR-006
  * relationship/embed-guard threads identically), and mounted lazily through the
  * Worker Loader exactly like the tool-args facet. It is NOT a Galaxy ontology
@@ -74,7 +74,7 @@ export function createResourceOntologyProvider(
   // The relationship metadata is pure-parse-cheap and the types are a fixed
   // constant, so extract it ONCE here (factory body) and close over it — the
   // returned closure runs per resource op, but this never re-parses. Surfaced on
-  // the seam for `subscribeQuery` field validation (D11); `Message.session` is the
+  // the seam for `subscribeQuery` field validation; `Message.session` is the
   // to-one relationship Child 2 subscribes on.
   const relationships = extractTypeMetadata(SESSION_MESSAGE_TYPES).relationships;
   return () => {

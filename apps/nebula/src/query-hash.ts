@@ -12,22 +12,22 @@
  * broadcast partition + makes re-subscribe idempotent — M3). We achieve this by
  * hashing a **normalized tuple in fixed field order** (NOT a raw `stringify` of the
  * object, which preserves key insertion order). `onPartial` is **excluded** — it's
- * a per-subscriber push-shape option read at delivery time (D2), so two clients
+ * a per-subscriber push-shape option read at delivery time, so two clients
  * differing only in `onPartial` share one query (one live row, one broadcast group).
  */
 
 import { stringify } from '@lumenize/structured-clone';
 
 /** v1 implements only `'parentChild'`; typed as `string` because this is a PUBLIC
- *  contract seam (D12) — a future `queryType` (e.g. `'mongoLike'`) is additive and
+ *  contract seam — a future `queryType` (e.g. `'mongoLike'`) is additive and
  *  an unknown one must fail closed server-side, not be a compile error for callers
  *  on a newer client. */
 export type QueryType = string;
 
-/** Per-push response shape for a subscriber WITH denials (D2). Default `'allow'`. */
+/** Per-push response shape for a subscriber WITH denials. Default `'allow'`. */
 export type OnPartial = 'error' | 'allow';
 
-/** v1 accepts only `'validFrom'` (the default); other keys are additive (D15). */
+/** v1 accepts only `'validFrom'` (the default); other keys are additive. */
 export type OrderBy = 'validFrom';
 
 /**
@@ -41,13 +41,13 @@ export interface QueryDescriptor {
   field: string;
   /** The parent id the to-one `field` must equal. */
   value: string;
-  /** Per-push shape for a has-denial subscriber (D2); default `'allow'`. NOT hashed. */
+  /** Per-push shape for a has-denial subscriber; default `'allow'`. NOT hashed. */
   onPartial?: OnPartial;
   /** Result ordering; v1 only `'validFrom'` (default). */
   orderBy?: OrderBy;
 }
 
-/** A membership push payload (D4). `resourceIds` = readable ids (ordered); absent on
+/** A membership push payload. `resourceIds` = readable ids (ordered); absent on
  *  `onPartial:'error'` with denials. `deniedNodes` = denied node ids (request-access). */
 export interface QueryUpdatePayload {
   resourceIds?: string[];

@@ -296,11 +296,11 @@ export class Resources {
    *
    * **No permission check here** — membership authorization happens at delivery
    * (the per-target `evaluatePermissions` in the membership-delivery routine);
-   * each resource's CONTENT still requires a per-resource read on subscribe (D9).
+   * each resource's CONTENT still requires a per-resource read on subscribe.
    *
    * The FK is extracted in **JS from the structured-clone value at scan time**,
    * never `json_extract` over the blob — the query layer keys off the ontology
-   * semantic model, not the storage serialization (D8). This is a full scan of the
+   * semantic model, not the storage serialization. This is a full scan of the
    * type's current snapshots (the deferred D8 index swaps the WHERE/source here,
    * same signature); deleted + superseded rows are excluded.
    */
