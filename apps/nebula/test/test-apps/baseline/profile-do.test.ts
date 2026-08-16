@@ -44,7 +44,7 @@ async function makeClient(opts: {
     refresh: createNebulaTestToken({
       privateKey: (env as any).JWT_PRIVATE_KEY_BLUE,
       activeScope,
-      instanceName: opts.instanceName ?? activeScope, // drives access.authScopePattern
+      instanceName: opts.instanceName ?? activeScope, // drives access.authScope
       scopeAdmin: opts.scopeAdmin ?? false,
       profileId: opts.profileId,
       sub: uuid(),

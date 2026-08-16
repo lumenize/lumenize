@@ -16,7 +16,7 @@ import { verifyNebulaTurnstileToken } from './turnstile';
 // the subprotocol in `lumenize-client.ts` and parses it here.
 import { extractWebSocketToken } from '@lumenize/mesh/client';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
-import { matchAccess, parseId } from './parse-id';
+import { isAtOrAbove, parseId } from './parse-id';
 import { NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 import { verifyNebulaAccessToken } from './verify';
@@ -355,11 +355,14 @@ async function verifyInstanceJwt(
   const payload = await verifyNebulaAccessToken(token, env);
   if (!payload) return { error: json401('invalid_token', 'Token is invalid or expired') };
 
-  // The token must grant access to the target instance.
-  if (!matchAccess(payload.access.authScopePattern, instanceName)) {
+  // The target instance must sit at or below the token's own scope. ⚠️ Containment ONLY — no
+  // `scopeAdmin` operand, deliberately: `handleInvite` completes the dominion conjunction with its
+  // own bare-bit read, and that split across the file boundary is what makes the bare read there
+  // safe. Adding the bit here would not harden anything; it would break every non-admin route.
+  if (!isAtOrAbove(payload.access.authScope, instanceName)) {
     return {
       error: jsonError(403, 'insufficient_scope',
-        `Token access "${payload.access.authScopePattern}" does not grant access to "${instanceName}"`),
+        `Token scope "${payload.access.authScope}" does not grant access to "${instanceName}"`),
     };
   }
 

@@ -1,17 +1,18 @@
 /**
- * Tests for universeGalaxyStarId parsing, validation, and access matching.
+ * Tests for universeGalaxyStarId parsing, validation, and the two structural containment predicates.
  *
- * The id format and wildcard-matching behavior are specified by the code under test —
- * see ../src/parse-id.ts (module header for the id format; `matchAccess` JSDoc for wildcards).
+ * The id format and the containment contract are specified by the code under test — see
+ * ../src/parse-id.ts (module header for the id format; `isAtOrAbove`'s JSDoc for the whole-segment
+ * contract and the platform-root branch).
  */
 import {
   parseId,
   isValidSlug,
-  isPlatformInstance,
+  isPlatformScope,
   getParentId,
-  buildAuthScopePattern,
-  matchAccess,
-  PLATFORM_INSTANCE_NAME,
+  isAtOrAbove,
+  isAtOrBelow,
+  PLATFORM_SCOPE,
 } from '../src/index';
 
 // ---------------------------------------------------------------------------
@@ -152,18 +153,18 @@ describe('parseId', () => {
 });
 
 // ---------------------------------------------------------------------------
-// isPlatformInstance
+// isPlatformScope
 // ---------------------------------------------------------------------------
 
-describe('isPlatformInstance', () => {
+describe('isPlatformScope', () => {
   it('identifies the reserved platform instance', () => {
-    expect(isPlatformInstance(PLATFORM_INSTANCE_NAME)).toBe(true);
-    expect(isPlatformInstance('nebula-platform')).toBe(true);
+    expect(isPlatformScope(PLATFORM_SCOPE)).toBe(true);
+    expect(isPlatformScope('nebula-platform')).toBe(true);
   });
 
   it('rejects other instances', () => {
-    expect(isPlatformInstance('acme')).toBe(false);
-    expect(isPlatformInstance('nebula-platform.something')).toBe(false);
+    expect(isPlatformScope('acme')).toBe(false);
+    expect(isPlatformScope('nebula-platform.something')).toBe(false);
   });
 });
 
@@ -186,133 +187,142 @@ describe('getParentId', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildAuthScopePattern
+// isAtOrAbove / isAtOrBelow — the two structural containment predicates the
+// coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).
 // ---------------------------------------------------------------------------
 
-describe('buildAuthScopePattern', () => {
-  it('returns "*" for platform instance', () => {
-    expect(buildAuthScopePattern('nebula-platform')).toBe('*');
+describe('isAtOrAbove', () => {
+  describe('the reserved platform scope is the ROOT of the tree', () => {
+    it('is at or above a universe', () => {
+      expect(isAtOrAbove('nebula-platform', 'george-solopreneur')).toBe(true);
+    });
+
+    it('is at or above a star', () => {
+      expect(isAtOrAbove('nebula-platform', 'george-solopreneur.app.tenant')).toBe(true);
+    });
+
+    it('is at or above itself', () => {
+      expect(isAtOrAbove('nebula-platform', 'nebula-platform')).toBe(true);
+    });
+
+    it('covers a target no grammar can produce — it reads only its FIRST argument', () => {
+      // Deliberate: the root branch returns before comparing. A caller needing the 1–3-segment
+      // grammar enforced parses at its own request boundary.
+      expect(isAtOrAbove('nebula-platform', 'a.b.c.d')).toBe(true);
+    });
+
+    it('does NOT make the platform scope reachable from below', () => {
+      expect(isAtOrAbove('george-solopreneur', 'nebula-platform')).toBe(false);
+    });
   });
 
-  it('returns wildcard for universe tier', () => {
-    expect(buildAuthScopePattern('george-solopreneur')).toBe('george-solopreneur.*');
+  describe('a universe scope', () => {
+    it('is at or above itself', () => {
+      expect(isAtOrAbove('george-solopreneur', 'george-solopreneur')).toBe(true);
+    });
+
+    it('is above its galaxies', () => {
+      expect(isAtOrAbove('george-solopreneur', 'george-solopreneur.app')).toBe(true);
+    });
+
+    it('is above its stars', () => {
+      expect(isAtOrAbove('george-solopreneur', 'george-solopreneur.app.tenant')).toBe(true);
+    });
+
+    it('is not above a different universe', () => {
+      expect(isAtOrAbove('george-solopreneur', 'other-universe')).toBe(false);
+    });
   });
 
-  it('returns wildcard for galaxy tier', () => {
-    expect(buildAuthScopePattern('george-solopreneur.app')).toBe('george-solopreneur.app.*');
+  describe('a galaxy scope', () => {
+    it('is at or above itself', () => {
+      expect(isAtOrAbove('george-solopreneur.app', 'george-solopreneur.app')).toBe(true);
+    });
+
+    it('is above its stars', () => {
+      expect(isAtOrAbove('george-solopreneur.app', 'george-solopreneur.app.tenant')).toBe(true);
+    });
+
+    it('is NOT above its own universe — upward is nil', () => {
+      expect(isAtOrAbove('george-solopreneur.app', 'george-solopreneur')).toBe(false);
+    });
+
+    it('is not above a sibling galaxy', () => {
+      expect(isAtOrAbove('george-solopreneur.app', 'george-solopreneur.other')).toBe(false);
+    });
   });
 
-  it('returns exact id for star tier', () => {
-    expect(buildAuthScopePattern('george-solopreneur.app.tenant')).toBe('george-solopreneur.app.tenant');
+  describe('a star scope', () => {
+    it('is at or above itself', () => {
+      expect(isAtOrAbove('george-solopreneur.app.tenant', 'george-solopreneur.app.tenant')).toBe(true);
+    });
+
+    it('is not above a sibling star', () => {
+      expect(isAtOrAbove('george-solopreneur.app.tenant', 'george-solopreneur.app.other')).toBe(false);
+    });
+
+    it('is NOT above its own galaxy — upward is nil', () => {
+      expect(isAtOrAbove('george-solopreneur.app.tenant', 'george-solopreneur.app')).toBe(false);
+    });
+  });
+
+  // ⚠️ The contract, not an implementation detail. The obvious `target.startsWith(mine)` passes every
+  // case above and silently makes each of these `true` — every one a cross-tenant hole, and every
+  // colliding name here a legal slug.
+  describe('comparison is by WHOLE dot-separated segments', () => {
+    it('a star does not cover a prefix-colliding sibling star', () => {
+      expect(isAtOrAbove('george-solopreneur.app.s1', 'george-solopreneur.app.s10')).toBe(false);
+    });
+
+    it('a universe does not cover a prefix-colliding sibling universe', () => {
+      expect(isAtOrAbove('acme', 'acme-2')).toBe(false);
+    });
+
+    it('a galaxy does not cover a prefix-colliding sibling galaxy', () => {
+      expect(isAtOrAbove('acme.app', 'acme.app-2')).toBe(false);
+    });
+
+    it('a universe does not cover a universe merely extending its name', () => {
+      expect(isAtOrAbove('george-solopreneur', 'george-solopreneur-extra')).toBe(false);
+    });
   });
 });
 
-// ---------------------------------------------------------------------------
-// matchAccess — the canonical wildcard-matching cases for matchAccess() (../src/parse-id.ts)
-// ---------------------------------------------------------------------------
-
-describe('matchAccess', () => {
-  describe('platform admin ("*")', () => {
-    it('matches any universe', () => {
-      expect(matchAccess('*', 'george-solopreneur')).toBe(true);
-    });
-
-    it('matches any star', () => {
-      expect(matchAccess('*', 'george-solopreneur.app.tenant')).toBe(true);
-    });
+describe('isAtOrBelow', () => {
+  // Implemented AS `isAtOrAbove` with the arguments flipped, so the identity is structural rather
+  // than a property two functions must both remember. These assert the identity itself.
+  it('is exactly isAtOrAbove with the arguments flipped', () => {
+    const pairs: [string, string][] = [
+      ['george-solopreneur', 'george-solopreneur.app'],
+      ['george-solopreneur.app', 'george-solopreneur'],
+      ['nebula-platform', 'george-solopreneur.app.tenant'],
+      ['acme', 'acme-2'],
+      ['george-solopreneur.app.s1', 'george-solopreneur.app.s10'],
+    ];
+    for (const [a, b] of pairs) {
+      expect(isAtOrBelow(a, b)).toBe(isAtOrAbove(b, a));
+    }
   });
 
-  describe('universe wildcard', () => {
-    it('matches own universe', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur')).toBe(true);
-    });
-
-    it('matches galaxy beneath', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur.app')).toBe(true);
-    });
-
-    it('matches star beneath', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('does not match different universe', () => {
-      expect(matchAccess('george-solopreneur.*', 'other-universe')).toBe(false);
-    });
-
-    it('does not match universe with shared prefix', () => {
-      // "george-solopreneur-extra" starts with "george-solopreneur" but is a different universe
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur-extra')).toBe(false);
-    });
+  it('a star sits below its galaxy and its universe', () => {
+    expect(isAtOrBelow('george-solopreneur.app.tenant', 'george-solopreneur.app')).toBe(true);
+    expect(isAtOrBelow('george-solopreneur.app.tenant', 'george-solopreneur')).toBe(true);
   });
 
-  describe('galaxy wildcard', () => {
-    it('matches own galaxy', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur.app')).toBe(true);
-    });
-
-    it('matches star beneath', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('does not match parent universe (upward access denied)', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur')).toBe(false);
-    });
-
-    it('does not match sibling galaxy', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur.other')).toBe(false);
-    });
+  it('a scope sits at or below itself', () => {
+    expect(isAtOrBelow('george-solopreneur.app', 'george-solopreneur.app')).toBe(true);
   });
 
-  describe('exact match (star tier)', () => {
-    it('matches exact id', () => {
-      expect(matchAccess('george-solopreneur.app.tenant', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('does not match different star', () => {
-      expect(matchAccess('george-solopreneur.app.tenant', 'george-solopreneur.app.other')).toBe(false);
-    });
-
-    it('does not match parent galaxy', () => {
-      expect(matchAccess('george-solopreneur.app.tenant', 'george-solopreneur.app')).toBe(false);
-    });
+  it('EVERY scope sits at or below the platform root', () => {
+    expect(isAtOrBelow('george-solopreneur', 'nebula-platform')).toBe(true);
+    expect(isAtOrBelow('george-solopreneur.app.tenant', 'nebula-platform')).toBe(true);
   });
 
-  describe('canonical wildcard cases', () => {
-    // The canonical matchAccess() wildcard cases (a representative subset is in its JSDoc)
-    it('matchAccess("*", "george-solopreneur") → true', () => {
-      expect(matchAccess('*', 'george-solopreneur')).toBe(true);
-    });
+  it('a galaxy does NOT sit below its own star — downward is not upward', () => {
+    expect(isAtOrBelow('george-solopreneur.app', 'george-solopreneur.app.tenant')).toBe(false);
+  });
 
-    it('matchAccess("*", "george-solopreneur.app.tenant") → true', () => {
-      expect(matchAccess('*', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.*", "george-solopreneur") → true', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.*", "george-solopreneur.app") → true', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur.app')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.*", "george-solopreneur.app.tenant") → true', () => {
-      expect(matchAccess('george-solopreneur.*', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.app.*", "george-solopreneur") → false', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur')).toBe(false);
-    });
-
-    it('matchAccess("george-solopreneur.app.*", "george-solopreneur.app") → true', () => {
-      expect(matchAccess('george-solopreneur.app.*', 'george-solopreneur.app')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.tenant") → true', () => {
-      expect(matchAccess('george-solopreneur.app.tenant', 'george-solopreneur.app.tenant')).toBe(true);
-    });
-
-    it('matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.other") → false', () => {
-      expect(matchAccess('george-solopreneur.app.tenant', 'george-solopreneur.app.other')).toBe(false);
-    });
+  it('honours the whole-segment boundary', () => {
+    expect(isAtOrBelow('acme-2', 'acme')).toBe(false);
   });
 });

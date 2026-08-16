@@ -20,7 +20,7 @@ describe('admin active-scope switching', () => {
     const { accessToken: adminToken, payload: adminPayload } = await foundAndLogin(
       browser, universe, 'admin@example.com', universe,
     );
-    expect(adminPayload.access.authScopePattern).toContain(universe);
+    expect(adminPayload.access.authScope).toContain(universe);
     expect(adminPayload.access.scopeAdmin).toBe(true);
 
     // Admin refreshes with activeScope = starA

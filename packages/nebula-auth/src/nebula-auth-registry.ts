@@ -30,11 +30,11 @@ import { SQLSchemaMigrations } from '@lumenize/sql-migrations';
 import { generateRandomString, hashString } from '@lumenize/crypto';
 import { REGISTRY_MIGRATIONS } from './schemas';
 import {
-  NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME, RESERVED_STAR_SLUGS, instanceAuthUrl,
+  NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
 } from './types';
 import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
-import { parseId, isValidSlug, matchAccess, hasDominionOver } from './parse-id';
+import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
@@ -442,8 +442,8 @@ export class NebulaAuthRegistry extends DurableObject {
 
     if (!isValidEmail(email)) throw new RegistryError(400, 'invalid_email', 'Invalid email format');
     if (!isValidSlug(slug)) throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
-    if (slug === PLATFORM_INSTANCE_NAME) {
-      throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_INSTANCE_NAME}" is reserved`);
+    if (slug === PLATFORM_SCOPE) {
+      throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_SCOPE}" is reserved`);
     }
     if (!this.checkSlugAvailable(slug)) {
       throw new RegistryError(409, 'slug_taken', `Universe "${slug}" is already claimed`);
@@ -481,8 +481,8 @@ export class NebulaAuthRegistry extends DurableObject {
    * **Open Star self-signup** — a stranger becomes the star-scoped admin of a Star inside someone else's Galaxy,
    * with no admin in the loop. An MINT POINT: this is where a Star's star-scoped admin identity is minted.
    *
-   * That openness is the product, not a defect to engineer away. A star-scoped admin holds an **exact-star**
-   * `authScopePattern`, which `hasDominionOver` makes inert at every ancestor (ADR-015: dominion
+   * That openness is the product, not a defect to engineer away. A star-scoped admin holds the **star's
+   * own scope** as their `authScope`, which `hasDominionOver` makes inert at every ancestor (ADR-015: dominion
    * flows strictly downward), so a squatter gains a slug and nothing else — and a covering admin can
    * delete the squatted Star. **Do not add an approval step, invite code, or per-Galaxy on/off switch.**
    *
@@ -546,9 +546,9 @@ export class NebulaAuthRegistry extends DurableObject {
     // Scope row + admin-identity mint + claim link, atomically — no `await` inside.
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyStarId);
-      // MINT the star-scoped admin at the FULL 3-segment star id. The pattern is not a parameter: `#mintIdentity`
-      // stores none, and `buildAuthScopePattern` derives exact-star from a 3-segment scope at
-      // token-mint time. Passing `parsed.universe` here would silently yield `{u}.*`.
+      // MINT the star-scoped admin at the FULL 3-segment star id — the scope stored HERE is verbatim
+      // what the token's `authScope` becomes, so this row is the whole of the admin's dominion.
+      // Passing `parsed.universe` here would silently hand them the entire Universe.
       this.#mintIdentity(lc, universeGalaxyStarId, /* scopeAdmin */ true);
       this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
     });
@@ -634,7 +634,7 @@ export class NebulaAuthRegistry extends DurableObject {
       throw new RegistryError(409, 'slug_taken', `Galaxy "${universeGalaxyId}" is already claimed`);
     }
     this.ctx.storage.sql.exec('INSERT INTO Scopes (universeGalaxyStarId) VALUES (?)', universeGalaxyId);
-    log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.authScopePattern });
+    log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.authScope });
     return { instanceName: universeGalaxyId };
   }
 
@@ -673,23 +673,26 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   myScopeTree(callerAccess: AccessEntry): AffectedScope[] {
     // ✅ SELF-CONFINING — the bare bit is safe here because it is not the dominion decision; the
-    // QUERY is. Every branch below is BOUNDED BY `authScopePattern`, so the result set can never
-    // exceed the caller's own dominion no matter what `admin` says: the `*` branch selects every scope
-    // (correct — `*` dominion IS every scope), and the other two bind `${prefix}` / `${pattern}`
-    // (slugs are `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible). The bit only decides
-    // "is this principal an admin at all", and a non-admin gets `[]`. Confining it against a node
-    // would be meaningless: this method has no callee node — it spans the caller's whole subtree.
+    // QUERY is. Both branches below are BOUNDED BY `authScope`, so the result set can never exceed
+    // the caller's own dominion no matter what `scopeAdmin` says. The bit only decides "is this
+    // principal an admin at all", and a non-admin gets `[]`. Confining it against a node would be
+    // meaningless: this method has no callee node — it spans the caller's whole subtree.
+    //
+    // ⚠️ **ALLOW-LISTED off the shared predicate, deliberately** (`scopeAdmin` bit test + SQL
+    // containment). The query IS the bound: routing per row through `hasDominionOver` would require
+    // first fetching every scope in the table, which is the work this method exists to avoid. That
+    // is why the containment is spelled twice — once as the root identity test, once as SQL.
+    // ⚠️ The `.%` in the LIKE is load-bearing and matches `isAtOrAbove`'s whole-segment contract:
+    // a dot-dropped `LIKE ${authScope}%` would return `{u}-2`'s scopes to a `{u}` admin. Slugs are
+    // `[a-z0-9-]`, so no LIKE-wildcard widening via `_`/`%` is possible.
     if (!callerAccess?.scopeAdmin) return [];
-    const pattern = callerAccess.authScopePattern;
-    let rows: any[];
-    if (pattern === '*') {
-      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes`;
-    } else if (pattern.endsWith('.*')) {
-      const prefix = pattern.slice(0, -2);
-      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId = ${prefix} OR universeGalaxyStarId LIKE ${prefix + '.%'}`;
-    } else {
-      rows = this.#sql`SELECT universeGalaxyStarId FROM Scopes WHERE universeGalaxyStarId = ${pattern}`;
-    }
+    const authScope = callerAccess.authScope;
+    // The reserved platform scope is the ROOT of the tree, so its subtree is every scope. An IDENTITY
+    // test rather than the predicate, for the same work-avoidance reason as the branches below.
+    const rows = isPlatformScope(authScope)
+      ? this.#sql`SELECT universeGalaxyStarId FROM Scopes`
+      : this.#sql`SELECT universeGalaxyStarId FROM Scopes
+          WHERE universeGalaxyStarId = ${authScope} OR universeGalaxyStarId LIKE ${authScope + '.%'}`;
     return rows.map(r => this.#toAffected(r.universeGalaxyStarId as string));
   }
 
@@ -714,14 +717,14 @@ export class NebulaAuthRegistry extends DurableObject {
     // `*` token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
     // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
     // scope-gated (§Blast radius).
-    if (universeGalaxyStarId === PLATFORM_INSTANCE_NAME && this.#bootstrapEmails.includes(lc)) {
+    if (universeGalaxyStarId === PLATFORM_SCOPE && this.#bootstrapEmails.includes(lc)) {
       // Hash FIRST, then all three writes atomically — the same ordering as the two claim paths.
       // Both writes here are idempotent, so this branch self-heals either way; it is wrapped for
       // consistency with its siblings, not to fix a live bug.
       const link = await this.#prepareMagicLink();
       this.ctx.storage.transactionSync(() => {
-        this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_INSTANCE_NAME);
-        this.#mintIdentity(lc, PLATFORM_INSTANCE_NAME, /* scopeAdmin */ true);
+        this.ctx.storage.sql.exec('INSERT OR IGNORE INTO Scopes (universeGalaxyStarId) VALUES (?)', PLATFORM_SCOPE);
+        this.#mintIdentity(lc, PLATFORM_SCOPE, /* scopeAdmin */ true);
         this.#insertMagicLinkRow(link.tokenHash, lc, universeGalaxyStarId, link.expiresAt);
       });
       return this.#deliverMagicLink(link.rawToken, lc, universeGalaxyStarId, origin);
@@ -1163,8 +1166,8 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   #computeDeletionPlan(target: string, callerSub: string, callerAccess: AccessEntry): ScopeDeletionPlan {
-    if (target === PLATFORM_INSTANCE_NAME) {
-      throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_INSTANCE_NAME}" cannot be deleted`);
+    if (target === PLATFORM_SCOPE) {
+      throw new RegistryError(400, 'reserved_slug', `"${PLATFORM_SCOPE}" cannot be deleted`);
     }
     let parsed;
     try { parsed = parseId(target); }
@@ -1189,6 +1192,10 @@ export class NebulaAuthRegistry extends DurableObject {
     }
 
     // Down: the target + all registered descendants.
+    // ⚠️ **ALLOW-LISTED off the shared predicate** — `isAtOrAbove` computed in SQL, for the same
+    // reason `myScopeTree`'s query is: routing per row would mean fetching every scope first. The
+    // `.%` matches the predicate's whole-segment contract, and here a dot-dropped `LIKE ${target}%`
+    // would widen a DESTRUCTIVE operation to a prefix-colliding sibling (`{u}` deleting `{u}-2`).
     const down = this.#sql`
       SELECT universeGalaxyStarId FROM Scopes
       WHERE universeGalaxyStarId = ${target} OR universeGalaxyStarId LIKE ${target + '.%'}
@@ -1389,22 +1396,21 @@ export class NebulaAuthRegistry extends DurableObject {
 
   // Both delegate to the ONE shared predicate (ADR-007 — one guard path, one place to audit).
   // They are kept as named private wrappers only because their call sites read better with the TIER
-  // named; neither may reintroduce an inline `scopeAdmin && matchAccess(...)`.
+  // named; neither may reintroduce an inline `scopeAdmin && isAtOrAbove(...)`.
   //
   // ⚠️ A third wrapper, `#hasDominionOver`, was deleted: it shadowed the imported predicate under
   // the identical name and added nothing, so its one caller now calls `hasDominionOver` directly.
   // Adding a tier to the name is what earns a wrapper here; re-spelling the same name is not.
 
   /**
-   * Dominion over a universe. Delegates to the shared predicate: on a single dot-free segment
-   * `matchAccess` reduces exactly to the three cases this used to hand-roll (`*`, `u.*`, exact `u`),
-   * and its sole caller passes `parsed.universe`, which `isValidSlug` guarantees is dot-free.
+   * Dominion over a universe. Delegates to the shared predicate; its sole caller passes
+   * `parsed.universe`, which `isValidSlug` guarantees is a single dot-free segment.
    */
   #hasDominionOverUniverse(access: AccessEntry | undefined, universe: string): boolean {
     return hasDominionOver(access, universe);
   }
 
-  /** Dominion over a galaxy via the canonical hierarchy matcher (`*` / `u.*` / `u.g.*` / exact `u.g`). */
+  /** Dominion over a galaxy via the one shared predicate. */
   #hasDominionOverGalaxy(access: AccessEntry | undefined, galaxyId: string): boolean {
     return hasDominionOver(access, galaxyId);
   }

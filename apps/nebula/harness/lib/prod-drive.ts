@@ -25,7 +25,8 @@ const SESSION_FILE = resolve(HARNESS_DIR, '.prod-session.json');
 /** The deployed origin. Override with NEBULA_PROD_URL. */
 export const PROD_URL = (process.env.NEBULA_PROD_URL ?? 'https://nebula.lumenize.com').replace(/\/$/, '');
 const BYPASS_HEADER = 'x-lumenize-turnstile-bypass';
-/** The platform instance — a login here mints an `access.authScopePattern: '*'` (super-admin) token. */
+/** The reserved platform scope — a login here mints an `access.authScope: 'nebula-platform'` token,
+ *  whose dominion is global because that scope is the ROOT of the scope tree. */
 export const PLATFORM_SCOPE = 'nebula-platform';
 /** The harness identity (must be an `@lumenize.io` address routed to the email-test Worker). */
 export const HARNESS_EMAIL = process.env.HARNESS_LOGIN_EMAIL ?? 'claude@lumenize.io';

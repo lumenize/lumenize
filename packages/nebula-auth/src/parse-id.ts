@@ -4,12 +4,12 @@
  * Slugs: lowercase letters, digits, and hyphens only (`[a-z0-9-]+`).
  * No periods within a slug. 1–3 dot-separated slugs determine the tier.
  *
- * This module is the source of truth for the id format and wildcard-access matching;
- * see tasks/archive/nebula-auth.md for the original (archived) design record.
+ * This module is the source of truth for the id format and for the two structural containment
+ * predicates the coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).
  */
 
 import type { AccessEntry, ParsedId, Tier } from './types';
-import { PLATFORM_INSTANCE_NAME } from './types';
+import { PLATFORM_SCOPE } from './types';
 
 /** Regex for a single slug segment: lowercase alphanumeric + hyphens, at least 1 char */
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -82,8 +82,8 @@ export function parseId(id: string): ParsedId {
 /**
  * Check if a universeGalaxyStarId is the reserved platform instance.
  */
-export function isPlatformInstance(id: string): boolean {
-  return id === PLATFORM_INSTANCE_NAME;
+export function isPlatformScope(id: string): boolean {
+  return id === PLATFORM_SCOPE;
 }
 
 /**
@@ -105,71 +105,56 @@ export function getParentId(parsed: ParsedId): string | undefined {
 }
 
 /**
- * Build the auth scope pattern for a JWT issued by a given instance.
+ * Structural fact: does `myScope` cover `targetScope` — the same scope, or an ancestor of it?
  *
- * - Star-level → exact id (e.g. `"acme.crm.tenant"`)
- * - Galaxy-level → wildcard (e.g. `"acme.crm.*"`)
- * - Universe-level → wildcard (e.g. `"acme.*"`)
- * - Platform admin → `"*"`
+ * The reserved platform scope is the **root** of the scope tree, so it is at or above every scope.
+ * That branch lives here, once, which is what lets a superuser work without a special arm at any
+ * call site (ADR-015 § *Predicate pair*).
+ *
+ * ⚠️ **Comparison is by WHOLE dot-separated segments — a contract, not an implementation detail.**
+ * The obvious `targetScope.startsWith(myScope)` silently makes `u.g.s1` cover `u.g.s10`, and `acme`
+ * cover `acme-2`; both are legal slugs, so both would be a cross-tenant hole.
+ *
+ * ⚠️ Unconditional by design — two strings in, a boolean out. It knows nothing about tokens,
+ * principals, or the 1–3-segment tier grammar; a caller that needs the grammar enforced parses at
+ * its own request boundary. Absent-claim handling belongs to the verdicts, never here.
  */
-export function buildAuthScopePattern(instanceName: string): string {
-  if (isPlatformInstance(instanceName)) return '*';
-  const parsed = parseId(instanceName);
-  if (parsed.tier === 'star') return parsed.raw;
-  return `${parsed.raw}.*`;
+export function isAtOrAbove(myScope: string, targetScope: string): boolean {
+  if (isPlatformScope(myScope)) return true;
+  if (myScope === targetScope) return true;
+  return targetScope.startsWith(myScope + '.');
 }
 
 /**
- * Match an auth scope pattern against a target `universeGalaxyStarId`.
+ * Structural fact: does `myScope` sit at or beneath `targetScope` — the same scope, or a descendant?
  *
- * Rules:
- * - `"*"` matches everything (platform admin)
- * - `"foo.*"` matches `"foo"`, `"foo.bar"`, `"foo.bar.baz"` (and anything beneath)
- * - Exact string match for non-wildcard patterns
+ * Exactly {@link isAtOrAbove} with the arguments flipped, and implemented that way deliberately: the
+ * identity `isAtOrAbove(A, B) === isAtOrBelow(B, A)` becomes structural rather than a property two
+ * functions must both remember, and the platform-root branch is inherited rather than repeated.
+ * Every scope is at or below the platform root.
  *
- * @example
- * ```typescript
- * matchAccess("*", "george-solopreneur")                                // true
- * matchAccess("george-solopreneur.*", "george-solopreneur.app.tenant")  // true
- * matchAccess("george-solopreneur.app.*", "george-solopreneur")         // false
- * matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.tenant") // true
- * ```
+ * ⚠️ Both predicates take `(myScope, targetScope)` in that order, always. A transposed call is not a
+ * type error and not a test failure — it silently inverts the security model. That risk is why this
+ * symbol exists at all, rather than callers spelling the upward arm with swapped arguments.
  */
-export function matchAccess(authScopePattern: string, targetId: string): boolean {
-  // Platform admin — matches everything
-  if (authScopePattern === '*') return true;
-
-  // Wildcard pattern — "prefix.*"
-  if (authScopePattern.endsWith('.*')) {
-    const prefix = authScopePattern.slice(0, -2); // strip ".*"
-    // Exact match on the prefix itself (universe-level access to own scope)
-    if (targetId === prefix) return true;
-    // Target is beneath the prefix (e.g. "acme.crm" under "acme")
-    if (targetId.startsWith(prefix + '.')) return true;
-    return false;
-  }
-
-  // Exact match
-  return authScopePattern === targetId;
+export function isAtOrBelow(myScope: string, targetScope: string): boolean {
+  return isAtOrAbove(targetScope, myScope);
 }
 
 /**
- * **The single dominion predicate**: is this access claim admin *over `scope`*?
+ * **The single dominion predicate**: is this access claim admin *over `targetScope`*?
  *
- * `admin` alone is never dominion — it is only dominion over what the claim's
- * `authScopePattern` actually covers. Every guard that consults `access.scopeAdmin` must ask this
- * question about the node it is running in, or an admin of a child scope acts as admin on its
- * ancestors (the tenant branch of `requirePassage` admits exactly those callers).
+ * `scopeAdmin` alone is never dominion — it is dominion only over what the claim's `authScope`
+ * actually covers. Every guard that consults `access.scopeAdmin` must ask this question about the
+ * scope it is acting on, or an admin of a child scope acts as admin on its ancestors.
  *
- * ⚠️ **The `authScopePattern` truthiness check is load-bearing, not defensive noise.**
- * `matchAccess(undefined as any, x)` throws `TypeError` at `.endsWith`, so omitting it converts a
- * clean branch denial into an opaque error. A verified token always carries the pattern
- * (`AccessEntry.authScopePattern` is required), so this is a fail-closed guarantee for
- * hand-constructed / partially-populated claims, not a live exploit path.
+ * Fail-closed on an absent or empty claim: no principal, no dominion. A verified token always
+ * carries `authScope`, so that arm guards hand-constructed and partially-populated claims rather
+ * than a live path.
  *
- * One predicate, one place to audit (ADR-007) — do not re-inline this comparison anywhere.
+ * One predicate, one place to audit (ADR-007) — do not re-inline this conjunction anywhere.
  */
-export function hasDominionOver(access: AccessEntry | undefined, scope: string): boolean {
-  if (!access?.scopeAdmin || !access.authScopePattern) return false;
-  return matchAccess(access.authScopePattern, scope);
+export function hasDominionOver(access: AccessEntry | undefined, targetScope: string): boolean {
+  if (!access?.scopeAdmin || !access.authScope) return false;
+  return isAtOrAbove(access.authScope, targetScope);
 }

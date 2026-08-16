@@ -116,8 +116,10 @@ export interface ParsedId {
 
 /** Scoped access entry in the JWT `access` claim */
 export interface AccessEntry {
-  /** Auth scope pattern — universeGalaxyStarId or wildcard (e.g. "george-solopreneur.*") */
-  authScopePattern: string;
+  /** The member's scope, verbatim — the same `universeGalaxyStarId` their `Memberships` row holds.
+   *  One fact, one string: nothing derives a second form of it, and both coarse-grained verdicts are
+   *  computed from this against the scope being acted on (ADR-015 § *Predicate pair*). */
+  authScope: string;
   /** true = admin of this scope; omitted when false (keeps JWT compact).
    *  ⚠️ NOT the Data-plane `admin` grant — that is a permission on an orgTree node, a different
    *  tree entirely. The `scope` qualifier exists because conflating the two has caused a bug. */
@@ -246,8 +248,10 @@ export interface DiscoveryEntry {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Reserved DO instance for platform admin */
-export const PLATFORM_INSTANCE_NAME = 'nebula-platform';
+/** The reserved platform scope — the ROOT of the scope tree, not an exception to it.
+ *  `isAtOrAbove` carries that root branch, so a superuser's dominion everywhere is the ordinary
+ *  downward rule applied from the top rather than a special arm at any call site. */
+export const PLATFORM_SCOPE = 'nebula-platform';
 
 /** Singleton instance name for NebulaAuthRegistry */
 export const REGISTRY_INSTANCE_NAME = 'registry';

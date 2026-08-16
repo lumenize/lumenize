@@ -13,7 +13,8 @@
  */
 import { bootDevStack, HAS_DOCKER } from './lib/harness';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
-import * as superadminDominion from './scenarios/superadmin-dominion';
+import * as downwardDominion from './scenarios/downward-dominion';
+import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
 import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
 import * as impersonationExpiry from './scenarios/impersonation-expiry';
@@ -33,12 +34,18 @@ import * as studioCodegenRest from './scenarios/studio-codegen-rest';
 interface Scenario {
   run: (stack: Awaited<ReturnType<typeof bootDevStack>>) => Promise<void>;
   needsContainer?: boolean;
+  /**
+   * `--var NAME:VALUE` overrides applied to THIS boot only, for a scenario whose subject is server
+   * configuration the identity path reads. Never a `.dev.vars` mutation — it auto-reverts per boot.
+   */
+  bootVars?: Record<string, string>;
 }
 
 /** Registry of runnable scenarios (add new ones here — arbitrary, not a fixed test). */
 const SCENARIOS: Record<string, Scenario> = {
   'message-roundtrip': messageRoundtrip,   // Phase 1 — API driver round-trip + negative control
-  'superadmin-dominion': superadminDominion,     // Phase 3a B2-(i) — * admin bypass vs non-admin denied
+  'downward-dominion': downwardDominion,        // real-login covering admin acts in a Star beneath; non-admin denied
+  'superuser-end-to-end': superuserEndToEnd,    // real bootstrap login: verify → refresh → enumerate → Profile gate
   'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)
@@ -67,7 +74,7 @@ async function main(): Promise<void> {
   console.error(needsContainer
     ? '[harness] booting a fresh local wrangler dev (cold DevContainer build can take a few minutes)…'
     : '[harness] booting a fresh local wrangler dev WITHOUT the DevContainer (no Docker needed)…');
-  const stack = await bootDevStack({ withContainer: needsContainer });
+  const stack = await bootDevStack({ withContainer: needsContainer, vars: scenario.bootVars });
   const t0 = Date.now();
   try {
     console.error(`[harness] booted at ${stack.baseUrl} — running scenario "${name}"…`);

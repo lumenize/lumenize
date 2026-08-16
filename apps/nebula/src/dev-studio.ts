@@ -543,7 +543,7 @@ export class DevStudio extends NebulaDO {
    * under {@link SESSION_NODE_ID} (D-session / Child 3 Phase 1). Called at the start of
    * {@link chat} (an authed admin context, so the create's `write` check passes via the scope-admin
    * bypass — ✅ **confined**: `requirePermission` grants it only to an admin whose
-   * `authScopePattern` covers THIS DevStudio host, not to any bearer of the bare `access.scopeAdmin`
+   * `authScope` covers THIS DevStudio host, not to any bearer of the bare `access.scopeAdmin`
    * bit; see tasks/nebula-confine-admin-bypass.md) and exposed as an admin-gated entry so a client
    * can guarantee the session exists before subscribing `Message where session == DEFAULT_SESSION_ID`.
    * A second call is a no-op (the capability's create-if-absent). `@mesh(requireDominionHere)`

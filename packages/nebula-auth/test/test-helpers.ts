@@ -12,7 +12,7 @@
  */
 import { expect } from 'vitest';
 import { parseJwtUnsafe } from '@lumenize/crypto';
-import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from '../src/types';
+import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from '../src/types';
 
 export const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -131,7 +131,7 @@ export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: s
 
 /**
  * Found a Star end-to-end **as its own star-scoped admin** → an `scopeAdmin=1` identity at the full 3-segment id
- * with an EXACT-STAR `authScopePattern` (`claimStar` stamps it — `nebula-auth-registry.ts`).
+ * with an EXACT-STAR `authScope` (`claimStar` stamps it — `nebula-auth-registry.ts`).
  *
  * This is the only real (ADR-009 rung 1) path to a **sub-universe admin** identity, which is what any
  * test needing a token that actually carries `access.scopeAdmin` under the `mint-narrower-token` `admin`
@@ -157,7 +157,7 @@ export async function foundStarAndLogin(
 }
 
 /**
- * Log in the configured **platform bootstrap admin** at `nebula-platform` → an `authScopePattern: '*'`
+ * Log in the configured **platform bootstrap admin** at `nebula-platform` → an `authScope: 'nebula-platform'`
  * identity, the widest principal there is.
  *
  * The bootstrap mint at `nebula-platform` is the ONLY email-magic-link mint, so this is a real rung-1
@@ -165,12 +165,12 @@ export async function foundStarAndLogin(
  * unlisted address mints nothing and the login is rejected.
  */
 export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, activeScope?: string) {
-  const ml = await requestMagicLink(self, PLATFORM_INSTANCE_NAME, email);
+  const ml = await requestMagicLink(self, PLATFORM_SCOPE, email);
   expect(ml.status).toBe(200);
   const { magicLinkUrl } = await ml.json() as { magicLinkUrl?: string };
   expect(magicLinkUrl).toBeDefined();
   const { refreshToken } = await clickLink(self, magicLinkUrl!);
-  return refreshAndParse(self, PLATFORM_INSTANCE_NAME, refreshToken, activeScope);
+  return refreshAndParse(self, PLATFORM_SCOPE, refreshToken, activeScope);
 }
 
 /** The first entry of `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL` list. */

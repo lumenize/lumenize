@@ -4,7 +4,7 @@
  * `extends LumenizeContainer` (a `@cloudflare/containers` Container composing the
  * mesh comms+guards core), and is a **sibling of NebulaDO, not a subclass**: it
  * mirrors NebulaDO's `onBeforeCall` structural tenant-isolation guard
- * (`buildAuthScopePattern` + `matchAccess`) but cannot inherit NebulaDO (that is
+ * (the name parse + `isAtOrAbove`) but cannot inherit NebulaDO (that is
  * a `LumenizeDO`; this is a `Container`). The Studio-specific `DevContainer`
  * (vite + preview proxy) is built on this in the #1a dev-loop reshape.
  *

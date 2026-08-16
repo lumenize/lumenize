@@ -154,7 +154,7 @@ describe('impersonate() — the mint', () => {
   // bit BEFORE it looks the subject up, so an out-of-reach scope 403s while an in-reach scope with a
   // nonexistent subject reaches the 404.
   it.each([
-    ['403 — activeScope outside the caller\'s reach', 403, /exceeds the caller's reach/],
+    ['403 — activeScope the caller\'s scope does not cover', 403, /exceeds what the caller's scope covers/],
     ['404 — no such subject', 404, /Subject not found/],
   ])('a failed FIRST mint (%s) rejects cleanly and leaves no half-registered child',
     async (_label, expectedStatus, expectedMessage) => {

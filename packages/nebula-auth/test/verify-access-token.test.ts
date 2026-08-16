@@ -29,7 +29,7 @@ async function createToken(overrides: Record<string, unknown> = {}, keyColor: 'B
     jti: crypto.randomUUID(),
     email: 'test@example.com',
     adminApproved: true,
-    access: { authScopePattern: 'acme.app.tenant-a', scopeAdmin: false },
+    access: { authScope: 'acme.app.tenant-a', scopeAdmin: false },
   };
 
   const payload = { ...defaults, ...overrides };
@@ -38,34 +38,34 @@ async function createToken(overrides: Record<string, unknown> = {}, keyColor: 'B
 
 describe('verifyNebulaAccessToken', () => {
   describe('valid tokens', () => {
-    it('returns payload for exact authScopePattern/aud match', async () => {
+    it('returns payload for exact authScope/aud match', async () => {
       const token = await createToken({
         aud: 'acme.app.tenant-a',
-        access: { authScopePattern: 'acme.app.tenant-a', scopeAdmin: false },
+        access: { authScope: 'acme.app.tenant-a', scopeAdmin: false },
       });
 
       const result = await verifyNebulaAccessToken(token, env);
       expect(result).not.toBeNull();
       expect(result!.aud).toBe('acme.app.tenant-a');
-      expect(result!.access.authScopePattern).toBe('acme.app.tenant-a');
+      expect(result!.access.authScope).toBe('acme.app.tenant-a');
     });
 
-    it('returns payload for wildcard authScopePattern covering aud', async () => {
+    it('returns payload for an ancestor authScope covering aud', async () => {
       const token = await createToken({
         aud: 'acme.app.tenant-a',
-        access: { authScopePattern: 'acme.*', scopeAdmin: true },
+        access: { authScope: 'acme', scopeAdmin: true },
       });
 
       const result = await verifyNebulaAccessToken(token, env);
       expect(result).not.toBeNull();
       expect(result!.aud).toBe('acme.app.tenant-a');
-      expect(result!.access.authScopePattern).toBe('acme.*');
+      expect(result!.access.authScope).toBe('acme');
     });
 
     it('returns payload for universe-level token (aud matches prefix of wildcard)', async () => {
       const token = await createToken({
         aud: 'acme',
-        access: { authScopePattern: 'acme.*', scopeAdmin: true },
+        access: { authScope: 'acme', scopeAdmin: true },
       });
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -79,7 +79,7 @@ describe('verifyNebulaAccessToken', () => {
         sub,
         aud: 'acme.app.tenant-a',
         email: 'alice@example.com',
-        access: { authScopePattern: 'acme.app.tenant-a', scopeAdmin: true },
+        access: { authScope: 'acme.app.tenant-a', scopeAdmin: true },
       });
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -89,7 +89,7 @@ describe('verifyNebulaAccessToken', () => {
         aud: 'acme.app.tenant-a',
         sub,
         email: 'alice@example.com',
-        access: { authScopePattern: 'acme.app.tenant-a', scopeAdmin: true },
+        access: { authScope: 'acme.app.tenant-a', scopeAdmin: true },
       });
     });
   });
@@ -127,7 +127,7 @@ describe('verifyNebulaAccessToken', () => {
         exp: now + 900,
         iat: now,
         jti: crypto.randomUUID(),
-        access: { authScopePattern: 'acme.*', scopeAdmin: true },
+        access: { authScope: 'acme', scopeAdmin: true },
       } as any, privateKey, 'BLUE');
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -143,7 +143,7 @@ describe('verifyNebulaAccessToken', () => {
         exp: now + 900,
         iat: now,
         jti: crypto.randomUUID(),
-        access: { authScopePattern: 'acme.*', scopeAdmin: true },
+        access: { authScope: 'acme', scopeAdmin: true },
       } as any, privateKey, 'BLUE');
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -157,7 +157,7 @@ describe('verifyNebulaAccessToken', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null for missing access.authScopePattern', async () => {
+    it('returns null for missing access.authScope', async () => {
       const token = await createToken({ access: {} });
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -180,10 +180,10 @@ describe('verifyNebulaAccessToken', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when aud is not covered by authScopePattern', async () => {
+    it('returns null when aud is not covered by authScope', async () => {
       const token = await createToken({
         aud: 'acme.app.tenant-a',
-        access: { authScopePattern: 'acme.app.tenant-b', scopeAdmin: true },
+        access: { authScope: 'acme.app.tenant-b', scopeAdmin: true },
       });
 
       const result = await verifyNebulaAccessToken(token, env);
@@ -193,7 +193,7 @@ describe('verifyNebulaAccessToken', () => {
     it('returns null when aud is a sibling not covered by non-wildcard pattern', async () => {
       const token = await createToken({
         aud: 'acme.other',
-        access: { authScopePattern: 'acme.app', scopeAdmin: true },
+        access: { authScope: 'acme.app', scopeAdmin: true },
       });
 
       const result = await verifyNebulaAccessToken(token, env);

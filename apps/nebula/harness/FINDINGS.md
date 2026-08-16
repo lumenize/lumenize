@@ -23,10 +23,11 @@ re-discover it.
   target). It does NOT need a verified **Destination Address** (that's only for forward-to-a-real-inbox
   rules) — the "Pending" destination-address entry is irrelevant and can be deleted.
 - **Stored refresh (3d)** — the login seeds `harness/.prod-session.json` (gitignored) with the
-  refresh-token cookie; subsequent runs refresh **headlessly** (~2.5s, no email) → a `*` token →
+  refresh-token cookie; subsequent runs refresh **headlessly** (~2.5s, no email) → a platform-scoped
+  token →
   `my-scopes`. Verified live 2026-07-06: enumerated the real prod scope tree (`larry` universe +
   `nebula-platform`).
-- **M1 — the stored `*`-admin credential, honest about the threat model:** the real protections are
+- **M1 — the stored platform-admin credential, honest about the threat model:** the real protections are
   (1) **behavioral** — prod writes/deploys/secret-changes stay deliberate (a rogue harness could mint
   any scope or ship a guard-less deploy, so per-scope/per-command ceremony in a harness we control is
   NOT a boundary — the reliance on asking-permission is the actual control, and it has to be), and
@@ -86,7 +87,7 @@ any send). All 5 passed:
 
 ## Identity — local mint (API) vs real login (browser)
 
-- **API driver (Phase 1):** `createNebulaTestToken` mints the correct `access:{authScopePattern,admin}`
+- **API driver (Phase 1):** `createNebulaTestToken` mints the correct `access:{authScope,admin}`
   shape with the `.dev.vars` key — no email. Verified: the correct-shape token connects + round-trips;
   a base flat-`isAdmin` token and a nebula-shaped-but-no-`access` token both `403` at the gateway.
 - **Browser driver (Phase 2):** the SPA drives its own **cookie-based** refresh (App.vue →

@@ -149,7 +149,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
 
     // And the scope is still ENUMERABLE — one of the four readers that need the row, and the one a
     // user-developer would notice: a Galaxy vanishing from their tree.
-    const tree = (await stub.myScopeTree({ authScopePattern: '*', scopeAdmin: true }))
+    const tree = (await stub.myScopeTree({ authScope: 'nebula-platform', scopeAdmin: true }))
       .map((s: any) => s.instanceName);
     expect(tree).toContain('memberless.app');
   });

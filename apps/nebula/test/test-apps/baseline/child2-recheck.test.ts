@@ -143,7 +143,7 @@ describe('child2 per-push read recheck (Phase 2 / D3)', () => {
     //       identity ever acquired a root grant, the test would stay green while the bypass it
     //       exists to prove went untested.
     expect(uniPayload.access?.scopeAdmin).toBe(true);
-    expect(uniPayload.access?.authScopePattern).toBe('*');
+    expect(uniPayload.access?.authScope).toBe('nebula-platform');
     admin.callStarGetEffectivePermission(star, ROOT_NODE_ID, uniPayload.sub);
     expect(await waitForSuccess(admin)).toBeNull(); // no DAG grant of its own
     uni.callStarSubscribe(star, ONTOLOGY_VERSION, 'TestResource', rid);

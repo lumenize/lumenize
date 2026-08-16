@@ -66,7 +66,7 @@ export async function run(stack: DevStack): Promise<void> {
     }
 
     // ── NEGATIVE CONTROL: wrong-shape tokens are rejected at the gateway for the same read ──
-    // (a) nebula-shaped but NO `access` claim → isolates access.authScopePattern as the sole
+    // (a) nebula-shaped but NO `access` claim → isolates access.authScope as the sole
     //     discriminator (the strongest control); (b) the literal base mesh/auth shape.
     await assertTokenRejected(stack, {
       scope: SCOPE,

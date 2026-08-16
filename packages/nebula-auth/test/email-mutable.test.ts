@@ -17,7 +17,7 @@ import { foundUniverse, requestMagicLink, clickLink, refreshAndParse, url } from
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', scopeAdmin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebula-platform', scopeAdmin: true } }) as any;
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }

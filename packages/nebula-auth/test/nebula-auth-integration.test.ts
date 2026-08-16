@@ -79,7 +79,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const browser = new Browser();
       const u = uni();
       const admin = await browserFoundUniverse(browser, u, 'admin@example.com');
-      expect(admin.access.authScopePattern).toBe(`${u}.*`);
+      expect(admin.access.authScope).toBe(`${u}`);
       expect(admin.access.scopeAdmin).toBe(true);
       const adminToken = await currentToken(browser, u);
 
@@ -104,7 +104,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(memberRefresh.status).toBe(200);
       const memberToken = (await memberRefresh.json() as { access_token: string }).access_token;
       const memberPayload = parseJwtUnsafe(memberToken)!.payload as unknown as NebulaJwtPayload;
-      expect(memberPayload.access.authScopePattern).toBe(star);
+      expect(memberPayload.access.authScope).toBe(star);
       expect(memberPayload.access.scopeAdmin).toBeUndefined();
 
       // Upward-denied: the member's descendant-scoped token cannot act at the UNIVERSE scope.
@@ -126,7 +126,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const payload = await browserFoundUniverse(browser, slug, email);
 
       expect(payload.access.scopeAdmin).toBe(true);
-      expect(payload.access.authScopePattern).toBe(`${slug}.*`);
+      expect(payload.access.authScope).toBe(`${slug}`);
       expect(payload.sub).toBeDefined();
       expect((payload as any).email).toBeUndefined();          // email is NOT a claim
       expect((payload as any).adminApproved).toBeUndefined();  // adminApproved retired

@@ -2,8 +2,8 @@
  * Structural DO scope isolation (Fix 1) — tier DOs Star / Galaxy / Universe.
  *
  * NebulaDO.onBeforeCall accepts a mesh call iff its `aud` is covered by the
- * scope encoded in the DO's *instance name* (`buildAuthScopePattern(name)` →
- * `matchAccess(pattern, aud)`), replacing the old trust-on-first-use `aud`-lock.
+ * scope encoded in the DO's *instance name* (`isAtOrAbove(name, aud)`),
+ * replacing the old trust-on-first-use `aud`-lock.
  *
  * Every test here is capable-of-failing: it flips RED if the gate reverts to
  * TOFU (first-caller-wins) or drops the structural check.
@@ -16,7 +16,7 @@ import { Browser } from '@lumenize/testing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { setDebugSink, clearDebugSink, type DebugSink } from '@lumenize/debug';
 import { Galaxy, Universe, requireDominionHere, requirePassage } from '@lumenize/nebula';
-import { matchAccess } from '@lumenize/nebula-auth';
+import { isAtOrAbove } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import { isMeshCallable, getMeshGuard } from '@lumenize/mesh';
 import {
@@ -165,7 +165,7 @@ describe('structural scope isolation (Fix 1)', () => {
 
   // ── T6 — Downward dominion: a galaxy admin reaches a descendant Star ────
   // CHANGED (tasks/nebula-onbeforecall-higher-admin-reach.md): a galaxy admin
-  // (authScopePattern `<g>.*`, aud = galaxy) now REACHES a descendant Star via
+  // (authScope `<g>`, aud = galaxy) now REACHES a descendant Star via
   // the dominion clause — no aud narrowing needed. (Was rejected with
   // 'Active-scope mismatch' under the aud-only gate.) Capable-of-failing: delete
   // the dominion clause in requirePassage → this goes RED (galaxy aud no longer
@@ -228,11 +228,11 @@ describe('structural scope isolation (Fix 1)', () => {
   // SIBLING star `<u>.<g>.tenant-b`: the exact pattern doesn't cover the
   // sibling, so the dominion clause is skipped and the aud check also misses →
   // branch (e). A within-galaxy isolation case + a clean (e) anchor independent
-  // of T6 (which now reaches). Mutation: blank the matchAccess(aud) reject →
+  // of T6 (which now reaches). Mutation: blank the isAtOrAbove(aud) reject →
   // this passes.
   //
   // ⚠️ The caller is an INVITED MEMBER, not a scope admin. An exact-star
-  // `authScopePattern` can only be minted by an invite (`buildAuthScopePattern`
+  // `authScope` can only be minted by an invite (the registry's scope row
   // returns the exact id at star tier); `claim-universe` — the only admin-
   // minting path — always yields a universe-tier `<u>.*`. So the dominion clause
   // here is skipped because the caller is non-admin, whereas the original
@@ -250,7 +250,7 @@ describe('structural scope isolation (Fix 1)', () => {
     await bootstrapAdmin(adminBrowser, universe, 'admin@example.com');
     const { accessToken: adminToken } = await refreshToken(adminBrowser, universe, universe);
 
-    // The caller: invited INTO starA, so authScopePattern is the exact star id.
+    // The caller: invited INTO starA, so authScope is the exact star id.
     const browser = new Browser();
     await createSubject(browser, starA, adminToken, 'member@example.com');
     const { client, payload } = await createInvitedClient(
@@ -258,7 +258,7 @@ describe('structural scope isolation (Fix 1)', () => {
     );
     // Guard the fixture itself: if this stopped being an exact-star pattern the
     // test would pass for the wrong reason (a `<u>.*` pattern covers starB).
-    expect(payload.access?.authScopePattern).toBe(starA);
+    expect(payload.access?.authScope).toBe(starA);
 
     client.callStarWhoAmI(starB);
     await vi.waitFor(() => { expect(client.callCompleted).toBe(true); });
@@ -267,8 +267,8 @@ describe('structural scope isolation (Fix 1)', () => {
   });
 
   // ── T-platform — Platform name is not an any-aud sink (M-1) ─────────────
-  // `buildAuthScopePattern('nebula-platform')` is `*` (accept-all). A tenant DO
-  // addressed at that name must be hard-rejected by the isPlatformInstance
+  // `nebula-platform` is the ROOT of the scope tree (covers every name). A tenant DO
+  // addressed at that name must be hard-rejected by the isPlatformScope
   // guard (branch b) before the gate could collapse to accept-all.
   // Mutation-validated in Phase 3 (remove branch b → this call succeeds).
   it('T-platform: a tenant DO addressed at "nebula-platform" is rejected for a foreign aud', async () => {
@@ -285,7 +285,7 @@ describe('structural scope isolation (Fix 1)', () => {
 
   // ── T-malformed — Fail closed on an unparseable tier name (branch d) ────
   // A tier binding addressed with a parseId-rejecting name fails closed because
-  // buildAuthScopePattern throws — observable as a client lastError, not a
+  // the callee-name parseId throws — observable as a client lastError, not a
   // swallowed 500.
   it('T-malformed: a Star addressed with an unparseable name fails closed', async () => {
     const browser = new Browser();
@@ -455,7 +455,7 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
   // executeEnvelope, so onBeforeCall must NOT fire. Asserted directly via the
   // onBeforeCall entry marker (count 0 in the post-schedule window) — NOT merely
   // "the continuation completed", which would pass even if the gate fired (the
-  // self-continuation carries the star's own aud and would matchAccess-PASS).
+  // self-continuation carries the star's own aud and would isAtOrAbove-PASS).
   it('an alarm-delivered self-continuation runs without onBeforeCall', async () => {
     const star = uniqueStar();
     const entries: Array<{ namespace: string; data?: { instanceName?: string } }> = [];
@@ -497,9 +497,9 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
 // Minimal verified claims — requirePassage reads only `aud` + `access`.
 // (verifyNebulaAccessToken upstream guarantees the rest; the gate never sees an
 // unverified token.)
-function claims(opts: { aud?: string; authScopePattern?: string; scopeAdmin?: boolean }): NebulaJwtPayload {
-  const access: { authScopePattern?: string; scopeAdmin?: boolean } = {};
-  if (opts.authScopePattern !== undefined) access.authScopePattern = opts.authScopePattern;
+function claims(opts: { aud?: string; authScope?: string; scopeAdmin?: boolean }): NebulaJwtPayload {
+  const access: { authScope?: string; scopeAdmin?: boolean } = {};
+  if (opts.authScope !== undefined) access.authScope = opts.authScope;
   if (opts.scopeAdmin) access.scopeAdmin = true;
   return { aud: opts.aud, access } as unknown as NebulaJwtPayload;
 }
@@ -511,83 +511,83 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
   // only need to confirm the wiring.
 
   // ── Downward dominion (the new clause) — admit a covering ADMIN ──────────
-  it('admits a `*` admin to any tier name (Universe/Galaxy/Star)', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
-    expect(() => requirePassage('u.g', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
-    expect(() => requirePassage('u', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true }))).not.toThrow();
+  it('admits a superuser to any tier name (Universe/Galaxy/Star)', () => {
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u.g', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true }))).not.toThrow();
   });
   it('admits a `{u}.*` admin to {u}.{g} and {u}.{g}.{s}', () => {
-    expect(() => requirePassage('u.g', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u.g', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
   });
   it('admits a `{u}.{g}.*` admin to {u}.{g}.{s}', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g', authScopePattern: 'u.g.*', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g', authScope: 'u.g', scopeAdmin: true }))).not.toThrow();
   });
 
   // ── B1 — the admin GATE: pattern-coverage alone is NOT dominion ───────────
   // Mutation: drop `access?.scopeAdmin &&` from the dominion clause → the reject below
   // becomes an accept → RED. This is the latent-non-admin-wildcard hole guard.
   it('B1: a covering NON-admin (no access.scopeAdmin) is rejected reaching a descendant', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*' /* no scopeAdmin */ })))
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u' /* no scopeAdmin */ })))
       .toThrow('Active-scope mismatch');
   });
   it('B1 control: the SAME wildcard pattern WITH access.scopeAdmin reaches it (admin is the gate)', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScopePattern: 'u.*', scopeAdmin: true }))).not.toThrow();
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
   });
 
   // ── Tenant boundary (the non-admin path, unchanged) ──────────────────────
   it('admits a non-admin whose aud is covered by the name (own scope, and Star→own Galaxy)', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' }))).not.toThrow();
-    expect(() => requirePassage('u.g', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' }))).not.toThrow();
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScope: 'u.g.s' }))).not.toThrow();
+    expect(() => requirePassage('u.g', claims({ aud: 'u.g.s', authScope: 'u.g.s' }))).not.toThrow();
   });
 
   // ── Isolation: admin dominion that doesn't cover the target → aud also misses ─
   it('rejects a `{u1}.*` admin reaching {u2} (cross-tenant: pattern miss + aud miss)', () => {
-    expect(() => requirePassage('u2.g.s', claims({ aud: 'u1', authScopePattern: 'u1.*', scopeAdmin: true })))
+    expect(() => requirePassage('u2.g.s', claims({ aud: 'u1', authScope: 'u1', scopeAdmin: true })))
       .toThrow('Active-scope mismatch');
   });
 
   // ── Fail-closed branches (each mutation-validated by commenting its line) ──
   it('(a) throws on a missing name', () => {
-    expect(() => requirePassage(undefined, claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' })))
+    expect(() => requirePassage(undefined, claims({ aud: 'u.g.s', authScope: 'u.g.s' })))
       .toThrow('missing callee instance name');
   });
   it('(b) rejects the platform instance name', () => {
-    expect(() => requirePassage('nebula-platform', claims({ aud: 'u.g.s', authScopePattern: 'u.g.s' })))
+    expect(() => requirePassage('nebula-platform', claims({ aud: 'u.g.s', authScope: 'u.g.s' })))
       .toThrow('Active-scope mismatch');
   });
   it('(d) fails closed on an unparseable name', () => {
-    expect(() => requirePassage('a.b.c.d', claims({ aud: 'a.b.c.d', authScopePattern: 'a.b.c.d' })))
+    expect(() => requirePassage('a.b.c.d', claims({ aud: 'a.b.c.d', authScope: 'a.b.c.d' })))
       .toThrow(/dot-separated segments/);
-    expect(() => requirePassage('Bad.app.tenant', claims({ aud: 'Bad.app.tenant', authScopePattern: 'Bad.app.tenant' })))
+    expect(() => requirePassage('Bad.app.tenant', claims({ aud: 'Bad.app.tenant', authScope: 'Bad.app.tenant' })))
       .toThrow(/Invalid slug/);
   });
   it('(c) throws when aud is absent and the dominion clause does not fire', () => {
-    expect(() => requirePassage('u.g.s', claims({ authScopePattern: 'u.g.s' /* no aud, no scopeAdmin */ })))
+    expect(() => requirePassage('u.g.s', claims({ authScope: 'u.g.s' /* no aud, no scopeAdmin */ })))
       .toThrow('Missing active scope');
   });
   it('(e) rejects when aud is not covered by the name and there is no dominion', () => {
-    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.other', authScopePattern: 'u.g.other' })))
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.other', authScope: 'u.g.other' })))
       .toThrow('Active-scope mismatch');
   });
 
   // ── M1 — fail-closed PRECEDENCE: the dominion clause must run AFTER (b)+(d) ───
-  // matchAccess('*', anyString) is true, so a `*` admin would short-circuit past
+  // the platform root is at or above any string, so a superuser would short-circuit past
   // these if the clause were placed first. Mutation: move the dominion clause above
-  // the platform reject / buildAuthScopePattern → both of these go RED.
-  it('M1: a `*` admin still cannot reach the platform name (b before the dominion clause)', () => {
-    expect(() => requirePassage('nebula-platform', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true })))
+  // the platform reject / the callee-name parse → both of these go RED.
+  it('M1: a superuser still cannot reach the platform name (b before the dominion clause)', () => {
+    expect(() => requirePassage('nebula-platform', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true })))
       .toThrow('Active-scope mismatch');
   });
-  it('M1: a `*` admin still fails closed on a malformed name (d before the dominion clause)', () => {
-    expect(() => requirePassage('a.b.c.d', claims({ aud: 'u', authScopePattern: '*', scopeAdmin: true })))
+  it('M1: a superuser still fails closed on a malformed name (d before the dominion clause)', () => {
+    expect(() => requirePassage('a.b.c.d', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true })))
       .toThrow(/dot-separated segments/);
   });
 
   // ── Pattern-but-no-aud (m2): admitted by the dominion clause; unreachable from a
   // verified token (verifyNebulaAccessToken requires aud), documented not gated. ─
   it('m2: an admin+pattern token with no aud is admitted by the dominion clause (documented unreachable)', () => {
-    expect(() => requirePassage('u.g.s', claims({ authScopePattern: 'u.*', scopeAdmin: true /* no aud */ }))).not.toThrow();
+    expect(() => requirePassage('u.g.s', claims({ authScope: 'u', scopeAdmin: true /* no aud */ }))).not.toThrow();
   });
 });
 
@@ -599,7 +599,7 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
 //      was running in → that admitted descendant-scope admin acted as admin on the ANCESTOR.
 //
 // The principal is a **real star-scoped admin** (`claimStar` stamps `scopeAdmin=1` at the full 3-segment id),
-// whose exact-star `authScopePattern` is inert at every ancestor (ADR-015): admitted-but-not-admin at
+// whose exact-star `authScope` is inert at every ancestor (ADR-015): admitted-but-not-admin at
 // the Universe DO, which is the host `driveUniverse` drives. That is exactly the shape the escalation
 // needed — reached by a real login rather than by a mint.
 //
@@ -631,9 +631,9 @@ describe('access.scopeAdmin is confined to the node it covers (Phase 1)', () => 
     // If any of these drift the escalation tests below stop testing an escalation at all.
     expect(starAdmin.payload.aud).toBe(star);
     expect(starAdmin.payload.access?.scopeAdmin).toBe(true);
-    expect(starAdmin.payload.access?.authScopePattern).toBe(star); // exact star — never `${star}.*`
+    expect(starAdmin.payload.access?.authScope).toBe(star); // the star itself — never an ancestor
     // ...and it does NOT cover the Universe DO — the whole point.
-    expect(matchAccess(star, universe)).toBe(false);
+    expect(isAtOrAbove(star, universe)).toBe(false);
   });
 
   // ⚠️ Assert the EFFECT, not the returned error. A `@mesh` guard runs POST-ack, so a

@@ -27,7 +27,7 @@ creds needed for local (`--local` drops the remote AI / send_email bindings).
 `createNebulaTestToken` (`@lumenize/nebula-auth/testing`) mints a **correct-shape** Nebula admin
 token for a sandbox scope, signed with the `.dev.vars` key — reusing nebula-auth's shared
 `buildNebulaJwtPayload` claim-builder, so the token is byte-for-byte what a scope admin's server mint
-produces (`access: { authScopePattern, admin }`), NOT the base flat-`isAdmin` mesh shape (which the
+produces (`access: { authScope, admin }`), NOT the base flat-`isAdmin` mesh shape (which the
 gateway rejects). No magic-link loop. **Local only** — prod tokens come via audited login /
 stored-refresh, never this mint.
 

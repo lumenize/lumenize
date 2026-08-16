@@ -127,7 +127,7 @@ export async function claimStar(
  * Found a Star **as its own star-scoped admin** and capture the refresh cookie AT the star.
  *
  * The counterpart to {@link bootstrapAdmin}, and the difference is the whole point of the
- * star-scoped-admin change: this yields an **exact-star** `authScopePattern`, inert at every ancestor
+ * star-scoped-admin change: this yields an **exact-star** `authScope`, inert at every ancestor
  * (ADR-015), where `bootstrapAdmin` yields a universe admin whose `{u}.*` merely *covers* the star.
  *
  * ⚠️ **The cookie lands at `/auth/{star}`** — so refreshes for this identity target the star, not the
@@ -364,7 +364,7 @@ async function connectClient<T extends NebulaClient>(
  * lives two indirections away, so no static sweep can find the tier-mismatched ones. This throws on
  * exactly those, and keeps throwing on any that get added later.
  *
- * ✅ **Mints a REAL star-scoped admin** (2026-07-25) — `claim-star` self-signup, `authScopePattern` =
+ * ✅ **Mints a REAL star-scoped admin** (2026-07-25) — `claim-star` self-signup, `authScope` =
  * the exact star id, inert at every ancestor (ADR-015). It used to hand back a universe admin
  * (`{u}.*`) regardless of what you asked for; that interim is gone.
  *
@@ -411,7 +411,7 @@ export async function adminClientAt<T extends NebulaClient>(
 }
 
 /**
- * **Specifically a universe-tier admin** (`authScopePattern` = `{u}.*`), whatever `activeScope` is.
+ * **Specifically a universe-tier admin** (`authScope` = `{u}`), whatever `activeScope` is.
  *
  * Use this — and *only* this — when the assertion depends on the wildcard: cross-tier reach (aud at
  * one tier, callee at another), `{u}.*` widening, or "an admin with no DAG grant on this node".
@@ -450,7 +450,7 @@ export async function universeAdminClient<T extends NebulaClient>(
  * Each test-app passes its own client class (e.g., NebulaClientTest).
  *
  * `scope` is the **hierarchy** to authenticate within: its universe is claimed (minting a universe admin
- * with `scopeAdmin: true` and pattern `{universe}.*`) and becomes the client's `authScope`, because
+ * with `scopeAdmin: true` at `{universe}`) and becomes the client's `authScope`, because
  * that is where the refresh cookie is path-scoped. `activeScope` is the JWT `aud` — any descendant
  * of that universe. ⚠️ **The client's `authScope` is therefore the universe, not `scope`** — passing
  * a star as `scope` still yields a client whose cookie/refresh live at the universe. That is not a
@@ -492,7 +492,7 @@ export const PLATFORM_SCOPE = 'nebula-platform';
 export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
 /**
- * Log in the configured **platform bootstrap admin** (`authScopePattern: '*'`) at `activeScope`.
+ * Log in the configured **platform bootstrap admin** (`authScope: 'nebula-platform'`) at `activeScope`.
  *
  * This is the ONE production path to a *second* `access.scopeAdmin` identity in a universe that already
  * has an admin: `requestMagicLink` mints the bootstrap email at `nebula-platform`

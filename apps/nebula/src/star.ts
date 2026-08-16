@@ -105,7 +105,7 @@ export class Star extends NebulaDO {
    * first **star-scoped admin** to touch this Star.
    *
    * Two distinct things, in two planes, easily conflated: a *star-scoped admin* is a registry
-   * `Memberships` row (`scopeAdmin=1` at this 3-segment scope, yielding an exact-star `authScopePattern`);
+   * `Memberships` row (`scopeAdmin=1` at this 3-segment scope, so the token's `authScope` IS this Star);
    * the *DataPlane root admin* is this DAG grant. This method is the bridge between them, and it runs
    * exactly once — later root admins are added by an ordinary `setPermission`, which is why this one
    * is the **initial** one and not the only possible one.
@@ -119,18 +119,18 @@ export class Star extends NebulaDO {
    * `hasDominionOver` here, so under the old predicate whichever admin wandered in first took the
    * grant — and because the KV flag is one-shot with no re-seed path, that Star's climb would
    * terminate at the covering admin **forever**, routing its tenants' access requests away from their
-   * own Star admin. Requiring the pattern to equal this Star's id makes the grant follow ownership
+   * own Star admin. Requiring `authScope` to EQUAL this Star's id makes the grant follow ownership
    * rather than arrival order. This costs the covering admin nothing: ADR-015 keeps their dominion
    * total via the bypass — only climb *discoverability* is at stake.
    *
    * ⚠️ A Star with no star-scoped admin (`createStar` mints no identity — the `.dev` workspace) simply
    * stays root-adminless until one exists, which is already the behavior for a non-admin first caller.
-   * `claim-star` self-signup needs no special machinery: the claimer's exact-star pattern satisfies
-   * this gate on their first authenticated touch.
+   * `claim-star` self-signup needs no special machinery: the claimer's `authScope` IS this Star, so it
+   * satisfies this gate on their first authenticated touch.
    *
    * ⚠️ Keep this predicate when the seed lifts to the DataPlane
    * (tasks/on-hold/nebula-dataplane-root-admin.md), which moves it onto hosts that are NOT leaves —
-   * on a non-leaf host the old pattern-covers form would let a descendant's admin seed an ancestor.
+   * on a non-leaf host a containment form would let a descendant's admin seed an ancestor.
    */
   onBeforeCall() {
     super.onBeforeCall() // locks the active scope (aud) on first call
@@ -141,7 +141,7 @@ export class Star extends NebulaDO {
     // Exact equality, NOT `hasDominionOver` — see the EXACT-star note above. This is the one site
     // where the transient scope-admin bypass becomes a DURABLE DAG grant.
     const access = claims?.access
-    if (access?.scopeAdmin !== true || access.authScopePattern !== this.lmz.instanceName) return
+    if (access?.scopeAdmin !== true || access.authScope !== this.lmz.instanceName) return
     this.#dataPlane.dagTree.setPermission(ROOT_NODE_ID, auth.sub, 'admin')
     this.ctx.storage.kv.put('__nebula_rootAdminSeeded', true)
   }

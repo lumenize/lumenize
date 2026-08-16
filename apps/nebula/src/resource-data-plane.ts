@@ -290,7 +290,7 @@ export class ResourceDataPlane {
    * ✅ **Confined, via the ordinary path — no special-casing here.** This method holds no admin
    * check of its own: it goes through `Resources.transaction` → `DagTree.requirePermission`, which
    * is confinement point 1. So the platform-seed path (DevStudio's `ensureSession` running under
-   * the admin's call) has passage **iff that admin's `authScopePattern` covers THIS host** — the
+   * the admin's call) has passage **iff that admin's `authScope` covers THIS host** — the
    * same rule as every other caller. See tasks/nebula-confine-admin-bypass.md.
    */
   async ensureResource(

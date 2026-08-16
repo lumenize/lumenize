@@ -46,7 +46,7 @@ const inDO = (binding: any, instance: string, fn: (inst: any) => unknown) =>
 // full-suite parallel load (85 files sharing the box), and the symptom is a MOVING failure — a
 // different one of these times out each run, which reads as an unrelated flake. Raising the
 // ceiling weakens nothing: an effect that never lands still reds, just later.
-// ⚠️ `authScopePattern` is REQUIRED in the default claims, not decoration: `requireDominionHere` confines
+// ⚠️ `authScope` is REQUIRED in the default claims, not decoration: `requireDominionHere` confines
 // the admin bit to the callee node (`hasDominionOver`), so a pattern-less admin claim is denied —
 // and because these are 3-arg fire-and-forget calls, that denial is SILENT (it surfaces as a missing
 // downstream effect, e.g. `expected +0 to be 1`, not as an error). The value mirrors the real caller
@@ -56,7 +56,7 @@ const fire = (
   args: unknown[] = [],
   claims: any = {
     aud: instance,
-    access: { scopeAdmin: true, authScopePattern: `${instance.split('.')[0]}.*` },
+    access: { scopeAdmin: true, authScope: `${instance.split('.')[0]}` },
   },
 ) =>
   binding.getByName(instance).__executeOperation({
@@ -155,7 +155,7 @@ describe('DevStudio command surface is admin-gated (requireDominionHere)', () =>
   it('operand 2 — rejects an admin whose pattern does NOT cover this node, naming the scope', () => {
     // A star-scoped admin (exact pattern) reaching a SIBLING node: admin bit set, pattern misses.
     // This is the escalation the confinement closes; pre-fix it returned silently.
-    const foreign = { aud: 'u.y.other', access: { scopeAdmin: true, authScopePattern: 'u.y.other' } };
+    const foreign = { aud: 'u.y.other', access: { scopeAdmin: true, authScope: 'u.y.other' } };
     expect(guard(foreign)).toThrow(`Admin access required for ${NODE}`);
     expect(guard(foreign)).toThrow('your admin scope is u.y.other'); // distinct from operand 1
   });
@@ -163,19 +163,19 @@ describe('DevStudio command surface is admin-gated (requireDominionHere)', () =>
   it('operand 3 — fails CLOSED when the callee instance name is absent', () => {
     // Permanently undefined on a LumenizeWorker; must never coerce (`?? ''` would deny every
     // scoped admin, `!` would open the hole).
-    const admin = { access: { scopeAdmin: true, authScopePattern: 'u.*' } };
+    const admin = { access: { scopeAdmin: true, authScope: 'u' } };
     expect(guardNoName(admin)).toThrow('missing callee instance name');
   });
 
   it('admits an admin whose pattern covers this node (exact and wildcard)', () => {
-    expect(guard({ access: { scopeAdmin: true, authScopePattern: 'u.*' } })).not.toThrow();
-    expect(guard({ access: { scopeAdmin: true, authScopePattern: 'u.y.*' } })).not.toThrow();
-    expect(guard({ access: { scopeAdmin: true, authScopePattern: NODE } })).not.toThrow();
-    expect(guard({ access: { scopeAdmin: true, authScopePattern: '*' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScope: 'u' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScope: 'u.y' } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScope: NODE } })).not.toThrow();
+    expect(guard({ access: { scopeAdmin: true, authScope: 'nebula-platform' } })).not.toThrow();
   });
 
   it('a pattern-less admin claim is DENIED, not a TypeError (the predicate guard)', () => {
-    // `matchAccess(undefined, x)` would throw at `.endsWith`; `hasDominionOver` returns false so
+    // a hand-rolled compare on an absent claim would throw; `hasDominionOver` returns false so
     // the caller gets the clean scope-naming denial. Mutation: drop the truthiness guard in
     // `hasDominionOver` → this reds with a TypeError instead.
     expect(guard({ access: { scopeAdmin: true } })).toThrow('Admin access required for');

@@ -8,7 +8,7 @@
  * whatever the store wrote. The loop is closed here by feeding the persisted bit into it.
  *
  * ⚠️ WHY A SYNTHETIC HOST. Every DagTree host that exists today (Star `{u}.{g}.{s}`, DevStudio
- * `{u}.{g}.dev`) is a **star-tier leaf**, where `buildAuthScopePattern` returns the exact id, so
+ * `{u}.{g}.dev`) is a **star-tier leaf**, whose admin's `authScope` IS that exact id, so
  * admission already implies the confined predicate and the escalation CANNOT occur. Written against
  * a real host these assertions would be vacuously green — the exact trap this task exists to
  * eliminate. So we construct `DagTree` directly on a **non-leaf** host name (`{u}.{g}`), which is
@@ -29,7 +29,7 @@ import type { CallContext } from '@lumenize/mesh';
 const uniqueGalaxy = () => `cdp-${crypto.randomUUID().slice(0, 8)}.app`;
 
 /** A synthetic CallContext carrying exactly the claim shape under test. */
-function ctxFor(sub: string, access?: { admin?: boolean; authScopePattern?: string }): CallContext {
+function ctxFor(sub: string, access?: { admin?: boolean; authScope?: string }): CallContext {
   return { callChain: [], state: {}, originAuth: { sub, claims: { aud: 'ignored', access } } } as any;
 }
 
@@ -45,7 +45,7 @@ async function onNonLeafHost<T>(
     tree: DagTree;
     subs: Subscriptions;
     querySubs: QuerySubs;
-    as: (sub: string, access?: { admin?: boolean; authScopePattern?: string }) => void;
+    as: (sub: string, access?: { admin?: boolean; authScope?: string }) => void;
   }) => T | Promise<T>,
 ): Promise<T> {
   const stub = (env as any).GALAXY.getByName(hostName);
@@ -57,7 +57,7 @@ async function onNonLeafHost<T>(
     const resources = new Resources(inst.ctx, getCallContext, tree);
     const subs = new Subscriptions(inst.ctx, getCallContext, tree, resources, getHostName);
     const querySubs = new QuerySubs(inst.ctx, getCallContext, tree, resources, getHostName);
-    const as = (sub: string, access?: { admin?: boolean; authScopePattern?: string }) => {
+    const as = (sub: string, access?: { admin?: boolean; authScope?: string }) => {
       cc = ctxFor(sub, access);
     };
     return body({ tree, subs, querySubs, as });
@@ -65,8 +65,8 @@ async function onNonLeafHost<T>(
 }
 
 // The two principals the whole task turns on. Both are `admin: true`.
-const COVERING = (g: string) => ({ scopeAdmin: true, authScopePattern: `${g}.*` });   // reaches this host
-const DESCENDANT = (g: string) => ({ scopeAdmin: true, authScopePattern: `${g}.dev` }); // exact-star, does NOT
+const COVERING = (g: string) => ({ scopeAdmin: true, authScope: `${g}` });   // reaches this host
+const DESCENDANT = (g: string) => ({ scopeAdmin: true, authScope: `${g}.dev` }); // exact-star, does NOT
 
 describe('Phase 2 — the DAG permission plane is confined to its host', () => {
   describe('confinement point 1: requirePermission (live claim)', () => {

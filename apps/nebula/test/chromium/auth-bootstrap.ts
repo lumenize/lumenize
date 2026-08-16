@@ -103,7 +103,7 @@ async function claimAndClick(
 
 /**
  * Provision a tenant Star and log in AS ITS FOUNDER, so chromium's jar holds the refresh cookie at
- * `/worker/auth/${scope}/` and the minted token carries an **exact-star** `authScopePattern`.
+ * `/worker/auth/${scope}/` and the minted token carries an **exact-star** `authScope`.
  *
  * **Re-grounded onto `claim-star` (2026-07-25).** This used to POST `email-magic-link` at `scope` and
  * rely on "the first email registered at a scope becomes its admin" — a login-time mint that was

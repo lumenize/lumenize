@@ -48,7 +48,7 @@ async function seed(
   });
 }
 
-const ADMIN_OVER = (u: string): AccessEntry => ({ authScopePattern: `${u}.*`, scopeAdmin: true });
+const ADMIN_OVER = (u: string): AccessEntry => ({ authScope: `${u}`, scopeAdmin: true });
 
 /** The ADR-016 acting-principal argument for a direct-RPC `executeScopeDeletion` call. Recorded,
  *  never consulted — authorization keys off the separate `callerSub`/`callerAccess` arguments. */
@@ -153,10 +153,10 @@ describe('NebulaAuthRegistry', () => {
     it('rejects non-admin / nonexistent-parent / non-galaxy tier / wrong-scope / duplicate', async () => {
       const r = freshRegistry();
       await r.claimUniverse('gu', 'x@example.com', 'http://localhost');
-      await expect(r.createGalaxy('gu.g', { authScopePattern: 'gu.*', scopeAdmin: false })).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('gu.g', { authScope: 'gu', scopeAdmin: false })).rejects.toThrow(/admin access/);
       await expect(r.createGalaxy('nonexistent.g', ADMIN_OVER('nonexistent'))).rejects.toThrow(/does not exist/);
-      await expect(r.createGalaxy('just-a-universe', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/2-segment/);
-      await expect(r.createGalaxy('gu.g', { authScopePattern: 'other.*', scopeAdmin: true })).rejects.toThrow(/admin access/);
+      await expect(r.createGalaxy('just-a-universe', { authScope: 'nebula-platform', scopeAdmin: true })).rejects.toThrow(/2-segment/);
+      await expect(r.createGalaxy('gu.g', { authScope: 'other', scopeAdmin: true })).rejects.toThrow(/admin access/);
       await r.createGalaxy('gu.g', ADMIN_OVER('gu'));
       await expect(r.createGalaxy('gu.g', ADMIN_OVER('gu'))).rejects.toThrow(/already claimed/);
     });
@@ -181,9 +181,9 @@ describe('NebulaAuthRegistry', () => {
     it('rejects non-galaxy-admin / nonexistent parent / non-star tier', async () => {
       const r = freshRegistry();
       await galaxy(r, 'cs-x');
-      await expect(r.createStar('cs-x.app.dev', { authScopePattern: 'cs-x.*', scopeAdmin: false })).rejects.toThrow(/not an admin of the parent galaxy/);
-      await expect(r.createStar('cs-noparent.app.dev', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/does not exist/);
-      await expect(r.createStar('cs-bad.app', { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/3-segment/);
+      await expect(r.createStar('cs-x.app.dev', { authScope: 'cs-x', scopeAdmin: false })).rejects.toThrow(/not an admin of the parent galaxy/);
+      await expect(r.createStar('cs-noparent.app.dev', { authScope: 'nebula-platform', scopeAdmin: true })).rejects.toThrow(/does not exist/);
+      await expect(r.createStar('cs-bad.app', { authScope: 'nebula-platform', scopeAdmin: true })).rejects.toThrow(/3-segment/);
     });
 
     it('myScopeTree returns the universe + descendants (tier + isDev); [] for a non-admin; scoped to the caller', async () => {
@@ -193,9 +193,34 @@ describe('NebulaAuthRegistry', () => {
       const tree = await r.myScopeTree(ADMIN_OVER('cs-tree'));
       expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['cs-tree', 'cs-tree.app', 'cs-tree.app.dev']);
       expect(tree.find((s: any) => s.instanceName === 'cs-tree.app.dev')).toEqual({ instanceName: 'cs-tree.app.dev', tier: 'star', isDev: true });
-      expect(await r.myScopeTree({ authScopePattern: 'cs-tree.*', scopeAdmin: false })).toEqual([]);
-      const exact = await r.myScopeTree({ authScopePattern: 'cs-tree.app.dev', scopeAdmin: true });
+      expect(await r.myScopeTree({ authScope: 'cs-tree', scopeAdmin: false })).toEqual([]);
+      const exact = await r.myScopeTree({ authScope: 'cs-tree.app.dev', scopeAdmin: true });
       expect(exact.map((s: any) => s.instanceName)).toEqual(['cs-tree.app.dev']);
+    });
+
+    // 🔒 The SQL half of the whole-segment contract. `myScopeTree`'s containment is a `LIKE`, not a
+    // call to `isAtOrAbove`, and it is allow-listed off the predicate deliberately — the query IS
+    // the bound, and routing per row would mean fetching every scope first. So the boundary has to
+    // be asserted HERE, separately: nothing else in the suite registers prefix-colliding names, and
+    // the enumeration test above passes under either spelling because `cs-tree` has no such sibling.
+    //
+    // Mutation: drop the dot from `LIKE ${authScope + '.%'}` → `${authScope + '%'}` and a `bnd`
+    // admin enumerates all of `bnd-2`, while every other myScopeTree assertion stays green.
+    it('enumeration honours WHOLE segment boundaries — a universe does not cover a prefix sibling', async () => {
+      const r = freshRegistry();
+      await galaxy(r, 'bnd');
+      await galaxy(r, 'bnd-2');            // a legal slug that `bnd` merely prefixes
+      await r.createStar('bnd.app.dev', ADMIN_OVER('bnd'));
+      await r.createStar('bnd-2.app.dev', ADMIN_OVER('bnd-2'));
+
+      const tree = await r.myScopeTree(ADMIN_OVER('bnd'));
+      expect(tree.map((s: any) => s.instanceName).sort()).toEqual(['bnd', 'bnd.app', 'bnd.app.dev']);
+
+      // The star-tier form of the same collision: `s1` must not cover `s10`.
+      await r.createStar('bnd.app.s1', ADMIN_OVER('bnd'));
+      await r.createStar('bnd.app.s10', ADMIN_OVER('bnd'));
+      const star = await r.myScopeTree({ authScope: 'bnd.app.s1', scopeAdmin: true });
+      expect(star.map((s: any) => s.instanceName)).toEqual(['bnd.app.s1']);
     });
   });
 
@@ -310,13 +335,31 @@ describe('NebulaAuthRegistry', () => {
       expect(await r.checkSlugAvailable('d6.app.dev')).toBe(true);
     });
 
+    // 🔒 The same whole-segment contract on the DESTRUCTIVE side, where a dropped dot widens what
+    // gets deleted rather than what gets listed. `#computeDeletionPlan`'s `LIKE` is the second SQL
+    // site allow-listed off the predicate, and it is the one whose slip costs data.
+    //
+    // Mutation: `LIKE ${target + '.%'}` → `${target + '%'}` and `del-1`'s plan swallows `del-1x`.
+    it('a deletion plan honours WHOLE segment boundaries — it never lists a prefix sibling', async () => {
+      const r = freshRegistry();
+      const owner = crypto.randomUUID();
+      await seed(
+        r,
+        ['del-1', 'del-1.app', 'del-1.app.dev', 'del-1x', 'del-1x.app', 'del-1x.app.dev'],
+        [{ sub: owner, scope: 'del-1', email: 'o@x.com', scopeAdmin: true }],
+      );
+      const plan = await r.planScopeDeletion('del-1', owner, ADMIN_OVER('del-1'));
+      expect(plan.affected.map((a: any) => a.instanceName).sort())
+        .toEqual(['del-1', 'del-1.app', 'del-1.app.dev']);
+    });
+
     it('authz: a non-admin / wrong-scope caller is rejected (403); reserved platform cannot be deleted', async () => {
       const r = freshRegistry();
       const owner = crypto.randomUUID();
       await seed(r, ['d8.app.dev'], [{ sub: owner, scope: 'd8.app.dev', email: 'o@x.com', scopeAdmin: true }]);
-      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'd8.*', scopeAdmin: false })).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScopePattern: 'other.*', scopeAdmin: true })).rejects.toThrow(/not an admin/);
-      await expect(r.planScopeDeletion('nebula-platform', owner, { authScopePattern: '*', scopeAdmin: true })).rejects.toThrow(/cannot be deleted/);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScope: 'd8', scopeAdmin: false })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('d8.app.dev', owner, { authScope: 'other', scopeAdmin: true })).rejects.toThrow(/not an admin/);
+      await expect(r.planScopeDeletion('nebula-platform', owner, { authScope: 'nebula-platform', scopeAdmin: true })).rejects.toThrow(/cannot be deleted/);
     });
 
     // Retitled: the prune-up is gone, so "does not prune" now holds for EVERY caller and would be a
@@ -328,7 +371,7 @@ describe('NebulaAuthRegistry', () => {
       await seed(r, ['d9', 'd9.app.dev'], [
         { sub: owner, scope: 'd9.app.dev', email: 'o@x.com', scopeAdmin: true },
       ]);
-      const plan = await r.planScopeDeletion('d9.app.dev', owner, { authScopePattern: 'd9.app.dev', scopeAdmin: true });
+      const plan = await r.planScopeDeletion('d9.app.dev', owner, { authScope: 'd9.app.dev', scopeAdmin: true });
       expect(plan.affected.map((a: any) => a.instanceName)).toEqual(['d9.app.dev']);
     });
 

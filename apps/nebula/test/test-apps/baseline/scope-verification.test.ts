@@ -10,11 +10,11 @@ import { env } from 'cloudflare:test';
 import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
 
 /**
- * Craft a JWT with specific authScopePattern and aud for testing.
+ * Craft a JWT with specific authScope and aud for testing.
  * Signs with the real private key so signature verification passes.
  */
 async function craftJwt(options: {
-  authScopePattern: string;
+  authScope: string;
   aud: string;
   scopeAdmin?: boolean;
   sub?: string;
@@ -34,7 +34,7 @@ async function craftJwt(options: {
     adminApproved: true,
     email: 'test@example.com',
     access: {
-      authScopePattern: options.authScopePattern,
+      authScope: options.authScope,
       scopeAdmin: options.scopeAdmin ?? false,
     },
   };
@@ -43,15 +43,15 @@ async function craftJwt(options: {
 }
 
 describe('entrypoint auth-scope verification (e2e)', () => {
-  it('rejects JWT where authScopePattern does not cover aud', async () => {
-    // JWT with aud = "acme.app.tenant-a" but authScopePattern = "acme.app.tenant-b"
+  it('rejects JWT where authScope does not cover aud', async () => {
+    // JWT with aud = "acme.app.tenant-a" but authScope = "acme.app.tenant-b"
     const token = await craftJwt({
-      authScopePattern: 'acme.app.tenant-b',
+      authScope: 'acme.app.tenant-b',
       aud: 'acme.app.tenant-a',
     });
 
     // Attempt WebSocket upgrade through the gateway route
-    // The entrypoint should reject this with 403 (matchAccess fails)
+    // The entrypoint should reject this with 403 (isAtOrAbove fails)
     const resp = await SELF.fetch('http://localhost/gateway/NEBULA_CLIENT_GATEWAY/test.tab1', {
       headers: {
         'Upgrade': 'websocket',

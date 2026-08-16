@@ -1,5 +1,5 @@
 /**
- * Bootstrap-ARRAY (`*` super-admin) — the comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL` list.
+ * Bootstrap-ARRAY (the `nebula-platform` superuser) — the comma-separated `NEBULA_AUTH_BOOTSTRAP_EMAIL` list.
  *
  * In the dissolved-DO model (tasks/nebula-auth-surrogate-sub.md) bootstrap is **scope-gated to
  * `nebula-platform`** and is the ONLY email-magic-link mint (§Blast radius). This targets what the
@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { requestMagicLink, platformLogin } from './test-helpers';
-import { PLATFORM_INSTANCE_NAME } from '../src/types';
+import { PLATFORM_SCOPE } from '../src/types';
 
 const SECOND_BOOTSTRAP = 'second-bootstrap@example.com'; // the config entry is mixed-case + leading space
 
@@ -24,18 +24,18 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
     const { parsed } = await platformLogin(SELF, SECOND_BOOTSTRAP);
     // Reds if the getter honors only index 0, or does a raw String.includes on the joined value
     // ('…, Second-Bootstrap@Example.com' does NOT contain 'second-bootstrap@example.com').
-    expect(parsed.access.authScopePattern).toBe('*');
+    expect(parsed.access.authScope).toBe('nebula-platform');
     expect(parsed.access.scopeAdmin).toBe(true);
   });
 
   it('the FIRST listed bootstrap email → a `*` platform admin', async () => {
     const { parsed } = await platformLogin(SELF, 'bootstrap-admin@example.com');
-    expect(parsed.access.authScopePattern).toBe('*');
+    expect(parsed.access.authScope).toBe('nebula-platform');
     expect(parsed.access.scopeAdmin).toBe(true);
   });
 
   it('a NON-listed email at nebula-platform is NOT minted → login rejected (control: bootstrap ≠ open)', async () => {
-    const ml = await requestMagicLink(SELF, PLATFORM_INSTANCE_NAME, 'random@example.com');
+    const ml = await requestMagicLink(SELF, PLATFORM_SCOPE, 'random@example.com');
     expect(ml.status).toBe(200);
     const { magicLinkUrl } = await ml.json() as { magicLinkUrl: string };
     const clickResp = await SELF.fetch(new Request(magicLinkUrl, { redirect: 'manual' }));

@@ -6,7 +6,7 @@
  *
  * Every test is capable-of-failing: it flips RED if the guard drops the
  * structural check. The cross-scope write test is mutation-validated by
- * commenting out the `matchAccess` reject in NebulaContainer.onBeforeCall.
+ * commenting out the `isAtOrAbove` reject in NebulaContainer.onBeforeCall.
  *
  * @see tasks/nebula-devcontainer-node-type.md § Phase 3
  * @see apps/nebula/test/test-apps/baseline/scope-isolation.test.ts (the mirror)
@@ -33,7 +33,7 @@ const uniqueDevScope = () => `${crypto.randomUUID()}.app.dev`;
  */
 function onBeforeCallAs(
   instanceName: string | undefined,
-  claims?: { aud?: string; access?: { authScopePattern?: string; scopeAdmin?: boolean } },
+  claims?: { aud?: string; access?: { authScope?: string; scopeAdmin?: boolean } },
 ): void {
   const fakeThis = {
     lmz: { instanceName, callContext: { originAuth: claims ? { sub: 'sys', claims } : undefined } },
@@ -54,7 +54,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
   it('admits a `{u}.*` admin reaching a descendant {u}.{g}.dev container (no aud narrowing)', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
-      aud: universe, access: { authScopePattern: `${universe}.*`, scopeAdmin: true },
+      aud: universe, access: { authScope: `${universe}`, scopeAdmin: true },
     })).not.toThrow();
   });
 
@@ -96,7 +96,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
   it('B1: a covering NON-admin (no access.scopeAdmin) does NOT reach the descendant container', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
-      aud: universe, access: { authScopePattern: `${universe}.*` /* no admin */ },
+      aud: universe, access: { authScope: `${universe}` /* no admin */ },
     })).toThrow('Active-scope mismatch');
   });
 });

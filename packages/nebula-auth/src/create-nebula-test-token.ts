@@ -7,9 +7,9 @@
  * `createTestRefreshFunction`, with the critical difference the task turns on: the base
  * util signs a **flat `scopeAdmin`** payload with **no `access` claim** — the *base* mesh/auth
  * shape — which Nebula's gateway rejects (`router.verifyNebulaAccessToken`, the
- * `access.authScopePattern` gate). This util instead composes the shared
+ * `access.authScope` gate). This util instead composes the shared
  * {@link buildNebulaJwtPayload} claim-builder, so the token carries the real
- * `access: { authScopePattern, scopeAdmin? }` shape a scope admin's server-minted token would —
+ * `access: { authScope, scopeAdmin? }` shape a scope admin's server-minted token would —
  * verified normally against the corresponding public key, no test-mode, all production
  * verification paths exercised.
  *
@@ -48,10 +48,10 @@ export interface CreateNebulaTestTokenOptions {
    * BLUE for a Worker whose `PRIMARY_JWT_KEY` is GREEN — sign with the matching key.
    */
   activeKey?: 'BLUE' | 'GREEN';
-  /** JWT `aud` — the active scope this token is bound to. Must be covered by the pattern. */
+  /** JWT `aud` — the active scope this token is bound to. Must sit at or below `access.authScope`. */
   activeScope: string;
   /**
-   * Issuing DO instance name (universeGalaxyStarId) — drives the `authScopePattern`.
+   * Issuing DO instance name (universeGalaxyStarId) — becomes the minted `access.authScope`.
    * Default: `activeScope` (a scope admin minting for its own scope).
    */
   instanceName?: string;
@@ -61,11 +61,11 @@ export interface CreateNebulaTestTokenOptions {
    * Mint an admin token (sets `access.scopeAdmin`). Default `true`.
    *
    * ⚠️ **The bit alone no longer enables the scope-admin bypass** — the guards confine it to the
-   * callee node via `hasDominionOver`, so what actually decides is whether `authScopePattern`
-   * — which this factory always derives from `instanceName`, exposing no override — covers the node
-   * being called. A token minted with
-   * `scopeAdmin: true` at a STAR `instanceName` gets an exact-star pattern and is therefore NOT an
-   * admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose dominion you
+   * callee node via `hasDominionOver`, so what actually decides is whether `authScope`
+   * — which this factory always takes from `instanceName`, exposing no override — is at or above the
+   * node being called. A token minted with
+   * `scopeAdmin: true` at a STAR `instanceName` carries that star as its `authScope` and is therefore
+   * NOT an admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose dominion you
    * actually want. See tasks/nebula-confine-admin-bypass.md.
    */
   scopeAdmin?: boolean;

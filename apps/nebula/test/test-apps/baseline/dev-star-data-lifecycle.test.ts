@@ -271,7 +271,7 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client, payload } = await devAdminClient(galaxy, dev);
     await applyOntology(client, dev, 'v1', TODO_V1);
 
-    // This client is a UNIVERSE scopeAdmin: its `authScopePattern` COVERS this `.dev` Star but is
+    // This client is a UNIVERSE scopeAdmin: its `authScope` COVERS this `.dev` Star but is
     // not EQUAL to it. Warm the Star so `onBeforeCall`'s seed gate runs.
     client.callStarWhoAmI(dev);
     await waitForSuccess(client);

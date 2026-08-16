@@ -70,7 +70,7 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 Refresh is the highest-frequency operation and it **never touches the singleton**:
 
 1. Hash the `refresh-token` cookie, `GET refresh:{tokenHash}` from KV.
-2. Derive `authScopePattern` from the **record's** `universeGalaxyStarId` — never the request path or body. Deriving it from client input would let a caller mint a token for any scope they name.
+2. Derive `authScope` from the **record's** `universeGalaxyStarId` — never the request path or body. Deriving it from client input would let a caller mint a token for any scope they name.
 3. Check the requested `activeScope` is covered, then mint the JWT with `isAdmin` and `profileId` **from the KV record**.
 
 **No rotation, no slide.** The refresh token gets a fixed 30-day TTL at login and refresh re-issues nothing — zero writes on the hot path. A 30-day re-login (a fresh magic link) is the accepted UX cost. See [`.claude/rules/security.md`](../../.claude/rules/security.md) for why rotation was dropped and what would be required to reintroduce it (rotation *with* a grace window plus family-revoke — never the no-grace form).
@@ -81,12 +81,12 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 ### Dominion
 
-`hasDominionOver(access, scope)` is the single dominion predicate: **`access.scopeAdmin` alone is never dominion** — dominion is that bit *and* `authScopePattern` covering the node in question ([ADR-015](../../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home for `dominion` and `passage`). Dominion flows strictly downward and only downward (ADR-015). Every guard delegates to that one predicate; none may re-inline `admin && matchAccess(...)`.
+`hasDominionOver(access, scope)` is the single dominion predicate: **`access.scopeAdmin` alone is never dominion** — dominion is that bit *and* `authScope` covering the node in question ([ADR-015](../../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home for `dominion` and `passage`). Dominion flows strictly downward and only downward (ADR-015). Every guard delegates to that one predicate; none may re-inline `scopeAdmin && isAtOrAbove(...)`.
 
 The gate lands in two places depending on the route shape:
 
-- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the Worker verifies the Bearer/WebSocket token and requires `matchAccess(pattern, instanceName)` before dispatching. `handleInvite` then checks the bare `admin` bit — safe *only* because the router already proved scope coverage, which is why that line must never be copied to a site lacking the router's check.
-- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — every query branch is bounded by the caller's own `authScopePattern`, so the result set can never exceed their reach.
+- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the Worker verifies the Bearer/WebSocket token and requires `isAtOrAbove(access.authScope, instanceName)` before dispatching. `handleInvite` then checks the bare `scopeAdmin` bit — safe *only* because the router already proved the containment half, which is why that line must never be copied to a site lacking the router's check.
+- **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — its query is bounded by the caller's own `authScope`, so the result set can never exceed their dominion.
 
 ### Worker gating pipeline
 
@@ -95,8 +95,8 @@ The gate lands in two places depending on the route shape:
 | Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`) |
 | CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
 | Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
-| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScopePattern` | Authenticated instance + registry endpoints |
-| Scope match (`matchAccess(pattern, instanceName)`) | Instance-path authenticated endpoints only |
+| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated instance + registry endpoints |
+| Scope containment (`isAtOrAbove(access.authScope, instanceName)`) | Instance-path authenticated endpoints only |
 | Per-`sub` rate limit | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
 
 Turnstile is skipped when `NEBULA_AUTH_TEST_MODE === 'true'`, when no `TURNSTILE_SECRET_KEY` is configured (development), or when the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
@@ -248,7 +248,7 @@ sequenceDiagram
 
     Note over C,R: Step 1 - the admin issues invites
     C->>W: POST /auth/{scope}/invite { emails } [admin JWT]
-    W->>W: verify JWT, matchAccess against the scope, admin bit, rate limit
+    W->>W: verify JWT, isAtOrAbove against the scope, admin bit, rate limit
     W->>R: issueInvites(scope, emails, origin)
     R->>R: mint each invitee Identity (isAdmin=0, emailVerified=0)
     R->>R: INSERT InviteTokens (HASHED, single-use)
@@ -376,7 +376,7 @@ sequenceDiagram
     W-->>C: 200 { access_token }
 ```
 
-Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs in at `/auth/george-solopreneur`, so their KV record's scope is the universe and refresh derives `authScopePattern = "george-solopreneur.*"`. That one cookie, scoped to `Path=/auth/george-solopreneur`, refreshes at universe level only — and the `activeScope` in the refresh body picks the `aud` of the minted token, so the admin can target any covered child scope.
+Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs in at `/auth/george-solopreneur`, so their KV record's scope is the universe and refresh derives `authScope = "george-solopreneur.*"`. That one cookie, scoped to `Path=/auth/george-solopreneur`, refreshes at universe level only — and the `activeScope` in the refresh body picks the `aud` of the minted token, so the admin can target any covered child scope.
 
 ---
 
@@ -384,7 +384,7 @@ Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs 
 
 ```typescript
 interface AccessEntry {
-  authScopePattern: string  // scope id or wildcard (e.g. "george-solopreneur.*")
+  authScope: string  // scope id or wildcard (e.g. "george-solopreneur.*")
   admin?: boolean           // omitted when false
 }
 
@@ -403,35 +403,38 @@ interface NebulaJwtPayload {
 
 **`email` and `adminApproved` are not claims.** `email` is a registry-only mutable attribute (resolved on demand, never keyed off), and `adminApproved` is retired — enforced at mint, so a valid token proves authorized membership by construction and there is no edge gate to feed.
 
-Both mint paths (the Worker's `mintAccessToken` and the Node test-util `createNebulaTestToken`) compose the same `buildNebulaJwtPayload`, which refuses to build a token whose `aud` is not covered by its `authScopePattern`. `verifyNebulaAccessToken` re-checks that same invariant on the way in, so a tampered or stale token is rejected.
+Both mint paths (the Worker's `mintAccessToken` and the Node test-util `createNebulaTestToken`) compose the same `buildNebulaJwtPayload`, which refuses to build a token whose `aud` is not at or below its `authScope`. `verifyNebulaAccessToken` re-checks that same invariant on the way in, so a tampered or stale token is rejected.
 
 ### Access claim examples
 
 ```json
-{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.acme-corp" } }
-{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.acme-corp", "admin": true } }
-{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.*", "admin": true } }
-{ "access": { "authScopePattern": "george-solopreneur.*", "admin": true } }
-{ "access": { "authScopePattern": "*", "admin": true } }
+{ "access": { "authScope": "george-solopreneur.georges-first-app.acme-corp" } }
+{ "access": { "authScope": "george-solopreneur.georges-first-app.acme-corp", "admin": true } }
+{ "access": { "authScope": "george-solopreneur.georges-first-app", "admin": true } }
+{ "access": { "authScope": "george-solopreneur", "admin": true } }
+{ "access": { "authScope": "nebula-platform", "admin": true } }
 ```
 
-Read top to bottom: star user, star admin, galaxy admin, universe admin, platform admin.
+Read top to bottom: star user, star admin, galaxy admin, universe admin, platform admin. The claim is the member's scope **verbatim** — the same string their `Memberships` row holds. Nothing derives a second form of it.
 
-### Wildcard matching (`matchAccess`)
+### Scope containment (`isAtOrAbove` / `isAtOrBelow`)
 
 ```
-matchAccess("*", "george-solopreneur")                                -> true  (platform admin)
-matchAccess("*", "george-solopreneur.app.tenant")                     -> true  (platform admin)
-matchAccess("george-solopreneur.*", "george-solopreneur")             -> true  (own scope)
-matchAccess("george-solopreneur.*", "george-solopreneur.app")         -> true  (galaxy beneath)
-matchAccess("george-solopreneur.*", "george-solopreneur.app.tenant")  -> true  (star beneath)
-matchAccess("george-solopreneur.app.*", "george-solopreneur")         -> false (no upward reach)
-matchAccess("george-solopreneur.app.*", "george-solopreneur.app")     -> true
-matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.tenant") -> true  (exact)
-matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.other")  -> false
+isAtOrAbove("nebula-platform", "george-solopreneur")                    -> true  (the platform scope is the ROOT)
+isAtOrAbove("nebula-platform", "george-solopreneur.app.tenant")         -> true
+isAtOrAbove("george-solopreneur", "george-solopreneur")                 -> true  (own scope)
+isAtOrAbove("george-solopreneur", "george-solopreneur.app")             -> true  (galaxy beneath)
+isAtOrAbove("george-solopreneur", "george-solopreneur.app.tenant")      -> true  (star beneath)
+isAtOrAbove("george-solopreneur.app", "george-solopreneur")             -> false (upward is nil)
+isAtOrAbove("george-solopreneur.app", "george-solopreneur.app")         -> true
+isAtOrAbove("george-solopreneur.app.tenant", "george-solopreneur.app.tenant") -> true
+isAtOrAbove("george-solopreneur.app.tenant", "george-solopreneur.app.other")  -> false
+isAtOrAbove("acme", "acme-2")                                           -> false (WHOLE segments)
 ```
 
-`buildAuthScopePattern` derives the pattern from the issuing scope: star → the exact id, galaxy/universe → `{id}.*`, `nebula-platform` → `*`.
+`isAtOrBelow(a, b)` is exactly `isAtOrAbove(b, a)` — implemented that way, so the identity and the platform-root branch are structural rather than a property two functions must both remember.
+
+⚠️ **Comparison is by whole dot-separated segments.** The obvious `target.startsWith(mine)` would make `acme` cover `acme-2` and `u.g.s1` cover `u.g.s10` — both legal slugs, both a cross-tenant hole.
 
 ---
 
@@ -519,13 +522,13 @@ Three writers, all in the registry: the login funnel (`#recordRefreshToken`), th
 
 `NEBULA_AUTH_BOOTSTRAP_EMAIL` holds a comma-separated list of platform super-admin emails (split, trimmed, lowercased, deduped — compared by array membership, never a substring match). Such an email authenticates through the normal magic-link flow at the reserved `nebula-platform` scope.
 
-That pairing is the **one** mint on the `email-magic-link` path, and it is gated on both factors: a configured bootstrap email **and** the reserved scope. A non-bootstrap email requesting a link for `nebula-platform` gets no mint, so stranger-self-join stays closed. Because `buildAuthScopePattern('nebula-platform')` is `*`, the resulting token is a platform-admin token.
+That pairing is the **one** mint on the `email-magic-link` path, and it is gated on both factors: a configured bootstrap email **and** the reserved scope. A non-bootstrap email requesting a link for `nebula-platform` gets no mint, so stranger-self-join stays closed. Because `nebula-platform` is the ROOT of the scope tree, the resulting token holds dominion over every scope.
 
 `nebula-platform` cannot be claimed as a universe slug and cannot be deleted.
 
 ### Admin creation chain
 
-- **Platform admin** (`*`) reaches everything
+- **Platform admin** (`nebula-platform`, the scope-tree root) reaches everything
 - **Universe admins** create galaxies beneath their universe and invite into any scope they cover
 - **Galaxy admins** create stars beneath their galaxy
 - **Star admins** manage their star's users
@@ -568,7 +571,7 @@ Email provider selection is delegated to `@lumenize/email` (the `EMAIL` binding 
 
 | Constant | Value | Notes |
 |----------|-------|-------|
-| `PLATFORM_INSTANCE_NAME` | `'nebula-platform'` | Reserved scope for platform admin |
+| `PLATFORM_SCOPE` | `'nebula-platform'` | Reserved scope for platform admin |
 | `REGISTRY_INSTANCE_NAME` | `'registry'` | DO instance name of the singleton |
 | `NEBULA_AUTH_PREFIX` | `'/auth'` | URL prefix for all auth routes |
 | `NEBULA_AUTH_ISSUER` | `'https://nebula.lumenize.com'` | JWT `iss` claim |
@@ -592,13 +595,13 @@ export { verifyNebulaAccessToken } from './router';
 // Email sender (WorkerEntrypoint for a service binding)
 export { NebulaEmailSender } from './nebula-email-sender';
 
-// Scope parsing and access matching
-export { parseId, isValidSlug, isPlatformInstance, getParentId,
-         buildAuthScopePattern, matchAccess, hasDominionOver } from './parse-id';
+// Scope parsing and the two structural containment predicates
+export { parseId, isValidSlug, isPlatformScope, getParentId,
+         isAtOrAbove, isAtOrBelow, hasDominionOver } from './parse-id';
 
 // Types:     Tier, ParsedId, AccessEntry, NebulaJwtPayload, DiscoveryEntry,
 //            AffectedScope, ScopeDeletionBlocker, ScopeDeletionAffectedUsers, ScopeDeletionPlan
-// Constants: PLATFORM_INSTANCE_NAME, REGISTRY_INSTANCE_NAME, NEBULA_AUTH_PREFIX,
+// Constants: PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME, NEBULA_AUTH_PREFIX,
 //            ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER
 ```
 

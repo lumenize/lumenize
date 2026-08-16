@@ -33,14 +33,15 @@ export { routeNebulaAuthRequest } from './router';
 // JWT verification — primary export for consuming packages (Phase 2 entrypoint)
 export { verifyNebulaAccessToken } from './router';
 
-// universeGalaxyStarId parsing and access matching
+// universeGalaxyStarId parsing, plus the two structural containment predicates the
+// coarse-grained verdicts are built from (ADR-015 § *Predicate pair*).
 export {
   parseId,
   isValidSlug,
-  isPlatformInstance,
+  isPlatformScope,
   getParentId,
-  buildAuthScopePattern,
-  matchAccess,
+  isAtOrAbove,
+  isAtOrBelow,
   hasDominionOver,
 } from './parse-id';
 
@@ -61,7 +62,7 @@ export type {
 
 // Constants needed externally
 export {
-  PLATFORM_INSTANCE_NAME,
+  PLATFORM_SCOPE,
   REGISTRY_INSTANCE_NAME,
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,

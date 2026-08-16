@@ -25,8 +25,8 @@ import { NebulaClientTest } from './index';
 describe('structural tier-DO scope binding', () => {
   describe('star-level', () => {
     // ⚠️ INVITED MEMBERS, not star admins. This test's whole subject is the TENANT branch
-    // (`matchAccess(buildAuthScopePattern(name), aud)`), which requires an **exact-star**
-    // `authScopePattern` — mintable only by invite, since `claim-universe` (the sole admin-minting path)
+    // (`isAtOrAbove(name, aud)`), which requires an **exact-star**
+    // `authScope` — mintable only by invite, since `claim-universe` (the sole admin-minting path)
     // always yields a universe-tier `{u}.*`. With star admins here, `requirePassage` would return
     // early at the DOMINION clause and the tenant branch would never run: green, but testing the
     // sibling test's mechanism instead of its own. It would also collapse the deliberate contrast
@@ -49,7 +49,7 @@ describe('structural tier-DO scope binding', () => {
       );
       // Fixture guard: an exact-star pattern is the premise. A `{u}.*` here silently moves the
       // positive case onto the dominion branch.
-      expect(payloadA.access?.authScopePattern).toBe(starA);
+      expect(payloadA.access?.authScope).toBe(starA);
 
       // Own star → accepted, and specifically BY the tenant branch (the caller is non-admin, so
       // the dominion clause is gated off entirely).
@@ -87,7 +87,7 @@ describe('structural tier-DO scope binding', () => {
         NebulaClientTest, browser, universe, star, 'admin@example.com',
       );
       // Fixture guard: the wildcard pattern is the premise of this case.
-      expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
+      expect(payload.access?.authScope).toBe(`${universe}`);
       expect(payload.access?.scopeAdmin).toBe(true);
       adminClient.callStarGetConfig(star);
       await vi.waitFor(() => { expect(adminClient.callCompleted).toBe(true); });
@@ -167,11 +167,10 @@ describe('structural tier-DO scope binding', () => {
       expect(client.connectionState).toBe('connected');
 
       // (2) 🔒 The star-scoped-admin re-grounding itself. This is the assertion the whole intent-split
-      // was built to make possible — under the old body it returned `{u}.*` and reds here. An
-      // exact-star pattern is what makes the star-scoped admin inert at every ancestor (ADR-015); if the mint
-      // ever widens, open self-signup silently becomes an escalation.
-      expect(payload.access?.authScopePattern).toBe(starA);
-      expect(payload.access?.authScopePattern).not.toContain('*');
+      // was built to make possible — under the old body it returned `{u}` and reds here. A
+      // star-scoped `authScope` is what makes the star-scoped admin inert at every ancestor (ADR-015);
+      // if the mint ever widens, open self-signup silently becomes an escalation.
+      expect(payload.access?.authScope).toBe(starA);
       expect(payload.access?.scopeAdmin).toBe(true);
       expect(payload.aud).toBe(starA);
     });

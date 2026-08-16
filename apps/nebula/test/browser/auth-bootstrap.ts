@@ -64,7 +64,7 @@ export async function bootstrapStarAdmin(options: BootstrapAdminOptions): Promis
 /**
  * Bootstrap a **universe admin** and provision the tree down to `scope`, leaving the refresh cookie
  * at `/auth/{universe}/`. Returns the universe scope, which callers pass as their client's
- * `authScope`. Reach is `{u}.*`, so the client targets any descendant via `activeScope`.
+ * `authScope`. It reaches all of `{u}`, so the client targets any descendant via `activeScope`.
  *
  * ⚠️ **A galaxy cannot be AUTHENTICATED AT — which is not the same as "cannot be operated".** A
  * universe admin's `{u}.*` matches `{u}.{g}` and everything beneath, so this client has full

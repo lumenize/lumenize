@@ -1,7 +1,7 @@
 /**
  * Entrypoint auth-scope verification (unit tests)
  *
- * Tests the belt-and-suspenders matchAccess(authScopePattern, aud) check
+ * Tests the belt-and-suspenders isAtOrAbove(authScope, aud) check
  * inside verifyNebulaAccessToken using crafted JWTs.
  */
 import { describe, it, expect } from 'vitest';
@@ -10,11 +10,11 @@ import { signJwt, importPrivateKey } from '@lumenize/crypto';
 import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
 
 /**
- * Craft a JWT with specific authScopePattern and aud for unit testing.
+ * Craft a JWT with specific authScope and aud for unit testing.
  * Signs with the real private key so signature verification passes.
  */
 async function craftJwt(options: {
-  authScopePattern: string;
+  authScope: string;
   aud: string;
   scopeAdmin?: boolean;
   sub?: string;
@@ -34,7 +34,7 @@ async function craftJwt(options: {
     adminApproved: true,
     email: 'test@example.com',
     access: {
-      authScopePattern: options.authScopePattern,
+      authScope: options.authScope,
       scopeAdmin: options.scopeAdmin ?? false,
     },
   };
@@ -42,10 +42,10 @@ async function craftJwt(options: {
   return await signJwt(payload, privateKey, 'BLUE');
 }
 
-describe('matchAccess(authScopePattern, aud) verification', () => {
-  it('allows JWT where wildcard authScopePattern covers aud', async () => {
+describe('isAtOrAbove(authScope, aud) verification', () => {
+  it('allows JWT where an ancestor authScope covers aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.*',
+      authScope: 'acme',
       aud: 'acme.app.tenant-a',
       scopeAdmin: true,
     });
@@ -54,12 +54,12 @@ describe('matchAccess(authScopePattern, aud) verification', () => {
     const result = await verifyNebulaAccessToken(token, env);
     expect(result).not.toBeNull();
     expect(result!.aud).toBe('acme.app.tenant-a');
-    expect(result!.access.authScopePattern).toBe('acme.*');
+    expect(result!.access.authScope).toBe('acme');
   });
 
-  it('allows JWT where exact authScopePattern matches aud', async () => {
+  it('allows JWT where exact authScope matches aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.app.tenant-a',
+      authScope: 'acme.app.tenant-a',
       aud: 'acme.app.tenant-a',
     });
 
@@ -69,10 +69,10 @@ describe('matchAccess(authScopePattern, aud) verification', () => {
     expect(result!.aud).toBe('acme.app.tenant-a');
   });
 
-  it('rejects JWT where authScopePattern is narrower than aud', async () => {
+  it('rejects JWT where authScope is narrower than aud', async () => {
     const token = await craftJwt({
-      authScopePattern: 'acme.app.tenant-a',
-      aud: 'acme.app',  // aud is broader than authScopePattern
+      authScope: 'acme.app.tenant-a',
+      aud: 'acme.app',  // aud is broader than authScope
     });
 
     const { verifyNebulaAccessToken } = await import('@lumenize/nebula-auth');

@@ -176,13 +176,13 @@ export class DagTree {
     // alone is not dominion: `requirePassage`'s tenant branch deliberately admits a caller
     // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
-    // minted with an `aud` inside the admin's authScopePattern" — true, but it establishes
-    // aud ⊆ pattern, NOT this-host ⊆ pattern, which is the question actually being asked.
+    // minted with an `aud` at or below the admin's `authScope`" — true, but it establishes that about
+    // `aud`, NOT about THIS HOST, which is the question actually being asked.
     // (It held only because every DagTree host is a star-tier leaf — an incidental property the
     // Galaxy collapse deletes. See tasks/nebula-confine-admin-bypass.md §B.)
     // Fail closed on an absent host name by simply NOT granting the bypass — the caller falls
     // through to the ordinary DAG lookup and needs a real grant. Never coerce to a sentinel:
-    // it would flow into `matchAccess`, where a `*` pattern matches any string.
+    // it would flow into `isAtOrAbove`, where a superuser's root scope covers any string.
     const hostName = this.#getHostName()
     if (hostName && hasDominionOver(claims?.access, hostName)) return sub
     if (!resolvePermission(this.#view, sub, nodeId, tier)) {

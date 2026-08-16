@@ -1296,7 +1296,7 @@ describe('dag-tree', () => {
       );
       // Guard the fixture: a star aud here would test the tenant branch, not cross-tier dominion.
       expect(payload.aud).toBe(universe);
-      expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
+      expect(payload.access?.authScope).toBe(`${universe}`);
 
       // Universe admin can create nodes (scope-admin bypass)
       uniAdmin.callStarCreateNode(star, ROOT_NODE_ID, 'uni-node', 'Universe Node');

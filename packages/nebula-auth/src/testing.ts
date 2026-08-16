@@ -19,15 +19,15 @@ export type { CreateNebulaTestTokenOptions } from './create-nebula-test-token';
 export { buildNebulaJwtPayload, buildNebulaAccessEntry } from './access-claims';
 export type { NebulaAccessClaimInput } from './access-claims';
 
-// Pure scope-parsing / access-matching helpers a harness uses to derive + assert scopes.
-// `hasDominionOver` is exported here too — a Node harness reasoning about dominion must
-// never re-inline the `admin && matchAccess(...)` conjunction this task collapsed to one predicate
+// Pure scope-parsing + containment helpers a harness uses to derive + assert scopes.
+// `hasDominionOver` is exported here too — a Node harness reasoning about dominion must never
+// re-inline the `scopeAdmin && isAtOrAbove(...)` conjunction the shared predicate collapses
 // (ADR-007, one guard path / one place to audit).
 export {
-  parseId, isValidSlug, isPlatformInstance, getParentId, buildAuthScopePattern, matchAccess,
+  parseId, isValidSlug, isPlatformScope, getParentId, isAtOrAbove, isAtOrBelow,
   hasDominionOver,
 } from './parse-id';
 
 // Types + constants needed to build/inspect tokens.
 export type { AccessEntry, NebulaJwtPayload, Tier, ParsedId } from './types';
-export { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
+export { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from './types';

@@ -20,7 +20,7 @@
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
 import { buildNebulaJwtPayload } from './access-claims';
-import { buildAuthScopePattern, hasDominionOver, matchAccess, parseId } from './parse-id';
+import { hasDominionOver, isAtOrAbove, parseId } from './parse-id';
 import { verifyNebulaAccessToken } from './verify';
 import {
   NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME,
@@ -186,8 +186,8 @@ export async function mintAccessToken(
     profileId?: string;
     /** RFC 8693 delegation actor pair → the `act` claim (omitted when absent). */
     actor?: { sub: string; profileId?: string };
-    /** Override the derived pattern (the narrower mint binds to the requested scope). */
-    authScopePattern?: string;
+    /** Override the minted `access.authScope` (the narrower mint binds to the requested scope). */
+    authScopeOverride?: string;
     /**
      * Requested token lifetime. Clamped to {@link ACCESS_TOKEN_TTL} (it can only ever SHORTEN) and
      * warned about below {@link RECOMMENDED_MIN_TTL_SECONDS}. Validate with
@@ -213,7 +213,7 @@ export async function mintAccessToken(
     scopeAdmin: opts.scopeAdmin,
     profileId: opts.profileId,
     actor: opts.actor,
-    authScopePattern: opts.authScopePattern,
+    authScopeOverride: opts.authScopeOverride,
     ttlSeconds: effectiveTtlSeconds,
   });
   return { accessToken: await signJwt(payload, privateKey, activeKey), effectiveTtlSeconds };
@@ -296,8 +296,8 @@ export async function handleAcceptInvite(request: Request, env: Env, instanceNam
 /**
  * Exchange the refresh cookie for an access token — a **pure KV read**, no registry, no writes on the
  * hot path. ⚠️ M1: `activeScope` is validated against the KV record's server-trusted
- * `universeGalaxyStarId`, NOT the request path or body — deriving the pattern from client input would
- * let a caller mint a token for any scope they name. `scopeAdmin` comes from the KV record.
+ * `universeGalaxyStarId`, NOT the request path or body — bounding it by client input would let a
+ * caller mint a token for any scope they name. `scopeAdmin` comes from the KV record.
  */
 export async function handleRefreshToken(request: Request, env: Env): Promise<Response> {
   const refreshToken = extractCookie(request.headers.get('Cookie') || '', 'refresh-token');
@@ -333,12 +333,18 @@ export async function handleRefreshToken(request: Request, env: Env): Promise<Re
   // forever. This endpoint is gated by the refresh cookie ALONE, so it is the reachable one.
   const ttlCheck = validateTtlSeconds(body.ttlSeconds);
   if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
+  // The scope grammar is enforced HERE, at the request boundary, because `isAtOrAbove` below is
+  // deliberately grammar-free — it compares two strings and knows nothing about the 1–3-segment
+  // tier tree. Without this a four-segment `activeScope` would sit "beneath" the record's scope and
+  // mint a token naming a scope no grammar can produce. Explicit 400 rather than a bare throw:
+  // `router.ts` wraps this handler in a blanket 500.
+  try { parseId(body.activeScope); }
+  catch (e) { return errorResponse(400, 'invalid_request', (e as Error).message); }
 
-  // M1: derive the pattern from the KV record's scope (server-trusted), never the client body/path.
-  const authScopePattern = buildAuthScopePattern(record.universeGalaxyStarId);
-  if (!matchAccess(authScopePattern, body.activeScope)) {
+  // M1: compare against the KV record's scope (server-trusted), never the client body/path.
+  if (!isAtOrAbove(record.universeGalaxyStarId, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" not covered by access pattern "${authScopePattern}"`);
+      `Requested scope "${body.activeScope}" is not at or below "${record.universeGalaxyStarId}"`);
   }
 
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
@@ -401,12 +407,12 @@ export async function handleInvite(
   // unbuildable downstream without re-verifying, and a `sub`-only record names the person acted upon
   // as the person who acted.
   const verifiedAccess = callerClaims.access;
-  // Admin gate HERE (the Worker is the trusted gate): the router already verified the JWT + scope
-  // match (matchAccess(pattern, instanceName)); `admin === true` completes admin-over-scope. Gating
-  // here keeps the registry RPC throw-free for this expected client error (RPC drops custom Error props).
+  // Admin gate HERE (the Worker is the trusted gate): the router already verified the JWT + the
+  // containment (isAtOrAbove(authScope, instanceName)); `scopeAdmin === true` completes dominion.
+  // Gating here keeps the registry RPC throw-free for this expected client error (RPC drops props).
   //
   // ✅ CONFINED — but by the ROUTER, not by this line. The invariant: `router.ts` runs
-  // `matchAccess(access.authScopePattern, instanceName)` before dispatching here, so by the time
+  // `isAtOrAbove(access.authScope, instanceName)` before dispatching here, so by the time
   // this executes, "covers this scope" is already proven and the bare bit legitimately completes
   // the conjunction. That split is the whole reason this read is safe, and it is why this line
   // must never be copied to a site that lacks the router's check.
@@ -432,7 +438,7 @@ export async function handleInvite(
  * Mint a scope-bounded narrower token for another person: `sub` = the subject, `act.sub` = the caller.
  * The `AuthorizedActor` non-admin branch is CUT (tasks/nebula-auth-surrogate-sub.md) — only the ADMIN
  * branch survives. The request parameters ARE the token fields the caller is asking for
- * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + the source of its pattern);
+ * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + its minted `authScope`);
  * the actor is always the caller, taken from the Bearer token, so it is never a parameter.
  *
  * **Two rules, and a consequence that falls out of them** (tasks/nebula-mint-narrower-token.md):
@@ -473,6 +479,12 @@ export async function mintNarrowerToken(
   // Accept-list, before the mint — see `validateTtlSeconds` on why a non-positive check is not enough.
   const ttlCheck = validateTtlSeconds(body.ttlSeconds);
   if ('error' in ttlCheck) return errorResponse(400, 'invalid_request', ttlCheck.error);
+  // The scope grammar is enforced HERE, at the request boundary — the ONLY parse this client-supplied
+  // value gets. `isAtOrAbove` below is deliberately grammar-free (two strings, no tier tree), and the
+  // mint no longer derives anything from `activeScope` that would parse it on the way past. Explicit
+  // 400 rather than a bare throw: `router.ts` wraps this handler in a blanket 500.
+  try { parseId(body.activeScope); }
+  catch (e) { return errorResponse(400, 'invalid_request', (e as Error).message); }
 
   // Reject SELF-NARROWING, before the registry read. There is no second party, so `act: { sub: X }` on
   // a token whose `sub` is X records nothing: it pollutes attribution, muddies `!claims.act` (the
@@ -488,13 +500,13 @@ export async function mintNarrowerToken(
   //
   // ⚠️ **This is an UPPER bound, and that is CORRECT — do not "fix" it.** It stops widening; it
   // deliberately permits NARROWING, which is the endpoint's entire purpose (the mint below binds the
-  // new token to the REQUESTED scope, not the caller's — see `authScopePattern` at the mint, and the
-  // test "binds the minted token to the REQUESTED scope, not the caller pattern"). Forbidding
-  // narrowing would break least-privilege minting; re-checking that the minted pattern is a
-  // subset of the caller's would be redundant, since narrowing already implies subset.
+  // new token to the REQUESTED scope, not the caller's — see `authScopeOverride` at the mint, and the
+  // test "binds the minted token to the REQUESTED scope, not the caller's scope"). Forbidding
+  // narrowing would break least-privilege minting; re-checking that the minted scope is at or below
+  // the caller's would be redundant, since narrowing already implies it.
   //
-  // Narrowing is nevertheless how the `access.scopeAdmin` escalation was reachable: a `{u}.*` admin can
-  // mint `aud={u}.{g}` + pattern `{u}.{g}.*` + admin, which `requirePassage`'s tenant branch then
+  // Narrowing is nevertheless how the `access.scopeAdmin` escalation was reachable: a `{u}` admin can
+  // mint `aud={u}.{g}` + `authScope={u}.{g}` + admin, which `requirePassage`'s tenant branch then
   // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
   // never here; it was downstream, and it is fixed there** (`hasDominionOver` in `requireDominionHere` /
   // `requirePermission` / the subscribe-time writers). Post-fix the narrower token is denied on the
@@ -502,11 +514,12 @@ export async function mintNarrowerToken(
   //
   // ⚠️ **This gate is implied by eligibility + the scope mirror below** (together they bound
   // `activeScope` inside the subject's scope, which eligibility has already placed inside the
-  // caller's). It survives for its `insufficient_scope` code and its caller-facing reach message,
-  // and because it is the site that implements `security.md` rule (2)'s first invariant.
-  if (!matchAccess(payload.access.authScopePattern, body.activeScope)) {
+  // caller's). It survives for its `insufficient_scope` code and its caller-facing message naming
+  // what the caller's own scope covers, and because it implements `security.md` rule (2)'s first
+  // invariant.
+  if (!isAtOrAbove(payload.access.authScope, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" exceeds the caller's reach "${payload.access.authScopePattern}"`);
+      `Requested scope "${body.activeScope}" exceeds what the caller's scope covers "${payload.access.authScope}"`);
   }
 
   // The ADMIN branch is the only surviving mint path (the AuthorizedActor path is cut).
@@ -532,17 +545,17 @@ export async function mintNarrowerToken(
 
   // ── (1) ELIGIBILITY — run BEFORE the scope mirror ────────────────────────────────────────────────
   // You may only impersonate someone you already administer ENTIRELY. Its uniquely load-bearing case
-  // is UPWARD: caller pattern `{u}.{g}.*`, subject scope `{u}`, `activeScope = {u}.{g}` satisfies every
+  // is UPWARD: caller scope `{u}.{g}`, subject scope `{u}`, `activeScope = {u}.{g}` satisfies every
   // other check, and only this stops a lower admin wearing a superior's identity (ADR-015 §2).
   //
   // ⚠️ **ORDER MATTERS, and it is a disclosure decision.** A faithfulness bound can pass while
   // eligibility fails, so running the mirror first would tell a caller who is about to be refused
   // WHERE the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
-  // 403 body may name the subject's scope; echo the caller's own pattern or nothing. (Subject
+  // 403 body may name the subject's scope; echo the caller's own scope or nothing. (Subject
   // EXISTENCE is disclosed either way by the 404 above — pre-existing and unchanged.)
   if (!hasDominionOver(payload.access, subjectIdentity.universeGalaxyStarId)) {
     return errorResponse(403, 'forbidden',
-      `Caller pattern "${payload.access.authScopePattern}" does not administer this subject`);
+      `Caller scope "${payload.access.authScope}" does not administer this subject`);
   }
 
   // ── (2) FAITHFULNESS — the scope mirror ──────────────────────────────────────────────────────────
@@ -550,10 +563,9 @@ export async function mintNarrowerToken(
   // person rather than merely something inside the caller's dominion. Without it, a subject scoped at
   // `{u}.{g}.{s1}` would get a token admin over all of `{u}.{g}` — not an escalation (eligibility
   // already bounded it), but not that person's access either, which is the property the use case needs.
-  const subjectPattern = buildAuthScopePattern(subjectIdentity.universeGalaxyStarId);
-  if (!matchAccess(subjectPattern, body.activeScope)) {
+  if (!isAtOrAbove(subjectIdentity.universeGalaxyStarId, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" is outside the subject's own reach`);
+      `Requested scope "${body.activeScope}" is outside the subject's own scope`);
   }
 
   // Bind the minted token to the REQUESTED scope, mirroring the SUBJECT's `admin` bit.
@@ -572,7 +584,7 @@ export async function mintNarrowerToken(
     // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to
     // resolve it live; it is omitted when the caller's own token carries no `profileId` claim.
     actor: { sub: payload.sub, profileId: payload.profileId },
-    authScopePattern: buildAuthScopePattern(body.activeScope),
+    authScopeOverride: body.activeScope,
     ttlSeconds: body.ttlSeconds as number | undefined,
   });
 

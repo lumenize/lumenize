@@ -13,7 +13,7 @@ import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndP
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
-const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScopePattern: '*', scopeAdmin: true } }) as any;
+const ACTING = (sub = crypto.randomUUID()) => ({ sub, access: { authScope: 'nebula-platform', scopeAdmin: true } }) as any;
 
 function uniqueUniverse(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 function getRegistry(): any { return env.NEBULA_AUTH_REGISTRY.getByName('registry'); }
@@ -27,7 +27,7 @@ describe('Identity authority — mint only at authority points', () => {
     const uni = uniqueUniverse();
     const first = await foundUniverse(SELF, uni, 'scope-admin@example.com');
     expect(first.parsed.access.scopeAdmin).toBe(true);         // the claiming admin is admin
-    expect(first.parsed.access.authScopePattern).toBe(`${uni}.*`);
+    expect(first.parsed.access.authScope).toBe(`${uni}`);
 
     // Log in AGAIN via the login magic-link (find-and-flip) — must resolve to the SAME sub, never re-mint.
     const mlResp = await requestMagicLink(SELF, uni, 'scope-admin@example.com');

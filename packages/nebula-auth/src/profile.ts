@@ -22,7 +22,7 @@
  *  - **`requireOwnerOrAdmin` gates public-field writes + the private set's read/write** — EXACTLY two
  *    capability levels, never per-field roles: anyone who can read a private field can also write it and
  *    write every public one. Owner (JWT `profileId` === this instance, and no `act` chain) and
- *    super-admin (`authScopePattern === '*'`) short-circuit with NO read; a scoped admin whose pattern
+ *    super-admin (`authScope` is the platform root) short-circuit with NO read; a scoped admin whose scope
  *    covers a scope where this profile holds an **ACCEPTED** membership is the ONE path that reads (the
  *    registry's `getScopesForProfile`, whose acceptance predicate is what makes that branch safe — see
  *    the comment at the branch). Fail CLOSED.
@@ -35,7 +35,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ComposedMeshDO, mesh, newContinuation, type Continuation } from '@lumenize/mesh';
 import { ulidFactory } from 'ulid-workers';
 import { debug } from '@lumenize/debug';
-import { matchAccess } from './parse-id';
+import { isAtOrAbove, isPlatformScope } from './parse-id';
 import { REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 
@@ -270,8 +270,11 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     if (claims?.profileId && claims.profileId === profileId && !claims.act) return;
     // (2) Not an admin → reject. NO read.
     if (!claims?.access?.scopeAdmin) throw new Error('Forbidden: profile write requires owner or admin');
-    // (3) Super-admin (pattern '*') covers every scope → pass. NO read.
-    if (claims.access.authScopePattern === '*') return;
+    // (3) Super-admin — the reserved platform scope is the ROOT, so it covers every scope → pass. NO
+    // read. ⚠️ An IDENTITY test, deliberately not `hasDominionOver`: this is a work-avoidance
+    // short-circuit whose whole purpose is to answer before the registry read, and the predicate
+    // would need the very scope list this branch exists to avoid fetching.
+    if (isPlatformScope(claims.access.authScope)) return;
 
     // (4) Scoped admin — the ONE registry read. Fail CLOSED on error (raw-RPC drops custom error props,
     // so a thrown registry error would arrive shapeless — deny rather than trust it).
@@ -305,8 +308,7 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
       });
       throw new Error('Forbidden: profile authz check failed');
     }
-    const pattern = claims.access.authScopePattern;
-    if (scopes.some((s) => matchAccess(pattern, s))) return;
+    if (scopes.some((s) => isAtOrAbove(claims.access.authScope, s))) return;
     throw new Error('Forbidden: admin does not cover any of the profile scopes');
   }
 

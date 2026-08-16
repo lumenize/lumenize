@@ -8,7 +8,7 @@
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { buildAuthScopePattern, hasDominionOver, isPlatformInstance, matchAccess } from '@lumenize/nebula-auth';
+import { hasDominionOver, isAtOrAbove, isPlatformScope, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /**
@@ -32,7 +32,7 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * (passage), `requireDominionHere` decides *whether the caller holds dominion here*.
  *
  * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
- * caller's `authScopePattern` covers. `requirePassage`'s tenant branch deliberately admits a
+ * caller's `authScope` covers. `requirePassage`'s tenant branch deliberately admits a
  * caller whose `aud` sits *below* this node (a member of a child may call its parent), so a bare
  * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
  * narrowing a `/mint-narrower-token` mint. See tasks/nebula-confine-admin-bypass.md.
@@ -42,9 +42,10 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * coerce: `?? ''` denies every scoped admin, `!` opens the hole.
  *
  * ⚠️ This deliberately mirrors only branch (a) of `requirePassage`, not its platform-name reject
- * (b) or `buildAuthScopePattern` parse (d) — whose ORDER there is load-bearing because
- * `matchAccess('*', x)` is true for any string, including an unparseable name. The invariant that
- * makes that sound here: `onBeforeCall` always runs before guard execution, and both `NebulaDO` and
+ * (b) or its name parse (d) — whose ORDER there is load-bearing because the reserved platform scope
+ * is the ROOT of the scope tree, so a superuser holds dominion over any string, an unparseable name
+ * included. The invariant that makes that sound here: `onBeforeCall` always runs before guard
+ * execution, and both `NebulaDO` and
  * `NebulaContainer` compose `requirePassage`, so (b)/(d) have already run on every node that
  * composes both. That is an enforced ordering, not an incidental property.
  *
@@ -66,7 +67,7 @@ export function requireDominionHere(instance: HasCallContext) {
     // ADR-008 disclaims confidentiality of the scope boundary and discloses the denied set on
     // purpose, and both operands are already in the caller's own JWT, so naming them leaks nothing.
     throw new Error(
-      `Admin access required for ${name} — your admin scope is ${claims.access.authScopePattern}`,
+      `Admin access required for ${name} — your admin scope is ${claims.access.authScope}`,
     );
   }
 }
@@ -80,19 +81,19 @@ export function requireDominionHere(instance: HasCallContext) {
  *
  * Accepts a mesh call iff EITHER:
  * - **downward dominion** — the caller is an `access.scopeAdmin` whose
- *   `authScopePattern` covers this node's instance name (one admin identity
+ *   `authScope` is at or above this node's instance name (one admin identity
  *   reaches everything in its dominion, no per-target `aud` re-mint); OR
- * - **tenant boundary** — the call's active scope (`aud`) is covered by the scope
+ * - **tenant boundary** — the call's active scope (`aud`) sits at or below the scope
  *   encoded in the instance name (the original check; all a non-admin ever uses).
  *
- * The dominion clause is **gated on `access.scopeAdmin`**: pattern-coverage alone is not
- * dominion, so a non-admin with a wildcard pattern keeps today's aud-narrowed
+ * The dominion clause is **gated on `access.scopeAdmin`**: position alone is not
+ * dominion, so a non-admin at a covering scope keeps today's aud-narrowed
  * behavior exactly (a descendant it doesn't actively scope to is rejected).
  *
  * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
- * reject, and the `buildAuthScopePattern(name)` parse all run BEFORE the dominion
- * clause — otherwise a wildcard/`*` admin would short-circuit past them, since
- * `matchAccess('*', x)` is `true` for any string (incl. an unparseable name).
+ * reject, and the name parse all run BEFORE the dominion clause — otherwise a
+ * superuser would short-circuit past them, since the reserved platform scope is the
+ * ROOT of the tree and so holds dominion over any string (incl. an unparseable name).
  *
  * Every rejection is an `Error` (never a bare string — a thrown string lands in
  * `lastResult`, not `lastError`).
@@ -117,19 +118,24 @@ export function requirePassage(
     throw new Error('Mesh call missing callee instance name');
   }
 
-  // (b) platform-name reject — `buildAuthScopePattern('nebula-platform')` is `*`
-  // (accept-all); no tier/container node IS the platform DO, so reject it before
-  // the gate could collapse to accept-all. Runs before the dominion clause so a
-  // covering admin can't call into a DO masquerading at the platform name.
-  if (isPlatformInstance(name)) {
+  // (b) NAME RESERVATION — `nebula-platform` is the reserved platform scope, and under the root
+  // model it is the one instance name EVERY authenticated caller has passage to. Nothing is
+  // deployed there yet, and `lmz.call` takes the binding and the instance name separately, so
+  // without this reject a caller could instantiate an arbitrary DO class at the most-reachable
+  // name in the system and call its ungated `@mesh()` methods. Runs before the dominion clause so
+  // it fires for a superuser too. ⚠️ It is TEMPORARY and goes from REJECTED to BOUND — never to
+  // open — in whatever change eventually registers an occupant for the name.
+  if (isPlatformScope(name)) {
     throw new Error('Active-scope mismatch');
   }
 
-  // (d) throws on an unparseable tier name (e.g. >3 segments, illegal slug) —
-  // fail closed rather than swallow. Before the dominion clause for the same reason.
-  const pattern = buildAuthScopePattern(name);
+  // (d) throws on an unparseable tier name (e.g. >3 segments, illegal slug) — fail closed rather
+  // than swallow. ⚠️ Load-bearing on its own now: `isAtOrAbove` is deliberately grammar-free, so
+  // this is the ONLY thing standing between a malformed callee name and a plain string compare.
+  // Before the dominion clause because the platform root holds dominion over any string.
+  parseId(name);
 
-  // Downward dominion (gated on access.scopeAdmin — pattern-coverage is NOT dominion).
+  // Downward dominion (gated on access.scopeAdmin — position alone is NOT dominion).
   // Delegates to the ONE shared predicate (ADR-007); its body is exactly the inline form this
   // previously hand-rolled, truthiness guard included.
   if (hasDominionOver(claims?.access, name)) {
@@ -141,7 +147,10 @@ export function requirePassage(
   if (!aud) {
     throw new Error('Missing active scope (aud)');
   }
-  if (!matchAccess(pattern, aud)) {
+  // ⚠️ Verdict-identical to the pattern form it replaces — the same two inputs, spelled with the
+  // new symbol. The INPUT still moves: ADR-015 computes passage from the caller's own `authScope`,
+  // not the client-chosen `aud`, so this remains a strict superset of passage until that lands.
+  if (!isAtOrAbove(name, aud)) {
     throw new Error('Active-scope mismatch');
   }
 }
@@ -153,11 +162,11 @@ export function requirePassage(
  * {@link requirePassage} helper (composed, not reimplemented — ADR-007). A
  * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
  * covers this DO's **instance name** (downward dominion), OR its JWT `aud`
- * (active scope) is covered by the scope encoded in that name (the tenant
- * boundary; the non-admin path). The name is run through `buildAuthScopePattern`
- * (Star → exact id; Galaxy/Universe → `<id>.*`, covering the scope and every
- * descendant). There is no trust-on-first-use lock and no stored `aud` — scope
- * is derived from the name on every call.
+ * (active scope) sits at or below the scope encoded in that name (the tenant
+ * boundary; the non-admin path). Containment is by whole dot-separated segment —
+ * a scope covers itself and every descendant, and nothing else — so no tier
+ * grammar is involved. There is no trust-on-first-use lock and no stored `aud`;
+ * the scope is read off the name on every call.
  *
  * Soundness rests on name == routing key: a tier DO is addressed by the same
  * `parseId`-valid id that becomes its `instanceName` (never a 64-hex DO id), so

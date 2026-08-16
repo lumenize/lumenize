@@ -13,7 +13,7 @@
  * unverified identity, so a valid token proves authorized membership by construction).
  *
  * This is the "factor out to share, don't copy" seam. A second (or third) hand-rolled copy
- * of the `access: { authScopePattern, scopeAdmin? }` shape is exactly the drift the de-fork task
+ * of the `access: { authScope, scopeAdmin? }` shape is exactly the drift the de-fork task
  * ([`tasks/archive/nebula-auth-decouple-from-auth.md`]) is shrinking — so new mint sites compose
  * this, never re-emit `access:{...}` inline.
  *
@@ -24,15 +24,15 @@
  */
 import type { AccessEntry, NebulaJwtPayload } from './types';
 import { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER } from './types';
-import { buildAuthScopePattern, matchAccess } from './parse-id';
+import { isAtOrAbove } from './parse-id';
 
 /** Inputs for {@link buildNebulaJwtPayload}. */
 export interface NebulaAccessClaimInput {
   /** The registry-minted surrogate `sub` (one per email-in-a-scope) — the identity key. */
   sub: string;
-  /** Issuing scope (universeGalaxyStarId) — drives the `authScopePattern`. */
+  /** Issuing scope (universeGalaxyStarId) — becomes the minted `access.authScope`. */
   instanceName: string;
-  /** JWT `aud` — the active scope this token is bound to. MUST be covered by the pattern. */
+  /** JWT `aud` — the active scope this token is bound to. MUST sit at or below `access.authScope`. */
   activeScope: string;
   /** `access.scopeAdmin` is set only when true (kept omitted otherwise to keep the JWT compact). */
   scopeAdmin: boolean;
@@ -48,13 +48,13 @@ export interface NebulaAccessClaimInput {
    */
   actor?: { sub: string; profileId?: string };
   /**
-   * Override the minted `access.authScopePattern` (default: {@link buildAuthScopePattern} of `instanceName`).
+   * Override the minted `access.authScope` (default: `instanceName`).
    * Set ONLY by the `/mint-narrower-token` mint, to bind the token to the **requested** `activeScope`
-   * — never the issuing instance's pattern. That scope is separately bounded by BOTH the caller's
-   * dominion and the subject's (`worker-token.mintNarrowerToken`), so the derived pattern can exceed
-   * neither. MUST still cover `activeScope` (the internal-consistency self-check below enforces it).
+   * — never the issuing instance's scope. That scope is separately bounded by BOTH the caller's
+   * dominion and the subject's (`worker-token.mintNarrowerToken`), so it can exceed neither. MUST
+   * still sit at or above `activeScope` (the internal-consistency self-check below enforces it).
    */
-  authScopePattern?: string;
+  authScopeOverride?: string;
   /** Token TTL in seconds. Default {@link ACCESS_TOKEN_TTL}. */
   ttlSeconds?: number;
   /** "now" in Unix seconds. Default `Math.floor(Date.now() / 1000)`; injectable for tests. */
@@ -62,32 +62,35 @@ export interface NebulaAccessClaimInput {
 }
 
 /**
- * Build the scoped `access` entry: the tier-aware auth-scope pattern for `instanceName`,
- * plus `admin: true` iff `scopeAdmin`.
+ * Build the scoped `access` entry: the issuing scope verbatim, plus `scopeAdmin: true` iff admin.
  *
- * `authScopePatternOverride` bounds the pattern to something other than the issuing instance's
- * (the `/mint-narrower-token` scope-bounded mint passes the requested `activeScope`); default derives
- * from `instanceName`, the shape every ordinary mint keeps.
+ * `authScopeOverride` binds the claim to something other than the issuing instance's scope (the
+ * `/mint-narrower-token` scope-bounded mint passes the requested `activeScope`); the default is
+ * `instanceName` itself, the shape every ordinary mint keeps.
  *
- * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `admin` and
- * `authScopePattern` are produced together, so `admin` is never emitted without a pattern — which
- * is what lets `hasDominionOver` treat a missing pattern as fail-closed rather than as a normal
- * case. `buildNebulaJwtPayload` below adds the other mint-side guarantee: `aud` ⊆ `authScopePattern`.
+ * ⚠️ **Neither argument is parsed here, deliberately.** Both live callers pass a server-trusted
+ * `instanceName` — a registry row or a verified claim — and the one client-supplied value that
+ * reaches the override (`/mint-narrower-token`'s `activeScope`) is parsed at its own request
+ * boundary, where a malformed value can answer 400 instead of a blanket 500.
  *
- * ⚠️ **`aud` ⊆ pattern is NOT the property the guards need.** The old `dag-tree.ts` comment
+ * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `scopeAdmin`
+ * and `authScope` are produced together, so the bit is never emitted without a scope — which is what
+ * lets `hasDominionOver` treat a missing scope as fail-closed rather than as a normal case.
+ * `buildNebulaJwtPayload` below adds the other mint-side guarantee: `aud` is at or below `authScope`.
+ *
+ * ⚠️ **That containment is NOT the property the guards need.** The old `dag-tree.ts` comment
  * justified a bare-bit bypass by appealing to exactly this invariant — correct, but it establishes
  * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
- * question: does the pattern cover **the callee node**? `requirePassage`'s tenant branch
+ * question: is **the callee node** at or below `authScope`? `requirePassage`'s tenant branch
  * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
  * gap between them was the escalation. See tasks/nebula-confine-admin-bypass.md.
  */
 export function buildNebulaAccessEntry(
   instanceName: string,
   scopeAdmin: boolean,
-  authScopePatternOverride?: string,
+  authScopeOverride?: string,
 ): AccessEntry {
-  const authScopePattern = authScopePatternOverride ?? buildAuthScopePattern(instanceName);
-  const access: AccessEntry = { authScopePattern };
+  const access: AccessEntry = { authScope: authScopeOverride ?? instanceName };
   if (scopeAdmin) access.scopeAdmin = true;
   return access;
 }
@@ -95,8 +98,8 @@ export function buildNebulaAccessEntry(
 /**
  * Build the full Nebula JWT payload (unsigned).
  *
- * Enforces the internal-consistency invariant — the active scope (`aud`) must be covered by
- * the derived `authScopePattern` — throwing the same error the server mint does. This is
+ * Enforces the internal-consistency invariant — the active scope (`aud`) must sit at or below
+ * the minted `authScope` — throwing the same error the server mint does. This is
  * defense-in-depth mirrored at `router.verifyNebulaAccessToken`: it makes an inconsistent
  * token impossible to construct here, not merely rejected downstream.
  */
@@ -131,10 +134,12 @@ export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord 
 }
 
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
-  const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin, input.authScopePattern);
-  if (!matchAccess(access.authScopePattern, input.activeScope)) {
+  const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin, input.authScopeOverride);
+  // Structural — two strings, no `scopeAdmin` operand. It asserts the token is internally
+  // consistent, never that the subject holds dominion anywhere.
+  if (!isAtOrAbove(access.authScope, input.activeScope)) {
     throw new Error(
-      `Requested scope "${input.activeScope}" not covered by access pattern "${access.authScopePattern}"`,
+      `Requested scope "${input.activeScope}" is not at or below auth scope "${access.authScope}"`,
     );
   }
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);

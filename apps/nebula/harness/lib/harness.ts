@@ -144,6 +144,13 @@ export async function bootDevStack(
      * machine where Docker is gated.
      */
     withContainer?: boolean;
+    /**
+     * Extra `--var NAME:VALUE` overrides for THIS boot only — never a `.dev.vars` mutation, so they
+     * auto-revert per boot. For a scenario whose subject is server configuration the identity path
+     * reads, e.g. `NEBULA_AUTH_BOOTSTRAP_EMAIL` (the superuser scenario points it at an address on
+     * the test catch-all, so the bootstrap login can be a REAL email round trip rather than a mint).
+     */
+    vars?: Record<string, string>;
   } = {},
 ): Promise<DevStack> {
   const withContainer = opts.withContainer ?? true;
@@ -188,6 +195,7 @@ export async function bootDevStack(
       ...(process.env.HARNESS_TURNSTILE_SECRET
         ? ['--var', `TURNSTILE_SECRET_KEY:${process.env.HARNESS_TURNSTILE_SECRET}`]
         : []),
+      ...Object.entries(opts.vars ?? {}).flatMap(([k, v]) => ['--var', `${k}:${v}`]),
       '--log-level', 'info',
     ],
     onStdio: (chunk) => {
@@ -267,9 +275,15 @@ export async function connectDriver(
       reason: string;
       scopeAdmin?: boolean;
       /**
-       * The token ISSUER's DO instance (drives `authScopePattern`) — distinct from the client's own
-       * gateway instanceName. Default `scope` (admin of its own scope); `'nebula-platform'` mints
-       * a `*` super-admin whose `aud` is `scope` but whose dominion is global.
+       * The token ISSUER's DO instance — it BECOMES `access.authScope` verbatim, and is distinct
+       * from the client's own gateway instanceName. Default `scope` (admin of its own scope);
+       * `'nebula-platform'` mints a superuser whose `aud` is `scope` but whose dominion is global,
+       * the platform scope being the ROOT of the scope tree.
+       *
+       * ⚠️ **Defaulting to `scope` means this mint path cannot produce a DENIAL by narrowing** —
+       * narrow the scope and the claim narrows with it, in lockstep, so the caller always covers
+       * its own `aud`. A scenario whose subject IS a refusal must set this explicitly, or better,
+       * use the `provisionAndLogin` path below, where the server decides the claim.
        */
       issuerInstanceName?: string;
     };
@@ -359,7 +373,7 @@ export async function connectDriver(
  *   not a nested one. That flatness is the point of the control; a nested bag would degrade the
  *   token for a second, uninteresting reason and stop isolating the missing `access` claim.
  * - `'no-access'` → nebula issuer + valid `aud`/`sub`/`email` but STILL no `access` claim. Isolates
- *   `access.authScopePattern` (router.ts) as the *sole* discriminator — the strongest control.
+ *   `access.authScope` (router.ts) as the *sole* discriminator — the strongest control.
  *
  * Both must be rejected at the gateway; if either connected, the positive result would prove
  * nothing about the `access` claim being load-bearing.

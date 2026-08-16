@@ -16,7 +16,7 @@ import {
   foundStarAndLogin, inviteIntoGalaxy, platformLogin, BOOTSTRAP_EMAIL, registryUrl,
 } from './test-helpers';
 import { createNebulaTestToken } from '../src/create-nebula-test-token';
-import { matchAccess } from '../src/parse-id';
+import { isAtOrAbove } from '../src/parse-id';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 
@@ -91,7 +91,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
     expect(parsed.sub).toBe(starAdmin.parsed.sub);
     expect(parsed.access.scopeAdmin).toBe(true);
-    expect(parsed.access.authScopePattern).toBe(star); // exact-star, derived from the requested scope
+    expect(parsed.access.authScope).toBe(star); // exact-star, derived from the requested scope
   });
 
   // ── SELF-NARROWING is rejected ──────────────────────────────────────────────────────────────────
@@ -132,8 +132,8 @@ describe('/mint-narrower-token (admin branch only)', () => {
   // ── (1) ELIGIBILITY ─────────────────────────────────────────────────────────────────────────────
   describe('eligibility — you may only impersonate someone you already administer entirely', () => {
     // THE case eligibility uniquely rejects: UPWARD. A star-tier admin wearing a galaxy-tier
-    // identity. Every other check passes — gate 2 (`matchAccess('u.g.s','u.g.s')`) and the scope
-    // mirror (`matchAccess('u.g.*','u.g.s')`) both hold — so ONLY eligibility can produce this 403.
+    // identity. Every other check passes — gate 2 (`isAtOrAbove('u.g.s','u.g.s')`) and the scope
+    // mirror (`isAtOrAbove('u.g','u.g.s')`) both hold — so ONLY eligibility can produce this 403.
     // Mutation: delete the `hasDominionOver` gate → the mint succeeds → this reds.
     it('UPWARD: a star-tier admin cannot mint for a galaxy-tier subject (403 forbidden)', async () => {
       const u = uni();
@@ -143,7 +143,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
 
       // Caller: a star-scoped admin — exact-star pattern `u.app.tenant`, `admin: true`.
       const caller = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
-      expect(caller.parsed.access.authScopePattern).toBe(star); // fixture guard: NOT a wildcard
+      expect(caller.parsed.access.authScope).toBe(star); // fixture guard: NOT a wildcard
       // Subject: a member whose OWN scope is the parent galaxy — strictly above the caller.
       const subject = await inviteIntoGalaxy(SELF, galaxy, admin.access_token, 'gal-member@example.com');
 
@@ -158,7 +158,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       // case the subject's scope is by construction an ancestor path of the caller's own pattern, so
       // a substring check can never distinguish "leaked it" from "echoed what the caller already
       // holds". Adding the subject's scope to this message reds the equality.
-      expect(body.error_description).toBe(`Caller pattern "${star}" does not administer this subject`);
+      expect(body.error_description).toBe(`Caller scope "${star}" does not administer this subject`);
     });
 
     // Regression for the reject itself — the scope mirror already 403s this, so the STATUS cannot red
@@ -180,15 +180,16 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect((await resp.json() as any).error).toBe('forbidden'); // NOT insufficient_scope — order pin
     });
 
-    // The WIDEST path — a bootstrap `*` admin. `*` is not a prefix of anything, so swapping
-    // `hasDominionOver` for a prefix/equality compare reds this while leaving the cases above green.
-    // `activeScope` is PINNED to the subject's own scope: an unrelated one would 403 on the scope
-    // mirror and misdirect a reader to eligibility.
-    it('a `*` bootstrap admin CAN mint for a subject in an unrelated universe (200)', async () => {
+    // The WIDEST path — a bootstrap superuser at `nebula-platform`. That scope is the ROOT of the
+    // tree and shares no prefix with any universe slug, so swapping `hasDominionOver` for a
+    // prefix/equality compare reds this while leaving the cases above green. `activeScope` is PINNED
+    // to the subject's own scope: an unrelated one would 403 on the scope mirror and misdirect a
+    // reader to eligibility.
+    it('a bootstrap superuser CAN mint for a subject in an unrelated universe (200)', async () => {
       const u2 = uni();
       const subject = await foundUniverse(SELF, u2, 'other-admin@example.com');
       const platform = await platformLogin(SELF, BOOTSTRAP_EMAIL, u2);
-      expect(platform.parsed.access.authScopePattern).toBe('*'); // fixture guard
+      expect(platform.parsed.access.authScope).toBe('nebula-platform'); // fixture guard
 
       const resp = await adminRequest(SELF, u2, 'mint-narrower-token', platform.access_token, {
         method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: u2 },
@@ -210,7 +211,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const galaxy = `${u}.app`;
     const star = `${galaxy}.tenant`;
     const subject = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
-    expect(subject.parsed.access.authScopePattern).toBe(star); // the subject's dominion is the star alone
+    expect(subject.parsed.access.authScope).toBe(star); // the subject's dominion is the star alone
 
     const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
       method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: galaxy },
@@ -246,8 +247,8 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
       expect(parsed.aud).toBe(childScope);
-      expect(parsed.access.authScopePattern).toBe(`${childScope}.*`); // NOT the caller's `${u}.*`
-      expect(matchAccess(parsed.access.authScopePattern, `${childScope}.tenant`)).toBe(true);
+      expect(parsed.access.authScope).toBe(childScope); // NOT the caller's `${u}`
+      expect(isAtOrAbove(parsed.access.authScope, `${childScope}.tenant`)).toBe(true);
     });
 
     it('rejects an activeScope the CALLER cannot reach (403) — cross-scope, caller-dominion gate', async () => {
@@ -433,6 +434,6 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     expect(record.data.actingToken.profileId).toBe(starAdmin.parsed.profileId);
     // (4) The `access` entry — what authority was ASSERTED. Immutable history; never read back as an
     // authz input (that would be ADR-013's stored scope-set). Mutation: drop `access` → reds.
-    expect(record.data.actingToken.access).toEqual({ authScopePattern: star, scopeAdmin: true });
+    expect(record.data.actingToken.access).toEqual({ authScope: star, scopeAdmin: true });
   });
 });

@@ -4,7 +4,7 @@
  * can both import it without an import cycle.
  */
 import { verifyJwt, verifyJwtWithRotation, importPublicKey } from '@lumenize/crypto';
-import { matchAccess } from './parse-id';
+import { isAtOrAbove } from './parse-id';
 import { NEBULA_AUTH_ISSUER } from './types';
 import type { NebulaJwtPayload } from './types';
 
@@ -17,7 +17,7 @@ async function getPublicKeys(env: object): Promise<CryptoKey[]> {
 
 /**
  * Verify a Nebula access token: signature, standard claims, and the internal-consistency check that
- * `aud` (the active scope) is covered by `access.authScopePattern`. Returns the decoded payload if
+ * `aud` (the active scope) sits at or below `access.authScope`. Returns the decoded payload if
  * valid, `null` if invalid/expired. `email` / `adminApproved` are no longer claims — a valid token
  * proves authorized membership by construction (enforced at mint), so there is no gate to feed here.
  */
@@ -41,11 +41,13 @@ export async function verifyNebulaAccessToken(
   if (!payload.aud || typeof payload.aud !== 'string') return null;
   if (payload.iss !== NEBULA_AUTH_ISSUER) return null;
   if (!payload.sub) return null;
-  if (!payload.access?.authScopePattern) return null;
+  if (!payload.access?.authScope) return null;
 
-  // Internal consistency: the active scope (aud) must be covered by the auth scope pattern. The mint
-  // paths already prevent minting a token that violates this; this catches tampered/stale tokens.
-  if (!matchAccess(payload.access.authScopePattern, payload.aud)) return null;
+  // Internal consistency: the active scope (aud) must sit at or below the token's own `authScope`.
+  // The mint paths already prevent minting a token that violates this; this catches tampered/stale
+  // tokens. Structural — a fact about two strings, with no `scopeAdmin` operand: it says nothing
+  // about dominion, and the Gateway's outbound `aud` fence assumes it holds.
+  if (!isAtOrAbove(payload.access.authScope, payload.aud)) return null;
 
   return payload;
 }

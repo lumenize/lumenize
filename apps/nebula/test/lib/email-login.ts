@@ -203,7 +203,7 @@ export async function requestStarClaim(options: {
 
 /**
  * Provision a tenant Star and log in AS ITS FOUNDER — a real, star-scoped session whose refresh
- * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScopePattern`.
+ * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScope`.
  *
  * This is what {@link provisionAndLogin} cannot give you. That helper climbs: it claims the
  * *universe* and returns a universe-admin token whose `{u}.*` reach merely *covers* the star. The

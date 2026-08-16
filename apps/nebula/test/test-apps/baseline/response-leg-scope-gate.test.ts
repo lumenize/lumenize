@@ -8,9 +8,9 @@
  * forged cross-scope response is rejected.
  *
  * The gate re-checks **origin→node containment** (the propagated origin's `aud` vs THIS node's own
- * `buildAuthScopePattern(instanceName)`), NOT responder identity (M1/N4) — so the admit and reject
+ * `isAtOrAbove(instanceName, aud)`), NOT responder identity (M1/N4) — so the admit and reject
  * cases use DIFFERENT origin scopes by construction. Each reject is capable-of-failing: with the
- * gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `matchAccess` return true),
+ * gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `isAtOrAbove` return true),
  * the forged envelope would admit ({$ack}) and every reject assertion flips RED.
  *
  * This is the RESPONSE-leg mirror of the request-leg `scope-isolation.test.ts` branch fan-out.
@@ -76,7 +76,7 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
 
     // ── admin dominion: a platform-admin origin reaches any node, even with a foreign aud → ADMIT ──
     { label: 'admin dominion: platform admin admitted despite a foreign aud', outcome: 'admit',
-      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { scopeAdmin: true, authScopePattern: '*' } }) },
+      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { scopeAdmin: true, authScope: 'nebula-platform' } }) },
   ];
 
   for (const c of cases) {

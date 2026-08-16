@@ -104,7 +104,7 @@ describe('guard enforcement', () => {
       );
       // Guard the fixture: aud must be the universe, or this stops testing cross-tier dominion.
       expect(payload.aud).toBe(universe);
-      expect(payload.access?.authScopePattern).toBe(`${universe}.*`);
+      expect(payload.access?.authScope).toBe(`${universe}`);
 
       // Universe admin calls star-level setStarConfig → succeeds (cross-admin access)
       universeAdmin.callStarSetConfig(star, 'cross', 'admin');
