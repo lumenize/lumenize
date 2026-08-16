@@ -13,7 +13,8 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
   foundUniverse, inviteAndLogin, adminRequest, url,
-  foundStarAndLogin, inviteIntoGalaxy, platformLogin, BOOTSTRAP_EMAIL, registryUrl,
+  foundStarAndLogin, inviteIntoGalaxy, platformLogin, BOOTSTRAP_EMAIL, SECOND_BOOTSTRAP_EMAIL,
+  registryUrl,
 } from './test-helpers';
 import { createNebulaTestToken } from '../src/create-nebula-test-token';
 import { isAtOrAbove } from '../src/parse-id';
@@ -199,6 +200,42 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(parsed.sub).toBe(subject.parsed.sub);
       expect(parsed.act.sub).toBe(platform.parsed.sub);
     });
+
+    // 🔒 **The mint case with NO other backstop: a PLATFORM-scoped SUBJECT.**
+    //
+    // ⚠️ **`activeScope` is pinned to a NON-platform scope deliberately, and that is the whole
+    // point of the test.** With `activeScope = 'nebula-platform'` all three mint checks collapse to
+    // `myScope === targetScope`, so the case greens whether or not `isAtOrAbove` carries the
+    // platform-root branch — which is precisely the mutation it exists to catch. Aiming it at `{u}`
+    // instead forces the SUBJECT bound to answer `isAtOrAbove('nebula-platform', '{u}')`, which is
+    // true ONLY through the root branch.
+    //
+    // Every other mint test reaches that bound on its EQUALITY arm, so replacing the predicate
+    // there with `===` (or dropping the root branch) leaves the whole tree green without this.
+    //
+    // Two bootstrap emails are configured (`vitest.config.js`), which is what makes a platform
+    // caller impersonating a *different* platform subject constructible at all — the self-narrow
+    // guard refuses a caller and subject sharing one `sub`.
+    it('a platform caller CAN mint for a PLATFORM-scoped subject, into a non-platform activeScope', async () => {
+      const u = uni();
+      await foundUniverse(SELF, u, 'universe-admin@example.com'); // the scope must exist to aim at
+      const subject = await platformLogin(SELF, SECOND_BOOTSTRAP_EMAIL);
+      const caller = await platformLogin(SELF, BOOTSTRAP_EMAIL, u);
+      // Fixture guards: BOTH principals must really be at the reserved scope, or the root branch
+      // is never the thing under test.
+      expect(subject.parsed.access.authScope).toBe('nebula-platform');
+      expect(caller.parsed.access.authScope).toBe('nebula-platform');
+      expect(subject.parsed.sub).not.toBe(caller.parsed.sub);
+
+      const resp = await adminRequest(SELF, u, 'mint-narrower-token', caller.access_token, {
+        method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: u },
+      });
+      expect(resp.status).toBe(200);
+      const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
+      expect(parsed.sub).toBe(subject.parsed.sub);
+      expect(parsed.act.sub).toBe(caller.parsed.sub);
+      expect(parsed.aud).toBe(u);
+    });
   });
 
   // ── (2) FAITHFULNESS, the scope mirror ──────────────────────────────────────────────────────────
@@ -207,7 +244,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
   // Mutation: delete the mirror → the mint succeeds with a `{u}.{g}.*` pattern → this reds.
   it('rejects an activeScope outside the SUBJECT\'s own dominion (403 insufficient_scope)', async () => {
     const u = uni();
-    const admin = await foundUniverse(SELF, u, 'admin@example.com'); // pattern `${u}.*`
+    const admin = await foundUniverse(SELF, u, 'admin@example.com'); // authScope `${u}`
     const galaxy = `${u}.app`;
     const star = `${galaxy}.tenant`;
     const subject = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
@@ -235,9 +272,9 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(resp.status).toBe(401);
     });
 
-    it('binds the minted token to the REQUESTED scope, not the caller pattern (M3)', async () => {
+    it("binds the minted token to the REQUESTED scope, not the caller's scope", async () => {
       const u = uni();
-      const admin = await foundUniverse(SELF, u, 'admin@example.com'); // pattern `${u}.*`
+      const admin = await foundUniverse(SELF, u, 'admin@example.com'); // authScope `${u}`
       const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
 
       const childScope = `${u}.crm`; // a galaxy within the universe

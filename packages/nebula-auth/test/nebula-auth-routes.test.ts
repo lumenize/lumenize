@@ -92,7 +92,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
         }));
       }
 
-      it('a stranger founds a Star and holds an EXACT-STAR pattern — never {u}.*', async () => {
+      it('a stranger founds a Star and holds an EXACT-STAR authScope — never {u}', async () => {
         const { galaxy } = await realGalaxy();
         const star = `${galaxy}.tenant`;
 

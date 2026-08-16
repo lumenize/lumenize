@@ -12,6 +12,8 @@ import {
   getParentId,
   isAtOrAbove,
   isAtOrBelow,
+  hasDominionOver,
+  hasPassageInto,
   PLATFORM_SCOPE,
 } from '../src/index';
 
@@ -324,5 +326,96 @@ describe('isAtOrBelow', () => {
 
   it('honours the whole-segment boundary', () => {
     expect(isAtOrBelow('acme-2', 'acme')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two VERDICTS — hasDominionOver / hasPassageInto.
+//
+// ⚠️ Added 2026-08-16 after a verifier noticed this file imported every predicate in the module
+// EXCEPT the two that actually decide anything: both were exercised only indirectly, through
+// `requirePassage` in `apps/nebula`. In particular the **empty**-`authScope` half of the pinned
+// fail-closed contract was exercised nowhere at all.
+// ---------------------------------------------------------------------------
+
+/** The claim shape, built inline — there is nothing to get wrong in two fields. */
+const claim = (authScope?: string, scopeAdmin?: boolean) =>
+  ({ ...(authScope !== undefined ? { authScope } : {}), ...(scopeAdmin ? { scopeAdmin } : {}) }) as any;
+
+describe('hasDominionOver', () => {
+  it('is the CONJUNCTION — the bit alone is never dominion', () => {
+    // Same scope, same target; only the bit differs. This is the operand that has shipped as a bug
+    // twice, so it is probed on its own rather than as part of a larger case.
+    expect(hasDominionOver(claim('acme', true), 'acme.app')).toBe(true);
+    expect(hasDominionOver(claim('acme'), 'acme.app')).toBe(false);
+  });
+
+  it('is bounded by the scope — the bit does not travel sideways or upward', () => {
+    expect(hasDominionOver(claim('acme', true), 'other')).toBe(false);
+    expect(hasDominionOver(claim('acme.app', true), 'acme')).toBe(false);
+  });
+
+  it('a platform admin holds dominion everywhere (the root branch, inherited)', () => {
+    expect(hasDominionOver(claim('nebula-platform', true), 'acme.app.tenant')).toBe(true);
+  });
+
+  it('fails closed on an absent, empty or bit-less claim', () => {
+    expect(hasDominionOver(undefined, 'acme')).toBe(false);
+    expect(hasDominionOver(claim(undefined, true), 'acme')).toBe(false);
+    expect(hasDominionOver(claim('', true), 'acme')).toBe(false);
+  });
+});
+
+describe('hasPassageInto', () => {
+  // ⚠️ Each arm is probed where the OTHER cannot supply the answer. A case both arms satisfy would
+  // pass with either one deleted, which is the whole failure mode this pair exists to catch.
+  it('the UPWARD arm alone: a non-admin reaches its own scope and its ancestors', () => {
+    expect(hasPassageInto(claim('acme.app.tenant'), 'acme.app.tenant')).toBe(true);
+    expect(hasPassageInto(claim('acme.app.tenant'), 'acme.app')).toBe(true);
+    expect(hasPassageInto(claim('acme.app.tenant'), 'acme')).toBe(true);
+    // No dominion anywhere here, so deleting the upward arm reds every line above.
+    expect(hasDominionOver(claim('acme.app.tenant'), 'acme')).toBe(false);
+  });
+
+  it('the DOMINION arm alone: an admin reaches downward, where upward cannot help', () => {
+    expect(hasPassageInto(claim('acme', true), 'acme.app.tenant')).toBe(true);
+    // The upward arm is false for this pair, so deleting dominion reds the line above.
+    expect(isAtOrBelow('acme', 'acme.app.tenant')).toBe(false);
+  });
+
+  it('a NON-admin has no passage beneath its own scope — the union is not "anything related"', () => {
+    expect(hasPassageInto(claim('acme'), 'acme.app')).toBe(false);
+    expect(hasPassageInto(claim('acme'), 'acme.app.tenant')).toBe(false);
+  });
+
+  it('no passage sideways, admin or not', () => {
+    expect(hasPassageInto(claim('acme.app.a'), 'acme.app.b')).toBe(false);
+    expect(hasPassageInto(claim('acme.app.a', true), 'acme.app.b')).toBe(false);
+  });
+
+  it('EVERY authenticated caller has passage to the platform root, by construction', () => {
+    // Not a leak — the root is at or above nothing, but everything is at or below IT, so the
+    // upward arm admits. `nebula-do.ts`'s name reservation is what stands in front of it.
+    expect(hasPassageInto(claim('acme.app.tenant'), 'nebula-platform')).toBe(true);
+  });
+
+  it('honours the whole-segment boundary', () => {
+    expect(hasPassageInto(claim('acme-2'), 'acme')).toBe(false);
+    expect(hasPassageInto(claim('acme', true), 'acme-2')).toBe(false);
+  });
+
+  // 🔒 The pinned contract: RETURNS false, never throws. It cannot be inherited from
+  // `hasDominionOver` — the upward arm has no `scopeAdmin` operand to be accidentally protected by,
+  // and the mint omits the bit for every non-admin, so this is the ordinary non-admin path.
+  it('fails closed on an absent or EMPTY claim, by returning false rather than throwing', () => {
+    expect(() => hasPassageInto(undefined, 'acme')).not.toThrow();
+    expect(hasPassageInto(undefined, 'acme')).toBe(false);
+    expect(hasPassageInto(claim(undefined), 'acme')).toBe(false);
+    expect(hasPassageInto({} as any, 'acme')).toBe(false);
+    // The EMPTY half, which the JSDoc pins and nothing exercised before this test. An empty string
+    // is falsy, so it must not fall through to a comparison — `''` would otherwise be a prefix of
+    // everything under a naive implementation.
+    expect(hasPassageInto(claim(''), 'acme')).toBe(false);
+    expect(hasPassageInto(claim('', true), 'acme')).toBe(false);
   });
 });

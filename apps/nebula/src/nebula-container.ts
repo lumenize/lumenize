@@ -23,9 +23,11 @@ import { requirePassage, requireDominionHere } from './nebula-do';
  *
  * `onBeforeCall()` enforces the SAME structural passage as NebulaDO, via the
  * SAME shared {@link requirePassage} helper (composed, not reimplemented —
- * ADR-007's "one place to audit"): a mesh call is accepted iff the caller is an
- * `access.scopeAdmin` whose dominion covers this node's **instance name**, OR its JWT
- * `aud` is covered by the scope encoded in that name. A DevContainer is always
+ * ADR-007's "one place to audit"): a mesh call is accepted iff the caller has
+ * **passage** into this node — its own `access.authScope` at or below the node's
+ * **instance name**, OR dominion over it (`scopeAdmin` and its scope at or above).
+ * ⚠️ Passage is computed from the caller's own scope, never from the client-chosen
+ * `aud`, which no longer decides anything here. A DevContainer is always
  * addressed by its `parseId`-valid tenant-scoped name `{u}.{g}.dev` (a star-tier
  * id), never a 64-hex DO id, so the derived scope equals the address the caller
  * must already hold (name == routing-key soundness). No trust-on-first-use lock.

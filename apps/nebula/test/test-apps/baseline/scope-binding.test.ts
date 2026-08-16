@@ -27,7 +27,7 @@ describe('structural tier-DO scope binding', () => {
     // ⚠️ INVITED MEMBERS, not star admins. This test's whole subject is the TENANT branch
     // (`isAtOrAbove(name, aud)`), which requires an **exact-star**
     // `authScope` — mintable only by invite, since `claim-universe` (the sole admin-minting path)
-    // always yields a universe-tier `{u}.*`. With star admins here, `requirePassage` would return
+    // always yields a universe-tier `{u}`. With star admins here, `requirePassage` would return
     // early at the DOMINION clause and the tenant branch would never run: green, but testing the
     // sibling test's mechanism instead of its own. It would also collapse the deliberate contrast
     // with the `admin wildcard` case below into a duplicate.
@@ -47,7 +47,7 @@ describe('structural tier-DO scope binding', () => {
       const { client: clientA, payload: payloadA } = await createInvitedClient(
         NebulaClientTest, browserA, starA, starA, 'alice@example.com',
       );
-      // Fixture guard: an exact-star pattern is the premise. A `{u}.*` here silently moves the
+      // Fixture guard: an exact-star scope is the premise. A `{u}` here silently moves the
       // positive case onto the dominion branch.
       expect(payloadA.access?.authScope).toBe(starA);
 
@@ -72,7 +72,7 @@ describe('structural tier-DO scope binding', () => {
     });
 
     // The deliberate CONTRAST to the tenant-branch test above: same DO, same accepted outcome,
-    // different mechanism. Here the caller is a universe admin (`{u}.*`, admin), so `requirePassage`
+    // different mechanism. Here the caller is a universe admin (`{u}`, admin), so `requirePassage`
     // returns at the DOMINION clause and the tenant branch is never reached. Keeping the two distinct
     // is the point — if both used the same principal shape this test would prove nothing the
     // other doesn't.
@@ -86,7 +86,7 @@ describe('structural tier-DO scope binding', () => {
       const { client: adminClient, payload } = await universeAdminClient(
         NebulaClientTest, browser, universe, star, 'admin@example.com',
       );
-      // Fixture guard: the wildcard pattern is the premise of this case.
+      // Fixture guard: the COVERING universe scope is the premise of this case.
       expect(payload.access?.authScope).toBe(`${universe}`);
       expect(payload.access?.scopeAdmin).toBe(true);
       adminClient.callStarGetConfig(star);
@@ -157,7 +157,7 @@ describe('structural tier-DO scope binding', () => {
       ).rejects.toThrow(/star-tier only/);
     });
 
-    it('accepts a star scope, and mints a REAL star-scoped admin — exact-star, never {u}.*', async () => {
+    it('accepts a star scope, and mints a REAL star-scoped admin — exact-star, never {u}', async () => {
       // Two jobs. (1) Discriminator for the precondition: without a passing case, deleting the
       // segment check and hardcoding `throw` would satisfy every refusal above.
       const { starA } = uniqueGalaxyScope();

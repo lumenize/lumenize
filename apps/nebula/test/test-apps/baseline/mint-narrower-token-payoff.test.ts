@@ -37,7 +37,7 @@ describe('/mint-narrower-token — the DAG verdict', () => {
     const star = `${universe}.app.tenant`;
     const browser = new Browser();
 
-    // Caller: a `{u}.*` universe admin — administers the whole star, so eligible for the mint.
+    // Caller: a `{u}` universe admin — administers the whole star, so eligible for the mint.
     const { client: admin, accessToken: adminToken, payload: adminPayload } = await universeAdminClient(
       NebulaClientTest, browser, star, star, 'admin@example.com',
     );

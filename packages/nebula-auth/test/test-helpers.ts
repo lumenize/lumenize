@@ -176,6 +176,11 @@ export async function platformLogin(self: Fetcher, email = BOOTSTRAP_EMAIL, acti
 /** The first entry of `vitest.config.js`'s `NEBULA_AUTH_BOOTSTRAP_EMAIL` list. */
 export const BOOTSTRAP_EMAIL = 'bootstrap-admin@example.com';
 
+/** The SECOND entry of that list (config spells it mixed-case with a leading space; the registry
+ *  normalizes per element). Two platform identities are what make a platform caller impersonating a
+ *  platform SUBJECT constructible — the self-narrow guard refuses one `sub` acting for itself. */
+export const SECOND_BOOTSTRAP_EMAIL = 'second-bootstrap@example.com';
+
 /**
  * Invite `email` into `scope` and log them in **at a galaxy-tier scope**, returning a subject whose
  * own scope is `{u}.{g}`. Thin wrapper over {@link inviteAndLogin} that first ensures the galaxy row

@@ -58,9 +58,17 @@ interface StarMethods {
   getStarConfig(): Record<string, unknown>;
 }
 
-/** True if the remote `@mesh` call was REFUSED (its promise rejected), false if it succeeded. */
-async function refused(op: Promise<unknown>): Promise<boolean> {
-  try { await op; return false; } catch { return true; }
+/**
+ * The refusal MESSAGE, or `null` if the call succeeded.
+ *
+ * 🚨 **Returning the message, not a boolean, is the point.** A bare "did it reject?" cannot tell a
+ * DOMINION refusal from a BOUNDARY refusal — and that is the exact collapse ADR-015 names and this
+ * scenario exists to catch. It has already bitten this file once (an early draft called a Galaxy
+ * method Star does not have, and the resulting refusal satisfied the assertion for the wrong
+ * reason). Every refusal limb below matches the message it expects.
+ */
+async function refusal(op: Promise<unknown>): Promise<string | null> {
+  try { await op; return null; } catch (e) { return e instanceof Error ? e.message : String(e); }
 }
 
 export async function run(stack: DevStack): Promise<void> {
@@ -118,7 +126,7 @@ export async function run(stack: DevStack): Promise<void> {
       'GALAXY', galaxy, member.client.ctn<GalaxyMethods>().getLatestOntologyVersion(),
     );
     assert.equal(
-      await refused(read), false,
+      await refusal(read), null,
       'a Star member was REFUSED a bare @mesh() read on its own parent Galaxy — upward passage is ' +
       'gone, which collapses ADR-015 clause 3 into a denial',
     );
@@ -130,9 +138,14 @@ export async function run(stack: DevStack): Promise<void> {
     const write = member.client.lmz.callAsync(
       'GALAXY', galaxy, member.client.ctn<GalaxyMethods>().setGalaxyConfig('pwned', true),
     );
-    assert.ok(
-      await refused(write),
-      'a Star member held DOMINION over its parent Galaxy — upward dominion is nil (ADR-015 clause 2)',
+    // ⚠️ Match the DOMINION message. A bare "rejected" would also be satisfied by a boundary
+    // refusal, i.e. by the caller never reaching the Galaxy at all — which would mean limb 1a is
+    // broken and this limb is silently agreeing with it.
+    const writeRefusal = await refusal(write);
+    assert.match(
+      writeRefusal ?? '(succeeded)', /Admin access required/,
+      'a Star member must be refused setGalaxyConfig by DOMINION (requireDominionHere), not by the ' +
+      `passage boundary — upward dominion is nil (ADR-015 clause 2). Got: ${writeRefusal}`,
     );
 
     // ── LIMB 2: the control — the Galaxy's OWN admin may write it ───────────────────────────────
@@ -141,7 +154,7 @@ export async function run(stack: DevStack): Promise<void> {
       'GALAXY', galaxy, owner.client.ctn<GalaxyMethods>().setGalaxyConfig('ok', true),
     );
     assert.equal(
-      await refused(ownerWrite), false,
+      await refusal(ownerWrite), null,
       'the Galaxy\'s own admin was refused its own guarded method — limb 1b would then be vacuous',
     );
 
@@ -196,7 +209,7 @@ export async function run(stack: DevStack): Promise<void> {
         'STAR', star, member.client.ctn<StarMethods>().getStarConfig(),
       );
       assert.equal(
-        await refused(ownRead), false,
+        await refusal(ownRead), null,
         'the Star\'s own member could not call a bare @mesh() method on it — the refusal below ' +
         'would then be vacuous',
       );
@@ -204,10 +217,14 @@ export async function run(stack: DevStack): Promise<void> {
       const descend = outsider.client.lmz.callAsync(
         'STAR', star, outsider.client.ctn<StarMethods>().getStarConfig(),
       );
-      assert.ok(
-        await refused(descend),
-        'a GALAXY-tier non-admin reached a tenant Star beneath it — downward passage without ' +
-        'dominion is supposed to be impossible by construction (ADR-015)',
+      // ⚠️ Match the PASSAGE message. This limb is about never reaching the node at all; a
+      // dominion refusal here would mean the caller DID get in and was stopped by a method guard,
+      // which is a different (and weaker) property than the one being asserted.
+      const descendRefusal = await refusal(descend);
+      assert.match(
+        descendRefusal ?? '(succeeded)', /Active-scope mismatch/,
+        'a GALAXY-tier non-admin must be refused at the PASSAGE boundary of a tenant Star beneath ' +
+        `it — downward passage without dominion is impossible by construction. Got: ${descendRefusal}`,
       );
     } finally {
       outsider.dispose();

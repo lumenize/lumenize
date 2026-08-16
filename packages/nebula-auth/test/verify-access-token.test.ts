@@ -190,7 +190,7 @@ describe('verifyNebulaAccessToken', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when aud is a sibling not covered by non-wildcard pattern', async () => {
+    it('returns null when aud is a sibling the token\'s own scope does not cover', async () => {
       const token = await createToken({
         aud: 'acme.other',
         access: { authScope: 'acme.app', scopeAdmin: true },

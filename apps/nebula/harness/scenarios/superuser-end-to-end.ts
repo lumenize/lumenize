@@ -92,10 +92,12 @@ export async function run(stack: DevStack): Promise<void> {
   const session = { refreshToken, authScope: PLATFORM_SCOPE };
 
   // ── LIMB 2: the token VERIFIES, and carries the scope verbatim ───────────────────────────────
-  // `verify.ts` refuses any token whose `aud` is not at or below its own `authScope`. For a
-  // superuser that check passes only through the root branch, so a hand-rolled comparison anywhere
-  // in the verify path makes this limb fail closed — no login at all, for the one identity that
-  // cannot be locked out.
+  // `verify.ts` refuses any token whose `aud` is not at or below its own `authScope`.
+  // ⚠️ **Precisely: this limb refreshes AT the platform scope, so `aud === authScope` and the
+  // predicate answers on its EQUALITY arm — not the root branch.** An earlier comment here claimed
+  // the root branch, which was wrong. What this limb actually proves is that the server mints and
+  // verifies a platform token at all; the root branch through `verify` is exercised by limb 3's
+  // narrowed token and, in-lane, by a platform login refreshed into a foreign universe.
   const platform = await refreshAccessToken(origin, session, PLATFORM_SCOPE);
   const claims = parseJwtUnsafe(platform.accessToken)!.payload as any;
   assert.equal(
@@ -161,10 +163,18 @@ export async function run(stack: DevStack): Promise<void> {
   assert.equal(badBody.error, 'invalid_request', `wrong error code: ${badBody.error}`);
   assert.equal(badBody.access_token, undefined, 'an ungrammatical scope was minted into a token');
 
-  // ── LIMB 6: the Profile gate passes with ZERO registry reads ─────────────────────────────────
-  // Profile's super-admin branch is the second value-coupled site. It is a work-avoidance
-  // short-circuit — it must answer BEFORE the one registry read the scoped-admin branch makes — so
-  // a superuser writing a stranger's profile is what proves the branch still fires.
+  // ── LIMB 6: the superuser passes the Profile gate, end to end ────────────────────────────────
+  // ⚠️ **This limb does NOT prove the platform short-circuit fires, and an earlier version of this
+  // comment claimed it did.** Delete Profile's branch (3) and control falls through to branch (4),
+  // which reads the registry and then asks `hasDominionOver` per scope — and the superuser's scope
+  // is the tree ROOT, so it covers whatever the stranger holds. The write succeeds either way; the
+  // only difference is a registry read, which nothing out here can observe.
+  //
+  // What it DOES prove is worth keeping: a real server-minted platform token traverses the whole
+  // chain — Gateway, mesh boundary, Profile DO, authz — and is admitted on a *global* object owned
+  // by someone else. The zero-reads half is asserted in-lane instead, by `profile-do.test.ts`,
+  // which counts the `nebula-auth.Profile.authz.registryRead` debug marker. Do not re-add the
+  // stronger claim here without a way to see that counter from outside.
   const strangerProfileId = (parseJwtUnsafe(stranger.accessToken)!.payload as any).profileId as string;
   assert.ok(strangerProfileId, 'the stranger login carried no profileId claim');
 

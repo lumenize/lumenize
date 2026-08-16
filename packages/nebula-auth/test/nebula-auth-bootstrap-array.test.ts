@@ -20,7 +20,7 @@ const SECOND_BOOTSTRAP = 'second-bootstrap@example.com'; // the config entry is 
 // tasks/nebula-mint-narrower-token.md needs the same rung-1 `*` principal for its widest-path case.
 
 describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
-  it('the SECOND listed bootstrap email → a `*` platform admin (array membership, per-element normalized)', async () => {
+  it('the SECOND listed bootstrap email → a platform admin (array membership, per-element normalized)', async () => {
     const { parsed } = await platformLogin(SELF, SECOND_BOOTSTRAP);
     // Reds if the getter honors only index 0, or does a raw String.includes on the joined value
     // ('…, Second-Bootstrap@Example.com' does NOT contain 'second-bootstrap@example.com').
@@ -28,7 +28,7 @@ describe('Bootstrap-array (* super-admin) at nebula-platform', () => {
     expect(parsed.access.scopeAdmin).toBe(true);
   });
 
-  it('the FIRST listed bootstrap email → a `*` platform admin', async () => {
+  it('the FIRST listed bootstrap email → a platform admin', async () => {
     const { parsed } = await platformLogin(SELF, 'bootstrap-admin@example.com');
     expect(parsed.access.authScope).toBe('nebula-platform');
     expect(parsed.access.scopeAdmin).toBe(true);

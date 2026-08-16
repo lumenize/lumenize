@@ -83,7 +83,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(admin.access.scopeAdmin).toBe(true);
       const adminToken = await currentToken(browser, u);
 
-      // Cross-scope invite into a star under the universe (admin's `{u}.*` reaches it).
+      // Cross-scope invite into a star under the universe (admin's `{u}` is above it).
       const star = `${u}.app.tenant`;
       const inviteResp = await browser.fetch(authUrl(`${star}/invite`), {
         method: 'POST',
@@ -160,7 +160,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       })).status).toBe(201);
 
       // The current star-creation path is create-star (admin, in-session) — a Scopes row, no admin identity,
-      // no email, managed via the admin's `${u}.*` wildcard. (Open star self-signup is a future flow.)
+      // no email, managed from the admin's `${u}` scope. (Open star self-signup is a future flow.)
       const starId = `${galaxyId}.dev`;
       const createStar = await browser.fetch(authUrl('create-star'), {
         method: 'POST',
@@ -170,7 +170,7 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(createStar.status).toBe(201);
       expect((await createStar.json() as any).instanceName).toBe(starId);
 
-      // No local admin identity was minted — the admin manages it via wildcard reach (their `${u}.*`
+      // No local admin identity was minted — the admin manages it from above (their `${u}` scope
       // token already covers the star).
       const disc = await SELF.fetch(new Request(authUrl('discover'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },

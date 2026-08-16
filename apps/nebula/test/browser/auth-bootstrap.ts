@@ -49,7 +49,7 @@ interface BootstrapAdminOptions {
  * star-scoped admin and emails the claim link. Still ADR-009 rung 1 — a real send, received by the deployed
  * `email-test` Worker, no test-mode bypass.
  *
- * ⚠️ The resulting identity is an **exact-star** admin, not a universe admin with `{u}.*` reach.
+ * ⚠️ The resulting identity is an **exact-star** admin, not a universe admin scoped at `{u}`.
  * That is deliberate and is the higher-fidelity fixture (a confinement assertion passes vacuously
  * under a universe admin), but it means this helper cannot bootstrap a scope ABOVE the star, and it
  * cannot bootstrap a reserved `{u}.{g}.dev` workspace — those are has no star-scoped admin by construction.
@@ -67,7 +67,7 @@ export async function bootstrapStarAdmin(options: BootstrapAdminOptions): Promis
  * `authScope`. It reaches all of `{u}`, so the client targets any descendant via `activeScope`.
  *
  * ⚠️ **A galaxy cannot be AUTHENTICATED AT — which is not the same as "cannot be operated".** A
- * universe admin's `{u}.*` matches `{u}.{g}` and everything beneath, so this client has full
+ * universe admin's `{u}` is at or above `{u}.{g}` and everything beneath, so this client has full
  * authority inside the galaxy; nothing is being worked around. What is impossible is a *refresh
  * cookie* at `/auth/{u}.{g}/`, because no membership can exist at a 2-segment scope
  * (`create-galaxy` mints no admin identity, and there is no `claim-galaxy`). The old helper POSTed

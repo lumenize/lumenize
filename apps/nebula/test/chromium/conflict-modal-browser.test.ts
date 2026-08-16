@@ -52,7 +52,7 @@ describe('async-modal conflict handler (real chromium, real WS + dialog)', () =>
     const { universe, galaxy: galaxyName } = await bootstrapAdmin({ baseUrl, scope, email: ADMIN_EMAIL, testToken });
 
     // Install the 'todo' ontology as the USER-DEVELOPER — i.e. authenticated at the UNIVERSE, whose
-    // universe admin's `{u}.*` reach covers the Galaxy. ⚠️ Not as the star-scoped admin: an exact-star pattern is
+    // universe admin's scope `{u}` covers the Galaxy. ⚠️ Not as the star-scoped admin: an exact-star pattern is
     // inert at every ancestor (ADR-015), so `callGalaxyAppendOntologyVersion` from the tenant is
     // correctly refused and the transaction below then fails `ontology-stale`. That separation is the
     // real model — the app developer publishes the ontology, the tenant consumes it.

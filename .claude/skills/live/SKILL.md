@@ -41,11 +41,24 @@ HARNESS_DEBUG=1 npx tsx apps/nebula/harness/drive.ts <scenario>   # stream wrang
 Scenarios (`apps/nebula/harness/scenarios/`, registered in `drive.ts`):
 - **`message-roundtrip`** — API driver: mint a correct-shape token → round-trip a `Message` marker
   (transaction + read + subscribe) → negative controls (base / no-`access` tokens get 403).
-- **`superadmin-dominion`** — a `*` super-admin reaches an ungranted scope via the `access.scopeAdmin` bypass;
-  a non-admin is denied the same op.
+- **`downward-dominion`** — a real-login **universe** admin acts in a Star beneath it where it holds no
+  DAG grant, via the `access.scopeAdmin` bypass; a non-admin at that Star is denied the same op.
+  (Renamed from `superadmin-dominion` and re-derived onto a real login — the old mint path narrowed the
+  claim in lockstep with the scope, so it could not produce a denial at all.)
+- **`superuser-end-to-end`** — a REAL bootstrap-email login at `nebula-platform`: verify → refresh into a
+  foreign Star → enumerate → refuse an ungrammatical scope → pass the Profile gate. Re-points
+  `NEBULA_AUTH_BOOTSTRAP_EMAIL` at the test catch-all for that boot only.
+- **`passage-not-dominion`** — upward passage RETURNS while upward dominion REFUSES, over named methods
+  (`Galaxy.getLatestOntologyVersion` vs `Galaxy.setGalaxyConfig`), plus a galaxy non-admin refused at a
+  Star beneath it. Each refusal matches its MESSAGE, since a boundary refusal and a dominion refusal
+  look identical from outside.
 - **`studio-chat-reload`** — browser driver (real magic-link login): login → chat → reload, capturing
   screenshot + a11y + console/network to `harness/.artifacts/` (before AND after the transition, so an
   empty end-state isn't ambiguous).
+
+⚠️ **This list is a sample, not the registry.** `apps/nebula/harness/drive.ts` is the authority, and it
+carries several more (impersonation, identity convergence, revocation, profile takeover, codegen). Run
+with an unknown name to have it print every registered key.
 
 ## Prod drive — autonomous, no boot (`nebula.lumenize.com`)
 

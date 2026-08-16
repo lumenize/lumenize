@@ -206,7 +206,7 @@ export async function requestStarClaim(options: {
  * cookie is `Path=/auth/{u}.{g}.{s}` and whose token carries an **exact-star** `authScope`.
  *
  * This is what {@link provisionAndLogin} cannot give you. That helper climbs: it claims the
- * *universe* and returns a universe-admin token whose `{u}.*` reach merely *covers* the star. The
+ * *universe* and returns a universe-admin token whose scope `{u}` merely *covers* the star. The
  * difference is not cosmetic — a universe admin is admin everywhere above the star too, so any test
  * asserting confinement passes vacuously under it (ADR-015). Use this wherever the fixture means "an
  * admin **at** this star".

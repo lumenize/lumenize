@@ -49,9 +49,9 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     expect(() => onBeforeCallAs(scope, { aud: scope, access: { authScope: scope } })).not.toThrow();
   });
 
-  // Downward-dominion parity (ADR-007): a `{u}.*` admin reaches a descendant {u}.{g}.dev container
+  // Downward-dominion parity (ADR-007): a `{u}` admin reaches a descendant {u}.{g}.dev container
   // with no aud narrowing — the container delegates to the SAME requirePassage as NebulaDO.
-  it('admits a `{u}.*` admin reaching a descendant {u}.{g}.dev container (no aud narrowing)', () => {
+  it('admits a `{u}` admin reaching a descendant {u}.{g}.dev container (no aud narrowing)', () => {
     const universe = crypto.randomUUID();
     expect(() => onBeforeCallAs(`${universe}.app.dev`, {
       aud: universe, access: { authScope: `${universe}`, scopeAdmin: true },
@@ -108,7 +108,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
     expect(() => onBeforeCallAs(undefined, { aud: uniqueDevScope() })).toThrow('missing callee instance name');
   });
 
-  // B1: a covering NON-admin does NOT get dominion — the gate is access.scopeAdmin, not pattern-coverage.
+  // B1: a covering NON-admin does NOT get dominion — the gate is access.scopeAdmin, not position.
   // Mutation: drop `access?.scopeAdmin &&` in requirePassage → this would ADMIT → not.toThrow → RED.
   it('B1: a covering NON-admin (no access.scopeAdmin) does NOT reach the descendant container', () => {
     const universe = crypto.randomUUID();

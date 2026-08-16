@@ -41,7 +41,7 @@ Everyone in a chat can hold **different** permissions; the inviter's UI offers o
 The registry must not know about Nebula's orgTree, so a `nebula-auth` endpoint **structurally cannot** pre-stage a DAG grant. The collaborator endpoint is a `@mesh()` method in `apps/nebula`, on the post-collapse Galaxy, orchestrating in order:
 
 1. Verify the caller's admin-over-`{u}.{g}` at the door.
-2. Validate each intended grant ⊆ the caller's own server-derived reach — the one point the inviter's admin JWT is present and verified.
+2. Validate each intended grant ⊆ what the caller's own server-derived scope covers — the one point the inviter's admin JWT is present and verified.
 3. Call the registry's `/invite` to mint the membership, and take the `sub` from the response.
 4. Pre-stage the DAG grants keyed by that `sub`; applied idempotently at the invitee's first authenticated touch, then cleared.
 
@@ -58,7 +58,7 @@ The inviter's UI composes a JSON payload of `(node, tier)` grants; **auth carrie
 
 ### Two memberships, two sessions
 
-Once reach is `scopeAdmin ∧ scope-at-or-above` ([nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which lands first), a non-admin has **no downward reach at all**, so a collaborator cannot knock on a tenant Star even to be denied there. There is no over-reach to disclose or decide about.
+Once dominion is `scopeAdmin ∧ scope-at-or-above` ([nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), ✅ landed 2026-08-16), a non-admin reaches **nothing beneath its own scope**, so a collaborator cannot knock on a tenant Star even to be denied there. There is nothing over-broad to disclose or decide about.
 
 What remains is a shape, not a problem: a collaborator holds **one membership per scope she works in** — `{u}.{g}` for the app, `{u}.{g}.dev` for testing — and therefore one session each. A JWT carries `access: AccessEntry`, one entry per token, so this was always going to be two sessions; what changes is that the alternative is no longer a wider pattern.
 
@@ -68,11 +68,11 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 
 ### Constraints
 
-- **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; authority is `admin` ∧ pattern-covers-this-node; restraint is a UI warning, never an authz refusal.
+- **[ADR-015](../../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; dominion is `scopeAdmin` ∧ the caller's `authScope` at or above this node; restraint is a UI warning, never an authz refusal.
 - **[ADR-008](../../docs/adr/008-full-org-tree-visibility.md)** — within a Star the org tree is visible to members by design; enforcement is at the point of action.
 - **[ADR-003](../../docs/adr/003-continuation-messaging.md)** — the pre-stage is a one-way `lmz.call`; no node holds a reply channel open across a hop.
 - **[ADR-016](../../docs/adr/016-record-the-acting-principal.md)** — the endpoint moves authority, so it records the acting token's full verified claims.
-- **`security.md`** — never grant broader than the inviter holds; the bounded-reach check is server-derived, never client-supplied.
+- **`security.md`** — never grant broader than the inviter holds; the bound is server-derived, never client-supplied.
 - **`mesh.md`** — `apps/nebula` → `nebula-auth` is the allowed dependency direction; the reverse is not.
 
 ### Future state
@@ -90,13 +90,13 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 | **Grants apply Nebula-side, pre-staged at issue time** | Applying in the auth Worker at accept — accept-invite is a bodiless 302 under the *invitee's* identity: no body, no mesh, no admin authority (verified 2026-07-19). |
 | **Reuse the flow's existing token as the `Contexts` key** | A separate context token — a second secret to mint, deliver and expire, for no capability the first one lacks. |
 | **A named role, defined in one place** | Hardcoding the bundle in the endpoint — a second role would then need a second endpoint (`workflow.md` § *YAGNI gates capability, never generality*). |
-| **Bounded-reach validated at issue time** | Validating at redeem — the inviter's admin JWT is present and verified only at issue; at redeem there is no admin to bound against. |
+| **The bound validated at issue time** | Validating at redeem — the inviter's admin JWT is present and verified only at issue; at redeem there is no admin to bound against. |
 
 ## Acceptance criteria — input to Pass 2, not yet decomposed into phases
 
 - **A collaborator gets exactly the bundle and nothing else.** After invite→accept she can write app files at the Galaxy root and run admin ops in `.dev`; she **cannot** write in a tenant Star, cannot invite anyone, and cannot delete a scope. *Reds against granting the `isAdmin` bit instead of the bundle.*
 - **The bundle applies exactly once, at first touch.** Accept → the first authenticated call lands the grants; a second call changes nothing and the pending record is gone. *Reds against a non-idempotent apply, and against one that never clears.*
-- **An inviter cannot grant beyond their own reach.** An admin of `{u}.{g}` attempting a bundle naming a node in a sibling Galaxy is refused at issue time, and **no** membership is minted. *Reds against validating at redeem.*
+- **An inviter cannot grant beyond what their own scope covers.** An admin of `{u}.{g}` attempting a bundle naming a node in a sibling Galaxy is refused at issue time, and **no** membership is minted. *Reds against validating at redeem.*
 - **The payload never leaves the token path.** The invite email body and the invite URL contain no grant data. *Reds against putting the bundle in the link.*
 - **Cleanup is tied to the single-use token.** Consuming the invite deletes the `Contexts` row; an unconsumed one is gone by `INVITE_TTL`. *Reds against a leak that outlives the invite.*
 - **ADR-016** — the endpoint records the acting token's full verified claims through the shared `projectActingToken` projection. *Stripping the claims argument must red.*
@@ -106,11 +106,11 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 - **The per-invitee `isAdmin` mechanism and the returned `sub`** → [nebula-invite.md](../nebula-invite.md). This file consumes both.
 - **A UI for composing bundles.** Which combinations are offered is an open question below; the affordance is out of scope until it is answered.
 - **Self-signup** — consumer #2 of the same carrier, later.
-- **Changing the scope-pattern grammar** → [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which owns it and lands first.
+- **Changing how the claim expresses scope** → [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md), which owns it and ✅ landed 2026-08-16.
 
 ## Open questions
 
-1. ✅ **Closed 2026-08-05** — *"accept tenant-Star admission, or change the pattern grammar?"* The grammar is being changed, by [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md). Kept as a numbered handle so the remaining questions do not renumber.
+1. ✅ **Closed 2026-08-05** — *"accept tenant-Star admission, or change the claim shape?"* The claim was changed, by [nebula-passage-dominion-from-scope.md](../nebula-passage-dominion-from-scope.md). Kept as a numbered handle so the remaining questions do not renumber.
 2. **Pre-stage from the inviter's client, or an auth `onRedeem(scope, sub, context)` hook at accept?** Pre-stage is pinned for the invite flow; self-signup has no present admin, so it *must* use the hook. Confirm one primitive serves both before building either. *(The hook's exact signature, and where the Nebula impl runs without crossing the `nebula-auth` → `apps/nebula` dependency boundary, rides this answer.)*
 3. **Which `(node, tier)` combinations does the inviter's UI offer, and how is "valid for the situation" computed?**
 

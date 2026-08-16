@@ -57,6 +57,11 @@ export function requireDominionHere(instance: HasCallContext) {
   if (!name) {
     throw new Error('Admin check failed: missing callee instance name');
   }
+  // ⚠️ **A bare `scopeAdmin` test, standing alone — and it decides NOTHING.** `hasDominionOver`
+  // below strictly subsumes it (its own first operand is this same bit), so this branch changes
+  // only the MESSAGE: "you are not an admin anywhere" reads differently to a user than "you are an
+  // admin, but not of this node", and they imply different next actions. Kept for that, not for a
+  // verdict — do not read a pass here as authority.
   if (!claims?.access?.scopeAdmin) {
     throw new Error('Admin access required');
   }
@@ -114,7 +119,7 @@ export function requirePassage(
   // model it is the one instance name EVERY authenticated caller has passage to. Nothing is
   // deployed there yet, and `lmz.call` takes the binding and the instance name separately, so
   // without this reject a caller could instantiate an arbitrary DO class at the most-reachable
-  // name in the system and call its ungated `@mesh()` methods. Runs before the dominion clause so
+  // name in the system and call its ungated `@mesh()` methods. Runs before the passage clause so
   // it fires for a superuser too. ⚠️ It is TEMPORARY and goes from REJECTED to BOUND — never to
   // open — in whatever change eventually registers an occupant for the name.
   if (isPlatformScope(name)) {
@@ -124,7 +129,8 @@ export function requirePassage(
   // (d) throws on an unparseable tier name (e.g. >3 segments, illegal slug) — fail closed rather
   // than swallow. ⚠️ Load-bearing on its own now: `isAtOrAbove` is deliberately grammar-free, so
   // this is the ONLY thing standing between a malformed callee name and a plain string compare.
-  // Before the dominion clause because the platform root holds dominion over any string.
+  // Before the passage clause because every scope is at or below the platform root, so the root
+  // name has passage from anywhere and an unparseable name would never reach this parse.
   parseId(name);
 
   // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the caller's own

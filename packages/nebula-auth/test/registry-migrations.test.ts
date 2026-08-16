@@ -127,7 +127,7 @@ describe('REGISTRY_MIGRATIONS (greenfield)', () => {
     // green while it would have wiped every admin-created scope within the hour.
     await (runInDurableObject as any)(stub, (_i: any, ctx: any) => {
       // (a) An admin-created scope: a `Scopes` row and NOTHING else, ever. `createGalaxy`/`createStar`
-      // write exactly this and never mint a membership, because the creator's own wildcard pattern
+      // write exactly this and never mint a membership, because the creator's own scope
       // already reaches it — so "no members" is the normal steady state, not an abandoned one.
       ctx.storage.sql.exec("INSERT INTO Scopes (universeGalaxyStarId) VALUES ('memberless.app')");
       // (b) An un-taken-up claimer, on a DIFFERENT scope: the row `#resumeClaimIfOwner` is designed to

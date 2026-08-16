@@ -414,7 +414,7 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /** Whether a scope id is available (no `Scopes` row). Existence is a `Scopes` fact, NOT derived
-   *  from membership — a wildcard-managed child scope has a row here and zero members. */
+   *  from membership — a parent-managed child scope has a row here and zero members. */
   checkSlugAvailable(universeGalaxyStarId: string): boolean {
     const rows = this.#sql`SELECT 1 FROM Scopes WHERE universeGalaxyStarId = ${universeGalaxyStarId}`;
     return rows.length === 0;
@@ -613,7 +613,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Create a galaxy IN-SESSION — admin-gated, `Scopes` row only, NO identity minted + NO email. The
-   * parent-Universe admin manages the new galaxy via their `{u}.*` wildcard dominion (§Founder — no local
+   * parent-Universe admin manages the new galaxy via their dominion from `{u}` (§Founder — no local
    * admin stamped). Caller (Worker) pre-verifies the JWT and passes the verified access claim.
    */
   createGalaxy(universeGalaxyId: string, callerAccess: AccessEntry): { instanceName: string } {
@@ -640,7 +640,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * Create a Star IN-SESSION — admin-gated over the parent galaxy, `Scopes` row only, NO identity minted + NO
-   * email (the admin already holds a session that reaches the new Star via wildcard dominion). Mirrors
+   * email (the admin already holds a session whose scope is at or above the new Star). Mirrors
    * {@link createGalaxy} one tier down.
    */
   createStar(universeGalaxyStarId: string, callerAccess: AccessEntry): { instanceName: string } {
@@ -689,6 +689,11 @@ export class NebulaAuthRegistry extends DurableObject {
     const authScope = callerAccess.authScope;
     // The reserved platform scope is the ROOT of the tree, so its subtree is every scope. An IDENTITY
     // test rather than the predicate, for the same work-avoidance reason as the branches below.
+    // ⚠️ **Set-identical to the three-branch form this replaced, at every tier — but the STAR tier
+    // holds only via an invariant stated elsewhere.** For a star `authScope`, `LIKE '{u}.{g}.{s}.%'`
+    // can match only a ≥4-segment id, and no such row can exist because every INSERT into `Scopes`
+    // is grammar-bounded upstream by `parseId` / `isValidSlug`. If that ever stops being true, this
+    // arm widens silently rather than erroring.
     const rows = isPlatformScope(authScope)
       ? this.#sql`SELECT universeGalaxyStarId FROM Scopes`
       : this.#sql`SELECT universeGalaxyStarId FROM Scopes
@@ -714,7 +719,7 @@ export class NebulaAuthRegistry extends DurableObject {
     const lc = normalizeEmail(email);
     // Bootstrap mint point (the ONLY email-magic-link mint): a configured bootstrap email at the
     // reserved `nebula-platform` scope is minted platform-admin (idempotent) so it can log in and get a
-    // `*` token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
+    // platform token. Gated to (bootstrap-config email, nebula-platform) — a NON-bootstrap email requesting
     // a link for nebula-platform gets NO mint, so stranger-self-join stays closed. `isBootstrap` is thus
     // scope-gated (§Blast radius).
     if (universeGalaxyStarId === PLATFORM_SCOPE && this.#bootstrapEmails.includes(lc)) {

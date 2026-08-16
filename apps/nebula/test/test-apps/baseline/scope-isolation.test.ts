@@ -438,7 +438,9 @@ describe('framework first-write-wins instanceName guard (T-stamp, m-3 — defens
     const routingKey = uniqueStar();
     const stub = (env as any).STAR.getByName(routingKey);
 
-    // First envelope stamps the instance name (onBeforeCall passes: aud === name).
+    // First envelope stamps the instance name. ⚠️ It carries NO `access`, so `hasPassageInto` is
+    // false and admission would throw — this passes only because `__init`/`setInstanceName` runs
+    // BEFORE `onBeforeCall`. Stated because it is a real ordering dependency, not an accident.
     await stub.__executeOperation(makeEnvelope({ instanceName: routingKey, aud: routingKey }));
 
     // Second envelope to the same DO with a DIVERGENT callee name → the
@@ -498,7 +500,9 @@ describe('local-executor path does not invoke onBeforeCall (T-local-skip, B3)', 
   });
 });
 
-// Minimal verified claims — requirePassage reads only `aud` + `access`.
+// Minimal verified claims — `requirePassage` reads only `access` now, never `aud`. The `aud` on
+// these fixtures is deliberate ballast: a regression that resumed reading it would still have to
+// get `authScope` right, so leaving it in keeps the fixtures honest rather than convenient.
 // (verifyNebulaAccessToken upstream guarantees the rest; the gate never sees an
 // unverified token.)
 function claims(opts: { aud?: string; authScope?: string; scopeAdmin?: boolean }): NebulaJwtPayload {
@@ -520,7 +524,7 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
     expect(() => requirePassage('u.g', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true }))).not.toThrow();
     expect(() => requirePassage('u', claims({ aud: 'u', authScope: 'nebula-platform', scopeAdmin: true }))).not.toThrow();
   });
-  it('admits a `{u}.*` admin to {u}.{g} and {u}.{g}.{s}', () => {
+  it('admits a `{u}` admin to {u}.{g} and {u}.{g}.{s}', () => {
     expect(() => requirePassage('u.g', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
     expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
   });
@@ -528,14 +532,14 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
     expect(() => requirePassage('u.g.s', claims({ aud: 'u.g', authScope: 'u.g', scopeAdmin: true }))).not.toThrow();
   });
 
-  // ── B1 — the admin GATE: pattern-coverage alone is NOT dominion ───────────
+  // ── B1 — the admin GATE: position alone is NOT dominion ───────────────────
   // Mutation: drop `access?.scopeAdmin &&` from the dominion clause → the reject below
   // becomes an accept → RED. This is the latent-non-admin-wildcard hole guard.
   it('B1: a covering NON-admin (no access.scopeAdmin) is rejected reaching a descendant', () => {
     expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u' /* no scopeAdmin */ })))
       .toThrow('Active-scope mismatch');
   });
-  it('B1 control: the SAME wildcard pattern WITH access.scopeAdmin reaches it (admin is the gate)', () => {
+  it('B1 control: the SAME covering scope WITH access.scopeAdmin reaches it (admin is the gate)', () => {
     expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
   });
 

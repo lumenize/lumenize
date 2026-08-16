@@ -25,9 +25,10 @@ import type { CallEnvelope, GatewayConnectionInfo } from '@lumenize/mesh';
 /** The hook is pure, so it can be invoked off the prototype with no DO construction. */
 const fence = NebulaClientGateway.prototype.onBeforeCallToClient;
 
-function envelope(opts: { aud?: string; callerBinding?: string }): CallEnvelope {
+function envelope(opts: { aud?: string; callerBinding?: string; access?: unknown }): CallEnvelope {
   const claims: Record<string, unknown> = {};
   if (opts.aud !== undefined) claims.aud = opts.aud;
+  if (opts.access !== undefined) claims.access = opts.access;
   return {
     version: 1,
     chain: [],
@@ -38,11 +39,11 @@ function envelope(opts: { aud?: string; callerBinding?: string }): CallEnvelope 
   } as unknown as CallEnvelope;
 }
 
-function connection(aud: string | undefined): GatewayConnectionInfo {
-  return {
-    sub: 'conn-sub', bindingName: 'GATEWAY', instanceName: 'conn-sub.tab',
-    claims: aud === undefined ? {} : { aud },
-  };
+function connection(aud: string | undefined, access?: unknown): GatewayConnectionInfo {
+  const claims: Record<string, unknown> = {};
+  if (aud !== undefined) claims.aud = aud;
+  if (access !== undefined) claims.access = access;
+  return { sub: 'conn-sub', bindingName: 'GATEWAY', instanceName: 'conn-sub.tab', claims };
 }
 
 const run = (e: CallEnvelope, c: GatewayConnectionInfo) => () => fence.call({} as any, e, c);
@@ -62,15 +63,36 @@ describe('NebulaClientGateway.onBeforeCallToClient — the outbound aud fence', 
       .toThrow('Active-scope mismatch on call to client');
   });
 
-  // ⚠️ The case that makes `authScope` an unacceptable substitute, stated as a test rather than as
-  // a comment: these two connections belong to the SAME Galaxy admin — identical `authScope`,
-  // identical `scopeAdmin` — and differ only in the scope each tab is looking at. A fence keyed on
-  // the claim that decides passage would admit this; `aud` is what refuses it.
+  // ⚠️ The case that makes `authScope` an unacceptable substitute — and it must CONSTRUCT the
+  // claims, not describe them. An earlier version of this test omitted `access` "because the fence
+  // must not consult it", which made it byte-identical to the one above: it demonstrated nothing
+  // about substitutability while reading, in the run output, as if it did.
+  //
+  // Both envelopes below carry the SAME `access` — one Galaxy admin, two tabs on sibling tenant
+  // Stars, identical `authScope` and identical `scopeAdmin`. A fence keyed on either of those
+  // fields admits this delivery and leaks tenant A's updates into tenant B's tab. Only `aud`
+  // separates them.
   it('REFUSES sibling-tenant delivery for ONE admin whose scope covers both', () => {
-    // Both tabs would carry `access: { authScope: 'acme.app', scopeAdmin: true }` — deliberately
-    // omitted, because the fence must not consult it. Only the `aud` values differ.
-    expect(run(envelope({ aud: TENANT_A }), connection(TENANT_B)))
-      .toThrow('Active-scope mismatch on call to client');
+    const GALAXY_ADMIN = { authScope: 'acme.app', scopeAdmin: true };
+    expect(
+      run(
+        envelope({ aud: TENANT_A, access: GALAXY_ADMIN }),
+        connection(TENANT_B, GALAXY_ADMIN),
+      ),
+    ).toThrow('Active-scope mismatch on call to client');
+  });
+
+  // The positive control for the case above: the SAME admin, same `access`, delivering to a tab on
+  // the scope the push actually came from. Without it, the refusal above would also be satisfied by
+  // a fence that refused this admin outright.
+  it('DELIVERS to that same admin when the tab is on the originating scope', () => {
+    const GALAXY_ADMIN = { authScope: 'acme.app', scopeAdmin: true };
+    expect(
+      run(
+        envelope({ aud: TENANT_A, access: GALAXY_ADMIN }),
+        connection(TENANT_A, GALAXY_ADMIN),
+      ),
+    ).not.toThrow();
   });
 
   it('fails closed when the origin carries no aud at all', () => {

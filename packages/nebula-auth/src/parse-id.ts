@@ -16,9 +16,17 @@
  * next one show up in a grep rather than in a review:
  *
  * ```sh
- * grep -rn 'isAtOrAbove(\|isAtOrBelow(' packages/*&#47;src apps/nebula/src --include='*.ts' \
+ * grep -rn 'isAtOrAbove(\|isAtOrBelow(' apps/nebula/src packages --include='*.ts' \
+ *   --exclude-dir=test --exclude-dir=node_modules --exclude-dir=dist \
  *   | grep -vE ':[0-9]+: *(\*|//|/\*)' | grep -v 'parse-id.ts'
  * ```
+ *
+ * ⚠️ **The paths are spelled to avoid a literal `*` followed by `/`, which would close this comment.**
+ * Do NOT "tidy" them back to a `packages/<star>/src` glob — the obvious dodges are worse than the
+ * problem: an HTML entity is literal in the source and silently mangles the command (an `&` there
+ * backgrounds the grep and comments out the rest, so it returns NOTHING and reads as conformant),
+ * and a `[/]` character class does not expand, because a glob cannot match `/` at all. Both were
+ * tried here; both produced an instrument incapable of failing.
  *
  * ⚠️ **A short list of EXCEPTIONS, never an inventory of sites.** An inventory rots on the next
  * unrelated edit; this fails loudly the moment a hit appears that is not on it. Every entry carries
@@ -30,17 +38,27 @@
  * - **`access-claims.ts` `buildNebulaJwtPayload` — mint-side construction invariant · STRUCTURAL.**
  *   The same assertion on the way out, so an inconsistent token is impossible to *construct* rather
  *   than merely rejected downstream. Again no `scopeAdmin` operand.
- * - **`router.ts` `verifyInstanceJwt` — DOMINION, split across a FILE boundary · sibling named.**
- *   The containment half only. `worker-token.ts`'s `handleInvite` completes the conjunction with its
- *   bare `scopeAdmin` read, and that split is *required*: `raw-comm.md` puts expected client-errors
- *   on the Worker before the RPC. ⚠️ Adding the bit here hardens nothing and breaks every
- *   non-admin route; the two halves are one decision and must be read together.
+ * - **`router.ts` `verifyInstanceJwt` — DOMINION, split across a FILE boundary · BOTH siblings named.**
+ *   The containment half only. **Two** handlers complete the conjunction with their own bare
+ *   `scopeAdmin` reads — `worker-token.ts`'s `handleInvite` *and* `mintNarrowerToken` — and a
+ *   sweeper who follows only the first looks in the wrong place for the second.
+ *   ⚠️ **Why the bit does not belong here, stated so it is checkable:** it is NOT that adding it
+ *   would break something today — both routes currently behind this gate require the bit anyway,
+ *   so adding it would break nothing *now*. It is that this gate's contract is **containment**, and
+ *   the bit would silently make it **dominion** for every route added behind it later — including
+ *   the non-admin route steps `tasks/nebula-registry-route-guards.md` is about to introduce.
  * - **`worker-token.ts` `handleRefreshToken` — the `activeScope` confine · STRUCTURAL.** Bounds a
  *   client-supplied scope inside the KV record's server-trusted one. The record *is* the authority,
  *   so no claim is consulted and no bit applies.
- * - **`worker-token.ts` `mintNarrowerToken` caller bound — DOMINION, split within THIS file.**
- *   Completed by the `hasDominionOver` eligibility check a few lines below; it survives for its
- *   distinct `insufficient_scope` code and its caller-facing message.
+ * - **`worker-token.ts` `mintNarrowerToken` caller bound — NOT-A-DECISION (it is IMPLIED).**
+ *   ⚠️ Class corrected 2026-08-16: an earlier draft called this "dominion, completed by the
+ *   eligibility check below", which contradicted the site's own comment and named the wrong
+ *   operand — eligibility asks `hasDominionOver` about the **subject's scope**, not about
+ *   `activeScope`. The implication needs BOTH eligibility *and* the subject bound below it: those
+ *   two together place `activeScope` inside the subject's scope and the subject's scope inside the
+ *   caller's, so this check can no longer refuse anything they admit. It survives deliberately, for
+ *   its distinct `insufficient_scope` code and its caller-facing message — not because a verdict
+ *   depends on it.
  * - **`worker-token.ts` `mintNarrowerToken` subject bound — STRUCTURAL.** Bounds `activeScope`
  *   inside the *subject's* own scope so the minted token mirrors that person. Not a question about
  *   any principal's authority, so it takes no bit.

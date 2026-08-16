@@ -125,11 +125,11 @@ describe('registry dispatch edge cases (malformed body / missing JWT)', () => {
     expect(plan.affectedUsers).toEqual({ total: 0, sample: [] });
     expect(plan.affected.map((a: any) => a.instanceName)).toContain(scope);
   });
-  it('my-scopes for a platform admin lists every scope (`*` branch)', async () => {
+  it('my-scopes for a platform admin lists every scope (the scope-tree ROOT branch)', async () => {
     const { foundUniverse } = await import('./test-helpers');
     const scope = u();
     await foundUniverse(SELF, scope, 'someone@example.com');
-    // Mint a `*` platform-admin token directly (no login) to exercise the wildcard scope-tree branch.
+    // Mint a platform-admin token directly (no login) to exercise the root scope-tree branch.
     const { createNebulaTestToken } = await import('../src/create-nebula-test-token');
     const { env } = await import('cloudflare:test');
     const platform = await createNebulaTestToken({

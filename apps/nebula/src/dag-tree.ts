@@ -173,8 +173,8 @@ export class DagTree {
     // not act on the tree they govern. NOT a Star admin (that IS a DAG `admin` grant on root).
     //
     // ⚠️ Confined to THIS host (`hasDominionOver`), never the bare `access.scopeAdmin` bit. The bit
-    // alone is not dominion: `requirePassage`'s tenant branch deliberately admits a caller
-    // whose `aud` sits BELOW this node, so a bare check let an admin of a child scope act as admin
+    // alone is not dominion: `requirePassage` deliberately admits a caller whose own scope sits
+    // BELOW this node (its upward arm), so a bare check let an admin of a child scope act as admin
     // on its ancestors. The prior comment here justified the bare bit with "`access.scopeAdmin` is only
     // minted with an `aud` at or below the admin's `authScope`" — true, but it establishes that about
     // `aud`, NOT about THIS HOST, which is the question actually being asked.

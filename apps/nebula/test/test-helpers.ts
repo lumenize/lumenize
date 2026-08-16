@@ -128,7 +128,7 @@ export async function claimStar(
  *
  * The counterpart to {@link bootstrapAdmin}, and the difference is the whole point of the
  * star-scoped-admin change: this yields an **exact-star** `authScope`, inert at every ancestor
- * (ADR-015), where `bootstrapAdmin` yields a universe admin whose `{u}.*` merely *covers* the star.
+ * (ADR-015), where `bootstrapAdmin` yields a universe admin whose scope `{u}` merely *covers* the star.
  *
  * ⚠️ **The cookie lands at `/auth/{star}`** — so refreshes for this identity target the star, not the
  * universe. That is only possible because `claim-star` mints an identity there; a `create-star` scope
@@ -183,7 +183,7 @@ export async function foundStarAndLogin(
  * ⚠️ **The cookie lands at `/auth/{universe}`, not `/auth/{scope}`** — cookie paths are
  * RFC-6265 matched (`@lumenize/testing` `cookieMatches`), and `/auth/acme` does NOT match
  * `/auth/acme.app.tenant`. So every later refresh for this identity must target the
- * **universe** auth scope; only `activeScope` varies down the hierarchy (`{u}.*` covers it).
+ * **universe** auth scope; only `activeScope` varies down the hierarchy (`{u}` covers it).
  */
 export async function bootstrapAdmin(
   browser: Browser,
@@ -366,14 +366,14 @@ async function connectClient<T extends NebulaClient>(
  *
  * ✅ **Mints a REAL star-scoped admin** (2026-07-25) — `claim-star` self-signup, `authScope` =
  * the exact star id, inert at every ancestor (ADR-015). It used to hand back a universe admin
- * (`{u}.*`) regardless of what you asked for; that interim is gone.
+ * (`{u}`) regardless of what you asked for; that interim is gone.
  *
  * ⚠️ **This principal cannot act ABOVE its star.** If a test needs to write the Galaxy's ontology,
  * read a Universe config, or otherwise reach an ancestor, it needs {@link universeAdminClient} —
  * and under the old body it got that by accident. A test that breaks on this change is telling you
  * it was relying on authority the scenario never described.
  *
- * ⚠️ If your assertion depends on the pattern being a wildcard (cross-tier reach, `{u}.*` widening,
+ * ⚠️ If your assertion depends on the caller's scope COVERING others (cross-tier calls, `{u}` widening,
  * "an admin with no DAG grant on this node"), you want {@link universeAdminClient} — this one's
  * guarantee will change under you.
  */
@@ -390,7 +390,7 @@ export async function adminClientAt<T extends NebulaClient>(
   if (segments.length !== 3) {
     throw new Error(
       `adminClientAt is star-tier only — got "${scope}". Use universeAdminClient for a galaxy or ` +
-      'universe scope (it guarantees the `{u}.*` wildcard your assertion depends on).',
+      'universe scope (it guarantees the covering `{u}` scope your assertion depends on).',
     );
   }
   // ⚠️ Segment count is NOT sufficient. The reserved `.dev` star is 3 segments and still has no
@@ -414,7 +414,7 @@ export async function adminClientAt<T extends NebulaClient>(
  * **Specifically a universe-tier admin** (`authScope` = `{u}`), whatever `activeScope` is.
  *
  * Use this — and *only* this — when the assertion depends on the wildcard: cross-tier reach (aud at
- * one tier, callee at another), `{u}.*` widening, or "an admin with no DAG grant on this node".
+ * one tier, callee at another), `{u}` widening, or "an admin with no DAG grant on this node".
  * Unlike {@link adminClientAt}, this guarantee is **stable** across the star-scoped-admin change, so
  * these fixtures keep testing the same property.
  *
@@ -479,7 +479,7 @@ export async function createAuthenticatedClient<T extends NebulaClient>(
   const client = await connectClient(ClientClass, browser, authScope, activeScope, appVersion, extraConfig);
   // ⚠️ `authScope` is RETURNED because it is NOT the `scope` you passed — `foundAndLogin` founds the
   // UNIVERSE above it, so that is where the login happens and where the refresh cookie is Path-scoped
-  // (`/auth/{universe}`). Pass `star` and you get a `{u}.*` admin whose cookie is at the universe.
+  // (`/auth/{universe}`). Pass `star` and you get a `{u}` admin whose cookie is at the universe.
   // A caller that needs the cookie path — anything asserting on `/auth/{…}/refresh-token` or
   // `/logout` — must use THIS value, never the argument. Re-deriving it cost a wrong conclusion
   // during tasks/archive/nebula-impersonation-client.md: a probe aimed at `/auth/{star}` 401s whether or not
