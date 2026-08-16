@@ -46,7 +46,7 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 
 - **M1 — Cloudflare's addressing.** A call can only arrive at the node it named, and that node's storage is reachable from nowhere else. This is real protection and we get it before any of our own code runs — but it decides *where* a call lands, never *who* may make it.
 - **M2 — The name stamp.** When a node is created, it records the name it was reached by, and any later mismatch throws: a node can never change its name. That is what makes the scope in the name trustworthy rather than merely conventional. The layer below reads a pinned input rather than a convention.
-- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(access, node)`. The `node` argument is this node's own name, pinned by M2. Our coarse-grained access control.
+- **M3 — `onBeforeCall()`.** Grants or refuses **passage** into this node, by calling `hasPassageInto(access, targetScope)`. `targetScope` is this node's own name, pinned by M2. Our coarse-grained access control.
 - **M4 — `@mesh()` decorators.** Only methods decorated with `@mesh` (TC39 stage 3 decorators) are callable over `lmz.call()`. Everything else on the node is uncallable.
 - **M5 — The guard function.** `@mesh()` can carry a guard that runs before the method. Read-only operations usually have none, because passing the boundary is enough. Almost anything that changes state carries one.
 - **M6 — Checks at the top of the method.** A guard's only output is a binary allowed or refused. So, a decision that resolves into something other than *yes* or *no* runs inside the method instead, where it can explain itself over the `lmz.call()` response.
@@ -66,10 +66,10 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment names the scope being acted on — the same role `node` plays on the mesh path, and what R5 and R6 compare against.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment is the `targetScope` that R5 and R6 compare against.
 - **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
 - **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
-- **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `node` argument.
+- **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `targetScope`.
 - **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope — `dominionOverScopeGuard` on both routes that take one.
 - **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
 
@@ -103,7 +103,7 @@ Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star i
 
 ### The three roles a scope plays
 
-The same kind of value appears in three distinct roles, and most confusion in this document comes from conflating two of them.
+The same kind of value appears in three distinct roles.
 
 | | Answers | Where it lives |
 |---|---|---|
@@ -181,16 +181,16 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 The `onBeforeCall()` guard sits at the node's outer boundary, and the one question it asks is whether the `lmz.call()` gets **passage** past it — decided from scope information alone. The design of the access token makes it so **this decision is completely local**. No network hop is needed.
 
-**Lateral movement is not allowed**: If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before any method of that node can be called. That is the first row of the table below.
+**Lateral movement is not allowed**: If you are a member of one Star, there is nothing you can do with another. You cannot see it, read it, write it, or reach it at all — the call is refused at the boundary, before anything at the target runs. That is the first row of the table below.
 
 **Vertical passage is allowed in only two specific forms** described below.
 
-It compares where you are a member (`authScope`) against the scope of the node being called, and there are two ways passage is granted:
+It compares where you are a member (`authScope`) against the scope being acted on (`targetScope`), and there are two ways passage is granted:
 
-- **Passage upward is free.** The node you are calling can be your own auth scope, or an ancestor of it. No `scopeAdmin` needed.
-- **Passage downward takes dominion.** The node is a descendant of your auth scope *and* `scopeAdmin` is set — the pair, never the bit on its own.
+- **Passage upward is free.** `targetScope` can be your own `authScope`, or an ancestor of it. No `scopeAdmin` needed.
+- **Passage downward takes dominion.** `targetScope` is a descendant of `authScope` *and* `scopeAdmin` is set — the pair, never the bit on its own.
 
-In one line: **your auth scope and the node called must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
+In one line: **`authScope` and `targetScope` must be on the same vertical line, upward is free, and downward needs dominion** (`scopeAdmin`).
 
 *Passage* and *dominion* mean one thing each, everywhere in this repo, and are never borrowed for anything else — which is why two uncommon words were picked ([ADR-015](../adr/015-passage-and-dominion.md) defines them). However, the analogy below should help you remember them.
 
@@ -223,29 +223,29 @@ So the last column below is what a caller of that shape *usually* ends up able t
 
 Seven example calls, all in the same Universe:
 
-| Case | `authScope` | `scopeAdmin` | Node called | Usually can |
+| Case | `authScope` | `scopeAdmin` | `targetScope` | Usually can |
 |---|---|---|---|---|
 | **Lateral** | `u.g.s1` | no | `u.g.s2` | **nothing** — lateral movement, refused; the case this layer exists for |
 | Ordinary | `u.g.s` | no | `u.g.s` | most of the app's methods, and the Resources their orgTree grants reach |
 | Upward | `u.g` | no | `u` | read the organizational-level agentic coding standing guidance |
-| Upward, `scopeAdmin` below the node | `u.g` | **yes** | `u` | the same as the row above — the bit sits beneath `u`, so it buys nothing |
-| Upward, `scopeAdmin` at the node | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
+| Upward, `scopeAdmin` below the target | `u.g` | **yes** | `u` | the same as the row above — the bit sits beneath `u`, so it buys nothing |
+| Upward, `scopeAdmin` at the target | `u` | **yes** | `u` | everything at the Universe, including editing the standing guidance |
 | Downward | `u.g` | **yes** | `u.g.s` | everything in that Star, via the bypass |
 | Downward, no `scopeAdmin` | `u.g` | no | `u.g.s` | **nothing** — no method ever runs |
 
 **Lateral** needs no rule of its own: `u.g.s2` is neither an ancestor of `u.g.s1` nor a descendant of it, so both comparisons simply fail. A sibling Galaxy or another Universe fails identically.
 
-The four rows between it and **Downward** are one rule against different nodes, and none of them needs `scopeAdmin` to get in — passage is doing all the work. Dominion is then asked a second time *inside*, against the node being acted on, which is why passing the boundary settles nothing about what you may do once there (§ *The data plane*).
+The four rows between it and **Downward** are one rule against different target scopes, and none of them needs `scopeAdmin` to get in — passage is doing all the work. Dominion is then asked a second time *inside*, against the scope being acted on, which is why passing the boundary settles nothing about what you may do once there (§ *The data plane*).
 
 The last row is the invited collaborator on one app: they reach into no Star at all, not even the `.dev` one, so testing there is a second membership and a second session.
 
-`nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every node, and every node at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means the two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal** — the upward arm asks `isAtOrAbove('nebula-platform', anything)`, which the root satisfies for everyone — while **dominion over it is superuser-only**, because that asks the reverse, `isAtOrAbove(myScope, 'nebula-platform')`, which holds only when your own scope *is* the platform scope.
+`nebula-platform` is **not** an exception. It is the **root of the scope tree** — at or above every scope, and every scope at or below it — so a superuser's dominion everywhere is the ordinary downward rule applied from the top, and no separate arm is needed. Declaring the root once, inside `isAtOrAbove`, is what keeps it out of every call site. It also means the two verdicts land differently there, and the asymmetry is the whole point: **passage to the platform scope is universal** — the upward arm asks `isAtOrAbove('nebula-platform', anything)`, which the root satisfies for everyone — while **dominion over it is superuser-only**, because that asks the reverse, `isAtOrAbove(myScope, 'nebula-platform')`, which holds only when your own scope *is* the platform scope.
 
 One thing sits outside all of this: the Profile, deliberately — § *Profiles*. 
 
 ### Why upward exists
 
-Upward passage exists primarily so a node can read something the scope above it offers. For example, there is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below.
+Upward passage exists primarily so a caller can read what the scope above them offers. For example, there is one app definition and many tenant Stars, so anything belonging to the app rather than to a tenant has to be readable from below.
 
 Another example is the **guidance hierarchy**. Standing guidance — `AGENTS.md`, skills, rules — lives at three levels, each owned by different people and serving a different purpose: we own the platform layer, a Universe's admins own what holds across that organization's apps, a Galaxy's admins own what holds for one app. Anyone designing an app needs the whole stack upward.
 
@@ -257,7 +257,7 @@ That is a limit on who *writes*, not on who *proposes*. Nothing here would stop 
 
 ### Why downward is generous for admins
 
-Downward dominion is total ([ADR-015](../adr/015-passage-and-dominion.md), which defines the term: dominion is the `scopeAdmin` bit *and* a scope that covers the node, never the bit alone). It covers every node beneath the admin's scope, including ones created later, and nothing down there is closed to them.
+Downward dominion is total ([ADR-015](../adr/015-passage-and-dominion.md), which defines the term: dominion is the `scopeAdmin` bit *and* a scope that covers the target, never the bit alone). It covers every scope beneath the admin's scope, including ones created later, and nothing down there is closed to them.
 
 That totality is the point, not an overreach. A Universe or Galaxy admin stands to their tenancy roughly as we stand to our own Cloudflare account: anyone holding broad access can do very nearly anything, and the discipline lives in *who you hand it to* — never in what the platform will permit once they hold it. These admins have their own clients to serve, and they cannot administer that relationship through a platform that second-guesses them. So who gets `scopeAdmin` is their call, made as carefully as we make ours; where an action is destructive we may warn, but we never refuse ([ADR-015](../adr/015-passage-and-dominion.md)).
 
@@ -371,7 +371,7 @@ Access to a Profile is therefore decided by the token, plus Registry data for th
 
 ## Superuser seed
 
-An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry scopeAdmin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every node (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
+An environment variable holds an array of superuser email addresses. Logging in with one of these email addresses and selecting the superuser scope means that login holds dominion over every scope there is — the equivalent of having Registry scopeAdmin over every Universe — essentially God. That needs no special arm: `nebula-platform` is the root of the scope tree, so `isAtOrAbove` already places it at or above every scope (§ *Coarse-grained access control*). God's dominion is the ordinary downward rule, held from the top.
 
 ## Impersonation
 
