@@ -99,7 +99,7 @@ export function requireDominionHere(instance: HasCallContext) {
  *
  * ⚠️ **The NAME is true against [ADR-015](../../../docs/adr/015-passage-and-dominion.md)'s
  * DEFINITION of passage, not yet against its PREDICATE — and that gap is deliberate, not an
- * oversight.** ADR-015 defines passage as `isAtOrBelow(authScope, node) ∨ dominion`, computed over
+ * oversight.** ADR-015 defines passage as `isAtOrBelow(authScope, targetScope) ∨ dominion`, computed over
  * the member's own scope. The tenant branch below still compares the **client-chosen `aud`**, and
  * any descendant may be requested — so a non-admin at `u.*` can select `aud = u.g.s` and pass at
  * `u.g.s`, which the ADR's predicate refuses. **This body therefore computes a strict SUPERSET of
