@@ -43,6 +43,7 @@ export {
   isAtOrAbove,
   isAtOrBelow,
   hasDominionOver,
+  hasPassageInto,
 } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.

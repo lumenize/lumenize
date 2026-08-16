@@ -158,3 +158,33 @@ export function hasDominionOver(access: AccessEntry | undefined, targetScope: st
   if (!access?.scopeAdmin || !access.authScope) return false;
   return isAtOrAbove(access.authScope, targetScope);
 }
+
+/**
+ * **The single passage predicate**: may this access claim reach `targetScope` at all?
+ *
+ * The **union** of two arms, not the upward one alone (ADR-015 § *Terminology*):
+ *  - the caller's own scope sits **at or below** the target — a member of a child reaching its
+ *    parent, which confers no dominion whatsoever; OR
+ *  - the caller holds **dominion** there, which is the whole downward rule.
+ *
+ * ⚠️ **Writing this as the upward arm alone refuses the entire downward rule** — an admin at `{u}`
+ * calling `{u}.{g}.{s}` has passage *because* they hold dominion there. Writing it as dominion alone
+ * refuses every non-admin their own scope. Both arms, always.
+ *
+ * ⚠️ **Passage is NOT dominion, and lacking dominion is not a denial.** A caller with passage may
+ * still be granted a great deal by the methods it reaches — that is the callee's own guards' call,
+ * not this predicate's.
+ *
+ * ⚠️ **Fail-closed on an absent or empty claim: no principal, no passage — and it returns `false`
+ * rather than throwing.** Stated here because it cannot be inherited: {@link hasDominionOver} is
+ * accidentally protected by its own `scopeAdmin` test, but the upward arm has **no `scopeAdmin`
+ * operand** by construction and the mint omits the bit for every non-admin — so without this guard
+ * an absent claim would reach an unguarded string op on the ordinary non-admin path. Deliberately
+ * NOT pushed down onto {@link isAtOrAbove}, which is an unconditional two-string fact.
+ *
+ * One predicate, one place to audit (ADR-007) — do not re-inline this disjunction anywhere.
+ */
+export function hasPassageInto(access: AccessEntry | undefined, targetScope: string): boolean {
+  if (!access?.authScope) return false;
+  return isAtOrBelow(access.authScope, targetScope) || hasDominionOver(access, targetScope);
+}

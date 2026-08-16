@@ -255,6 +255,11 @@ async function waitForConnected(client: NebulaClient, timeoutMs: number): Promis
  * identity was the exact mis-grounding the ADR was written about, sitting inside the ADR's own
  * instrument. Cost is not the obstacle: the loop is ~1.4 s and boot dwarfs it.
  *
+ * Pass `session` when a scenario has ALREADY obtained a real server token by some other real path
+ * — `provisionStarAdmin`, say, which is the only way to get a member whose `authScope` is a Star
+ * rather than the universe above it. That is still rung 1: the claim is the server's either way,
+ * and this only spares a second login for an identity that already exists.
+ *
  * Pass `mint` for an identity the real path genuinely CANNOT produce — and say why in `reason`.
  */
 export async function connectDriver(
@@ -264,6 +269,13 @@ export async function connectDriver(
     /** Login identity. Defaults to a fresh `test-<uuid>@lumenize.io` (routed by the catch-all). */
     email?: string;
     connectTimeoutMs?: number;
+    /**
+     * An access token this scenario already obtained from the SERVER by a real login. Still rung 1
+     * — the claim was minted by the running system, not constructed here — and it exists because
+     * the default path (`provisionAndLogin`) always climbs from the universe, so it cannot produce
+     * a member whose own scope is a Star. Mutually exclusive with `mint`.
+     */
+    session?: { accessToken: string; sub: string };
     /**
      * Escape hatch to rung 3 (synthetic mint) — ONLY for identities real login can't create, e.g. a
      * NON-admin at a scope whose scope admin would be admin. `reason` is required and is not decorative:
@@ -296,7 +308,12 @@ export async function connectDriver(
   // and pass `accessToken` + `instanceName`; the constructor then skips its own refresh.
   let access_token: string;
   let sub: string;
-  if (opts.mint) {
+  if (opts.session) {
+    if (opts.mint) {
+      throw new Error('connectDriver: pass `session` OR `mint`, never both — they are different rungs');
+    }
+    ({ accessToken: access_token, sub } = opts.session);
+  } else if (opts.mint) {
     // `email` is not a JWT claim (tasks/nebula-auth-surrogate-sub.md) — identity is the surrogate
     // `sub`, so the mint takes no email.
     ({ access_token, sub } = await createNebulaTestToken({

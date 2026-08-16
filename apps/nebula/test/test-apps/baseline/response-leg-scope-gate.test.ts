@@ -7,11 +7,13 @@
  * response door is scope-gated BY CONSTRUCTION (D5): a legitimate response leg is admitted, and a
  * forged cross-scope response is rejected.
  *
- * The gate re-checks **origin→node containment** (the propagated origin's `aud` vs THIS node's own
- * `isAtOrAbove(instanceName, aud)`), NOT responder identity (M1/N4) — so the admit and reject
- * cases use DIFFERENT origin scopes by construction. Each reject is capable-of-failing: with the
- * gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `isAtOrAbove` return true),
- * the forged envelope would admit ({$ack}) and every reject assertion flips RED.
+ * The gate re-checks **origin→node passage** (the propagated origin's own `access.authScope` vs
+ * THIS node's instance name, via `hasPassageInto`), NOT responder identity (M1/N4) — so the admit
+ * and reject cases use DIFFERENT origin scopes by construction. ⚠️ It reads the origin's
+ * MEMBERSHIP, never the `aud` beside it: `aud` is client-selected, so a caller could name any node
+ * as its active scope. One case below pins exactly that split. Each reject is capable-of-failing:
+ * with the gate off (drop `requirePassage` in `NebulaDO.onBeforeCall`, or make `hasPassageInto`
+ * return true), the forged envelope would admit ({$ack}) and every reject assertion flips RED.
  *
  * This is the RESPONSE-leg mirror of the request-leg `scope-isolation.test.ts` branch fan-out.
  */
@@ -50,16 +52,33 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
   };
 
   const cases: Case[] = [
-    // ── aud accept: the propagated origin is within THIS node's subtree → ADMIT (not false-negatived) ──
-    { label: 'legit: origin aud within the node subtree → admitted', outcome: 'admit',
-      opts: (star) => ({ instanceName: star, aud: star }) },
+    // ── accept: the propagated origin's OWN SCOPE is within THIS node's subtree → ADMIT ──
+    // ⚠️ The deciding input is `access.authScope`, never the `aud` beside it: `aud` is a value the
+    // client selects at refresh, so deciding passage on it let a caller reach a node it holds no
+    // membership in. Both are stamped here precisely so a regression that started reading `aud`
+    // again would still have to get `authScope` right.
+    { label: 'legit: origin scope within the node subtree → admitted', outcome: 'admit',
+      opts: (star) => ({ instanceName: star, aud: star, access: { authScope: star } }) },
 
-    // ── forged: origin aud OUTSIDE the node subtree → REJECT (the M1/N4 core) ──
-    { label: 'forged: origin aud OUTSIDE the node subtree → rejected', outcome: 'reject', match: /Active-scope mismatch/,
-      opts: (star, foreign) => ({ instanceName: star, aud: foreign }) },
+    // ── forged: origin scope OUTSIDE the node subtree → REJECT (the M1/N4 core) ──
+    { label: 'forged: origin scope OUTSIDE the node subtree → rejected', outcome: 'reject', match: /Active-scope mismatch/,
+      opts: (star, foreign) => ({ instanceName: star, aud: foreign, access: { authScope: foreign } }) },
 
-    // ── branch c: no aud → fail-closed ──
-    { label: 'no aud (branch c) → rejected fail-closed', outcome: 'reject', match: /Missing active scope/,
+    // ── the aud/authScope SPLIT, and the reason this gate moved off `aud` ──
+    // A caller whose own scope is foreign but who selected THIS node as its `aud`. Under the old
+    // `aud`-keyed gate this was ADMITTED; it is now refused, because `authScope` is the membership
+    // and `aud` is a request. Reds against any regression that restores the `aud` read.
+    { label: 'forged: foreign origin scope selecting this node as its aud → rejected', outcome: 'reject',
+      match: /Active-scope mismatch/,
+      opts: (star, foreign) => ({ instanceName: star, aud: star, access: { authScope: foreign } }) },
+
+    // ── branch c: no access claim → fail-closed ──
+    // ⚠️ RE-DERIVED, not ported. This case used to be "no aud", and its `Missing active scope`
+    // throw died with the `aud` read that justified it — `verify.ts` already refuses any token
+    // without an `aud`, so that branch was unreachable from a verified token even before. The
+    // fail-closed property survives on the input that now decides: no claim, no passage, and
+    // `hasPassageInto` returns false rather than throwing, so it lands as an ordinary refusal.
+    { label: 'no access claim (branch c) → rejected fail-closed', outcome: 'reject', match: /Active-scope mismatch/,
       opts: (star) => ({ instanceName: star }) },
 
     // ── branch a: missing callee instance name → fail-closed ──
@@ -68,11 +87,11 @@ describe('response-leg scope gate matrix (crit 4 / B5 / D5)', () => {
 
     // ── branch b: platform-name callee → rejected ──
     { label: 'platform-name callee (branch b) → rejected', outcome: 'reject', match: /Active-scope mismatch/,
-      opts: () => ({ instanceName: PLATFORM, aud: PLATFORM }) },
+      opts: () => ({ instanceName: PLATFORM, aud: PLATFORM, access: { authScope: PLATFORM } }) },
 
     // ── branch d: unparseable name (>3 segments) → rejected ──
     { label: 'unparseable callee name (branch d) → rejected', outcome: 'reject',
-      opts: () => ({ instanceName: 'a.b.c.d.e', aud: 'a.b.c.d.e' }) },
+      opts: () => ({ instanceName: 'a.b.c.d.e', aud: 'a.b.c.d.e', access: { authScope: 'a.b.c.d.e' } }) },
 
     // ── admin dominion: a platform-admin origin reaches any node, even with a foreign aud → ADMIT ──
     { label: 'admin dominion: platform admin admitted despite a foreign aud', outcome: 'admit',

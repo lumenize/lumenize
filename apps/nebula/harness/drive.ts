@@ -15,6 +15,7 @@ import { bootDevStack, HAS_DOCKER } from './lib/harness';
 import * as messageRoundtrip from './scenarios/message-roundtrip';
 import * as downwardDominion from './scenarios/downward-dominion';
 import * as superuserEndToEnd from './scenarios/superuser-end-to-end';
+import * as passageNotDominion from './scenarios/passage-not-dominion';
 import * as studioChatReload from './scenarios/studio-chat-reload';
 import * as turnstileCanary from './scenarios/turnstile-canary';
 import * as impersonationExpiry from './scenarios/impersonation-expiry';
@@ -46,6 +47,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'message-roundtrip': messageRoundtrip,   // Phase 1 — API driver round-trip + negative control
   'downward-dominion': downwardDominion,        // real-login covering admin acts in a Star beneath; non-admin denied
   'superuser-end-to-end': superuserEndToEnd,    // real bootstrap login: verify → refresh → enumerate → Profile gate
+  'passage-not-dominion': passageNotDominion,   // upward read RETURNS while upward write REFUSES; sibling Star refused
   'studio-chat-reload': studioChatReload,  // Phase 2 — browser driver: login→chat→reload + capture
   'turnstile-canary': turnstileCanary,     // Turnstile ON (test secret) — gate + bypass + widget path
   'impersonation-expiry': impersonationExpiry, // impersonate() across a REAL token lapse (no Docker)

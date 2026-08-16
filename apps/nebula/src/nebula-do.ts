@@ -8,7 +8,7 @@
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { CallContext } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import { hasDominionOver, isAtOrAbove, isPlatformScope, parseId } from '@lumenize/nebula-auth';
+import { hasDominionOver, hasPassageInto, isPlatformScope, parseId } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 /**
@@ -32,10 +32,9 @@ type HasCallContext = { lmz: { callContext: CallContext; instanceName?: string }
  * (passage), `requireDominionHere` decides *whether the caller holds dominion here*.
  *
  * ⚠️ **The bare `access.scopeAdmin` bit is NOT dominion** — it is dominion only over what the
- * caller's `authScope` covers. `requirePassage`'s tenant branch deliberately admits a
- * caller whose `aud` sits *below* this node (a member of a child may call its parent), so a bare
- * bit check let an admin of a child scope act as admin on its ancestors. Reachable today by
- * narrowing a `/mint-narrower-token` mint. See tasks/nebula-confine-admin-bypass.md.
+ * caller's `authScope` covers. `requirePassage` deliberately admits a caller whose own scope sits
+ * *below* this node (a member of a child may call its parent), so a bare bit check let an admin of
+ * a child scope act as admin on its ancestors. See tasks/nebula-confine-admin-bypass.md.
  *
  * **Fail closed on a missing instance name.** `instanceName` is permanently `undefined` on a
  * `LumenizeWorker`, and a node type could compose this guard *without* `requirePassage`. Never
@@ -79,35 +78,28 @@ export function requireDominionHere(instance: HasCallContext) {
  * throw-or-return out) so its branches are unit-mutation-testable without a
  * DO/Container harness.
  *
- * Accepts a mesh call iff EITHER:
- * - **downward dominion** — the caller is an `access.scopeAdmin` whose
- *   `authScope` is at or above this node's instance name (one admin identity
- *   reaches everything in its dominion, no per-target `aud` re-mint); OR
- * - **tenant boundary** — the call's active scope (`aud`) sits at or below the scope
- *   encoded in the instance name (the original check; all a non-admin ever uses).
+ * Accepts a mesh call iff the caller has **passage** into this node — the shared
+ * {@link hasPassageInto} predicate, not a disjunction re-assembled here. Both of its
+ * arms matter and neither is sufficient alone: the caller's own scope sits at or
+ * below this node (a member of a child reaching its parent, conferring no dominion),
+ * OR the caller holds dominion here (the whole downward rule).
  *
- * The dominion clause is **gated on `access.scopeAdmin`**: position alone is not
- * dominion, so a non-admin at a covering scope keeps today's aud-narrowed
- * behavior exactly (a descendant it doesn't actively scope to is rejected).
+ * ⚠️ **Passage is computed from the caller's own `authScope`, never from the
+ * client-chosen `aud`.** That is the substantive change over the previous body, and it
+ * is what makes the name true: `aud` is a value the client selects at refresh, so
+ * deciding passage on it let a non-admin at `{u}` select `aud = {u}.{g}.{s}` and reach
+ * a tenant Star it holds no membership in. Under `authScope` that is refused **by
+ * construction** — there is no branch to get wrong, because the input a caller can
+ * choose is no longer read. `aud` remains on the token and on the wire for the
+ * Gateway's outbound fence (`onBeforeCallToClient`); it just stops deciding this.
  *
  * Branch ORDER is load-bearing: the missing-name fail-close, the platform-name
- * reject, and the name parse all run BEFORE the dominion clause — otherwise a
+ * reject, and the name parse all run BEFORE the passage clause — otherwise a
  * superuser would short-circuit past them, since the reserved platform scope is the
- * ROOT of the tree and so holds dominion over any string (incl. an unparseable name).
+ * ROOT of the tree and so has passage to any string (incl. an unparseable name).
  *
  * Every rejection is an `Error` (never a bare string — a thrown string lands in
  * `lastResult`, not `lastError`).
- *
- * ⚠️ **The NAME is true against [ADR-015](../../../docs/adr/015-passage-and-dominion.md)'s
- * DEFINITION of passage, not yet against its PREDICATE — and that gap is deliberate, not an
- * oversight.** ADR-015 defines passage as `isAtOrBelow(authScope, targetScope) ∨ dominion`, computed over
- * the member's own scope. The tenant branch below still compares the **client-chosen `aud`**, and
- * any descendant may be requested — so a non-admin at `u.*` can select `aud = u.g.s` and pass at
- * `u.g.s`, which the ADR's predicate refuses. **This body therefore computes a strict SUPERSET of
- * passage.** It is named ahead of that change on purpose (ADR-015 clause 3 sets the precedent for
- * pre-announcing a name), and `tasks/nebula-passage-dominion-from-scope.md` closes it by switching
- * this branch's input from `aud` to the server-trusted `authScope`. **Until then, do not read this
- * name as a claim that the ADR's predicate is what runs here.**
  */
 export function requirePassage(
   name: string | undefined,
@@ -135,22 +127,17 @@ export function requirePassage(
   // Before the dominion clause because the platform root holds dominion over any string.
   parseId(name);
 
-  // Downward dominion (gated on access.scopeAdmin — position alone is NOT dominion).
-  // Delegates to the ONE shared predicate (ADR-007); its body is exactly the inline form this
-  // previously hand-rolled, truthiness guard included.
-  if (hasDominionOver(claims?.access, name)) {
-    return;
-  }
-
-  // (c) + (e) — the original active-scope tenant boundary (the non-admin path).
-  const aud = claims?.aud;
-  if (!aud) {
-    throw new Error('Missing active scope (aud)');
-  }
-  // ⚠️ Verdict-identical to the pattern form it replaces — the same two inputs, spelled with the
-  // new symbol. The INPUT still moves: ADR-015 computes passage from the caller's own `authScope`,
-  // not the client-chosen `aud`, so this remains a strict superset of passage until that lands.
-  if (!isAtOrAbove(name, aud)) {
+  // (c) PASSAGE — the ONE shared predicate (ADR-007), both arms, computed from the caller's own
+  // `authScope`. Not re-assembled here: a disjunction spelled at the call site is how one arm
+  // silently goes missing, and each omission breaks a different half of ADR-015 (drop the upward
+  // arm and a Star member cannot reach its own Galaxy; drop dominion and an admin cannot act
+  // downward at all).
+  //
+  // ⚠️ The absent-claim case is the predicate's, not this line's: it returns `false` rather than
+  // throwing, so an unauthenticated or malformed claim lands here as an ordinary refusal. The old
+  // `if (!aud) throw` is GONE with the `aud` read that justified it — `verify.ts` already refuses
+  // any token without an `aud`, so it was unreachable on the live path even before this.
+  if (!hasPassageInto(claims?.access, name)) {
     throw new Error('Active-scope mismatch');
   }
 }
@@ -161,12 +148,13 @@ export function requirePassage(
  * onBeforeCall() enforces **structural** passage via the shared
  * {@link requirePassage} helper (composed, not reimplemented — ADR-007). A
  * mesh call is accepted iff the caller is an `access.scopeAdmin` whose dominion
- * covers this DO's **instance name** (downward dominion), OR its JWT `aud`
- * (active scope) sits at or below the scope encoded in that name (the tenant
+ * covers this DO's **instance name** (downward dominion), OR the caller's own
+ * `access.authScope` sits at or below the scope encoded in that name (the tenant
  * boundary; the non-admin path). Containment is by whole dot-separated segment —
  * a scope covers itself and every descendant, and nothing else — so no tier
  * grammar is involved. There is no trust-on-first-use lock and no stored `aud`;
- * the scope is read off the name on every call.
+ * the scope is read off the name on every call, and the caller's half comes from
+ * their membership rather than from a value they select.
  *
  * Soundness rests on name == routing key: a tier DO is addressed by the same
  * `parseId`-valid id that becomes its `instanceName` (never a 64-hex DO id), so

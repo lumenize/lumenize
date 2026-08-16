@@ -131,13 +131,16 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client: admin } = await devAdminClient(galaxy, dev);
     await applyOntology(admin, dev, 'v1', TODO_V1);
 
-    // Non-admin galaxy member (invited subject) refreshed to the dev activeScope:
-    // valid aud (onBeforeCall passes), but no admin claim.
+    // A non-admin member OF THE DEV STAR ITSELF — not of the galaxy above it. Passage is
+    // computed from the caller's own `authScope`, so a galaxy-tier non-admin has no passage into a
+    // Star beneath (ADR-015: upward only, without dominion) and would be refused by `onBeforeCall`
+    // before `resetDevData`'s own guard ever ran — greening this test on the wrong refusal. Being
+    // a member of the Star is what "a non-admin who can reach this Star" now means.
     const adminBrowser = new Browser();
     const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
-    await createSubject(adminBrowser, galaxy, accessToken, 'user@example.com');
+    await createSubject(adminBrowser, dev, accessToken, 'user@example.com');
     const { client: user } = await createInvitedClient(
-      NebulaClientTest, new Browser(), galaxy, dev, 'user@example.com',
+      NebulaClientTest, new Browser(), dev, dev, 'user@example.com',
     );
 
     user.callStarResetDevData(dev);
@@ -222,11 +225,13 @@ describe('Dev-data lifecycle — in-dev data (.dev Star)', () => {
     const { client: admin } = await devAdminClient(galaxy, dev);
     await applyOntology(admin, dev, 'v1', TODO_V1);
 
+    // A member OF THE DEV STAR (see the note in the admin-gated test above): passage is computed
+    // from the caller's own scope, so the reader has to belong to the Star it reads.
     const adminBrowser = new Browser();
     const { accessToken } = await foundAndLogin(adminBrowser, galaxy, 'admin@example.com', galaxy);
-    await createSubject(adminBrowser, galaxy, accessToken, 'user@example.com');
+    await createSubject(adminBrowser, dev, accessToken, 'user@example.com');
     const { client: user, payload: userPayload } = await createInvitedClient(
-      NebulaClientTest, new Browser(), galaxy, dev, 'user@example.com',
+      NebulaClientTest, new Browser(), dev, dev, 'user@example.com',
     );
     const userSub = userPayload.sub;
 

@@ -46,7 +46,7 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
   // reject cases could pass vacuously against an always-reject guard.
   it('admits an in-scope caller', () => {
     const scope = uniqueDevScope();
-    expect(() => onBeforeCallAs(scope, { aud: scope })).not.toThrow();
+    expect(() => onBeforeCallAs(scope, { aud: scope, access: { authScope: scope } })).not.toThrow();
   });
 
   // Downward-dominion parity (ADR-007): a `{u}.*` admin reaches a descendant {u}.{g}.dev container
@@ -61,30 +61,47 @@ describe('NebulaContainer structural scope isolation (onBeforeCall)', () => {
   // Reject cases — each a distinct branch of requirePassage (mutation-checked by the operand it
   // exercises): cross-scope (m5), a >3-segment / illegal-slug / 64-hex name (M3), the platform-name
   // sink, a missing aud, a missing callee name.
+  // ⚠️ Every reject below carries a REAL `access` claim, deliberately. Passage is decided on
+  // `access.authScope`, so a fixture supplying only `aud` is refused for having no claim at all —
+  // it would green whatever the branch under test did, which is a test that cannot fail.
   it('m5: rejects a genuinely-minted cross-scope caller', () => {
-    expect(() => onBeforeCallAs(uniqueDevScope(), { aud: uniqueDevScope() })).toThrow('Active-scope mismatch');
+    const foreign = uniqueDevScope();
+    expect(() => onBeforeCallAs(uniqueDevScope(), { aud: foreign, access: { authScope: foreign } }))
+      .toThrow('Active-scope mismatch');
   });
 
   it('M3: a >3-segment name fails closed (parseId rejects)', () => {
-    expect(() => onBeforeCallAs('a.b.c.d', { aud: 'a.b.c.d' })).toThrow(/dot-separated segments/);
+    expect(() => onBeforeCallAs('a.b.c.d', { aud: 'a.b.c.d', access: { authScope: 'a.b.c.d' } }))
+      .toThrow(/dot-separated segments/);
   });
 
   it('M3: an illegal-slug name fails closed (parseId rejects)', () => {
-    expect(() => onBeforeCallAs('Bad.app.dev', { aud: 'Bad.app.dev' })).toThrow(/Invalid slug/);
+    expect(() => onBeforeCallAs('Bad.app.dev', { aud: 'Bad.app.dev', access: { authScope: 'Bad.app.dev' } }))
+      .toThrow(/Invalid slug/);
   });
 
   it('M3: a 64-hex DO-id-shaped name is rejected for a real aud', () => {
-    // A 64-hex string is a valid universe-tier slug (`<hex>.*`), but a real `{u}.{g}.dev` aud isn't
-    // under it → rejected. So a hex address can never reach a tenant container.
-    expect(() => onBeforeCallAs('a'.repeat(64), { aud: uniqueDevScope() })).toThrow('Active-scope mismatch');
+    // A 64-hex string is a valid universe-tier slug, but a real `{u}.{g}.dev` member's scope is
+    // neither at nor below it → rejected. So a hex address can never reach a tenant container.
+    const caller = uniqueDevScope();
+    expect(() => onBeforeCallAs('a'.repeat(64), { aud: caller, access: { authScope: caller } }))
+      .toThrow('Active-scope mismatch');
   });
 
-  it('a container addressed at "nebula-platform" is rejected for a real aud', () => {
-    expect(() => onBeforeCallAs('nebula-platform', { aud: uniqueDevScope() })).toThrow('Active-scope mismatch');
+  it('a container addressed at "nebula-platform" is rejected for a real caller', () => {
+    // ⚠️ The NAME RESERVATION, not a containment refusal — and it must fire even for a caller who
+    // WOULD have passage. Every scope is at or below the platform root, so a real member reaches
+    // this name under the ordinary rule; the reject is what stands in front of it.
+    const caller = uniqueDevScope();
+    expect(() => onBeforeCallAs('nebula-platform', { aud: caller, access: { authScope: caller } }))
+      .toThrow('Active-scope mismatch');
   });
 
-  it('rejects a call with no aud', () => {
-    expect(() => onBeforeCallAs(uniqueDevScope(), {})).toThrow('Missing active scope');
+  // ⚠️ RE-DERIVED from "rejects a call with no aud". That branch's `Missing active scope` throw
+  // died with the `aud` read that justified it; the fail-closed property moved to the input that
+  // now decides, and `hasPassageInto` returns false rather than throwing.
+  it('rejects a call with no access claim', () => {
+    expect(() => onBeforeCallAs(uniqueDevScope(), {})).toThrow('Active-scope mismatch');
   });
 
   it('rejects a call with no callee instance name', () => {

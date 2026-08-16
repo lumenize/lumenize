@@ -324,13 +324,17 @@ function makeEnvelope(opts: { instanceName?: string; aud?: string }) {
 
 describe('onBeforeCall fail-closed branches (below the public API)', () => {
   // ── T5 — Missing aud / missing callee ──────────────────────────────────
-  it('T5: rejects a call with no aud (branch c)', async () => {
+  it('T5: rejects a call with no access claim (branch c)', async () => {
     const name = uniqueStar();
     const stub = (env as any).STAR.getByName(name);
-    // Valid callee name (branches a/b/d pass) but no originAuth → branch c.
+    // Valid callee name (branches a/b/d pass) but no originAuth → no claim, no passage.
+    // ⚠️ RE-DERIVED: this used to assert `Missing active scope` on an absent `aud`. That branch
+    // died with the `aud` read that justified it — passage is computed from the caller's own
+    // `authScope` now, and `hasPassageInto` fails closed by RETURNING false rather than throwing,
+    // so an absent claim lands as the ordinary refusal.
     const r = await stub.__executeOperation(makeEnvelope({ instanceName: name }));
     const err = postprocess(r.$error);
-    expect(err.message).toContain('Missing active scope');
+    expect(err.message).toContain('Active-scope mismatch');
   });
 
   it('T5: rejects an envelope missing metadata.callee — instanceName absent (branch a, M7)', async () => {
@@ -535,10 +539,35 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
     expect(() => requirePassage('u.g.s', claims({ aud: 'u', authScope: 'u', scopeAdmin: true }))).not.toThrow();
   });
 
-  // ── Tenant boundary (the non-admin path, unchanged) ──────────────────────
-  it('admits a non-admin whose aud is covered by the name (own scope, and Star→own Galaxy)', () => {
+  // ── The upward arm (the non-admin path) ──────────────────────────────────
+  it('admits a non-admin at or below the name (own scope, and Star→own Galaxy→own Universe)', () => {
     expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScope: 'u.g.s' }))).not.toThrow();
     expect(() => requirePassage('u.g', claims({ aud: 'u.g.s', authScope: 'u.g.s' }))).not.toThrow();
+    expect(() => requirePassage('u', claims({ aud: 'u.g.s', authScope: 'u.g.s' }))).not.toThrow();
+  });
+
+  // 🔒 **The headline change: a non-admin reaches its OWN scope and nothing beneath it.**
+  // Under the old body the tenant arm read the client-chosen `aud`, so a non-admin at `{u}` could
+  // refresh to `aud = {u}.{g}.{s}` and pass at a tenant Star it holds no membership in. Passage is
+  // now computed from `authScope`, so this is refused BY CONSTRUCTION — there is no branch to get
+  // wrong, because the input the caller controls is no longer read.
+  //
+  // ⚠️ The `aud` on these fixtures is deliberately the descendant — exactly the value that used to
+  // grant it. A regression that restores the `aud` read greens the old behaviour and reds here.
+  it('refuses a non-admin BENEATH its own scope, whatever aud it selects', () => {
+    expect(() => requirePassage('u.g', claims({ aud: 'u.g', authScope: 'u' })))
+      .toThrow('Active-scope mismatch');
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScope: 'u' })))
+      .toThrow('Active-scope mismatch');
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScope: 'u.g' })))
+      .toThrow('Active-scope mismatch');
+  });
+
+  // The control that keeps the case above honest: the SAME descent WITH `scopeAdmin` is admitted,
+  // so the refusal is about dominion and not about descent being blocked outright.
+  it('control: the same descent WITH scopeAdmin is admitted (dominion is the discriminator)', () => {
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s', authScope: 'u', scopeAdmin: true })))
+      .not.toThrow();
   });
 
   // ── Isolation: admin dominion that doesn't cover the target → aud also misses ─
@@ -562,11 +591,20 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
     expect(() => requirePassage('Bad.app.tenant', claims({ aud: 'Bad.app.tenant', authScope: 'Bad.app.tenant' })))
       .toThrow(/Invalid slug/);
   });
-  it('(c) throws when aud is absent and the dominion clause does not fire', () => {
-    expect(() => requirePassage('u.g.s', claims({ authScope: 'u.g.s' /* no aud, no scopeAdmin */ })))
-      .toThrow('Missing active scope');
+  // ⚠️ **(c) RE-DERIVED, not ported.** The old case asserted `Missing active scope` when `aud` was
+  // absent. That throw existed because the tenant arm READ `aud` and would otherwise have compared
+  // `undefined`; the arm now reads the caller's own `authScope`, so the justification is gone —
+  // and `verify.ts` already refuses any token without an `aud`, so the branch was unreachable from
+  // a verified token even before. What survives is the property, on the input that now decides.
+  it('(c) an absent aud is simply not read — passage is decided on authScope alone', () => {
+    expect(() => requirePassage('u.g.s', claims({ authScope: 'u.g.s' /* no aud */ }))).not.toThrow();
   });
-  it('(e) rejects when aud is not covered by the name and there is no dominion', () => {
+  it('(c) fails closed on an ABSENT access claim — no principal, no passage', () => {
+    expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.s' /* no access */ })))
+      .toThrow('Active-scope mismatch');
+    expect(() => requirePassage('u.g.s', undefined)).toThrow('Active-scope mismatch');
+  });
+  it('(e) rejects when the caller\'s own scope neither covers nor sits below the name', () => {
     expect(() => requirePassage('u.g.s', claims({ aud: 'u.g.other', authScope: 'u.g.other' })))
       .toThrow('Active-scope mismatch');
   });
@@ -584,9 +622,12 @@ describe('requirePassage (pure shared guard — admin-gated dominion + branch ma
       .toThrow(/dot-separated segments/);
   });
 
-  // ── Pattern-but-no-aud (m2): admitted by the dominion clause; unreachable from a
-  // verified token (verifyNebulaAccessToken requires aud), documented not gated. ─
-  it('m2: an admin+pattern token with no aud is admitted by the dominion clause (documented unreachable)', () => {
+  // ── m2, RE-FRAMED. It used to read "admitted by the dominion clause; unreachable from a verified
+  // token, documented not gated" — an oddity of a body that read `aud` everywhere else. Nothing is
+  // special about it now: `aud` is not a passage input at any tier, so an admin without one is
+  // admitted for the same reason a non-admin without one is (the (c) pair above). Kept as the
+  // admin-side half of that input, since dominion and the upward arm are different code paths. ─
+  it('m2: an admin with no aud is admitted — dominion does not consult aud either', () => {
     expect(() => requirePassage('u.g.s', claims({ authScope: 'u', scopeAdmin: true /* no aud */ }))).not.toThrow();
   });
 });

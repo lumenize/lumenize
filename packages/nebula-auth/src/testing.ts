@@ -20,12 +20,12 @@ export { buildNebulaJwtPayload, buildNebulaAccessEntry } from './access-claims';
 export type { NebulaAccessClaimInput } from './access-claims';
 
 // Pure scope-parsing + containment helpers a harness uses to derive + assert scopes.
-// `hasDominionOver` is exported here too — a Node harness reasoning about dominion must never
-// re-inline the `scopeAdmin && isAtOrAbove(...)` conjunction the shared predicate collapses
-// (ADR-007, one guard path / one place to audit).
+// Both verdicts are exported here too — a Node harness reasoning about dominion or passage must
+// never re-inline the `scopeAdmin && isAtOrAbove(...)` conjunction, nor passage's two-arm union,
+// which the shared predicates collapse (ADR-007, one guard path / one place to audit).
 export {
   parseId, isValidSlug, isPlatformScope, getParentId, isAtOrAbove, isAtOrBelow,
-  hasDominionOver,
+  hasDominionOver, hasPassageInto,
 } from './parse-id';
 
 // Types + constants needed to build/inspect tokens.
