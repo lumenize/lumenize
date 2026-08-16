@@ -114,6 +114,8 @@ someone writes it**. `live.md` § *`/live` is the DEFAULT tier* is the standing 
    coverage he does, is backwards — and if slowness bites, that is the signal to make the harness
    faster, not to write a weaker test.
 
+**Where it bit again (2026-08-16), and this instance names a NEW failure mode the entry did not cover: the HARNESS itself can diverge from production and hide the bug you are looking for.** Not a fixture built wrong — a *harness* whose construction differs from what the server issues, so every scenario riding it asserts over a shape production cannot produce. Live example, found while reviewing the passage/dominion task: `apps/nebula/harness/lib/harness.ts`'s `connectDriver` mint sets `instanceName: opts.mint?.issuerInstanceName ?? scope`, which narrows the claim in lockstep with the scope — so `superadmin-dominion.ts`'s own JSDoc has to record *"you cannot produce a denial by narrowing through this harness."* The denial it cannot produce is the one the task exists to create. ⚠️ **Larry, same date, on why he insists:** a task file or two earlier the `/live` work was left out of the phases; he required it after the build and it found real bugs, one of them exactly this — a lower-tier harness that did not match `/live` behaviour. ⇒ **When you reach for a lower tier, ask what the HARNESS constructs, not only what the fixture asserts.** A harness that builds the credential is a mock wearing a helper's name.
+
 **Where it bit (2026-07-30, `nebula-impersonation-client`):** the recommendation was `/live` "as an
 exception, not a default", written into a section literally headed *What I'd resist* — while the same
 session had produced **seven** pool-workers tests that could not fail and **one** `/live` scenario with
