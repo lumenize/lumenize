@@ -7,13 +7,15 @@
 
 ## Context
 
-**Coarse-grained access control is determined by three concepts this ADR defines — scope, dominion, and passage — working together to make lateral movement impossible while allowing certain kinds of vertical movement.**
+**Coarse-grained access control is determined by three concepts — scope, dominion, and passage — working together to make lateral movement impossible while allowing certain kinds of vertical movement.**
 
-Scopes form a strict tree: platform → universe → galaxy → star, and every principal carries one, naming where it sits. **That hierarchy is also what identifies lateral movement** — holding a scope in one branch while calling into a scope that is neither linearly above nor linearly below your own. The tree itself was never in doubt. **Vertical is what this ADR decides**: which direction dominion flows along it, and whether the `scopeAdmin` bit means anything on its own, was **assumed everywhere and written down nowhere**.
+Scopes form a strict tree: platform → universe → galaxy → star. **That hierarchy is what identifies lateral movement** — holding a scope in one branch while calling into a scope that is neither linearly above nor linearly below your own. So, the prevention of lateral movement is achieved structurally by only permitting vertical movement.
 
-An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
+Every caller presents its `authScope`, a `scopeAdmin` bit, and the `targetScope` it is acting on, as part of every call. These are used to calculate if the call qualifies as `dominion` or `passage` — the two kinds of vertical movement that are allowed. The rest of this ADR is spent precisely specifying those calculations, explaining what a call is (and is not granted) for each kind, and elaborating on the implications of those grants.
 
-> **Today's code differs.** Coverage is a derived wildcard pattern (`access.authScopePattern` matched against the node) rather than a comparison over the member's scope, a non-admin reaches downward, and **a call to a node named `nebula-platform` is refused outright** — so the predicates in § *Decision* are not yet what runs. [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two; the third is a **name reservation** and closes when the name goes from **rejected to bound**, never by being opened.
+Previously, this model was assumed everywhere and written down precisely nowhere. An unwritten invariant of this shape is violable in two independent directions, and at each site the violation reads as sense rather than as a bug. Honouring an admin's bit wherever they happen to be reads as "an admin is an admin." Letting a scope's own members block an admin above them reads as protecting the people actually using it. Both shipped — the Evidence line above names them — and neither reviewer had a stated invariant to check against.
+
+> **Today's code differs.** Coverage is a derived wildcard pattern (`access.authScopePattern` matched against the target scope) rather than a comparison over the member's scope, a non-admin reaches downward, and **a call to a node named `nebula-platform` is refused outright** — so the predicates in § *Decision* are not yet what runs. [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two; the third is a **name reservation** and closes when the name goes from **rejected to bound**, never by being opened.
 
 ## Decision
 
@@ -21,9 +23,9 @@ An unwritten invariant of this shape is violable in two independent directions, 
 
 - **Scope** is the driver for coarse-grained access control. It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request. In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope.
 - **Dominion** — an *unconditional* right to act within a scope. Where it applies, nothing decided inside that scope can stand against it. **Downward only.**
-- **Passage** — the right for a call to *pass* a node's outer boundary without being refused there. It confers nothing except that.
+- **Passage** — the right for a call to reach the target scope without being refused on the way in. It confers nothing except that.
 
-**`dominion` and `passage` are deliberately rare words.** They replaced `authority` and `admission`/`admitted`, both general enough to mean several things at once. A reader who meets `dominion` anywhere in this repo may assume this definition and nothing else. **Do not reintroduce `authority` or `admitted` as the name of either concept.** Other senses of *authority* are untouched: a **mint point** is where a `sub` is minted (a Universe or Star claim, an invite); [ADR-016](016-record-the-acting-principal.md)'s **authority-changing** actions are those altering *what a principal may do*, which is deliberately **broader than dominion** — a data-plane grant changes it while touching neither `scopeAdmin` nor the scope, so narrowing that trigger to dominion would drop those changes out of it; and plain English still says Studio's agent holds no authority of its own.
+**`dominion` and `passage` are deliberately rare words.** They replaced `authority` and `admission`/`admitted`, both general enough to mean several things at once. A reader who meets `dominion` anywhere in this repo may assume this definition and nothing else. **Do not reintroduce `authority` or `admitted` as the name of either concept.** Other senses of *authority* survive: a **mint point** is where a `sub` is minted (a Universe or Star claim, an invite); [ADR-016](016-record-the-acting-principal.md)'s **authority-changing** actions are those altering *what a principal may do*, which is deliberately **broader than dominion** — a data-plane grant changes it while touching neither `scopeAdmin` nor the scope, so narrowing that trigger to dominion would drop those changes out of it; and plain English still says Studio's agent holds no authority of its own.
 
 **There is deliberately no umbrella noun over dominion and passage, and `reach` is not to become one.** "reach" stays a verb — a call reaches a node, an admin reaches into a scope. Nominalised it means passage, or dominion, or their union, or the orgTree's own grants, depending on the sentence. Where a sentence seems to want one word covering both, name both.
 
@@ -32,36 +34,37 @@ An unwritten invariant of this shape is violable in two independent directions, 
 Who holds either, exactly, is the predicate pair below:
 
 ```
-isAtOrAbove(myScope, node)  — my scope covers the node: the same scope, or an ancestor of it.
-                              The reserved platform scope is the ROOT of the tree, so it is
-                              at or above every node.
-isAtOrBelow(myScope, node)  — my scope sits at or beneath the node: the same scope, or a
-                              descendant of it. Every scope is at or below the platform root.
-                              Exactly isAtOrAbove with the arguments flipped:
-                              isAtOrAbove(A, B) === isAtOrBelow(B, A).
+isAtOrAbove(myScope, targetScope)  — my scope covers the target: the same scope, or an
+                                     ancestor of it. The reserved platform scope is the ROOT
+                                     of the tree, so it is at or above every scope.
+isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: the same scope,
+                                     or a descendant of it. Every scope is at or below the
+                                     platform root. Exactly isAtOrAbove with the arguments
+                                     flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(myScope, scopeAdmin, node) = scopeAdmin ∧ isAtOrAbove(myScope, node)
+dominion(myScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(myScope, targetScope)
 
-passage(myScope, scopeAdmin, node)  = isAtOrBelow(myScope, node) ∨ dominion(myScope, scopeAdmin, node)
+passage(myScope, scopeAdmin, targetScope)  = isAtOrBelow(myScope, targetScope)
+                                             ∨ dominion(myScope, scopeAdmin, targetScope)
 ```
 
-**One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(access, node)` and `hasPassageInto(access, node)`, the second landing with [`tasks/nebula-passage-dominion-from-scope.md`](../../tasks/nebula-passage-dominion-from-scope.md).
+**One implementation.** Every site needing either verdict calls the shared predicate against the scope it is acting on, rather than re-inlining ([ADR-007](007-shared-node-security-core.md)) — which is what made both violations in § *Context* fixable in one place instead of N. The symbols are `hasDominionOver(access, targetScope)` and `hasPassageInto(access, targetScope)`.
 
-**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: `myScope` and `scopeAdmin` ride the caller's token as `access.authScope` and `access.scopeAdmin`, so they are passed as that one `access` claim. `node` is the scope being acted on, and is passed separately.
+**Those signatures take two arguments where the predicates take three**, because two of the three arrive together: `myScope` and `scopeAdmin` ride the caller's token as `access.authScope` and `access.scopeAdmin`, so they are passed as that one `access` claim. `targetScope` is passed separately.
 
 **Scope comparisons are hierarchical by dot-separated segments**, so `u.g.s1` does not cover `u.g.s10`, and `acme` does not cover `acme-2` — the second is the one a naive `startsWith` gets wrong.
 
 **The bare `scopeAdmin` bit is never dominion, and neither is position without it** — dominion is the conjunction, and reading either operand on its own is the bug this ADR exists to stop.
 
-**Passage gets a call past a node's outer boundary and no further.** What happens after that is the node's own: an `@mesh()` method with no guard function and no checks inside it is callable by anyone who arrived. Restricting who may call what is a per-method decision, never a narrowing of passage.
+**Passage gets a call past a callee's outer boundary and no further.** What happens after that is the callee's own decision. Reads are often generously granted, writes are almost always further restricted.
 
 These things follow:
 
-- **The two nest: dominion implies passage**, since you cannot act somewhere you cannot arrive. So for any principal, passage is never the smaller set, and what it adds is everything at-or-above that principal's own scope.
+- **The two nest: dominion implies passage**, since you cannot act somewhere you cannot arrive. So for any call, passage is never the smaller set, and what it adds is everything at-or-above that caller's own scope.
 - **Passage at the platform scope is universal**, because the upward arm asks `isAtOrAbove('nebula-platform', anything)` and the root satisfies it for everyone.
 - **Only superusers have dominion at the platform scope**, because `isAtOrAbove(myScope, 'nebula-platform')`, holds only when your own scope *is* the platform scope.
 - **Dominion over a scope is total and non-vetoable.** No finer-grained permission mechanism in that scope can veto, block, or attenuate a `scopeAdmin` above them. The Resource orgTree is the worked example: a covering scopeAdmin acts there with no grant ever written (`apps/nebula/src/dag-tree.ts` `requirePermission`). Anything built later inherits this without being asked. Where an action is destructive or surprising, the restraint is a **UI warning carrying the information needed to decide**, never a refusal in the authorization layer.
-- **A scope's finer-grained mechanisms decide for principals *without* dominion.**
+- **A scope's finer-grained mechanisms decide for callers *without* dominion.**
 - **Lacking dominion is not a denial.** A caller with passage but no dominion may still be granted a great deal by the methods it reaches, as decided by the callee's own guards.
 
 ## Alternatives considered

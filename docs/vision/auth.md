@@ -183,17 +183,18 @@ Think of `scopeAdmin` as a feudal lord's title over some land (scope) — King o
 Two predicates express all of it, and no guard re-derives either ([ADR-007](../adr/007-shared-node-security-core.md)). [ADR-015](../adr/015-passage-and-dominion.md) is the definition home; where it and this section disagree, it wins:
 
 ```
-isAtOrAbove(myScope, node)  — my scope covers the node: the same scope, or an ancestor of it.
-                              The reserved platform scope is the ROOT of the tree, so it is
-                              at or above every node.
-isAtOrBelow(myScope, node)  — my scope sits at or beneath the node: the same scope, or a
-                              descendant of it. Every scope is at or below the platform root.
-                              Exactly isAtOrAbove with the arguments flipped:
-                              isAtOrAbove(A, B) === isAtOrBelow(B, A).
+isAtOrAbove(myScope, targetScope)  — my scope covers the target: the same scope, or an
+                                     ancestor of it. The reserved platform scope is the ROOT
+                                     of the tree, so it is at or above every scope.
+isAtOrBelow(myScope, targetScope)  — my scope sits at or beneath the target: the same scope,
+                                     or a descendant of it. Every scope is at or below the
+                                     platform root. Exactly isAtOrAbove with the arguments
+                                     flipped: isAtOrAbove(A, B) === isAtOrBelow(B, A).
 
-dominion(myScope, scopeAdmin, node) = scopeAdmin ∧ isAtOrAbove(myScope, node)
+dominion(myScope, scopeAdmin, targetScope) = scopeAdmin ∧ isAtOrAbove(myScope, targetScope)
 
-passage(myScope, scopeAdmin, node)  = isAtOrBelow(myScope, node) ∨ dominion(myScope, scopeAdmin, node)
+passage(myScope, scopeAdmin, targetScope)  = isAtOrBelow(myScope, targetScope)
+                                             ∨ dominion(myScope, scopeAdmin, targetScope)
 ```
 
 Passage is only getting past the outer border of the node. What you can then do is decided by the "rules" of that node:
