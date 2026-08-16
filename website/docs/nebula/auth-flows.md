@@ -30,7 +30,7 @@ The Nebula entrypoint parses this once and threads it as a single `cors` config 
 Login **never mints** a membership. A magic-link login *verifies* an already-existing one — recording that the mailbox is proved and that this membership has been taken up — and is **rejected** if none exists — this is what closes stranger-self-join. Memberships are minted only at mint points:
 
 - **Universe** — open self-signup: `claim-universe` mints the claiming admin identity (`scopeAdmin=true`) + the scope.
-- **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **wildcard-managed** (no local admin stamped — the parent admin's `{u}.*` / `{u}.g.*` token reaches it). There is no open, identity-minting star self-signup.
+- **Galaxy / Star** — the parent-scope admin creates the child (`create-galaxy` / `create-star`, admin-gated); the child is **parent-managed** (no local admin stamped — the parent admin's own scope is at or above it, so their token reaches it). There is no open, identity-minting star self-signup.
 - **Invite** — an admin invites an email into an existing scope; issuance pre-creates the invitee's membership (`scopeAdmin=false`, not yet taken up), and `accept-invite` records the take-up. Proving the mailbox is a property of the **address**, so someone who already proved it in another scope does not re-prove it here — only the new membership's take-up is recorded.
 
 ## First-time login (self-signup — founding a Universe)
@@ -147,7 +147,7 @@ The refresh token gets a fixed 30-day TTL at login — there is no per-refresh r
 
 ## Scope switching
 
-An admin (or any user with access to multiple scopes) wants to switch from one star to another. Scope switching is a **full re-login, not an in-place reconnect** — the old `NebulaClient` is destroyed and a new one is created. This section's diagram covers **separately-held** scopes (each with its own path-scoped cookie); admins with a wildcard grant use the lighter flow in [Admin active-scope switching](#admin-active-scope-switching-within-a-wildcard-grant) below.
+An admin (or any user with access to multiple scopes) wants to switch from one star to another. Scope switching is a **full re-login, not an in-place reconnect** — the old `NebulaClient` is destroyed and a new one is created. This section's diagram covers **separately-held** scopes (each with its own path-scoped cookie); an admin switching within their own subtree uses the lighter flow in [Admin active-scope switching](#admin-active-scope-switching-within-one-scopes-subtree) below.
 
 The key insight: `NebulaClient` is ephemeral; the refresh cookie is the durable credential. Each access token has a single `aud` (active scope), so switching scope requires a new token.
 
@@ -201,25 +201,25 @@ If the refresh call returns 401 (cookie expired or doesn't exist for the new sco
 
 :::
 
-### Admin active-scope switching (within a wildcard grant)
+### Admin active-scope switching (within one scope's subtree)
 
-A **Galaxy or Universe admin** holds a single wildcard grant covering the parent scope *and every scope beneath it*, so switching the active scope needs neither discovery nor a new cookie — only a refresh with a different `activeScope`.
+A **Galaxy or Universe admin** holds a single membership covering the parent scope *and every scope beneath it*, so switching the active scope needs neither discovery nor a new cookie — only a refresh with a different `activeScope`.
 
 An admin logged in at the Galaxy `acme.app`:
 
 - holds **one** refresh cookie, path-scoped to `/auth/acme.app`;
-- has scope pattern `acme.app.*` (Galaxy → wildcard), which `matchAccess` resolves to the Galaxy itself **and** every Star under it.
+- has `authScope` `acme.app` — the Galaxy itself — which is at or above the Galaxy **and** every Star under it.
 
-Every switch is the *same* request — `POST /auth/acme.app/refresh-token`, **same cookie** — varying only the body's `activeScope`. The Worker validates the requested `activeScope` against the pattern **derived from the KV record's own scope** (server-trusted), never the request path or body:
+Every switch is the *same* request — `POST /auth/acme.app/refresh-token`, **same cookie** — varying only the body's `activeScope`. The Worker validates the requested `activeScope` against **the KV record's own scope** (server-trusted), never the request path or body:
 
-| Goal | `activeScope` | covered by `acme.app.*`? |
+| Goal | `activeScope` | at or below `acme.app`? |
 | --- | --- | --- |
-| Work directly in the Galaxy (Studio) | `acme.app` | ✓ (wildcard matches its own prefix) |
+| Work directly in the Galaxy (Studio) | `acme.app` | ✓ (a scope is at or below itself) |
 | Activate a child Star | `acme.app.tenant-a` | ✓ |
 | Switch to a different child Star | `acme.app.tenant-b` | ✓ |
 | Return to the Galaxy | `acme.app` | ✓ |
 
-The admin's **`authScope` never changes** (the cookie stays at `/auth/acme.app`); only **`activeScope`** (the JWT `aud`) moves. Each new `aud` is a new token, so the old `NebulaClient` is destroyed and a new one created — but there is **no magic link and no discovery**: the admin's cookie already authorizes the whole subtree. (A Universe admin is the same one tier up: cookie at `/auth/acme`, pattern `acme.*`, reaching any Galaxy or Star beneath.)
+The admin's **`authScope` never changes** (the cookie stays at `/auth/acme.app`); only **`activeScope`** (the JWT `aud`) moves. Each new `aud` is a new token, so the old `NebulaClient` is destroyed and a new one created — but there is **no magic link and no discovery**: the admin's cookie already authorizes the whole subtree. (A Universe admin is the same one tier up: cookie at `/auth/acme`, `authScope` `acme`, reaching any Galaxy or Star beneath.)
 
 ```mermaid
 sequenceDiagram
@@ -235,7 +235,7 @@ sequenceDiagram
     UI->>W: POST /auth/acme.app/refresh-token<br/>{ activeScope: "acme.app.tenant-a" }
     W->>KV: get refresh:{tokenHash} (same cookie, path /auth/acme.app)
     KV-->>W: record (scope = acme.app)
-    Note over W: pattern from the record scope = "acme.app.*"<br/>matchAccess("acme.app.*", "acme.app.tenant-a") ✓
+    Note over W: record scope = "acme.app"<br/>isAtOrAbove("acme.app", "acme.app.tenant-a") ✓
     W-->>UI: { access_token } (aud: "acme.app.tenant-a")
     UI->>NC1: destroy()
     Note over NC2: new client, aud = tenant-a
@@ -265,7 +265,7 @@ sequenceDiagram
     rect rgba(200, 220, 240, 0.3)
         Note over C,EP: Layer 1 — Entrypoint JWT verification
         C->>EP: WebSocket upgrade<br/>(JWT in subprotocol)
-        Note over EP: extractWebSocketToken(request)<br/>verifyJwt(token, publicKey)<br/>matchAccess(authScopePattern, aud)
+        Note over EP: extractWebSocketToken(request)<br/>verifyJwt(token, publicKey)<br/>isAtOrAbove(authScope, aud)
         alt Invalid JWT or scope mismatch
             EP-->>C: 401/403 (no DO instantiated)
         end

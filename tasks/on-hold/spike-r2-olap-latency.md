@@ -49,7 +49,7 @@ Reuse the `experiments/dag-sql-perf/test/measure.mjs` pattern: a **Node.js harne
 
 ## Auth (the accepted downside of arm 1)
 
-A `NebulaDO` enforces scope isolation (`onBeforeCall`: instanceName → `authScopePattern` → `matchAccess`) + `@mesh(requireDominionHere)`. So the Node harness must present a valid JWT with the matching **`activeScope` (`aud`)** for the fixture's instance + admin claims (the two-scope model). Use the established test path — minted `activeScope` per the browser-harness pattern + `LUMENIZE_AUTH_TEST_MODE` / bootstrap-admin binding in `miniflare.bindings` (memory `lumenize-auth-bootstrap-email-for-tests`). This setup is the cost of measuring the faithful path.
+A `NebulaDO` enforces scope isolation (`onBeforeCall`: instanceName vs the caller's `authScope`, via `hasPassageInto`) + `@mesh(requireDominionHere)`. So the Node harness must present a valid JWT with the matching **`activeScope` (`aud`)** for the fixture's instance + admin claims (the two-scope model). Use the established test path — minted `activeScope` per the browser-harness pattern + `LUMENIZE_AUTH_TEST_MODE` / bootstrap-admin binding in `miniflare.bindings` (memory `lumenize-auth-bootstrap-email-for-tests`). This setup is the cost of measuring the faithful path.
 
 ## Step 0 — findings (verified 2026-06-22, all green)
 

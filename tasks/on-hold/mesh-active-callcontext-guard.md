@@ -27,4 +27,4 @@ Make a `@mesh` method **refuse to execute outside a mesh callContext**, so a dir
 ## Relation
 
 - **Completes** [nebula-do-scope-isolation.md](../archive/nebula-do-scope-isolation.md) — that task makes `onBeforeCall` the sole structural gate; this one removes the raw-RPC escape around it. Do scope-isolation first.
-- Backlog also carries "promote `activeScope`/`authScopePattern` to typed `originAuth` fields" (separate concern).
+- Backlog also carries "promote `activeScope`/`authScope` to typed `originAuth` fields" (separate concern).

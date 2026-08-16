@@ -175,7 +175,7 @@ The verified claims do not stop at the boundary they were checked on. The Gatewa
 
 ## Coarse-grained access control
 
-> **Today's code differs, in three ways.** The JWT carries a wildcard pattern derived from the scope (`u.g.*`) instead of the scope itself; a non-admin reaches downward; and **a call to a node named `nebula-platform` is refused outright**, so the universal passage described here does not yet hold at the root. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) closes the first two. The third is a **name reservation** — nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system — so it closes when the name goes from **rejected to bound**, never by being opened.
+> **Today's code differs, in ONE way.** The JWT now carries the member's scope itself and a non-admin no longer reaches downward — but **a call to a node named `nebula-platform` is refused outright**, so the universal passage described here does not yet hold at the root. That is a **name reservation** — nothing is deployed at that name, and refusing it stops an arbitrary class occupying the most reachable name in the system — so it closes when the name goes from **rejected to bound**, never by being opened.
 
 **This layer exists to make lateral movement impossible while allowing certain kinds of vertical movement.**
 

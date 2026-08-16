@@ -39,11 +39,13 @@ conversations** as they build — to generate valuable feedback and build stakeh
 
 The remaining provisioning / capture / inspection work builds on these:
 - **Super-admin** — login at the reserved `nebula-platform` instance with `NEBULA_AUTH_BOOTSTRAP_EMAIL`
-  → `access { authScopePattern:'*', scopeAdmin:true }`; `matchAccess('*', …)` always true; bootstrap admin is
-  modify-protected. **Seed = set `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
-  - ⏳ **The claims shape changes with [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md)** — `authScope`
-    becomes the literal `nebula-platform` and the `'*'` sentinel disappears, so *"`matchAccess('*', …)` always
-    true"* stops being the mechanism. That file owns the sweep; this row is one of its targets.
+  → `access { authScope:'nebula-platform', scopeAdmin:true }`. It is an **ordinary membership at the
+  reserved scope**, and that scope is the **ROOT of the scope tree**, so dominion everywhere is the
+  ordinary downward rule applied from the top — carried by one branch inside `isAtOrAbove`, never a
+  special arm at any call site. The bootstrap admin is modify-protected. **Seed = set
+  `NEBULA_AUTH_BOOTSTRAP_EMAIL=larry@lumenize.com` at deploy.**
+  - ✅ Driven end to end by the `superuser-end-to-end` `/live` scenario (real bootstrap-email login →
+    verify → refresh into a foreign Star → enumerate → Profile gate).
   - ⚠️ **"Already exists" is unverified end-to-end, and the coaching use case is what depends on it.** The
     pieces are each present — bootstrap login, `nebula-platform` membership, impersonation core — but nobody
     has driven **superuser → discover → select the platform scope → impersonate a pre-alpha user** in one go.
@@ -63,13 +65,14 @@ The remaining provisioning / capture / inspection work builds on these:
 - **Root-admin Part 1** — initial DataPlane root admin (`admin` on `ROOT_NODE_ID`) (`tasks/on-hold/nebula-dataplane-root-admin.md`).
 - **`onBeforeCall` downward dominion** — the `requirePassage(name, claims)` guard (one audit point per
   ADR-007, `apps/nebula/src/nebula-do.ts`, shared by `NebulaDO`/`NebulaContainer.onBeforeCall`) admits a
-  caller whose `access.authScopePattern` covers the target, **gated on `access.scopeAdmin`**; `{u1}` still can't
-  reach `{u2}`. This is what lets the inspection instrument + a support engineer read/write/admin anywhere
+  caller who has **passage** into the target — their own `access.authScope` at or below it, or dominion
+  over it (`scopeAdmin` **and** their scope at or above it); `{u1}` still can't reach `{u2}`, and a
+  non-admin no longer reaches anything beneath its own scope. This is what lets the inspection instrument + a support engineer read/write/admin anywhere
   with one identity. ✅ [archive/nebula-onbeforecall-higher-admin-reach.md](archive/nebula-onbeforecall-higher-admin-reach.md).
-  - ⚠️ **Live nugget for provisioning + inspection children — REVERSED 2026-08-02.** A `*`/`{u}.*` admin
+  - ⚠️ **Live nugget for provisioning + inspection children — REVERSED 2026-08-02.** A covering admin
     first-touching a fresh descendant Star used to trigger `Star.onBeforeCall`'s root-admin seeding, so a
     support/inspection identity left a durable DAG grant behind. **It no longer does:** the seed now requires
-    an **exact-star** `authScopePattern`, so only the Star's own admin becomes the initial DataPlane root
+    an **exact-star** `authScope`, so only the Star's own admin becomes the initial DataPlane root
     admin. A covering admin still reaches everything via the scope-admin bypass (ADR-015) — it simply no
     longer takes the root grant by arriving first. **There is no seeding side-effect to account for.**
   - The original structural scope-isolation design is frozen at `tasks/archive/nebula-do-scope-isolation.md` (don't edit).

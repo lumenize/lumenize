@@ -8,7 +8,7 @@ description: Client-side class for connecting to Nebula.
 `NebulaClient` extends [`LumenizeClient`](/docs/mesh/lumenize-client) with Nebula's **two-scope model**:
 
 - **Auth scope** — the NebulaAuth instance name the user authenticated against (e.g., `acme.app.tenant-a` for a regular user, `acme` for a universe admin). Determines the refresh cookie path.
-- **Active scope** — the specific universe, galaxy, or star the client is targeting. Baked into the JWT `aud` claim. For regular users, same as auth scope; for admins with wildcard access, can differ.
+- **Active scope** — the specific universe, galaxy, or star the client is targeting. Baked into the JWT `aud` claim. For regular users, same as auth scope; for an admin it can be any scope at or below their auth scope.
 
 ```typescript @skip-check
 // Direct construction — admin/scripting path with explicit scopes.
