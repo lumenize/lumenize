@@ -85,7 +85,7 @@ The sections that follow expand on the model above.
 
 Scope is the driver for coarse-grained access control.
 
-It often appears in a segment of a URL, but it can also be a paramater of a mesh call or in the body of a Request.
+It often appears in a segment of a URL, but it can also be a parameter of a mesh call or in the body of a Request.
 
 In `https://nebula.lumenize.com/{bindingName}/{u}.{g}.{s}/`, the `{u}.{g}.{s}` would be the scope. Braces stand in for a value here and throughout; `:scope` in the route table above is literal `URLPattern` syntax, which is why the two differ.
 
@@ -100,6 +100,22 @@ Examples:
 The Profile and the Registry are named by something other than a scope — the Profile by its `profileId`, the Registry as a singleton with a fixed name. They are also some cases where scope is not needed.
 
 Notice how **scopes are hierarchical**. The `this-universe.milky-way.sol` Star is a part of the `this-universe.milky-way` Galaxy, etc. This matters for § *Coarse-grained access control* below.
+
+### The three roles a scope plays
+
+The same kind of value appears in three distinct roles, and most confusion in this document comes from conflating two of them.
+
+| | Answers | Where it lives |
+|---|---|---|
+| **`authScope`** | *who you are* — the membership this session was established under | the token, and the refresh cookie's `Path` |
+| **`activeScope`** | *which one you are acting as right now*, chosen within `authScope` | the token's `aud` |
+| **`targetScope`** | *what you are acting on* | a URL segment, a mesh node's name, or a call parameter |
+
+**The first two are properties of the caller; the third is a property of the call.** `authScope` and `activeScope` ride the token and change only at login or refresh; `targetScope` differs for every call the same token makes. The two sections below cover the first two — `targetScope` needs no section of its own, because it is simply whatever is being addressed.
+
+⚠️ **The coarse-grained verdicts read exactly two of the three: `authScope` and `targetScope`.** `activeScope` is not an input to passage or dominion (§ *Coarse-grained access control*), and leaving it out subtracts nothing — every refresh already confines it inside `authScope`, so deciding on it would be deciding on a value `authScope` has already bounded.
+
+Anything that looks like a fourth resolves to one of these. `Memberships.universeGalaxyStarId` is `authScope` at rest. The `:scope` segment of a Registry route and the instanceName half of a mesh node address are both `targetScope`, arriving by different transport. `myScopeTree` returns a *set* of scopes a person can reach, which is an answer about many scopes rather than a fourth role for one.
 
 ## `authScope` (sessions)
 
