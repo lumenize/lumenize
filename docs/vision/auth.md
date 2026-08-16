@@ -107,7 +107,7 @@ The same kind of value appears in three distinct roles.
 
 | | Answers | Where it lives |
 |---|---|---|
-| **`authScope`** | *who you are* — the membership this session was established under | the token, and the refresh cookie's `Path` |
+| **`authScope`** | *who you are* — the membership this session was established under | `access.authScope` in the token, and the refresh cookie's `Path` |
 | **`activeScope`** | *which one you are acting as right now*, chosen within `authScope` | the token's `aud` |
 | **`targetScope`** | *what you are acting on* | a URL segment, a mesh node's name, or a call parameter |
 
@@ -331,7 +331,7 @@ The Registry is the one thing in this document that sits entirely outside the me
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) applies the two rules here as well as at the mesh boundary.
+> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-registry-route-guards.md](../../tasks/nebula-registry-route-guards.md) adds the missing conjunction here; [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) converts the containment expression it compares with, verdict-for-verdict, because the old matcher stops existing.
 
 #### Endpoints that present no access token
 
