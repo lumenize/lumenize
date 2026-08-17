@@ -198,6 +198,19 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] **85 broken relative links in ACTIVE task files (found 2026-08-17, in passing).** Not archive rot — `tasks/archive/` is frozen and expected to rot. These are live files whose links resolve to nothing: `tasks/nebula-galaxy-collapse-and-chat.md` (13), `tasks/on-hold/nebula-dataplane-root-admin.md` (9), `tasks/icebox/typia-visit-tracking.md` (7), `tasks/on-hold/mesh-origin-request.md` (7), `tasks/backlog.md` itself (9, one of which is a **regex fragment** `1[0-9]|[1-9]` that markdown parsed as a link), plus ~40 across a dozen others. Mostly one of three causes: a path missing its `../` prefix, a file that moved to `archive/` without its inbound pointers being repointed, or a `src` path that was renamed. **Instrument** — resolve every `](target)` against the filesystem, skipping `tasks/archive/`:
+  ```sh
+  python3 -c "
+  import pathlib, re, os
+  files = [f for f in pathlib.Path('tasks').rglob('*.md') if 'archive' not in str(f)]
+  for f in files:
+      for tgt in re.findall(r'\]\(([^)]+)\)', f.read_text()):
+          if tgt.startswith(('http','#','mailto')): continue
+          p = os.path.normpath(os.path.join(f.parent, tgt.split('#')[0].split(':')[0]))
+          if not os.path.exists(p): print(f, tgt)"
+  ```
+  ⚠️ **Low value per link, real value in aggregate** — a dead pointer in a live file costs a reader one failed lookup each time, and `tasks/README.md` § *Archive is frozen* now names the two causes that are preventable going forward. Worth a single sweep, not a standing chore.
+
 - [ ] **Task-file decision handles (`D4`, `D16`, `S3`…) are cited in SOURCE comments across `packages/mesh/src` and `apps/nebula/src` (found 2026-08-16, reviewing ADR-007).** `.claude/rules/workflow.md` § *Referring to things across files* forbids it, and the harm is exactly what it describes: a handle is unresolvable the moment its task file archives, and nobody re-reads a years-old code comment against a frozen file. **The sweep is the inventory — do not restate a count here**, it rots: `grep -nE '\b[SD](1[0-9]|[1-9])\b' packages/*/src apps/*/src --include='*.ts'`, then eyeball (`S3` also spells a storage product).
   - ✅ **The TRAILING-CITATION form is done** (2026-08-16, `71ce6f4`): a handle appended to a sentence that already stated its substance — *"the client keeps its handler in-heap (D16) and expects a…"*. Those were deletions, because the prose survived them intact.
   - ⚠️ **What remains is the harder half, and it was under-scoped on the first pass** — a narrower `\((?:[SD]\d+)\)` grep found only the trailing form, so "this needs no per-site judgment" was true of that subset and **false of the rest**. Run the instrument above, not a parenthesized variant.
