@@ -46,6 +46,8 @@ file <file>                             # a source file reporting "data" instead
 
 Strip with `perl -i -pe 's/\xc2\xa0/ /g; s/\x00/ /g' <file>`.
 
+⚠️ **Same family, different cause: an edit whose SEARCH STRING was copied from TRUNCATED tool output.** A `grep … | cut -c1-N`, a `sed -n 'Np'` on a long line, or any tool result the harness elided gives you a prefix of the real line. Replacing that prefix deletes the middle of whatever followed — and the result compiles, renders, and reviews clean. Bit twice on 2026-08-17: one replacement silently removed the target from a markdown link (`](../nebula-foo.md)` → `](nebula-foo.md)`), caught only by resolving every link against the filesystem afterwards. ⇒ **You MUST read the full line before building a replacement from it**, and after a scripted doc edit, verify the property the edit could have broken (resolve links, re-run the example checker, re-parse the block) rather than eyeballing the diff.
+
 ⚠️ **The invisible character MUST NOT be put *literally* into the check command.** It MUST be written as an explicit escape (`b'\x00'`, `$'\xc2\xa0'`), never by pasting the character itself — a pasted NBSP silently degrades to a plain space in transit, so the check then matches every file with any space and reports the whole tree dirty (also bitten 2026-07-21, in the very command written to catch the first bug). For a whole-tree sweep, count bytes in a script rather than grepping:
 
 ```sh

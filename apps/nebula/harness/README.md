@@ -22,14 +22,55 @@ build takes a few minutes). The harness probes `docker info` and exits non-zero 
 It reads the signing key from the repo-root `.dev.vars` (symlinked into `apps/nebula`); no prod
 creds needed for local (`--local` drops the remote AI / send_email bindings).
 
-## Identity — local mint, no email
+## Identity — a REAL email login by default
 
-`createNebulaTestToken` (`@lumenize/nebula-auth/testing`) mints a **correct-shape** Nebula admin
-token for a sandbox scope, signed with the `.dev.vars` key — reusing nebula-auth's shared
-`buildNebulaJwtPayload` claim-builder, so the token is byte-for-byte what a scope admin's server mint
-produces (`access: { authScope, admin }`), NOT the base flat-`isAdmin` mesh shape (which the
-gateway rejects). No magic-link loop. **Local only** — prod tokens come via audited login /
-stored-refresh, never this mint.
+⚠️ **`connectDriver` logs in for real (ADR-009 rung 1).** The synthetic mint below is an explicit,
+justified opt-in, not the normal path — this harness is the artifact ADR-009 names as *"the path
+design reasoning grounds on"*, so running it on a constructed identity is the exact mis-grounding
+the ADR was written about.
+
+**Which helper gives which claim — the map, because it is NOT guessable from the names and getting
+it wrong costs a scenario run.** All live in `apps/nebula/test/lib/email-login.ts`:
+
+| Helper | `authScope` you get | Use it when |
+|---|---|---|
+| `provisionAndLogin({ scope })` | **the UNIVERSE**, always — even when `scope` is a Galaxy or Star | you want a covering admin, or you just need the scope tree to exist |
+| `provisionStarAdmin({ scope })` | **the STAR itself** (exact) | you need a member whose own scope IS a Star — a genuine tenant |
+| `loginViaEmail({ authScope })` | that scope | an identity already exists there |
+| `refreshAccessToken(origin, session, activeScope)` | unchanged; only `aud` moves | switching active scope on one session |
+
+🚨 **`provisionAndLogin` CLIMBS — it claims the universe, logs in there, then creates the galaxy/star
+beneath with that admin's token and re-issues at `scope`.** So it can never hand you a non-covering
+principal, and `connectDriver(stack, { scope: someStar })` gives you a *universe* admin whose `aud`
+is that Star. If your scenario is about a refusal, that is the wrong identity and it will pass for
+the wrong reason.
+
+⚠️ **`provisionStarAdmin` is not idempotent across identities**: it provisions the universe above as
+`owner-${email}`, so calling it twice with *different* emails fails on the second — the universe is
+already claimed and there is no identity for the new `owner-` address. Provision the tree once, then
+create siblings with the owner's token.
+
+**The two escape hatches, both on `connectDriver`:**
+
+- **`session: { accessToken, sub }`** — build the client from a token you already obtained by a real
+  login. Still rung 1 (the server minted the claim); it exists because the default path always
+  climbs, so there is no other way to drive as a Star-scoped member.
+- **`mint: { reason, issuerInstanceName?, scopeAdmin? }`** — rung 3, for an identity the real path
+  genuinely cannot produce (e.g. a NON-admin at a scope whose founder would be its admin). `reason`
+  is required and is not decorative. ⚠️ **`issuerInstanceName` defaults to `scope`, so this path
+  cannot produce a DENIAL by narrowing** — narrow the scope and the claim narrows with it. Set it
+  explicitly, or use `session`.
+
+**`bootVars`** (exported from a scenario, read by `drive.ts`) sets `--var NAME:VALUE` for that boot
+only — never a `.dev.vars` mutation. `superuser-end-to-end` uses it to point
+`NEBULA_AUTH_BOOTSTRAP_EMAIL` at the `*@lumenize.io` catch-all, because the real value is a human
+mailbox no automated run can read; that is what keeps its bootstrap login a genuine round trip.
+
+**The mint itself.** `createNebulaTestToken` (`@lumenize/nebula-auth/testing`) signs with the
+`.dev.vars` key and reuses nebula-auth's shared `buildNebulaJwtPayload`, so the token is
+byte-for-byte what a scope admin's server mint produces (`access: { authScope, scopeAdmin }`), NOT
+the base flat-`isAdmin` mesh shape (which the gateway rejects). **Local only** — prod tokens come
+via audited login / stored-refresh, never this mint.
 
 ## Layout
 
