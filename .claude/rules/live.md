@@ -80,6 +80,16 @@ three separate times in one session: the harness's default login path was alread
 and the wrangler session were both present, and `needsContainer = false` already existed — none of it
 discovered until someone asked why the tier had been skipped.
 
+⚠️ **A multi-limb scenario reddens on its FIRST failing limb, which hides every later limb's
+vacuity — so mutation-check PER LIMB, not per scenario.** Bit 2026-08-16: `passage-not-dominion`
+went red under the mutation it was written against, which looked like proof the whole scenario was
+capable of failing. It was not — its third limb called a Galaxy method on a Star, so it was refused
+for "no such method" rather than for lack of passage, and would have stayed green if that limb's own
+property broke. The scenario's redness came entirely from limb 1. ⇒ **Each limb needs a mutation
+that isolates IT, and a positive control proving the thing it calls is reachable at all.** And where
+a refusal is the assertion, **match the MESSAGE**: a boundary refusal and a dominion refusal are
+indistinguishable as booleans, which is exactly the collapse such a scenario usually exists to catch.
+
 ⚠️ **Exploration, distinct from automated testing.** `.claude/rules/testing.md` owns the vitest suites
 (the capable-of-failing, committed regression net); this is the *running-system* check. Both MUST be
 used, cross-linked, and MUST NOT be merged — a finding here worth locking in becomes a vitest test there.

@@ -6,6 +6,13 @@
 
 A file moved to `tasks/archive/` is a point-in-time record — it starts going stale immediately, and that's by design. **Never update archived files**: no link fixups when referenced files move, no terminology syncs, no corrections when code drifts. Sole exception: a dated one-line status/superseded banner at the top when a later decision overturns one — added at the moment of supersession, touching nothing else. If a decision in an archived file must stay *live* (still constrains new work), its home is an ADR (`docs/adr/README.md` has the bar) or a rule, not edits to the archive.
 
+⚠️ **"Frozen on ENTRY" — so getting it right is part of the MOVE, not a later correction.** Two things belong to the move itself and must not be deferred:
+
+- **The file's own relative links.** `tasks/` → `tasks/archive/` puts it one directory deeper, so every `](sibling.md)` and `](../packages/…)` in it is now shallow by one level. Fix them **in the same change as the `git mv`**, then freeze. The alternative is archiving a file with dozens of dead links and being forbidden to repair them — which is what happened to `nebula-dominion-vocabulary-rename.md`, whose sibling-relative pointers have been broken since 2026-08-11. Verify by resolving every target against the filesystem, not by eye.
+- **Anything the file asserts that is now KNOWN false.** A frozen wrong claim is wrong permanently. Correct it in a dated block in the header — not by rewriting the body, which is the point-in-time record. `tasks/archive/nebula-passage-dominion-from-scope.md` is the worked example: its header carries a two-item correction block for claims a verifier panel falsified after the phases landed.
+
+⇒ **Repointing INBOUND references is a separate obligation, and it is not just paths.** Every active file naming the archived one needs the *status near the pointer* updated too — "Depends on X" and "X lands first" are false the moment X is built, and no link checker can see it.
+
 ## Backlog: delete completed rows, don't mark them
 
 `backlog.md` tracks only OPEN work. When a row is done, **delete it** — never leave it as `[x]` / "DONE" (a completed row checked-in-place re-reads as live every session = clutter). If finishing a row leaves *residual* open work, lift that into its own fresh `[ ]` row and delete the original. Capture the completed work's durable nuggets where they actually live — an archived task file, an ADR/rule, a memory, or a status note in the relevant master plan — never as a checked backlog row.
