@@ -53,6 +53,19 @@ code.
   - **If you script it anyway, assert the match COUNT is exactly 1 before replacing, both directions.** ⚠️ And treat an unexpected count as the finding: the same session ran `grep -c` on the mutated fragment, saw **2** where it expected 1, wrote "expected 1?" — and moved on. The count was the whole bug, printed and ignored.
   - **When the restore is wrong rather than the code, the symptom lies.** Two tests reddened and the first hypothesis was a schema/isolation problem — several steps of theorising before probing the actual stored state. ⇒ On a red immediately after a mutation cycle, **verify the restore before diagnosing the code** (`git diff` the file, or grep the mutated fragment for a count of 1). **For a compound condition (`a || b`, `a && b`, a multi-status check like `status === 401 || status === 403`), each operand MUST be mutated independently — toggling the whole branch off only proves *one* operand is covered and leaves the others untested.** The tests MUST mirror the source's case-fan-out (if the code treats two codes as terminal, probe both, e.g. `it.each([401, 403])`). Ported tests inherit prior mutation-validation; tests added during a port do not. (Mutation proves a test is capable of failing — it does NOT prove a mock is faithful to real behavior; for that, back the unit suite with a real integration/e2e test.)
 
+**An INSTRUMENT is an assertion too — run it, and confirm it returns what you claim.** A grep
+committed into a rule, a task file, a criterion or a JSDoc header is a check somebody will trust
+without re-deriving, so it MUST be executed and its output MUST be compared against the stated
+result before it ships. Bit 2026-08-16: the containment allow-list in `parse-id.ts` documented its
+own conformance grep, and the command was **incapable of failing** — an HTML entity used to keep
+`*/` from closing the JSDoc left an `&` in the string, which backgrounded the grep and turned the
+rest into a shell comment. **Zero stdout, zero stderr, exit 0**, so it reported a conformant tree
+whatever the tree contained; the `[/]` character class tried next is equally dead, because a glob
+cannot match `/` at all. ⚠️ **The failure mode is silence, so "I ran it and it printed nothing" is
+NOT confirmation** — for a grep whose expected output is empty, first make it print something (drop
+a filter, or point it at a known hit) and only then narrow it. A documented instrument nobody has
+run is decoration that reads as evidence.
+
 ## vitest "Errors N" — workerd-surfaced rejections (fixable bug vs. timing artifact)
 A green run (`failed: 0`) can still print `Errors N` / "Uncaught (in promise)". vitest-pool-workers tallies **workerd-level unhandled-rejection events**, which come in **two kinds the count does NOT distinguish** — and conflating them is the recurring trap (treating a real bug as noise, or chasing an unfixable artifact):
 
