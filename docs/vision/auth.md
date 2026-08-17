@@ -331,7 +331,7 @@ The Registry is the one thing in this document that sits entirely outside the me
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-registry-route-guards.md](../../tasks/nebula-registry-route-guards.md) adds the missing conjunction here; [nebula-passage-dominion-from-scope.md](../../tasks/nebula-passage-dominion-from-scope.md) converts the containment expression it compares with, verdict-for-verdict, because the old matcher stops existing.
+> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-registry-route-guards.md](../../tasks/nebula-registry-route-guards.md) adds the missing conjunction here; [nebula-passage-dominion-from-scope.md](../../tasks/archive/nebula-passage-dominion-from-scope.md) converts the containment expression it compares with, verdict-for-verdict, because the old matcher stops existing.
 
 #### Endpoints that present no access token
 

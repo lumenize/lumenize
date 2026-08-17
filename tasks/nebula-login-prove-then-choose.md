@@ -1,6 +1,6 @@
 # Login proves the mailbox, then you choose the workspace
 
-**Status:** Active child. **Invite-gated** — the login flow is what every pre-alpha user meets first, and Larry wants it tested with them (2026-08-09). Independent of [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md), so it does not disturb that queue position. Supersedes the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth*, which filed this same re-order as a deferred residual on 2026-06-26.
+**Status:** Active child. **Invite-gated** — the login flow is what every pre-alpha user meets first, and Larry wants it tested with them (2026-08-09). Independent of ✅ [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) (**BUILT + archived 2026-08-16**), so it did not disturb that queue position. Supersedes the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth*, which filed this same re-order as a deferred residual on 2026-06-26.
 
 > 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input.
 
@@ -107,7 +107,7 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 - **Multi-session switching UI** — the picker makes it possible; building it is later.
 - **Turnstile policy.** It stays exactly where it is; this changes which endpoints need to be behind it, not how it works.
 - **The invite mechanism** → [nebula-invite.md](nebula-invite.md). Invites keep their scoped links.
-- **Anything about reach or the claims shape** → [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md).
+- **Anything about reach or the claims shape** → [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md).
 
 ## Open questions
 
@@ -121,7 +121,7 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 
 - **Supersedes** the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth* — that row filed this exact re-order as the proper fix and accepted the leak as a pre-alpha residual; this file takes ownership and the row goes when it lands.
 - **Slotted into** [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated*.
-- **Independent of** [nebula-passage-dominion-from-scope.md](nebula-passage-dominion-from-scope.md) — that changes what a token carries; this changes when a person is told what they hold. Neither reads the other's surface, so the queue order is free.
+- **Independent of** [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) — that changes what a token carries; this changes when a person is told what they hold. Neither reads the other's surface, so the queue order is free.
 - **Answers a Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — its ⚠️ note that nobody has driven superuser → discover → select the platform scope end to end is this file's open question 3 plus its superuser criterion.
 - **Touches** [nebula-invite.md](nebula-invite.md) only at the boundary: invites keep scoped links, so its mechanism is unaffected by the scope-less default.
 - **Documentation** — `website/docs/nebula/auth-flows.md` describes the current flows and is the other surface that changes.
