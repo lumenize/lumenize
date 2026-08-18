@@ -21,7 +21,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { foundUniverse, inviteAndLogin, adminRequest, url } from './test-helpers';
+import { foundUniverse, inviteAndLogin, mintNarrowerRequest, url } from './test-helpers';
 import { ACCESS_TOKEN_TTL, RECOMMENDED_MIN_TTL_SECONDS } from '../src/types';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
@@ -56,9 +56,7 @@ async function bothEndpoints(ttlSeconds?: unknown) {
   if (ttlSeconds !== undefined) body.ttlSeconds = ttlSeconds;
 
   const refresh = await refreshWith(u, admin.refreshToken, body);
-  const narrower = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-    method: 'POST', body: { ...body, subOfNarrowerToken: member.parsed.sub },
-  });
+  const narrower = await mintNarrowerRequest(SELF, admin.access_token, { ...body, subOfNarrowerToken: member.parsed.sub });
   return { 'refresh-token': refresh, 'mint-narrower-token': narrower };
 }
 

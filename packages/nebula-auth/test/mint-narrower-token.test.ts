@@ -1,7 +1,8 @@
 /**
  * `/mint-narrower-token` — the ADMIN branch (the `AuthorizedActor` non-admin path is CUT by
- * tasks/nebula-auth-surrogate-sub.md). Driven through the Worker; the scope-bounded / caller-dominion /
- * root-identity escalation guards (security.md § Delegation, mint-side) are the load-bearing cases.
+ * tasks/nebula-auth-surrogate-sub.md). Driven through the Worker on the SCOPE-LESS route; the
+ * authorize line (root identity ∧ different sub ∧ `canMintFor`), the mirror mint, the `aud`
+ * validation and its order (security.md § Delegation, mint-side) are the load-bearing cases.
  *
  * The cross-scope tests mint caller tokens via `createNebulaTestToken` (ADR-009 rung 3, justified —
  * this file is testing.md's canonical cross-scope-fixture example): a same-scope fixture cannot tell
@@ -12,7 +13,7 @@ import { SELF, env } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import {
-  foundUniverse, inviteAndLogin, adminRequest, url,
+  foundUniverse, inviteAndLogin, mintNarrowerRequest, url,
   foundStarAndLogin, inviteIntoGalaxy, platformLogin, BOOTSTRAP_EMAIL, SECOND_BOOTSTRAP_EMAIL,
   registryUrl,
 } from './test-helpers';
@@ -30,9 +31,7 @@ describe('the pre-rename surface is gone', () => {
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
 
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { actFor: user.parsed.sub, activeScope: u },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { actFor: user.parsed.sub, activeScope: u });
     expect(resp.status).toBe(400);
     const body = await resp.json() as { error: string; error_description: string };
     expect(body.error).toBe('invalid_request');
@@ -63,9 +62,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com'); // non-admin member
 
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: u },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
     expect(parsed.sub).toBe(user.parsed.sub);       // the subject
@@ -84,14 +81,12 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
     expect(starAdmin.parsed.access.scopeAdmin).toBe(true); // fixture guard — else the assertion below is vacuous
 
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star });
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
     expect(parsed.sub).toBe(starAdmin.parsed.sub);
     expect(parsed.access.scopeAdmin).toBe(true);
-    expect(parsed.access.authScope).toBe(star); // exact-star, derived from the requested scope
+    expect(parsed.access.authScope).toBe(star); // exact-star — the SUBJECT's own membership scope
   });
 
   // ── SELF-NARROWING is rejected ──────────────────────────────────────────────────────────────────
@@ -100,9 +95,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
 
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: admin.parsed.sub, activeScope: u },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: admin.parsed.sub, activeScope: u });
     expect(resp.status).toBe(400);
     expect((await resp.json() as any).error).toBe('invalid_request');
   });
@@ -114,27 +107,38 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const member = await inviteAndLogin(SELF, scope, admin.access_token, 'member@example.com');
     const other = await inviteAndLogin(SELF, scope, admin.access_token, 'other@example.com');
 
-    const resp = await adminRequest(SELF, scope, 'mint-narrower-token', member.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: other.parsed.sub, activeScope: scope },
-    });
+    const resp = await mintNarrowerRequest(SELF, member.access_token, { subOfNarrowerToken: other.parsed.sub, activeScope: scope });
     expect(resp.status).toBe(403);
   });
 
-  it('404 when the subject does not exist', async () => {
-    const u = uni();
-    const admin = await foundUniverse(SELF, u, 'admin@example.com');
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: 'no-such-sub', activeScope: u },
-    });
-    expect(resp.status).toBe(404);
+  // ── Refusal and absence are INDISTINGUISHABLE ───────────────────────────────────────────────────
+  // The subject lookup precedes authorization, so a distinct not-found answer would make this route
+  // a `sub`-existence oracle for any authenticated caller — one singleton RPC per probe. Reds
+  // against carrying the old `404 not_found` across, and against any refusal body that varies with
+  // whether the subject exists.
+  it('a caller without dominion cannot tell a real subject from an absent one — same 403, same body', async () => {
+    const u1 = uni();
+    const u2 = uni();
+    const admin1 = await foundUniverse(SELF, u1, 'admin1@example.com');
+    const admin2 = await foundUniverse(SELF, u2, 'admin2@example.com'); // real, but not admin1's to act for
+
+    const absent = await mintNarrowerRequest(SELF, admin1.access_token,
+      { subOfNarrowerToken: 'no-such-sub', activeScope: u1 });
+    const realButRefused = await mintNarrowerRequest(SELF, admin1.access_token,
+      { subOfNarrowerToken: admin2.parsed.sub, activeScope: u1 });
+
+    expect(absent.status).toBe(403);
+    expect(realButRefused.status).toBe(403);
+    expect(await absent.text()).toBe(await realButRefused.text()); // byte-equal bodies
   });
 
   // ── (1) ELIGIBILITY ─────────────────────────────────────────────────────────────────────────────
   describe('eligibility — you may only impersonate someone you already administer entirely', () => {
     // THE case eligibility uniquely rejects: UPWARD. A star-tier admin wearing a galaxy-tier
-    // identity. Every other check passes — gate 2 (`isAtOrAbove('u.g.s','u.g.s')`) and the scope
-    // mirror (`isAtOrAbove('u.g','u.g.s')`) both hold — so ONLY eligibility can produce this 403.
-    // Mutation: delete the `hasDominionOver` gate → the mint succeeds → this reds.
+    // identity. The aud validation (`isAtOrAbove('u.g','u.g.s')`) holds, so ONLY `canMintFor` can
+    // produce this 403 — and only this stops a lower admin wearing a superior's identity.
+    // Mutation: make `canMintFor` reflexively true (its own scope as the second argument) → the
+    // mint succeeds → this reds. That is the substitution the named wrapper exists to foreclose.
     it('UPWARD: a star-tier admin cannot mint for a galaxy-tier subject (403 forbidden)', async () => {
       const u = uni();
       const admin = await foundUniverse(SELF, u, 'admin@example.com');
@@ -147,9 +151,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       // Subject: a member whose OWN scope is the parent galaxy — strictly above the caller.
       const subject = await inviteIntoGalaxy(SELF, galaxy, admin.access_token, 'gal-member@example.com');
 
-      const resp = await adminRequest(SELF, star, 'mint-narrower-token', caller.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: star },
-      });
+      const resp = await mintNarrowerRequest(SELF, caller.access_token, { subOfNarrowerToken: subject.parsed.sub, activeScope: star });
       expect(resp.status).toBe(403);
       const body = await resp.json() as { error: string; error_description: string };
       expect(body.error).toBe('forbidden');
@@ -161,21 +163,19 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(body.error_description).toBe(`Caller scope "${star}" does not administer this subject`);
     });
 
-    // Regression for the reject itself — the scope mirror already 403s this, so the STATUS cannot red
-    // an eligibility mutation. But this is the ONE case where BOTH checks fail, which makes the error
-    // CODE the only observable that pins the gate ORDER. Ordering is a load-bearing ADR-008 disclosure
-    // decision (running the mirror first tells a caller about to be refused where the subject sits in
-    // the tree), so it needs to be capable of failing somewhere.
-    // Mutation: swap eligibility and the scope mirror in worker-token.ts → `insufficient_scope` → reds.
+    // Regression for the reject itself — the aud validation already 403s this, so the STATUS cannot
+    // red an authorization mutation. But this is the ONE case where BOTH fail, which makes the error
+    // CODE the only observable that pins the ORDER. Ordering is a load-bearing ADR-008 disclosure
+    // decision (running the validation first tells a caller about to be refused where the subject
+    // sits in the tree), so it needs to be capable of failing somewhere.
+    // Mutation: swap `canMintFor` and the aud validation in worker-token.ts → `insufficient_scope` → reds.
     it('CROSS-UNIVERSE: a u1 admin cannot mint for a u2 subject — and ELIGIBILITY is what refuses it', async () => {
       const u1 = uni();
       const u2 = uni();
       const admin1 = await foundUniverse(SELF, u1, 'admin1@example.com');
       const admin2 = await foundUniverse(SELF, u2, 'admin2@example.com');
 
-      const resp = await adminRequest(SELF, u1, 'mint-narrower-token', admin1.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: admin2.parsed.sub, activeScope: u1 },
-      });
+      const resp = await mintNarrowerRequest(SELF, admin1.access_token, { subOfNarrowerToken: admin2.parsed.sub, activeScope: u1 });
       expect(resp.status).toBe(403);
       expect((await resp.json() as any).error).toBe('forbidden'); // NOT insufficient_scope — order pin
     });
@@ -183,7 +183,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     // The WIDEST path — a bootstrap superuser at `nebula-platform`. That scope is the ROOT of the
     // tree and shares no prefix with any universe slug, so swapping `hasDominionOver` for a
     // prefix/equality compare reds this while leaving the cases above green. `activeScope` is PINNED
-    // to the subject's own scope: an unrelated one would 403 on the scope mirror and misdirect a
+    // to the subject's own scope: an unrelated one would 403 on the aud validation and misdirect a
     // reader to eligibility.
     it('a bootstrap superuser CAN mint for a subject in an unrelated universe (200)', async () => {
       const u2 = uni();
@@ -191,9 +191,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const platform = await platformLogin(SELF, BOOTSTRAP_EMAIL, u2);
       expect(platform.parsed.access.authScope).toBe('nebula-platform'); // fixture guard
 
-      const resp = await adminRequest(SELF, u2, 'mint-narrower-token', platform.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: u2 },
-      });
+      const resp = await mintNarrowerRequest(SELF, platform.access_token, { subOfNarrowerToken: subject.parsed.sub, activeScope: u2 });
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
       expect(parsed.sub).toBe(subject.parsed.sub);
@@ -226,9 +224,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(caller.parsed.access.authScope).toBe('nebula-platform');
       expect(subject.parsed.sub).not.toBe(caller.parsed.sub);
 
-      const resp = await adminRequest(SELF, u, 'mint-narrower-token', caller.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: u },
-      });
+      const resp = await mintNarrowerRequest(SELF, caller.access_token, { subOfNarrowerToken: subject.parsed.sub, activeScope: u });
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
       expect(parsed.sub).toBe(subject.parsed.sub);
@@ -237,10 +233,12 @@ describe('/mint-narrower-token (admin branch only)', () => {
     });
   });
 
-  // ── (2) FAITHFULNESS, the scope mirror ──────────────────────────────────────────────────────────
+  // ── The `aud` VALIDATION ────────────────────────────────────────────────────────────────────────
   // The bound eligibility does NOT give you: the caller's dominion covers the whole galaxy, so a
-  // galaxy-wide `activeScope` is not an escalation — it is simply not a mirror of that person.
-  // Mutation: delete the mirror → the mint succeeds with a `{u}.{g}.*` pattern → this reds.
+  // galaxy-wide `activeScope` is not an escalation — but with `authScope` pinned to the subject's
+  // scope, an `aud` outside it could only mint a token that verifies NOWHERE; this refuses it early,
+  // with the pinned status and code. Mutation: delete the validation → the mint throws at
+  // `buildNebulaJwtPayload`'s construction invariant and answers 500, not 403 → this reds.
   it('rejects an activeScope outside the SUBJECT\'s own dominion (403 insufficient_scope)', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com'); // authScope `${u}`
@@ -249,9 +247,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
     const subject = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
     expect(subject.parsed.access.authScope).toBe(star); // the subject's dominion is the star alone
 
-    const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: subject.parsed.sub, activeScope: galaxy },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: subject.parsed.sub, activeScope: galaxy });
     expect(resp.status).toBe(403);
     const body = await resp.json() as { error: string; error_description: string };
     expect(body.error).toBe('insufficient_scope');
@@ -259,11 +255,11 @@ describe('/mint-narrower-token (admin branch only)', () => {
   });
 
   describe('scope-bounded / escalation guards', () => {
-    it('rejects cookie-only auth — a scope-bounded mint requires a Bearer access token (401)', async () => {
+    it('rejects cookie-only auth — the mint requires a Bearer access token (401)', async () => {
       const u = uni();
       const admin = await foundUniverse(SELF, u, 'admin@example.com');
       const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
-      const resp = await SELF.fetch(new Request(url(u, 'mint-narrower-token'), {
+      const resp = await SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Cookie: `refresh-token=${admin.refreshToken}` },
         body: JSON.stringify({ subOfNarrowerToken: user.parsed.sub, activeScope: u }),
@@ -271,28 +267,50 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(resp.status).toBe(401);
     });
 
-    it("binds the minted token to the REQUESTED scope, not the caller's scope", async () => {
-      const u = uni();
-      const admin = await foundUniverse(SELF, u, 'admin@example.com'); // authScope `${u}`
-      const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
-
-      const childScope = `${u}.crm`; // a galaxy within the universe
-      const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: childScope },
-      });
-      expect(resp.status).toBe(200);
-      const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
-      expect(parsed.aud).toBe(childScope);
-      expect(parsed.access.authScope).toBe(childScope); // NOT the caller's `${u}`
-      expect(isAtOrAbove(parsed.access.authScope, `${childScope}.tenant`)).toBe(true);
-    });
-
-    it('rejects an activeScope the CALLER cannot reach (403) — cross-scope, caller-dominion gate', async () => {
+    it('the SCOPED route is gone — POST /auth/{u}/mint-narrower-token → 404', async () => {
+      // The segment was vestigial (the handler never received it); the route is scope-less now.
       const u = uni();
       const admin = await foundUniverse(SELF, u, 'admin@example.com');
-      const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
+      const resp = await SELF.fetch(new Request(url(u, 'mint-narrower-token'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subOfNarrowerToken: 'x', activeScope: u }),
+      }));
+      expect(resp.status).toBe(404);
+    });
 
-      // A galaxy-scoped admin token (`${u}.gal.*`) — its dominion does NOT cover a sibling galaxy.
+    // INVERTED 2026-08-18 (this test's old assertion — `access.authScope === childScope` — was the
+    // named justification for the deleted `authScopeOverride`): the minted `authScope` is the
+    // SUBJECT's membership scope, verbatim; the requested scope becomes ONLY the `aud`.
+    it("binds the minted authScope to the SUBJECT's membership scope; the REQUESTED scope is only the aud", async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, 'admin@example.com'); // authScope `${u}`
+      const galaxy = `${u}.crm`;
+      // Subject: a member whose OWN scope is the galaxy — distinct from both the caller's `${u}`
+      // and the narrower `aud` below, so each wrong binding reds a different assertion.
+      const subject = await inviteIntoGalaxy(SELF, galaxy, admin.access_token, 'gal-user@example.com');
+      expect(subject.parsed.access.authScope).toBe(galaxy); // fixture guard
+
+      const aud = `${galaxy}.tenant`; // narrower than the subject's membership
+      const resp = await mintNarrowerRequest(SELF, admin.access_token,
+        { subOfNarrowerToken: subject.parsed.sub, activeScope: aud });
+      expect(resp.status).toBe(200);
+      const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
+      expect(parsed.aud).toBe(aud);
+      expect(parsed.access.authScope).toBe(galaxy); // the SUBJECT's — not the caller's, not the aud
+      expect(isAtOrAbove(parsed.access.authScope, aud)).toBe(true); // aud ⊆ subject, the theorem
+    });
+
+    // RENAMED 2026-08-18: the deleted caller bound used to refuse this on `activeScope`; it now
+    // keeps refusing FOR A DIFFERENT REASON — eligibility, since the caller does not administer the
+    // subject — and the fixture is rebuilt so THAT is unambiguous (the subject's scope, not the
+    // requested one, is what the caller cannot reach).
+    it('rejects a SUBJECT the caller does not administer (403) — a narrower caller cannot use the mint to exceed itself', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, 'admin@example.com');
+      const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com'); // scope `${u}`
+
+      // A galaxy-scoped admin token (`${u}.gal`) — its dominion does NOT cover the subject at `${u}`.
       const narrow = await createNebulaTestToken({
         privateKey: env.JWT_PRIVATE_KEY_BLUE,
         sub: admin.parsed.sub,
@@ -301,10 +319,10 @@ describe('/mint-narrower-token (admin branch only)', () => {
         scopeAdmin: true,
       })();
 
-      const resp = await adminRequest(SELF, `${u}.gal`, 'mint-narrower-token', narrow.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: `${u}.other` }, // sibling galaxy
-      });
+      const resp = await mintNarrowerRequest(SELF, narrow.access_token,
+        { subOfNarrowerToken: user.parsed.sub, activeScope: `${u}.gal` });
       expect(resp.status).toBe(403);
+      expect((await resp.json() as any).error).toBe('forbidden');
     });
 
     // ⚠️ KEPT, not retired, alongside the REAL-artifact twin below. They cover different things: this
@@ -327,9 +345,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         actor: { sub: user.parsed.sub, profileId: user.parsed.profileId },
       })();
 
-      const resp = await adminRequest(SELF, u, 'mint-narrower-token', actBearing.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: u },
-      });
+      const resp = await mintNarrowerRequest(SELF, actBearing.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
       expect(resp.status).toBe(403);
     });
 
@@ -345,9 +361,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
       const third = await inviteAndLogin(SELF, star, admin.access_token, 'third@example.com');
 
-      const minted = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
-      });
+      const minted = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star });
       expect(minted.status).toBe(200);
       const narrower = (await minted.json() as any).access_token;
       // Fixture guard: the minted token really does carry admin, so gate 3 cannot mask gate 1.
@@ -355,9 +369,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       expect(parsed.access.scopeAdmin).toBe(true);
       expect(parsed.act.sub).toBe(admin.parsed.sub);
 
-      const resp = await adminRequest(SELF, star, 'mint-narrower-token', narrower, {
-        method: 'POST', body: { subOfNarrowerToken: third.parsed.sub, activeScope: star },
-      });
+      const resp = await mintNarrowerRequest(SELF, narrower, { subOfNarrowerToken: third.parsed.sub, activeScope: star });
       expect(resp.status).toBe(403);
     });
   });
@@ -370,9 +382,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
       const admin = await foundUniverse(SELF, u, 'admin@example.com');
       const user = await inviteAndLogin(SELF, u, admin.access_token, 'user@example.com');
 
-      const resp = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: u },
-      });
+      const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
 
@@ -408,9 +418,7 @@ describe('/mint-narrower-token (admin branch only)', () => {
         scopeAdmin: true, // ...and deliberately NO `profileId`
       })();
 
-      const resp = await adminRequest(SELF, u, 'mint-narrower-token', noProfile.access_token, {
-        method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: u },
-      });
+      const resp = await mintNarrowerRequest(SELF, noProfile.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: u });
       expect(resp.status).toBe(200);
       const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
       // `act` itself must still be PRESENT — `!claims.act` (the Profile owner guard) keys on its
@@ -439,9 +447,7 @@ describe('scope deletion records the acting principal (ADR-016)', () => {
     // MINTED token's access, so a P1 (non-admin) token 403s before the record is ever written.
     const starAdmin = await foundStarAndLogin(SELF, star, 'scope-admin@example.com', admin.access_token);
 
-    const minted = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
-    });
+    const minted = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star });
     expect(minted.status).toBe(200);
     const narrower = (await minted.json() as any).access_token;
 

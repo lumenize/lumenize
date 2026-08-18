@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { hashString, parseJwtUnsafe } from '@lumenize/crypto';
 import {
-  foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, adminRequest,
+  foundUniverse, inviteAndLogin, refreshAndParse, requestMagicLink, clickLink, adminRequest, mintNarrowerRequest,
 } from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
@@ -124,9 +124,7 @@ describe('Phase 1 — a narrower token carries the SUBJECT profileId (getIdentit
     const admin = await foundUniverse(SELF, uni, 'admin@example.com');
     const user = await inviteAndLogin(SELF, uni, admin.access_token, 'user@example.com');
 
-    const resp = await adminRequest(SELF, uni, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: user.parsed.sub, activeScope: uni },
-    });
+    const resp = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: user.parsed.sub, activeScope: uni });
     expect(resp.status).toBe(200);
     const parsed = parseJwtUnsafe((await resp.json() as any).access_token)!.payload as any;
 

@@ -81,8 +81,8 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     // that catches a route GAINING the guard where it does not belong.
     const posts = [
       'my-scopes', 'create-galaxy', 'create-star', 'delete-scope', 'delete-scope-plan',
+      'mint-narrower-token',
       'some-scope/refresh-token', 'some-scope/logout', 'some-scope/invite',
-      'some-scope/mint-narrower-token',
     ];
     for (const path of posts) {
       const resp = await post(path);

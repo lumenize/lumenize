@@ -41,18 +41,12 @@
  * - **`worker-token.ts` `handleRefreshToken` — the `activeScope` confine · STRUCTURAL.** Bounds a
  *   client-supplied scope inside the KV record's server-trusted one. The record *is* the authority,
  *   so no claim is consulted and no bit applies.
- * - **`worker-token.ts` `mintNarrowerToken` caller bound — NOT-A-DECISION (it is IMPLIED).**
- *   ⚠️ Class corrected 2026-08-16: an earlier draft called this "dominion, completed by the
- *   eligibility check below", which contradicted the site's own comment and named the wrong
- *   operand — eligibility asks `hasDominionOver` about the **subject's scope**, not about
- *   `activeScope`. The implication needs BOTH eligibility *and* the subject bound below it: those
- *   two together place `activeScope` inside the subject's scope and the subject's scope inside the
- *   caller's, so this check can no longer refuse anything they admit. It survives deliberately, for
- *   its distinct `insufficient_scope` code and its caller-facing message — not because a verdict
- *   depends on it.
- * - **`worker-token.ts` `mintNarrowerToken` subject bound — STRUCTURAL.** Bounds `activeScope`
- *   inside the *subject's* own scope so the minted token mirrors that person. Not a question about
- *   any principal's authority, so it takes no bit.
+ * - **`worker-token.ts` `mintNarrowerToken` `aud` validation — STRUCTURAL.** Bounds the requested
+ *   `activeScope` (the minted `aud`) inside the *subject's* own scope — a mirror of `verify.ts`'s
+ *   unconditional `aud ⊆ authScope` read-side check, answered early as a 403 instead of late as a
+ *   token that verifies nowhere. A validation, never an authorization (authorization is
+ *   `canMintFor`, which calls `hasDominionOver`); not a question about any principal's authority,
+ *   so it takes no bit.
  *
  * ⚠️ **A second class this grep is structurally blind to: containment computed BY VALUE.**
  * `b === a || b.startsWith(a + '.')` in TypeScript and `LIKE ${prefix + '.%'}` in SQL both compute

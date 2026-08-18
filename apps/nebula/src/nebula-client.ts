@@ -841,7 +841,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
           /* terminal */ true, // by construction — the session it would mint through is over
         );
       }
-      return mintNarrowerToken(authedFetch, base, parent.#authScope, {
+      return mintNarrowerToken(authedFetch, base, {
         subOfNarrowerToken: sub, activeScope, ttlSeconds: opts?.ttlSeconds,
       });
     };

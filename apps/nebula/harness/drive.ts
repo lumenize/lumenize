@@ -93,7 +93,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error('[harness] fatal:', err instanceof Error ? (err.stack ?? err.message) : String(err));
-  process.exitCode = 1;
-});
+main()
+  .catch((err) => {
+    console.error('[harness] fatal:', err instanceof Error ? (err.stack ?? err.message) : String(err));
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    // Hard-exit after the verdict + teardown: a scenario that throws MID-FLIGHT leaves whatever it
+    // had open (client WebSockets, waiters) still holding the event loop, so the process prints its
+    // failure and then hangs — indistinguishable from a slow boot to the caller. The verdict is
+    // already printed and the stack cleaned up; nothing after this is worth waiting for.
+    process.exit(process.exitCode ?? 0);
+  });

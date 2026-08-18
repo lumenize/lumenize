@@ -1,6 +1,6 @@
 # Every Registry route states its own restrictions
 
-**Status:** Active child, ⏭️ **NEXT** — third of four in the passage/dominion sequence, before [nebula-invite.md](nebula-invite.md). Not built. Every file it depends on is built and archived — see § *Relationships*.
+**Status:** ✅ **BUILT 2026-08-18** — all three phases, each with its ✅ banner below. Third of four in the passage/dominion sequence, before [nebula-invite.md](nebula-invite.md). Ready for archive + inbound-link repoint.
 
 > 📐 **Fully reviewed 2026-08-17 — Stage 1 (×2) and Stage 2 panels plus an item-by-item hand gate; every surviving finding is worked in.** The review split two siblings out of this file and edited two rule files ahead of the build (commit `c1ee552` carries the inventory). From here: **`/build-task` in a fresh session.**
 
@@ -288,6 +288,20 @@ The remaining routes move into the pipeline at the paths they already have; `TUR
 **Criteria:** 🔒 *No standing-guidance artifact is falsified by what a phase closes, adds, or would now omit* · 🚨 *A malformed scope segment is refused at the edge* (now on every instance route) · 🔒 *A route cannot exist without a guard list* (now the complete form — no enumeration survives beside the table) · 🔒 *Each forward terminal preserves what its row is allowed to touch* · 🔒 *Gating is asserted BEHAVIOURALLY, in both directions, with the always-fail dummy secret* · 🔒 *Every open route still refuses a bad Turnstile token exactly as before* · the **shape** limb of 🔒 *Every entry declares a `method`* (every route is in the table by now, so it is finally assertable) · 🚨 *No request the edge is going to REFUSE reaches the singleton* — whose sharpest case, `GET /auth/claim-universe`, is a route **this** phase moves, and whose defect lives in `handleRegistryPath`'s forward-before-checking. · 🔒 *The connection-keyed limiter actually bounds an anonymous caller* (the guard reaches its routes in this phase)
 
 ### Phase 3 — `/mint-narrower-token` asks one question
+
+> ✅ **BUILT 2026-08-18.** `canMintFor(callerClaims, subject)` is a THIN wrapper over
+> `hasDominionOver(caller.access, subject.universeGalaxyStarId)` — the root-identity gate and the
+> self-narrow refusal stay as their own early branches (pre-lookup, distinct pinned messages), so
+> neither becomes a dead operand inside the predicate; the authorize line's three conjuncts are the
+> gate + the identity check + the one `canMintFor` call. The old `404 not_found` collapsed into the
+> `canMintFor` refusal (one 403, byte-equal body for absent and refused-real subjects). The subject
+> bound was reworded in place as the `aud` validation — never absent in any intermediate state.
+> `authScopeOverride` is deleted at all three sites; the client template dropped the segment
+> (`impersonation.ts` + `nebula-client.ts`). Test inversions landed as the file predicted, plus two
+> in `apps/nebula`'s `impersonate.test.ts` (its 403/404 rows encoded the deleted caller bound and
+> the oracle — rebuilt as 400 self-narrow / collapsed 403). One harness improvement in passing:
+> `drive.ts` now hard-exits after its verdict, because a scenario throwing MID-FLIGHT left open
+> client sockets holding the event loop — the print-then-hang failure `live.md` warns about.
 
 `canMintFor`, the per-site deletion table, the `aud` validation and its ordering, the `authScopeOverride` option deleted, the minted `authScope` becoming the subject's.
 

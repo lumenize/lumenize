@@ -20,6 +20,7 @@
  * No DevContainer: `needsContainer = false`, so this boots without Docker.
  */
 import assert from 'node:assert/strict';
+import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
@@ -168,6 +169,43 @@ export async function run(stack: DevStack): Promise<void> {
   const mintsAfterFirst = mintRequests;
   assert.equal(mintsAfterFirst, 1, 'impersonate() must mint EXACTLY once (mint-then-seed)');
 
+  // ── 1b. MINT FIDELITY: the derived token is indistinguishable from the subject's own ────────────
+  // The reference token can only be produced by the subject actually logging in — which is exactly
+  // what `provisionStarAdmin` did (a real claim-star email loop), so nothing here is hand-written.
+  // Fidelity, not capability: `authScope` and `scopeAdmin` are compared FIELD-FOR-FIELD against the
+  // subject's real token, and `my-scopes` must answer both tokens identically.
+  // Per-limb mutation (live.md): hard-code the mint's `scopeAdmin` to false → the bit comparison
+  // below reds while limb 1's sub/act/aud assertions stay green.
+  {
+    const subjectClaims = parseJwtUnsafe(subject.accessToken)!.payload as any;
+    const minted = await browser.fetch(`${stack.baseUrl}/auth/mint-narrower-token`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subOfNarrowerToken: subject.sub, activeScope: star }),
+    });
+    assert.equal(minted.status, 200, `the scope-less mint route refused a real admin (${minted.status})`);
+    const derivedToken = (await minted.json() as { access_token: string }).access_token;
+    const derived = parseJwtUnsafe(derivedToken)!.payload as any;
+    assert.equal(derived.access.authScope, subjectClaims.access.authScope,
+      "the derived token's authScope must be the SUBJECT's membership scope, verbatim");
+    assert.equal(derived.access.scopeAdmin, subjectClaims.access.scopeAdmin,
+      "the derived token's scopeAdmin must MIRROR the subject's own bit");
+    assert.equal(derived.aud, star, 'the requested scope becomes only the aud');
+
+    const myScopes = async (token: string) => {
+      const res = await browser.fetch(`${stack.baseUrl}/auth/my-scopes`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      assert.equal(res.status, 200, `my-scopes refused (${res.status})`);
+      const { scopes } = await res.json() as { scopes: Array<{ instanceName: string }> };
+      return scopes.map((s) => s.instanceName).sort();
+    };
+    assert.deepEqual(
+      await myScopes(derivedToken), await myScopes(subject.accessToken),
+      "the derived token's myScopeTree must return exactly what the subject's own token returns",
+    );
+  }
+
   // ── 2. Impersonation does not chain, and makes no network call ──────────────────────────────────
   await assert.rejects(
     () => child.impersonate(subject.sub, star),
@@ -178,18 +216,20 @@ export async function run(stack: DevStack): Promise<void> {
 
   // ── 3. A failed FIRST mint rejects cleanly and leaves no half-registered child ──────────────────
   // Two refusals with different statuses: one status could be satisfied by a build that hard-codes
-  // it. The gate order is what makes both reachable — caller reach and the admin bit are checked
-  // before the subject is looked up.
+  // it. The 403 is the mint's COLLAPSED refusal — an absent subject answers identically to one the
+  // caller may not act for (no `sub`-existence oracle); the 400 is the pre-lookup self-narrow.
   const childrenBefore = childCount(adminClient);
   await assert.rejects(
-    () => adminClient.impersonate(subject.sub, `other${suffix}.app.x`, { ttlSeconds: SAFE_TTL }),
-    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 403,
-    'an out-of-reach scope must 403',
+    () => adminClient.impersonate(crypto.randomUUID(), star, { ttlSeconds: SAFE_TTL }),
+    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 403
+      && /does not administer this subject/.test((e as Error).message),
+    'an absent subject must get the collapsed 403',
   );
   await assert.rejects(
-    () => adminClient.impersonate(crypto.randomUUID(), star, { ttlSeconds: SAFE_TTL }),
-    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 404,
-    'an absent subject must 404',
+    () => adminClient.impersonate(admin.sub, universe, { ttlSeconds: SAFE_TTL }),
+    (e: unknown) => e instanceof ImpersonationMintError && (e as ImpersonationMintError).status === 400
+      && /must be a different sub/.test((e as Error).message),
+    'a self-narrow must 400 before the lookup',
   );
   assert.equal(childCount(adminClient), childrenBefore, 'a refused mint must leave NO child registered');
 

@@ -194,6 +194,21 @@ export async function inviteIntoGalaxy(
   return inviteAndLogin(self, galaxy, universeAdminToken, email);
 }
 
+/**
+ * POST the SCOPE-LESS `/auth/mint-narrower-token`. The route carries no scope segment — the mint's
+ * whole authorization is the server-side `canMintFor` against the SUBJECT's scope — so unlike
+ * {@link adminRequest} there is no instance in the URL to vary.
+ */
+export async function mintNarrowerRequest(
+  self: Fetcher, accessToken: string, body: Record<string, unknown>,
+): Promise<Response> {
+  return self.fetch(new Request(registryUrl('mint-narrower-token'), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+}
+
 /** Make an authenticated request to an instance endpoint. Returns the Response. */
 export async function adminRequest(
   self: Fetcher, instanceName: string, endpoint: string, accessToken: string,

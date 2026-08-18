@@ -14,7 +14,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { WS_TOKEN_PREFIX } from '@lumenize/mesh/client';
 import {
-  foundUniverse, foundStarAndLogin, inviteAndLogin, adminRequest, url, platformLogin,
+  foundUniverse, foundStarAndLogin, inviteAndLogin, adminRequest, mintNarrowerRequest, url, platformLogin,
   BOOTSTRAP_EMAIL,
 } from './test-helpers';
 
@@ -141,21 +141,24 @@ describe('a malformed scope segment is refused at the edge and never reaches the
     expect(registryEntriesSince(mark)).toHaveLength(0);
   });
 
-  it('same for /auth/bad..name/mint-narrower-token', async () => {
+  it('the mint route is SCOPE-LESS, so a scoped mint path — malformed or not — is 404, not a route', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const mark = sink.length;
-    const resp = await adminRequest(SELF, 'bad..name', 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: 'x', activeScope: u },
-    });
-    expect(resp.status).toBe(400);
-    expect((await resp.json() as any).error).toBe('invalid_instance');
+    for (const segment of ['bad..name', u]) {
+      const resp = await SELF.fetch(new Request(url(segment, 'mint-narrower-token'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subOfNarrowerToken: 'x', activeScope: u }),
+      }));
+      expect(resp.status, segment).toBe(404);
+    }
     expect(registryEntriesSince(mark)).toHaveLength(0);
   });
 });
 
-describe('the mint refuses a non-admin BEFORE the registry read', () => {
-  it('a member is refused forbidden and getIdentityScope never runs', async () => {
+describe('the mint refuses a non-admin with the SAME body as an absent subject', () => {
+  it('a member is refused 403 forbidden — the collapsed refusal, after the lookup', async () => {
     const u = uni();
     const admin = await foundUniverse(SELF, u, 'admin@example.com');
     const scope = `${u}.app.tenant`;
@@ -163,15 +166,15 @@ describe('the mint refuses a non-admin BEFORE the registry read', () => {
     const other = await inviteAndLogin(SELF, scope, admin.access_token, 'other@example.com');
 
     const mark = sink.length;
-    const resp = await adminRequest(SELF, scope, 'mint-narrower-token', member.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: other.parsed.sub, activeScope: scope },
-    });
+    const resp = await mintNarrowerRequest(SELF, member.access_token, { subOfNarrowerToken: other.parsed.sub, activeScope: scope });
     expect(resp.status).toBe(403);
     expect((await resp.json() as any).error).toBe('forbidden');
-    // A 403 looks identical whether the refusal ran before or after the subject lookup — the
-    // sink marker on `getIdentityScope` is what distinguishes them (no `sub`-existence probing).
+    // The lookup DOES run on the scope-less route (canMintFor needs the subject's scope); what
+    // closes the probing concern is the collapsed refusal — asserted byte-for-byte in
+    // mint-narrower-token.test.ts § refusal and absence are indistinguishable — plus the
+    // sub-keyed limiter ahead of the handler. The marker assertion is the positive direction here.
     const lookups = sink.slice(mark).filter((e) => e.namespace === 'nebula-auth.Registry.getIdentityScope');
-    expect(lookups).toHaveLength(0);
+    expect(lookups).toHaveLength(1);
   });
 });
 
@@ -282,9 +285,7 @@ describe('ADR-016 through the pipeline', () => {
     const star = `${u}.app.tenant`;
     const starAdmin = await foundStarAndLogin(SELF, star, 'star-admin@example.com', admin.access_token);
 
-    const minted = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-      method: 'POST', body: { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star },
-    });
+    const minted = await mintNarrowerRequest(SELF, admin.access_token, { subOfNarrowerToken: starAdmin.parsed.sub, activeScope: star });
     expect(minted.status).toBe(200);
     const narrower = (await minted.json() as any).access_token;
 
@@ -313,8 +314,10 @@ describe('the rate limiter survives the decomposition', () => {
     // The shared binding is 100/60 (test wrangler.jsonc) — deliberately NOT lowered, since six
     // files make repeated Bearer calls against it. Loop past it, as packages/auth's precedent does;
     // an empty `emails` array keeps each pass cheap (the guard chain is what is under test).
+    // ⚠️ The cap is 250, not 101: the simulator's fixed 60s window can roll over mid-loop, splitting
+    // the requests across two windows — 250 guarantees 101+ land in ONE window either way.
     let limited: Response | undefined;
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 250; i++) {
       const resp = await adminRequest(SELF, u, 'invite', admin.access_token, {
         method: 'POST', body: { emails: [] },
       });
@@ -447,7 +450,8 @@ describe('the connection-keyed limiter actually bounds an anonymous caller', () 
     const ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
     const mark = sink.length;
     let limited: Response | undefined;
-    for (let i = 0; i < 120; i++) {
+    // 250, not 101 — the simulator's fixed 60s window can roll over mid-loop (see the sub-keyed twin).
+    for (let i = 0; i < 250; i++) {
       const resp = await routeNebulaAuthRequest(new Request(url(u, 'logout'), {
         method: 'POST', headers: { 'CF-Connecting-IP': ip },
       }), env as any);

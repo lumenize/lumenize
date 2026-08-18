@@ -186,8 +186,6 @@ export async function mintAccessToken(
     profileId?: string;
     /** RFC 8693 delegation actor pair → the `act` claim (omitted when absent). */
     actor?: { sub: string; profileId?: string };
-    /** Override the minted `access.authScope` (the narrower mint binds to the requested scope). */
-    authScopeOverride?: string;
     /**
      * Requested token lifetime. Clamped to {@link ACCESS_TOKEN_TTL} (it can only ever SHORTEN) and
      * warned about below {@link RECOMMENDED_MIN_TTL_SECONDS}. Validate with
@@ -213,7 +211,6 @@ export async function mintAccessToken(
     scopeAdmin: opts.scopeAdmin,
     profileId: opts.profileId,
     actor: opts.actor,
-    authScopeOverride: opts.authScopeOverride,
     ttlSeconds: effectiveTtlSeconds,
   });
   return { accessToken: await signJwt(payload, privateKey, activeKey), effectiveTtlSeconds };
@@ -420,36 +417,62 @@ export async function handleInvite(
 // ── mint-narrower-token (admin branch) ───────────────────────────────────────────────────────────
 
 /**
+ * May `callerClaims` mint a token wearing this subject's identity? — dominion over the SUBJECT's
+ * scope (`security.md` § Delegation, mint-side).
+ *
+ * Deliberately thin, and it exists for ONE reason: naming which scope goes in. The live
+ * substitution risk is any scope reachable at the call site other than the subject's — and with a
+ * scope-less route the nearest wrong argument is the CALLER's own `access.authScope`, which makes
+ * the predicate reflexively true and therefore silent: a check that can never refuse, which
+ * mutation testing cannot red. Taking the whole `subject` row (never a bare scope string) is what
+ * forecloses writing that.
+ *
+ * ⚠️ Takes no `activeScope` — `activeScope` is not an authorization input here (it is confined by
+ * `authScope` on every verify, so a decision on it is a decision on a derived value). Not exported:
+ * `apps/nebula` has no business minting.
+ */
+function canMintFor(
+  callerClaims: NebulaJwtPayload,
+  subject: { universeGalaxyStarId: string },
+): boolean {
+  return hasDominionOver(callerClaims.access, subject.universeGalaxyStarId);
+}
+
+/**
  * Mint a scope-bounded narrower token for another person: `sub` = the subject, `act.sub` = the caller.
  * The `AuthorizedActor` non-admin branch is CUT (tasks/nebula-auth-surrogate-sub.md) — only the ADMIN
  * branch survives. The request parameters ARE the token fields the caller is asking for
  * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + its minted `authScope`);
  * the actor is always the caller, taken from the Bearer token, so it is never a parameter.
  *
- * **Two rules, and a consequence that falls out of them** (tasks/nebula-mint-narrower-token.md):
+ * **The authorization is ONE question plus one validation:**
  *
- *  1. **Eligibility** — you may only impersonate someone you already administer *entirely*:
- *     `hasDominionOver(caller.access, subjectIdentity.universeGalaxyStarId)`. A caller narrower than
- *     the subject in *either* scope or the `admin` bit is refused outright, and the subject must be
- *     somebody else.
- *  2. **Faithfulness** — the minted token mirrors THAT PERSON's access, not the caller's: the
- *     subject's `admin` bit, the subject's dominion, bounded to the requested `activeScope`.
+ *  - **authorize:** `¬caller.act` (the root-identity gate, below) ∧ `caller.sub ≠ subject.sub`
+ *    (the self-narrow refusal) ∧ {@link canMintFor} — dominion over the SUBJECT's scope.
+ *  - **mint:** `{ sub, authScope, scopeAdmin }` ← all the SUBJECT's, verbatim; `aud` ← the
+ *    requested `activeScope`; `act` ← the caller.
  *
- *  ⇒ Therefore no minted token can exceed the caller. Eligibility has already placed the subject's
- *  entire scope inside the caller's dominion, so the mirror faithfulness produces can only ever be
- *  narrower than the caller's own token. **Escalation-safety is a consequence of the two rules, not a
- *  third property to maintain separately.** Faithfulness is the property the use case needs: mirroring
- *  the subject's `admin` bit is what puts `resolvePermission` back in the decision, so an admin can
- *  actually observe the denial they came to debug (`dag-tree.ts`'s scope-admin bypass would otherwise
- *  fire off the caller's bit and the denial would never happen).
+ * The old `activeScope` bounds are gone as CHECKS because they are now theorems: eligibility places
+ * the subject's whole scope inside the caller's dominion, the minted `authScope` IS the subject's
+ * scope, and `verify.ts` unconditionally requires `aud ⊆ authScope` — so `aud ⊆ subject ⊆ caller`
+ * falls out. The one containment check that remains is the **`aud` validation** (a mirror of what
+ * the token could ever verify as, answered early as a 403 instead of late as a dead token), which
+ * is a validation, never an authorization. Faithfulness — the subject's own bit and scope, not the
+ * caller's — is the property the use case needs: it is what puts `resolvePermission` back in the
+ * decision, so an admin can actually observe the denial they came to debug (`dag-tree.ts`'s
+ * scope-admin bypass would otherwise fire off the caller's bit and the denial would never happen).
  *
  * @param payload the caller's already-verified access token (the route pipeline verifies the
- *   Bearer and has already refused any caller without dominion over the URL's scope).
+ *   Bearer; the route is scope-less, so every authorization decision is made HERE).
  */
 export async function mintNarrowerToken(
   request: Request, env: Env, payload: NebulaJwtPayload,
 ): Promise<Response> {
-  // Mint from a ROOT identity only (a token carrying no `act` chain) — never re-narrow.
+  // Mint from a ROOT identity only (a token carrying no `act` chain) — never re-narrow. The
+  // `¬caller.act` conjunct of the authorize line, a licensed mint-side presence gate under
+  // `security.md` rule (1). ⚠️ The 403 message is load-bearing — `apps/nebula/src/impersonation.ts`
+  // classifies terminal failures by matching /root identity/i against `error_description`, and no
+  // test asserts the string, so a reword greens everywhere and breaks the client's classification.
   if (payload.act) {
     return errorResponse(403, 'forbidden', '/mint-narrower-token requires a root identity (a token carrying no `act` chain)');
   }
@@ -481,87 +504,54 @@ export async function mintNarrowerToken(
     return errorResponse(400, 'invalid_request', 'subOfNarrowerToken must be a different sub than the caller');
   }
 
-  // activeScope must be within the CALLER's own verified dominion (the escalation fix — never derive the
-  // grant from the subject or the issuing scope).
-  //
-  // ⚠️ **This is an UPPER bound, and that is CORRECT — do not "fix" it.** It stops widening; it
-  // deliberately permits NARROWING, which is the endpoint's entire purpose (the mint below binds the
-  // new token to the REQUESTED scope, not the caller's — see `authScopeOverride` at the mint, and the
-  // test "binds the minted token to the REQUESTED scope, not the caller's scope"). Forbidding
-  // narrowing would break least-privilege minting; re-checking that the minted scope is at or below
-  // the caller's would be redundant, since narrowing already implies it.
-  //
-  // Narrowing is nevertheless how the `access.scopeAdmin` escalation was reachable: a `{u}` admin can
-  // mint `aud={u}.{g}` + `authScope={u}.{g}` + admin, which `requirePassage`'s tenant branch then
-  // admits to the ANCESTOR `{u}` — where the guards used to trust the bare bit. **The defect was
-  // never here; it was downstream, and it is fixed there** (`hasDominionOver` in `requireDominionHere` /
-  // `requirePermission` / the subscribe-time writers). Post-fix the narrower token is denied on the
-  // ancestor and nothing is residual. See tasks/nebula-confine-admin-bypass.md § Decisions.
-  //
-  // ⚠️ **This gate is implied by eligibility + the scope mirror below** (together they bound
-  // `activeScope` inside the subject's scope, which eligibility has already placed inside the
-  // caller's). It survives for its `insufficient_scope` code and its caller-facing message naming
-  // what the caller's own scope covers, and because it implements `security.md` rule (2)'s first
-  // invariant.
-  if (!isAtOrAbove(payload.access.authScope, body.activeScope)) {
-    return errorResponse(403, 'insufficient_scope',
-      `Requested scope "${body.activeScope}" exceeds what the caller's scope covers "${payload.access.authScope}"`);
-  }
-
-  // No standalone `scopeAdmin` gate here: `dominionOverScopeGuard` in the route pipeline refuses
-  // every non-admin at the EDGE — before dispatch, and therefore before the registry read below, so
-  // a non-admin still cannot probe which `sub`s exist. Its refusal also carries the distinct
-  // `forbidden` code and the shared `denied` log line the old in-handler gate provided. The bare
-  // bit is `hasDominionOver`'s left operand, so a gate on it here could never be false once the
-  // guard has passed — dead code inside a security predicate, invisible to mutation testing.
-
-  // The subject (`subOfNarrowerToken`) must be a real identity — 404 otherwise (parity + traceability).
+  // The subject lookup. ⚠️ An absent subject is NOT 404'd here — see the collapsed refusal below.
   const subjectIdentity = await registry(env).getIdentityScope(body.subOfNarrowerToken) as
     { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null;
-  if (!subjectIdentity) return errorResponse(404, 'not_found', 'Subject not found');
 
-  // ── (1) ELIGIBILITY — run BEFORE the scope mirror ────────────────────────────────────────────────
-  // You may only impersonate someone you already administer ENTIRELY. Its uniquely load-bearing case
-  // is UPWARD: caller scope `{u}.{g}`, subject scope `{u}`, `activeScope = {u}.{g}` satisfies every
-  // other check, and only this stops a lower admin wearing a superior's identity (ADR-015 §2).
+  // ── AUTHORIZE — one question, and refusal is indistinguishable from absence ─────────────────────
+  // The route is scope-less, so this call is the whole verdict. A `null` subject and a subject the
+  // caller may not act for get the SAME 403 with the SAME body: the lookup precedes authorization,
+  // so a distinct not-found answer would make this route a `sub`-existence oracle for any
+  // authenticated caller — one singleton RPC per probe. (`sub`s are unguessable randoms behind a
+  // `sub`-rate-limited path, so the exposure is thin — which is why this is a collapse of two
+  // responses, never a reason to reinstate a pre-lookup gate.)
   //
-  // ⚠️ **ORDER MATTERS, and it is a disclosure decision.** A faithfulness bound can pass while
-  // eligibility fails, so running the mirror first would tell a caller who is about to be refused
-  // WHERE the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
-  // 403 body may name the subject's scope; echo the caller's own scope or nothing. (Subject
-  // EXISTENCE is disclosed either way by the 404 above — pre-existing and unchanged.)
-  if (!hasDominionOver(payload.access, subjectIdentity.universeGalaxyStarId)) {
+  // ⚠️ **ORDER MATTERS, and it is a disclosure decision.** The `aud` validation below can pass
+  // while this refuses, so running it first would tell a caller who is about to be refused WHERE
+  // the subject sits in the tree — across a Star boundary ADR-008 bounds visibility to. Neither
+  // 403 body may name the subject's scope; this one names the caller's own and nothing else. Do
+  // not hoist the validation for "fail-fast on an unverifiable token" — that is the order this
+  // comment forbids.
+  if (!subjectIdentity || !canMintFor(payload, subjectIdentity)) {
     return errorResponse(403, 'forbidden',
       `Caller scope "${payload.access.authScope}" does not administer this subject`);
   }
 
-  // ── (2) FAITHFULNESS — the scope mirror ──────────────────────────────────────────────────────────
-  // `activeScope` must also sit within the SUBJECT's own dominion, so the token is a mirror of that
-  // person rather than merely something inside the caller's dominion. Without it, a subject scoped at
-  // `{u}.{g}.{s1}` would get a token admin over all of `{u}.{g}` — not an escalation (eligibility
-  // already bounded it), but not that person's access either, which is the property the use case needs.
+  // ── The `aud` VALIDATION — a validation, never an authorization ─────────────────────────────────
+  // The requested `activeScope` becomes the token's `aud`, and `verify.ts` unconditionally refuses
+  // any token whose `aud` is not inside its `authScope` — which the mint below sets to the
+  // SUBJECT's scope. So an `activeScope` outside the subject's scope could only ever mint a token
+  // that verifies NOWHERE; this refuses it early, as a 403 the caller can read instead of a dead
+  // token they cannot. The 403 names only the caller-supplied `activeScope` (ADR-008 — never the
+  // subject's scope, which is exactly what its second operand is).
   if (!isAtOrAbove(subjectIdentity.universeGalaxyStarId, body.activeScope)) {
     return errorResponse(403, 'insufficient_scope',
       `Requested scope "${body.activeScope}" is outside the subject's own scope`);
   }
 
-  // Bind the minted token to the REQUESTED scope, mirroring the SUBJECT's `admin` bit.
-  //
-  // ⚠️ `caller.admin && subject.scopeAdmin` is an INTERSECTION, never either side's copy. Under
-  // eligibility the conjunction EQUALS the subject's bit, so the `&&` is belt-and-braces against a
-  // future caller reaching this line without eligibility having run (`security.md` rule (2) forbids
-  // copying the subject's bit alone, because a bare copy can exceed the caller). The `profileId` claim
-  // is the SUBJECT's — top-level `sub` and top-level `profileId` always describe the same person.
+  // Mint the MIRROR: `sub`, `authScope` and `scopeAdmin` are all the SUBJECT's, verbatim — never
+  // the caller's, and never derived from `activeScope`, which only becomes the `aud`. The
+  // `profileId` claim is the SUBJECT's — top-level `sub` and top-level `profileId` always describe
+  // the same person.
   const { accessToken, effectiveTtlSeconds } = await mintAccessToken(env, {
     sub: body.subOfNarrowerToken,
-    universeGalaxyStarId: body.activeScope,
-    scopeAdmin: payload.access.scopeAdmin === true && subjectIdentity.scopeAdmin,
+    universeGalaxyStarId: subjectIdentity.universeGalaxyStarId,
+    scopeAdmin: subjectIdentity.scopeAdmin,
     profileId: subjectIdentity.profileId,
     activeScope: body.activeScope,
     // The ACTOR pair — the caller. `profileId` rides alongside `sub` so a consumer never has to
     // resolve it live; it is omitted when the caller's own token carries no `profileId` claim.
     actor: { sub: payload.sub, profileId: payload.profileId },
-    authScopeOverride: body.activeScope,
     ttlSeconds: body.ttlSeconds as number | undefined,
   });
 

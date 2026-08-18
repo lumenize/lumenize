@@ -47,14 +47,6 @@ export interface NebulaAccessClaimInput {
    * omitted from the emitted claim when the actor's own token carries none.
    */
   actor?: { sub: string; profileId?: string };
-  /**
-   * Override the minted `access.authScope` (default: `instanceName`).
-   * Set ONLY by the `/mint-narrower-token` mint, to bind the token to the **requested** `activeScope`
-   * — never the issuing instance's scope. That scope is separately bounded by BOTH the caller's
-   * dominion and the subject's (`worker-token.mintNarrowerToken`), so it can exceed neither. MUST
-   * still sit at or above `activeScope` (the internal-consistency self-check below enforces it).
-   */
-  authScopeOverride?: string;
   /** Token TTL in seconds. Default {@link ACCESS_TOKEN_TTL}. */
   ttlSeconds?: number;
   /** "now" in Unix seconds. Default `Math.floor(Date.now() / 1000)`; injectable for tests. */
@@ -63,15 +55,13 @@ export interface NebulaAccessClaimInput {
 
 /**
  * Build the scoped `access` entry: the issuing scope verbatim, plus `scopeAdmin: true` iff admin.
+ * Every mint binds the claim to `instanceName` itself — there is no override, so a token whose
+ * `authScope` is decoupled from its issuing scope is not constructible (`/mint-narrower-token`
+ * passes the SUBJECT's scope as `instanceName`, which is the point).
  *
- * `authScopeOverride` binds the claim to something other than the issuing instance's scope (the
- * `/mint-narrower-token` scope-bounded mint passes the requested `activeScope`); the default is
- * `instanceName` itself, the shape every ordinary mint keeps.
- *
- * ⚠️ **Neither argument is parsed here, deliberately.** Both live callers pass a server-trusted
- * `instanceName` — a registry row or a verified claim — and the one client-supplied value that
- * reaches the override (`/mint-narrower-token`'s `activeScope`) is parsed at its own request
- * boundary, where a malformed value can answer 400 instead of a blanket 500.
+ * ⚠️ **The argument is not parsed here, deliberately.** Every live caller passes a server-trusted
+ * `instanceName` — a registry row or a verified claim — parsed (where client-supplied input feeds
+ * it) at its own request boundary, where a malformed value can answer 400 instead of a blanket 500.
  *
  * ✅ **The MINT-SIDE half of the confinement invariant.** This is the single site where `scopeAdmin`
  * and `authScope` are produced together, so the bit is never emitted without a scope — which is what
@@ -88,9 +78,8 @@ export interface NebulaAccessClaimInput {
 export function buildNebulaAccessEntry(
   instanceName: string,
   scopeAdmin: boolean,
-  authScopeOverride?: string,
 ): AccessEntry {
-  const access: AccessEntry = { authScope: authScopeOverride ?? instanceName };
+  const access: AccessEntry = { authScope: instanceName };
   if (scopeAdmin) access.scopeAdmin = true;
   return access;
 }
@@ -134,7 +123,7 @@ export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord 
 }
 
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
-  const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin, input.authScopeOverride);
+  const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin);
   // Structural — two strings, no `scopeAdmin` operand. It asserts the token is internally
   // consistent, never that the subject holds dominion anywhere.
   if (!isAtOrAbove(access.authScope, input.activeScope)) {

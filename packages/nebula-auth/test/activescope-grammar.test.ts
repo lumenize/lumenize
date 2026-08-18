@@ -29,7 +29,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
-import { foundUniverse, inviteAndLogin, adminRequest, url } from './test-helpers';
+import { foundUniverse, inviteAndLogin, mintNarrowerRequest, url } from './test-helpers';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 
@@ -54,9 +54,7 @@ async function bothMints(activeScope: string) {
   const member = await inviteAndLogin(SELF, u, admin.access_token, 'member@example.com');
 
   const refresh = await refreshWith(u, admin.refreshToken, { activeScope });
-  const narrower = await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-    method: 'POST', body: { activeScope, subOfNarrowerToken: member.parsed.sub },
-  });
+  const narrower = await mintNarrowerRequest(SELF, admin.access_token, { activeScope, subOfNarrowerToken: member.parsed.sub });
   return { 'refresh-token': refresh, 'mint-narrower-token': narrower };
 }
 
@@ -84,9 +82,7 @@ describe('activeScope must satisfy the id grammar, at BOTH mints', () => {
 
     const resps = {
       'refresh-token': await refreshWith(u, admin.refreshToken, { activeScope }),
-      'mint-narrower-token': await adminRequest(SELF, u, 'mint-narrower-token', admin.access_token, {
-        method: 'POST', body: { activeScope, subOfNarrowerToken: member.parsed.sub },
-      }),
+      'mint-narrower-token': await mintNarrowerRequest(SELF, admin.access_token, { activeScope, subOfNarrowerToken: member.parsed.sub }),
     };
 
     for (const [endpoint, resp] of Object.entries(resps)) {

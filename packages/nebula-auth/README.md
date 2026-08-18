@@ -83,7 +83,8 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 The gate lands in two places depending on the route shape:
 
-- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the route pipeline asks the whole question at the edge, in one place — `dominionOverScopeGuard` calls `hasDominionOver(claims.access, scope)` against the URL's validated scope (after `passageGuard`, the same boundary verdict a mesh node computes). The handlers carry no gate of their own; there is no conjunction split across files and no bare-bit read anywhere on the path. The token is read from the `Authorization: Bearer` header only.
+- **`/auth/{scope}/invite`**: the route pipeline asks the whole question at the edge, in one place — `dominionOverScopeGuard` calls `hasDominionOver(claims.access, scope)` against the URL's validated scope (after `passageGuard`, the same boundary verdict a mesh node computes). The handler carries no gate of its own; there is no conjunction split across files and no bare-bit read anywhere on the path. The token is read from the `Authorization: Bearer` header only.
+- **`/auth/mint-narrower-token`** (scope-less): the pipeline proves identity (`verifyJwtGuard` + `subRateLimitGuard`); authorization is the handler's single `canMintFor(callerClaims, subject)` call — dominion over the **subject's** scope, which no URL carries. Refusal and an absent subject answer identically (no `sub`-existence oracle), and the one containment check besides it is the `aud` validation, run after.
 - **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — its query is bounded by the caller's own `authScope`, so the result set can never exceed their dominion.
 
 ### Worker gating pipeline
@@ -93,10 +94,10 @@ The gate lands in two places depending on the route shape:
 | Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`); on pipeline routes this is the `parseScopeGuard` step |
 | CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
 | Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
-| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated instance (`verifyJwtGuard`, Bearer-only) + registry endpoints |
+| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated endpoints (`verifyJwtGuard`, Bearer-only) |
 | Per-`sub` rate limit (`subRateLimitGuard`) | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
-| Passage boundary (`passageGuard` → `hasPassageInto`) | Instance-path authenticated endpoints (the same verdict a mesh node's boundary computes) |
-| Dominion (`dominionOverScopeGuard` → `hasDominionOver`) | Instance-path authenticated endpoints — refuses `forbidden` (no `scopeAdmin`) or `insufficient_scope` (admin, but the scope is outside their own) |
+| Passage boundary (`passageGuard` → `hasPassageInto`) | `/auth/{scope}/invite` (the same verdict a mesh node's boundary computes) |
+| Dominion (`dominionOverScopeGuard` → `hasDominionOver`) | `/auth/{scope}/invite` — refuses `forbidden` (no `scopeAdmin`) or `insufficient_scope` (admin, but the scope is outside their own) |
 
 Turnstile is skipped when `NEBULA_AUTH_TEST_MODE === 'true'`, when no `TURNSTILE_SECRET_KEY` is configured (development), or when the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
@@ -140,7 +141,7 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
 | `/auth/{scope}/invite` | POST | pipeline: scope parse + JWT + `sub` rate limit + passage + dominion | Worker | Mint invitee identities + single-use invite tokens, send the emails |
-| `/auth/{scope}/mint-narrower-token` | POST | pipeline: scope parse + JWT + `sub` rate limit + passage + dominion | Worker | Mint a scope-bounded narrower token for another person (`sub` = the subject, `act.sub` = the caller). Requires `{ subOfNarrowerToken, activeScope }`. Admin branch only |
+| `/auth/mint-narrower-token` | POST | pipeline: JWT + `sub` rate limit; authz = the handler's `canMintFor` (dominion over the SUBJECT's scope) | Worker | Mint a narrower token wearing another person's identity: `sub`/`authScope`/`scopeAdmin` = the subject's, `aud` = the requested `activeScope`, `act.sub` = the caller. Requires `{ subOfNarrowerToken, activeScope }`. Scope-less — the old `/auth/{scope}/…` path is a 404 |
 
 ### Registry endpoints
 

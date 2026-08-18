@@ -134,8 +134,8 @@ describe('impersonate() — the mint', () => {
     const afterFirstMint = mintRequests;
 
     // The instrument has to be a REQUEST COUNTER, not the debug sink: the endpoint's root-identity
-    // gate returns a bare errorResponse with NO marker (unlike the non-admin branch, which emits
-    // `narrower.denied`), so the sink cannot tell "never called" from "called and refused".
+    // gate returns a bare errorResponse with NO marker, so the sink cannot tell "never called"
+    // from "called and refused".
     // Mutation: delete the guard → the call reaches the endpoint → the count rises → reds.
     await expect(child.impersonate(member.sub, star)).rejects.toThrow(ImpersonationChainError);
     await expect(child.impersonate(member.sub, star)).rejects.toThrow(/does not chain/i);
@@ -150,20 +150,20 @@ describe('impersonate() — the mint', () => {
   // coinciding with a constant. Nothing else exercises that mapping — the classification test builds
   // `ImpersonationMintError` by hand, so it covers the predicate, not the extraction.
   //
-  // Both are reachable and their gate order is why: the endpoint checks caller reach and the admin
-  // bit BEFORE it looks the subject up, so an out-of-reach scope 403s while an in-reach scope with a
-  // nonexistent subject reaches the 404.
+  // The 403 row is the mint's COLLAPSED refusal: an absent subject and a subject the caller may not
+  // act for answer identically (refusal-and-absence indistinguishability — the old distinct 404 was
+  // a `sub`-existence oracle). The 400 row is the self-narrow rejection, which precedes the lookup.
   it.each([
-    ['403 — activeScope the caller\'s scope does not cover', 403, /exceeds what the caller's scope covers/],
-    ['404 — no such subject', 404, /Subject not found/],
+    ['400 — self-narrowing (the caller\'s own sub)', 400, /must be a different sub/],
+    ['403 — absent subject, indistinguishable from a refused one', 403, /does not administer this subject/],
   ])('a failed FIRST mint (%s) rejects cleanly and leaves no half-registered child',
     async (_label, expectedStatus, expectedMessage) => {
-      const { star, admin, member } = await adminAndMember();
+      const { star, admin, adminPayload } = await adminAndMember();
       expect(childCount(admin)).toBe(0);
 
-      const target = expectedStatus === 404
-        ? { sub: crypto.randomUUID(), scope: star }                                  // in reach, absent subject
-        : { sub: member.sub, scope: `imp-${crypto.randomUUID().slice(0, 8)}.app.other` }; // foreign universe
+      const target = expectedStatus === 403
+        ? { sub: crypto.randomUUID(), scope: star }   // absent subject → the collapsed 403
+        : { sub: adminPayload.sub, scope: star };     // the caller's own sub → 400 pre-lookup
 
       const rejected = admin.impersonate(target.sub, target.scope, { ttlSeconds: SAFE_TTL });
       await expect(rejected).rejects.toThrow(ImpersonationMintError);

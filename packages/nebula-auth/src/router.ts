@@ -254,7 +254,7 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   // (see {@link ClaimsState}); the flow handlers validate their own token/cookie credential.
   const handleInviteStep: Step<ScopeState & ClaimsState> = (request, routeState) =>
     handleInvite(request, env, routeState.scope, routeState.claims);
-  const mintNarrowerTokenStep: Step<ScopeState & ClaimsState> = (request, routeState) =>
+  const mintNarrowerTokenStep: Step<ClaimsState> = (request, routeState) =>
     mintNarrowerToken(request, env, routeState.claims);
   // `scope` on the two click handlers only picks a landing surface for a FAILED consume's error
   // redirect; on `logout` it selects the cookie PATH. None of the three names a target — which is
@@ -295,6 +295,12 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/create-star`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
       { path: `${P}/delete-scope`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithClaims] },
       { path: `${P}/delete-scope-plan`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithClaims] },
+      // SCOPE-LESS by design: the old URL segment was vestigial (the handler never received it, and
+      // the only production caller posted their OWN scope, so containment compared a scope against
+      // itself and dominion there reduced to the bare bit — the dead operand this table convicts
+      // elsewhere). Every authorization decision is the handler's `canMintFor` against the SUBJECT's
+      // scope; there is no URL scope for a guard to compare.
+      { path: `${P}/mint-narrower-token`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, mintNarrowerTokenStep] },
       // ── Instance paths — token/cookie flows handled in the Worker ────────────────────────────
       // The two GET navigations carry a hashed one-time token; consuming one is a singleton
       // lookup, so a garbage token in a URL is the same faucet as a forged cookie — hence the
@@ -305,7 +311,6 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
       { path: `${P}/:scope/logout`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutStep] },
       { path: `${P}/:scope/invite`, method: 'POST', steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInviteStep] },
-      { path: `${P}/:scope/mint-narrower-token`, method: 'POST', steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, mintNarrowerTokenStep] },
     ];
   }
 }

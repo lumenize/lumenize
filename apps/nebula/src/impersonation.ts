@@ -165,10 +165,11 @@ export function parentTabIdFrom(parentInstanceName: string): string {
 export async function mintNarrowerToken(
   authedFetch: (url: string, init?: RequestInit) => Promise<Response>,
   baseUrl: string,
-  callerScope: string,
   body: { subOfNarrowerToken: string; activeScope: string; ttlSeconds?: number },
 ): Promise<{ access_token: string; sub: string }> {
-  const res = await authedFetch(`${baseUrl}/auth/${callerScope}/mint-narrower-token`, {
+  // Scope-less by design: the route carries no scope segment — the mint's whole authorization is
+  // the server's `canMintFor` against the SUBJECT's scope, so there is nothing for a URL to name.
+  const res = await authedFetch(`${baseUrl}/auth/mint-narrower-token`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

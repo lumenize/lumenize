@@ -64,8 +64,8 @@ LUMENIZE_AUTH_REDIRECT=/app
 # LUMENIZE_AUTH_PREFIX=/auth
 
 # Cloudflare Turnstile (get your secret key at: https://dash.cloudflare.com/turnstile).
-# ⚠️ LEAVE UNSET for local dev + the test suites: an absent/empty key is what skips the gate
-# (`checkTurnstile` no longer short-circuits on NEBULA_AUTH_TEST_MODE). The vitest configs bind
+# ⚠️ LEAVE UNSET for local dev + the test suites: an absent/empty key is the one sanctioned skip
+# (`checkTurnstile` no longer short-circuits on the test-mode binding). The vitest configs bind
 # TURNSTILE_SECRET_KEY='' explicitly so a value here cannot reach them, but `wrangler dev` reads
 # this file directly — a real key here sends every local login at a real `siteverify`.
 # TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
