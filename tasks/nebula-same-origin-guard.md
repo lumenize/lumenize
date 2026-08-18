@@ -1,6 +1,6 @@
 # Does the Registry need an origin check of its own?
 
-**Status:** Drafted 2026-08-17, **design intent only — no phases, and the answer may be "no".** Carved out of [nebula-registry-route-guards.md](nebula-registry-route-guards.md) on 2026-08-17, where a `sameOriginGuard` had been specified as part of the route-table work; a Stage-1 panel found it was the one *new capability* in a file whose claim is that no route changes what it refuses, and that as specified it conflicted with a deployed control and broke the local dev loop. It was cut rather than fixed in place. Not built. Gated on nothing.
+**Status:** Drafted 2026-08-17, **design intent only — no phases, and the answer may be "no".** Carved out of [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) on 2026-08-17, where a `sameOriginGuard` had been specified as part of the route-table work; a Stage-1 panel found it was the one *new capability* in a file whose claim is that no route changes what it refuses, and that as specified it conflicted with a deployed control and broke the local dev loop. It was cut rather than fixed in place. Not built. Gated on nothing.
 
 > ⚠️ **This file must reach a verdict before it grows phases.** Three separate findings below argue the guard earns less than it first appears, and one of them arrived *after* the original design was written. **Do not treat the guard as decided.** If the answer is "no origin check", that is a complete and successful outcome for this file — write the reasoning down, add whatever narrow thing survives, and archive it.
 
@@ -47,16 +47,16 @@ Found 2026-08-17 while working `logout`, and it **undercuts the most attractive 
 
 | Decision | Rejected alternative — why |
 |---|---|
-| **The guard is not decided; this file must reach a verdict first** | Carrying it in [nebula-registry-route-guards.md](nebula-registry-route-guards.md) — it was the sole new capability in a no-verdict-change refactor, it silently overrode a deployed operator control, and it broke the everyday local dev loop. Cutting it made that file's central claim true. |
+| **The guard is not decided; this file must reach a verdict first** | Carrying it in [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) — it was the sole new capability in a no-verdict-change refactor, it silently overrode a deployed operator control, and it broke the everyday local dev loop. Cutting it made that file's central claim true. |
 | **An origin check on the `/gateway/` WebSocket upgrade is DECLINED — assessed, not deferred** | Adding one — an origin check on an upgrade exists to stop cross-site WebSocket hijacking, and hijacking works only when the credential is **ambient**. The Gateway's is not: the token rides `Sec-WebSocket-Protocol` (`packages/mesh/src/gateway-messages.ts` `extractWebSocketToken`), set explicitly by the client, and same-origin policy already stops another origin reading one. A cross-site page can open the socket and has no token to present; `onBeforeConnect` refuses it in the Worker, before any DO. ⇒ **The rule that generalises: an origin check earns its place only where the credential is ambient.** Any guard this file adds covers HTTP only and MUST NOT be described as covering the WS surface. |
 | **CORS response decoration stays untouched** | Folding it into a pipeline step — a linear step list cannot express an outbound decorator. |
 
 ## Non-goals
 
-- **The route pipeline and its table** → [nebula-registry-route-guards.md](nebula-registry-route-guards.md). This file adds at most one step to rows that file defines.
+- **The route pipeline and its table** → ✅ [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) (BUILT + archived 2026-08-18). This file adds at most one step to rows that file defined; read `packages/nebula-auth/src/router.ts` rather than the frozen file.
 - **CORS itself** — the decoration `routeNebulaAuthRequest` applies around dispatch.
 
 ## Relationships
 
-- **Depends on** [nebula-registry-route-guards.md](nebula-registry-route-guards.md) — there must be a table to add a step to.
+- **Depends on** ✅ [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) — SATISFIED 2026-08-18: the table is in source.
 - **Touches** `apps/nebula-studio-ui/vite.config.ts` (the shared dev server), the `ui-smoke` lane, and the `/live` harness — none of which are test-only surfaces.

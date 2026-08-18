@@ -1,6 +1,6 @@
 # The body-scoped Registry routes take their scope from the URL
 
-**Status:** Drafted 2026-08-17. **Not built, not reviewed.** Carved out of [nebula-registry-route-guards.md](nebula-registry-route-guards.md), where it was Phase 3 — a Stage-1 panel found its spec falsified on disk in three independent ways *and* found it was the only phase carrying a breaking cross-package change. Gated on that file landing first (there must be a route table to move rows within).
+**Status:** Drafted 2026-08-17. **Not built, not reviewed.** Carved out of [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md), where it was Phase 3 — a Stage-1 panel found its spec falsified on disk in three independent ways *and* found it was the only phase carrying a breaking cross-package change. That file landed 2026-08-18, so the gate is open (the route table exists to move rows within).
 
 > ⚠️ **This work was bundled into a sibling THREE TIMES and pulled out on the third.** Each bundling argument was about **edit adjacency** — *"`REGISTRY_ENDPOINTS` is right there, so deleting it and moving these paths is the same edit"* — and each time the **blast radius** appeared only in a subordinate clause. ⇒ **Do not re-bundle it.** Adjacency of the edit is not adjacency of the risk: the Set dies in one file, the path change reaches production client code, three test lanes, the `/live` harness, a Registry DO dispatch and a published README.
 
@@ -65,9 +65,9 @@ Arguments for the header, strongest first:
 
 ## Non-goals
 
-- **The route pipeline, the table and the guards themselves** → [nebula-registry-route-guards.md](nebula-registry-route-guards.md). This file moves rows that file defines.
+- **The route pipeline, the table and the guards themselves** → ✅ [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) (BUILT + archived 2026-08-18). This file moves rows that file defined; read `packages/nebula-auth/src/router.ts` rather than the frozen file.
 - **`my-scopes`' re-key onto `profileId`** → its own sibling.
 
 ## Relationships
 
-- **Depends on** [nebula-registry-route-guards.md](nebula-registry-route-guards.md) — there must be a table, and `dominionOverScopeGuard` must exist.
+- **Depends on** ✅ [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) — SATISFIED 2026-08-18: the table and `dominionOverScopeGuard` are in source.

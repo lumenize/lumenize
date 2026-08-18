@@ -1,6 +1,6 @@
 # Testing from inside the Studio — test users, test Stars, and who founds a pre-created Star
 
-**Status:** ⏸️ **ON HOLD (2026-08-17)** — parked until we design how testing actually works from inside the Studio. Nothing here blocks pre-alpha; the questions were surfaced while reviewing [nebula-registry-route-guards.md](../nebula-registry-route-guards.md) and are parked here so they are decided once, together, instead of ad-hoc per endpoint.
+**Status:** ⏸️ **ON HOLD (2026-08-17)** — parked until we design how testing actually works from inside the Studio. Nothing here blocks pre-alpha; the questions were surfaced while reviewing [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) and are parked here so they are decided once, together, instead of ad-hoc per endpoint.
 
 **The favored default, stated first: multi-user testing happens ON the `.dev` Star, not on pre-created tenant Stars.** Multiple test users, rendered as a **tab interface where the single preview iframe sits today — each tab its own iframe, one per test user**. This adjoins the master plan's synthetic-subjects thread ([nebula-pre-alpha.md](../nebula-pre-alpha.md) — *"provision + grant into `.dev`"*; *"(c) the SYNTHETIC subjects — below, still unowned"*). Once that works smoothly, revisit whether a real use case for admin-created tenant Stars exists at all.
 
@@ -28,4 +28,4 @@
 
 - **Adjoins** [nebula-pre-alpha.md](../nebula-pre-alpha.md)'s synthetic-subjects thread (unowned as of 2026-08-17).
 - **Consumes, when it resumes:** [nebula-invite.md](../nebula-invite.md)'s per-invitee `scopeAdmin` (the founding path above).
-- **Does not touch** [nebula-registry-route-guards.md](../nebula-registry-route-guards.md) — `create-star`'s table row is unaffected.
+- **Does not touch** [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) — `create-star`'s table row is unaffected.

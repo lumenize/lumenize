@@ -1,9 +1,9 @@
 // ⚠️ WHY THIS IS NOT A `/live` SCENARIO (`live.md` § *`/live` is the DEFAULT tier* requires the reason
 // in the test): the runner reaches no DO, no identity and no browser, so a running Nebula has nothing
 // for a scenario to be faithful to. A `wrangler dev` lane over this mini-app is possible and is
-// declined as unnecessary, not impossible. Real `/live` coverage of the pipeline belongs to
-// `tasks/nebula-registry-route-guards.md`, which carries a 🌐 criterion for it — the tier moved, it
-// did not lapse.
+// declined as unnecessary, not impossible. Real `/live` coverage of the pipeline landed with
+// `tasks/archive/nebula-registry-route-guards.md`'s 🌐 criterion (the `upward-invite-refused` and
+// `impersonation-lifecycle` harness scenarios) — the tier moved, it did not lapse.
 import { describe, it, expect } from 'vitest';
 import { createTodoApp } from './app';
 import { createRouter, type RouteState, type Step } from '../../src/route-pipeline';
