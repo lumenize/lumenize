@@ -6,7 +6,7 @@
 
 ## What is true today, and stays true while this is parked
 
-- **`/create-star` keeps its route and its one live caller**: `NebulaClient.createDevWorkspace` (three App.vue call sites, onboarding) — it provisions the `.dev` authoring workspace and hardcodes the `.dev` slug. Nothing here touches it.
+- **`/create-star`'s one live caller is `NebulaClient.createDevWorkspace`** (App.vue, onboarding + the `develop()` lazy repair), provisioning the `.dev` workspace. ⚠️ **Scheduled to end**: the master plan bundles that INSERT into `createGalaxy` — see the retirement note under open question 2.
 - **A pre-created tenant Star is recoverable, not stuck**: `create-star` mints no identity, so a slug consumed by mistake is freed by `delete-scope` (the cascade deletes the `Scopes` row) and the real founder claims it fresh via open `claim-star`.
 - **An empty Star is a designed-for state**, not an anomaly — `SCOPES_SCHEMA`'s JSDoc: *"a parent-managed child scope has a row here and zero members."*
 
@@ -21,7 +21,7 @@
 ## Open questions for when this resumes
 
 1. **`/create-star-for-testing`, open to any member of the parent Galaxy (not only `scopeAdmin`)** — proposed 2026-08-17. ⚠️ The design problem it must solve: `create-*` deliberately **mints no identity** (the claim/create split in `router.ts`'s own comment), so a plain member who creates a Star receives no membership in it and cannot enter what they just made. Either the endpoint mints a membership — breaking the split — or it pairs creation with a self-invite. Also open: quotas/abuse bounds for non-admin creation, who may delete what a member created, and whether the tab-iframe default retires the need entirely.
-2. **Does anything still need admin-created tenant Stars once `.dev` multi-user tabs work?** If yes, `/create-star` (or a successor) gets its real second consumer; if no, the endpoint stays what it is today — the `.dev` provisioning path.
+2. **Does anything still need admin-created tenant Stars once `.dev` multi-user tabs work?** If yes, `/create-star` (or a successor) gets its real second consumer; if no, `/create-star` retires outright: [nebula-pre-alpha.md](../nebula-pre-alpha.md) § *Invite-gated* now bundles the `.dev` INSERT into `createGalaxy` (decided 2026-08-17), so once that lands — and post-wipe kills `develop()`'s legacy repair — the endpoint has zero production callers.
 3. **How test users are minted for the `.dev` tabs** — the synthetic-subjects thread; act-as vs real invited identities; what the Studio UI shows per tab.
 
 ## Relationships
