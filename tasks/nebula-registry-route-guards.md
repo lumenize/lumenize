@@ -2,7 +2,7 @@
 
 **Status:** Active child, ⏭️ **NEXT** — third of four in the passage/dominion sequence, before [nebula-invite.md](nebula-invite.md). Not built. Every file it depends on is built and archived — see § *Relationships*.
 
-> 📐 **`/write-task` Pass 2 — design intent and phases are both written.** Its content carries a Stage-1 (×2) and Stage-2 heritage plus a **scoped Stage-2 pass on exactly this material** (2026-08-11, 34 raised / 30 survived), whose findings are worked in. The **shape of this file is new** and has had no panel. From here: `/review-task`, then `/build-task`.
+> 📐 **Fully reviewed 2026-08-17 — Stage 1 (×2) and Stage 2 panels plus an item-by-item hand gate; every surviving finding is worked in.** The review split two siblings out of this file and edited two rule files ahead of the build (commit `c1ee552` carries the inventory). From here: **`/build-task` in a fresh session.**
 
 > ✅ **Gated on nothing. Code only — no stored shape changes here** (verified 2026-08-11: this file touches no column; `Memberships` already stores `universeGalaxyStarId` and `scopeAdmin` under their final names).
 
