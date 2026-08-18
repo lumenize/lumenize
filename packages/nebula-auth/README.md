@@ -36,22 +36,17 @@ Every route takes one of exactly two shapes — the rule is in [`.claude/rules/r
 - **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation (claim / create / query / delete on registry storage). The Worker does only the cross-cutting pre-checks that need env + secrets and produce **trusted claims** — Turnstile, JWT verify — then injects `verifiedAccess` (and `callerSub` for deletes) into the body and forwards. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
 - **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `consumeMagicLink`, `issueInvites`, …).
 
-The two authenticated instance routes (`invite`, `mint-narrower-token`) are registered in the
-**route-pipeline table** in `router.ts` — each entry is `{ path, method, steps }`, and the ordered
-step list IS the route's complete requirement (`parseScopeGuard` → `verifyJwtGuard` →
-`subRateLimitGuard` → `passageGuard` → `dominionOverScopeGuard` → the handler). The remaining
-endpoint sets are declared at the top of `router.ts`:
+**Every route is registered in the route-pipeline table** (`buildAuthRouteTable` in `router.ts`) —
+each entry is `{ path, method, steps }`, and the ordered step list IS the route's complete
+requirement, readable without opening a handler. There is no enumeration beside the table: a route
+cannot exist without a guard list. The three registry-bound terminals encode what the edge injects —
+`forwardRaw` (nothing — the original request, every header intact), `forwardWithAccess`
+(`verifiedAccess`), `forwardWithClaims` (`verifiedAccess` + `callerSub` + `callerClaims`, ADR-016's
+fail-closed input).
 
-```typescript
-// Forwarded to the registry DO
-REGISTRY_ENDPOINTS  = { discover, claim-universe, create-galaxy, create-star,
-                        my-scopes, delete-scope-plan, delete-scope }
-// Handled in the Worker (worker-token.ts)
-AUTH_FLOW_SUFFIXES  = { email-magic-link, magic-link, accept-invite, refresh-token, logout }
-TURNSTILE_ENDPOINTS = { email-magic-link, claim-universe, discover }
-```
-
-An unknown path is a `404` **at the edge** — the singleton never sees it. Registry endpoints are POST-only; a non-POST is forwarded raw (no body injection, which would build an invalid GET-with-body) so the DO answers with its own `405`.
+An unknown path is a `404` **at the edge**, and a known path under a wrong verb is a `405 Allow:`
+**at the edge** — the singleton never sees either. (The DO keeps its own POST-only check as defense
+in depth for non-router callers.)
 
 ### Identity model: surrogate `sub`
 
@@ -122,7 +117,7 @@ https://host/auth/delete-scope-plan                   -> forwarded to the regist
 https://host/auth/delete-scope                        -> forwarded to the registry
 ```
 
-Registry paths are identified by exact match of the whole path remainder against `REGISTRY_ENDPOINTS`. Everything else is a scope path where the segment after `/auth/` is the scope id.
+Every path is matched against the route table's `URLPattern`s — the scope-less registry paths are exact-match entries, and the scope paths carry the scope as a `:scope` segment that `parseScopeGuard` validates before any step reads it.
 
 ---
 
@@ -177,7 +172,7 @@ Validation is a fail-fast prologue in this exact order, so a request failing sev
 
 ⚠️ **`slug_taken` is deliberately ambiguous.** When the slug is held by a claimer who never verified their email, that claimer is re-sent their claim link — but the response is **byte-identical** to an ordinary rejection, and the send is fired without being awaited. Answering a resume with a success (or awaiting only on that branch) would make this endpoint an email-confirmation oracle: probe a slug with `victim@corp.com` and a distinguishable answer proves the victim is that slug's unverified claimer. The resume adds a `MagicLinks` row and nothing else — never an `UPDATE Identities`, which would promote a pending invitee to star admin through an unauthenticated endpoint.
 
-⚠️ **`claim-star` must be in `TURNSTILE_ENDPOINTS`, and that is a separate `Set` from `REGISTRY_ENDPOINTS`.** Only the latter is needed for the route to work, so an endpoint added to one and not the other is live and **ungated** — and `checkRateLimit` keys on a verified `sub`, so it never runs here. `checkTurnstile` also short-circuits under `NEBULA_AUTH_TEST_MODE`, which every test lane sets, so no end-to-end test can catch the omission; `isTurnstileGated()` is exported for that assertion.
+⚠️ **`claim-star`'s row must carry `turnstileGuard`.** `subRateLimitGuard` keys on a verified `sub`, so the Turnstile step (behind the connection limiter) is the only human-presence bound on this open mutation endpoint. The regression is caught behaviourally: `checkTurnstile` no longer short-circuits under `NEBULA_AUTH_TEST_MODE`, so `turnstile-bypass.test.ts`'s gating sweep binds a non-empty secret per test and asserts each open row answers `403 turnstile_required` — a row that silently lost the step reds it.
 
 ---
 
@@ -565,7 +560,7 @@ Admin-created child scopes stamp **no local admin** — the creating admin manag
 | `NEBULA_AUTH_BOOTSTRAP_EMAIL` | Comma-separated platform super-admin emails (optional) |
 | `NEBULA_AUTH_REDIRECT` | Post-login redirect base; the consume handler appends `/{scope}` |
 | `AUTH_EMAIL_FROM` | From-address for `NebulaEmailSender` (defaults to `noreply@lumenize.io`) |
-| `NEBULA_AUTH_TEST_MODE` | Returns raw magic-link/invite URLs instead of sending, and skips Turnstile. ⚠️ Set **only** in vitest `miniflare.bindings` — never in `wrangler.jsonc` or `.dev.vars` |
+| `NEBULA_AUTH_TEST_MODE` | Returns raw magic-link/invite URLs instead of sending. It does NOT skip Turnstile — an absent/empty `TURNSTILE_SECRET_KEY` is what does (the vitest configs bind `''` explicitly). ⚠️ Set **only** in vitest `miniflare.bindings` — never in `wrangler.jsonc` or `.dev.vars` |
 
 ⚠️ `NEBULA_AUTH_TEST_MODE` has **no second factor** — unlike `@lumenize/auth`, the decision is made inside the registry DO with no request URL to sniff, so a leak on a deployed Worker would hand magic links to ordinary traffic. Its absence from every deployable surface *is* the control, enforced by `scripts/audit-test-mode.sh`.
 

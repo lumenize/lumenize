@@ -12,7 +12,7 @@ import { debug } from '@lumenize/debug';
 import { verifyNebulaTurnstileToken } from './turnstile';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
 import { hasDominionOver, hasPassageInto, parseId } from './parse-id';
-import { createRouter, type RouteRunner, type RouteState, type Step } from './route-pipeline';
+import { createRouter, type RouteEntry, type RouteRunner, type RouteState, type Step } from './route-pipeline';
 import { NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
 import { verifyNebulaAccessToken } from './verify';
@@ -33,38 +33,6 @@ export interface RouteNebulaAuthOptions {
    * `false`/omitted (default): no CORS headers. `true`: reflect any Origin. `{ origin }`: allowlist.
    */
   cors?: CorsOptions;
-}
-
-// Registry endpoint suffixes (exact match after the prefix) — forwarded to the registry DO.
-// `claim-*` = open self-signup (mints the claiming admin identity, emails); `create-*` = admin-gated, minting no identity.
-const REGISTRY_ENDPOINTS = new Set([
-  'discover', 'claim-universe', 'claim-star', 'create-galaxy', 'create-star', 'my-scopes',
-  'delete-scope-plan', 'delete-scope',
-]);
-
-// Instance-path auth flows handled IN THE WORKER (no JWT — token/cookie validated by the flow itself).
-const AUTH_FLOW_SUFFIXES = new Set(['email-magic-link', 'magic-link', 'accept-invite', 'refresh-token', 'logout']);
-
-// Turnstile-gated endpoints.
-//
-// 🔒 Every UNAUTHENTICATED registry endpoint must be here. This `Set` is the ONLY bound on them:
-// `checkRateLimit` keys on the verified `payload.sub`, so it never runs on a path with no JWT. The
-// gate lives here and not in the registry method, so a method copied from an already-listed sibling
-// arrives UNGATED and nothing reds — for `claim-star` that would mean an open mutation endpoint that
-// mints `scopeAdmin` identities and sends mail. (Turnstile bounds scripted abuse — mass squatting, mail
-// amplification — it is not an approval step.)
-const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star', 'discover']);
-
-/**
- * Whether `endpoint` is Turnstile-gated.
- *
- * Exported for the same reason as {@link isTurnstileBypassed}: the decision is otherwise unassertable.
- * `checkTurnstile` short-circuits on `NEBULA_AUTH_TEST_MODE` **before** consulting this set, and every
- * test lane sets that binding — so no end-to-end assertion in the default project can tell a gated
- * endpoint from an ungated one. Set membership is the only thing that reds on the regression.
- */
-export function isTurnstileGated(endpoint: string): boolean {
-  return TURNSTILE_ENDPOINTS.has(endpoint);
 }
 
 // ============================================
@@ -88,31 +56,6 @@ function json401(error: string, description: string): Response {
 }
 
 // ============================================
-// Path parsing
-// ============================================
-
-function parsePath(pathname: string):
-  | { type: 'registry'; endpoint: string }
-  | { type: 'instance'; instanceName: string; endpoint: string }
-  | null {
-  const prefix = NEBULA_AUTH_PREFIX;
-  if (!pathname.startsWith(prefix + '/')) return null;
-  const rest = pathname.slice(prefix.length + 1); // after '/auth/'
-  if (!rest) return null;
-
-  if (REGISTRY_ENDPOINTS.has(rest)) return { type: 'registry', endpoint: rest };
-
-  const slashIdx = rest.indexOf('/');
-  if (slashIdx === -1) return { type: 'instance', instanceName: rest, endpoint: '' };
-  return { type: 'instance', instanceName: rest.slice(0, slashIdx), endpoint: rest.slice(slashIdx + 1) };
-}
-
-function endpointSuffix(endpoint: string): string {
-  const lastSlash = endpoint.lastIndexOf('/');
-  return lastSlash === -1 ? endpoint : endpoint.slice(lastSlash + 1);
-}
-
-// ============================================
 // The route pipeline — every entry states its complete requirement, in order
 // ============================================
 
@@ -129,7 +72,9 @@ type ScopeState = { scope: string };
 type ClaimsState = { claims: NebulaJwtPayload };
 
 /**
- * Build the compiled route table for `env`.
+ * Build the route table for `env` — guards, terminals, and the entries they compose into.
+ * Exported so a test can assert table-level properties (every entry declares a `method`) without
+ * driving a request through each row.
  *
  * Guards close over `env` rather than importing the `cloudflare:workers` module-scope `env`, for
  * two verified reasons: this module is re-exported from the widely-imported package index, so that
@@ -140,7 +85,7 @@ type ClaimsState = { claims: NebulaJwtPayload };
  * it is ambient per isolate, not per-request.
  * Compiled once per `env` object ({@link authPipeline}'s WeakMap), so production compiles once.
  */
-function buildAuthPipeline(env: Env): RouteRunner {
+export function buildAuthRouteTable(env: Env): RouteEntry[] {
   /**
    * First on every instance path: refuse a malformed scope segment at the edge, before any step
    * reads it and before anything expensive runs (parsing is local; a `limit()` is not). This is a
@@ -185,6 +130,33 @@ function buildAuthPipeline(env: Env): RouteRunner {
    */
   const subRateLimitGuard: Step<ClaimsState> = async (_request, routeState) =>
     (await checkRateLimit(env, routeState.claims.sub)) ?? undefined;
+
+  /**
+   * ONE connection-keyed limiter per route that presents no token — there is no `sub` yet to key
+   * on, and each such route reaches something expensive anonymously: the cookie routes' forged
+   * cookie buys a singleton round trip per request (`getRefreshRecord` / `revokeRefreshToken`),
+   * the open routes reach `turnstileGuard`'s `siteverify` and the singleton, and `discover` is
+   * additionally an enumeration oracle this bounds.
+   *
+   * Key: `CF-Connecting-IP`. The absent-header fallback is ALLOW, matching `checkRateLimit`'s
+   * no-op-when-unbound contract — miniflare supplies no such header, so a test lane would
+   * otherwise collapse every caller onto one key and 429 the suite into what look like auth
+   * failures. Cloudflare's edge always supplies it in production.
+   */
+  const connectionRateLimitGuard: Step = async (request) => {
+    const limiter = (env as Env & { NEBULA_AUTH_CONNECTION_RATE_LIMITER?: RateLimit })
+      .NEBULA_AUTH_CONNECTION_RATE_LIMITER;
+    if (!limiter) return; // unbound → no-op; the Registry's boot-time check reports this state
+    const key = request.headers.get('CF-Connecting-IP');
+    if (!key) return;
+    const { success } = await limiter.limit({ key });
+    if (!success) return jsonError(429, 'rate_limited', 'Too many requests. Please try again later.');
+  };
+
+  /** Human-presence gate on the open routes, AFTER the connection limiter because it costs a
+   *  `siteverify` round trip. Pass-through paths live in {@link checkTurnstile}. */
+  const turnstileGuard: Step = async (request) =>
+    (await checkTurnstile(request, env)) ?? undefined;
 
   /**
    * The passage boundary — the same verdict the mesh boundary computes (`hasPassageInto`: the
@@ -240,27 +212,102 @@ function buildAuthPipeline(env: Env): RouteRunner {
     }
   };
 
-  // Terminal steps — Worker-handled endpoints. No `Guard` suffix: every step that can refuse a
+  // ── Forward terminals — three, NOT one, and which one a row takes is what the edge INJECTS
+  // (`raw-comm.md` § *Edge Worker fronting a DO*: forward the ORIGINAL request whenever the edge
+  // has nothing to add; rebuild ONLY to inject trusted claims the DO cannot derive). They also
+  // declare different `Needs`, which one shared name could not.
+
+  /** Injects NOTHING: `stub.fetch(request)` — no parse, no re-serialize, every header survives,
+   *  and the DO reads `url.origin` off it and answers a malformed body with its own 400
+   *  `invalid_request` rather than having it absorbed into `{}` at the edge. */
+  const forwardRaw: Step = (request) =>
+    env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
+
+  /** Injects the verified `access` claim (a rebuild, which is what licenses it). */
+  const forwardWithAccess: Step<ClaimsState> = async (request, routeState) => {
+    const body = (await readJsonBody(request)) ?? {}; // my-scopes carries no body
+    // ⚠️ Trust boundary — ASSIGN, never merge (no `??=`, no spread): the carrier is a
+    // client-supplied JSON body, and the registry's guards are presence-only, so they cannot tell
+    // an injected value from a client-supplied one.
+    body.verifiedAccess = routeState.claims.access;
+    return forwardToRegistry(request, env, body);
+  };
+
+  /** Injects `verifiedAccess` + `callerSub` + `callerClaims` — ADR-016's fail-closed input for the
+   *  destructive routes: a destructive action records the FULL verified claims of the acting
+   *  token, and under impersonation `callerSub` alone names the person acted UPON as the actor.
+   *  (`delete-scope-plan` writes no record and ignores `callerClaims`.) */
+  const forwardWithClaims: Step<ClaimsState> = async (request, routeState) => {
+    const body = await readJsonBody(request);
+    if (!body) return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    // ⚠️ Trust boundary — ASSIGN, never merge (see forwardWithAccess). `executeScopeDeletion`
+    // takes the claims as an explicit PARAMETER rather than reading a body key, so a future
+    // branch that forgets this line fails closed instead of silently trusting input.
+    body.verifiedAccess = routeState.claims.access;
+    body.callerSub = routeState.claims.sub;
+    body.callerClaims = routeState.claims;
+    return forwardToRegistry(request, env, body);
+  };
+
+  // ── Terminal steps — Worker-handled endpoints. No `Guard` suffix: every step that can refuse a
   // caller carries one; these produce the route's answer. Handlers take `routeState.claims` WHOLE
-  // (see {@link ClaimsState}).
+  // (see {@link ClaimsState}); the flow handlers validate their own token/cookie credential.
   const handleInviteStep: Step<ScopeState & ClaimsState> = (request, routeState) =>
     handleInvite(request, env, routeState.scope, routeState.claims);
   const mintNarrowerTokenStep: Step<ScopeState & ClaimsState> = (request, routeState) =>
     mintNarrowerToken(request, env, routeState.claims);
+  // `scope` on the two click handlers only picks a landing surface for a FAILED consume's error
+  // redirect; on `logout` it selects the cookie PATH. None of the three names a target — which is
+  // why these rows carry no scope guard (accepted `docs/vision/auth.md` § *Endpoints that present
+  // no access token*).
+  const handleMagicLinkClickStep: Step<ScopeState> = (request, routeState) =>
+    handleMagicLinkClick(request, env, routeState.scope);
+  const handleAcceptInviteStep: Step<ScopeState> = (request, routeState) =>
+    handleAcceptInvite(request, env, routeState.scope);
+  const handleEmailMagicLinkStep: Step<ScopeState> = (request, routeState) =>
+    handleEmailMagicLink(request, env, routeState.scope);
+  const handleRefreshTokenStep: Step = (request) => handleRefreshToken(request, env);
+  const handleLogoutStep: Step<ScopeState> = (request, routeState) =>
+    handleLogout(request, env, routeState.scope);
 
-  // The table IS the registration: a route cannot exist without a guard list, and an absent entry
-  // 404s rather than falling through to any handler. Every entry states its `method` — the runner
-  // treats an absent one as ANY verb, which is wrong for all of these.
-  return createRouter([
-    {
-      path: `${NEBULA_AUTH_PREFIX}/:scope/invite`, method: 'POST',
-      steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInviteStep],
-    },
-    {
-      path: `${NEBULA_AUTH_PREFIX}/:scope/mint-narrower-token`, method: 'POST',
-      steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, mintNarrowerTokenStep],
-    },
-  ]);
+  // THE TABLE — the registration itself: a route cannot exist without a guard list, an absent
+  // entry 404s reaching no handler, and a known path under a wrong verb answers 405 from the
+  // runner. 🔒 Every entry states its `method` — the runner treats an absent one as ANY verb,
+  // which is right for a consumer indifferent to verbs and wrong for all of these.
+  //
+  // The shape is DERIVED, not per-route — parse the segment → one limiter (keyed by whatever
+  // identity exists at that point) → prove identity → prove passage → ask the endpoint's own
+  // question → handle — so a new route inherits its list rather than negotiating one.
+  {
+    const P = NEBULA_AUTH_PREFIX;
+    return [
+      // ── Scope-less registry paths — forwarded to the Registry DO after edge gating ──────────
+      // `discover` is TERMINAL (retired by the profileId-keyed sibling task); its row exists only
+      // because the login page cannot survive its removal yet. Its limiter bounds the VOLUME of
+      // the recorded enumeration oracle; retiring the leak is the sibling's.
+      { path: `${P}/discover`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
+      { path: `${P}/claim-universe`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
+      { path: `${P}/claim-star`, method: 'POST', steps: [connectionRateLimitGuard, turnstileGuard, forwardRaw] },
+      // The scope on these arrives in the BODY, deliberately (moving it onto the URL is a separate
+      // task); the Registry DO keeps its own dominion checks, so their edge list ends at identity.
+      { path: `${P}/my-scopes`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
+      { path: `${P}/create-galaxy`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
+      { path: `${P}/create-star`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithAccess] },
+      { path: `${P}/delete-scope`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithClaims] },
+      { path: `${P}/delete-scope-plan`, method: 'POST', steps: [verifyJwtGuard, subRateLimitGuard, forwardWithClaims] },
+      // ── Instance paths — token/cookie flows handled in the Worker ────────────────────────────
+      // The two GET navigations carry a hashed one-time token; consuming one is a singleton
+      // lookup, so a garbage token in a URL is the same faucet as a forged cookie — hence the
+      // connection limiter on every row here.
+      { path: `${P}/:scope/magic-link`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleMagicLinkClickStep] },
+      { path: `${P}/:scope/accept-invite`, method: 'GET', steps: [parseScopeGuard, connectionRateLimitGuard, handleAcceptInviteStep] },
+      { path: `${P}/:scope/email-magic-link`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, turnstileGuard, handleEmailMagicLinkStep] },
+      { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
+      { path: `${P}/:scope/logout`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutStep] },
+      { path: `${P}/:scope/invite`, method: 'POST', steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInviteStep] },
+      { path: `${P}/:scope/mint-narrower-token`, method: 'POST', steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, mintNarrowerTokenStep] },
+    ];
+  }
 }
 
 /** Compiled-table cache, keyed on the `env` OBJECT. Production passes the same `env` every request
@@ -272,7 +319,7 @@ const pipelineCache = new WeakMap<object, RouteRunner>();
 function authPipeline(env: Env): RouteRunner {
   let runner = pipelineCache.get(env);
   if (runner === undefined) {
-    runner = buildAuthPipeline(env);
+    runner = createRouter(buildAuthRouteTable(env));
     pipelineCache.set(env, runner);
   }
   return runner;
@@ -324,8 +371,10 @@ export async function routeNebulaAuthRequest(
 ): Promise<Response | undefined> {
   const url = new URL(request.url);
 
-  const parsed = parsePath(url.pathname);
-  if (!parsed) return undefined;
+  // Not under the prefix (or the bare prefix itself) → not ours; the caller's router chain
+  // composes with `||`, so `undefined` means "try the next one".
+  if (!url.pathname.startsWith(NEBULA_AUTH_PREFIX + '/')) return undefined;
+  if (url.pathname.length === NEBULA_AUTH_PREFIX.length + 1) return undefined;
 
   const corsDecision = applyCorsPolicy(request, options.cors ?? false);
   if (corsDecision.earlyResponse) return corsDecision.earlyResponse;
@@ -334,22 +383,16 @@ export async function routeNebulaAuthRequest(
     allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
 
   try {
-    // The route-pipeline table owns every route migrated onto it (each entry states its complete
-    // requirement, in order); anything it does not match falls through to the suffix dispatch
-    // below. A path the table knows under a different verb answers 405 from the runner itself.
+    // The route-pipeline table IS the registration — each entry states its complete requirement,
+    // in order. A path the table knows under a different verb answers 405 from the runner itself;
+    // a path it does not know reaches no handler and 404s here.
     const piped = await authPipeline(env)(request);
     if (piped !== undefined) return withCors(piped);
-
-    if (parsed.type === 'registry') {
-      return withCors(await handleRegistryPath(request, env, parsed.endpoint));
-    }
-    return withCors(await handleInstancePath(request, env, parsed.instanceName, parsed.endpoint));
+    return withCors(new Response('Not Found', { status: 404 }));
   } catch (err) {
     debug('nebula-auth.router.dispatch').error('dispatcher threw', {
       path: url.pathname,
       method: request.method,
-      parsedType: parsed.type,
-      parsedTarget: parsed.type === 'registry' ? parsed.endpoint : parsed.instanceName,
       error: err instanceof Error ? err.message : String(err),
       name: err instanceof Error ? err.name : undefined,
     });
@@ -358,10 +401,13 @@ export async function routeNebulaAuthRequest(
 }
 
 // ============================================
-// Registry path handler — Turnstile / JWT gating, then forward to the registry DO
+// Forward plumbing — the registry-bound terminals' shared pieces
 // ============================================
 
-/** Forward to the registry DO with the given body reconstructed (self-contained; avoids stream races). */
+/** Rebuild-and-forward to the registry DO — used ONLY by the injecting terminals
+ *  (`forwardWithAccess` / `forwardWithClaims`), because a rebuild is licensed only to inject
+ *  trusted claims the DO cannot derive (`raw-comm.md`). Note a rebuild drops every header but the
+ *  one set here; the open rows forward RAW for exactly that reason. */
 function forwardToRegistry(request: Request, env: Env, body: Record<string, any>): Promise<Response> {
   const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
   return registryStub.fetch(new Request(request.url, {
@@ -374,100 +420,6 @@ function forwardToRegistry(request: Request, env: Env, body: Record<string, any>
 async function readJsonBody(request: Request): Promise<Record<string, any> | null> {
   try { return await request.json() as Record<string, any>; }
   catch { return null; }
-}
-
-async function handleRegistryPath(request: Request, env: Env, endpoint: string): Promise<Response> {
-  // Registry endpoints are POST-only. Forward a non-POST raw (no body-injection, which would build an
-  // invalid GET-with-body) so the registry DO answers with its own 405.
-  if (request.method !== 'POST') {
-    return env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
-  }
-
-  if (TURNSTILE_ENDPOINTS.has(endpoint)) {
-    const turnstileResult = await checkTurnstile(request, env);
-    if (turnstileResult) return turnstileResult;
-  }
-
-  // create-galaxy / create-star / my-scopes — authenticated admin ops; inject the verified access claim.
-  if (endpoint === 'create-galaxy' || endpoint === 'create-star' || endpoint === 'my-scopes') {
-    const jwtResult = await checkJwtForRegistry(request, env);
-    if ('error' in jwtResult) return jwtResult.error;
-    const body = (await readJsonBody(request)) ?? {}; // my-scopes carries no body
-    body.verifiedAccess = jwtResult.payload.access;
-    return forwardToRegistry(request, env, body);
-  }
-
-  // delete-scope(-plan) — inject BOTH the verified access claim AND the verified caller `sub` (the
-  // registry's caller-exclusion in the bounded `affectedUsers` warning needs a TRUSTED caller identity —
-  // never client-supplied;
-  // `sub`, resolved to email inside the registry, replaces the retired JWT `email` claim).
-  if (endpoint === 'delete-scope-plan' || endpoint === 'delete-scope') {
-    const jwtResult = await checkJwtForRegistry(request, env);
-    if ('error' in jwtResult) return jwtResult.error;
-    const body = await readJsonBody(request);
-    if (!body) return jsonError(400, 'invalid_request', 'Request body must be JSON');
-    // ⚠️ **Trust boundary — ASSIGN, never merge.** The carrier is a client-supplied JSON body this
-    // router mutates, and the registry's guards are presence-only, so they cannot tell an injected
-    // value from a client-supplied one. Assign unconditionally (no `??=`, no spread-merge), and note
-    // that `executeScopeDeletion` takes the claims as an explicit PARAMETER rather than reading a body
-    // key — so a future branch that forgets this line fails closed instead of silently trusting input.
-    body.verifiedAccess = jwtResult.payload.access;
-    body.callerSub = jwtResult.payload.sub;
-    // ADR-016: a destructive action records the FULL verified claims of the ACTING token — the
-    // subject `sub`, the complete `act` chain, `profileId`, and the `access` entry. Under
-    // impersonation `callerSub` alone is the person acted UPON, so a `sub`-only record names them as
-    // the person who acted. (`delete-scope-plan` writes no record and ignores this field.)
-    body.callerClaims = jwtResult.payload;
-    return forwardToRegistry(request, env, body);
-  }
-
-  // discover / claim-universe / claim-star — open (Turnstile only). These inject NOTHING, so forward
-  // the ORIGINAL request rather than rebuilding it: no parse, no re-serialize, every header survives,
-  // and the DO reads `url.origin` off it to build the emailed link. `checkTurnstile` clone()s for its
-  // body read, so the body is still intact here. (Rebuilding also silently dropped every header but
-  // Content-Type, and made a malformed body indistinguishable from an empty one — the registry's own
-  // JSON guard now owns that, returning 400 `invalid_request` instead of a 500.)
-  return env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME).fetch(request);
-}
-
-// ============================================
-// Instance path handler — token flows in the Worker
-// ============================================
-
-async function handleInstancePath(
-  request: Request, env: Env, instanceName: string, endpoint: string,
-): Promise<Response> {
-  try { parseId(instanceName); }
-  catch (err) {
-    debug('nebula-auth.router.instanceParse').debug('invalid instance name', {
-      instanceName, error: err instanceof Error ? err.message : String(err),
-    });
-    return jsonError(400, 'invalid_instance', 'Invalid instance name format');
-  }
-
-  const suffix = endpointSuffix(endpoint);
-
-  // Auth flows — handled in the Worker (Turnstile on email-magic-link).
-  if (AUTH_FLOW_SUFFIXES.has(suffix)) {
-    if (suffix === 'email-magic-link') {
-      if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-      const turnstileResult = await checkTurnstile(request, env);
-      if (turnstileResult) return turnstileResult;
-      return handleEmailMagicLink(request, env, instanceName);
-    }
-    // `instanceName` is passed only so a FAILED consume can pick a landing surface for its error
-    // redirect — the success path derives that from the consumed token's scope instead.
-    if (suffix === 'magic-link' && request.method === 'GET') return handleMagicLinkClick(request, env, instanceName);
-    if (suffix === 'accept-invite' && request.method === 'GET') return handleAcceptInvite(request, env, instanceName);
-    if (suffix === 'refresh-token' && request.method === 'POST') return handleRefreshToken(request, env);
-    if (suffix === 'logout' && request.method === 'POST') return handleLogout(request, env, instanceName);
-    return new Response('Method Not Allowed', { status: 405 });
-  }
-
-  // The authenticated instance routes (`invite`, `mint-narrower-token`) live in the route-pipeline
-  // table, which ran before this dispatch — an unrecognized suffix lands here and 404s, reaching
-  // no handler.
-  return new Response('Not Found', { status: 404 });
 }
 
 // ============================================
@@ -497,11 +449,20 @@ export function isTurnstileBypassed(request: Request, env: object): boolean {
   return presented !== null && constantTimeEqual(presented, bypassToken);
 }
 
+/**
+ * `null` = pass through, a `Response` = refuse. Exactly two pass-through paths: an absent (or
+ * empty) `TURNSTILE_SECRET_KEY` — how development and every vitest lane run (the configs bind it
+ * `''` explicitly, which wins over a `.dev.vars` value) — and the authorized bypass header.
+ * ⚠️ There is deliberately NO `NEBULA_AUTH_TEST_MODE` short-circuit here: one flag that both hands
+ * out magic links AND disables the only bound on the unauthenticated endpoints is strictly worse
+ * to leak than one that does the first alone (`security.md` — that binding has no second factor),
+ * and the short-circuit made a gated endpoint byte-identical to an ungated one under every test
+ * lane. A test that wants gating ON binds Cloudflare's always-fail dummy secret
+ * (`2x0000000000000000000000000000000AA`) and drives the real path.
+ */
 async function checkTurnstile(request: Request, env: Env): Promise<Response | null> {
-  if ((env as any).NEBULA_AUTH_TEST_MODE === 'true') return null;
-
   const secretKey = (env as any).TURNSTILE_SECRET_KEY;
-  if (!secretKey) return null; // No Turnstile configured — skip (development)
+  if (!secretKey) return null; // No Turnstile configured — skip (development + test lanes)
 
   if (isTurnstileBypassed(request, env)) {
     debug('nebula-auth.router.turnstileBypass').info('Turnstile bypassed via authorized token', {
@@ -529,25 +490,8 @@ async function checkTurnstile(request: Request, env: Env): Promise<Response | nu
 }
 
 // ============================================
-// JWT verification for registry paths
+// Rate limiting
 // ============================================
-
-/** Verify a Bearer access token for a registry admin op (no instance gate; the registry enforces admin). */
-async function checkJwtForRegistry(
-  request: Request,
-  env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit },
-): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return { error: json401('invalid_request', 'Missing Authorization header with Bearer token') };
-  }
-  const payload = await verifyNebulaAccessToken(authHeader.slice(7), env);
-  if (!payload) return { error: json401('invalid_token', 'Token is invalid or expired') };
-
-  const rateLimited = await checkRateLimit(env, payload.sub);
-  if (rateLimited) return { error: rateLimited };
-  return { payload };
-}
 
 async function checkRateLimit(
   env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit }, sub: string,

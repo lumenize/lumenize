@@ -38,7 +38,7 @@ describe('the Registry constructor runs the check', () => {
     const emitted = protectionEntries(sink);
     for (const { config, level } of UNCONFIGURED_PROTECTIONS) {
       const matching = emitted.filter((e) => e.data.protection === config);
-      if ((env as Record<string, unknown>)[config]) {
+      if ((env as unknown as Record<string, unknown>)[config]) {
         expect(matching).toHaveLength(0);
       } else {
         expect(matching).toHaveLength(1);

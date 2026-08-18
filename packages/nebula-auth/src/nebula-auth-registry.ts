@@ -506,9 +506,10 @@ export class NebulaAuthRegistry extends DurableObject {
    * scope would put `{u}` in their claim — a universe admin wearing a star's name; the confinement
    * *enforces* a scope, it does not *validate* it).
    *
-   * ⚠️ Turnstile is NOT applied here — the gate is `TURNSTILE_ENDPOINTS` in `router.ts`, a separate
-   * `Set` this method never touches. Removing `claim-star` from it silently ships an ungated open
-   * mutation endpoint that mints identities and sends mail.
+   * ⚠️ Turnstile is NOT applied here — the gate is `turnstileGuard`, a step in this route's entry
+   * in `router.ts`'s route table, which this method never touches. Dropping that step from the
+   * `claim-star` row silently ships an ungated open mutation endpoint that mints identities and
+   * sends mail — the behavioural gating sweep in `turnstile-bypass.test.ts` is what reds on it.
    *
    * @param origin  read off the forwarded request by `fetch()`, never client-supplied — it builds the
    *                emailed link, so a client-controlled value would be an open-redirect vector.
@@ -1307,6 +1308,17 @@ export class NebulaAuthRegistry extends DurableObject {
     const url = new URL(request.url);
     const prefix = NEBULA_AUTH_PREFIX;
 
+    // Entry marker: a request the edge is going to REFUSE (wrong verb, unknown path, failed guard)
+    // must never enter the singleton — an edge 405 and a DO 405 are identical to the caller, so
+    // tests assert non-entry through the debug sink on this line. `headerNames` (names only, never
+    // values) is what makes forward FIDELITY observable: a raw forward preserves every header,
+    // where a rebuild drops all but Content-Type. Pathname only — never the full URL.
+    debug('nebula-auth.Registry.fetch').debug('entry', {
+      method: request.method, pathname: url.pathname,
+      headerNames: [...request.headers.keys()],
+    });
+
+    // Defense in depth: the edge already answers 405 itself; this holds for any non-router caller.
     if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
     const endpoint = url.pathname.slice(prefix.length + 1); // after '/auth/'
 

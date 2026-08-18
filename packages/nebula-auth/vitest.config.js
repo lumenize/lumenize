@@ -33,6 +33,13 @@ export default defineConfig({
           miniflare: {
             bindings: {
               NEBULA_AUTH_TEST_MODE: 'true',
+              // ⚠️ Explicitly EMPTY, and load-bearing: bindings win over `.dev.vars`, so this holds
+              // Turnstile OFF for the suite on any checkout — even one whose `.dev.vars` carries a
+              // real key. `checkTurnstile` no longer short-circuits on NEBULA_AUTH_TEST_MODE (that
+              // coupling let every test that wanted links also silently disable gating); the
+              // absent/empty secret is the one sanctioned skip. A test that wants gating ON passes
+              // a per-call env spread with the always-fail dummy secret.
+              TURNSTILE_SECRET_KEY: '',
               // Comma-separated bootstrap-admin list. The first entry keeps every existing
               // single-email test green (still a member); the second — with a LEADING SPACE and
               // MIXED CASE — exercises the getter's per-element trim+lowercase (nebula-auth-bootstrap-array

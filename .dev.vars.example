@@ -63,9 +63,12 @@ LUMENIZE_AUTH_REDIRECT=/app
 # LUMENIZE_AUTH_INVITE_TTL=604800
 # LUMENIZE_AUTH_PREFIX=/auth
 
-# Cloudflare Turnstile (required for magic link endpoint)
-# Get your secret key at: https://dash.cloudflare.com/turnstile
-TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
+# Cloudflare Turnstile (get your secret key at: https://dash.cloudflare.com/turnstile).
+# ⚠️ LEAVE UNSET for local dev + the test suites: an absent/empty key is what skips the gate
+# (`checkTurnstile` no longer short-circuits on NEBULA_AUTH_TEST_MODE). The vitest configs bind
+# TURNSTILE_SECRET_KEY='' explicitly so a value here cannot reach them, but `wrangler dev` reads
+# this file directly — a real key here sends every local login at a real `siteverify`.
+# TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
 
 # Turnstile BYPASS token — a high-entropy secret that lets the trusted `/live` prod-drive skip
 # Turnstile (nebula-auth router.checkTurnstile) by presenting it as the `x-lumenize-turnstile-bypass`

@@ -326,6 +326,150 @@ describe('the rate limiter survives the decomposition', () => {
   });
 });
 
+describe('the table is the sole registration (Phase 2 — every route in it)', () => {
+  it('every entry declares a method — asserted over the exported table, so a new row inherits it', async () => {
+    const { buildAuthRouteTable } = await import('../src/router');
+    const { env } = await import('cloudflare:test');
+    const table = buildAuthRouteTable(env as any);
+    expect(table.length).toBeGreaterThan(0); // the assertion below is vacuous over an empty table
+    for (const entry of table) {
+      // The runner treats an absent method as ANY verb — silently permissive on every one of
+      // these single-verb routes.
+      expect(entry.method, entry.path).toBeDefined();
+    }
+  });
+
+  it('a wrong verb answers 405 from the edge on routes that used to fall through', async () => {
+    const u = uni();
+    // logout / refresh-token / create-galaxy each pass every other criterion while accepting any
+    // verb if their entry drops its method.
+    expect((await SELF.fetch(new Request(url(u, 'logout'), { method: 'GET' }))).status).toBe(405);
+    expect((await SELF.fetch(new Request(url(u, 'refresh-token'), { method: 'PUT' }))).status).toBe(405);
+    expect((await SELF.fetch(new Request('http://localhost/auth/create-galaxy', { method: 'GET' }))).status).toBe(405);
+  });
+
+  it('a throwaway suffix on the SCOPE-LESS family also 404s (no enumeration survives beside the table)', async () => {
+    expect((await SELF.fetch(new Request('http://localhost/auth/frob', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }))).status).toBe(404);
+  });
+});
+
+describe('no request the edge is going to REFUSE reaches the singleton', () => {
+  it('GET /auth/claim-universe answers 405 at the edge and the Registry is never entered', async () => {
+    // Positive control FIRST: a request the edge admits does emit the entry marker — otherwise the
+    // absence below is the marker being broken, not the singleton being protected.
+    const admitted = await SELF.fetch(new Request('http://localhost/auth/discover', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'entry-probe@example.com' }),
+    }));
+    expect(admitted.status).toBe(200);
+    expect(sink.filter((e) => e.namespace === 'nebula-auth.Registry.fetch').length).toBeGreaterThan(0);
+
+    const mark = sink.length;
+    const refused = await SELF.fetch(new Request('http://localhost/auth/claim-universe', { method: 'GET' }));
+    // An edge 405 and a DO 405 are identical to the caller — the sink is what distinguishes them.
+    // Reds against the old forward-before-checking, which woke the singleton with a bare GET,
+    // unauthenticated and unrate-limited (ADR-018: an anonymous path to the one DO is an outage).
+    expect(refused.status).toBe(405);
+    expect(sink.slice(mark).filter((e) => e.namespace === 'nebula-auth.Registry.fetch')).toHaveLength(0);
+  });
+
+  it('a malformed scope on a FLOW route is refused by the parse and the Registry is never entered', async () => {
+    const mark = sink.length;
+    const resp = await SELF.fetch(new Request('http://localhost/auth/bad..name/email-magic-link', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'x@example.com' }),
+    }));
+    expect(resp.status).toBe(400);
+    expect((await resp.json() as any).error).toBe('invalid_instance');
+    expect(registryEntriesSince(mark)).toHaveLength(0);
+  });
+});
+
+describe('each forward terminal preserves what its row is allowed to touch', () => {
+  it('an OPEN row forwards RAW: an arbitrary header reaches the DO, and a malformed body gets the DO\'s own 400', async () => {
+    // Header fidelity — reds against collapsing the terminals into one rebuild, which drops every
+    // header but Content-Type while leaving every status-only assertion green.
+    const mark = sink.length;
+    const withHeader = await SELF.fetch(new Request('http://localhost/auth/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forward-fidelity-probe': '1' },
+      body: JSON.stringify({ email: 'fidelity-probe@example.com' }),
+    }));
+    expect(withHeader.status).toBe(200);
+    const entries = sink.slice(mark).filter((e) => e.namespace === 'nebula-auth.Registry.fetch');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].data.headerNames).toContain('x-forward-fidelity-probe');
+
+    // Body fidelity — a rebuild absorbs malformed JSON into `{}` at the edge, so the DO would
+    // answer a field-level 400 instead of its own JSON guard's `invalid_request`.
+    const malformed = await SELF.fetch(new Request('http://localhost/auth/claim-universe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not json{',
+    }));
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json() as any).error).toBe('invalid_request');
+  });
+
+  it('a forwardWithClaims row delivers callerClaims: the deletion record names the acting principal', async () => {
+    // The full ADR-016 record shape (all four elements, under impersonation) is asserted in
+    // mint-narrower-token.test.ts § scope deletion records the acting principal; this limb pins
+    // that the TERMINAL delivers the claims at all, on the plain (non-impersonated) path.
+    const u = uni();
+    const admin = await foundUniverse(SELF, u, 'admin@example.com');
+    const star = `${u}.app.tenant`;
+    const starAdmin = await foundStarAndLogin(SELF, star, 'del-admin@example.com', admin.access_token);
+
+    const mark = sink.length;
+    const resp = await SELF.fetch(new Request('http://localhost/auth/delete-scope', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${starAdmin.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: star }),
+    }));
+    expect(resp.status).toBe(200);
+    const record = sink.slice(mark).find((e) =>
+      e.namespace === 'nebula-auth.Registry.executeScopeDeletion' && e.message === 'Scope deleted');
+    expect(record).toBeDefined();
+    expect(record.data.actingToken.sub).toBe(starAdmin.parsed.sub);
+    expect(record.data.actingToken.access).toEqual({ authScope: star, scopeAdmin: true });
+  });
+});
+
+describe('the connection-keyed limiter actually bounds an anonymous caller', () => {
+  it('cookie-less logout POSTs from ONE connection loop past the limit and 429; the Registry is not entered', async () => {
+    // Driven through routeNebulaAuthRequest directly so the CF-Connecting-IP header survives (the
+    // fetch hop may not preserve a trusted header), keyed to a unique IP so no other test shares
+    // the bucket. Reds against declaring the guard and never declaring its binding — a no-op that
+    // greens everything.
+    const { routeNebulaAuthRequest } = await import('../src/router');
+    const { env } = await import('cloudflare:test');
+    const u = uni();
+    const ip = `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+    const mark = sink.length;
+    let limited: Response | undefined;
+    for (let i = 0; i < 120; i++) {
+      const resp = await routeNebulaAuthRequest(new Request(url(u, 'logout'), {
+        method: 'POST', headers: { 'CF-Connecting-IP': ip },
+      }), env as any);
+      if (resp!.status === 429) { limited = resp; break; }
+      expect(resp!.status).toBe(200);
+    }
+    expect(limited).toBeDefined();
+    expect((await limited!.json() as any).error).toBe('rate_limited');
+    expect(registryEntriesSince(mark)).toHaveLength(0);
+  });
+
+  it('the control: with NO CF-Connecting-IP header the key does not collapse to a constant (no 429s)', async () => {
+    // Reds if the absent-header fallback becomes a shared constant key — which would also 429 the
+    // whole suite into what look like auth failures.
+    const u = uni();
+    for (let i = 0; i < 120; i++) {
+      const resp = await SELF.fetch(new Request(url(u, 'logout'), { method: 'POST' }));
+      expect(resp.status).toBe(200);
+    }
+  });
+});
+
 describe('a superuser passes every instance-scoped route', () => {
   it('a platform caller passes /auth/{u}/invite (the root branch, not a special arm)', async () => {
     const u = uni();

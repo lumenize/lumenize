@@ -266,6 +266,17 @@ Three phases, ordered by dependency. Each leaves the suite **no worse than the r
 
 ### Phase 2 — Every route in the table, at its CURRENT path
 
+> ✅ **BUILT 2026-08-18.** Mechanical as predicted — zero pre-existing tests changed verdicts. One
+> reading to record: this phase's body says `turnstileGuard`'s "three pass-through paths
+> (test-mode binding, absent secret, authorized bypass) MUST survive as they are", while the
+> Decisions table and the gating criterion delete the test-mode short-circuit in the same phase.
+> Resolved per the Decisions table (which wins): the short-circuit is DELETED; the test-mode
+> *lanes* still pass through, now via the explicit `TURNSTILE_SECRET_KEY: ''` bindings (all three
+> lanes that bind `NEBULA_AUTH_TEST_MODE` got one, same commit), so every configured environment's
+> outcome is unchanged while gating became per-test observable. The Registry's `fetch` entry marker
+> logs header NAMES (never values) — that is what makes forward fidelity (raw vs rebuild)
+> assertable through the sink.
+
 The remaining routes move into the pipeline at the paths they already have; `TURNSTILE_ENDPOINTS`, `REGISTRY_ENDPOINTS` and `AUTH_FLOW_SUFFIXES` are **deleted**, leaving the table as the sole registration.
 
 **Mechanical by construction, and that is now literally true** — each equality branch becomes a table entry with the checks it already ran, in the order it already ran them. No path changes, no verdict changes, no new capability. ⚠️ **A route whose migrated list changes what it refuses is a BUG in the migration, not an improvement** — the first place to look is `turnstileGuard`, whose three pass-through paths (test-mode binding, absent secret, authorized bypass) MUST survive as they are.
