@@ -7,7 +7,7 @@ there is nothing to isolate.
 
 | Question | Answer |
 |---|---|
-| Does the FUSE mount carry our real `vite build`? | ✅ **Yes — 1.05× median** (§1) |
+| Does the FUSE mount carry our real `vite build`? | ✅ **Yes — 1.05× median** — source + dist only, deps on ext4 (§1) |
 | Cost of `computerd` + FUSE at container boot | ⚠️ **+~1.5–2 s** over the old baseline (§2) |
 | What does getting `dist` back to the DO cost? | ✅ **0 ms — it is already there** (§3) |
 | Worker startup cost of importing `@cloudflare/computer` | ✅ **20–22 ms / 346 KiB** (§4) |
@@ -17,7 +17,7 @@ there is nothing to isolate.
 | Net startup cost vs `@cloudflare/shell` | ✅ **−12.4 ms, −207 KiB** (§7b) |
 | Does the native Tailwind oxide plugin run on the mount? | ✅ **Yes — verified, real JIT CSS** (§7c) |
 | Can `node_modules` live in the VFS and survive container death? | ✅ Yes — **but it is not worth it** (§7c, §7e) |
-| Best `node_modules` placement? | ✅ **ext4 — both hybrids lose** (§7e) |
+| Best `node_modules` placement? | ⚠️ **ext4 — both hybrids lose**; deps through FUSE ≈ **1.97×** (§7e) |
 | Does a tenant container have npm registry egress? | ✅ **Yes, HTTP 200 in 46–57 ms** (§7e) |
 | Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
 | What dominates a turn once a user adds a heavy lib? | ⚠️ On vite 6, **bundling** (4.2 s → 11–18.5 s) (§7f) — **fixed by vite 8** (§7g) |
