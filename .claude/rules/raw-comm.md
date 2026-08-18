@@ -16,7 +16,9 @@ How a DO is invoked and how it talks when it is **not** on the Mesh abstraction.
 ⚠️ **Nebula platform code (`apps/nebula`) MUST NOT use any of this** — it communicates only through Mesh ([mesh.md](mesh.md)). If you're writing application/platform logic and reaching for a raw primitive below, you're in the wrong file. (Which layer am I? → [workers-projects.md](workers-projects.md).) Local DO correctness — storage, sync methods, etc. — still applies regardless: [durable-objects.md](durable-objects.md).
 
 ## Route pattern (`fetch()`)
-HTTP routes SHOULD be handled in `fetch()` via URL path matching, delegating to `#`-prefixed handler methods. Direct `if` matching is efficient enough — a hono router dependency MUST NOT be added unless you have more than a dozen routes and/or signficant middleware needs.
+HTTP routes SHOULD be handled in `fetch()` via URL path matching, delegating to `#`-prefixed handler methods. Direct `if` matching is efficient enough for a handful of routes.
+
+**A third-party router dependency MUST NOT be added.** Where a route *table* with ordered middleware is genuinely warranted, that shape is already in-repo — `packages/nebula-auth/src/route-pipeline.ts`, a small runner written against the path-parameter and middleware-list patterns those libraries popularised, with no dependency and no public-API commitment. It is `nebula-auth`-local by design (`@lumenize/routing` is published MIT, so a runner there would be semver-bound); another package that outgrows `if` matching writes its own rather than importing this one or adding a dep.
 
 ```typescript
 async fetch(request: Request): Promise<Response> {
