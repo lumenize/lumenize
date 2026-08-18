@@ -38,15 +38,6 @@
  * - **`access-claims.ts` `buildNebulaJwtPayload` — mint-side construction invariant · STRUCTURAL.**
  *   The same assertion on the way out, so an inconsistent token is impossible to *construct* rather
  *   than merely rejected downstream. Again no `scopeAdmin` operand.
- * - **`router.ts` `verifyInstanceJwt` — DOMINION, split across a FILE boundary · BOTH siblings named.**
- *   The containment half only. **Two** handlers complete the conjunction with their own bare
- *   `scopeAdmin` reads — `worker-token.ts`'s `handleInvite` *and* `mintNarrowerToken` — and a
- *   sweeper who follows only the first looks in the wrong place for the second.
- *   ⚠️ **Why the bit does not belong here, stated so it is checkable:** it is NOT that adding it
- *   would break something today — both routes currently behind this gate require the bit anyway,
- *   so adding it would break nothing *now*. It is that this gate's contract is **containment**, and
- *   the bit would silently make it **dominion** for every route added behind it later — including
- *   the non-admin route steps `tasks/nebula-registry-route-guards.md` is about to introduce.
  * - **`worker-token.ts` `handleRefreshToken` — the `activeScope` confine · STRUCTURAL.** Bounds a
  *   client-supplied scope inside the KV record's server-trusted one. The record *is* the authority,
  *   so no claim is consulted and no bit applies.

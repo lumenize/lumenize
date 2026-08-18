@@ -43,6 +43,18 @@
         "limit": 100,
         "period": 60
       }
+    },
+    // Connection-keyed limiter for the routes that present no token (forged-cookie / open-route
+    // faucets). A SECOND declaration because Cloudflare's rate limiter is per-binding; the key is
+    // `CF-Connecting-IP` with allow-on-absent, so this lane (where miniflare supplies no such
+    // header) never collapses every caller onto one key.
+    {
+      "name": "NEBULA_AUTH_CONNECTION_RATE_LIMITER",
+      "namespace_id": "2002",
+      "simple": {
+        "limit": 100,
+        "period": 60
+      }
     }
   ],
   "vars": {

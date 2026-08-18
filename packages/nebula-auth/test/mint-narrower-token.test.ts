@@ -22,8 +22,8 @@ import { isAtOrAbove } from '../src/parse-id';
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
 
 // ── The OLD surface is gone (the coordinated wire-contract rename) ────────────────────────────────
-// Both assertions are capable of failing: an `actFor` alias reds the first, and leaving
-// `delegated-token` in `AUTHENTICATED_SUFFIXES` reds the second.
+// Both assertions are capable of failing: an `actFor` alias reds the first, and a `delegated-token`
+// entry in the route-pipeline table reds the second.
 describe('the pre-rename surface is gone', () => {
   it('the old BODY FIELD is gone — `{ actFor }` on the new route → 400 subOfNarrowerToken required', async () => {
     const u = uni();
@@ -40,9 +40,8 @@ describe('the pre-rename surface is gone', () => {
   });
 
   it('the old ROUTE is gone — POST /delegated-token with NO Bearer → 404, not 401', async () => {
-    // The no-Bearer probe is what discriminates: `handleInstancePath` dispatches through a catch-all
-    // `else`, so a still-registered suffix would reach `verifyInstanceJwt` and answer 401. A 404 proves
-    // the suffix left `AUTHENTICATED_SUFFIXES`.
+    // The no-Bearer probe is what discriminates: a route registered in the pipeline table would
+    // reach `verifyJwtGuard` and answer 401. A 404 proves the suffix has no table entry.
     const u = uni();
     const resp = await SELF.fetch(new Request(url(u, 'delegated-token'), {
       method: 'POST',

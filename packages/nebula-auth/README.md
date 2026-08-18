@@ -36,7 +36,11 @@ Every route takes one of exactly two shapes — the rule is in [`.claude/rules/r
 - **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation (claim / create / query / delete on registry storage). The Worker does only the cross-cutting pre-checks that need env + secrets and produce **trusted claims** — Turnstile, JWT verify — then injects `verifiedAccess` (and `callerSub` for deletes) into the body and forwards. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
 - **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `consumeMagicLink`, `issueInvites`, …).
 
-The two endpoint sets are declared at the top of `router.ts`:
+The two authenticated instance routes (`invite`, `mint-narrower-token`) are registered in the
+**route-pipeline table** in `router.ts` — each entry is `{ path, method, steps }`, and the ordered
+step list IS the route's complete requirement (`parseScopeGuard` → `verifyJwtGuard` →
+`subRateLimitGuard` → `passageGuard` → `dominionOverScopeGuard` → the handler). The remaining
+endpoint sets are declared at the top of `router.ts`:
 
 ```typescript
 // Forwarded to the registry DO
@@ -44,7 +48,6 @@ REGISTRY_ENDPOINTS  = { discover, claim-universe, create-galaxy, create-star,
                         my-scopes, delete-scope-plan, delete-scope }
 // Handled in the Worker (worker-token.ts)
 AUTH_FLOW_SUFFIXES  = { email-magic-link, magic-link, accept-invite, refresh-token, logout }
-AUTHENTICATED_SUFFIXES = { invite, mint-narrower-token }
 TURNSTILE_ENDPOINTS = { email-magic-link, claim-universe, discover }
 ```
 
@@ -85,19 +88,20 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 The gate lands in two places depending on the route shape:
 
-- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the Worker verifies the Bearer/WebSocket token and requires `isAtOrAbove(access.authScope, instanceName)` before dispatching. `handleInvite` then checks the bare `scopeAdmin` bit — safe *only* because the router already proved the containment half, which is why that line must never be copied to a site lacking the router's check.
+- **Instance-path authenticated endpoints** (`invite`, `mint-narrower-token`): the route pipeline asks the whole question at the edge, in one place — `dominionOverScopeGuard` calls `hasDominionOver(claims.access, scope)` against the URL's validated scope (after `passageGuard`, the same boundary verdict a mesh node computes). The handlers carry no gate of their own; there is no conjunction split across files and no bare-bit read anywhere on the path. The token is read from the `Authorization: Bearer` header only.
 - **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — its query is bounded by the caller's own `authScope`, so the result set can never exceed their dominion.
 
 ### Worker gating pipeline
 
 | Stage | Applies to |
 |---|---|
-| Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`) |
+| Path parse + `parseId` validation | All (invalid scope id → `400 invalid_instance`); on pipeline routes this is the `parseScopeGuard` step |
 | CORS policy (`@lumenize/routing`) | All, per `RouteNebulaAuthOptions.cors` |
 | Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
-| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated instance + registry endpoints |
-| Scope containment (`isAtOrAbove(access.authScope, instanceName)`) | Instance-path authenticated endpoints only |
-| Per-`sub` rate limit | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
+| JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated instance (`verifyJwtGuard`, Bearer-only) + registry endpoints |
+| Per-`sub` rate limit (`subRateLimitGuard`) | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
+| Passage boundary (`passageGuard` → `hasPassageInto`) | Instance-path authenticated endpoints (the same verdict a mesh node's boundary computes) |
+| Dominion (`dominionOverScopeGuard` → `hasDominionOver`) | Instance-path authenticated endpoints — refuses `forbidden` (no `scopeAdmin`) or `insufficient_scope` (admin, but the scope is outside their own) |
 
 Turnstile is skipped when `NEBULA_AUTH_TEST_MODE === 'true'`, when no `TURNSTILE_SECRET_KEY` is configured (development), or when the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
@@ -140,8 +144,8 @@ Registry paths are identified by exact match of the whole path remainder against
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `/auth/{scope}/invite` | POST | JWT + scope match + `admin` + rate limit | Worker | Mint invitee identities + single-use invite tokens, send the emails |
-| `/auth/{scope}/mint-narrower-token` | POST | JWT + scope match + rate limit | Worker | Mint a scope-bounded narrower token for another person (`sub` = the subject, `act.sub` = the caller). Requires `{ subOfNarrowerToken, activeScope }`. Admin branch only |
+| `/auth/{scope}/invite` | POST | pipeline: scope parse + JWT + `sub` rate limit + passage + dominion | Worker | Mint invitee identities + single-use invite tokens, send the emails |
+| `/auth/{scope}/mint-narrower-token` | POST | pipeline: scope parse + JWT + `sub` rate limit + passage + dominion | Worker | Mint a scope-bounded narrower token for another person (`sub` = the subject, `act.sub` = the caller). Requires `{ subOfNarrowerToken, activeScope }`. Admin branch only |
 
 ### Registry endpoints
 

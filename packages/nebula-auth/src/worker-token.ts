@@ -394,34 +394,19 @@ export async function handleLogout(request: Request, env: Env, instanceName: str
 // ── invite (admin) ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Issue invites into an existing scope. The router has verified the caller's JWT + scope match; the
- * registry enforces admin-over-scope and mints the invitee identities + tokens. `email` is not needed
- * from the JWT — the registry owns identity.
+ * Issue invites into an existing scope. The route pipeline has already proved the caller's identity
+ * AND dominion over `instanceName` in one place (`verifyJwtGuard` → `passageGuard` →
+ * `dominionOverScopeGuard` in `router.ts`), so this handler carries no gate of its own; the
+ * registry mints the invitee identities + tokens. `email` is not needed from the JWT — the registry
+ * owns identity.
  */
 export async function handleInvite(
   request: Request, env: Env, instanceName: string, callerClaims: NebulaJwtPayload,
 ): Promise<Response> {
-  // ⚠️ Takes the WHOLE verified payload, not just `access`. The gate below needs only the admin bit,
-  // but issuing an invite mints a membership — an authority change — so ADR-016 requires a record of
-  // the full acting token, `act` chain included. Narrowing to `access` here would make that record
-  // unbuildable downstream without re-verifying, and a `sub`-only record names the person acted upon
-  // as the person who acted.
-  const verifiedAccess = callerClaims.access;
-  // Admin gate HERE (the Worker is the trusted gate): the router already verified the JWT + the
-  // containment (isAtOrAbove(authScope, instanceName)); `scopeAdmin === true` completes dominion.
-  // Gating here keeps the registry RPC throw-free for this expected client error (RPC drops props).
-  //
-  // ✅ CONFINED — but by the ROUTER, not by this line. The invariant: `router.ts` runs
-  // `isAtOrAbove(access.authScope, instanceName)` before dispatching here, so by the time
-  // this executes, "covers this scope" is already proven and the bare bit legitimately completes
-  // the conjunction. That split is the whole reason this read is safe, and it is why this line
-  // must never be copied to a site that lacks the router's check.
-  // ⚠️ This gate is about to matter far more: nebula-auth-identity-mint.md Phase 1 turns
-  // `issueInvites` from member-minting into ADMIN-minting, and that task's §2 requires the safety
-  // not rest on a single Worker line — it adds an in-method re-assertion in `issueInvites`,
-  // matching `createGalaxy`/`createStar`. Do not treat this line as sufficient after that lands.
-  if (verifiedAccess.scopeAdmin !== true) return errorResponse(403, 'forbidden', 'Admin access required');
-
+  // ⚠️ Takes the WHOLE verified payload, not just `access`: issuing an invite mints a membership —
+  // an authority change — so ADR-016 requires a record of the full acting token, `act` chain
+  // included. Narrowing to `access` here would make that record unbuildable downstream without
+  // re-verifying, and a `sub`-only record names the person acted upon as the person who acted.
   let body: { emails?: string[] };
   try { body = await request.json() as typeof body; }
   catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
@@ -458,7 +443,8 @@ export async function handleInvite(
  *  actually observe the denial they came to debug (`dag-tree.ts`'s scope-admin bypass would otherwise
  *  fire off the caller's bit and the denial would never happen).
  *
- * @param payload the caller's already-verified access token (router verifies the Bearer + scope).
+ * @param payload the caller's already-verified access token (the route pipeline verifies the
+ *   Bearer and has already refused any caller without dominion over the URL's scope).
  */
 export async function mintNarrowerToken(
   request: Request, env: Env, payload: NebulaJwtPayload,
@@ -522,21 +508,12 @@ export async function mintNarrowerToken(
       `Requested scope "${body.activeScope}" exceeds what the caller's scope covers "${payload.access.authScope}"`);
   }
 
-  // The ADMIN branch is the only surviving mint path (the AuthorizedActor path is cut).
-  //
-  // ⚠️ **This gate is NOT the dominion check** — the bare `admin` bit is never dominion by itself
-  // (ADR-015 §2); eligibility below is. It stays for three narrow reasons, none of them subsumable:
-  //   (a) ORDERING — it fires BEFORE the registry read, so a non-admin never reaches the
-  //       subject-existence check and cannot probe which `sub`s exist;
-  //   (b) its `denied` log line;
-  //   (c) its distinct `forbidden` code and caller-facing message.
-  // Eligibility strictly subsumes this gate's *verdict*, so do not read a pass here as authority.
-  if (!payload.access.scopeAdmin) {
-    debug('nebula-auth.worker.narrower.denied').warn('Non-admin narrower-token attempt', {
-      sub: payload.sub, subOfNarrowerToken: body.subOfNarrowerToken,
-    });
-    return errorResponse(403, 'forbidden', 'Admin access required to mint a narrower token');
-  }
+  // No standalone `scopeAdmin` gate here: `dominionOverScopeGuard` in the route pipeline refuses
+  // every non-admin at the EDGE — before dispatch, and therefore before the registry read below, so
+  // a non-admin still cannot probe which `sub`s exist. Its refusal also carries the distinct
+  // `forbidden` code and the shared `denied` log line the old in-handler gate provided. The bare
+  // bit is `hasDominionOver`'s left operand, so a gate on it here could never be false once the
+  // guard has passed — dead code inside a security predicate, invisible to mutation testing.
 
   // The subject (`subOfNarrowerToken`) must be a real identity — 404 otherwise (parity + traceability).
   const subjectIdentity = await registry(env).getIdentityScope(body.subOfNarrowerToken) as

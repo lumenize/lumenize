@@ -107,14 +107,18 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(memberPayload.access.authScope).toBe(star);
       expect(memberPayload.access.scopeAdmin).toBeUndefined();
 
-      // Upward-denied: the member's descendant-scoped token cannot act at the UNIVERSE scope.
+      // Upward-denied: the member's descendant-scoped token cannot ACT at the UNIVERSE scope.
+      // `forbidden`, not `insufficient_scope`: upward PASSAGE is free (a member may reach an
+      // ancestor's routes), so what refuses this non-admin is dominion — the refusal names the
+      // rule that actually failed. The old code's `insufficient_scope` described a scope
+      // relationship that is in fact satisfied here.
       const upward = await memberBrowser.fetch(authUrl(`${u}/invite`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberToken}` },
         body: JSON.stringify({ emails: ['x@example.com'] }),
       });
       expect(upward.status).toBe(403);
-      expect((await upward.json() as any).error).toBe('insufficient_scope');
+      expect((await upward.json() as any).error).toBe('forbidden');
     });
   });
 

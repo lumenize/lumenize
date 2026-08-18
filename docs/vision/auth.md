@@ -57,18 +57,16 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
 ```
-/auth/:scope/invite     [parseScopeGuard, verifyJwtGuard, passageGuard, handleInvite]
-/auth/claim-universe    [rateLimitGuard, turnstileGuard, handleClaimUniverse]
+/auth/:scope/invite     [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInvite]
+/auth/claim-universe    [connectionRateLimitGuard, turnstileGuard, forwardRaw]
 ```
-
-⚠️ **The first example elides two steps to stay readable** — `rateLimitGuard` sits where R3 does, `dominionOverScopeGuard` where R6 does.
 
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
 - **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment is the `targetScope` that R5 and R6 compare against.
-- **R3 — Rate limiting.** Keyed on the connection, so it runs before R4 and bounds how much signature verification an anonymous caller can force. An endpoint wanting a per-person limit as well takes a second one after R4, keyed on `sub`.
-- **R4 — `verifyJwtGuard`.** Signature and expiry. Produces the verified claims every later step reads.
+- **R3 — Rate limiting.** ONE limiter per route; **its key and place follow from whether verified identity exists at that point.** A token-bearing route takes a single `sub`-keyed limiter *after* R4 (`subRateLimitGuard`): everything costly on such a route — a Registry read, a DO write, an email send — sits after the verify, and a signature check is sub-millisecond local CPU, so a limiter ahead of it would pay roughly what it saves. A route with no `sub` yet — the cookie routes, the open routes — takes a single connection-keyed limiter (`connectionRateLimitGuard`) ahead of the first expensive thing: the cookie resolution's singleton read, or `turnstileGuard`'s `siteverify` round trip. Never both on one route.
+- **R4 — `verifyJwtGuard`.** Signature and expiry, from the `Authorization: Bearer` header. Produces the verified claims every later step reads.
 - **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `targetScope`.
 - **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope — `dominionOverScopeGuard` on both routes that take one.
 - **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
@@ -331,8 +329,6 @@ The Registry is the one thing in this document that sits entirely outside the me
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
-> **Today's code differs.** The route gate compares the caller's scope against the route's scope without the `scopeAdmin` conjunction, so a non-admin reaches a descendant scope's routes. [nebula-registry-route-guards.md](../../tasks/nebula-registry-route-guards.md) adds the missing conjunction here; [nebula-passage-dominion-from-scope.md](../../tasks/archive/nebula-passage-dominion-from-scope.md) converts the containment expression it compares with, verdict-for-verdict, because the old matcher stops existing.
-
 #### Endpoints that present no access token
 
 This case has two families, and neither reaches R4 or R5 — with no verified claims there is nothing for `passageGuard` to decide about. Both take R1, R2 and R3, then whatever steps that endpoint needs.
@@ -454,7 +450,7 @@ Two bounds hold it there, both structural rather than checks a caller could talk
 
 What is left is abuse, not escalation: a member can mail invites where they choose. That is rate-limiting and attribution, and an invite carries a verified identity where self-signup carries only Turnstile.
 
-> **Today's code differs.** `/invite` requires `scopeAdmin` over the target scope — the Worker checks the bit after the Registry's router has proved the caller's scope covers the route's, so the two halves sit in different files. Both the own-scope path and the derived-bit rule above are unbuilt.
+> **Today's code differs.** `/invite` requires dominion over the target scope (`dominionOverScopeGuard`, in the route's own step list). Both the own-scope path and the derived-bit rule above are unbuilt — [nebula-invite.md](../../tasks/nebula-invite.md) owns them.
 
 **Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. There is no HTTP path to granting.
 

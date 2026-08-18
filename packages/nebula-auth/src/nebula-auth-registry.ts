@@ -36,6 +36,7 @@ import {
 import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
 import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
+import { reportUnconfiguredProtections } from './router';
 
 /** One affected scope in a scope-deletion plan — enough for the client to teardown the right DOs. */
 export interface AffectedScope {
@@ -106,6 +107,12 @@ export class NebulaAuthRegistry extends DurableObject {
     // while row accumulation is DIRECTLY correlated with it — so at the traffic where hygiene matters
     // it would stop firing entirely.
     this.#sweepAndRearm();
+
+    // Boot-time signal for every protection that silently no-ops when its config is absent (the
+    // limiter bindings, the Turnstile secret — the list lives beside the guards in router.ts). The
+    // constructor is the once-per-lifetime hook that sees env; a busy singleton is never evicted,
+    // so this fires as a deploy-time notice rather than a per-request one.
+    reportUnconfiguredProtections(env);
   }
 
   /**
@@ -312,6 +319,10 @@ export class NebulaAuthRegistry extends DurableObject {
    *  KV-miss self-heal, the `scopeAdmin` convergence re-put, and mint-narrower-token — each threads
    *  `profileId` into the record it rebuilds so the claim survives. */
   getIdentityScope(sub: string): { universeGalaxyStarId: string; scopeAdmin: boolean; profileId: string } | null {
+    // Entry marker: a refused-at-the-edge caller must never reach this read (the mint's non-admin
+    // refusal happens before dispatch), and a 403 looks identical either way — tests assert the
+    // absence of this line through the debug sink.
+    debug('nebula-auth.Registry.getIdentityScope').debug('subject lookup', { sub });
     const rows = this.#sql`
       SELECT m.universeGalaxyStarId AS universeGalaxyStarId, m.scopeAdmin AS scopeAdmin, e.profileId AS profileId
       FROM Memberships m JOIN Emails e ON e.emailId = m.emailId WHERE m.sub = ${sub}

@@ -234,6 +234,22 @@ Three phases, ordered by dependency. Each leaves the suite **no worse than the r
 
 ### Phase 1 — The two authenticated routes move onto the pipeline
 
+> ✅ **BUILT 2026-08-18.** Two divergences from the plan, both verified against disk at build time:
+> **(1) Guards reach `env` by CLOSURE, not the `cloudflare:workers` import.** The archived runner
+> decision's import row carried its own "verify before relying" caveat, and verification failed
+> twice: `router.ts` is re-exported from the widely-imported index that must stay Node-import-safe
+> (its own header says so — the reason it imports `@lumenize/mesh/client`, not the barrel), and this
+> file's own Turnstile criterion mandates per-test env spreads passed to `routeNebulaAuthRequest`,
+> which a module-scope ambient read would silently ignore. Resolution: `buildAuthPipeline(env)`
+> defines the guards in a closure, compiled once per `env` object (WeakMap) — `env` stays out of
+> `routeState`, which is the pinned half of the decision.
+> **(2) The WS-subprotocol criterion's POST shape cannot cross a fetch hop.** Measured in-lane: a
+> `SELF.fetch` request carrying `Upgrade: websocket` is rewritten to a GET upgrade before the worker
+> sees it (constructed POST, arrived non-POST → the runner's 405). The criterion's exact shape is
+> driven through `routeNebulaAuthRequest` directly (the `nebula-auth-cors.test.ts` pattern), which
+> is also the only form capable of redding the carried-limb mutation; a second limb asserts the
+> fetch-hop form 405s at the edge.
+
 **Consumes the ✅ built runner** (`packages/nebula-auth/src/route-pipeline.ts` — `createRouter`, `Step`, `RouteState`); **it is not built here.** The table entries and their steps, `routeState` carrying full claims, `passageGuard` + `dominionOverScopeGuard`, the table subsuming `AUTHENTICATED_SUFFIXES`, `checkRateLimit` named, refusals naming which rule failed.
 
 🚨 **The middleware swap and the handler guards MUST land in the same commit — the phase's binding constraint.** Today's router check is downward-shaped, so it is the only thing refusing an upward invite. `passageGuard` admits upward *by design*. Swap the router first and leave the handlers holding bare bits, even for one commit, and a Star `scopeAdmin` can POST `/auth/{u}/invite` and mint identities at the Universe. Splitting this "for reviewability" is the one thing that must not happen.

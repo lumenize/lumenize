@@ -66,6 +66,16 @@
   "kv_namespaces": [
     { "binding": "REFRESH_TOKEN_KV", "id": "REPLACE_WITH_REAL_KV_NAMESPACE_ID_AT_PHASE_4" }
   ],
+  // nebula-auth's two rate limiters. Without these the guards silently no-op (`checkRateLimit`
+  // returns allow when unbound) — the Registry's constructor logs `debug.error` naming any absent
+  // one. Limits are DELIBERATELY loose placeholders (bound abuse, never legitimate traffic);
+  // picking real numbers is a backlog row. `NEBULA_AUTH_RATE_LIMITER` keys on the verified `sub`;
+  // `NEBULA_AUTH_CONNECTION_RATE_LIMITER` keys on `CF-Connecting-IP` for the routes that present
+  // no token (forged-cookie / open-route faucets) — per-binding limits are why there are two.
+  "ratelimits": [
+    { "name": "NEBULA_AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 1000, "period": 60 } },
+    { "name": "NEBULA_AUTH_CONNECTION_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 1000, "period": 60 } }
+  ],
   // DevContainer runs the dev-loop vite preview (5173 public) + command-server
   // (9000, host-DO-only). Image is baked (deps + framework skeleton) → 0 npm
   // install on cold boot. Deploy via Docker Desktop + WARP ([[cf-container-deploy-proxy]]).

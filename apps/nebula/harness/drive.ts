@@ -24,6 +24,7 @@ import * as identityConvergence from './scenarios/identity-convergence';
 import * as revokeIsTotal from './scenarios/revoke-is-total';
 import * as profileTakeoverRefused from './scenarios/profile-takeover-refused';
 import * as studioCodegenRest from './scenarios/studio-codegen-rest';
+import * as upwardInviteRefused from './scenarios/upward-invite-refused';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -56,6 +57,7 @@ const SCENARIOS: Record<string, Scenario> = {
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
   'studio-codegen-rest': studioCodegenRest,    // one real codegen turn over the Workers-AI REST transport
+  'upward-invite-refused': upwardInviteRefused, // a real star admin's upward /invite refused by dominion (no Docker)
 };
 
 async function main(): Promise<void> {
