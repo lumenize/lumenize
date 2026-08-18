@@ -17,7 +17,7 @@ there is nothing to isolate.
 | Net startup cost vs `@cloudflare/shell` | ✅ **−12.4 ms, −207 KiB** (§7b) |
 | Does the native Tailwind oxide plugin run on the mount? | ✅ **Yes — verified, real JIT CSS** (§7c) |
 | Can `node_modules` live in the VFS and survive container death? | ✅ Yes — **but it is not worth it** (§7c, §7e) |
-| Best `node_modules` placement? | ⚠️ **ext4 — both hybrids lose**; deps through FUSE ≈ **1.97×** (§7e) |
+| Best `node_modules` placement? | ⚠️ **ext4 — both hybrids lose**; deps through FUSE ≈ **1.5–2×** (§7c, §7e — measured two ways, not fully reconciled) |
 | Does a tenant container have npm registry egress? | ✅ **Yes, HTTP 200 in 46–57 ms** (§7e) |
 | Is `destroy()` safe mid-session? | ⚠️ **No — tears the capnweb wire** (§7d) |
 | What dominates a turn once a user adds a heavy lib? | ⚠️ On vite 6, **bundling** (4.2 s → 11–18.5 s) (§7f) — **fixed by vite 8** (§7g) |
@@ -282,6 +282,19 @@ Times are vite's own self-reported build time, which excludes process startup:
 ⇒ **Neither hybrid beats simply keeping `node_modules` on ext4.** The FUSE penalty scales with
 file count, and dependency trees are the most file-count-heavy thing in the system. This is the
 same conclusion round 1 reached, but round 1 reached it without asking the question.
+
+⚠️ **Rounds 2 and 3 do not fully reconcile — cite the RANGE (≈1.5–2×), not either point.** Round 2
+put the WHOLE tree (115 MB / 4604 files) in the VFS and its new-container build self-reported
+**4.11 s**; round 3 put ONE package (33 MB / 3112 files) in and self-reported **8.36 s**. More
+files through the mount, faster build — so the two are not measuring the same quantity. Two known
+differences: round 2's ratio compares its own ~6.8 s against **round 1's** ~4.5 s (cross-round,
+which § *Method notes* says is exactly what not to do), and round 2 ratios per-build TOTALS while
+round 3 ratios vite's self-reported time, which excludes process startup. **Round 3 is the better
+evidence** — H0/H1/H2 ran back-to-back in one container, one boot, one colo, one clock — but its
+1.97× is one within-container A/B against a worst-case input shape (`lucide-vue-next` is 68% of
+the tree's FILE COUNT at 29% of its bytes), so it should not be quoted as the general figure. The
+honest statement is that deps through FUSE cost roughly 1.5–2×, and a clean whole-tree-vs-baked
+A/B inside one container has not been run.
 
 ### Registry egress works — which changes what the real options are
 
