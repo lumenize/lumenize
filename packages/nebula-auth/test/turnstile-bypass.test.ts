@@ -88,10 +88,17 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
       const resp = await post(path);
       expect((await resp!.json().catch(() => ({})) as any).error, path).not.toBe('turnstile_required');
     }
-    for (const path of ['some-scope/magic-link', 'some-scope/accept-invite']) {
+    // The two GET navigations need a sharper anchor than not-turnstile_required: a turnstileGuard
+    // gained on a bodyless GET fails checkTurnstile's BODY PARSE (400 invalid_request), never
+    // turnstile_required — so only the handler's own missing-token description proves no gate ran
+    // ahead of it.
+    for (const [path, expected] of [
+      ['some-scope/magic-link', 'Missing one_time_token'],
+      ['some-scope/accept-invite', 'Missing invite_token'],
+    ]) {
       const resp = await routeNebulaAuthRequest(
         new Request(`https://nebula.lumenize.com/auth/${path}`), gatedEnv);
-      expect((await resp!.json().catch(() => ({})) as any).error, path).not.toBe('turnstile_required');
+      expect((await resp!.json() as any).error_description, path).toBe(expected);
     }
   });
 

@@ -73,7 +73,7 @@ const STAR_LANDING_PREFIX = '/app';
  * branch is not new behavior; it is the existing one, named.
  *
  * ⚠️ **Derive the tier from a SERVER-TRUSTED id.** On the success path that is the scope the consumed
- * token resolved to, never the URL's `instanceName`: `handleInstancePath` only *format*-validates that
+ * token resolved to, never the URL's `instanceName`: `parseScopeGuard` only *format*-validates that
  * segment and never cross-checks it against the token (the registry keys on `tokenHash` alone), so
  * keying off it would let a caller pick another tier's landing surface. The error path has no token to
  * resolve, so it necessarily falls back to the URL segment — which is safe there precisely because it

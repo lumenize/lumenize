@@ -213,6 +213,26 @@ describe('/mint-narrower-token (admin branch only)', () => {
     // Two bootstrap emails are configured (`vitest.config.js`), which is what makes a platform
     // caller impersonating a *different* platform subject constructible at all — the self-narrow
     // guard refuses a caller and subject sharing one `sub`.
+    // The inverse of the two platform limbs below, at the ENDPOINT (parse-id.test.ts covers only the
+    // predicate direction): the platform scope is the ROOT of the tree, so no non-platform caller's
+    // scope can sit at or above it, and `canMintFor` refuses without any special arm. What this
+    // catches is exactly a special arm being ADDED — mutation: `|| isPlatformScope(subject.
+    // universeGalaxyStarId)` inside canMintFor greens every other test and reds this one.
+    it('a nebula-platform subject is UN-IMPERSONABLE by a non-platform caller (403, collapsed body)', async () => {
+      const u = uni();
+      const admin = await foundUniverse(SELF, u, 'admin@example.com');
+      const platformSubject = await platformLogin(SELF, SECOND_BOOTSTRAP_EMAIL);
+      expect(platformSubject.parsed.access.authScope).toBe('nebula-platform'); // fixture guard
+
+      const resp = await mintNarrowerRequest(SELF, admin.access_token,
+        { subOfNarrowerToken: platformSubject.parsed.sub, activeScope: u });
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as { error: string; error_description: string };
+      expect(body.error).toBe('forbidden');
+      // The collapsed refusal — and per ADR-008 it must not disclose the subject's scope.
+      expect(body.error_description).toBe(`Caller scope "${u}" does not administer this subject`);
+    });
+
     it('a platform caller CAN mint for a PLATFORM-scoped subject, into a non-platform activeScope', async () => {
       const u = uni();
       await foundUniverse(SELF, u, 'universe-admin@example.com'); // the scope must exist to aim at

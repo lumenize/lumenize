@@ -99,7 +99,7 @@ The gate lands in two places depending on the route shape:
 | Passage boundary (`passageGuard` → `hasPassageInto`) | `/auth/{scope}/invite` (the same verdict a mesh node's boundary computes) |
 | Dominion (`dominionOverScopeGuard` → `hasDominionOver`) | `/auth/{scope}/invite` — refuses `forbidden` (no `scopeAdmin`) or `insufficient_scope` (admin, but the scope is outside their own) |
 
-Turnstile is skipped when `NEBULA_AUTH_TEST_MODE === 'true'`, when no `TURNSTILE_SECRET_KEY` is configured (development), or when the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
+Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configured (development and every vitest lane, which bind it `''` explicitly), or the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
 ---
 

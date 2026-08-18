@@ -178,6 +178,11 @@ export async function run(stack: DevStack): Promise<void> {
   // below reds while limb 1's sub/act/aud assertions stay green.
   {
     const subjectClaims = parseJwtUnsafe(subject.accessToken)!.payload as any;
+    // Concrete-value anchors FIRST: the mirror comparisons below would pass vacuously as
+    // undefined === undefined under a claim-field rename; these pin the reference side to the
+    // values a real claim-star login must carry.
+    assert.equal(subjectClaims.access.authScope, star, "the subject's own token must carry the star as authScope");
+    assert.equal(subjectClaims.access.scopeAdmin, true, "the subject's own token must carry scopeAdmin");
     const minted = await browser.fetch(`${stack.baseUrl}/auth/mint-narrower-token`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${admin.accessToken}`, 'Content-Type': 'application/json' },

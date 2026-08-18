@@ -302,6 +302,12 @@ The remaining routes move into the pipeline at the paths they already have; `TUR
 > the oracle — rebuilt as 400 self-narrow / collapsed 403). One harness improvement in passing:
 > `drive.ts` now hard-exits after its verdict, because a scenario throwing MID-FLIGHT left open
 > client sockets holding the event loop — the print-then-hang failure `live.md` warns about.
+> Post-panel additions (2026-08-18, verifier findings): the endpoint-level platform-subject
+> refusal test the criterion's last clause required (it was missing — only predicate-level
+> coverage existed); sharper anchors on the gating sweep's GET rows (a gained guard fails the
+> BODY PARSE, never turnstile_required, so only the handler's own description can red) and on
+> the /live mirror limb (concrete-value fixture guards against rename-vacuity); and the two
+> rate-limiter loops run to 250 — the simulator's fixed 60s window can roll over mid-loop.
 
 `canMintFor`, the per-site deletion table, the `aud` validation and its ordering, the `authScopeOverride` option deleted, the minted `authScope` becoming the subject's.
 

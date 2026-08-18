@@ -25,7 +25,7 @@ function protectionEntries(from: any[]): any[] {
 describe('the Registry constructor runs the check', () => {
   it('construction emits exactly the protections absent from THIS lane\'s env, at their declared levels', async () => {
     // Touch the singleton so it constructs with the sink installed (discover forwards to the DO;
-    // test mode skips Turnstile).
+    // this lane's explicit TURNSTILE_SECRET_KEY: '' binding is what skips the Turnstile gate).
     const resp = await SELF.fetch(new Request(registryUrl('discover'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'construct-probe@example.com' }),
@@ -35,6 +35,8 @@ describe('the Registry constructor runs the check', () => {
     // Expectation COMPUTED from env, not hard-coded: both limiter bindings are declared in this
     // lane's wrangler.jsonc (so no error is expected for them), while TURNSTILE_SECRET_KEY is
     // machine-dependent (.dev.vars) — deriving keeps the assertion true on every checkout and in CI.
+    // Vacuity guard: an emptied list would make every list-driven loop below run zero times.
+    expect(UNCONFIGURED_PROTECTIONS.length).toBeGreaterThan(0);
     const emitted = protectionEntries(sink);
     for (const { config, level } of UNCONFIGURED_PROTECTIONS) {
       const matching = emitted.filter((e) => e.data.protection === config);

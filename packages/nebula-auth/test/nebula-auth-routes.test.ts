@@ -304,7 +304,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
 
       it('the TOKEN decides the tier, not the URL path', async () => {
         // A universe-scope token consumed through a STAR-shaped URL must still land where the TOKEN
-        // says. `handleInstancePath` only format-validates that path segment and never cross-checks it
+        // says. `parseScopeGuard` only format-validates that path segment and never cross-checks it
         // against the token (the registry keys on tokenHash alone), so keying the redirect off the URL
         // would let a caller pick another tier's landing surface.
         const u = uni();
