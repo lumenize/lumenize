@@ -1,7 +1,7 @@
 # Nightly self-improvement loop for Lumenize
 
 > **⚠️ SUPERSEDED 2026-07-15 — the selector-driven design below is NOT being built.**
-> The one v0 run showed task-file-mined candidates rot (its target's source files are now in `archive/`), and an agent can't judge a task file's run-independence by reading it. The nightly pass was re-scoped to a **fixed, hard-coded quality/security audit menu** — whole-repo tripwires + a mutation-audit backfill campaign — that needs no candidate selection. Live spec: the [`/nightly-pass` skill](../.claude/skills/nightly-pass/SKILL.md).
+> The one v0 run showed task-file-mined candidates rot (its target's source files are now in `archive/`), and an agent can't judge a task file's run-independence by reading it. The nightly pass was re-scoped to a **fixed, hard-coded quality/security audit menu** — whole-repo tripwires + a mutation-audit backfill campaign — that needs no candidate selection. Live spec: the [`/nightly-pass` skill](../../.claude/skills/nightly-pass/SKILL.md).
 > **Retained below** only for its still-valid **safety-model reasoning** (findings-only floor, checkpoint/resume, digest contract, interactive-budget manual launch) and decision history. **Dead:** the three-source selector, APPLY/worktree mode, the cron/dead-man's-switch path, and the meta-retro. Frozen — don't build from it.
 
 Status: SUPERSEDED 2026-07-15 (was: DESIGN) — replaced by the `/nightly-pass` skill's hard-coded audits

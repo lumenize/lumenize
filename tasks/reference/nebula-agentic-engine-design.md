@@ -166,7 +166,7 @@ bake-off. Claude as a baseline comparison. Tasks under eval = real generation jo
 kanban, simple CRM): does the model produce working ontology + UI that passes validation and
 runs with access-control + reactivity intact? The **rigorous regression suite** (deterministic
 gates first, LLM-judge only for fuzzy UI quality) is the parked eval suite
-([`../nebula-studio-self-improvement.md`](../nebula-studio-self-improvement.md)).
+([`../nebula-studio-self-improvement.md`](../on-hold/nebula-studio-self-improvement.md)).
 
 ## Fidelity ladders (the design constraints that span the work)
 

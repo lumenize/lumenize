@@ -42,7 +42,7 @@ Stages 1 and 2 are deliberately deferred as premature**, and the `/write-task` i
 Larry's direction; read *Design intent* first when this goes active. On-hold: designed, paused, expected to
 resume when a user-developer needs a package outside the baked set. **Pinned business decision (2026-07-30):
 the dependency set is OPEN — any npm package is fair game, with warnings and no curation.** Fires the trigger
-on [`use-lumenize-dev-domain-and-support-custom-domains.md`](use-lumenize-dev-domain-and-support-custom-domains.md)
+on [`use-lumenize-dev-domain-and-support-custom-domains.md`](../on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)
 (see *Relationships*).
 
 **Objective — a user-developer's generated app can use any client-side npm package, without the build ever
@@ -255,7 +255,7 @@ Load-bearing claims, stated so review can falsify them:
 
 ## Relationships
 
-- **[`use-lumenize-dev-domain-and-support-custom-domains.md`](use-lumenize-dev-domain-and-support-custom-domains.md)** —
+- **[`use-lumenize-dev-domain-and-support-custom-domains.md`](../on-hold/use-lumenize-dev-domain-and-support-custom-domains.md)** —
   its own pickup trigger is *"we're about to host untrusted multi-tenant apps."* This task is what fires it: the
   preview page moves from code our LLM wrote to code anyone on npm wrote, while still on the control plane's
   registrable domain. Its summary calls the work "pure edge translation," so this is a dependency, not a blocker.
@@ -272,7 +272,7 @@ Load-bearing claims, stated so review can falsify them:
   Artifacts `git pull` the Dockerfile anticipates. A dated pointer was added to its `RESULTS.md` on 2026-07-30.
 - **`tasks/on-hold/nebula-offline-prompt-harness.md`** — Phase 4's fixtures are that harness's shape; check
   whether it should own them before building a parallel path.
-- **`tasks/nebula-studio-self-improvement.md`** — a dependency the model reaches for and gets wrong is outcome
+- **`tasks/on-hold/nebula-studio-self-improvement.md`** — a dependency the model reaches for and gets wrong is outcome
   signal for the scaffold; this task produces that signal but does not consume it.
 - **Measurement — and the gap in it.** `experiments/container-cold-start-probe` measured on real CF that
   `vite build` is **70–90%** of every scenario, the baked path is **8–10 s**, and the user-dep path is

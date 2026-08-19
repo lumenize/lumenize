@@ -1,6 +1,6 @@
 # DevStudio Skills
 
-**Status**: Wave 2 of [`nebula-pre-alpha.md`](nebula-pre-alpha.md) — design capture, **not started, not build-ready**. Un-park trigger below.
+**Status**: Wave 2 of [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) — design capture, **not started, not build-ready**. Un-park trigger below.
 **Origin**: Brainstorm 2026-06-19 (Larry + Claude), following the [Flue evaluation](#related) (borrow the `SKILL.md` standard, reject the runtime — [[project_flue_eval]]).
 **Scope note**: This file is **deliberately vague about the wrapper** — the DevStudio agent harness / loop mechanics (how the model is called, ALS, in-DO vs container, sub-agent spawn transport) are expected to change. It captures the **seams** where skills, rules, sub-agents, and reference files plug into DevStudio, so we know every place to wire when we build it. Pin the wrapper later.
 
@@ -8,10 +8,10 @@
 
 **DevStudio** = the agentic-coding Durable Object — the thing that runs the LLM coding loop that builds a user-developer's app. It is the *agent*; it drives the rest of the dev cluster (current assumption, may change):
 - **DevContainer** — real-vite build/preview + command channel (`exec`/`writeFile`/`viteControl`) ([[project_studio_uibuild_pivot]]).
-- The **`.dev` Star** — dev DATA (a plain Star at the `.dev` slug; the separate "DevStar" node was collapsed — see [`reference/nebula-dev-flows.md`](reference/nebula-dev-flows.md)).
+- The **`.dev` Star** — dev DATA (a plain Star at the `.dev` slug; the separate "DevStar" node was collapsed — see [`reference/nebula-dev-flows.md`](../reference/nebula-dev-flows.md)).
 - **Galaxy** — published-version registry.
 
-DevStudio **is** the source-of-truth for the user-developer's source (shell `Workspace` + git; it pushes into DevContainer to build/preview) and reads/writes the `.dev` Star; "publish" is a `vite build` → Galaxy. The **engine** is Kimi K2.7 ([[kimi-k27-adoption]]) — no Think/codemode. (Cast is canonical in [`reference/nebula-dev-flows.md`](reference/nebula-dev-flows.md); this file stays wrapper-vague by design.)
+DevStudio **is** the source-of-truth for the user-developer's source (shell `Workspace` + git; it pushes into DevContainer to build/preview) and reads/writes the `.dev` Star; "publish" is a `vite build` → Galaxy. The **engine** is Kimi K2.7 ([[kimi-k27-adoption]]) — no Think/codemode. (Cast is canonical in [`reference/nebula-dev-flows.md`](../reference/nebula-dev-flows.md); this file stays wrapper-vague by design.)
 
 ## Core framing: skills are a three-tier prompt, not one growing blob
 
@@ -49,7 +49,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 2. **Advisory practices over hard gates** — the cascade carries org **practices** Studio follows by default; it **never deviates silently** (any departure is surfaced to the builder and recorded as a **documented, attributed exception** for governance), but the builder retains agency to proceed. The teeth are **visibility + the audit trail**, not a block. The only non-overridable floor is the **platform secure-by-default substrate** (ReBAC/DAG, validation, ADRs 002/004/005) — no org practice or builder choice lowers it; substrate-enforced governance (org-scoped access control, egress approval) inherits that hardness. Rationale (easy-button / evolve-against-usage; and why this is a *rail*, not a guardrail — new track laid in front of you, not a backstop after you've left the road): [`../../docs/presentation-and-blog-drafts/the-iron-triangle-of-agentic-development.md`](../../docs/presentation-and-blog-drafts/the-iron-triangle-of-agentic-development.md). (The enterprise.md *Practices, not policies* reframe was removed in the 2026-06-22 guardrails scrub; the model is captured here + the `nebula-governance-practices-not-gates` memory.)
 3. **Enforce-via-verifier** — untrusted/semi-trusted lower-level content is checked by a **trusted sub-agent/gate per level**, never injected as trusted instructions. Generalize integration-point-4's product-alignment verifier (Galaxy) with a **governance/policy verifier** (Universe).
 
-**Seams it reuses:** base-prompt assembly (integration point 2) becomes an org-tree walk Universe→Galaxy — the *same* walk access-control does for admin-climbing — dropped into the loop's `D7` composable-bundle prompt-assembly ([`archive/nebula-codegen-loop.md`](archive/nebula-codegen-loop.md)). The typed pluggable context sources (integration point 5) gain the new **Universe trust grade** for governance docs. The security boundary (integration point 8) becomes three-grade.
+**Seams it reuses:** base-prompt assembly (integration point 2) becomes an org-tree walk Universe→Galaxy — the *same* walk access-control does for admin-climbing — dropped into the loop's `D7` composable-bundle prompt-assembly ([`archive/nebula-codegen-loop.md`](../archive/nebula-codegen-loop.md)). The typed pluggable context sources (integration point 5) gain the new **Universe trust grade** for governance docs. The security boundary (integration point 8) becomes three-grade.
 
 **Sequencing:** the Universe tier **is** enterprise-governance surface — gated behind a proven self-serve wedge (`strategy.md` Strategic-check #7; `enterprise.md` Review-check #1). **Design the seam now** (this section satisfies `enterprise.md` timing-gate #4, "governance surface designed even if not built"); **build it in the enterprise phase.** Platform + Galaxy tiers ship with the self-serve wedge; the Universe tier does not.
 
@@ -57,7 +57,7 @@ The user-developer's files are **data the agent/sub-agents reference, never inst
 
 > The heart of this file. Each is a seam DevStudio must expose; the wrapper details inside each are intentionally left open.
 
-1. **Skill registry & loading** — a place skills live. **RESOLVED (where) — see [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Iteration & deploy model:** the system prompt is a **platform-owned FILE TREE** (`NEBULA.md` base + `skills/*.md` + `rules/*.md`) served from a **dedicated `@cloudflare/shell`-backed registry DO** whose shell/FS methods are exposed over mesh and **read per turn** during prompt assembly — editing the prompt = a git commit into that DO's Workspace, **no redeploy**. v0 = a single platform-scoped, admin-gated tree; the per-Universe/Galaxy cascade (below) is the enterprise-gated extension. The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Still open: the **budget policy** for how many skills' indexes ride in context (the model-self-select vs harness-inject question below).
+1. **Skill registry & loading** — a place skills live. **RESOLVED (where) — see [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § Iteration & deploy model:** the system prompt is a **platform-owned FILE TREE** (`NEBULA.md` base + `skills/*.md` + `rules/*.md`) served from a **dedicated `@cloudflare/shell`-backed registry DO** whose shell/FS methods are exposed over mesh and **read per turn** during prompt assembly — editing the prompt = a git commit into that DO's Workspace, **no redeploy**. v0 = a single platform-scoped, admin-gated tree; the per-Universe/Galaxy cascade (below) is the enterprise-gated extension. The **discovery index** (name+description of each skill) is assembled into base context; **activation** pulls a full `SKILL.md` body on match; **execution** loads bundled `scripts/`/`references/` on demand. Still open: the **budget policy** for how many skills' indexes ride in context (the model-self-select vs harness-inject question below).
 
 2. **Base-prompt assembly** — the seam that composes tier-1 (identity/invariants/tool contract) + the skill discovery index + any active rules into what the engine sees each turn. This is the "system prompt builder." Keep tier-1 lean; everything task-shaped is a skill.
 
@@ -98,7 +98,7 @@ Confinement + injection hardening for every seam that touches dev-user content.
 
 ## Open questions
 - **Discovery: in-harness vs model-self-select.** Does the wrapper inject the skill index and decide activation, or does the engine self-select from a listed catalog? This is the central context-budget design surface (Kimi-in-the-loop reading skill files vs harness-managed). Flagged in [[project_flue_eval]] as "the real design surface."
-- ~~**Where skills physically live**~~ — **RESOLVED**: a dedicated `@cloudflare/shell`-backed registry DO, read per turn (no redeploy to iterate). See integration-point-1 + [`nebula-pre-alpha.md`](nebula-pre-alpha.md) § Iteration & deploy model.
+- ~~**Where skills physically live**~~ — **RESOLVED**: a dedicated `@cloudflare/shell`-backed registry DO, read per turn (no redeploy to iterate). See integration-point-1 + [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) § Iteration & deploy model.
 - **How dev-user context files are ingested/updated** — uploaded, edited in Studio, or derived from the app tree? Who owns the vision-doc lifecycle?
 - **Skill granularity** — one big "build a Nebula app" skill vs many task-shaped skills. (Standard guidance: many small, <500 lines each, references for depth.)
 - **When the product-alignment sub-agent runs** — every turn, at phase boundaries, or on demand? Cost vs safety.
@@ -108,7 +108,7 @@ Confinement + injection hardening for every seam that touches dev-user content.
 
 ## Why parked / resumption trigger
 
-Skills earn their keep once DevStudio is a real, churning agent loop with real user-developer apps to align against. The loop itself has now landed (built — `tasks/archive/nebula-codegen-loop.md`). **Un-park when** [`nebula-pre-alpha.md`](nebula-pre-alpha.md) **Wave 2 data-bound generation** is churning — i.e. the engine is generating real data-bound apps, the registry-DO prompt tree (integration-point-1) is stood up, and there's a vision doc to verify against. Before that there's no real app to align. (Same inflection family as the eval suite, which this should ship alongside.)
+Skills earn their keep once DevStudio is a real, churning agent loop with real user-developer apps to align against. The loop itself has now landed (built — `tasks/archive/nebula-codegen-loop.md`). **Un-park when** [`nebula-pre-alpha.md`](../nebula-pre-alpha.md) **Wave 2 data-bound generation** is churning — i.e. the engine is generating real data-bound apps, the registry-DO prompt tree (integration-point-1) is stood up, and there's a vision doc to verify against. Before that there's no real app to align. (Same inflection family as the eval suite, which this should ship alongside.)
 
 ## Related
 - [[project_flue_eval]] — the decision that produced this: borrow the `SKILL.md` standard, reject Flue's runtime.

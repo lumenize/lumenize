@@ -17,7 +17,7 @@ Re-run a recorded codegen turn — `(systemPrompt, message, currentSource[, onto
 **independently of the browser/Studio**, and **score** the output with the container-free Rung-1 gate
 (`compileSource` in `apps/nebula/src/codegen-gate.ts`). A fast, **directional** iterate loop on the
 **data-bound** prompt. It is **NOT** the regression suite (that's the parked eval suite,
-[`nebula-studio-self-improvement.md`](../nebula-studio-self-improvement.md) — shares the `TurnRecord` fixture schema);
+[`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md) — shares the `TurnRecord` fixture schema);
 this is the exploratory bench.
 
 **Replay is side-effect-free over a frozen fixture** — the `TurnRecord` already carries its own
@@ -65,5 +65,5 @@ pure function; `writeFile` is an in-memory Map.
 ## Out of scope
 
 - **Turn extraction** → moved up to the pre-alpha program (the cross-tenant inspection instrument).
-- **Regression gates + LLM-judge** → the eval/reward-function core, folded into [`nebula-studio-self-improvement.md`](../nebula-studio-self-improvement.md).
+- **Regression gates + LLM-judge** → the eval/reward-function core, folded into [`nebula-studio-self-improvement.md`](nebula-studio-self-improvement.md).
 - **Rung-2 runtime signal** → when the container path is on the critical path.

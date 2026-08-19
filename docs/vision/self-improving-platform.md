@@ -92,11 +92,11 @@ Until then this is a captured direction, not active work. It is real, it is prob
 
 ## How it gets built (pointers, not mechanics)
 
-This doc stays at strategy altitude; the mechanics live in one task file — [`nebula-studio-self-improvement`](../../tasks/nebula-studio-self-improvement.md) — plus the separate nightly loop:
+This doc stays at strategy altitude; the mechanics live in one task file — [`nebula-studio-self-improvement`](../../tasks/on-hold/nebula-studio-self-improvement.md) — plus the separate nightly loop:
 
 - **Reward function** → its **Part A** (the former eval-suite, absorbed): deterministic gates + a pinned GLM-5.2 judge. The scorer the loop optimizes against; **build it first.**
 - **The scaffold-evolution loop** → its **Parts B/C**: log `(task → scaffold → outcome)` to Vectorize, retrieve winners, prune losers, gate promotion.
-- **Automation engine (separate)** → the [`nebula-nightly-loop`](../../tasks/nebula-nightly-loop.md) — a different target (Lumenize's own source), kept separate; shares only the *pattern*.
+- **Automation engine (separate)** → the [`nebula-nightly-loop`](../../tasks/archive/nebula-nightly-loop.md) — a different target (Lumenize's own source), kept separate; shares only the *pattern*.
 
 ---
 
