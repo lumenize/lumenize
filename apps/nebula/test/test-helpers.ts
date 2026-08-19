@@ -8,7 +8,8 @@ import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
+import { NebulaClient } from '@lumenize/nebula';
+import type { NebulaClientConfig } from '@lumenize/nebula';
 import { requestUniverseClaim, requestStarClaim, requestMagicLink } from './lib/email-login';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
@@ -75,6 +76,22 @@ export function uniqueGalaxyScope(): {
  * control. Extend both together.
  */
 const RESERVED_STAR_SLUGS: ReadonlySet<string> = new Set(['dev']);
+
+/**
+ * Point an auth link at this lane's {@link ORIGIN}. The mesh invite facade mints its links against
+ * the configured ISSUER origin (a mesh call carries no request URL to read), and the `Browser`
+ * cookie jar keys by host — so a link clicked as-sent would strand its refresh cookie under the
+ * issuer's host where no later `authUrl(...)` call finds it. Only the host changes; the
+ * `invite_token`/`one_time_token` query carries the grant. (The `/live` harness's `pointLinkAt`
+ * is the same move against a wrangler-dev URL.)
+ */
+export function pointAtOrigin(link: string): string {
+  const target = new URL(ORIGIN);
+  const out = new URL(link);
+  out.protocol = target.protocol;
+  out.host = target.host;
+  return out.toString();
+}
 
 export function universeOf(scope: string): string {
   return scope.split('.')[0];
@@ -208,7 +225,13 @@ export async function bootstrapAdmin(
 
 /**
  * Create a subject via admin invite + magic link flow.
- * Uses NebulaAuth's POST /invite endpoint with { emails: [...] } body.
+ *
+ * The invite rides the MESH — `NebulaClient.invite` → Gateway → `NEBULA_AUTH_FACADE` — the one
+ * production surface (there is no HTTP invite route). The admin token this helper is handed backs
+ * a short-lived client for exactly that call: a handed token on a client of the SAME identity is
+ * the sanctioned shape (testing.md — renewal never runs inside this one-call lifetime), and it
+ * keeps all ~40 call sites on the token-based signature they already have.
+ * `options.scopeAdmin` rides the per-invitee entry (honored when the admin caller holds dominion).
  */
 export async function createSubject(
   browser: Browser,
@@ -217,16 +240,31 @@ export async function createSubject(
   email: string,
   options: { scopeAdmin?: boolean } = {},
 ): Promise<void> {
-  // Admin invites the user via POST /auth/{scope}/invite?_test=true
-  const inviteResp = await browser.fetch(authUrl(`${authScope}/invite?_test=true`), {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${adminAccessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ emails: [email] }),
-  });
-  expect(inviteResp.status).toBe(200);
+  const adminSub = (parseJwtUnsafe(adminAccessToken)!.payload as { sub: string }).sub;
+  const adminClaims = parseJwtUnsafe(adminAccessToken)!.payload as unknown as NebulaJwtPayload;
+  const adminBrowser = new Browser(); // own context — never the SUBJECT's cookie jar below
+  const ctx = adminBrowser.context(ORIGIN);
+  const inviter = new NebulaClient({
+    baseUrl: ORIGIN,
+    authScope: adminClaims.access.authScope,
+    activeScope: adminClaims.aud,
+    appVersion: 'v1',
+    accessToken: adminAccessToken,
+    instanceName: `${adminSub}.${crypto.randomUUID().slice(0, 8)}`,
+    fetch: adminBrowser.fetch,
+    WebSocket: adminBrowser.WebSocket,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  } as NebulaClientConfig);
+  try {
+    await vi.waitFor(() => { expect(inviter.connectionState).toBe('connected'); });
+    const summary = await inviter.invite(authScope, [
+      { email, ...(options.scopeAdmin ? { scopeAdmin: true } : {}) },
+    ]);
+    expect(summary.errors).toHaveLength(0);
+  } finally {
+    inviter.disconnect();
+  }
 
   // User clicks magic link (the invite already created the subject,
   // but the user still needs to verify via magic link)

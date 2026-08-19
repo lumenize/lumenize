@@ -11,6 +11,7 @@ export { DevStudio } from './dev-studio';
 export { Universe } from './universe';
 export { Galaxy } from './galaxy';
 export { Star } from './star';
+export type { NodeInvitee, NodeInviteAck } from './star';
 
 // Ontology
 export type { OntologyVersionConfig, OntologyVersionRow, OntologyState } from './galaxy';

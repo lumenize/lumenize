@@ -174,12 +174,9 @@ export async function run(stack: DevStack): Promise<void> {
     const waiter = waitForEmail({ testToken, instance: galaxy, to: outsiderEmail, timeout: 60_000 });
     let inviteLink: string;
     try {
-      const invited = await fetch(`${origin}/auth/${galaxy}/invite`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${ownerSession.accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: [outsiderEmail] }),
-      });
-      assert.equal(invited.status, 200, `invite into ${galaxy} failed: ${invited.status}`);
+      // The ONE production surface — the owner's connected client (there is no HTTP route).
+      const summary = await owner.client.invite(galaxy, [{ email: outsiderEmail }]);
+      assert.equal(summary.errors.length, 0, `invite into ${galaxy} failed: ${JSON.stringify(summary.errors)}`);
       const html = (await waiter.emailPromise).html ?? '';
       const href = /href="([^"]*accept-invite[^"]*invite_token[^"]*)"/.exec(html)?.[1];
       assert.ok(href, `invite email carried no accept-invite link (starts: ${html.slice(0, 60)})`);

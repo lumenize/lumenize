@@ -27,7 +27,7 @@ import assert from 'node:assert/strict';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { waitForEmail, uniqueTestEmail } from '@lumenize/email-test/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { inviteViaMesh, readDevVar } from '../lib/harness';
 import { provisionAndLogin, pointLinkAt } from '../../test/lib/email-login';
 
 export const needsContainer = false;
@@ -60,12 +60,10 @@ export async function run(stack: DevStack): Promise<void> {
   });
   let inviteHtml: string;
   try {
-    const inviteRes = await fetch(`${origin}/auth/${otherUniverse}/invite`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${otherAdmin.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [person] }),
-    });
-    assert.equal(inviteRes.status, 200, `invite failed: ${inviteRes.status}`);
+    // The ONE production surface: NebulaClient.invite → Gateway → facade (there is no HTTP route).
+    const summary = await inviteViaMesh(stack, otherAdmin, otherUniverse, [{ email: person }]);
+    assert.equal(summary.errors.length, 0, `invite failed: ${JSON.stringify(summary.errors)}`);
+    assert.equal(summary.results[0]?.outcome, 'invited', 'the mint outcome must be `invited`');
     inviteHtml = (await inviteWaiter.emailPromise).html ?? '';
   } finally {
     // ⚠️ ALWAYS close the waiter — its WebSocket to the email-test Worker keeps Node's event loop

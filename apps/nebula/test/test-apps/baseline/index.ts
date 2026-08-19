@@ -23,6 +23,7 @@ export {
 
 // Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
 export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
+export { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import { Profile } from '@lumenize/nebula-auth/profile';
 
 /** A profileId that forces `Profile`'s scoped-admin registry read to throw — the fail-closed probe. */

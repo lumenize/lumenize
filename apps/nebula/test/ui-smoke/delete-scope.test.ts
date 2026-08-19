@@ -105,15 +105,17 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
     expect(await page.getByText(`Delete ${target}?`).count()).toBe(0);
   }, 180_000);
 
-  // ⛔ DEFERRED — needs a second identity attached to the target, and there is no way to create one:
-  // the Studio has no invite affordance and `nebula-client` exposes no invite method. Deliberately
+  // ⛔ DEFERRED — the invite CARRIER now exists (`NebulaClient.invite` → the mesh facade, built by
+  // tasks/nebula-invite.md 2026-08-19; the Studio still has no invite affordance), but this whole
+  // lane is blocked upstream of it: `loginToStudio` needs a `.dev` login this suite cannot mint —
+  // backlog § *Testing & Quality*'s ui-smoke row OWNS that debt and this skip with it. Deliberately
   // NOT satisfied with an out-of-band registry seed: a test-only fixture in this lane is exactly the
   // ossifying stand-in `workflow.md` warns about ("prefer `it.skip` over an ossifying stand-in —
   // skipping defers ONE test; a stand-in creates an artifact N future tests anchor to").
   //
-  // UN-SKIP when `tasks/nebula-auth-identity-mint.md` lands (an admin invites a peer who becomes an
-  // admin at the invited scope) — that file carries the acceptance criterion for this deferral.
-  // The registry-level equivalent IS covered today: `nebula-auth-registry.test.ts`
+  // UN-SKIP when that lane unblock lands: connect an admin client, `client.invite(target, [...])`
+  // a second identity in, then assert the confirm screen's bounded warning. The registry-level
+  // equivalent IS covered today: `nebula-auth-registry.test.ts`
   // "warning: another user on the target is reported, and the delete still succeeds" +
   // `identity-mint-point.test.ts` "a genuinely shared scope is deleted, not refused".
   it.skip('deletes a scope WITH another user attached, showing the bounded warning', async () => {

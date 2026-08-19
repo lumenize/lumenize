@@ -39,7 +39,8 @@ Convenience only, not authoritative, and may lag the code:
 | `apps/nebula` | Mesh platform (Galaxy, Star, Universe, Resources) — Galaxy is a plain `NebulaDO` that drives a container via raw `ctx.container` → also [containers.md](containers.md) |
 | `mesh` | Mesh framework — defines the Mesh surface (`LumenizeDO`) *and* raw internals (the Gateway). Driving a container is raw `ctx.container` on any DO — no base class → [containers.md](containers.md) |
 | `fetch` | Mesh library — uses `this.lmz`, defines no DO |
-| `auth`, `nebula-auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
+| `auth`, `ts-runtime-parser-validator` | raw-DO infrastructure — `extends DurableObject` |
+| `nebula-auth` | dual-layer, derived per-file: the Registry/router core is raw-DO infrastructure, while two subpath exports compose mesh — `/profile` (a `ComposedMeshDO`) and `/facade` (`NebulaAuthFacade`, a `LumenizeWorker`) → those files also follow [mesh.md](mesh.md) |
 | `testing` | DO-driving tooling — wraps user DOs, defines none in `src` (`raw-comm.md` applies) |
 | `rpc`, `routing` | utility / Worker — DO-adjacent (call DO stubs but define no DO) |
 | `debug`, `structured-clone` | utility — no DO involvement |

@@ -77,12 +77,9 @@ export async function run(stack: DevStack): Promise<void> {
     const waiter = waitForEmail({ testToken, instance: evilUniverse, to: victimEmail, timeout: 60_000 });
     let inviteLink: string;
     try {
-      const res = await fetch(`${origin}/auth/${evilUniverse}/invite`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${attacker.accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: [victimEmail] }),
-      });
-      assert.equal(res.status, 200, `invite failed: ${res.status}`);
+      // The ONE production surface — the attacker's own connected client (there is no HTTP route).
+      const summary = await attacker.client.invite(evilUniverse, [{ email: victimEmail }]);
+      assert.equal(summary.errors.length, 0, `invite failed: ${JSON.stringify(summary.errors)}`);
       // `extractMagicLink` is magic-link-specific by design; an invite is `accept-invite?invite_token=`,
       // and the `&amp;` in an email body must be unescaped or the link 404s.
       const html = (await waiter.emailPromise).html ?? '';

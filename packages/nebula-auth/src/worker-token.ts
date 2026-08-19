@@ -8,8 +8,10 @@
  *    record; Worker sets the refresh cookie + redirects.
  *  - `refresh-token` → **pure KV read**, then mint the JWT here. The registry is NEVER on this path.
  *  - `logout` → registry deletes the KV record + index entry.
- *  - `invite` (admin) → registry mints invitee identities + invite tokens + sends the emails.
  *  - `mint-narrower-token` (admin) → mint a scope-bounded narrower token here.
+ *
+ * Invites are NOT here: every invite enters mesh-side through `NebulaAuthFacade`
+ * (`@lumenize/nebula-auth/facade`); only the accept-invite CLICK (session lifecycle) stays HTTP.
  *
  * The JWT is minted HERE (the Worker holds the signing keys); `email` never enters it. All bearer
  * tokens (magic-link/invite/refresh) are stored HASHED — the Worker hashes the raw refresh token and
@@ -27,6 +29,7 @@ import {
   ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, MAGIC_LINK_TTL, RECOMMENDED_MIN_TTL_SECONDS,
 } from './types';
 import type { NebulaJwtPayload, RefreshTokenKV } from './types';
+import { landingBase } from './landing';
 
 // ── error helpers ──────────────────────────────────────────────────────────────────────────────
 
@@ -53,38 +56,6 @@ function isValidEmail(email: string): boolean {
 /** The registry stub (raw Workers RPC — nebula-auth is raw-DO infrastructure). */
 function registry(env: Env): any {
   return (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
-}
-
-function redirectUrl(env: Env): string { return (env as any).NEBULA_AUTH_REDIRECT; }
-
-/**
- * The built-app surface a **star**-tier login lands on. Hardcoded, not an env var: `/app` is where a
- * tenant's instance of the user-developer's app is served, and that is fixed by the routing scheme
- * (`run_worker_first: ["/app/*", …]`), not by deployment.
- */
-const STAR_LANDING_PREFIX = '/app';
-
-/**
- * Where a login for `universeGalaxyStarId` lands, split by TIER.
- *
- * A **star** is an end user arriving at the app they signed up for. Every other tier is a
- * user-developer arriving at their own control plane, and rides `NEBULA_AUTH_REDIRECT` — which stays
- * `/app` today and becomes `/studio` when the Galaxy collapse flips that env value. So the non-star
- * branch is not new behavior; it is the existing one, named.
- *
- * ⚠️ **Derive the tier from a SERVER-TRUSTED id.** On the success path that is the scope the consumed
- * token resolved to, never the URL's `instanceName`: `parseScopeGuard` only *format*-validates that
- * segment and never cross-checks it against the token (the registry keys on `tokenHash` alone), so
- * keying off it would let a caller pick another tier's landing surface. The error path has no token to
- * resolve, so it necessarily falls back to the URL segment — which is safe there precisely because it
- * grants nothing: the response is a bare `?error=` redirect either way.
- */
-function landingBase(env: Env, universeGalaxyStarId: string | undefined): string {
-  let tier: string | undefined;
-  if (universeGalaxyStarId) {
-    try { tier = parseId(universeGalaxyStarId).tier; } catch { /* unparseable → treat as non-star */ }
-  }
-  return tier === 'star' ? STAR_LANDING_PREFIX : redirectUrl(env).replace(/\/$/, '');
 }
 
 /** Path-scoped refresh cookie: `Path={prefix}/{scope}`, `Max-Age` = the FIXED refresh TTL (no slide). */
@@ -388,31 +359,9 @@ export async function handleLogout(request: Request, env: Env, instanceName: str
   });
 }
 
-// ── invite (admin) ───────────────────────────────────────────────────────────────────────────────
-
-/**
- * Issue invites into an existing scope. The route pipeline has already proved the caller's identity
- * AND dominion over `instanceName` in one place (`verifyJwtGuard` → `passageGuard` →
- * `dominionOverScopeGuard` in `router.ts`), so this handler carries no gate of its own; the
- * registry mints the invitee identities + tokens. `email` is not needed from the JWT — the registry
- * owns identity.
- */
-export async function handleInvite(
-  request: Request, env: Env, instanceName: string, callerClaims: NebulaJwtPayload,
-): Promise<Response> {
-  // ⚠️ Takes the WHOLE verified payload, not just `access`: issuing an invite mints a membership —
-  // an authority change — so ADR-016 requires a record of the full acting token, `act` chain
-  // included. Narrowing to `access` here would make that record unbuildable downstream without
-  // re-verifying, and a `sub`-only record names the person acted upon as the person who acted.
-  let body: { emails?: string[] };
-  try { body = await request.json() as typeof body; }
-  catch { return errorResponse(400, 'invalid_request', 'Invalid JSON body'); }
-  if (!Array.isArray(body.emails)) return errorResponse(400, 'invalid_request', 'emails array required');
-
-  const origin = new URL(request.url).origin;
-  const result = await registry(env).issueInvites(instanceName, body.emails, origin, callerClaims);
-  return Response.json(result);
-}
+// ── (there is no invite handler here: every invite enters mesh-side through NebulaAuthFacade —
+//     `@lumenize/nebula-auth/facade` — which owns the eligibility verdicts, the bit cap, and the
+//     post-return send dispatch through `invite-entry.ts`) ─────────────────────────────────────────
 
 // ── mint-narrower-token (admin branch) ───────────────────────────────────────────────────────────
 

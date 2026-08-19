@@ -18,6 +18,10 @@
     "./profile": {
       "import": "./src/profile.ts",
       "types": "./src/profile.ts"
+    },
+    "./facade": {
+      "import": "./src/nebula-auth-facade.ts",
+      "types": "./src/nebula-auth-facade.ts"
     }
   },
   "files": [

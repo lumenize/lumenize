@@ -33,7 +33,10 @@ import {
   NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, RESERVED_STAR_SLUGS, instanceAuthUrl,
   MAGIC_LINK_TTL, INVITE_TTL, REFRESH_TOKEN_TTL, SWEEP_INTERVAL_SECONDS,
 } from './types';
-import type { AccessEntry, DiscoveryEntry, EmailMessage, NebulaJwtPayload, RefreshTokenKV } from './types';
+import type {
+  AccessEntry, DiscoveryEntry, EmailMessage, InviteMintResult, InviteeError, InviteeMintResult,
+  InviteeRequest, NebulaJwtPayload, RefreshTokenKV,
+} from './types';
 import { parseId, isValidSlug, isPlatformScope, hasDominionOver } from './parse-id';
 import { projectActingToken } from './access-claims';
 import { reportUnconfiguredProtections } from './router';
@@ -206,8 +209,14 @@ export class NebulaAuthRegistry extends DurableObject {
    * starts un-taken-up. Passing a flag here is what would let an invite into a second scope silently
    * un-verify an address the person had already proved — the parameter's absence makes that impossible
    * rather than merely discouraged.
+   *
+   * Returns what the caller needs to name the outcome: `created` distinguishes a fresh membership
+   * from the early-returned existing one, and for an existing row `scopeAdmin`/`accepted` report the
+   * row's CURRENT state (the mint never touches either — promotion is `issueInvites`' explicit,
+   * guarded call to {@link setIdentityAdmin}, never a side effect here).
    */
-  #mintIdentity(email: string, universeGalaxyStarId: string, scopeAdmin: boolean): string {
+  #mintIdentity(email: string, universeGalaxyStarId: string, scopeAdmin: boolean):
+    { sub: string; created: boolean; scopeAdmin: boolean; accepted: boolean } {
     const lc = normalizeEmail(email);
     const nowIso = new Date().toISOString();
 
@@ -227,9 +236,17 @@ export class NebulaAuthRegistry extends DurableObject {
     }
 
     const existing = this.#sql`
-      SELECT sub FROM Memberships WHERE emailId = ${emailId} AND universeGalaxyStarId = ${universeGalaxyStarId}
+      SELECT sub, scopeAdmin, acceptedAt FROM Memberships
+      WHERE emailId = ${emailId} AND universeGalaxyStarId = ${universeGalaxyStarId}
     `;
-    if (existing.length > 0) return existing[0].sub as string;
+    if (existing.length > 0) {
+      return {
+        sub: existing[0].sub as string,
+        created: false,
+        scopeAdmin: Boolean(existing[0].scopeAdmin),
+        accepted: existing[0].acceptedAt != null,
+      };
+    }
 
     const sub = crypto.randomUUID();
     // `acceptedAt` stays NULL: minting a membership is not taking it up. That NULL is what the Profile
@@ -242,7 +259,7 @@ export class NebulaAuthRegistry extends DurableObject {
     debug('nebula-auth.Registry.identity.minted').info('Membership minted', {
       sub, emailId, universeGalaxyStarId, email: lc, scopeAdmin,
     });
-    return sub;
+    return { sub, created: true, scopeAdmin, accepted: false };
   }
 
   /**
@@ -585,10 +602,13 @@ export class NebulaAuthRegistry extends DurableObject {
    * Its rejection is caught here so it can't surface as an unhandled rejection. (Guaranteed delivery —
    * outbox/retries — is deferred: `tasks/backlog.md` § internal email reliability.)
    *
-   * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `scopeAdmin = 1` clause is
-   * load-bearing: `issueInvites` mints pending invitees as non-admin and un-taken-up at the same scope,
-   * so a looser predicate matches them — and "resuming" one by setting `scopeAdmin = 1` would promote an
-   * invitee to star admin through an unauthenticated endpoint.
+   * ⚠️ **Writes ONLY a `MagicLinks` row — never a membership UPDATE.** The `scopeAdmin = 1` clause
+   * keeps ordinary (non-admin) pending invitees out of the resume — and "resuming" one by setting
+   * `scopeAdmin = 1` would promote an invitee to star admin through an unauthenticated endpoint.
+   * A pending ADMIN invitee (`issueInvites` can mint `scopeAdmin=1` under the inviter's dominion)
+   * does match the predicate now, and that is fine on both counts this guard exists for: the resume
+   * performs no UPDATE, and the re-sent login link reaches only that invitee's own mailbox —
+   * granting nothing their unclicked invite link doesn't already.
    *
    * ⚠️ The unfinished-claim test is `acceptedAt IS NULL` — "was this membership ever taken up?" — NOT
    * whether the mailbox was proved. Those are different questions now, and this one is per-membership:
@@ -824,29 +844,72 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Issue invites into an EXISTING scope. **Admin-gating is the Worker's job** (it verified the JWT +
-   * scope + `admin` before calling — RPC drops custom Error props, so this method stays throw-free for
-   * expected client errors). For each email: MINT the invitee `Identity` (`scopeAdmin=0`,
-   * `emailVerified=0` — an mint point, pre-creating the "authorized member" row that
-   * `getAndVerifyIdentity` will later find-and-flip) and insert a single-use `InviteTokens` row
-   * (HASHED), then send the invite email. In test mode the raw links are returned instead of sent.
+   * Issue invites into an EXISTING scope — **mint-only** (no send: a send awaited here would hold
+   * the singleton's input gates through external I/O, and `ctx.waitUntil` means nothing in a DO —
+   * the ENTRY dispatches the mail post-return via `invite-entry.ts`). Per invitee:
+   *
+   *  - MINT the identity (`emailVerified=0`, un-taken-up) — a mint point, pre-creating the
+   *    "authorized member" row `getAndVerifyIdentity` will later find-and-flip → `invited`;
+   *  - an existing member is early-returned unchanged → `already-member` — EXCEPT when the capped
+   *    bit is true and the row's bit is 0, which executes the promotion via
+   *    {@link setIdentityAdmin} (flips the row AND converges every live KV refresh record, so open
+   *    sessions gain the bit on their next refresh) → `promoted`. **Promote-only is structural**:
+   *    the call is reached only under (capped bit ∧ row bit 0) — a capped-false bit never reaches
+   *    it (never "demote"), and an already-admin re-invite is an ordinary `already-member` with no
+   *    update, no KV write, and no authority-change record;
+   *  - INSERT a fresh `InviteTokens` row (HASHED, reusable within its TTL) and return the URL for
+   *    the entry's sender, alongside the acceptance fact that picks the template.
+   *
+   * **Eligibility refusals are the caller's job** — the entry's claims-only verdicts: exact-scope
+   * membership or dominion over the target (RPC drops custom Error props, so this method stays
+   * throw-free for expected client errors) — but
+   * never the admin bit: the full cap rule is re-asserted in-method, and a `scopeAdmin: true` entry
+   * arriving without dominion in `callerClaims` THROWS as an invariant breach (the entry should
+   * have capped it), before any entry's writes. Malformed entries join the per-invitee errors; the
+   * batch never fails whole.
    */
   async issueInvites(
-    universeGalaxyStarId: string, emails: string[], origin: string, callerClaims: NebulaJwtPayload,
-  ): Promise<{ invited: string[]; errors: Array<{ email: string; error: string }>; links?: Record<string, string> }> {
-    const invited: string[] = [];
-    const errors: Array<{ email: string; error: string }> = [];
-    const links: Record<string, string> = {};
+    universeGalaxyStarId: string, invitees: InviteeRequest[], origin: string,
+    callerClaims: NebulaJwtPayload,
+  ): Promise<InviteMintResult> {
+    const results: InviteeMintResult[] = [];
+    const errors: InviteeError[] = [];
 
-    for (const rawEmail of emails) {
+    // The in-method cap re-assertion, BEFORE any write so the bug path leaves no partial state.
+    // The bit passes only `=== true` — `"true"`, `1`, `"false"` never mint an admin (they are
+    // treated as unrequested, per the contract's wrong-typed rule).
+    const dominion = hasDominionOver(callerClaims?.access, universeGalaxyStarId);
+    for (const entry of invitees) {
+      if (entry != null && typeof entry === 'object' && entry.scopeAdmin === true && !dominion) {
+        throw new Error(
+          'issueInvites: a scopeAdmin entry arrived without dominion in callerClaims — the entry ' +
+          'guard must cap the bit (invariant breach, not a client error)',
+        );
+      }
+    }
+
+    for (const entry of invitees) {
+      const rawEmail = (entry != null && typeof entry === 'object') ? entry.email : undefined;
       const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : '';
       if (!email || !isValidEmail(email)) {
-        errors.push({ email: rawEmail, error: 'Invalid email format' });
+        errors.push({ email: typeof rawEmail === 'string' ? rawEmail : '', error: 'Invalid email format' });
         continue;
       }
+      const requestedBit = entry.scopeAdmin === true;
       try {
         // Pre-create the invitee identity (idempotent on (email, scope)) — the mint point.
-        this.#mintIdentity(email, universeGalaxyStarId, /* scopeAdmin */ false);
+        const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit);
+
+        let outcome: InviteeMintResult['outcome'] = minted.created ? 'invited' : 'already-member';
+        if (!minted.created && requestedBit && !minted.scopeAdmin) {
+          // The promotion — reached ONLY under (capped bit ∧ row bit 0), which is what makes
+          // promote-only structural rather than a branch: a false bit can never demote, and an
+          // already-admin re-invite never re-writes the row or its KV records. An authority
+          // change, so the acting claims thread through (setIdentityAdmin emits the ADR-016
+          // record via the shared projection).
+          await this.setIdentityAdmin(minted.sub, true, callerClaims);
+          outcome = 'promoted';
+        }
 
         const rawToken = generateRandomString(32);
         const tokenHash = await hashString(rawToken);
@@ -858,27 +921,22 @@ export class NebulaAuthRegistry extends DurableObject {
         const inviteUrl =
           instanceAuthUrl(origin, universeGalaxyStarId, 'accept-invite', { invite_token: rawToken });
 
-        if (this.#isTestMode) {
-          links[email] = inviteUrl;
-        } else {
-          await this.#sendEmail({ type: 'invite-new', to: email, instanceName: universeGalaxyStarId, inviteUrl });
-        }
-        // ADR-016: an invite MINTS a membership, so it changes who can do what. The record names the
-        // full acting token through the shared projection — never a bare `sub`, which under
-        // impersonation names the person acted upon as the person who acted.
-        debug('nebula-auth.Registry.invite.sent').info('Invite sent', {
-          email, universeGalaxyStarId, actingToken: projectActingToken(callerClaims),
+        // ADR-016-adjacent issuance attribution: an `invited` outcome MINTS a membership (an
+        // authority change), and every outcome mints a login-channel token and sends mail on
+        // someone's behalf — the abuse bound on the open invite rule is exactly this line. The
+        // record names the full acting token through the shared projection — never a bare `sub`,
+        // which under impersonation names the person acted upon as the person who acted. (The
+        // promotion's own authority-change record is setIdentityAdmin's, not this one.)
+        debug('nebula-auth.Registry.invite.issued').info('Invite issued', {
+          email, universeGalaxyStarId, outcome, actingToken: projectActingToken(callerClaims),
         });
-        invited.push(email);
+        results.push({ email, sub: minted.sub, outcome, accepted: minted.accepted, inviteUrl });
       } catch (error) {
         errors.push({ email, error: error instanceof Error ? error.message : 'Unknown error' });
       }
     }
 
-    const result: { invited: string[]; errors: typeof errors; links?: Record<string, string> } =
-      { invited, errors };
-    if (this.#isTestMode) result.links = links;
-    return result;
+    return { results, errors };
   }
 
   // ============================================
@@ -920,9 +978,13 @@ export class NebulaAuthRegistry extends DurableObject {
   }
 
   /**
-   * Consume an invite (Worker-driven, on the click). Validates + single-use-DELETES the `InviteTokens`
-   * row, find-and-flips the pre-created invitee identity (rejects if none), records the refresh token
-   * (index-first, then KV). Same shape as {@link consumeMagicLink} but single-use.
+   * Consume an invite (Worker-driven, on the click). Validates the `InviteTokens` row by hash,
+   * find-and-flips the pre-created invitee identity (rejects if none), records the refresh token
+   * (index-first, then KV). Same shape as {@link consumeMagicLink}, including the lifetime rule:
+   * **reusable within its TTL, deleted only by the expiry sweep — never on consume.** The same
+   * scanner-safety rationale applies identically: a corporate link-scanner (SafeLinks, Mimecast)
+   * prefetches the GET, and single-use would burn the token before the human clicks — making
+   * `invalid_token` the invitee's first contact with the product.
    */
   async consumeInvite(
     inviteTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
@@ -932,8 +994,6 @@ export class NebulaAuthRegistry extends DurableObject {
     `;
     if (rows.length === 0) return null;
     const invite = rows[0];
-    // Single-use: delete regardless of expiry (a re-click can't replay it).
-    this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE tokenHash = ?', inviteTokenHash);
     if (new Date().toISOString() > (invite.expiresAt as string)) return null;
 
     const identity = this.getAndVerifyIdentity(invite.email as string, invite.universeGalaxyStarId as string);
@@ -1313,9 +1373,13 @@ export class NebulaAuthRegistry extends DurableObject {
     // tests assert non-entry through the debug sink on this line. `headerNames` (names only, never
     // values) is what makes forward FIDELITY observable: a raw forward preserves every header,
     // where a rebuild drops all but Content-Type. Pathname only — never the full URL.
+    // `forEach` rather than the iterator helpers: this file is also type-checked under Node-lib
+    // programs (the /live harness compiles it transitively via the nebula-auth barrel), whose
+    // `Headers` lacks `.keys()`; `forEach` exists in both lib worlds.
+    const headerNames: string[] = [];
+    request.headers.forEach((_value, name) => headerNames.push(name));
     debug('nebula-auth.Registry.fetch').debug('entry', {
-      method: request.method, pathname: url.pathname,
-      headerNames: [...request.headers.keys()],
+      method: request.method, pathname: url.pathname, headerNames,
     });
 
     // Defense in depth: the edge already answers 405 itself; this holds for any non-router caller.

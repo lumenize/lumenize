@@ -45,7 +45,9 @@ echo "▸ Preflight: required deployed secrets are set"
 # raw `printf %s` stores the literal `"...\n..."`, and the key's base64 decode (atob) then throws on the
 # quote chars → 500 on /refresh-token + a silent login-loop (root-caused 2026-07-02 after a wipe+restore).
 SECRET_LIST="$(wrangler secret list 2>/dev/null)"
-for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE; do
+# RESEND_API_KEY: prod SENDS via Resend (the --var below selects it), so a deploy without the key
+# would throw "provider 'resend' selected but RESEND_API_KEY is not set" on the first email.
+for s in NEBULA_AUTH_BOOTSTRAP_EMAIL JWT_PRIVATE_KEY_BLUE JWT_PUBLIC_KEY_BLUE RESEND_API_KEY; do
   if ! printf '%s' "$SECRET_LIST" | grep -q "\"$s\""; then
     echo "❌ Required secret '$s' is not set on the deployed worker." >&2
     echo "   Set it (value from the gitignored root .dev.vars), e.g.:" >&2
@@ -76,7 +78,12 @@ echo "▸ wrangler deploy (worker bundle + DevContainer image)"
 # worker lands on *.workers.dev, not the issuer domain). pipefail (set -o above) still aborts on a
 # wrangler failure even through the pipe.
 DEPLOY_LOG="$(mktemp)"
-wrangler deploy "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
+# EMAIL_PROVIDER=resend is DEPLOY-SCOPED on purpose (decided 2026-08-09: prod sends via Resend over
+# CF Email Sending deliverability). It must NOT live in wrangler.jsonc `vars`: every local lane
+# (`npm run dev`, the /live harness, its derived no-container config) boots that file, and a blanket
+# var would flip them off the CF Routing catch-all that `waitForEmail` depends on. This script is
+# the single prod-deploy home, so a var passed here reaches exactly the deployed worker.
+wrangler deploy --var EMAIL_PROVIDER:resend "${WRANGLER_DEFINE_ARGS[@]}" 2>&1 | tee "$DEPLOY_LOG"
 
 # 5. Self-check the freshly-built worker is live AND serving the bytes we just built — the same
 #    public compare endpoint (Phase 1). It discloses nothing, needs no admin token; a reply at all

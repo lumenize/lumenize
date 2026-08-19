@@ -82,7 +82,7 @@ describe('Turnstile gating (behavioural, per-test env spread)', () => {
     const posts = [
       'my-scopes', 'create-galaxy', 'create-star', 'delete-scope', 'delete-scope-plan',
       'mint-narrower-token',
-      'some-scope/refresh-token', 'some-scope/logout', 'some-scope/invite',
+      'some-scope/refresh-token', 'some-scope/logout',
     ];
     for (const path of posts) {
       const resp = await post(path);

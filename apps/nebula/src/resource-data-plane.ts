@@ -352,6 +352,15 @@ export class ResourceDataPlane {
     }
   }
 
+  /** Enumerate the CURRENT resources of `typeName` whose to-one relationship `field` equals
+   *  `value` — the host-side twin of a `parentChild` query's evaluation, for host code that must
+   *  CONVERGE on an existing row before writing (e.g. `Star.invite`'s one-`InviteStatus`-row-per-
+   *  (email, node) rule). Read-only; carries no permission gate of its own — the write that follows
+   *  goes through `doTransaction`'s ordinary checks, and reads of the values go through `doRead`. */
+  findCurrentByField(typeName: string, field: string, value: string): Array<{ resourceId: string; nodeId: string }> {
+    return this.#resources.enumerateCurrentByField(typeName, field, value);
+  }
+
   /** Register a subscriber (subscribe-time DAG read check + existence/type checks
    *  in `Subscriptions.subscribe`) + push the initial snapshot. */
   doSubscribe(

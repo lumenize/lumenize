@@ -24,7 +24,7 @@ import { parseJwtUnsafe } from '@lumenize/crypto';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import type { DevStack } from '../lib/harness';
-import { readDevVar } from '../lib/harness';
+import { inviteViaMesh, readDevVar } from '../lib/harness';
 import { provisionStarAdmin, loginViaEmail, refreshAccessToken, pointLinkAt } from '../../test/lib/email-login';
 import { waitForEmail } from '@lumenize/email-test/client';
 import {
@@ -56,7 +56,8 @@ async function connected(client: NebulaClient, timeoutMs = 30_000): Promise<void
  * put a SECOND person inside a scope someone else founded.
  */
 async function inviteAndLogin(
-  stack: DevStack, browser: Browser, scope: string, adminToken: string, email: string, testToken: string,
+  stack: DevStack, browser: Browser, scope: string, adminSession: { accessToken: string; sub: string },
+  email: string, testToken: string,
 ): Promise<{ accessToken: string; sub: string }> {
   // NO `instance` FILTER, but we DO assert the tag's value below — two different things, and the
   // reason for each has changed over time. The filter could once not work at all (`NebulaEmailSender`
@@ -68,12 +69,9 @@ async function inviteAndLogin(
   // waiting listener.
   const waiter = waitForEmail({ testToken, to: email, timeout: 60_000 });
   try {
-    const res = await browser.fetch(`${stack.baseUrl}/auth/${scope}/invite`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [email] }),
-    });
-    assert.equal(res.status, 200, `invite to ${scope} failed`);
+    // The ONE production surface: NebulaClient.invite → Gateway → facade (there is no HTTP route).
+    const summary = await inviteViaMesh(stack, adminSession, scope, [{ email }]);
+    assert.equal(summary.errors.length, 0, `invite to ${scope} failed: ${JSON.stringify(summary.errors)}`);
     // `extractMagicLink` matches the magic-link route specifically; an invite is a different
     // endpoint (`accept-invite?invite_token=`), so pull the href here rather than widen a shared
     // helper that other callers rely on to be magic-link-specific.
@@ -273,7 +271,7 @@ export async function run(stack: DevStack): Promise<void> {
   // authScope, so the paths match exactly and only the branch stands between a child logout and the
   // admin's 30-day refresh token.
   const peerEmail = `peer-${suffix}@lumenize.io`;
-  const peer = await inviteAndLogin(stack, browser, universe, admin.accessToken, peerEmail, testToken);
+  const peer = await inviteAndLogin(stack, browser, universe, admin, peerEmail, testToken);
   const sameScopeChild = await adminClient.impersonate(peer.sub, universe, { ttlSeconds: SAFE_TTL });
   await connected(sameScopeChild);
   assert.equal(sameScopeChild.claims.sub, peer.sub, 'the same-scope child must be the invited peer');

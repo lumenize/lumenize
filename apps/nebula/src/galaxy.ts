@@ -9,34 +9,16 @@
 
 import { mesh } from '@lumenize/mesh';
 import { debug } from '@lumenize/debug';
-import {
-  extractTypeMetadata,
-  generateParseModule,
-} from '@lumenize/ts-runtime-parser-validator';
-import type { TypeMetadata } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireDominionHere } from './nebula-do';
+// The pure compile half lives in the Node-safe leaf `./ontology-compile` (the /live harness
+// compiles rows to install via `setOntology`); re-exported here so import sites are unchanged.
+import { compileOntologyVersion } from './ontology-compile';
+import type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compile';
+
+export { compileOntologyVersion, PLATFORM_RESOURCE_TYPES } from './ontology-compile';
+export type { OntologyVersionConfig, OntologyVersionRow } from './ontology-compile';
 
 // ─── Types ───────────────────────────────────────────────────────────
-
-/** Caller-supplied input for `appendOntologyVersion()`. */
-export interface OntologyVersionConfig {
-  version: string;
-  types: string;
-}
-
-/**
- * Compiled, stored-per-version row. Immutable after write.
- *
- * `relationships` rides along for 5.5's lazy-migration path — no Phase 1–6
- * code reads it, but co-locating it with `validatorBundle` saves the future
- * migrator a re-extract on every cold migration.
- */
-export interface OntologyVersionRow {
-  version: string;
-  types: string;
-  validatorBundle: string;
-  relationships: TypeMetadata['relationships'];
-}
 
 /**
  * Reply shape for `getLatestOntologyVersion()`. Bundles the latest row with
@@ -101,28 +83,8 @@ const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
 
 // ─── Pure helpers ────────────────────────────────────────────────────
-
-/**
- * Compile a versionConfig into a stored row. Throws on invalid TypeScript or
- * typia compile errors; the caller surfaces the message to the admin.
- */
-export function compileOntologyVersion(
-  versionConfig: OntologyVersionConfig,
-): OntologyVersionRow {
-  const md = extractTypeMetadata(versionConfig.types);
-  // Pass the original relationship map so the generated validator can emit a
-  // loud, actionable error when a caller embeds an object in a relationship
-  // field instead of referencing the related resource by id (the write shape
-  // types relationships as `string`, which otherwise yields an opaque
-  // "expected (string | undefined)").
-  const validatorBundle = generateParseModule(md.writeShapeTypeDefinitions, md.relationships);
-  return {
-    version: versionConfig.version,
-    types: versionConfig.types,
-    validatorBundle,
-    relationships: md.relationships,
-  };
-}
+// (compileOntologyVersion + PLATFORM_RESOURCE_TYPES live in ./ontology-compile — the Node-safe
+//  leaf — and are re-exported above.)
 
 // ─── Galaxy DO ───────────────────────────────────────────────────────
 

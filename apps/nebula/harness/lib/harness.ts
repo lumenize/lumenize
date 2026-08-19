@@ -25,8 +25,9 @@ import { spawnWranglerDev } from '@lumenize/testing/wrangler';
 import { Browser } from '@lumenize/testing';
 import { NebulaClient } from '@lumenize/nebula/client';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
+import type { InviteSummary, NebulaJwtPayload } from '@lumenize/nebula-auth/testing';
 import { provisionAndLogin } from '../../test/lib/email-login';
-import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/crypto';
+import { signJwt, importPrivateKey, createJwtPayload, parseJwtUnsafe } from '@lumenize/crypto';
 
 const HARNESS_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // apps/nebula/harness
 const NEBULA_DIR = dirname(HARNESS_DIR); // apps/nebula
@@ -206,23 +207,19 @@ export async function bootDevStack(
   return { baseUrl, signingKey, activeKey: 'BLUE', cleanup };
 }
 
-/** A connected driver: the real-WS client + its identity + lifecycle helpers. */
+/** A connected driver: the real-WS client + its identity + lifecycle helpers.
+ *
+ *  There is deliberately NO `accessToken` field: production keeps the JWT inside the client
+ *  (`client.scopes.*` / `client.invite` / `authedFetch`), so a scenario that hand-builds an
+ *  `Authorization` header proves an endpoint works while skipping the code that reaches it in
+ *  production — the exact divergence this tier exists to close. The last consumer (`/invite`,
+ *  which had no client method) died when invites moved onto `NebulaClient.invite`. A scenario
+ *  that genuinely needs a bearer holds the SESSION it logged in with (`EmailSession.accessToken`),
+ *  which is a snapshot with the same staleness caveat. */
 export interface Driver {
   client: NebulaClient;
   /** The subject UUID the mint assigned this identity. */
   sub: string;
-  /** This identity's access token — needed ONLY where no client API reaches the endpoint yet.
-   *
-   *  ⚠️ **Prefer `client.scopes.*`.** Production keeps the JWT inside the client and issues authed
-   *  HTTP itself (`authedFetch`), so app code never handles a bearer; a scenario that hand-builds an
-   *  `Authorization` header proves the endpoint works while skipping the code that reaches it in
-   *  production — the exact divergence this tier exists to close.
-   *
-   *  ⚠️ The one live gap is **`/invite`, which has no `client.scopes` method**, so an invite scenario
-   *  must still call it directly. When that method lands, the remaining uses of this field go with it.
-   *  It is a SNAPSHOT, so it also silently goes stale across a refresh — fine for a seconds-long
-   *  scenario, wrong for anything that outlives one token. NEVER log this value. */
-  accessToken: string;
   /** The active (== auth) scope this driver drives. */
   scope: string;
   /**
@@ -361,7 +358,6 @@ export async function connectDriver(
     client,
     sub,
     scope,
-    accessToken: access_token,
     wipe: () => {
       try {
         // Fire-and-forget under the continuation-only model (mirrors nebula-studio-ui App.vue).
@@ -379,6 +375,45 @@ export async function connectDriver(
       ctx.close();
     },
   };
+}
+
+/**
+ * Invite through the ONE production surface — `NebulaClient.invite` → Gateway →
+ * `NEBULA_AUTH_FACADE` — as a session that has already logged in by a real path. Constructs a
+ * short-lived client from the session's token (a handed token on a client of the SAME identity —
+ * the sanctioned shape; renewal never runs inside this one-call lifetime), invites, disposes.
+ *
+ * For a scenario that already holds a connected {@link Driver}, prefer `driver.client.invite(...)`
+ * directly; this exists for the sites whose inviter is an `EmailSession` with no client.
+ */
+export async function inviteViaMesh(
+  stack: DevStack,
+  session: { accessToken: string; sub: string },
+  targetScope: string,
+  invitees: Array<{ email: string; scopeAdmin?: boolean }>,
+): Promise<InviteSummary> {
+  const claims = parseJwtUnsafe(session.accessToken)!.payload as unknown as NebulaJwtPayload;
+  const browser = new Browser();
+  const ctx = browser.context(stack.baseUrl);
+  const client = new NebulaClient({
+    baseUrl: stack.baseUrl,
+    authScope: claims.access.authScope,
+    activeScope: claims.aud,
+    appVersion: 'harness-v0',
+    resourceHostBinding: 'DEV_STUDIO',
+    accessToken: session.accessToken,
+    instanceName: `${session.sub}.${crypto.randomUUID().slice(0, 8)}`,
+    fetch: browser.fetch,
+    sessionStorage: ctx.sessionStorage,
+    BroadcastChannel: ctx.BroadcastChannel,
+  });
+  try {
+    await waitForConnected(client, 30_000);
+    return await client.invite(targetScope, invitees);
+  } finally {
+    try { client[Symbol.dispose](); } catch { /* already disposed */ }
+    ctx.close();
+  }
 }
 
 /**

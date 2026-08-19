@@ -27,6 +27,11 @@ import type { ParserValidator } from '@lumenize/ts-runtime-parser-validator';
 import { NebulaDO, requireDominionHere } from './nebula-do';
 import type { DagTree } from './dag-tree';
 import { ROOT_NODE_ID } from './dag-ops';
+import type { PermissionTier } from './dag-ops';
+import type { InviteSummary, InviteeError } from '@lumenize/nebula-auth';
+// Type-only: types the facade continuation below without pulling a second mesh entry into this
+// module's value graph.
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import { TreeSubscriptions } from './tree-subscriptions';
 import { ReloadSubscriptions } from './reload-subscriptions';
 import { OntologyStaleError } from './errors';
@@ -40,6 +45,27 @@ import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 const INDEX_KEY = 'ontology:_index';
 const rowKey = (version: string) => `ontology:${version}`;
+
+/** One requested node invitee: the address, and the DAG tier to grant at the node. */
+export interface NodeInvitee { email: string; tier: PermissionTier }
+
+/** `Star.invite`'s synchronous ack — SUBMISSION outcomes only (a true delivery failure is
+ *  out-of-band and arrives hours later, when no tab is listening); everything downstream lands in
+ *  `InviteStatus` rows the members panel query-subscribes. */
+export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
+
+/** The DAG tier vocabulary, as a runtime gate — mesh args are compile-time typed but
+ *  runtime-unchecked, and `invite`'s eventual caller is Studio-GENERATED app code (ADR-001: the
+ *  mesh method is the validation boundary). */
+const PERMISSION_TIERS: ReadonlySet<string> = new Set(['admin', 'write', 'read']);
+
+/** Structural email gate — non-empty local part, `@`, non-empty domain (the same hand-rolled shape
+ *  the Registry re-checks; a failure here is a per-invitee error, never a whole-batch one). */
+function isValidInviteEmail(email: unknown): email is string {
+  if (typeof email !== 'string') return false;
+  const at = email.indexOf('@');
+  return at > 0 && at < email.length - 1;
+}
 
 export class Star extends NebulaDO {
   #dataPlane!: ResourceDataPlane
@@ -415,6 +441,201 @@ export class Star extends NebulaDO {
   @mesh()
   dagTree(): DagTree {
     return this.#dataPlane.dagTree
+  }
+
+  // ─── Node invites (two-plane: the DAG grant here, the membership via the facade) ────────────
+
+  /**
+   * Invite people onto a NODE — the two-plane operation: it initiates here, where the inviter's
+   * authority lives (`requirePermission`: `admin` at `nodeId` — the only authz decision on this
+   * path, because the facade cannot evaluate a DAG grant by design), writes `pending`
+   * `InviteStatus` rows locally, fires the membership mint through the facade, and returns the
+   * ack. The result handler ({@link onInviteResult}) writes the `setPermission` grants and flips
+   * each row to `sent`/`submission-failed` — so the two planes are both written at INVITE time,
+   * and the invitee's first login finds everything in place (no login-time sequencing).
+   *
+   * `callAsync`-able: cross-node-self-contained — the facade call is FIRED with a traveling
+   * handler, never awaited, so the ack carries only what is decided locally (SUBMISSION outcomes;
+   * everything later is `InviteStatus` state). Batch semantics: one `nodeId` per call (one
+   * `requirePermission` licenses the whole batch), `tier` per invitee, a malformed email joins the
+   * per-invitee errors without failing the batch — but an out-of-vocabulary `tier` refuses the
+   * WHOLE call before any side effect (a grant vocabulary error is a caller bug, not a per-address
+   * condition).
+   *
+   * The facade call requests NO `scopeAdmin` bit — the cap rule in its degenerate form: a node
+   * inviter's authority is a DAG grant, and the `tier` parameter governs the DAG grant only.
+   * Convergence: one `InviteStatus` row per (email, node) — a re-invite converges on the existing
+   * row (fresh `tier`, back to `pending`) rather than duplicating, so a second admin sees one
+   * coherent state (ADR-008 org-visibility).
+   *
+   * Precondition: the host Star must hold an INSTALLED ontology — the `InviteStatus` rows ride the
+   * ordinary Resources pipeline, so this fails closed (before the facade fires) on a Star that has
+   * never had one, exactly as any resource write would. A production Star always has its app's.
+   */
+  @mesh()
+  async invite(nodeId: string, invitees: NodeInvitee[]): Promise<NodeInviteAck> {
+    // ── The ADR-001 boundary: shape-check what the wire cannot. Whole-call refusals carry their
+    // own messages, each distinguishable from the DAG refusal (`PermissionDeniedError`'s
+    // "admin permission required on node …") and from every facade refusal.
+    if (typeof nodeId !== 'string' || nodeId.length === 0) {
+      throw new Error('Invalid node invite: nodeId must be a node id string');
+    }
+    if (!Array.isArray(invitees)) {
+      throw new Error('Invalid node invite: invitees must be an array');
+    }
+    const errors: InviteeError[] = [];
+    const valid: NodeInvitee[] = [];
+    for (const entry of invitees) {
+      if (entry === null || typeof entry !== 'object') {
+        errors.push({ email: '', error: 'Invalid invitee entry' });
+        continue;
+      }
+      const { email, tier } = entry as { email: unknown; tier: unknown };
+      if (!PERMISSION_TIERS.has(tier as string)) {
+        // BEFORE any mint or send side effect, deliberately whole-call — see the JSDoc.
+        throw new Error(`Invalid node invite: tier "${String(tier)}" is not one of admin | write | read`);
+      }
+      if (!isValidInviteEmail(email)) {
+        errors.push({ email: typeof email === 'string' ? email : '', error: 'Invalid email format' });
+        continue;
+      }
+      // Normalize exactly as the Registry does — the handler's tier lookup keys on the summary's
+      // normalized address, so the two sides must agree.
+      valid.push({ email: email.toLowerCase().trim(), tier: tier as PermissionTier });
+    }
+
+    // The DAG gate at the door — one check licenses the whole batch.
+    this.#dataPlane.dagTree.requirePermission(nodeId, 'admin');
+
+    if (valid.length > 0) {
+      // `pending` rows, converged on (email, node) — through the ordinary transaction path, so
+      // validation, `changedBy` attribution (the inviter, `act` chain included) and subscriber
+      // fan-out all apply. Server-side write → no originating client to exclude ('').
+      const ops: Record<string, OperationDescriptor> = {};
+      for (const v of valid) {
+        const existing = this.#findInviteStatus(nodeId, v.email);
+        const value = { node: nodeId, email: v.email, tier: v.tier, state: 'pending' };
+        if (existing) {
+          ops[existing.resourceId] = { op: 'put', eTag: existing.meta.eTag, value };
+        } else {
+          ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: 'InviteStatus', value };
+        }
+      }
+      const written = await this.#dataPlane.doTransaction(crypto.randomUUID(), ops, '');
+      if (!written.ok) {
+        // Unreachable through this method's own inputs (the ops were just derived from current
+        // rows under the input gate) — surface loudly rather than half-invite.
+        throw new Error(`node invite could not record its pending state: ${JSON.stringify(written.errors)}`);
+      }
+
+      // Fire the membership mint through the ONE issuing entry, and receive the outcome in a
+      // TRAVELING handler (two one-way calls): the slow email I/O runs on the CPU-billed facade
+      // Worker while this DO's input gates stay closed, and the handler runs on a cold,
+      // storage-restored Star if this one was evicted. `callContext` (the inviter's verified
+      // claims) propagates across the hop, so the facade's eligibility + the Registry's ADR-016
+      // record see the real acting principal.
+      this.lmz.call(
+        'NEBULA_AUTH_FACADE', undefined,
+        this.ctn<NebulaAuthFacade>().invite(this.lmz.instanceName!, valid.map(({ email }) => ({ email }))),
+        this.ctn<Star>().onInviteResult(nodeId, Object.fromEntries(valid.map(v => [v.email, v.tier]))),
+      );
+    }
+    return { accepted: valid.length, errors };
+  }
+
+  /**
+   * The node invite's result handler — travels with the call (never awaited), so it survives this
+   * DO's eviction and the inviter's disconnect. Writes the second plane: `setPermission` at the
+   * node for every minted `sub` (already-member outcomes included — that is what heals the one
+   * reachable two-plane inconsistency, a membership without its grant), then flips each
+   * `InviteStatus` row to `sent`/`submission-failed`.
+   *
+   * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
+   * (allowlist off, scope-check on), and an `@mesh` here would let any in-scope caller forge an
+   * invite outcome and write themselves grants. The whole body is wrapped: an uncaught throw in a
+   * fire-back handler is silently lost, so failures are logged with identifiers only.
+   */
+  public async onInviteResult(
+    nodeId: string, tiers: Record<string, PermissionTier>, result?: unknown,
+  ): Promise<void> {
+    const log = debug('nebula.Star.invite');
+    try {
+      if (result instanceof Error) {
+        // The whole submission failed (facade refusal or infra) — every pending row flips.
+        // ⚠️ DEFENSIVE, with no honest in-lane producer today (testing.md's hard-to-reach
+        // exception): the Star pre-validates with the same email gate the Registry re-runs, sends
+        // no bit for the cap to breach on, and its caller passed `requirePermission` — so reaching
+        // here requires an infrastructure failure or a facade eligibility change. What replaces
+        // the test is that the event announces itself below and the flip is visible org-wide.
+        await this.#flipInviteStatuses(nodeId, Object.keys(tiers).map((email) =>
+          ({ email, state: 'submission-failed', error: result.message })));
+        log.warn('node invite submission failed', { nodeId, error: result.message });
+        return;
+      }
+      const summary = result as InviteSummary;
+      // The grants FIRST — they are the operation's point; the flips are reporting. Runs under the
+      // response-leg callContext (the inviter's claims), so `setPermission`'s own `admin` gate
+      // re-checks the same principal `requirePermission` admitted at the door.
+      for (const r of summary.results) {
+        const tier = tiers[r.email];
+        if (!tier) {
+          // A summary row for an address this call never sent — an invariant breach, not a grant.
+          log.error('node invite summary named an unrequested address — no grant written', { nodeId });
+          continue;
+        }
+        this.#dataPlane.dagTree.setPermission(nodeId, r.sub, tier);
+      }
+      await this.#flipInviteStatuses(nodeId, [
+        ...summary.results.map((r) => ({ email: r.email, state: 'sent' as const })),
+        ...summary.errors.map((e) => ({ email: e.email, state: 'submission-failed' as const, error: e.error })),
+      ]);
+    } catch (err) {
+      // Never rethrow — a fire-back handler's throw vanishes. Identifiers only.
+      log.error('node invite result handling failed', {
+        nodeId, error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** The CURRENT `InviteStatus` row for (email, node), or null — the convergence lookup. */
+  #findInviteStatus(nodeId: string, email: string): (Snapshot & { resourceId: string }) | null {
+    for (const { resourceId } of this.#dataPlane.findCurrentByField('InviteStatus', 'node', nodeId)) {
+      const snapshot = this.#dataPlane.doRead(resourceId);
+      if (snapshot && (snapshot.value as { email?: string }).email === email) {
+        return { ...snapshot, resourceId };
+      }
+    }
+    return null;
+  }
+
+  /** Flip each (email, node) row's `state` (+ optional `error`), subscriber fan-out included.
+   *  PER-ROW transactions, deliberately — the rows are independent, and one atomic batch would let
+   *  a single stale eTag (a concurrent re-invite converging that address mid-flight) void the
+   *  SIBLING invitees' flips, stranding them at `pending` with only a warn to show for it. A row
+   *  that vanished or moved on (converged by a newer writer) is skipped: that writer owns its
+   *  state. */
+  async #flipInviteStatuses(
+    nodeId: string,
+    flips: Array<{ email: string; state: 'sent' | 'submission-failed'; error?: string }>,
+  ): Promise<void> {
+    for (const flip of flips) {
+      const existing = this.#findInviteStatus(nodeId, flip.email);
+      if (!existing) continue;
+      const value = {
+        ...(existing.value as Record<string, unknown>),
+        state: flip.state,
+        ...(flip.error !== undefined ? { error: flip.error } : {}),
+      };
+      if (flip.error === undefined) delete (value as Record<string, unknown>).error;
+      const written = await this.#dataPlane.doTransaction(crypto.randomUUID(), {
+        [existing.resourceId]: { op: 'put', eTag: existing.meta.eTag, value },
+      }, '');
+      if (!written.ok) {
+        debug('nebula.Star.invite').warn('an InviteStatus flip did not apply (a newer writer owns the row)', {
+          nodeId, resourceId: existing.resourceId,
+        });
+      }
+    }
   }
 
   // ─── Config ────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # The invite mechanism
 
-**Status:** Design intent co-written 2026-08-19 (replacing the prior file wholesale after a section-by-section mining pass). `/review-task` **Stage 1 ran 2026-08-19** (18 findings, 0 refuted); gate edits applied, the abuse-bound question resolved same day (amend auth.md, no cap — § *Who may invite*), and the client surface decided (`NebulaClient.invite` — § *Phases*, Phase 3). **Phases written 2026-08-19** against the Stage-1-approved intent; **Stage 2 ran the same day** (23 findings → 16 after dedup, all resolved into the file — the send left the Registry DO for the entry Worker, promote-only became structural, the template discriminates on acceptance, and the Phase-4 healing fixture was rebuilt honest). Next: `/build-task` in a fresh session.
+**Status:** ✅ **BUILT 2026-08-19 — all five phases** (`/build-task`; both review stages had run the same day). Every phase's criteria are mutation-validated (≈30 cycles in-lane + 4 live mutations); suites green (nebula-auth 22 files, apps/nebula unit + frontend + baseline + dev-studio); `/live` green on eight scenario runs including the two new ones (`invite-roundtrip`, `node-invite-roundtrip`) and the four migrated ones. Build-time decisions and divergences from the letter of this file: § *Build record (2026-08-19)*.
 
 ## Context
 
@@ -254,6 +254,55 @@ Numbering is executable order. **The F&F gate rides Phases 1–3** (the direct-i
   - **The harness/`wrangler dev` lane still sends via the CF Routing catch-all:** an unchanged `/live` email scenario passes (`waitForEmail` works). *This is the criterion that reds if the var lands blanket.*
   - **`RESEND_API_KEY` is named as a prod `wrangler secret put`** ops step for the wipe-gate deploy.
   - **Backlog § *Nebula Auth*'s Resend row is updated** — its "un-applied today" claim is falsified by this phase, so that row's edit lives here, in the last phase that changes what it describes.
+
+## Build record (2026-08-19)
+
+Decisions the build made where this file left a name or mechanism open, plus the two places the
+letter of a phase moved — each with where the code states it:
+
+- **Names:** the bridge is `NebulaAuthFacade` (`packages/nebula-auth/src/nebula-auth-facade.ts`),
+  subpath `@lumenize/nebula-auth/facade`, self-referencing service binding `NEBULA_AUTH_FACADE`;
+  the node method is `Star.invite(nodeId, invitees: [{ email, tier }])` returning
+  `NodeInviteAck { accepted, errors }`, with the traveling result handler `Star.onInviteResult`.
+- **Mesh invite links mint against `NEBULA_AUTH_ISSUER`** — a mesh call carries no request URL, so
+  there is no origin to read and a caller-supplied one would be an open-redirect vector into
+  email. The issuer IS the canonical public origin, so production links are right by construction;
+  the harness re-points the host (`pointLinkAt`'s existing job) and in-lane tests re-point via
+  `pointAtOrigin`. Stated in the facade's JSDoc.
+- **`InviteStatus` rides every ontology via `PLATFORM_RESOURCE_TYPES`**, unioned into
+  `compileOntologyVersion` (now in the Node-safe leaf `apps/nebula/src/ontology-compile.ts`, so
+  the `/live` harness can compile+install a row). The query machinery subscribes on to-one
+  RELATIONSHIP fields, so `InviteStatus.node` is typed as the declaration-only `OrgNode` — both
+  names are reserved via an EXPLICIT check in `compileOntologyVersion` (test-backed) — TypeScript
+  would MERGE a duplicate interface silently rather than error, and the verifier panel caught the
+  first draft of this entry claiming a loud compile failure nothing produced. Consequence stated
+  at the site (`Star.invite`'s JSDoc): **a node invite requires the host Star's ontology to be
+  installed** (true of every resource write; a production Star always has its app's).
+- **The out-of-vocabulary `tier` refusal is WHOLE-call** (before any side effect) while a
+  malformed email stays per-invitee — a grant-vocabulary error is a caller bug, not a per-address
+  condition. Phase 4's criterion said "refused BEFORE any mint or send side effect" without
+  pinning the blast radius; the build picked whole-call and the test asserts it.
+- **Phase 1's entry-side coverage moved seams at Phase 3, as the interim it was.** The
+  capturing-sender tests written against the HTTP route (slow sender ≠ delayed summary; failure
+  logged per-invitee; template by acceptance; the summary strip) were reworked when the route
+  died: the helper contract (`sendInviteEmails` never rejects / logs identifiers-only /
+  discriminates on acceptance; `summarizeInvites` strips) is asserted directly against REAL
+  registry mint results in `nebula-auth-invite.test.ts`, and the not-awaited/dispatch-happens
+  property lives structurally in the facade (`ctx.waitUntil`) plus end-to-end in the `/live`
+  scenarios (a mutation removing the facade's dispatch reds `invite-roundtrip` on a 60s mail
+  timeout while its summary limb stays green — run 2026-08-19).
+- **Phase 5's prod-scoping mechanism is the deploy script**, not a wrangler `env`:
+  `apps/nebula/scripts/deploy.sh` passes `--var EMAIL_PROVIDER:resend` to `wrangler deploy` and
+  its required-secrets preflight now includes `RESEND_API_KEY` — deploy-scoped by construction,
+  since every local lane boots `wrangler.jsonc` itself (which carries no `EMAIL_PROVIDER`).
+  Verified: `identity-convergence` (a real-email `/live` scenario) passes unchanged.
+- **nebula-auth's own invite tests issue via direct Registry RPC** (`issueInvitesAs`, claims
+  parsed off a real server-minted token) once the route died — that package has no mesh stack to
+  host the facade; the facade's guards are covered in apps/nebula's baseline lane
+  (`invite-facade.test.ts`) and the `/live` scenarios.
+- **The `Headers.keys()` → `forEach` change in the Registry's fetch entry marker** is incidental
+  hardening surfaced by the build: the harness's Node-lib program type-checks the file
+  transitively, and Node's `Headers` lacks `.keys()`.
 
 ## Non-goals
 

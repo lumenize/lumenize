@@ -12,6 +12,7 @@ import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/crypto';
 import { NEBULA_AUTH_PREFIX } from '../src/types';
 import type { NebulaJwtPayload } from '../src/types';
+import { issueInvitesAs } from './test-helpers';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -74,8 +75,11 @@ describe('@lumenize/nebula-auth — Integration', () => {
     });
   });
 
-  describe('Universe admin wildcard reach (cross-scope) + upward-denied', () => {
-    it('a universe admin invites a member into a descendant STAR (cross-scope); the member logs in non-admin; a member token cannot reach UP', async () => {
+  describe('Universe admin wildcard reach (cross-scope invite → member login)', () => {
+    // The upward-refusal limb that used to close this test rode the deleted HTTP `/invite` route;
+    // that verdict is the mesh facade's now, asserted with distinguishable messages in
+    // apps/nebula's baseline lane (`invite-facade.test.ts` — negatives, message-asserted).
+    it('a universe admin invites a member into a descendant STAR (cross-scope); the member logs in non-admin', async () => {
       const browser = new Browser();
       const u = uni();
       const admin = await browserFoundUniverse(browser, u, 'admin@example.com');
@@ -83,20 +87,17 @@ describe('@lumenize/nebula-auth — Integration', () => {
       expect(admin.access.scopeAdmin).toBe(true);
       const adminToken = await currentToken(browser, u);
 
-      // Cross-scope invite into a star under the universe (admin's `{u}` is above it).
+      // Cross-scope invite into a star under the universe (admin's `{u}` is above it) — registry
+      // issuance under the admin's real claims, as the facade performs it.
       const star = `${u}.app.tenant`;
-      const inviteResp = await browser.fetch(authUrl(`${star}/invite`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-        body: JSON.stringify({ emails: ['member@example.com'] }),
-      });
-      expect(inviteResp.status).toBe(200);
-      const { links } = await inviteResp.json() as { links: Record<string, string> };
-      expect(links['member@example.com']).toBeDefined();
+      const mint = await issueInvitesAs(adminToken, star, [{ email: 'member@example.com' }]);
+      expect(mint.errors).toHaveLength(0);
+      const link = mint.results[0]?.inviteUrl;
+      expect(link).toBeDefined();
 
       // The member accepts + logs in — non-admin, exact star pattern.
       const memberBrowser = new Browser();
-      await memberBrowser.fetch(links['member@example.com']);
+      await memberBrowser.fetch(link!);
       const memberRefresh = await memberBrowser.fetch(authUrl(`${star}/refresh-token`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeScope: star }),
@@ -106,19 +107,6 @@ describe('@lumenize/nebula-auth — Integration', () => {
       const memberPayload = parseJwtUnsafe(memberToken)!.payload as unknown as NebulaJwtPayload;
       expect(memberPayload.access.authScope).toBe(star);
       expect(memberPayload.access.scopeAdmin).toBeUndefined();
-
-      // Upward-denied: the member's descendant-scoped token cannot ACT at the UNIVERSE scope.
-      // `forbidden`, not `insufficient_scope`: upward PASSAGE is free (a member may reach an
-      // ancestor's routes), so what refuses this non-admin is dominion — the refusal names the
-      // rule that actually failed. The old code's `insufficient_scope` described a scope
-      // relationship that is in fact satisfied here.
-      const upward = await memberBrowser.fetch(authUrl(`${u}/invite`), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberToken}` },
-        body: JSON.stringify({ emails: ['x@example.com'] }),
-      });
-      expect(upward.status).toBe(403);
-      expect((await upward.json() as any).error).toBe('forbidden');
     });
   });
 

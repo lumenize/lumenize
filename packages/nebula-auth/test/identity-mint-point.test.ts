@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import { foundUniverse, inviteAndLogin, requestMagicLink, clickLink, refreshAndParse, registryUrl, url } from './test-helpers';
+import { foundUniverse, inviteAndLogin, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, registryUrl, url } from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
@@ -402,14 +402,11 @@ describe('getScopesForProfile — only ACCEPTED memberships confer scope authori
     // Real: the attacker founds a Universe of their own — open self-signup, no approval needed.
     const attacker = await foundUniverse(SELF, evilUni, 'attacker@example.com');
 
-    // Real: the attacker invites the victim's address into THEIR Universe. The link is never clicked,
+    // Real: the attacker invites the victim's address into THEIR Universe (registry issuance as
+    // the mesh facade performs it, under the attacker's real claims). The link is never clicked,
     // so the minted membership is never taken up.
-    const inviteResp = await SELF.fetch(new Request(url(evilUni, 'invite'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${attacker.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [victimEmail] }),
-    }));
-    expect(inviteResp.status).toBe(200);
+    const inviteMint = await issueInvitesAs(attacker.access_token, evilUni, [{ email: victimEmail }]);
+    expect(inviteMint.errors).toHaveLength(0);
 
     const registry = getRegistry();
     // Read-only: confirm the invite really did attach to the victim's OWN address row (so the shared
@@ -456,14 +453,11 @@ describe('ADR-016 — an authority change records the ACTING TOKEN, not just its
     const admin = await foundUniverse(SELF, uni, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
     entries.length = 0;
 
-    const res = await SELF.fetch(new Request(url(uni, 'invite'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [`invitee-${crypto.randomUUID().slice(0, 8)}@example.com`] }),
-    }));
-    expect(res.status).toBe(200);
+    const mint = await issueInvitesAs(admin.access_token, uni,
+      [{ email: `invitee-${crypto.randomUUID().slice(0, 8)}@example.com` }]);
+    expect(mint.errors).toHaveLength(0);
 
-    const sent = entries.filter(e => e.namespace === 'nebula-auth.Registry.invite.sent');
+    const sent = entries.filter(e => e.namespace === 'nebula-auth.Registry.invite.issued');
     expect(sent).toHaveLength(1);
     // Reds against deleting `actingToken: projectActingToken(callerClaims)` from the record — the
     // mutation that type-checks.
@@ -472,6 +466,31 @@ describe('ADR-016 — an authority change records the ACTING TOKEN, not just its
     // ...and it carries the ASSERTED authority, not just an id — ADR-016 wants the full claims, and a
     // record narrowed to `{ sub }` cannot answer "under what authority" after the fact.
     expect(sent[0].data.actingToken.access).toBeDefined();
+  });
+
+  /**
+   * The promotion is an AUTHORITY CHANGE (the bit flips and every live session converges), so its
+   * record must name the full acting token — through the ONE shared projection, never a
+   * hand-assembled second one. Reds against passing a `sub`-only projection to the record, the
+   * mutation that type-checks and silently names only the person acted upon.
+   */
+  it('a promotion records the acting principal\'s full verified claims', async () => {
+    const uni = uniqueUniverse();
+    const admin = await foundUniverse(SELF, uni, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
+    const promotee = `promotee-${crypto.randomUUID().slice(0, 8)}@example.com`;
+
+    // Mint a plain member, then re-invite WITH the bit — the promotion path.
+    await issueInvitesAs(admin.access_token, uni, [{ email: promotee }]);
+    entries.length = 0;
+
+    const second = await issueInvitesAs(admin.access_token, uni, [{ email: promotee, scopeAdmin: true }]);
+    expect(second.results[0].outcome).toBe('promoted');
+
+    const roleUpdated = entries.filter(e => e.namespace === 'nebula-auth.Registry.identity.roleUpdated');
+    expect(roleUpdated).toHaveLength(1);
+    expect(roleUpdated[0].data.actingToken).toBeDefined();
+    expect(roleUpdated[0].data.actingToken.sub).toBe(admin.parsed.sub);
+    expect(roleUpdated[0].data.actingToken.access).toBeDefined();
   });
 });
 
@@ -512,12 +531,8 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
 
     // Real: an admin of B invites the SAME address. Never clicked.
     const adminB = await foundUniverse(SELF, b, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
-    const inv = await SELF.fetch(new Request(url(b, 'invite'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminB.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [email] }),
-    }));
-    expect(inv.status).toBe(200);
+    const inv = await issueInvitesAs(adminB.access_token, b, [{ email }]);
+    expect(inv.errors).toHaveLength(0);
 
     const afterInvite = await state(email);
     expect(afterInvite.emailVerified).toBe(1);        // reds against a mint that writes emailVerified = 0
@@ -531,16 +546,12 @@ describe('verification is per-ADDRESS, acceptance is per-MEMBERSHIP', () => {
     // the safe shape and the mutation stayed green.
     const c = uniqueUniverse();
     const adminC = await foundUniverse(SELF, c, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
-    const invC = await SELF.fetch(new Request(url(c, 'invite'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${adminC.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [email] }),
-    }));
-    expect(invC.status).toBe(200);
+    const invC = await issueInvitesAs(adminC.access_token, c, [{ email }]);
+    expect(invC.errors).toHaveLength(0);
     expect((await state(email)).byScope[c]).toBeNull();
 
     // Accept ONLY B's invite.
-    const inviteLink = (await inv.json() as { links: Record<string, string> }).links[email];
+    const inviteLink = inv.results[0]?.inviteUrl;
     expect(inviteLink).toBeTruthy();
     await clickLink(SELF, inviteLink!);
 

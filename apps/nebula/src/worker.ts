@@ -24,3 +24,4 @@ export {
 } from './index';
 export { NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 export { Profile } from '@lumenize/nebula-auth/profile';
+export { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';

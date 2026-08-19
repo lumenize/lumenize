@@ -7,6 +7,7 @@ import { NebulaEmailSender as ProdNebulaEmailSender } from '../src/nebula-email-
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import type { ResolvedEmail } from '@lumenize/email';
+import type { EmailMessage } from '../src/types';
 
 // Re-export the singleton registry DO for wrangler bindings (the per-scope NebulaAuth DO is dissolved).
 export { NebulaAuthRegistry } from '../src/nebula-auth-registry';
@@ -32,7 +33,21 @@ export class BareStorageDO extends DurableObject {}
  * coverage lives in `packages/auth/test/e2e-email*` and the nebula browser
  * harness, which use a verified domain + `remote: true`.)
  */
+/**
+ * Every message the capturing sender received, in dispatch order — the REAL-mail assertion surface
+ * (vitest-pool-workers runs the worker and the test in ONE isolate, so the test imports and reads
+ * this directly). Template-selection tests read `type` and the typed link fields off the message
+ * itself rather than test-mode `links` — asserting via the `links` map is the recorded 2026-08-04
+ * defect (the email path never exercised). Tests clear it between cases.
+ */
+export const capturedEmails: EmailMessage[] = [];
+
 export class NebulaEmailSender extends ProdNebulaEmailSender {
+  override async send(message: EmailMessage): Promise<void> {
+    capturedEmails.push(message);
+    await super.send(message);
+  }
+
   override async sendEmail(email: ResolvedEmail): Promise<void> {
     debug('nebula-auth.test.email').debug('captured (test sender — no real send)', {
       to: email.to,

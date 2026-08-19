@@ -11,7 +11,7 @@
 import { debug } from '@lumenize/debug';
 import { verifyNebulaTurnstileToken } from './turnstile';
 import { applyCorsPolicy, addCorsHeaders, type CorsOptions } from '@lumenize/routing';
-import { hasDominionOver, hasPassageInto, parseId } from './parse-id';
+import { parseId } from './parse-id';
 import { createRouter, type RouteEntry, type RouteRunner, type RouteState, type Step } from './route-pipeline';
 import { NEBULA_AUTH_PREFIX, REGISTRY_INSTANCE_NAME } from './types';
 import type { NebulaJwtPayload } from './types';
@@ -22,7 +22,6 @@ import {
   handleAcceptInvite,
   handleRefreshToken,
   handleLogout,
-  handleInvite,
   mintNarrowerToken,
 } from './worker-token';
 
@@ -158,59 +157,12 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   const turnstileGuard: Step = async (request) =>
     (await checkTurnstile(request, env)) ?? undefined;
 
-  /**
-   * The passage boundary — the same verdict the mesh boundary computes (`hasPassageInto`: the
-   * caller's own scope at or below the addressed one, OR dominion over it).
-   *
-   * ⚠️ Strictly SUBSUMED on both of today's routes: `dominionOverScopeGuard` follows on each, and
-   * dominion implies passage, so this guard can never DECIDE a verdict here. It is a uniform
-   * boundary step, present so a route whose endpoint guard is weaker inherits the boundary rule
-   * (which is what `/invite` becomes when it opens to members), and because accepted
-   * `docs/vision/auth.md` § *The Registry* requires the same two rules as a mesh node. Not dead
-   * code nobody noticed.
-   */
-  const passageGuard: Step<ScopeState & ClaimsState> = (request, routeState) => {
-    const { claims, scope } = routeState;
-    if (!hasPassageInto(claims.access, scope)) {
-      debug('nebula-auth.router.guard.denied').warn('passage refused', {
-        route: new URL(request.url).pathname, rule: 'passage', code: 'insufficient_scope',
-        sub: claims.sub, authScope: claims.access.authScope, scope,
-      });
-      return jsonError(403, 'insufficient_scope',
-        `Token scope "${claims.access.authScope}" has no passage into "${scope}"`);
-    }
-  };
-
-  /**
-   * The endpoint's own question on both routes today: dominion over the URL's instance —
-   * `hasDominionOver(claims.access, scope)`, the bare bit ∧ containment as ONE call.
-   *
-   * ⚠️ `…OverScope`, never `…OverTarget`: this guard takes the URL's INSTANCE, and it sits one file
-   * from the narrower-token mint's eligibility check, whose second argument is the SUBJECT's scope —
-   * the same call, the wrong second argument, is the substitution a name must not invite.
-   */
-  const dominionOverScopeGuard: Step<ScopeState & ClaimsState> = (request, routeState) => {
-    const { claims, scope } = routeState;
-    if (!hasDominionOver(claims.access, scope)) {
-      // POST-VERDICT message pick — the refusal names WHICH rule failed (`forbidden` = you lack the
-      // authority; `insufficient_scope` = you have authority but asked beyond your scope). The bit
-      // read here cannot change an authorization outcome: the single `hasDominionOver` call above
-      // has already decided, so this is a message branch, not a bare-bit gate. Both messages name
-      // only values the caller already holds (ADR-008).
-      const code = claims.access.scopeAdmin ? 'insufficient_scope' : 'forbidden';
-      // SHARED `denied` log — this guard serves every route whose list carries it, so the payload
-      // carries the route (several criteria assert through the debug sink).
-      debug('nebula-auth.router.guard.denied').warn('dominion refused', {
-        route: new URL(request.url).pathname, rule: 'dominion', code,
-        sub: claims.sub, authScope: claims.access.authScope, scope,
-      });
-      return code === 'insufficient_scope'
-        ? jsonError(403, code,
-            `Token scope "${claims.access.authScope}" does not administer "${scope}"`)
-        : jsonError(403, code,
-            `Admin access required: token scope "${claims.access.authScope}" holds no scopeAdmin over "${scope}"`);
-    }
-  };
+  // NOTE: the passage/dominion guard pair that used to live here served exactly one route —
+  // `/auth/:scope/invite` — and died with it when every invite moved to the mesh facade
+  // (`@lumenize/nebula-auth/facade` owns those verdicts now). The scoped registry routes that
+  // `docs/vision/auth.md` § *The layers a call passes* describes (R4/R5 on `create-galaxy` et al.)
+  // re-introduce the pair when their scope moves onto the URL; until then the table has no
+  // JWT-bearing scoped row for them to serve, and dead guards cannot be redded by any test.
 
   // ── Forward terminals — three, NOT one, and which one a row takes is what the edge INJECTS
   // (`raw-comm.md` § *Edge Worker fronting a DO*: forward the ORIGINAL request whenever the edge
@@ -252,8 +204,6 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
   // ── Terminal steps — Worker-handled endpoints. No `Guard` suffix: every step that can refuse a
   // caller carries one; these produce the route's answer. Handlers take `routeState.claims` WHOLE
   // (see {@link ClaimsState}); the flow handlers validate their own token/cookie credential.
-  const handleInviteStep: Step<ScopeState & ClaimsState> = (request, routeState) =>
-    handleInvite(request, env, routeState.scope, routeState.claims);
   const mintNarrowerTokenStep: Step<ClaimsState> = (request, routeState) =>
     mintNarrowerToken(request, env, routeState.claims);
   // `scope` on the two click handlers only picks a landing surface for a FAILED consume's error
@@ -310,7 +260,10 @@ export function buildAuthRouteTable(env: Env): RouteEntry[] {
       { path: `${P}/:scope/email-magic-link`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, turnstileGuard, handleEmailMagicLinkStep] },
       { path: `${P}/:scope/refresh-token`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleRefreshTokenStep] },
       { path: `${P}/:scope/logout`, method: 'POST', steps: [parseScopeGuard, connectionRateLimitGuard, handleLogoutStep] },
-      { path: `${P}/:scope/invite`, method: 'POST', steps: [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInviteStep] },
+      // There is deliberately NO `/auth/:scope/invite` row: every invite enters mesh-side through
+      // the NebulaAuthFacade (`@lumenize/nebula-auth/facade`), which owns the eligibility verdicts
+      // and the bit cap. Only the session lifecycle stays HTTP — the accept-invite CLICK above is
+      // unauthenticated by nature, so the issuing side is what moved.
     ];
   }
 }

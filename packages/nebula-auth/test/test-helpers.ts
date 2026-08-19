@@ -11,8 +11,10 @@
  *  - `inviteAndLogin` — an admin mints an invitee identity, then the invitee accepts + logs in (member).
  */
 import { expect } from 'vitest';
+import { env } from 'cloudflare:test';
 import { parseJwtUnsafe } from '@lumenize/crypto';
-import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from '../src/types';
+import { NEBULA_AUTH_PREFIX, PLATFORM_SCOPE, REGISTRY_INSTANCE_NAME } from '../src/types';
+import type { InviteMintResult, InviteeRequest, NebulaJwtPayload } from '../src/types';
 
 export const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -111,18 +113,30 @@ export async function foundUniverse(self: Fetcher, slug: string, email: string) 
 }
 
 /**
- * Invite `email` into `scope` (admin-gated) and log them in: invite (mints the invitee identity +
- * token) → accept (find-and-flip) → refresh. Returns a MEMBER token (non-admin).
+ * Issue invites straight at the Registry (test-as-caller RPC), the way the mesh facade does in
+ * production: `callerClaims` are parsed off a REAL server-minted token, so the ADR-016 projection
+ * and the in-method cap re-assertion see genuine claims. This package has no mesh stack — the
+ * facade's own guards are covered in apps/nebula's baseline lane (`invite-facade.test.ts`); here
+ * the Registry primitive is the unit.
+ */
+export async function issueInvitesAs(
+  callerToken: string, scope: string, invitees: InviteeRequest[],
+): Promise<InviteMintResult> {
+  const claims = parseJwtUnsafe(callerToken)!.payload as unknown as NebulaJwtPayload;
+  const registry = (env as any).NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+  return await registry.issueInvites(scope, invitees, 'http://localhost', claims) as InviteMintResult;
+}
+
+/**
+ * Invite `email` into `scope` (as the admin whose token is passed) and log them in: issue (mints
+ * the invitee identity + token) → accept (find-and-flip) → refresh. Returns a MEMBER token
+ * (non-admin). Issuance is the registry RPC above; the CLICK stays HTTP — the session lifecycle
+ * kept its routes when the issuing side moved to the mesh facade.
  */
 export async function inviteAndLogin(self: Fetcher, scope: string, adminToken: string, email: string) {
-  const inviteResp = await self.fetch(new Request(url(scope, 'invite'), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ emails: [email] }),
-  }));
-  expect(inviteResp.status).toBe(200);
-  const inviteBody = await inviteResp.json() as { links?: Record<string, string> };
-  const link = inviteBody.links?.[email.toLowerCase()];
+  const mint = await issueInvitesAs(adminToken, scope, [{ email }]);
+  expect(mint.errors).toHaveLength(0);
+  const link = mint.results[0]?.inviteUrl;
   expect(link).toBeDefined();
   const { refreshToken, setCookie } = await clickLink(self, link!);
   const { parsed, access_token } = await refreshAndParse(self, scope, refreshToken);

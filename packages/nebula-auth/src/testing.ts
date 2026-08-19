@@ -28,6 +28,10 @@ export {
   hasDominionOver, hasPassageInto,
 } from './parse-id';
 
-// Types + constants needed to build/inspect tokens.
-export type { AccessEntry, NebulaJwtPayload, Tier, ParsedId } from './types';
+// Types + constants needed to build/inspect tokens, plus the invite wire shapes (a Node harness
+// drives `NebulaClient.invite` and asserts on its summary).
+export type {
+  AccessEntry, NebulaJwtPayload, Tier, ParsedId,
+  InviteeRequest, InviteOutcome, InviteeSummary, InviteeError, InviteSummary,
+} from './types';
 export { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_PREFIX, PLATFORM_SCOPE } from './types';

@@ -18,6 +18,8 @@ export { NebulaAuthRegistry } from './nebula-auth-registry';
 // pulling that whole chain through this (widely-imported) index breaks the transform of pure-unit
 // consumers that import only light utilities (e.g. parse-id). Import it from the dedicated subpath
 // instead: `import { Profile } from '@lumenize/nebula-auth/profile'` (tasks/nebula-profile-store.md).
+// The same rule keeps `NebulaAuthFacade` (a mesh-composing LumenizeWorker) out of this barrel —
+// import it from `@lumenize/nebula-auth/facade`.
 
 // Scope-hierarchy shapes — the client (NebulaClient.scopes) returns these to the UI.
 export type {
@@ -59,6 +61,13 @@ export type {
   AccessEntry,
   NebulaJwtPayload,
   DiscoveryEntry,
+  InviteeRequest,
+  InviteOutcome,
+  InviteeSummary,
+  InviteeError,
+  InviteSummary,
+  InviteeMintResult,
+  InviteMintResult,
 } from './types';
 
 // Constants needed externally

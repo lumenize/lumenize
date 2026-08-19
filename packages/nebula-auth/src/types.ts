@@ -31,9 +31,9 @@ type EmailMessageBase = {
  * soon, and each would otherwise be an override fighting a shared default, or Nebula vocabulary
  * pushed into the MIT package.
  *
- * All five variants were copied **verbatim** even though Nebula emits only `magic-link` and
- * `invite-new` today: at least one of the other three is wanted soon, so pruning them is not a
- * YAGNI question.
+ * All five variants were copied **verbatim**; Nebula emits `magic-link`, `invite-new`, and
+ * `invite-existing` today (the invite entry picks between the last two by acceptance —
+ * `invite-entry.ts`), so pruning the remaining two is not a YAGNI question either.
  *
  * Subject lines are controlled by `NebulaEmailSender` via overridable methods — not part of this type.
  *
@@ -229,12 +229,71 @@ export interface MagicLink {
   expiresAt: string;
 }
 
-/** `InviteTokens` row — login channel, token stored HASHED, single-use. */
+/** `InviteTokens` row — login channel, token stored HASHED. Reusable within its TTL (scanner-safe,
+ *  matching `MagicLinks`); rows die only at the expiry sweep, never on consume. */
 export interface InviteToken {
   tokenHash: string;
   email: string;
   universeGalaxyStarId: string;
   expiresAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Invite wire shapes — the per-invitee contract
+// ---------------------------------------------------------------------------
+
+/** One requested invitee. An omitted `scopeAdmin` is a plain member; the bit is honored only when
+ *  it is exactly `true` AND the inviter's dominion verdict licenses it — the request selects, the
+ *  verdict licenses. `"true"`, `1`, etc. never mint an admin. */
+export interface InviteeRequest {
+  email: string;
+  scopeAdmin?: boolean;
+}
+
+/** What happened for one invitee. `invited` is a MINT outcome — sends finish post-return. */
+export type InviteOutcome = 'invited' | 'already-member' | 'promoted';
+
+/** Per-invitee success in the caller-facing summary. Carries no token or URL. */
+export interface InviteeSummary {
+  email: string;
+  sub: string;
+  outcome: InviteOutcome;
+}
+
+/** Per-invitee failure — a malformed entry joins this list; the batch never fails whole. */
+export interface InviteeError {
+  email: string;
+  error: string;
+}
+
+/** The caller-facing batch summary. `links` (raw invite URLs per normalized email) appears in test
+ *  mode ONLY — it is the sole carrier of the URL past the entry. */
+export interface InviteSummary {
+  results: InviteeSummary[];
+  errors: InviteeError[];
+  links?: Record<string, string>;
+}
+
+/**
+ * Per-invitee MINT result — the registry → entry shape, one step wider than {@link InviteeSummary}.
+ * The extra fields exist for the ENTRY's sender alone (`issueInvites` is mint-only; the entry
+ * dispatches the mail post-return): `accepted` picks the template and `inviteUrl` is what the
+ * `invite-new` letter must deliver. Neither may reach the caller-facing summary — test mode's
+ * `links` is the only carrier of the URL.
+ */
+export interface InviteeMintResult extends InviteeSummary {
+  /** Whether this membership was already ACCEPTED at mint time (`Memberships.acceptedAt` set) —
+   *  the send helper's template discriminator: accepted → `invite-existing` (a redirect; they can
+   *  already log in), pending/new → `invite-new` carrying the fresh link. */
+  accepted: boolean;
+  /** Absolute accept-invite URL backed by the freshly minted token. */
+  inviteUrl: string;
+}
+
+/** What `issueInvites` returns to its entry (never directly to a caller). */
+export interface InviteMintResult {
+  results: InviteeMintResult[];
+  errors: InviteeError[];
 }
 
 /** Discovery result returned by POST {prefix}/discover. `sub`-free by design — `discover` is

@@ -92,9 +92,9 @@ export function nebulaInviteNewHtml(message: InviteNewMessage, appName: string):
  * `@lumenize/mesh`'s server surface. The registry DO reaches it via plain Workers RPC through the
  * `AUTH_EMAIL_SENDER` service binding.
  *
- * All five templates, subjects and `EmailMessage` variants were copied **verbatim** even though
- * Nebula emits only `magic-link` and `invite-new` today: at least one of the other three is wanted
- * soon, so this is not a YAGNI question.
+ * All five templates, subjects and `EmailMessage` variants were copied **verbatim**; Nebula emits
+ * `magic-link`, `invite-new`, and `invite-existing` today (the invite entry discriminates the last
+ * two by acceptance — `invite-entry.ts`), so keeping the remaining two is not a YAGNI question.
  */
 export class NebulaEmailSender extends WorkerEntrypoint {
   from: string;
@@ -242,7 +242,8 @@ export class NebulaEmailSender extends WorkerEntrypoint {
    * This replaced re-parsing the instance back out of whichever URL the message carried. That
    * shape could only tag mail whose URL had an instance segment, so a message that IS about an
    * instance but links to `/app` shipped **untagged though its instance was known** —
-   * `invite-existing` is exactly that case and is one of the variants wanted soon. The failure was
+   * `invite-existing` is exactly that case, and it ships today (an accepted member's re-invite —
+   * `invite-entry.ts`). The failure was
    * silent: an untagged mail lands in the email-test catch-all bucket, so `waitForEmail({ instance })`
    * never matches and the caller dies on its timeout with nothing pointing at the sender.
    */

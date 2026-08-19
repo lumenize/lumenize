@@ -1,7 +1,8 @@
 /**
  * Worker router — routing correctness + gating through the full Worker (SELF.fetch) over the registry
- * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). The surviving authenticated
- * instance endpoints are `invite` + `mint-narrower-token`; the router NO LONGER runs an `adminApproved`
+ * + KV (the dissolved-DO model, tasks/nebula-auth-surrogate-sub.md). The one surviving authenticated
+ * route is the scope-less `mint-narrower-token` (invites moved to the mesh facade — POST
+ * `/auth/{scope}/invite` is a 404, asserted below); the router NO LONGER runs an `adminApproved`
  * edge gate (M5 — enforced at mint), so a valid token is forwarded and admin-ness is checked at the
  * endpoint/registry.
  */
@@ -367,59 +368,36 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     });
   });
 
-  describe('instance dispatch — authenticated (JWT required)', () => {
-    it('invite: 401 without JWT / 401 invalid JWT / 200 with admin JWT', async () => {
-      expect((await SELF.fetch(new Request(workerUrl('some-instance/invite'), { method: 'POST' }))).status).toBe(401);
-      expect((await SELF.fetch(new Request(workerUrl('some-instance/invite'), {
+  describe('authenticated dispatch (JWT required — vehicle: mint-narrower-token, the surviving authed route)', () => {
+    // The `/auth/{scope}/invite` vehicle these used to ride is deleted — every invite enters
+    // mesh-side through the NebulaAuthFacade (guard coverage: apps/nebula baseline
+    // `invite-facade.test.ts`). The route-layer properties keep their coverage on the mint route.
+    it('401 without JWT / 401 invalid JWT', async () => {
+      expect((await SELF.fetch(new Request(registryUrl('mint-narrower-token'), { method: 'POST' }))).status).toBe(401);
+      expect((await SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
         method: 'POST', headers: { Authorization: 'Bearer invalid.jwt.here', 'Content-Type': 'application/json' }, body: '{}',
       }))).status).toBe(401);
-
-      const u = uni();
-      const admin = await foundUniverse(SELF, u, 'inv-admin@example.com');
-      const ok = await SELF.fetch(new Request(workerUrl(`${u}.app.tenant/invite`), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: ['invitee@example.com'] }),
-      }));
-      expect(ok.status).toBe(200);
-      expect((await ok.json() as any).invited).toHaveLength(1);
     });
 
-    it('rejects a token whose scope does not cover the target instance (403 insufficient_scope)', async () => {
-      const a = uni();
-      const admin = await foundUniverse(SELF, a, 'scope-a@example.com'); // pattern `a.*`
-      const resp = await SELF.fetch(new Request(workerUrl(`${uni()}.app/invite`), { // a DIFFERENT universe
-        method: 'POST',
-        headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: ['x@example.com'] }),
-      }));
-      expect(resp.status).toBe(403);
-      expect((await resp.json() as any).error).toBe('insufficient_scope');
-    });
-
-    it('a universe wildcard token reaches a descendant star endpoint (cross-scope invite)', async () => {
-      const u = uni();
-      const admin = await foundUniverse(SELF, u, 'wild-admin@example.com');
-      const resp = await SELF.fetch(new Request(workerUrl(`${u}.app.tenant/invite`), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: ['star-user@example.com'] }),
-      }));
-      expect(resp.status).toBe(200);
-    });
-
-    it('M5: a non-admin token is FORWARDED (no retired adminApproved gate) — the endpoint returns forbidden, not access_denied', async () => {
+    it('M5: a non-admin token is FORWARDED (no retired adminApproved gate) — the endpoint refuses forbidden, not access_denied', async () => {
       const scope = 'gate-test.app.tenant';
       const token = await nonAdminToken(scope);
-      const resp = await SELF.fetch(new Request(workerUrl(`${scope}/invite`), {
+      const resp = await SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: ['x@example.com'] }),
+        body: JSON.stringify({ subOfNarrowerToken: crypto.randomUUID(), activeScope: scope }),
       }));
       expect(resp.status).toBe(403);
       const body = await resp.json() as any;
-      expect(body.error).toBe('forbidden');        // admin-check at the endpoint
+      expect(body.error).toBe('forbidden');        // the endpoint's own refusal
       expect(body.error).not.toBe('access_denied'); // the retired router:541 gate is gone
+    });
+
+    it('POST /auth/{scope}/invite → 404 (no HTTP invite surface; issuance is mesh-side)', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl('some-instance/invite'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }));
+      expect(resp.status).toBe(404);
     });
 
     it('bare instance path with no endpoint → 404', async () => {
@@ -446,10 +424,14 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     });
   });
 
-  describe('Worker JWT validation branches (target: /invite)', () => {
-    const target = 'some-instance/invite';
+  describe('Worker JWT validation branches (vehicle: mint-narrower-token)', () => {
+    // These exercise `verifyJwtGuard`/`verifyNebulaAccessToken`'s per-claim rejections, which are
+    // route-independent — the mint route is simply the authed row that survived the invite route's
+    // move to the mesh facade. (The old fifth branch — a consistent token refused 403 by the URL
+    // scope's passage/dominion guards — died with that route; scope-verdict refusals are the
+    // facade's, asserted with distinguishable messages in apps/nebula's `invite-facade.test.ts`.)
     async function post(token: string): Promise<Response> {
-      return SELF.fetch(new Request(workerUrl(target), {
+      return SELF.fetch(new Request(registryUrl('mint-narrower-token'), {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
       }));
@@ -472,14 +454,6 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     });
     it('missing access → 401', async () => {
       expect((await post(await signRaw({ aud: 'some-instance' }))).status).toBe(401);
-    });
-    it('aud not at or below authScope → 403 (target-instance not under wrong-universe)', async () => {
-      const token = await signRaw({ aud: 'wrong-universe', access: { authScope: 'wrong-universe', scopeAdmin: true } });
-      const resp = await SELF.fetch(new Request(workerUrl('target-instance/invite'), {
-        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
-      }));
-      expect(resp.status).toBe(403);
-      expect((await resp.json() as any).error).toBe('insufficient_scope');
     });
   });
 

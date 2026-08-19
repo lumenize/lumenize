@@ -9,9 +9,12 @@ Multi-tenant authentication for Nebula — magic link login, JWT access tokens, 
 | Component | Instances | Purpose |
 |-----------|-----------|---------|
 | `routeNebulaAuthRequest` (`router.ts` + `worker-token.ts`) | Edge (Cloudflare Workers) | Path parsing, Turnstile, JWT verification, per-`sub` rate limiting, and the token/session flows themselves (JWT minting, cookies, redirects) |
+| `NebulaAuthFacade` (`@lumenize/nebula-auth/facade`) | `LumenizeWorker` (service binding, mesh-reachable) | The mesh entry for what an authenticated SESSION does with the Registry — invites today. Owns the claims-only eligibility verdicts, the per-invitee `scopeAdmin` cap, the ADR-016 projection, and the post-return mail dispatch |
 | `NebulaAuthRegistry` (R) | Singleton (`registry`) | The single writer of all durable auth state: `Scopes`, `Identities`, the magic-link/invite login channel, and `RefreshTokenIndex` |
 | Workers KV (`REFRESH_TOKEN_KV`) | Edge | The one hot record — `refresh:{tokenHash}`, read at the edge on every refresh, never touching the DO |
 | `NebulaEmailSender` | `WorkerEntrypoint` (service binding) | Nebula-branded magic-link/invite email |
+
+**HTTP carries the session lifecycle; the mesh carries what a session does** (accepted `docs/vision/auth.md` § *The Registry*). So there is **no HTTP invite route**: issuance enters through the facade (`lmz.call('NEBULA_AUTH_FACADE', undefined, …)`), while the accept-invite CLICK — unauthenticated by nature — stays on the router below.
 
 The per-scope `NebulaAuth` DO **no longer exists** — it was dissolved by [`tasks/archive/nebula-auth-surrogate-sub.md`](../../tasks/archive/nebula-auth-surrogate-sub.md), which is the design of record for everything below. Its hot token state moved to Workers KV, its cold identity state moved into the registry, and its HTTP handling moved into the Worker.
 
@@ -34,7 +37,7 @@ Slugs are lowercase letters, digits, and hyphens (`[a-z0-9][a-z0-9-]*`), no lead
 Every route takes one of exactly two shapes — the rule is in [`.claude/rules/raw-comm.md`](../../.claude/rules/raw-comm.md) § "Edge Worker fronting a DO":
 
 - **Forwarded to the registry's `fetch()`** when the endpoint's job *is* the DO's data operation (claim / create / query / delete on registry storage). The Worker does only the cross-cutting pre-checks that need env + secrets and produce **trusted claims** — Turnstile, JWT verify — then injects `verifiedAccess` (and `callerSub` for deletes) into the body and forwards. Because `request.url` is preserved, the DO reads `url.origin` itself, and it converts its own `RegistryError` to a `Response` in-process, so `status`/`errorCode` survive.
-- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `consumeMagicLink`, `issueInvites`, …).
+- **Handled in the Worker, with narrow RPC** when the endpoint is an HTTP/session concern — setting or clearing a cookie, a `302`, reading a token from the query string, or a pure-KV read. The Worker owns the `Response` and calls the registry only for the specific data it needs (`requestMagicLink`, `consumeMagicLink`, `consumeInvite`, …). (`issueInvites` is not on this list: its caller is the mesh facade, never the router.)
 
 **Every route is registered in the route-pipeline table** (`buildAuthRouteTable` in `router.ts`) —
 each entry is `{ path, method, steps }`, and the ordered step list IS the route's complete
@@ -57,7 +60,7 @@ Identity is keyed by a registry-minted opaque `sub` (UUID), **one per `(email, s
 | Mint point | What is minted |
 |---|---|
 | `claimUniverse` (open self-signup) | `Scopes` row **+** the claiming admin `Identity` (`isAdmin=1`, `emailVerified=0`) |
-| `issueInvites` (admin) | invitee `Identity` (`isAdmin=0`, `emailVerified=0`), pre-created |
+| `issueInvites` | invitee `Identity` (`emailVerified=0`), pre-created — per-invitee `scopeAdmin`, honored only under the inviter's dominion (a re-invite of an existing non-admin member with the bit **promotes** them) |
 | `requestMagicLink` at `nebula-platform` for a configured bootstrap email | platform-admin `Identity` (idempotent, scope-gated) |
 | `createGalaxy` / `createStar` (admin) | `Scopes` row **only** — no identity, no email; the parent admin manages via wildcard reach |
 
@@ -81,9 +84,9 @@ Refresh is the highest-frequency operation and it **never touches the singleton*
 
 `hasDominionOver(access, scope)` is the single dominion predicate: **`access.scopeAdmin` alone is never dominion** — dominion is that bit *and* `authScope` covering the node in question ([ADR-015](../../docs/adr/015-passage-and-dominion.md) § *Terminology*, the definition home for `dominion` and `passage`). Dominion flows strictly downward and only downward (ADR-015). Every guard delegates to that one predicate; none may re-inline `scopeAdmin && isAtOrAbove(...)`.
 
-The gate lands in two places depending on the route shape:
+The gate lands in three places depending on the surface:
 
-- **`/auth/{scope}/invite`**: the route pipeline asks the whole question at the edge, in one place — `dominionOverScopeGuard` calls `hasDominionOver(claims.access, scope)` against the URL's validated scope (after `passageGuard`, the same boundary verdict a mesh node computes). The handler carries no gate of its own; there is no conjunction split across files and no bare-bit read anywhere on the path. The token is read from the `Authorization: Bearer` header only.
+- **The invite facade** (`NebulaAuthFacade.invite`, mesh-side): eligibility = exact-scope membership ∨ `hasDominionOver(claims.access, targetScope)`, computed from `callContext.originAuth` — every member may invite non-admin peers into exactly their own scope; dominion additionally permits inviting downward and is the only thing that licenses a requested `scopeAdmin` (a peer's request caps to false). The registry re-asserts the cap in-method as an invariant (a `scopeAdmin: true` entry without dominion in `callerClaims` throws — a breach, never an expected client error).
 - **`/auth/mint-narrower-token`** (scope-less): the pipeline proves identity (`verifyJwtGuard` + `subRateLimitGuard`); authorization is the handler's single `canMintFor(callerClaims, subject)` call — dominion over the **subject's** scope, which no URL carries. Refusal and an absent subject answer identically (no `sub`-existence oracle), and the one containment check besides it is the `aud` validation, run after.
 - **Forwarded registry endpoints**: the Worker verifies the JWT and injects the verified `access` claim; the registry re-asserts `hasDominionOver` itself (`createGalaxy`, `createStar`, `#computeDeletionPlan`). `myScopeTree` is self-confining — its query is bounded by the caller's own `authScope`, so the result set can never exceed their dominion.
 
@@ -96,8 +99,8 @@ The gate lands in two places depending on the route shape:
 | Turnstile | `email-magic-link`, `claim-universe`, `claim-star`, `discover` — i.e. every UNAUTHENTICATED endpoint (see the note below the registry table) |
 | JWT verify (Ed25519, BLUE/GREEN rotation) + `iss`/`aud`/`sub`/`access` claim checks + `aud ⊆ authScope` | Authenticated endpoints (`verifyJwtGuard`, Bearer-only) |
 | Per-`sub` rate limit (`subRateLimitGuard`) | Authenticated endpoints, when `NEBULA_AUTH_RATE_LIMITER` is bound |
-| Passage boundary (`passageGuard` → `hasPassageInto`) | `/auth/{scope}/invite` (the same verdict a mesh node's boundary computes) |
-| Dominion (`dominionOverScopeGuard` → `hasDominionOver`) | `/auth/{scope}/invite` — refuses `forbidden` (no `scopeAdmin`) or `insufficient_scope` (admin, but the scope is outside their own) |
+
+(The passage/dominion guard pair left the pipeline with the `/invite` route — those verdicts are the mesh facade's now, and the scoped registry routes re-introduce the pair when their scope moves onto the URL.)
 
 Turnstile is skipped in exactly two cases: no `TURNSTILE_SECRET_KEY` is configured (development and every vitest lane, which bind it `''` explicitly), or the request carries the authorized bypass token in `x-lumenize-turnstile-bypass` (constant-time compared against `NEBULA_AUTH_TURNSTILE_BYPASS_TOKEN`). The bypass skips **only** Turnstile — never the magic-link, JWT, or scope checks.
 
@@ -132,15 +135,15 @@ Every path is matched against the route table's `URLPattern`s — the scope-less
 |----------|--------|--------|-----------|-------------|
 | `/auth/{scope}/email-magic-link` | POST | Turnstile | Worker | Request a login magic link. Validates email format at the edge, then `requestMagicLink` inserts a hashed `MagicLinks` row and sends the mail. **Mints no identity.** |
 | `/auth/{scope}/magic-link?one_time_token=…` | GET | none | Worker | Consume the link: `consumeMagicLink` validates + find-and-flips the identity and records the refresh token. Sets the path-scoped cookie, `302`s to `{NEBULA_AUTH_REDIRECT}/{scope}` |
-| `/auth/{scope}/accept-invite?invite_token=…` | GET | none | Worker | Same, via `consumeInvite` — the invite row is single-use (deleted on consume) |
+| `/auth/{scope}/accept-invite?invite_token=…` | GET | none | Worker | Same, via `consumeInvite` — the invite row is reusable within its TTL (scanner-safe, like magic links; swept at expiry, never deleted on consume) |
 | `/auth/{scope}/refresh-token` | POST | none (cookie) | Worker | Pure KV read → mint the access token. Requires `{ activeScope }` JSON body. Re-sets no cookie |
 | `/auth/{scope}/logout` | POST | none (cookie) | Worker | `revokeRefreshToken` deletes the KV record + index entry; clears the cookie |
 
-### Authenticated scope endpoints
+### Authenticated endpoints
 
 | Endpoint | Method | Gating | Handled by | Description |
 |----------|--------|--------|-----------|-------------|
-| `/auth/{scope}/invite` | POST | pipeline: scope parse + JWT + `sub` rate limit + passage + dominion | Worker | Mint invitee identities + single-use invite tokens, send the emails |
+| `NebulaAuthFacade.invite(targetScope, invitees)` | mesh (`lmz.call`/`callAsync` on the `NEBULA_AUTH_FACADE` service binding, `instanceName: undefined`) | eligibility (exact-scope membership ∨ dominion) + the per-invitee bit cap, from `callContext.originAuth` | Facade | `invitees: [{ email, scopeAdmin? }]`. The registry mints per invitee (identity + reusable-within-TTL invite token, promoting an existing non-admin member when the bit is requested under dominion) and answers per-invitee outcomes (`invited \| already-member \| promoted`); the facade dispatches the mail post-return under `ctx.waitUntil` (template by acceptance). **There is no HTTP invite route** — `POST /auth/{scope}/invite` is a 404 |
 | `/auth/mint-narrower-token` | POST | pipeline: JWT + `sub` rate limit; authz = the handler's `canMintFor` (dominion over the SUBJECT's scope) | Worker | Mint a narrower token wearing another person's identity: `sub`/`authScope`/`scopeAdmin` = the subject's, `aud` = the requested `activeScope`, `act.sub` = the caller. Requires `{ subOfNarrowerToken, activeScope }`. Scope-less — the old `/auth/{scope}/…` path is a 404 |
 
 ### Registry endpoints
@@ -238,28 +241,30 @@ Index-first is a seam invariant: an eviction at the awaited KV put leaves at wor
 
 ### Admin invite
 
-The invitee identity is pre-created at issuance, so the click only flips flags — no conditional mint, no admin promotion, and no Turnstile (the invite token is the proof of legitimacy).
+The invitee identity is pre-created at issuance, so the click only flips flags — no conditional mint at consume, and no Turnstile (the invite token is the proof of legitimacy). Promotion happens at ISSUANCE (re-inviting an existing non-admin member with the bit, under dominion), never at the click. The registry is mint-only: the facade dispatches the mail post-return under `ctx.waitUntil`, picking the template by acceptance (`invite-existing` for an accepted member, `invite-new` with the fresh link otherwise). The diagram's caller is whichever mesh node holds the verified claims — a client directly, or a platform node forwarding its own caller's — the facade neither knows nor cares.
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
-    participant W as Worker
+    participant C as Mesh caller
+    participant F as NebulaAuthFacade
     participant R as Registry DO
+    participant W as Worker (router)
 
-    Note over C,R: Step 1 - the admin issues invites
-    C->>W: POST /auth/{scope}/invite { emails } [admin JWT]
-    W->>W: verify JWT, isAtOrAbove against the scope, admin bit, rate limit
-    W->>R: issueInvites(scope, emails, origin)
-    R->>R: mint each invitee Identity (isAdmin=0, emailVerified=0)
-    R->>R: INSERT InviteTokens (HASHED, single-use)
-    R->>R: send the invite emails
-    R-->>W: { invited, errors }
-    W-->>C: 200
+    Note over C,R: Step 1 - issuance, mesh-side
+    C->>F: invite(targetScope, invitees) via lmz - claims ride callContext.originAuth
+    F->>F: eligibility (exact-scope membership OR dominion), shape-check, cap the bit per invitee
+    F->>R: issueInvites(targetScope, cappedInvitees, origin, callerClaims)
+    R->>R: mint each invitee Identity (per-invitee scopeAdmin, emailVerified=0)
+    R->>R: promote an existing non-admin member when the bit is requested
+    R->>R: INSERT InviteTokens (HASHED, reusable within TTL)
+    R-->>F: per-invitee { email, sub, outcome } + what the sender needs
+    F-->>C: summary (carries no URL)
+    F->>F: dispatch the invite emails under ctx.waitUntil (template by acceptance)
 
-    Note over C,R: Step 2 - the invitee clicks
+    Note over C,W: Step 2 - the invitee clicks (session lifecycle stays HTTP)
     C->>W: GET /auth/{scope}/accept-invite?invite_token=...
     W->>R: consumeInvite(inviteHash, refreshHash, refreshExpiresAt)
-    R->>R: DELETE the invite row (single-use), find-and-flip the Identity
+    R->>R: validate the row (kept - swept only at expiry), find-and-flip the Identity
     R->>R: RefreshTokenIndex, then the KV record
     R-->>W: { sub, universeGalaxyStarId }
     W-->>C: 302 + Set-Cookie
@@ -497,7 +502,7 @@ CREATE TABLE IF NOT EXISTS InviteTokens (
 ) WITHOUT ROWID;
 ```
 
-The login channel. Both live in the registry rather than KV because their verify always calls the registry anyway, and strong consistency buys atomic invite single-use with no read-your-write gap. They have no KV TTL, so the DO constructor sweeps expired rows on every wake — cheap on small, short-TTL tables, and cheaper than paying an index write on `expiresAt` for every insert.
+The login channel. Both live in the registry rather than KV because their verify always calls the registry anyway. Both token kinds are reusable within their TTL (scanner-safe) — nothing deletes on consume. They have no KV TTL, so the DO constructor sweeps expired rows on every wake — cheap on small, short-TTL tables, and cheaper than paying an index write on `expiresAt` for every insert.
 
 **All bearer tokens are stored hashed.** Magic-link, invite, and refresh tokens are persisted only as a one-way `tokenHash`; the raw value exists solely in the URL or cookie. A store leak yields no usable credential. Timestamps are ISO 8601 Zulu `TEXT` (ADR-011), string-compared.
 
@@ -615,7 +620,8 @@ if (authResponse) return authResponse;
 ### Subpaths
 
 - **`@lumenize/nebula-auth/profile`** — the `Profile` DO. Deliberately *not* re-exported from the main index: it composes `@lumenize/mesh`, and pulling that chain through this widely-imported barrel breaks the transform of pure-unit consumers that import only light utilities.
-- **`@lumenize/nebula-auth/testing`** — the Node-safe surface (`createNebulaTestToken`, `buildNebulaJwtPayload`, the scope helpers, types and constants). Free of `cloudflare:workers`, so a standalone `tsx` harness can import it. Per ADR-009, a client-side mint is the **last resort** — prefer the real email login path.
+- **`@lumenize/nebula-auth/facade`** — `NebulaAuthFacade`, the mesh-speaking invite entry (a `LumenizeWorker`). Kept off the main index for the same transform reason as `Profile`. Consumers wire it as a self-referencing service binding (`NEBULA_AUTH_FACADE`) and re-export the class from their worker entry.
+- **`@lumenize/nebula-auth/testing`** — the Node-safe surface (`createNebulaTestToken`, `buildNebulaJwtPayload`, the scope helpers, the invite wire types, types and constants). Free of `cloudflare:workers`, so a standalone `tsx` harness can import it. Per ADR-009, a client-side mint is the **last resort** — prefer the real email login path.
 
 ## License
 

@@ -26,9 +26,10 @@ const REJECTED = 'https://evil.example.com';
  * CORS-wrapping layer in isolation.
  */
 function unauthRequest(method: string, headers: Record<string, string> = {}): Request {
-  // `invite` is an authenticated instance endpoint → the router returns 401 deterministically without
-  // a JWT (and without touching registry/KV state) — ideal for isolating the CORS-wrapping layer.
-  return new Request('http://localhost/auth/test/invite', {
+  // `mint-narrower-token` is an authenticated endpoint → the router returns 401 deterministically
+  // without a JWT (and without touching registry/KV state) — ideal for isolating the CORS-wrapping
+  // layer. (It replaced `/auth/{scope}/invite` as the vehicle when invites moved to the mesh facade.)
+  return new Request('http://localhost/auth/mint-narrower-token', {
     method,
     headers,
   });

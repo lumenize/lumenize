@@ -14,7 +14,12 @@
 // /client to keep this module Node-importable in full.
 import { LumenizeClient, mesh, LoginRequiredError } from '@lumenize/mesh/client';
 import type { ConnectionState, LumenizeClientConfig } from '@lumenize/mesh/client';
-import type { NebulaJwtPayload, AffectedScope, ScopeDeletionPlan } from '@lumenize/nebula-auth';
+import type {
+  NebulaJwtPayload, AffectedScope, ScopeDeletionPlan, InviteeRequest, InviteSummary,
+} from '@lumenize/nebula-auth';
+// Type-only, so nothing of the facade's mesh-server chain reaches this Node/browser-safe module —
+// it types the continuation below and is erased at compile.
+import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import { debug } from '@lumenize/debug';
 import { isOntologyStaleError } from './errors';
 // Impersonation's own knowledge lives in its module — this client keeps only the two touchpoints
@@ -895,6 +900,29 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     // AFTER the mint resolves, so a refused mint leaves no half-registered child holding a socket.
     registerChild(this, child);
     return child;
+  }
+
+  /**
+   * Invite people into `targetScope` — the ONE client surface for the invite facade (the
+   * `impersonate()` shape: this method is the sole site that knows the transport, so the harness,
+   * the test fixtures, and the eventual UI affordance all route through it, and the
+   * `invited | already-member | promoted` discriminant has one owning type).
+   *
+   * An ordinary mesh call to the `NEBULA_AUTH_FACADE` Worker binding (`instanceName: undefined`
+   * routes it as a `LumenizeWorker`), so verified claims ride `callContext.originAuth` — never a
+   * Bearer header this client would have to surface. Eligibility is the facade's: every member may
+   * invite non-admin peers into exactly their own scope; dominion additionally permits inviting
+   * downward and is the only thing that can confer a requested `scopeAdmin` (a peer's request caps
+   * to false). A refusal rejects with the facade's message.
+   *
+   * The summary reports MINT outcomes; mail finishes server-side after it returns. In test mode
+   * (server-configured) `links` carries the raw invite URLs; production summaries never do.
+   */
+  invite(targetScope: string, invitees: InviteeRequest[]): Promise<InviteSummary> {
+    return this.lmz.callAsync(
+      'NEBULA_AUTH_FACADE', undefined,
+      this.ctn<NebulaAuthFacade>().invite(targetScope, invitees),
+    );
   }
 
   // ─── Scope hierarchy (Universe / Galaxy / Star management) ────────────────

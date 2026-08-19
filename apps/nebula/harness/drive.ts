@@ -25,6 +25,8 @@ import * as revokeIsTotal from './scenarios/revoke-is-total';
 import * as profileTakeoverRefused from './scenarios/profile-takeover-refused';
 import * as studioCodegenRest from './scenarios/studio-codegen-rest';
 import * as upwardInviteRefused from './scenarios/upward-invite-refused';
+import * as inviteRoundtrip from './scenarios/invite-roundtrip';
+import * as nodeInviteRoundtrip from './scenarios/node-invite-roundtrip';
 
 /**
  * A runnable scenario. `needsContainer` defaults to TRUE — the historical behaviour, and the safe
@@ -57,7 +59,9 @@ const SCENARIOS: Record<string, Scenario> = {
   'revoke-is-total': revokeIsTotal,            // two real sessions → a real 401 from a real server
   'profile-takeover-refused': profileTakeoverRefused, // manufactured scope dominion buys nothing (no fixture)
   'studio-codegen-rest': studioCodegenRest,    // one real codegen turn over the Workers-AI REST transport
-  'upward-invite-refused': upwardInviteRefused, // a real star admin's upward /invite refused by dominion (no Docker)
+  'upward-invite-refused': upwardInviteRefused, // a real star admin's upward invite rejected by the facade's dominion message (no Docker)
+  'invite-roundtrip': inviteRoundtrip,          // client.invite → facade → real email → click → founder stamp (no Docker)
+  'node-invite-roundtrip': nodeInviteRoundtrip, // Star.invite → both planes → real email → invitee acts at the node (no Docker)
 };
 
 async function main(): Promise<void> {

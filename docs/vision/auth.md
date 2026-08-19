@@ -453,7 +453,7 @@ An operation whose outcome spans both planes — an invite that mints a membersh
 
 The facade is not reserved for two-plane operations: it is how *any* authenticated session mutation reaches the Registry (§ *The Registry*), pure-Registry invites included. It also rate-limits nothing, deliberately: mesh calls carry no rate limits anywhere — a mesh caller could overwhelm their own Star or Galaxy by cheaper means, so a limiter here would buy nothing, and we treat that as true until evidence says otherwise. The HTTP surface keeps its limiters (R3 in § *The layers a call passes*).
 
-> **Today's code differs.** `/invite` and `/mint-narrower-token` are authenticated HTTP routes and the facade does not exist yet — [nebula-invite.md](../../tasks/nebula-invite.md) builds it, moves invites onto it and deletes the route; today's `/invite` requires dominion over the target scope and is rate-limited (`dominionOverScopeGuard`, `subRateLimitGuard`), so § *Grants*' own-scope path and derived-bit rule are unbuilt. `/mint-narrower-token` follows ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
+> **Today's code differs.** `/mint-narrower-token` is still an authenticated HTTP route rather than a facade method — the natural second instance of the move invites already made ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
 
 
 ### Founding a Star

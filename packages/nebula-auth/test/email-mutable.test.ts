@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF, env, runInDurableObject } from 'cloudflare:test';
 import { hashString } from '@lumenize/crypto';
-import { foundUniverse, requestMagicLink, clickLink, refreshAndParse, url } from './test-helpers';
+import { foundUniverse, issueInvitesAs, requestMagicLink, clickLink, refreshAndParse, url } from './test-helpers';
 
 /** The ADR-016 acting-principal argument these registry methods now require. Recorded, never
  *  consulted — authorization keys off the caller's own verified access, not off this. */
@@ -115,13 +115,9 @@ describe('changeEmail — the registry primitive: a re-point is ONE row, not one
     const registry = getRegistry();
     const admin = await foundUniverse(SELF, u, `adm-${crypto.randomUUID().slice(0, 8)}@example.com`);
 
-    const inviteResp = await SELF.fetch(new Request(url(u, 'invite'), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin.access_token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: [old] }),
-    }));
-    expect(inviteResp.status).toBe(200);
-    const link = (await inviteResp.json() as { links: Record<string, string> }).links[old];
+    const inviteMint = await issueInvitesAs(admin.access_token, u, [{ email: old }]);
+    expect(inviteMint.errors).toHaveLength(0);
+    const link = inviteMint.results[0]?.inviteUrl;
     expect(link).toBeTruthy();
 
     // The invite really did mint a membership, so the click would otherwise succeed.
