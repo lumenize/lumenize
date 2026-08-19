@@ -57,25 +57,25 @@ After authentication, a call passes a fixed sequence of layers — but **there a
 **Registry endpoints.** HTTP routes on the edge Worker in front of the Registry DO. A route is a URL pattern and an ordered list of steps, ending in the handler:
 
 ```
-/auth/:scope/invite     [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleInvite]
-/auth/claim-universe    [connectionRateLimitGuard, turnstileGuard, forwardRaw]
+/auth/:scope/create-star  [parseScopeGuard, verifyJwtGuard, subRateLimitGuard, passageGuard, dominionOverScopeGuard, handleCreateStar]
+/auth/claim-universe      [connectionRateLimitGuard, turnstileGuard, forwardRaw]
 ```
 
 The layers below describe the first of the examples above — a route whose caller arrives with an access token in the `Authorization: Bearer …` header. The second presents none, which is why it is handled differently; § *The Registry* covers that case. Every layer runs in order, though not every route uses all of them:
 
 - **R1 — The route table.** The table above is the registration: a path with no entry reaches no handler and 404s, and a known path with no entry for the verb answers **405** with `Allow`.
-- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/invite` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment is the `targetScope` that R5 and R6 compare against.
-- **R3 — Rate limiting.** ONE limiter per route; **its key and place follow from whether verified identity exists at that point.** A token-bearing route takes a single `sub`-keyed limiter *after* R4 (`subRateLimitGuard`): everything costly on such a route — a Registry read, a DO write, an email send — sits after the verify, and a signature check is sub-millisecond local CPU, so a limiter ahead of it would pay roughly what it saves. A route with no `sub` yet — the cookie routes, the open routes — takes a single connection-keyed limiter (`connectionRateLimitGuard`) ahead of the first expensive thing: the cookie resolution's singleton read, or `turnstileGuard`'s `siteverify` round trip. Never both on one route.
+- **R2 — The addressed scope is parsed.** Patterns like `/auth/:scope/create-star` carry a scope as a segment, so it is parsed and refused if malformed before any step that reads it. **It is itself a step** — `parseScopeGuard`, first in the list — not something the table does, so a route carrying no scope simply omits it. The segment is the `targetScope` that R5 and R6 compare against.
+- **R3 — Rate limiting.** ONE limiter per route; **its key and place follow from whether verified identity exists at that point.** A token-bearing route takes a single `sub`-keyed limiter *after* R4 (`subRateLimitGuard`): everything costly on such a route — a Registry read, a DO write — sits after the verify, and a signature check is sub-millisecond local CPU, so a limiter ahead of it would pay roughly what it saves. A route with no `sub` yet — the cookie routes, the open routes — takes a single connection-keyed limiter (`connectionRateLimitGuard`) ahead of the first expensive thing: the cookie resolution's singleton read, or `turnstileGuard`'s `siteverify` round trip. Never both on one route.
 - **R4 — `verifyJwtGuard`.** Signature and expiry, from the `Authorization: Bearer` header. Produces the verified claims every later step reads.
 - **R5 — `passageGuard`.** Calls `hasPassageInto` — the same verdict M3 computes, with R2's scope as the `targetScope`.
-- **R6 — The endpoint's own guard functions.** Each asks one complete question, most often dominion over the addressed scope — `dominionOverScopeGuard` on `/invite`, the one route that takes a scope. (`/mint-narrower-token` is scope-less: its whole authorization is the handler's `canMintFor` against the *subject's* scope, which no URL carries.)
-- **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no.
+- **R6 — The endpoint's own guard functions.** Each asks one complete question. For example: `dominionOverScopeGuard` for the `/create-star` endpoint in the Registry endpoints partial shown above.
+- **R7 — Checks in the handler.** Same role as M6: decisions resolving into something other than yes or no. For example: a claim on a taken slug resolves three ways in the handler — a fresh slug proceeds, the same unverified claimer gets their link re-sent, and anyone else gets a conflict (§ *Founding a Star*).
 
 Every step refuses the same way: return a `Response` with an appropriate HTTP code. Explicit throwing is discouraged because that surfaces to the caller as an ambiguous 500. The mesh does the opposite: a refusal there travels back over `lmz.call()`, which preserves a thrown Error whole — custom properties included — so throwing carries what a status code cannot.
 
 One authenticated route carries no scope at all: `my-scopes` returns the scopes the caller can reach, so there is no target to decide about. R2 has nothing to parse and R5 nothing to compare — the answer *is* the set, and it is computed from the caller's own claims.
 
-> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` also take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` puts it back in front of the handler.
+> **Today's code differs.** `create-galaxy`, `create-star` and `delete-scope(-plan)` — the first example row above included — still take their scope in the request body rather than a URL segment, so R2 and R5 skip them too. The edge verifies the token, injects the verified `access` claim, and the Registry DO checks dominion at the top of the method it runs — so the check lands at R7 where R6 belongs, and the route table cannot show it. Moving them onto `/auth/:scope/…` puts it back in front of the handler — [nebula-registry-scope-in-url.md](../../tasks/nebula-registry-scope-in-url.md) owns the move.
 
 The sections that follow expand on the model above.
 
@@ -435,26 +435,13 @@ APIs and UIs allow the querying and inspection of both. These records are access
 
 ## Grants
 
-**Registry grants** — memberships and `scopeAdmin` — are all done inside the Registry.
+**Grants are made with as little friction as possible and growth is why**. Our success is a function of how many people are on our platform, so friction in the path to getting someone *onto* it is not caution — it is failure. It is why a stranger may claim a Universe or an unclaimed Star and become its `scopeAdmin` with nobody's approval, and it is the same reason a member may bring in a peer.
 
-**Who may invite is an endpoint's decision, not the boundary's.** Passage carries a call to the Registry's routes and says nothing about what it may do once there (§ *Coarse-grained access control*) — so the rule lives in the endpoint's own guards, and it is one line:
+So, anyone may invite a non-admin at their own scope. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.
 
-**Anyone may invite a non-admin at their own scope. Dominion additionally permits inviting downward, and is the only thing that permits conferring `scopeAdmin`.**
+**Registry-initiated grants**. Only `scopeAdmin` grants are made directly using Registry endpoints.
 
-**Growth is why, and that is not a soft reason.** This business is a function of how many people are on the platform, so friction in the path to getting someone *onto* it is not caution — it is failure. It is why a stranger may claim a Universe or an unclaimed Star and become its `scopeAdmin` with nobody's approval, and it is the same reason a member may bring in a peer. **Any rule that makes onboarding wait on someone holding Registry standing is a tax on the thing the company is trying to do** — and it would buy nothing, because inviting a non-admin peer is not an act of dominion. It transfers nothing the inviter does not already hold: the newcomer gets a membership at a scope the inviter already belongs to, carrying the same passage and the same org-tree visibility ([ADR-008](../adr/008-full-org-tree-visibility.md)), and no authority at all. It is strictly weaker than self-signup, where a stranger mints themselves the admin bit.
-
-Two bounds hold it there, both structural rather than checks a caller could talk past:
-
-- **"Their own scope" is an identity test, never a hierarchy one.** Passage answers *yes* upward, so a Star member gated on passage could invite into the Universe — the one shape this rule must never take.
-- **`scopeAdmin` is derived from the inviter's own dominion, never requested.** A caller cannot ask for a bit they do not hold, so the data plane never becomes a path to Registry authority (§ *The data plane*).
-
-What is left is abuse, not escalation: a member can mail invites where they choose. That is rate-limiting and attribution, and an invite carries a verified identity where self-signup carries only Turnstile.
-
-> **Today's code differs.** `/invite` requires dominion over the target scope (`dominionOverScopeGuard`, in the route's own step list). Both the own-scope path and the derived-bit rule above are unbuilt — [nebula-invite.md](../../tasks/nebula-invite.md) owns them.
-
-**Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope (§ *Grants in both planes*). There is no HTTP path to granting.
-
-One ordering falls out of that and is worth stating once. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first. You cannot grant a permission to an email address.
+Ordering is important. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first.
 
 ### Grants in both planes
 
@@ -464,11 +451,14 @@ An operation whose outcome spans both planes — an invite that mints a membersh
 2. **It reaches the Registry through the facade** — a mesh-speaking entrypoint the Registry's package owns, where the Registry-side guards live: claims-level verdicts only, the acting principal recorded from the same verified claims (ADR-016), the one raw Workers RPC call from a node that accepts `lmz.call()`s. The Registry never learns what a Star is.
 3. **Both planes are written in one operation — which no transaction spans.** There is no cross-plane transactional support, so inconsistency is the implementor's to consider. The Registry writes first and both halves are idempotent, so the one reachable inconsistency — a membership without its grant — heals on a re-attempted invite.
 
-The facade is not reserved for two-plane operations: it is how *any* authenticated session mutation reaches the Registry (§ *The Registry*), pure-Registry invites included.
+The facade is not reserved for two-plane operations: it is how *any* authenticated session mutation reaches the Registry (§ *The Registry*), pure-Registry invites included. It also rate-limits nothing, deliberately: mesh calls carry no rate limits anywhere — a mesh caller could overwhelm their own Star or Galaxy by cheaper means, so a limiter here would buy nothing, and we treat that as true until evidence says otherwise. The HTTP surface keeps its limiters (R3 in § *The layers a call passes*).
 
-> **Today's code differs.** `/invite` and `/mint-narrower-token` are authenticated HTTP routes and the facade does not exist yet — [nebula-invite.md](../../tasks/nebula-invite.md) builds it and moves invites onto it; `/mint-narrower-token` follows ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
+> **Today's code differs.** `/invite` and `/mint-narrower-token` are authenticated HTTP routes and the facade does not exist yet — [nebula-invite.md](../../tasks/nebula-invite.md) builds it, moves invites onto it and deletes the route; today's `/invite` requires dominion over the target scope and is rate-limited (`dominionOverScopeGuard`, `subRateLimitGuard`), so § *Grants*' own-scope path and derived-bit rule are unbuilt. `/mint-narrower-token` follows ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
+
 
 ### Founding a Star
+
+Sometimes, a `scopeAdmin` grant is made for a Star and the data-plane grant happens passively a short while later.
 
 **Cloudflare has no create operation for a Durable Object.** A Star is a DO instance and comes into being the first time it is addressed, placed near whoever addressed it — which is the default you want, since a tenant's data should sit close to the people using it. That makes founding a **sequencing** problem rather than a create step: whoever touches the Star first decides where it lives *forever*, and the person mostly likely near its users is the founder.
 
