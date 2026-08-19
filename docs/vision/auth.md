@@ -325,7 +325,7 @@ The last row is the point, not a gap.
 
 ## The Registry
 
-The Registry is the one thing in this document that sits entirely outside the mesh — reached over HTTP rather than by `lmz.call()`, and where you land before you hold a token at all. That is what makes it the single source of truth for who exists, what scopes exist, and who is a member where: the records the rest of this document reads have to be written somewhere no token is yet required.
+The Registry is the one thing in this document that sits entirely outside the mesh, and it is the single source of truth for who exists, what scopes exist, and who is a member where: the records the rest of this document reads have to be written somewhere no token is yet required. How it is reached splits along one line — **HTTP carries the session lifecycle; the mesh carries what a session does** (the mechanism: § *Grants in both planes*).
 
 Its scoped routes are gated by the same two rules as a mesh node (§ *Coarse-grained access control*) — reaching your own scope or an ancestor is free, and a descendant takes dominion — so there is one model, not one per surface.
 
@@ -339,7 +339,7 @@ This case has two families, and neither reaches R4 or R5 — with no verified cl
 
 That is also why the scope segment on these routes is not what R2 describes — never a scope being acted on.
 
-The seam is unusually clean. Once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally. No node calls the Registry, so its work is finished by the time the connection is open.
+The seam stays clean, and it is worth being precise about what kind of clean. **No authorization decision ever consults the Registry mid-session** — once a client presents a valid signed JWT at connect, the coarse-grained gate, the `@mesh()` guards, the checks at the top of methods and the data plane's whole DAG all decide locally, off the claims. What does reach the Registry mid-session is **writes**, through the facade (§ *Grants in both planes*). The deciding path is finished by the time the connection is open; the mutating path goes through one door.
 
 The one exception is a Profile write, where the scoped-admin branch reads the Registry to confirm an accepted membership; the owner branch reads nothing (§ *Profiles*). That borderline exception is one reason why we say that it is best not to think of Profile as a full mesh node.
 
@@ -452,9 +452,21 @@ What is left is abuse, not escalation: a member can mail invites where they choo
 
 > **Today's code differs.** `/invite` requires dominion over the target scope (`dominionOverScopeGuard`, in the route's own step list). Both the own-scope path and the derived-bit rule above are unbuilt — [nebula-invite.md](../../tasks/nebula-invite.md) owns them.
 
-**Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope. There is no HTTP path to granting.
+**Data-plane grants** have to take both into account. Other than a Registry admin arriving through the bypass, they are initiated by `@mesh()` methods inside the application, which make whatever Registry calls they need to add the person as a member of a scope (§ *Grants in both planes*). There is no HTTP path to granting.
 
 One ordering falls out of that and is worth stating once. A data-plane grant names a `sub`, and a `sub` only exists once a membership does. So the Registry step always comes first. You cannot grant a permission to an email address.
+
+### Grants in both planes
+
+An operation whose outcome spans both planes — an invite that mints a membership *and* lands an orgTree grant is the canonical case — follows one recipe:
+
+1. **It initiates on the data-plane side** — the node hosting the orgTree — because the grants that authorize it live there and the Registry cannot see them. The data-plane guard stands at this door.
+2. **It reaches the Registry through the facade** — a mesh-speaking entrypoint the Registry's package owns, where the Registry-side guards live: claims-level verdicts only, the acting principal recorded from the same verified claims (ADR-016), the one raw Workers RPC call from a node that accepts `lmz.call()`s. The Registry never learns what a Star is.
+3. **Both planes are written in one operation — which no transaction spans.** There is no cross-plane transactional support, so inconsistency is the implementor's to consider. The Registry writes first and both halves are idempotent, so the one reachable inconsistency — a membership without its grant — heals on a re-attempted invite.
+
+The facade is not reserved for two-plane operations: it is how *any* authenticated session mutation reaches the Registry (§ *The Registry*), pure-Registry invites included.
+
+> **Today's code differs.** `/invite` and `/mint-narrower-token` are authenticated HTTP routes and the facade does not exist yet — [nebula-invite.md](../../tasks/nebula-invite.md) builds it and moves invites onto it; `/mint-narrower-token` follows ([backlog.md](../../tasks/backlog.md) § *Nebula Auth*).
 
 ### Founding a Star
 
