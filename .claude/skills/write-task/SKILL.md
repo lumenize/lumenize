@@ -19,6 +19,17 @@ Empirically (`tasks/nebula-invite.md`, 2026-07-25/26): a mechanism was specified
 
 Small, mechanical, single-surface tasks — a rename, a version bump, a one-file fix. If you cannot write three non-obvious sentences of design intent, the task does not need this; write the file directly per `tasks/README.md`. **Do not manufacture intent to satisfy the outline.**
 
+## When to start OVER instead — the -alt route
+
+When the file being restructured **spun out of other work and its framing predates the design questions** — the tells: rescope banners stacking, non-goals fencing things the human now wants, an "open question" the file's own structure keeps answering — consider replacing it rather than evolving it:
+
+1. Create a sibling `-alt` file holding only the title and a status line describing the experiment.
+2. The human writes increments, **one open question or approach idea at a time**; the agent confirms or pushes back — checking *premises*, not grading verdicts. Deleting an increment is a normal outcome.
+3. The agent stays **blind to the old file's arguments** until the end (standing guidance still applies; narrow facts may be fetched, and say so).
+4. When the prose is loved, **mine** the old file section-by-section — disposition every piece as *carried / superseded / dropped-on-purpose*, so nothing exits by omission — then replace it at the original path in one pass (refs repointed, `-alt` deleted). Do not carry archaeology that neither prevents a review finding nor helps a builder; a rejected alternative's home is the Decisions table.
+
+Why blind-then-mine, not evolve: **a review panel correctly enforces recorded non-goals and framing, so by review time anchoring has already won.** Evidence (`nebula-invite`, 2026-08-19): the fresh path generated the mesh-facade invite design that the old file's own non-goals had fenced out ("mixes the Registry and mesh domains"), while the mining pass recovered everything the old file was right about. The retro's split: fresh prose won on design generation; the old file won on completeness; mining is what closes the gap.
+
 ## Pass 1 — design intent only
 
 Write the file down to and including *Design intent, constraints, and future state*, then **stop and ask for a read.** Nothing below it exists yet.

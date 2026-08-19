@@ -288,6 +288,9 @@ suite) is exempt — but say so explicitly in the file, so the builder knows whi
 pre-verified and which do not.
 
 ### 5. Resolve in conversation
+
+⚠️ **A finding that the design contradicts the file's own recorded non-goals or prior framing may be evidence the FRAMING is stale, not that the design is wrong** — check the non-goal's date against the design's before treating it as a defect. Panels correctly enforce what a file records, which makes them amplifiers of stale fences: a Stage-2 pass once read a deliberate widening of `/invite` as "a collision to resolve — pick one owner" because the file's old framing invited exactly that reading (recorded in the replaced file; the widening was the goal). Surface such findings as *framing questions for the human*, not as design defects.
+
 Present each stage's synthesized list as it lands (Stage 1 at the gate, Stage 2 at the end). Also surface the `dropped` list briefly — the verify pass errs toward keeping, so anything it dropped was a clear false positive, but a quick scan lets the user veto an over-eager refutation. Work through blockers/majors with the user, propose task-file edits, and re-run a tighter panel (or a fresh human pass) if the design shifted materially. Findings are structured so a follow-up fresh-context pass can quickly see "here's what the panel caught — focus on what they missed."
 
 ## When NOT to use
