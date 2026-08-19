@@ -503,7 +503,7 @@ sufficiently clever prompt picks; this is a lock with no keyhole on the model's 
 
 **The escalation is the same primitive, pointed up the tree.** Nebula does not invent an approval
 flow: it fires the ordinary request-access climb to the nearest ancestor holding `admin`
-(`tasks/nebula-request-access.md`), which is resolvable client-side precisely because the org tree
+(`tasks/on-hold/nebula-request-access.md`), which is resolvable client-side precisely because the org tree
 and its grants are universally visible ([ADR-008](../adr/008-full-org-tree-visibility.md)). Nothing
 is auto-granted. A human with the authority decides, and options (b) and (c) are grants like any
 other — with (c) time-boxed, which is the option most reviewers forget exists.

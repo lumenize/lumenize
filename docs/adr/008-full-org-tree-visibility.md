@@ -4,7 +4,7 @@
 **Status**: Accepted
 **Deciders**: Larry
 **Amended**: 2026-07-08 — broadened grantee-identity visibility beyond admins (read/write grants expose identity too), and extended the principle to **presence** (who is *actively subscribed*); more edits expected as presence is built.
-**Evidence**: `apps/nebula/src/dag-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), the query-subscription design decisions (child-of-P disclosure accepted; always disclose the denied-node set; the universal-visibility assumption they rest on), `tasks/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent).
+**Evidence**: `apps/nebula/src/dag-tree.ts` (`addEdge` et al. short-circuit idempotent ops *before* `requirePermission` — non-disclosing **only** because the tree is universally visible; the comment warns every such short-circuit must move *after* the check if visibility ever goes per-branch), the query-subscription design decisions (child-of-P disclosure accepted; always disclose the denied-node set; the universal-visibility assumption they rest on), `tasks/on-hold/nebula-request-access.md` (the denied-node set drives the request-access flow this ADR makes coherent).
 
 ## Context
 
@@ -12,7 +12,7 @@ Within a Star, members constantly need access they don't yet hold to get work do
 
 A fresh contributor — or a fresh LLM session — reaches for "hide what you can't act on," applying the least-privilege reflex to *visibility* rather than to *capability*. So every feature that surfaces structure re-opens the debate — e.g. query subscriptions, where a denied query result returns the enumerated set of org-tree nodes the caller couldn't read, so the UI can prompt "request read access to these?"
 
-The trigger insight that reframes it: **the denied-node set names only structure the client can already see.** Because the org tree is universally visible within the Star (the decision below), a denied query result enumerates nodes the caller could already read off the tree directly — what the caller lacks, and what stays enforced, is the *content* read grant, not knowledge that the nodes exist (D9: the gate is the per-id content subscribe). The request-access disclosure is safe *because of* this policy, not despite it — and it's exactly why the client can resolve "who to ask" locally with no server round-trip (`tasks/nebula-request-access.md`).
+The trigger insight that reframes it: **the denied-node set names only structure the client can already see.** Because the org tree is universally visible within the Star (the decision below), a denied query result enumerates nodes the caller could already read off the tree directly — what the caller lacks, and what stays enforced, is the *content* read grant, not knowledge that the nodes exist (D9: the gate is the per-id content subscribe). The request-access disclosure is safe *because of* this policy, not despite it — and it's exactly why the client can resolve "who to ask" locally with no server round-trip (`tasks/on-hold/nebula-request-access.md`).
 
 ## Decision
 

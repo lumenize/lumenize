@@ -120,4 +120,4 @@ What remains is a shape, not a problem: a collaborator holds **one membership pe
 
 - **Gated on** [nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) — it lands the first `DagTree` on a non-leaf node, which is the permission surface `write@Galaxy-root` needs.
 - **Built on** [nebula-invite.md](../nebula-invite.md) — its per-entry envelope grows into this grant spec (a pre-alpha wire break, fine), and its returned `sub` is what step 3 consumes.
-- **Shares substrate with** [nebula-request-access.md](../nebula-request-access.md) (the **pull** half to this **push** half) and the paused F&F invites ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § Invite-gated) — one `/invite` / `accept-invite` / `InviteTokens` path, not a fork.
+- **Shares substrate with** [nebula-request-access.md](nebula-request-access.md) (the **pull** half to this **push** half) and the paused F&F invites ([nebula-pre-alpha.md](../nebula-pre-alpha.md) § Invite-gated) — one `/invite` / `accept-invite` / `InviteTokens` path, not a fork.
