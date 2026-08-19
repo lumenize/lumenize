@@ -1,6 +1,6 @@
 # The invite mechanism
 
-**Status:** Design intent complete (co-written 2026-08-19, replacing the prior file wholesale after a section-by-section mining pass); **phases are NOT written**. `/review-task` **Stage 1 ran 2026-08-19** (18 findings, 0 refuted); gate edits applied and the abuse-bound question resolved same day (amend auth.md, no cap — § *Who may invite*). One small Pass-2 call remains open: whether a `NebulaClient` convenience method wraps the bridge call (§ B). From here: write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order.
+**Status:** Design intent complete (co-written 2026-08-19, replacing the prior file wholesale after a section-by-section mining pass); **phases are NOT written**. `/review-task` **Stage 1 ran 2026-08-19** (18 findings, 0 refuted); gate edits applied and the abuse-bound question resolved same day (amend auth.md, no cap — § *Who may invite*). The client surface is `NebulaClient.invite` (decided 2026-08-19, § B). From here: write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order.
 
 ## Context
 
@@ -206,7 +206,7 @@ Adding a coach today takes an env-var change plus a redeploy (`NEBULA_AUTH_BOOTS
 
 ### B — client + harness
 
-- **One client invite surface, mesh.** No hand-built `Authorization` header for invites remains in `apps/nebula/harness/scenarios/`, and **`Driver.accessToken` is deleted** — the route it targeted no longer exists.
+- **One client invite surface, mesh: `NebulaClient.invite(targetScope, invitees)`** wrapping the bridge call (decided 2026-08-19) — the `impersonate()` shape: one method is the sole site that knows the transport, so the harness, `createSubject`'s replacement, and the eventual UI affordance all route through it, and the `invited | already-member | promoted` discriminant has one owning type. No hand-built `Authorization` header for invites remains in `apps/nebula/harness/scenarios/`, and **`Driver.accessToken` is deleted** — the route it targeted no longer exists.
 - **Call-site note (a locator, not an inventory):** grep `"emails"` across nebula-auth + apps/nebula and re-derive the set; update the nebula-auth README's mermaid (owes the render-safety grep); wire `createSubject`'s dead `scopeAdmin?` option through (declared in its options, never read). ⚠️ **Do not touch `@lumenize/auth`** — its `#handleInvite`/`body.emails` has its own consumers.
 
 ## Non-goals

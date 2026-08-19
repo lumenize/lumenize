@@ -205,8 +205,8 @@ re-deriving here. *(The first two surfaced from typed-error work, 2026-08-06.)*
   now, no collapse dependency: per-invitee `scopeAdmin` capped by the inviter's dominion, the minted `sub`
   per invitee, and every invite entering mesh-side through a nebula-auth-owned facade (HTTP `/invite`
   deleted — that file's § *Who may invite* and § *Transport*); its scenario-5 Star arm (node invites with
-  DAG grants written at invite time) is in scope. The client surface is the mesh call; whether a
-  `NebulaClient` convenience method wraps it is that file's Pass-2 call. It names no collaborator. **(b)** the COLLABORATOR — ⏸️ **ON HOLD and OUT of pre-alpha
+  DAG grants written at invite time) is in scope. The client surface is `NebulaClient.invite(targetScope, invitees)`,
+  wrapping the bridge call (decided 2026-08-19). It names no collaborator. **(b)** the COLLABORATOR — ⏸️ **ON HOLD and OUT of pre-alpha
   (2026-08-09, Larry)**, [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md).
   Its design mixes the **Registry domain and the mesh domain**, which was worth not thinking hard about
   until after pre-alpha unless forced. 🔄 That mixing obstacle was **RESOLVED 2026-08-19** by the invite
