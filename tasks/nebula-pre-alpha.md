@@ -201,13 +201,18 @@ re-deriving here. *(The first two surfaced from typed-error work, 2026-08-06.)*
   `tasks/nebula-request-access.md` (the **pull** half) — share it, don't fork.
   ⚠️ **Sequenced ahead of all three, and SPLIT FOUR WAYS on 2026-08-11** — the old two-file seam ('reach' vs 'authority') stopped existing once accepted `auth.md` § *Grants* made the invite bit **derived from dominion**, so one decision ran straight through the middle of it. In dependency order: ✅ **(i)** [archive/nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) — **BUILT + archived 2026-08-11**; pure identifier swap, no behaviour change, and the only one of the four that was wipe-gated (§ *The wipe is a CLOSING WINDOW*, item 7); ✅ **(ii)** [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) — **BUILT + archived 2026-08-16** (all four phases) — the spine: a token carries the member's scope and two predicates compute `passage` and `dominion` from it; ✅ **(iii)** [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) — **BUILT + archived 2026-08-18** — each Registry route states its complete requirement in the pipeline table, and the mint asks one question; **(iv)** [nebula-invite.md](nebula-invite.md) — invite, which now owns **who may invite**. Together they **amend ADR-015** (commitment intact, mechanism replaced) and close the collaborator's open question about tenant-Star over-reach by deleting the over-reach. ⚠️ **ADR-015 ratification is NOT gated on any of them** — Larry's ad-hoc call. ➕ **A FIFTH spun out of (iii) on 2026-08-17: [nebula-registry-scope-in-url.md](nebula-registry-scope-in-url.md)** — moving `create-galaxy` / `create-star` / `delete-scope(-plan)` onto `/auth/:scope/…` so a guard decides dominion instead of the Registry DO. It was Phase 3 of (iii) until a Stage-1 panel found its spec falsified on disk three ways *and* that it was the only phase carrying a breaking cross-package change. **Sequencing: (iii) is its only prerequisite.** It blocks nothing — (iv) needs the pipeline and the guards, not the URL move — and it is **independent of the Galaxy collapse in both directions** (the collapse consumes none of these routes; `galaxy.ts` calls no registry route). ⚠️ The one real interaction is that the collapse and this file both edit `apps/nebula/src/nebula-client.ts`, in different regions — so **do not interleave them**, which is a concurrency note, not an ordering one. ➕ **A SIXTH, also from (iii): [nebula-same-origin-guard.md](nebula-same-origin-guard.md)** — design intent only, and its honest outcome may be *no guard at all*.
   **Split into three on 2026-08-05, by dependency rather than topic:**
-  **(a)** the invite MECHANISM — [nebula-invite.md](nebula-invite.md), buildable
-  now, no collapse dependency: per-invitee `scopeAdmin`, the minted `sub` in the response, a client method.
-  It names no collaborator. **(b)** the COLLABORATOR — ⏸️ **ON HOLD and OUT of pre-alpha
+  **(a)** the invite MECHANISM — [nebula-invite.md](nebula-invite.md), design complete 2026-08-19, buildable
+  now, no collapse dependency: per-invitee `scopeAdmin` capped by the inviter's dominion, the minted `sub`
+  per invitee, and every invite entering mesh-side through a nebula-auth-owned facade (HTTP `/invite`
+  deleted — that file's § *Who may invite* and § *Transport*); its scenario-5 Star arm (node invites with
+  DAG grants written at invite time) is in scope. The client surface is the mesh call; whether a
+  `NebulaClient` convenience method wraps it is that file's Pass-2 call. It names no collaborator. **(b)** the COLLABORATOR — ⏸️ **ON HOLD and OUT of pre-alpha
   (2026-08-09, Larry)**, [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md).
-  Its design mixes the **Registry domain and the mesh domain** — the registry structurally cannot
-  pre-stage a DAG grant, Nebula structurally cannot mint a membership — and that is worth not thinking
-  hard about until after pre-alpha unless forced. **Pre-alpha pays for the pause with training or a code
+  Its design mixes the **Registry domain and the mesh domain**, which was worth not thinking hard about
+  until after pre-alpha unless forced. 🔄 That mixing obstacle was **RESOLVED 2026-08-19** by the invite
+  design (the on-hold file's own status banner records how); the pause now stands on scheduling and the
+  collapse gate, not structure — what remains that file's is the named-role grant bundle, the
+  valid-combinations UI, and the self-signup redeem hook. **Pre-alpha pays for the pause with training or a code
   workaround** for its handful of users; the interim shape is the Galaxy-admin-via-bypass enrollment
   [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) already carries, which is
   broader than the bundle and deliberately so. ⚠️ **The collapse gate still holds and is not why it
