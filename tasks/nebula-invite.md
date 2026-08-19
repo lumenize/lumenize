@@ -1,184 +1,220 @@
-# The invite mechanism — per-invitee admin, and a client method
+# The invite mechanism
 
-**Status:** Active child, **fourth and last** in the passage/dominion sequence — after ✅ [nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) (**BUILT + archived 2026-08-11**), ✅ [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) (**BUILT + archived 2026-08-16**) and ✅ [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) (**BUILT + archived 2026-08-18**). **Rescoped 2026-08-11: this file now owns WHO MAY INVITE**, not only what an invite carries (§ *The openness question*). `/invite` can currently issue one flat batch of non-admin memberships under an admin-only gate; this makes it say what *each* invitee gets, return the `sub` it minted, be reachable from app code, and be open to the right people. No collapse dependency.
+**Status:** Design intent complete (co-written 2026-08-19, replacing the prior file wholesale after a section-by-section mining pass); **phases are NOT written**. From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order.
 
-> 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input: it says what must be true, deliberately not in what order. ⚠️ **The 2026-07-25/26 Stage-1 passes do not carry** — they reviewed a file with a different scope, a different Profile decision, and a pre-split storage layer.
+## Context
 
-> 🔄 **Rescoped twice.** (1) **2026-08-05**, reversing a pinned business decision: this file used to be *"invite a peer who becomes a Galaxy admin"*, with `collaborator = admin at the invited scope` pinned 2026-07-19. Retired — reasoning in § *Decisions*; three concerns moved out (§ *Non-goals*). (2) **2026-08-11**, in the four-way split of the passage/dominion pile: **the openness question landed here.** [nebula-registry-route-guards.md](archive/nebula-registry-route-guards.md) places `/invite`'s guard in the route pipeline at **today's verdict** and changes no caller's outcome; **this file decides what that guard becomes.** The two files previously both reached for the rule, which is what the split was diagnosing.
->
-> ✅ **The wire-field naming question is UNPARKED.** This file used to leave `invitees[].isAdmin`-vs-`Memberships.scopeAdmin` undecided because *"deciding it here would be designing this endpoint from another task's cleanup."* That cleanup is now [nebula-dominion-vocabulary-rename.md](archive/nebula-dominion-vocabulary-rename.md) and lands **first**, so the answer is a one-line consequence rather than a cross-task negotiation — and § *Reach and authority* below no longer has to hedge it.
+Nebula succeeds by getting more people on the platform. Low friction is key. Things that look like traditional security risk must be questioned if they provide any friction and our tolerance for risk in this one aspect is  going to be relatively high despite that security is one of our selling points. We'll make up for taking a little risk here in other ways. See: docs/vision/_ai-security.md for part of that. See: "This isn't a guardrail" section of docs/presentation-and-blog-drafts/the-iron-triangle-of-agentic-development.md. That last reference is key because one type of "new track" is having the right people in the system with the right permissions.
 
-> ✅ **Gated on the three files ahead of it, and nothing else. Code only — no stored shape changes** (verified 2026-08-11: the per-invitee bit writes an existing `Memberships` column; no rename, no new column). ⚠️ **Each file in this sequence states its OWN gating here, and siblings do not restate it.**
+The Registry can have no knowledge of or access to do things in the Resources-plane, but the other way around is allowed and necessary.
 
-**Objective — `/invite` expresses what each invitee gets, returns the identity it minted, and is reachable from app code.** Today it takes `{ emails: string[] }`, hardcodes `isAdmin=false`, returns emails only, and has no client method — so no caller can say "make this one an admin," and no caller can act on the identity that was created.
+### How people get into the system
 
-## Context and current state
+Scenarios we support now or need the near term:
 
-**Built already** — each claim re-verified against disk 2026-08-04:
+1. [out of scope for this task file] Universe self-signup --> Universe scopeAdmin. Pure Registry
+2. [out of scope for this task file] Star self-signup --> Star `scopeAdmin` + founder. Founder = Resources-plane `admin` on the root of the orgTree
+3. Platform, Universe, or Galaxy `scopeAdmin` invites a Galaxy `scopeAdmin`. Pure Registry
+4. A Platform, Universe, Galaxy, or Star `scopeAdmin` inviting a Star `scopeAdmin` who may become the founder if they are the first.
+5. A Resources-plane `admin` inviting people to have `admin`, `write`, or `read` at any node they are `admin` over, in a Galaxy's or Star's orgTree. This subsumes inviting a Galaxy collaborator (a non-`scopeAdmin` member): that is just this operation at the root of the Galaxy's orgTree. Primarily a Resources-plane operation, but the invitee also needs a membership in the Registry — flagged so it doesn't require an additional approval — or they couldn't log in at the scope at all. ⚠️ The Star arm is buildable now; **a Galaxy has no orgTree yet** (`DagTree` is composed by star.ts and dev-studio.ts only, verified 2026-08-05 in [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md)) — it gets one when the collapse lands the session/messages Resources, and the Galaxy arm lights up then by composition, no new invite code.
 
-- **`/invite`** → [`handleInvite`](../packages/nebula-auth/src/worker-token.ts) → [`issueInvites`](../packages/nebula-auth/src/nebula-auth-registry.ts): an admin issues invites into a scope — mints the invitee's membership, inserts a single-use hashed `InviteTokens` row, and emails an `accept-invite` link (test mode returns the raw link). Admin-over-scope is gated in `handleInvite` (`if (verifiedAccess.admin !== true) return errorResponse(403, 'forbidden', …)`), after the router's JWT verify + `isAtOrAbove(payload.access.authScope, instanceName)` → 403 `insufficient_scope` ([router.ts](../packages/nebula-auth/src/router.ts)).
-- **`accept-invite`** and **magic-link** both funnel through `consumeAndLogin` — a real login per ADR-009, a bodiless 302 plus a refresh cookie — and both reach [`getAndVerifyIdentity`](../packages/nebula-auth/src/nebula-auth-registry.ts), the one place control of a mailbox is established.
-- **The identity schema is split** ([archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md), built 2026-08-04): `Emails` holds the address, its `profileId` and `emailVerified`; `Memberships` holds `sub` (PK), `emailId`, scope, `isAdmin`, `acceptedAt`. [`schemas.ts`](../packages/nebula-auth/src/schemas.ts) is the authority for every write shape.
-- **`setIdentityAdmin`** flips `Memberships.isAdmin` **and** converges the denormalized copy into every live KV refresh record, re-applying each record's original absolute expiry. ✅ **Checkable claim:** it has **zero production callers** today, and this task adds the first (`grep -rn 'setIdentityAdmin' packages apps --include='*.ts' | grep -v test`).
-- **ADR-016 records are already routed.** [`projectActingToken`](../packages/nebula-auth/src/access-claims.ts) is exported from the package root, and `issueInvites`, `setIdentityAdmin` and `changeEmail` each take **required** verified claims and record through it. `issueInvites(universeGalaxyStarId, emails, origin, callerClaims)` and `handleInvite(request, env, instanceName, callerClaims)` both already carry the **full** verified payload.
+6. Any member invites a non-admin peer into exactly their own scope (decided 2026-08-19 — § *Who may invite*). Pure Registry.
 
-**Missing:**
+There are other scenarios we may want to support later but the only one I can think of right now is inviting another Universe `scopeAdmin`
 
-1. **`/invite` cannot say "make this one an admin", nor answer per person.** Its body is `{ emails: string[] }` (`let body: { emails?: string[] }` … `if (!Array.isArray(body.emails))`) — a flat batch with no discriminator.
-2. **`issueInvites` mints `isAdmin=false`,** via a hardcoded `#mintIdentity(email, universeGalaxyStarId, /* isAdmin */ false)`.
-3. **The flag alone would be a silent no-op for anyone already minted.** `#mintIdentity` is find-or-create at both levels; its membership half early-returns an existing `(emailId, scope)` row — `if (existing.length > 0) return existing[0].sub` — without touching `isAdmin`.
-4. **The response discards the `sub` it just minted.** `{ invited: string[], errors, links? }` is keyed by email, so a caller who wants to *do* something with the new identity has no handle for it — and there is no other path from an address to a `sub` (`discover(email)` returns `{ universeGalaxyStarId, isAdmin }`, and a member holding no DAG grants appears nowhere in the org tree).
-5. **`client.scopes` has no `invite`.** Every sibling is there (`list`, `createGalaxy`, `createDevWorkspace`, `deletePlan`, `delete`); `invite` is the lone gap, so the harness hand-builds an `Authorization` header instead ([nebula-client.ts](../apps/nebula/src/nebula-client.ts)).
+### Strategy for scenario 5 — start at the Resources-plane
 
-## Design intent, constraints, and future state
+Scenario 5 is one operation, initiated where the inviter's authority lives: a method on the Star/Galaxy (name TBD), roughly `invite(nodeId, invitees: [{ email, tier }])`. It does three things, all at invite time:
 
-### What this endpoint sets, and what it does not
+1. Check that the inviter holds `admin` at `nodeId` (the existing `requirePermission`).
+2. Call the Registry — the allowed direction — to mint the memberships and the invite tokens and send the emails. The Registry returns the minted `sub` per invitee.
+3. Write the grants locally: `setPermission(nodeId, sub, tier)` for each successfully-minted invitee.
 
-> ✅ **The three files ahead of this one have landed by the time this builds, so the vocabulary below is the TARGET, not a translation.** A token carries the member's scope; `dominion` is `scopeAdmin ∧ scope-at-or-above` and `passage` is the boundary verdict; there is no derived pattern. ⚠️ **The tier table that used to sit here was written in the deleted grammar** — a `Minted pattern` column of `{u}.{g}.*` and `'*'` — and is gone rather than translated, because a criterion phrased over a pattern string would red on correct code.
+It takes multiple invitees because the Registry primitive it wraps is already batch — a single-invitee method would narrow a capability that costs nothing to keep — and because all invitees target the same node, one `requirePermission` check licenses the whole batch. Inviting a team is one Resources→Registry round trip. `tier` sits per-invitee, not on the batch: "invite Alice as `admin` and Bob as `write` on this project" is one natural user action. Partial-failure semantics are inherited, not designed: the Registry already answers per-email `{ invited, errors }`, and the grant is written only for the subs that minted. The deliberate boundary is one `nodeId` per call — batching across nodes would put differently-guarded writes inside one operation, and no natural user gesture asks for it.
 
-This endpoint sets two things and only two: the **scope** (from the URL path) and the **admin bit** (per invitee entry). It never widens beyond the invited scope. **The mint invariant:** the identity lands at the **path** scope, and what is minted never exceeds the inviter's own standing there. No self-elevation, at any tier — the mechanism is uniform across tiers, so a star-, universe- or platform-tier invite each lands a membership at the scope named in the path, and the resulting token reaches exactly what the dominion rule says it should.
+Everything happens at invite time because the Registry already mints the invitee's identity eagerly at invite time, not at first login — so the `sub` the grant needs exists before the invitee has ever logged in. When they do log in, both planes are already in place: no login-time sequencing, no instructions carried in the JWT, no cleanup. And the actor recorded on both writes (ADR-016) is the inviter — who is present and verified at invite time — rather than the invitee.
 
-**Authentication happens at the Universe; a Galaxy is named in `activeScope`.** No membership row can exist at a 2-segment scope by claim — `create-galaxy` mints no identity and there is no `claim-galaxy` — so a Galaxy membership arises only from an invite.
+The founder stamp is not precedent against this. The Star acts there on its own state, at a moment it observes (first admin arrival), off a claim (`scopeAdmin`) that is native Registry vocabulary. Nothing in scenario 5 requires the Resources-plane to obey instructions carried in a token, and nothing requires the Registry to hold Resources-plane vocabulary (node ids, tiers).
 
-### The openness question — THIS FILE'S SUBJECT, and it is not yet decided
+Open mechanics, deliberately not designed yet: the Resources→Registry call path does not exist today (nothing in `apps/nebula` calls the Registry). How a mesh-layer DO calls the raw-DO Registry, and how the inviter's verified claims thread across that boundary for the ADR-016 record, is the next design question.
 
-🔓 **Larry, 2026-08-11: *"We want it to be more open, but combined with everything else, it's hard to know if we are opening it up the right amount or the right way."*** That is the decision this file exists to make, and it is deliberately **not** made here yet.
+### One Registry primitive serves all three scenarios
 
-**Where it stands.** [`docs/vision/auth.md`](../docs/vision/auth.md) § *Grants* is `status: accepted` and already describes a target:
+The registry-side work is identical in every scenario: mint a membership at a scope, mint a single-use invite token, send the email, return the minted `sub`. That is today's `issueInvites`, evolved in exactly two ways: the wire shape becomes per-invitee (`invitees: [{ email, scopeAdmin }]`, not `emails: string[]`) so an admin invite is expressible at all, and the minted `sub` comes back per invitee. The accept-invite and login flows are shared, unchanged. The membership row minted at invite time is itself the "no additional approval needed" flag scenario 5 asks for — nothing new to store.
 
-> Two bounds hold it there, both structural rather than checks a caller could talk past:
-> - **"Their own scope" is an identity test, never a hierarchy one.** Passage answers *yes* upward, so a Star member gated on passage could invite into the Universe — the one shape this rule must never take.
-> - **`scopeAdmin` is derived from the inviter's own dominion, never requested.**
->
-> What is left is abuse, not escalation: a member can mail invites where they choose. That is rate-limiting and attribution.
+**There is no HTTP `/invite` endpoint — every invite enters mesh-side** (decided 2026-08-19; the route and its pipeline row are deleted, code-only). What differs per scenario is only which mesh surface the call enters:
 
-⚠️ **Accepted does not mean calibrated.** That section fixes the *shape* of the answer — an identity test plus a derived bit — and it is a blocker to contradict. What it does not settle is the **amount**: whether every member may invite, whether an unaccepted membership may, what the abuse bound actually is in numbers, and how this composes with open Star self-signup (a **pinned** business decision — never propose an admin gate on it), F&F invites, super-admin invitability, and the collaborator design that is on-hold. ⚠️ **Its own gap blockquote says both halves are unbuilt**, so nothing in the running system has ever exercised it.
+- **Scenarios 3, 4, and 6** are a client `lmz.call` straight to the bridge: `invite(targetScope, invitees: [{ email, scopeAdmin? }])`. The bridge guards them itself, because both eligibility verdicts are claims-only computations over `callContext.originAuth` and a scope string — no DAG, no Registry read (§ *Who may invite*). (To verify during build: an invited Star `scopeAdmin`'s first arrival fires the existing founder stamp the same way the self-signup path does; and that the Gateway dispatches a client call to a *Worker* binding — expected fine, verify anyway.)
+- **Scenario 5** enters through the Star/Galaxy method, guarded by `requirePermission` (`admin` at the node), which then calls the same bridge. It requests no bit, so the cap rule yields non-admin memberships; the `tier` parameter governs the DAG grant only.
 
-**What the panel got wrong, for the record.** A Stage-2 conformance pass framed the own-scope path as a *collision* between two task files and offered "pick one owner" — which is true about ownership and wrong about direction; it read the widening as a risk to be resolved rather than as the goal. It is the goal. The open question is calibration, not whether.
+`accept-invite` stays HTTP forever — the click is unauthenticated by nature; only the issuing side moves. (This does not purify the Registry's HTTP surface: `/mint-narrower-token` remains an authed HTTP route today — the natural second instance of this move, tracked in backlog § *Nebula Auth*.)
 
-⚠️ **Do not answer this by translating the accepted prose into a guard.** The four surfaces above pull in different directions, and the reason this is its own file is that answering it needs them in one place.
-### The `/invite` contract
+**Re-inviting an existing member with the bit promotes them** (decided 2026-08-19). `#mintIdentity`'s membership half early-returns an existing (email, scope) row without touching `scopeAdmin`, so the flag alone would be a silent no-op — instead, `issueInvites` sees existing-member-plus-capped-true and executes the promotion via `setIdentityAdmin` (its first production caller; zero today), which flips the row AND converges the bit into every live KV refresh record, so the promotee's open sessions gain it on their next refresh. Promotion is an authority change: the caller claims thread through for the ADR-016 record. **Promote-only**: a capped-false bit means "no promotion," never "demote" (§ *Decisions* for why this is now load-bearing).
 
-```jsonc
-// POST {NEBULA_AUTH_PREFIX}/{u}.{g}.{s}/invite   ← the SCOPE rides the PATH, never the body
-{ "invitees": [
-    { "email": "austen@example.com", "isAdmin": true },  // admin at this scope
-    { "email": "bob@example.com" }                       // omitted → plain member
-] }
+**Each invitee's result names its outcome** — `invited | already-member | promoted` — one typed discriminant (ADR-001) in the per-invitee result. Delivery differs by path, and better than expected: a direct scope invite (client → bridge via `callAsync`) gets the full per-invitee summary **synchronously**, because the bridge is cross-node-self-contained (its Registry RPC is local async); only the node path (scenario 5, two hops) reads its summary from `InviteStatus`. The promotee themselves gets no notification today — that is the deferred out-of-band mechanism's shape ("you were granted admin" is a listed member candidate in [on-hold/nebula-out-of-band-events.md](on-hold/nebula-out-of-band-events.md)).
 
-// response — `sub` is what a caller needs to act on the new identity
-{ "invited": [ { "email": "austen@example.com", "sub": "…", "isAdmin": true } ],
-  "errors": [], "links": { } }
+`issueInvites` itself stays gate-free and trusts its caller — and that is layering, not a hole. The Registry is outside the mesh (raw-DO infrastructure, no `@mesh()` surface), and its methods cannot be `#`-private because the router reaches them over Workers RPC, where `#` methods silently return `undefined`. The reachability boundary for a DO method is the binding, not visibility: nothing calls it without holding `NEBULA_AUTH_REGISTRY` from a wrangler config, so every entry passes through Worker code we wrote, and the guards stand at those entries (the bridge's own eligibility rule for direct invites; `requirePermission` at the Star for scenario 5). The gate cannot move into the DO anyway, twice over: RPC drops custom error properties, so expected client errors gate caller-side; and the Registry cannot evaluate a DAG permission, by design.
+
+### Who may invite — the openness answer
+
+Decided 2026-08-19, completing the shape `docs/vision/auth.md` § *Grants* accepted (an identity test plus a derived bit) with the amount it left open. One sentence, enforced once, at the bridge:
+
+**Eligibility = exact-scope membership ∨ dominion over the target scope; the minted bit never exceeds the inviter's dominion verdict.**
+
+- Every member may invite non-admin peers into exactly their own scope (`access.authScope === targetScope` — an identity test, never a hierarchy one). A requested `scopeAdmin` is honored only under dominion; a peer inviter's request caps to false — the request selects, the verdict licenses.
+- The vision's forbidden shape — a Star member inviting into the Universe — is unrepresentable rather than checked: that caller has neither exact membership there nor dominion.
+- Scenario 5's "pin" is just this cap in its degenerate form: the Star's bridge call requests no bit.
+- "May an unaccepted membership invite?" is structurally moot: every login path flips `acceptedAt` (`getAndVerifyIdentity`), so an authenticated caller is an accepted member by construction.
+- ⚠️ **For the next review panel: the widening IS the goal.** A prior Stage-2 pass read the own-scope path as a risk to resolve; the question was calibration, not whether.
+- **No rate limit at the bridge — deliberate (2026-08-19).** Mesh applies rate limits nowhere (a client can already create unlimited resources in its own Star), and consistency wins. Two eyes-open notes, accepted: deleting the route drops the `subRateLimitGuard` coverage invites have today, and invite email is externally visible (shared sending-domain reputation) in a way self-harm inside a Star is not. The abuse bound is attribution (ADR-016) plus org-visibility — `InviteStatus` shows every member's invites to every admin.
+
+### Transport — the Resources→Registry seam
+
+There is no cross-worker gap to bridge: the Registry DO deploys inside the same assembled Worker as the platform DOs (`apps/nebula/src/worker.ts` re-exports `NebulaAuthRegistry`; the `NEBULA_AUTH_REGISTRY` binding is in apps/nebula's own wrangler.jsonc, alongside the precedent for the wiring — `AUTH_EMAIL_SENDER`, a self-referencing service binding to a named entrypoint). The seam is a layering decision, not plumbing.
+
+The shape: a mesh-speaking bridge — a `LumenizeWorker` entrypoint (name TBD) wired as a self-referencing service binding. Callers reach it with an ordinary `lmz.call` (a service binding with `instanceName: undefined` routes as a `LumenizeWorker`) — the client directly for scenarios 3/4/6, the Star/Galaxy for scenario 5 — so platform code never leaves the mesh surface. The one raw hop left in the system — bridge → Registry DO stub — lives inside the bridge, which is infrastructure code where raw RPC is native. The bridge gates on claims-only verdicts, projects, and caps; it never touches the DAG:
+
+- **All authorization happens mesh-side, where the claims are visible.** The raw JWT's journey ends at the Gateway; from there verified claims ride `callContext.originAuth`, framework-owned and not caller-suppliable — the same trust every `@mesh` guard already rests on. The bridge enforces § *Who may invite* for direct invites — membership and dominion are pure computations over claims and a scope string; `requirePermission` at the Star remains the only authz decision in scenario 5, because the bridge cannot evaluate a DAG grant, by design.
+- **The bridge projects `callContext.originAuth`** into the `callerClaims` parameter `issueInvites` already takes, so the ADR-016 record carries the full verified acting chain — no hand-threaded identity anywhere.
+- **The bridge applies the cap rule** — the minted bit never exceeds the inviter's dominion verdict — so no caller, confused or malicious, mints an admin without dominion.
+
+What the extra hop buys over the Star calling the Registry stub directly: the platform's no-raw-RPC bright line stays exception-free (a documented exception is a permanent per-reader tax); identity rides the framework instead of being hand-threaded; and it is the two-one-way pattern — the Star fires and receives the outcome in a handler, never awaiting, so the slow email I/O runs on a CPU-billed Worker while the DO's input gates stay closed. Cost: one same-deployment hop, sub-millisecond. The symmetry: unauthenticated HTTP for the session-less flows (the accept-invite click, magic links), mesh for everything an authenticated session does with invites, Registry gate-free behind both — the bridge is "a proxy" only in the sense the existing router already is.
+
+Email latency: the bridge returns as soon as the subs are minted (sync SQLite) and finishes sends under `ctx.waitUntil`. Resend has a batch endpoint (`POST /emails/batch`, ~100/request — verify limits at build) as a provider-specific fast path inside `NebulaEmailSender`; the CF Email binding has no batch equivalent, so it falls back to sequential. Prod is Resend, so the fast path lands where it matters.
+
+### The contract
+
+Two mesh signatures, one per-invitee result shape (names TBD at build):
+
+```ts
+// direct (scenarios 3/4/6) — client → bridge
+invite(targetScope: string, invitees: Array<{ email: string; scopeAdmin?: boolean }>)
+// node (scenario 5) — client → Star/Galaxy → bridge
+invite(nodeId: string, invitees: Array<{ email: string; tier: 'admin' | 'write' | 'read' }>)
+// per invitee
+{ email, sub, outcome: 'invited' | 'already-member' | 'promoted' }  // or { email, error }
 ```
 
-- **`emails: string[]` → `invitees: Array<{ email: string; isAdmin?: boolean }>`.** The entries are no longer emails, so the name changes with the shape. Clean break, no dual-shape alias.
-- **One field is the shared invite/collaborator discriminator.** An omitted `isAdmin` keeps every plain and F&F invite a non-admin member, so the same endpoint serves both populations.
-- **The flag is inert on its own.** It is parsed only *after* the router's scope-match and the admin gate pass, so it selects an outcome and never grants authority.
-- **The Worker gate passes a clean typed array onward, never the raw parsed body.** `handleInvite` maps into `{ email: string; isAdmin: boolean }[]` via `entry.isAdmin === true`. `request.json()` is an unchecked cast, so this **is** the field's validation (ADR-001, validate at the boundary): `"false"`, `"0"` and `1` must never mint an admin. Validate `Array.isArray(body.invitees)` and that each entry is an object with a string `email`; a malformed entry joins the existing `errors` array rather than failing the batch.
-- **`invited` carries the minted `sub`.** `#mintIdentity` already returns it and `issueInvites` already holds it. Returning it is the difference between an endpoint that *notifies* someone and one a caller can build on — see § *Future state*.
-- **Defense in depth: `issueInvites` re-asserts admin-over-scope in-method.** Dropping the hardcoded `false` turns a member-minting RPC into an admin-minting one, so its safety must not rest on a single Worker line — this matches `createGalaxy`/`createStar`, which both re-check in-method. It **throws** on violation: that is an invariant breach, not the expected client error the Worker gate routes throw-free (`raw-comm.md`).
+- **Clean break** from `emails: string[]` — no dual-shape alias. An omitted `scopeAdmin` is a plain member; the same shape serves F&F invites, flag omitted.
+- **The wire field is `scopeAdmin`** — data keeps its field name. (The old file's unparked `isAdmin`-vs-`scopeAdmin` question, settled by the vocabulary rename.)
+- **The scope is the argument the verdict checks.** There is no path anymore; a wrong `targetScope` is a refusal (§ *Who may invite*), not a divergence between two carriers.
+- ⚠️ **The ADR-001 boundary moved with the route.** Mesh continuation args are compile-time typed but runtime-unchecked, and scenario 5's eventual caller is Studio-*generated* app code. The bridge and the Star method are the validation boundary now: entries shape-checked there, and the bit passes only `=== true` — `"false"`, `"0"` and `1` must never mint an admin. Pass 2 writes that criterion against the mesh methods, not a vanished Worker parse.
+- **A malformed entry joins the per-invitee errors**; the batch never fails whole.
+- **Defense in depth:** `issueInvites` re-asserts the full cap rule in-method off `callerClaims` (any `scopeAdmin: true` entry throws unless dominion holds) — a violation past the bridge is an invariant breach, not an expected client error, matching the `createGalaxy`/`createStar` precedent.
+- **Test mode returns `links` per invitee**, as today.
 
-### The accepted cost of a galaxy-tier admin, stated loudly
+### The invitee experience — accept-invite through first arrival
 
-The mechanism is uniform across tiers, so it can mint a galaxy-tier admin, and that grant is large: a `{u}.{g}` membership plus the bit is **dominion over**  **read and write of end-user data in every current *and future* Star under that Galaxy** (including production tenant Stars, which ADR-008's boundary explicitly disclaims); `create-star` and `delete-scope`; the ability to **invite further admins**; and **no way to undo it short of DB surgery**.
+Walked as the scenario-5 invitee; the scenario-4 variant differs at one step, noted inline. Everything before the email arrives happened at invite time: the `sub` exists (`emailVerified=0`), the membership row is at the scope, the DAG grant is on the node, and a hashed `InviteTokens` row (7-day TTL, single-use) backs the link in their inbox.
 
-Per ADR-015 clause 1, restraint here is a **UI warning carrying decision-grade information, never a refusal in the authorization layer**. There is no invite affordance in `apps/nebula-studio-ui/src` yet, so **whoever builds the first one owns that warning**.
+1. **The click is the login.** The emailed link is `GET /auth/{scope}/accept-invite?invite_token=…` — an invite token is a login channel, not a notification. The route runs `parseScopeGuard → connectionRateLimitGuard → handleAcceptInviteStep`; there is no JWT because holding the token is the gate. The Worker hashes the token and calls `consumeInvite`, which validates the row, deletes it (single-use, even when expired), find-and-flips the pre-created identity (`emailVerified` 0→1), and records a 30-day refresh token (index-first, then KV). The Worker answers a 302 to the landing page for the scope with the refresh cookie set.
+2. **Landing.** The SPA auto-connects off the URL's scope segment alone (fresh tab — no local state to rely on): `POST /auth/{scope}/refresh-token` exchanges the cookie for an access JWT whose `authScope`, `scopeAdmin`, and `profileId` all come from the server-trusted KV record. The WebSocket to the Gateway carries the JWT; from there verified claims ride `callContext.originAuth`.
+3. **First touch.** For the scenario-5 invitee there is nothing left to do: the membership admitted them and `resolvePermission` finds the DAG grant written at invite time. For a scenario-4 invitee (`scopeAdmin=1`), `Star.onBeforeCall` additionally fires the founder seed if the one-shot flag is unset (§ *One Registry primitive serves all three scenarios*).
 
-### Making super-admin invitable is deliberate
+A pleasant property of granting at invite time: **token expiry costs only the login channel.** The identity, membership, and DAG grant persist (all keyed on `sub`); a re-invite just mints a fresh token — `issueInvites` is idempotent on (email, scope).
 
-Adding a coach today needs an env-var change plus a redeploy (`NEBULA_AUTH_BOOTSTRAP_EMAIL`), and the coach loop is the conversion layer — it must not require ops. The stranger-self-join path stays closed: the bootstrap gate in `requestMagicLink` is untouched.
+**Does the accept flow exist today, usable as-is? Yes — built end to end, and it needs zero changes for any of the three scenarios**: `consumeInvite` reads `scopeAdmin` off the identity row, so it already handles admin invitees the moment `issueInvites` can mint them. It has been exercised by the harness's real-email loop (the `waitForEmail` catch-all), never in production. Three as-is caveats, found by the walk:
 
-This is not an audit-trail improvement. The env-var path leaves a git commit *and* a deploy record; the invite path leaves an ADR-016 log line and nothing queryable. A **queryable** trail is deferred ([backlog.md](backlog.md) § Nebula Auth).
+- **Single-use collides with email-scanner prefetch — the real one.** `consumeMagicLink` deliberately leaves magic links reusable within TTL (its own comment: scanner-safe), but `consumeInvite` deletes on first GET. A corporate link-scanner (SafeLinks, Mimecast) prefetching the invite URL consumes it before the human ever clicks — and the person who most needs a smooth first touch gets `invalid_token` as their first contact with the product. **Resolved 2026-08-19: match magic-link semantics** — an invite link is reusable within its TTL, deleted only by expiry sweep, never on consume. This task makes that change.
+- **Inviting an existing member sends the wrong letter, harmlessly.** `#mintIdentity` is idempotent, so re-inviting works and the grant lands — but the mail is the `invite-new` template; the sender's `invite-existing` variant exists, unemitted. Cosmetic; note for the phases.
+- **Prod invite email has never sent.** Prod switched sending to Resend 2026-08-09, but prod wrangler still defaults to the CF binding (the un-applied delta in backlog § Nebula Auth). **Resolved 2026-08-19: Resend is the provider we optimize for** — the CF Email path stays in code but is dormant, not a design constraint (so the Resend batch fast path is the design, not a nicety), and applying the prod-wrangler delta joins this task's phases.
+
+### Invite status — the result is state, not a message
+
+`Star.invite` is `callAsync`-able: after `requirePermission` and writing `pending` rows — all local, so the cross-node-self-contained rule holds — it returns "N invites accepted." Everything downstream lands in a new small Resources entity type, **`InviteStatus`** (keyed to email+node, org-visible per ADR-008): the Star's bridge-result handler writes the grants and flips each row to `sent` or `submission-failed`, and the members panel query-subscribes it like any other live data. Org-visible means a second admin sees who was already invited (no duplicate invites), and an inviter whose tab slept mid-batch loses nothing. ⚠️ **The sync result can only ever report SUBMISSION outcomes** — a true delivery failure (a bounce) arrives via provider webhook hours later, when no tab is listening. That mechanism — a generic discriminated-union event type on the Resources substrate, client hook, webhook ingestion — is deferred whole: [on-hold/nebula-out-of-band-events.md](on-hold/nebula-out-of-band-events.md) holds the captured design. This task builds `InviteStatus` only.
+
+### Mint-time writes, by case
+
+Cases split by whether the address is already known; the only per-invitee variation is the capped bit. `profileId` is a property of the address — minted once per person, reused by every later membership.
+
+| | **A. Address new to Nebula** | **B. Already at THIS scope** | **C. Known address, new to this scope** |
+|---|---|---|---|
+| `Emails` | **INSERT** — new `emailId`, fresh `profileId`, `emailVerified=0` | nothing | nothing — the person **keeps their existing `profileId`** |
+| `Memberships` | **INSERT** — new `sub`, `scopeAdmin`←capped bit, `acceptedAt=NULL` | nothing — early-return, `sub` preserved, bit untouched | **INSERT** — new `sub`, capped bit, `acceptedAt=NULL` |
+| Promote | not needed | **only when the capped bit is true:** `setIdentityAdmin` — `UPDATE scopeAdmin=1` + one KV put per live refresh token | not needed |
+| `InviteTokens` | **INSERT** — the **bare address**, never an `emailId` | same | same |
+
+Only B touches KV at issue time, at a cost scaling with the invitee's live sessions. Scenario 5's grant write is Star-side, outside this table, in the same operation. ⚠️ **C hands the invitee the real person's `profileId`** — an address owns its id across every scope, and ADR-012's acceptance predicate is what bounds it; a criterion written as "the invite mints a distinct profile" would be asserting a bug.
+
+**On accept:** `consumeInvite` resolves the token row **by address**, flips `Emails.emailVerified` (mailbox proven, global to the address) and `Memberships.acceptedAt` (this membership taken up), each guarded on the value it changes from, and records the refresh token index-first. The token row survives until the expiry sweep (reusable within TTL — § *The invitee experience*).
+
+### The accepted cost of a galaxy-tier admin
+
+The mechanism can mint a galaxy-tier admin, and that grant is large: dominion over read and write of end-user data in every current **and future** Star under that Galaxy, `create-star` and `delete-scope`, and the ability to invite further admins — with no undo until the demote endpoint exists (backlog § *Nebula Auth*). Per ADR-015, restraint is a **UI warning carrying decision-grade information, never a refusal in the authorization layer**. No invite affordance exists in the UI yet; whoever builds the first one owns that warning.
+
+### Super-admin is invitable, deliberately
+
+Adding a coach today takes an env-var change plus a redeploy (`NEBULA_AUTH_BOOTSTRAP_EMAIL`), and the coach loop is the conversion layer — it must not require ops. The stranger-self-join path stays closed: the bootstrap gate in `requestMagicLink` is untouched. The invite path leaves an ADR-016 log line; a **queryable** trail stays deferred (backlog § *Nebula Auth*).
 
 ### Constraints
 
-- **[ADR-015](../docs/adr/015-passage-and-dominion.md)** — dominion flows downward only; the bare `scopeAdmin` bit is never dominion; restraint is a UI warning, never an authz refusal. ⚠️ It does **not** say an action requires dominion — lacking it leaves the decision to the node's own guards, which is what licenses a peer-level invite.
-- **[ADR-016](../docs/adr/016-record-the-acting-principal.md)** — an authority change records the acting token's full verified claims, through the one shared projection.
-- **[ADR-009](../docs/adr/009-real-auth-path.md)** — assert through a real login where a criterion can.
-- **ADR-001** — validate at the boundary; TypeScript types are the schema.
-- **`raw-comm.md`** — expected client errors are gated Worker-side before the RPC, because custom error own-properties are dropped across raw Workers RPC.
-- **Pre-alpha milestone** — no per-task deploy gate, so this file need not be independently deployable.
-
-### Future state
-
-- **The per-entry envelope is the extension point.** A named role later replaces the boolean (`{ email, role }`) with no second reshape of the envelope.
-- **The returned `sub` is what makes an orchestrator possible.** A Nebula-side endpoint that invites a person *and* pre-stages their data-plane grants needs a handle on the identity the registry just minted; that is [nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md), and this is the field it consumes.
-- **F&F invites ride the same `/invite`** ([nebula-pre-alpha.md](nebula-pre-alpha.md) § Invite-gated), flag omitted.
-- ⚠️ **Design consideration:** a demote endpoint is a thin admin-gated wrapper over `setIdentityAdmin(sub, false, callerClaims)`, which already converges KV and already records its acting principal. Shape and a last-super-admin guard are pinned in [backlog.md](backlog.md) § Nebula Auth. This task must not foreclose it; it also must not build it.
+- **ADR-015** — restraint is a UI warning, never an authz refusal. ⚠️ It does **not** say an action requires dominion — lacking it leaves the decision to the endpoint's own guards, which is what licenses the peer invite.
+- **ADR-016** — every authority change records the acting token's full verified claims through the one shared projection.
+- **ADR-009** — assert through a real login wherever a criterion can.
+- **ADR-001** — validate at the boundary; the boundary is now the mesh methods (§ *The contract*).
+- **raw-comm.md** — expected client errors gate caller-side; `issueInvites` stays throw-free for them.
+- **Stored shape:** one new Resources entity type (`InviteStatus`); **no Registry schema change** — the bit is an existing `Memberships` column. Pre-alpha carries no per-task deploy gate.
 
 ## Decisions
 
 | Decision | Rejected alternative — why |
 |---|---|
-| 🔄 **This file ships the MECHANISM, not a collaborator.** It makes `/invite` per-invitee and returns the `sub`; *who gets what* is a caller's decision. | **`collaborator = admin at the invited scope`** — pinned with Larry 2026-07-19, **reversed 2026-08-05**. Two reasons, and the second is the deciding one. (1) It is not the narrowest thing that works: inviting at `{u}.{g}.dev` with `isAdmin` yields an **exact-star** pattern, which reaches that Star and nothing else, needs zero grant machinery, and today holds everything a collaborator touches — strictly narrower than a Galaxy admin, who gets every tenant Star. (2) **Interims cost more than they save here.** Larry: *"I struggle with interims. They consume too big a part of my brain. I have to constantly remind myself that we'll fix it later."* A named-but-wrong collaborator would be re-read every session until it was fixed (`workflow.md` § *unlearning tax*), so the cheaper move is to ship no collaborator at all and let the real one land post-collapse. |
-| The admin flag rides **per invitee entry** | One flag per call — silently elevates everyone in a batch sent for one person. |
-| Scope rides the **URL path** | In the body — it would need re-verifying against the JWT, and two scopes can disagree. The path is what the router already matched, so there is only one scope and it cannot diverge from the verified one. |
-| **Works at every tier**, no tier check | Restricting to one tier — a point solution. The mint invariant is uniform across tiers, and so is reach. |
-| Promotion is **promote-only** | Demoting on an `isAdmin:false` re-invite — a plain or F&F invite must never strip someone's existing admin. |
-| **The response returns the minted `sub`** | Keeping the response email-keyed. There is no other address→`sub` path (`discover` returns no `sub`; a grant-less member is absent from the org tree), so discarding it forces every future caller to invent a lookup. |
-| **No revocation path here** — an accepted gap, bounded to mis-grants rather than escalation, since an inviter can never grant beyond their own reach | Building a demote endpoint. It is a thin wrapper over machinery that already exists → backlog. |
-| `handleInvite` and `issueInvites` take the **full verified payload** | Narrowing to `access` at the Worker edge — ADR-016 needs the `act` chain, and a `sub`-only record names the person acted *upon* as the person who acted. |
-| `#mintIdentity`'s `profileId` behaviour is **untouched** — thread `isAdmin` through its four callers and change nothing else | Joining a human's profiles here. That moved to the identity data model, which then **dissolved** the join: one address holds one row holding one id. |
-| `InviteTokens` keeps the **bare address**, never an `emailId` | Keying it on `emailId` — resolving by address is what makes a stale invite fail **closed** after an address change; an `emailId` never goes stale, so the link would still mint a full session as the person's *current* identity. The DDL carries this warning at the site. |
-| `client.scopes.invite` lands **with this task**, which is what defines its signature | Building it earlier — the body and response both change here, so a method written first would be written against a contract this task immediately rewrites. |
+| **Scenario 5 initiates in the Resources-plane; both planes are written at invite time** (§ *Strategy for scenario 5*) | "Additional claims" stored in the Registry, applied at the invitee's first login — the Registry commanding Resources-plane writes with the JWT as courier; carry-or-cleanup reconciliation state; and ADR-016 would record the *invitee* as the actor on a grant the *inviter* made. |
+| **One Registry primitive** — `issueInvites` evolved (per-invitee `scopeAdmin`, returns the minted `sub`s) behind per-scenario entries (§ *One Registry primitive*) | An endpoint per scenario — the registry-side work is identical in all three; only the entry guard differs. |
+| **Batch invitees, `tier` per invitee, one `nodeId` per call** | Single-invitee (narrows a capability the batch primitive already has); a per-call tier (one user gesture legitimately mixes tiers); multi-node batches (differently-guarded writes inside one operation). |
+| **Transport: a mesh-speaking `LumenizeWorker` bridge**, wired like `AUTH_EMAIL_SENDER` (§ *Transport*) | Whole-router `.fetch()` on a service binding — the `/invite` route's dominion guard refuses exactly scenario 5's caller, and HTTP framing is overhead over a typed method. Direct DO-binding call from the Star — raw RPC in platform code, with the `scopeAdmin` pin left to caller discipline. |
+| **The bridge lives in nebula-auth**, behind a dedicated subpath export (never the root barrel — a mesh-composing class in a widely-imported index breaks pure-unit transforms) | A fenced infrastructure file in apps/nebula — the `scopeAdmin=0` pin and ADR-016 projection leave the Registry's owner, and "a raw file inside the never-raw package" is a new exception every reader re-derives forever. |
+| **nebula-auth stays a package — asked for the third time 2026-08-19, kept for a NEW reason**: the manifest boundary is the *structural* enforcement of "the Registry never knows the Resources-plane" (no edge to apps/nebula ⇒ a Registry import of the Star cannot resolve), and the "apps/nebula never does raw RPC" grep line keeps zero exceptions. **Expiry condition:** revisit only if that invariant gets a different structural enforcement, or the boundary is deliberately dissolved. | Folding it into an apps/nebula folder — the original reuse rationale IS dead (no shared code with `@lumenize/auth`, never a second consumer), but the fold demotes a compiler-enforced invariant to a convention. |
+| **Invite links are reusable within TTL**, deleted only by the expiry sweep (2026-08-19) | Single-use on consume — corporate link-scanners prefetch the GET and burn the token before the human clicks, making `invalid_token` the invitee's first contact with the product. `consumeMagicLink`'s own scanner-safe rationale applies identically. |
+| **Resend is the provider we optimize for**; the CF Email path stays in code, dormant (2026-08-19) | Designing for both providers equally — CF Email is not mature enough to count on; the Resend batch fast path is the design, not a nicety. Applying the prod-wrangler provider delta joins this task's phases. |
+| **The invite result is an ack plus subscribed `InviteStatus` state** (§ *Invite status*) | Multi-hop delivery of a one-shot summary to the inviting client — private and evaporable (a slept tab loses it), invisible to other admins (invites duplicate), and bespoke wiring where subscription machinery already exists. |
+| **Out-of-band events deferred whole** to [on-hold/nebula-out-of-band-events.md](on-hold/nebula-out-of-band-events.md) | Building the generic union + client hook in this task — its flagship member (`email-delivery-failed`) needs webhook infrastructure regardless, and `InviteStatus` already proves the substrate carries the shape. |
+| **The openness answer: every member may invite non-admin peers into exactly their own scope; dominion holders may invite, admins included, anywhere below — one rule, enforced once, at the bridge** (§ *Who may invite*, 2026-08-19) | Admin-only (today's verdict — the accepted vision retired it; the question was calibration, not whether). Gating a member's invite right on their DAG grant — the bridge cannot evaluate a DAG permission, and it would force every pure-Registry invite through a Star for no gain. |
+| **HTTP `/invite` is deleted; ALL invites enter mesh-side through the bridge** (2026-08-19; no rate limit there — mesh rate-limits nowhere, accepted eyes-open in § *Who may invite*) | Two endpoints split by has-`scopeAdmin` — an artifact of the transport split; once the bridge guards claims-only verdicts itself, the split buys nothing. Keeping the HTTP route for scenarios 3/4 — two guard homes and two client surfaces for one operation. |
+| **Works at every tier, no tier check** | Restricting to one tier — a point solution; the cap rule is uniform across tiers and so is reach. |
+| **The bridge and `issueInvites` carry the FULL verified claims** | Narrowing to `access` at the entry — ADR-016 needs the `act` chain, and a `sub`-only record names the person acted *upon* as the person who acted. |
+| **`InviteTokens` keeps the bare address, never an `emailId`** | Keying on `emailId` — resolving by address at consume is what makes a stale invite fail **closed** after an address change; an `emailId` never goes stale, so the link would mint a session as the person's *current* identity. (Unaffected by reusable-TTL: the property comes from resolve-at-consume, not token lifetime.) |
+| **The scope is the ARGUMENT the verdict checks** — `targetScope` is an ordinary method parameter, and eligibility evaluates against that very string (§ *The contract*) | The old "scope rides the URL path, never the body" decision — right for the HTTP route (a path cannot diverge from what the router matched) and dead with it: there is no path, and divergence is now answered by the verdict rather than by carrier choice. |
+| **Promotion is promote-only** — a capped-false bit means "no promotion," never "demote" (2026-08-19, carrying the old file's decision with an UPGRADED why) | Demoting on a false-bit re-invite. Under admin-only invites this merely protected F&F invites from accidents; under open peer invites it is a security control — any member can re-invite an admin peer, and their bit arrives capped to false, so demote-on-false would hand every member a demotion primitive. Demotion stays a deliberate endpoint (backlog § *Nebula Auth*, to be born mesh-side). |
+| **Promotion visibility: the durable record plus the inviter's result outcome, nothing else now** — the membership bit is the record; the per-invitee result says `promoted`; the promotee's notification waits for out-of-band events | Extending `InviteStatus` to scope invites with a `promoted` state — a Resources entity needs a Resources home, and scope invites exist at tiers that have none (no Universe orgTree ever, no Galaxy orgTree until the collapse, never a platform one): the mechanism fragments by tier. A bespoke promotee notification now — exactly the deferred mechanism's shape; one line in its stub instead. |
+| **Scenario 5 enters pre-alpha — ratified 2026-08-19, superseding the collaborator-tiers pause for the MECHANISM** ([on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md) stays on-hold for bundles, UI combinations, and the self-signup hook). The invite-time dual write deletes that file's staged-grant carrier for the invite flow. Model retrofitted into `docs/vision/auth.md` same day — the entry split one-liner in § *The Registry* (HTTP carries the session lifecycle; the mesh carries what a session does), the recipe in § *Grants in both planes*. | Keeping the fence (mechanism waits for post-pre-alpha) — the pause's stated obstacle ("the registry structurally cannot pre-stage a DAG grant and Nebula structurally cannot mint a membership") was recorded as weakened 2026-08-11 by the pause file itself, and the bridge resolves it outright. |
 
-## Mint-time writes, by case
+**Landing deliverables:** the mesh.md facade pattern is already stated (edited 2026-08-19) — cite this bridge there as the canonical instance once it exists. Update the workers-projects snapshot line for nebula-auth (dual-layer, derived per-file) at the same time; that edit must wait for the code, or the map lies.
 
-The cases are distinguished by **whether the address is already known**, and the only per-invitee variation is the admin bit. `profileId` is a property of the address, so it is minted once per person and reused by every later membership.
+## Acceptance criteria — Pass-2 input, deliberately unordered
 
-| | **A. Address new to Nebula** | **B. Already at THIS scope** | **C. Address known, new to this scope** |
-|---|---|---|---|
-| `Emails` | **INSERT** — new `emailId`, fresh `profileId`, `emailVerified=0` (3 row-writes: row + `email UNIQUE` + `idx_Emails_profileId`) | nothing | nothing — the row exists, so the person **keeps their existing `profileId`** |
-| `Memberships` | **INSERT** — new `sub`, `isAdmin`←flag, `acceptedAt=NULL` (2 row-writes: row + `UNIQUE(emailId,scope)`) | nothing — early-return; `sub` preserved, **`isAdmin` untouched** | **INSERT** — new `sub`, `isAdmin`←flag, `acceptedAt=NULL` (2 row-writes) |
-| Promote (`setIdentityAdmin`) | not needed | **`UPDATE Memberships SET isAdmin=1`** + one KV `put` per live refresh token | not needed |
-| `InviteTokens` | **INSERT** — holds the **bare address**, never an `emailId` | same | same |
+⚠️ **Phases measure against the recorded suite BASELINE, not "green"** — the suite is red today; the baseline and named failures live in backlog § *Testing & Quality*. Measure the delta: same set passes, no new failure, no new skip.
 
-**Only B needs the promote step,** and it is the only case that touches KV at issue time — at a cost that scales with the invitee's live sessions (3 devices = 3 puts).
+### A — the mint (bridge + registry)
 
-⚠️ **C hands the invitee the real person's `profileId`**, since an address owns its id across every scope. Nothing here needs changing for that — the ADR-012 acceptance predicate is what bounds it — but a criterion written as "the invite mints a distinct profile" would be asserting a bug.
+- **Assert the PERSISTED bit through the real path, never the invite result** (ADR-009: accept → refresh → the JWT). Three independent limbs: (i) a net-new `scopeAdmin:true` invitee's JWT carries the bit; (ii) **re-inviting an existing non-admin member with the bit yields a JWT carrying it** — *reds against the membership early-return*; (iii) an omitted flag, an explicit `false`, and a wrong-typed `"false"` each leave it 0 — the `=== true` boundary criterion (§ *The contract*).
+- **A mixed batch** — `[{a, scopeAdmin:true}, {b}]` mints `a` admin and `b` not. *Reds against a batch-level flag.*
+- **Tier coverage** — star-, universe-, and platform-tier invites each land a membership at the named scope, with the resulting token holding exactly the dominion the rule says. ⚠️ Phrase over the membership and the **observed verdict**, never a pattern string.
+- **The peer invite, both limbs independently:** a non-admin at the SAME scope **succeeds** in minting a member, AND the mint carries `scopeAdmin=0` however the request asks. ⚠️ Do not re-invert the first limb — refusing this caller enforces the retired model (§ *Who may invite*).
+- **Negatives, each mutation-capable:** (a) a caller with neither membership nor dominion at `targetScope` is refused; (b) an admin whose scope does not cover the target (a sibling galaxy) is refused. Both are bridge refusals — **assert the message, not a boolean**: two different refusals must stay distinguishable.
+- **Outcome discriminants are truthful** — `invited` / `already-member` / `promoted` each observed in the case that produces it.
+- **ADR-016 records survive the reshape** — the acting claims thread bridge → `issueInvites` and the record asserts them (`identity-authority.test.ts`'s pattern; extend it for any new authority-moving site). Never hand-assemble a second projection.
+- **Scenario 5 end-to-end:** `invite(nodeId, …)` writes the grant at invite time; the invitee's first login resolves the permission with nothing left to apply; an expired token followed by re-invite heals a membership-without-grant.
+- **`InviteStatus` is observable:** `pending` → `sent`/`submission-failed` arrives via subscription, visible to a second admin.
+- ⚠️ **`/live` is the default tier:** the real-email round trip (invite → catch-all → click → arrive with everything in place) exists as a scenario; mutation-check per limb, not per scenario.
 
-**On accept:** `consumeInvite` deletes the `InviteTokens` row (single-use), calls `getAndVerifyIdentity`, inserts a `RefreshTokenIndex` row, and writes KV `refresh:{tokenHash}`. `getAndVerifyIdentity` flips `Emails.emailVerified` (proof of the mailbox, global to the address) and `Memberships.acceptedAt` (this membership taken up), each guarded on the value it changes from.
+### B — client + harness
 
-## Acceptance criteria — input to Pass 2, not yet decomposed into phases
-
-⚠️ **When Pass 2 writes phases, a phase is done against the recorded suite BASELINE, not against "green".** The suite is RED today (3 known failures in `@lumenize/nebula`'s browser lane, one root). Measure as a **delta** — same set passes, no NEW failure, no NEW skip. Baseline and the three named tests live in [backlog.md](backlog.md) § *Testing & Quality*; **do not restate the numbers here**, and do not write "leaves the suite green", which is unachievable today and teaches a builder to read past the criterion.
-
-⚠️ Grouped by surface, deliberately not ordered. Pass 2 homes each group in a phase; nothing here is built from this section directly (`/build-task` transcribes phases, not floating criteria).
-
-### A — the per-invitee mint (auth)
-
-- **Assert the PERSISTED bit, never the `/invite` 200**, which is identical for `true` and `false`: (i) a net-new `isAdmin:true` yields `getIdentityScope(sub).isAdmin === true`, or stronger, drive accept→refresh and assert `access.admin` in the JWT (ADR-009); (ii) **re-inviting an existing `isAdmin=0` member with `isAdmin:true` yields an accepted JWT carrying `access.admin`** — *reds against the membership early-return*; (iii) an omitted flag, an explicit `isAdmin:false`, and a wrong-typed `isAdmin:"false"` each leave `isAdmin=0`.
-- **A mixed batch** — one call with `[{a, isAdmin:true}, {b}]` mints `a` admin and `b` not. *Reds against a batch-level flag.*
-- **Tier coverage** — a star-tier, a universe-tier and a platform-tier invite each land a membership **at the scope named in the path**, and the resulting token has dominion over exactly what the rule says it should. ⚠️ **Phrase this over the membership and the OBSERVED verdict, never over a pattern string** — [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) deletes the pattern before this builds, so a criterion asserting `{u}.{g}.*` would red on correct code.
-- **The response carries a usable `sub`** — take the `sub` from an invite response and resolve it with `getIdentityScope`, or stronger, drive that person's accept→refresh and assert the JWT's `sub` matches. *Reds against a response that returns emails only.*
-- 🔒 **A non-admin at the SAME scope may invite — a non-admin peer, and only that.** ⚠️ **Inverted 2026-08-11**: this criterion previously asserted that caller was *refused*, which is now exactly backwards and would have enforced the model [`docs/vision/auth.md`](../docs/vision/auth.md) § *Grants* retired. Assert both limbs, because the permission and its bound fail independently: they succeed in minting a member, **and** the minted membership carries `scopeAdmin` false however the request asks for it. *Reds against gating the endpoint on the bit alone, and against honouring a caller-supplied admin flag.*
-- **Negatives, split so each is independently mutation-capable** (two disjoint gates, both 403 — assert the *body*): **(a)** a non-admin at a **different** scope than the path's is refused, body `forbidden` — *delete that line and it reds*. ⚠️ Same-scope is now the permitted case above, so this limb must be written over a scope the caller is **not** a member of, or it tests nothing; **(b)** an admin whose own scope does **not** cover the target — a *sibling* galaxy under a galaxy-scoped admin, **not** a `{u}` Universe admin — is refused by the router's `isAtOrAbove` check, body `insufficient_scope` — *relax it and it reds*.
-- **ADR-016 records survive the reshape.** The projection already exists and every authority-moving registry method already routes through it, so what this owes is narrow and easy to lose while changing signatures: keep threading the real caller claims through `handleInvite` → `issueInvites`, and add a record to any new authority-moving site the work introduces. ⚠️ **A required parameter only guarantees the claims are *passed*** — deleting the `actingToken` field from a record type-checks cleanly — so the criterion is the assertion, not the signature. `identity-authority.test.ts` § *an authority change records the ACTING TOKEN* already reds on that mutation for `issueInvites`; extend it if a site is added. **Never hand-assemble a second projection** — that divergence is what ADR-016 calls unrecoverable history.
-- **Call-site note (not a criterion):** locate with `grep -rn "emails" --include="*.ts" packages/nebula-auth apps/nebula | grep -v node_modules` and **re-derive the set** — it is a locator, not an inventory, and most hits are prose. Also `packages/nebula-auth/README.md` (its mermaid diagrams the body shape — owes `workflow.md`'s render-safety grep) and `apps/nebula/test/test-helpers.ts` (`createSubject` — wire its currently-dead `isAdmin?` option through). `bootstrapUniverseAdmin` in `apps/nebula/test/browser/auth-bootstrap.ts` authenticates at the universe and names the Galaxy in `activeScope`; that is the correct shape and it stays unchanged. ⚠️ **Do not touch `@lumenize/auth`** — the MIT package has its own `#handleInvite` / `body.emails` and its own consumers.
-
-### B — the client method
-
-- **`client.scopes.invite(scope, invitees)` exists and the harness calls it.** The registry endpoints are HTTP routes off the mesh, so app code reaches them through the client's `authedFetch` — which keeps the JWT inside the client (no bearer in UI or page code) and keeps **one** token authority, so nothing snapshots a value that goes stale across a refresh.
-- **Acceptance:** `apps/nebula/harness/scenarios/` contains no hand-built `Authorization` header for `/invite`, and `Driver.accessToken` ([harness.ts](../apps/nebula/harness/lib/harness.ts)) is **deleted** — this gap is its only remaining justification, and it is exactly the snapshot `authedFetch` exists to avoid.
+- **One client invite surface, mesh.** No hand-built `Authorization` header for invites remains in `apps/nebula/harness/scenarios/`, and **`Driver.accessToken` is deleted** — the route it targeted no longer exists.
+- **Call-site note (a locator, not an inventory):** grep `"emails"` across nebula-auth + apps/nebula and re-derive the set; update the nebula-auth README's mermaid (owes the render-safety grep); wire `createSubject`'s dead `isAdmin?` option through. ⚠️ **Do not touch `@lumenize/auth`** — its `#handleInvite`/`body.emails` has its own consumers.
 
 ## Non-goals
 
-Three concerns moved out of this file on 2026-08-05. Each was here for historical reasons, none of them dependency.
-
-- **Profile-DO conformance to the ADR-012 acceptance gate** → [nebula-profile-accepted-membership-gate.md](nebula-profile-accepted-membership-gate.md). It lives in `profile.ts`, not on the invite path, and never shared anything with this work but a file. Next up after this one.
-- **The collaborator — a person granted less than a scope admin** → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md). Resumed 2026-08-05, then ⏸️ **paused and taken out of pre-alpha 2026-08-09** — it mixes the Registry and mesh domains, which is post-pre-alpha work; the collapse gate it also carries is not why. This file is its substrate, not its competitor, and **that is unaffected by the pause** — the orchestrator consumes the `sub` returned above whenever it resumes, so nothing here waits on it.
-- **The `ui-smoke` `.dev`-login test debt** → [backlog.md](backlog.md) § Testing & Quality, which already holds the verified analysis and two candidate unblocks. It was never blocked on anything here: the lane needs a `.dev` login, and the invite-into-`.dev` premise fails for an unrelated reason (`delete-scope.test.ts` acts at galaxy tier, so `createGalaxy`'s `#hasDominionOverUniverse` gate rejects the exact-star pattern a `.dev` invite yields).
-
-Also out of scope, and staying out:
-
-- **A demote or revoke endpoint** → [backlog.md](backlog.md) § Nebula Auth.
-- **A queryable audit trail** → [backlog.md](backlog.md) § Nebula Auth. The ADR-016 *log line* is in scope; somewhere durable to query it is not.
-- **Synthetic act-as-only test subjects** — a different mechanism (no mailbox, no claim, no login), named as needed and unowned in [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Provision-a-subject-into-{scope, role}*.
-- **An invite affordance in the UI.** None exists; whoever builds the first one owns the ADR-015 warning above.
+- **Demote/revoke endpoint** and a **queryable audit trail** → backlog § *Nebula Auth* (the ADR-016 log line is in scope; a durable query surface is not).
+- **Named-role bundles, valid-combinations UI, the self-signup hook** → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md).
+- **Out-of-band delivery events** → [on-hold/nebula-out-of-band-events.md](on-hold/nebula-out-of-band-events.md).
+- **An invite affordance in the UI** — none exists; whoever builds the first one owns the ADR-015 warning (§ *The accepted cost*).
+- **Synthetic act-as-only test subjects** → [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Provision-a-subject-into-{scope, role}*.
 
 ## Relationships
 
-- 🔓 **Un-skip obligation transferred out.** [archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 1 left `it.skip('deletes a scope WITH another user attached, showing the bounded warning')` in `apps/nebula/test/ui-smoke/delete-scope.test.ts` as an **empty stub**. It moved with the `.dev` debt to [backlog.md](backlog.md) § Testing & Quality; the body still owes: invite a second user into the target, assert the confirm screen renders *"Warning — 1 other user will lose access: …"*, that the **Delete button stays enabled**, and that the delete completes.
-- **Gate released 2026-07-21** by [archive/nebula-confine-admin-bypass.md](archive/nebula-confine-admin-bypass.md) Phase 1 — the reach invariant here is unconditional because every admin check is confined to the node it runs in.
-- **Builds on** [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) (built 2026-08-04), which owns the `Emails`/`Memberships` split, the acceptance predicate, and the dissolved `profileId` join.
-- **[nebula-pre-alpha.md](nebula-pre-alpha.md)** — F&F invites ride the same `/invite` with the flag omitted; this task is the buildable piece of *provision-a-subject-into-{scope, role}*.
+- **Builds on** [archive/nebula-identity-data-model.md](archive/nebula-identity-data-model.md) — the `Emails`/`Memberships` split and the acceptance predicate.
+- **F&F invites ride the same invite, flag omitted** ([nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated*); this task is the buildable piece of provision-a-subject.
+- **The delete-scope warning un-skip** (backlog § *Testing & Quality*) will use this task's invite to attach its second user.
+- **[on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md)** consumes the returned `sub` and the facade when it resumes.
+- **Next after this:** [nebula-profile-accepted-membership-gate.md](nebula-profile-accepted-membership-gate.md).

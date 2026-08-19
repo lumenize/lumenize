@@ -1,6 +1,6 @@
 # Out-of-band events — a generic, subscribed attention mechanism
 
-**Status:** On-hold stub, spun out of the invite design ([nebula-invite-alt.md](../nebula-invite-alt.md) § *Transport*) on 2026-08-19. Design intent captured below; not yet through `/write-task`.
+**Status:** On-hold stub, spun out of the invite design ([nebula-invite.md](../nebula-invite.md) § *Transport*) on 2026-08-19. Design intent captured below; not yet through `/write-task`.
 
 **Target shape in one line:** server-side happenings a user should learn about later (email bounce, build finished, import complete) become **Resources entities** — a discriminated-union event type, addressed to a `sub`, delivered by ordinary query-subscribe on connect/reconnect, dismissed by client soft-delete.
 
@@ -10,7 +10,7 @@
 - **Resources is the substrate.** Query-subscribe, reconnect delivery, optimistic concurrency, history, and permissions all come free. Client deletes on processed (trust the client UI for now) — soft delete, so the live query stays bounded while snapshots keep an audit trail that the user *was told*.
 - **`sub` is addressing, not secrecy.** Events are org-visible per ADR-008; the `sub` field means *whose attention*, never a read gate. Delete permission: the addressee plus admins.
 - **Per-scope, not a global inbox.** An entity lives in a Star, so delivery is contextual to the scope the event belongs to. A sub adminning five Stars has five streams. A cross-scope personal inbox is a different (unbuilt, unplanned) thing — and could not live in the Registry regardless (plane-separation invariant).
-- **Discriminated union, extended by adding members** (ADR-001 — the TS type is the schema). First out-of-band member: `email-delivery-failed`. Naming leans *events* over *errors* — the general form costs the same and non-error members are expected.
+- **Discriminated union, extended by adding members** (ADR-001 — the TS type is the schema). First out-of-band member: `email-delivery-failed`. Naming leans *events* over *errors* — the general form costs the same and non-error members are expected. Known member candidates: `email-delivery-failed`; "you were granted admin" (a promotee's live session gains the bit silently on refresh — decided 2026-08-19 that their notification waits for this mechanism rather than growing a bespoke path).
 
 ## The slice-2 work this stub holds
 
