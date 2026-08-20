@@ -129,7 +129,7 @@ export interface AccessEntry {
 /**
  * Nebula JWT payload — standard claims + nebula-specific `access`.
  *
- * `email` and `adminApproved` are NOT claims (removed in tasks/nebula-auth-surrogate-sub.md):
+ * `email` and `adminApproved` are NOT claims (removed in tasks/archive/nebula-auth-surrogate-sub.md):
  * `email` is a registry-only mutable attribute (resolved via the registry when needed, never keyed
  * off), and `adminApproved` is retired (enforced at MINT — a valid token proves authorized
  * membership by construction, so there is no edge gate to feed).
@@ -154,7 +154,7 @@ export interface NebulaJwtPayload {
    * The bearer's PUBLIC profile address (a UUID) — a bare, first-party CUSTOM claim (RFC 7519 §4.3),
    * NOT the OIDC `profile` page-URL claim. Sibling of `sub`. The Profile DO's owner check is a direct
    * `claims.profileId === instanceName` equality (no URL to parse). Optional: a KV record predating the
-   * profileId rollout mints gracefully without it. tasks/nebula-profile-store.md § JWT decisions.
+   * profileId rollout mints gracefully without it. tasks/archive/nebula-profile-store.md § JWT decisions.
    */
   profileId?: string;
   /** Delegation chain per RFC 8693 (optional) */
@@ -217,7 +217,7 @@ export interface RefreshTokenKV {
   expiresAt: string;
   /** The bearer's `profileId` — carried so the pure-KV refresh mint can emit the `profileId` JWT claim
    *  without a registry read. Written by all three record writers (record/converge/self-heal);
-   *  tasks/nebula-profile-store.md Phase 1. */
+   *  ADR-013's licensed self-healing KV copy. */
   profileId: string;
 }
 

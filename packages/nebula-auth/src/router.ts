@@ -1,12 +1,12 @@
 /**
  * Nebula Auth Worker router — the single entry composed into the default Worker.
  *
- * Since tasks/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this router
+ * Since tasks/archive/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this router
  * handles the token/login flows IN THE WORKER (see `worker-token.ts`) over Workers KV + registry RPC,
  * and forwards the registry endpoints (discover / claim / create / my-scopes / delete-scope) to the
  * singleton `NebulaAuthRegistry` DO after Turnstile / JWT gating.
  *
- * @see tasks/nebula-auth-surrogate-sub.md § The seam
+ * @see tasks/archive/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
 import { verifyNebulaTurnstileToken } from './turnstile';

@@ -17,7 +17,7 @@
  * tokens (magic-link/invite/refresh) are stored HASHED — the Worker hashes the raw refresh token and
  * passes only the hash to the registry.
  *
- * @see tasks/nebula-auth-surrogate-sub.md § The seam
+ * @see tasks/archive/nebula-auth-surrogate-sub.md § The seam
  */
 import { debug } from '@lumenize/debug';
 import { signJwt, importPrivateKey, generateRandomString, hashString } from '@lumenize/crypto';
@@ -399,7 +399,7 @@ function canMintFor(
 
 /**
  * Mint a scope-bounded narrower token for another person: `sub` = the subject, `act.sub` = the caller.
- * The `AuthorizedActor` non-admin branch is CUT (tasks/nebula-auth-surrogate-sub.md) — only the ADMIN
+ * The `AuthorizedActor` non-admin branch is CUT (tasks/archive/nebula-auth-surrogate-sub.md) — only the ADMIN
  * branch survives. The request parameters ARE the token fields the caller is asking for
  * (`subOfNarrowerToken` is the minted `sub`; `activeScope` is its `aud` + its minted `authScope`);
  * the actor is always the caller, taken from the Bearer token, so it is never a parameter.

@@ -1,7 +1,7 @@
 /**
  * NebulaAuthRegistry — the ONE singleton DO that owns all durable auth state.
  *
- * Since tasks/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this registry is
+ * Since tasks/archive/nebula-auth-surrogate-sub.md dissolved the per-scope `NebulaAuth` DO, this registry is
  * the **single writer** of everything: the `Scopes` existence registry, `Emails` + `Memberships` (surrogate-`sub`
  * identity, was `Emails` + `Subjects`), the `MagicLinks` / `InviteTokens` login channel, and the
  * `RefreshTokenIndex` (→ reliable KV invalidation). It also writes the Workers-KV refresh record
@@ -22,7 +22,7 @@
  * if none, so a minted token proves authorized membership by construction (the retired `adminApproved`
  * gate).
  *
- * @see tasks/nebula-auth-surrogate-sub.md § The schema / The seam / Founder & pre-create
+ * @see tasks/archive/nebula-auth-surrogate-sub.md § The schema / The seam / Founder & pre-create
  */
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
@@ -400,8 +400,9 @@ export class NebulaAuthRegistry extends DurableObject {
    * `identity-mint-point.test.ts`, which reds if the predicate is dropped or swapped.
    *
    * ⚠️ RETURNS PLAIN DATA — `[]` for an unknown/absent profileId, and NEVER throws a status-carrying
-   * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors), so the
-   * Profile DO caller fails CLOSED on `[]`/reject rather than reading a lost `status`.
+   * error: custom-error own-props are dropped across raw Workers RPC (raw-comm.md § Errors). The two
+   * outcomes land on DIFFERENT Profile-DO denial paths — `[]` leaves the dominion predicate matching
+   * nothing (the does-not-cover refusal); only a REJECT trips its fail-closed catch.
    */
   getScopesForProfile(profileId: string): string[] {
     const rows = this.#sql`

@@ -1,5 +1,5 @@
 /**
- * Profile DO — Phase 3 (tasks/nebula-profile-store.md): the client subscribe path (binding-agnostic,
+ * Profile DO — Phase 3 (tasks/archive/nebula-profile-store.md): the client subscribe path (binding-agnostic,
  * instance = profileId ≠ activeScope), the Gateway PROFILE-fence (cross-scope delivery), and the
  * hand-rolled fanout + dead-subscriber-row drop. Every test is capable-of-failing; the fence is
  * mutation-checked (see the mutation note in the headline test).
@@ -26,7 +26,7 @@ function uuid(): string { return crypto.randomUUID(); }
 
 /** Receive side: captures pushes on the DEDICATED global-Profile channel (`handleProfileUpdate`, the
  *  production path); ALSO captures `handleResourceUpdate` solely for the STAR-origin negative-control push
- *  in the fence test. Profiles ride their own channel now (tasks/nebula-subscriber-lists.md). */
+ *  in the fence test. Profiles ride their own channel now (tasks/archive/nebula-subscriber-lists.md). */
 class SubscriberProbe extends LumenizeClient {
   profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
   updates: Array<{ resourceType: string; resourceId: string; snapshot: ProfileSnapshot }> = [];

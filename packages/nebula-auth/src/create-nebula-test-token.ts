@@ -66,13 +66,13 @@ export interface CreateNebulaTestTokenOptions {
    * node being called. A token minted with
    * `scopeAdmin: true` at a STAR `instanceName` carries that star as its `authScope` and is therefore
    * NOT an admin on that star's Galaxy or Universe. Set `instanceName` to the scope whose dominion you
-   * actually want. See tasks/nebula-confine-admin-bypass.md.
+   * actually want. See tasks/archive/nebula-confine-admin-bypass.md.
    */
   scopeAdmin?: boolean;
   /**
    * The bearer's PUBLIC profile address → the bare `profileId` claim. Omitted when absent (a token
    * with no `profileId` claim). Seed it explicitly to exercise the Profile owner short-circuit
-   * (`claims.profileId === instanceName`) from a rung-3 mint. tasks/nebula-profile-store.md.
+   * (`claims.profileId === instanceName`) from a rung-3 mint. ADR-012.
    */
   profileId?: string;
   /**

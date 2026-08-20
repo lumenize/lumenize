@@ -100,7 +100,7 @@ describe('NebulaClientGateway.onBeforeCallToClient — the outbound aud fence', 
       .toThrow('Active-scope mismatch on call to client');
   });
 
-  // The PROFILE-fence carve-out (tasks/nebula-profile-store.md § Routing): a push from the global
+  // The PROFILE-fence carve-out (ADR-012; tasks/archive/nebula-profile-store.md § Routing model): a push from the global
   // Profile DO carries PUBLIC fields only, and public profile read is OPEN, so cross-scope delivery
   // is intentional there. Kept beside the refusals so the exception cannot be mistaken for a hole.
   it('exempts a PROFILE push from the aud check (deliberate cross-scope delivery)', () => {

@@ -7,7 +7,7 @@
  *   - the production Worker mint — `worker-token.mintAccessToken` (refresh / mint-narrower-token);
  *   - the test-util mint — {@link createNebulaTestToken} (a Node harness with the `.dev.vars` key).
  *
- * `email` and `adminApproved` are NOT claims (tasks/nebula-auth-surrogate-sub.md): `email` is a
+ * `email` and `adminApproved` are NOT claims (tasks/archive/nebula-auth-surrogate-sub.md): `email` is a
  * registry-only mutable attribute (resolved via the registry when needed, never keyed off), and
  * `adminApproved` is retired — enforced at MINT (the registry refuses to mint for an absent/
  * unverified identity, so a valid token proves authorized membership by construction).
@@ -37,7 +37,7 @@ export interface NebulaAccessClaimInput {
   /** `access.scopeAdmin` is set only when true (kept omitted otherwise to keep the JWT compact). */
   scopeAdmin: boolean;
   /** The bearer's PUBLIC profile address (UUID) → the bare custom `profileId` claim. Omitted when
-   *  absent (a pre-rollout KV record mints gracefully without it). tasks/nebula-profile-store.md. */
+   *  absent (a pre-rollout KV record mints gracefully without it). ADR-013's licensed JWT copy. */
   profileId?: string;
   /**
    * RFC 8693 delegation **actor pair** → the `act` claim. Omitted entirely when absent.
@@ -73,7 +73,7 @@ export interface NebulaAccessClaimInput {
  * only that the caller's ACTIVE SCOPE sits inside their dominion. The guards ask a different
  * question: is **the callee node** at or below `authScope`? `requirePassage`'s tenant branch
  * deliberately admits callers whose `aud` sits BELOW the node, so the two are not the same, and the
- * gap between them was the escalation. See tasks/nebula-confine-admin-bypass.md.
+ * gap between them was the escalation. See tasks/archive/nebula-confine-admin-bypass.md.
  */
 export function buildNebulaAccessEntry(
   instanceName: string,

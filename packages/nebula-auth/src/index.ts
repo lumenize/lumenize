@@ -4,11 +4,11 @@
  * Magic link login, JWT access tokens, and admin roles scoped to
  * a three-tier hierarchy: Universe > Galaxy > Star.
  *
- * The per-scope `NebulaAuth` DO was dissolved (tasks/nebula-auth-surrogate-sub.md): the singleton
+ * The per-scope `NebulaAuth` DO was dissolved (tasks/archive/nebula-auth-surrogate-sub.md): the singleton
  * `NebulaAuthRegistry` owns all durable state, token/login flows run in the Worker (`router.ts` +
  * `worker-token.ts`) over Workers KV, and identity is keyed by a registry-minted surrogate `sub`.
  *
- * @see tasks/nebula-auth-surrogate-sub.md for architecture details
+ * @see tasks/archive/nebula-auth-surrogate-sub.md for architecture details
  */
 
 // The singleton registry DO (needed for wrangler bindings in consuming projects).
@@ -17,7 +17,7 @@ export { NebulaAuthRegistry } from './nebula-auth-registry';
 // NOTE: the `Profile` DO is deliberately NOT re-exported here — it composes `@lumenize/mesh`, and
 // pulling that whole chain through this (widely-imported) index breaks the transform of pure-unit
 // consumers that import only light utilities (e.g. parse-id). Import it from the dedicated subpath
-// instead: `import { Profile } from '@lumenize/nebula-auth/profile'` (tasks/nebula-profile-store.md).
+// instead: `import { Profile } from '@lumenize/nebula-auth/profile'` (tasks/archive/nebula-profile-store.md).
 // The same rule keeps `NebulaAuthFacade` (a mesh-composing LumenizeWorker) out of this barrel —
 // import it from `@lumenize/nebula-auth/facade`.
 

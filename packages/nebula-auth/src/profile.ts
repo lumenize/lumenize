@@ -16,9 +16,10 @@
  * is hand-rolled for the cross-scope PROFILE-fence). Code home is `@lumenize/nebula-auth`; it RUNS in
  * the one `nebula` Worker (re-exported there, bound as `PROFILE`).
  *
- * AuthZ (tasks/nebula-profile-store.md § The Profile DO):
- *  - **Public read/subscribe is OPEN** — any authenticated caller holding the (unguessable) `profileId`
- *    reads the public fields. No gate, NO registry read on the hot path. The handle IS the capability.
+ * AuthZ (ADR-012):
+ *  - **Public read/subscribe is OPEN** — any authenticated caller holding the `profileId` reads the
+ *    public fields. No gate, NO registry read on the hot path. AuthN + the `PUBLIC_FIELDS` allow-list
+ *    are what carry the trust; unguessability only bounds enumeration (ADR-012, re-weighted 2026-08-20).
  *  - **`requireOwnerOrAdmin` gates public-field writes + the private set's read/write** — EXACTLY two
  *    capability levels, never per-field roles: anyone who can read a private field can also write it and
  *    write every public one. Owner (JWT `profileId` === this instance, and no `act` chain) and
@@ -29,7 +30,8 @@
  *
  * A private field NEVER rides a pushed/subscribed snapshot — it is served solely by a separate gated read.
  *
- * @see tasks/nebula-profile-store.md
+ * @see docs/adr/012-global-profile-visibility.md — authz; docs/adr/013-identity-profileid-resolution.md
+ *      — data model; tasks/archive/nebula-profile-store.md — the frozen design record
  */
 import { DurableObject } from 'cloudflare:workers';
 import { ComposedMeshDO, mesh, newContinuation, type Continuation } from '@lumenize/mesh';
@@ -63,7 +65,7 @@ export interface ProfileSnapshot {
  *
  * A **dedicated** profile channel (NOT `handleResourceUpdate('Profile', …)`): the platform profile must
  * not share the client's resource-type keyspace/routing with a dev-user ontology type named `Profile`
- * (that collision was a footgun AND a shipped reconnect mis-route — tasks/nebula-subscriber-lists.md).
+ * (that collision was a footgun AND a shipped reconnect mis-route — tasks/archive/nebula-subscriber-lists.md).
  */
 interface ProfileUpdateReceiver {
   handleProfileUpdate(profileId: string, result: ProfileSnapshot | Error): void;
@@ -222,11 +224,14 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     return id;
   }
 
-  /** Build the delivery snapshot from the PUBLIC subset ONLY — `privateNotes` is structurally excluded. */
+  /** Build the delivery snapshot FROM the `PUBLIC_FIELDS` allow-list — the IN-list is interpolated
+   *  from the one constant (placeholders, parameter-bound), so a stored field outside it is excluded
+   *  without being named anywhere. Never a subtraction of known-private keys (see the header). */
   #publicSnapshot(): ProfileSnapshot {
     const value: ProfilePublicFields = {};
     for (const row of this.ctx.storage.sql.exec(
-      `SELECT field, value FROM ProfileFields WHERE field IN ('name', 'nickname', 'picture')`)) {
+      `SELECT field, value FROM ProfileFields WHERE field IN (${PUBLIC_FIELDS.map(() => '?').join(', ')})`,
+      ...PUBLIC_FIELDS)) {
       const v = (row as { value: string | null }).value;
       if (v != null) (value as Record<string, string>)[(row as { field: string }).field] = v;
     }

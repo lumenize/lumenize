@@ -1,5 +1,5 @@
 /**
- * Profile DO — Phase 2 (tasks/nebula-profile-store.md): the global per-`profileId` DO's storage, the
+ * Profile DO — Phase 2 (tasks/archive/nebula-profile-store.md): the global per-`profileId` DO's storage, the
  * OPEN public read, the `requireOwnerOrAdmin` gate (owner/super-admin short-circuit with NO read;
  * scoped-admin the ONE read), the private-notes gate, fail-closed, and LWW + forward-only eTag. Every
  * test is capable-of-failing.
@@ -17,18 +17,25 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env, runInDurableObject } from 'cloudflare:test';
-import { LumenizeClient } from '@lumenize/mesh';
+import { LumenizeClient, mesh } from '@lumenize/mesh';
 import { Browser } from '@lumenize/testing';
 import { createNebulaTestToken } from '@lumenize/nebula-auth/testing';
 import { setDebugSink, clearDebugSink } from '@lumenize/debug';
-import type { Profile } from '@lumenize/nebula-auth/profile';
+import type { Profile, ProfileSnapshot } from '@lumenize/nebula-auth/profile';
 import {
   createSubject, universeAdminClient, createInvitedClient,
 } from '../../test-helpers';
 import { FAIL_CLOSED_PROFILE_ID, NebulaClientTest } from './index';
 
 const ORIGIN = 'http://localhost';
-class MeshProbe extends LumenizeClient {}
+/** Captures pushes on the dedicated profile channel — the subscribe() leg of the neither-list test. */
+class MeshProbe extends LumenizeClient {
+  profileUpdates: Array<{ profileId: string; snapshot: ProfileSnapshot }> = [];
+  @mesh()
+  handleProfileUpdate(profileId: string, snapshot: ProfileSnapshot): void {
+    this.profileUpdates.push({ profileId, snapshot });
+  }
+}
 function uuid(): string { return crypto.randomUUID(); }
 
 /** A connected mesh client carrying a fully-controlled Nebula JWT (rung-3 mint). */
@@ -131,6 +138,32 @@ describe('Profile DO — Phase 2', () => {
     expect(JSON.stringify(snap)).not.toContain(SENTINEL);          // the blob appears NOWHERE in the payload
   });
 
+  it('a field in NEITHER list is private WITHOUT being named — a seeded row outside the allow-list rides neither read() nor subscribe()', async () => {
+    const pid = uuid();
+    const ROGUE = `ROGUE-${uuid()}`;
+    // No API writes such a field — itself the point: private-by-default must hold for a field nobody
+    // classified. Seed it straight into ProfileFields with the DO's real ctx.
+    const stub: any = (env as any).PROFILE.getByName(pid);
+    await (runInDurableObject as any)(stub, (_i: any, c: any) => {
+      c.storage.sql.exec(
+        `INSERT OR REPLACE INTO ProfileFields (field, value) VALUES ('futureField', ?)`, ROGUE);
+    });
+
+    using reader = await makeClient({ scopeAdmin: false, profileId: uuid() });
+    const snap = await read(reader, pid);
+    expect((snap.value as Record<string, unknown>).futureField).toBeUndefined();
+    expect(JSON.stringify(snap)).not.toContain(ROGUE);              // never rides read()
+
+    // subscribe() delivers the initial snapshot on the dedicated profile channel — same exclusion.
+    using sub = await makeClient({ scopeAdmin: false, profileId: uuid() });
+    await sub.lmz.callAsync('PROFILE', pid, sub.ctn<Profile>().subscribe());
+    await vi.waitFor(() => expect(sub.profileUpdates.length).toBe(1));
+    expect(JSON.stringify(sub.profileUpdates)).not.toContain(ROGUE); // never rides subscribe()
+
+    // Reds against a snapshot built by SUBTRACTION: mutate #publicSnapshot to exclude-known-private
+    // (`WHERE field NOT IN ('privateNotes', 'eTag')`) and the rogue row rides both legs.
+  });
+
   describe('requireOwnerOrAdmin — top-down, read only if forced (#5)', () => {
     it('OWNER writes pass with ZERO registry reads', async () => {
       const pid = uuid();
@@ -139,7 +172,7 @@ describe('Profile DO — Phase 2', () => {
       expect(registryReads()).toBe(0);
     });
 
-    it('SUPER-ADMIN (pattern *) writes pass with ZERO reads — though NOT the owner', async () => {
+    it('SUPER-ADMIN (platform root scope) writes pass with ZERO reads — though NOT the owner', async () => {
       const pid = uuid();
       using su = await makeClient({ instanceName: 'nebula-platform', activeScope: 'nebula-platform', scopeAdmin: true, profileId: uuid() });
       await expect(write(su, pid, { name: 'X' })).resolves.toBeUndefined();
@@ -230,9 +263,9 @@ describe('Profile DO — Phase 2', () => {
   // Phase 4 of tasks/archive/nebula-impersonation-client.md; that was wrong — rung 1 is the real email
   // transport, which the `baseline` lane does not use.)
   //
-  // Independent of ADR-012's pending amendment: with a NON-admin subject the mirrored `admin` bit is
-  // absent, so `#requireOwnerOrAdmin` branch (2) rejects and branch (4) is never reached — the only
-  // thing that can let this through is the owner branch, which is exactly what `!claims.act` closes.
+  // With a NON-admin subject the minted token carries no `scopeAdmin` claim, so `#requireOwnerOrAdmin`
+  // branch (2) rejects and branch (4) is never reached — the only thing that can let this through is
+  // the owner branch, which is exactly what `!claims.act` closes (ADR-012).
   it('a NARROWER token is NOT the owner — the admin driving it can neither write nor read privateNotes', async () => {
     const universe = `pdo-${uuid().slice(0, 8)}`;
     const star = `${universe}.app.tenant`;
