@@ -103,7 +103,7 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 
 **How to catch yourself:** you are about to end a turn by asking for access, a credential, or a go-ahead. Run the command that would falsify the request first. An answer you have never once been right about is not a judgement call.
 
-**Where it bit (2026-07-30, `nebula-impersonation-client`):** the recommendation was `/live` "as an exception, not a default", written into a section headed *What I'd resist* — while the same session had produced seven pool-workers tests that could not fail and one `/live` scenario with none. Larry overrode it, and overrode the same preference an hour earlier. Both overrides were right. ⇒ When you catch yourself writing **"worth it, but not as a default"**, check whether the argument is about evidence or about your own convenience.
+**Where it bit (2026-07-30, `nebula-impersonation-client`):** the recommendation was `/live` "as an exception, not a default" — written into a section headed *What I'd resist*, in a session whose own counts said the opposite (`live.md` § *`/live` is the DEFAULT tier* records them). Larry overrode it, and the same preference an hour earlier. ⇒ When you catch yourself writing **"worth it, but not as a default"**, check whether the argument is about evidence or about your own convenience.
 
 ## 7. Agreeing with a conclusion is what stops you checking its premises
 
@@ -118,17 +118,23 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 | Drop the client-side TTL warn | *"the client cannot import the constant"* — `apps/nebula/src/frontend/types.ts` already imports from `@lumenize/mesh/client`, so the module is reachable from the client graph and a `./types` export is one line |
 | Write a `/live` expiry scenario | *"pool-workers cannot let time pass"* — `vi.setSystemTime` moves the clock **both** the Worker and the DO see, measured |
 
+It recurs, and not only here: on 2026-08-03 a claim that `@cloudflare/computer` drags in `zod` — an ADR-001 footgun — was asserted under a conclusion nobody was arguing with, and corrected in `experiments/computer-vfs-build/RESULTS.md` § 7, which names this entry. Different domain, four days later.
+
 Both conclusions still stand on their *other* reason, which is precisely why nobody looked — and challenging the second premise produced the in-lane expiry test everyone had believed impossible (`apps/nebula/test/test-apps/baseline/impersonate-lifetime.test.ts` § *survives a GENUINE expiry*).
 
 **How to catch yourself:** you are writing a *supporting* clause — the sentence after "because", the parenthetical that heads off an objection — for a decision you have already made. Especially one asserting that something **can't** be done, since §3's cost-weighting and this entry both push you to accept it cheaply. Ask of that clause alone: *if the conclusion were wrong, would I still believe this?*
 
-## 8. A maturity label is not a measurement
+## 8. You will bet on the world as it is; Larry bets on where it is going
 
-**What you'll do:** read "preview" / "alpha" / "not suitable for production use" as a decision input, and recommend the mature incumbent.
+**What you'll do:** optimize for the present state — recommend the mature incumbent, the proven mechanism, the thing that works today — and frame that preference as engineering judgment rather than as the risk aversion it is.
 
-**What to do instead:** that label is the vendor telling teams **with users** not to break them. Ask what breaks for **us**, and price it with `workflow.md` § *Evaluating alternatives* — which usually comes out the other way, since the incumbent is what will need unlearning. Discount the label only, never a measurement: perf on a path we depend on, local-vs-prod fidelity, import-time startup cost, a transitive dep fighting an ADR. **Measurements survive an override and labels do not** — on 2026-08-03 the `@cloudflare/computer` recommendation was overridden on its label while its FUSE-throughput objections stood untouched (`tasks/nebula-galaxy-collapse-and-chat.md`).
+**What to do instead:** Larry skates to where the puck is going, and accepts more risk getting there than you will ever propose. When the question is *which way is this going*, weight his read over your caution. The incumbent is what needs unlearning, and every line written against it is an interim its successor deletes (`workflow.md` § *Evaluating alternatives*). "Adopt later" is not the conservative option; it is a dated one. Larry, 2026-08-03: *"We SHOULD be depending on things like this not avoiding them as long as it is the direction things are going."*
 
-⚠️ **The licence EXPIRES, and this is the half no instinct covers.** "Adopt early" is right *because we have nobody to break*, not because new is better. Larry pushes this direction naturally — which is why the entry carries almost no evidence, and why the flip is the actual risk: when Nebula has paying users the answer changes while the instinct does not. Per §4 that is a trigger to **re-derive**, never to invert on sight.
+**The boundary is DIRECTION, not verification.** A bet on where the ecosystem is heading is his to take, and he is usually right. How a thing actually behaves is still yours to measure: perf on a path we depend on, local-vs-prod fidelity, import-time startup cost, a transitive dep fighting an ADR. **Measurements survive an override and labels do not** — on 2026-08-03 the `@cloudflare/computer` recommendation was overridden on its "not suitable for production use" label, while its FUSE-throughput objections stood untouched (`tasks/nebula-galaxy-collapse-and-chat.md`).
+
+**How to catch yourself:** your objection rests on a label — a version number, a beta stage, a README warning — or on the fact that something is newer and less proven, rather than on a number you measured or a code path you read. A maturity label is the vendor telling teams **with users** not to break them; ask whether we are them.
+
+⚠️ **The licence EXPIRES.** "Adopt early" is right *because we have nobody to break*, not because new is better. When Nebula has paying users the answer changes while the instinct does not, and per §4 that is a trigger to **re-derive**, never to invert on sight.
 
 ## 9. You will spend prevention on the LOUDEST failure, not the QUIETEST one
 
