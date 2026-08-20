@@ -136,25 +136,17 @@ Both conclusions still stand on their *other* reason, which is precisely why nob
 
 ## 9. You will spend prevention on the LOUDEST failure, not the QUIETEST one
 
-**What you'll do:** after a build, propose guard rails for whatever just hurt. Recency reads as importance, and a defect that cost an hour of thrashing *feels* like the one to prevent — so the post-mortem optimises what already announced itself.
+**What you'll do:** after a build, propose guard rails for whatever just hurt. Recency reads as importance, so the post-mortem optimises what already announced itself.
 
-**What to do instead: prevention is for failures with no signal WHERE ANYONE IS ACTUALLY LOOKING. Let loud ones stay loud.** A hang, a parse error, a 404, a type error, a red suite are all self-reporting and cheap to diagnose; none is worth machinery. What needs it is anything that leaves everything **green** — a criterion that cannot fail, a fixture built in the safe shape, a test tier silently skipped, a stale quotation in always-loaded prose, an `it.skip` encoding a design since reversed — and equally, anything that would be loud but fires only where nobody runs it: a deploy-only path, a `ctx.abort()` miniflare cannot reproduce, a branch reachable only with credentials CI lacks. Larry, 2026-08-04: *"You usually figure things like this out pretty quickly and they make themselves known so I really don't worry about preventing them. It's things that don't make themselves known until I push … that concern me much more."*
+**What to do instead: fix the loud one and build nothing; spend prevention on failures with no signal WHERE ANYONE IS LOOKING.** A hang, a type error, a red suite are self-reporting and cheap to diagnose. What needs machinery is what leaves everything **green** — a criterion that cannot fail, a fixture built in the safe shape, a test tier silently skipped — and equally, anything that would be loud but fires only where nobody runs it: a deploy-only path, a `ctx.abort()` miniflare cannot reproduce, a branch reachable only with credentials CI lacks. Larry, 2026-08-04: *"things that don't make themselves known until I push … concern me much more."*
 
-This licenses no indifference to loud failures — only to *pre-empting* them. Fix the hang; just don't build a framework so the next hang cannot happen.
+**Where it bit (2026-08-04):** the noisiest bug was a leaked `waitForEmail` waiter that hung the process after printing a green verdict, and the post-mortem proposed making it structurally impossible. The same build had shipped **zero `/live` scenarios** behind a green 262-test suite, unnoticed until Larry asked.
 
-**Where it bit (2026-08-04, the identity-split build):** the noisiest bug was a leaked `waitForEmail` waiter that hung the process after printing a green verdict, diagnosed and fixed in minutes — and the post-mortem proposed making it structurally impossible. Meanwhile the build had shipped **zero `/live` scenarios** behind a green 262-test suite, unnoticed until Larry asked why the tier kept being skipped.
+**How to catch yourself:** you are proposing a guard rail for something you personally debugged this session. Ask what its signal was — "it broke immediately and I saw it" is evidence *against* the guard rail, and a prompt to ask what else this build changed would have stayed green if it were wrong.
 
-**How to catch yourself:** you are proposing a guard rail for something you personally debugged this session. Ask what its signal was. If the answer is "it broke immediately and I saw it", that is evidence *against* the guard rail — and worth asking what ELSE this build changed would have stayed green if it were wrong.
+## 10. Opening with a sweep — moved
 
-## 10. You will open a paragraph with a sweep, and be accurate only underneath it
-
-**What you'll do:** lead with a confident topic sentence, then follow it with the precise statement. The opener reads as command of the material, but it is written *before* the precise part is checked against, and it routinely overstates it. Fluency produces it; nothing in the drafting loop tests it.
-
-**What to do instead:** `prose-voice.md` § *The moves that make the difference* carries the repair and how to spot it mid-draft. What it does not say is why this matters more than it looks: **the overclaim is the sentence most likely to be quoted back** — short, quotable, load-bearing-sounding — so its error travels further than the accurate list beneath it. In a document whose whole value is precision about who may do what, the summary is the worst place to be loose.
-
-**Where it bit (2026-08-10/11, `docs/vision/auth.md`):** three openers in one session, every one caught by Larry. *"Everything above is a mesh node"* — except the Gateway, which the same document's third paragraph calls *"mesh mechanics, not a mesh node"*.
-
-**The sibling failure, same session, same root.** After `passage` and `dominion` landed, the sweep applying them **amplified** them: the passage-is-not-dominion point ended up stated five times in one document, three of them cut in consecutive turns. Adopting a precise term is a **rename**, not an invitation to re-explain the concept everywhere that previously said it vaguely. Precise words need *fewer* repetitions, which is the whole reason for coining them.
+Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.
 
 ---
 

@@ -61,7 +61,12 @@ a compressed aphorism. You SHOULD write the specific sentence first and then ask
 the summary above it survives. **How to catch it mid-draft:** the first clause of a
 paragraph contains *everything*, *every*, *the only*, *always*, or *never*, and the
 sentences after it are specific. Read that first clause against the last ones before
-moving on — it is usually the enumeration that is true.
+moving on — it is usually the enumeration that is true. **This matters more than it looks:** the
+overclaim is the sentence most likely to be quoted back — short, quotable,
+load-bearing-sounding — so its error travels further than the accurate list beneath it. Three
+went into `docs/vision/auth.md` in one session on 2026-08-10/11, every one caught by Larry:
+*"Everything above is a mesh node"* was falsified by the Gateway, which that document's own
+third paragraph calls *"mesh mechanics, not a mesh node"*.
 
 **Tell the reader where they are going.** ADR-015: *"The rest of this ADR is spent
 precisely specifying those calculations…"* `auth.md`: *"The sections that follow expand
@@ -108,6 +113,12 @@ from a true statement in `security.md` purely to keep the count flat, and report
 and `passage`, names what they replaced, and says not to reintroduce those. A new term
 MUST be proposed to Larry before use, and MUST arrive with a definition and the rejected
 alternatives, or it MUST NOT be used at all.
+
+**A new term is a RENAME, not licence to re-explain the concept.** Once `passage` and `dominion`
+landed, the sweep applying them amplified them — the passage-is-not-dominion point ended up
+stated five times in one document, three of them cut in consecutive turns. Precise words need
+*fewer* repetitions than the vague phrasing they replace, which is the whole reason for coining
+them.
 
 ## Duplication — the reader decides it
 
