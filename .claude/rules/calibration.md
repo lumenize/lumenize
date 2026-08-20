@@ -97,6 +97,12 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 
 **What to do instead:** `live.md` § *`/live` is the DEFAULT tier* carries the argument, the measurements, and how to write a scenario that can fail. None of it needs repeating here. What that file cannot do is catch you writing the rationalization, because that happens in a recommendation drafted before any test exists.
 
+**The other half: you will decide you CANNOT run it, and surface that as a question at the end.** It goes like this, repeatedly. Mid-build you conclude something is out of reach — it needs Docker, real email, a deployed Worker, credentials you assume are absent — you carry on without checking, and at the end you tell Larry you need him to proceed. He says *"you don't need me."* You check, and he is right. It has never once come out the other way.
+
+**Check when you form the belief, not when you report it.** `live.md` § *DO NOT ASSERT THAT YOU LACK THE ACCESS* inventories what is on disk; verified 2026-08-20, `.dev.vars` is 67 lines, the wrangler session is live, Docker is running, and 11 of 15 scenarios need no container. Deferring it is worse than being wrong for two reasons: **Larry answers a permission request, he does not go and verify it** — so a false belief about your own reach arrives in the one form nobody checks — and **mid-build the check is one `ls`, while at the end it is a round trip with the bottleneck**, into a build he had stopped tracking.
+
+**How to catch yourself:** you are about to end a turn by asking for access, a credential, or a go-ahead. Run the command that would falsify the request first. An answer you have never once been right about is not a judgement call.
+
 **Where it bit (2026-07-30, `nebula-impersonation-client`):** the recommendation was `/live` "as an exception, not a default", written into a section headed *What I'd resist* — while the same session had produced seven pool-workers tests that could not fail and one `/live` scenario with none. Larry overrode it, and overrode the same preference an hour earlier. Both overrides were right. ⇒ When you catch yourself writing **"worth it, but not as a default"**, check whether the argument is about evidence or about your own convenience.
 
 ## 7. Agreeing with a conclusion is what stops you checking its premises
