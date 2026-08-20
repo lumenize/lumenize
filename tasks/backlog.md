@@ -452,6 +452,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Add an alternative to ctn (maybe ctnTransaction) to use a transaction for execution
 
+- [ ] **OPEN QUESTION — `ResourceDataPlane` with a pluggable access-control model (raised 2026-08-20, deliberately undecided; no adoption trigger is recorded, on purpose).** Today the data plane couples subscribe + history to the orgTree and DAG grants. Two live sites want the first two without the third: the global **`Profile` DO** (hand-rolled `ProfileFields`/`Subscribers`/fanout, LWW with no history; its authz is ADR-012's owner/admin model resolved via the Registry, not grants — an open question for reconsideration, not a ratified "no data plane") and **Studio UI's Session/Messages**. Larry's sketch: a mode that leaves the orgTree **vestigial** — grants on ROOT only — plus a **custom callback** for access-control decisions. Notes for whoever picks it up: the `packages/nebula-auth` / `apps/nebula` package boundary is NOT an obstacle (moving `Profile` up, or merging nebula-auth into apps/nebula as a subfolder, is acceptable — the separation is mostly artificial now that nebula-auth carries the facade); two mechanical facts any Profile adoption must handle: the cross-scope PROFILE-fence keys on `metadata.caller.bindingName === 'PROFILE'` and dies under a tier-hop (`svc.broadcast` rewrites `metadata.caller`), and the dedicated profile channel exists because a dev-user ontology type named `Profile` once collided with the resource keyspace (a shipped reconnect mis-route — the `_`-prefix platform-type namespace is the modern answer).
+
 
 ## Infrastructure
 
