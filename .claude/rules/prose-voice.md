@@ -106,7 +106,7 @@ and `passage`, names what they replaced, and says not to reintroduce those. A ne
 MUST be proposed to Larry before use, and MUST arrive with a definition and the rejected
 alternatives, or it MUST NOT be used at all.
 
-## Duplication — direction decides it
+## Duplication — the reader decides it
 
 **Across files, a little repetition is expected and wanted.** One or two sentences
 restating a sibling's reasoning, so the reader need not open it, is correct here. This
@@ -114,11 +114,32 @@ does NOT license restating another file's counts, dates, inventories, or verbati
 wording — those rot silently, and `workflow.md` § *Referring to things across files* owns
 that separate rule.
 
-**Within one file, direction decides it.** A forward-looking summary is fine: it tells
-the reader what is coming. A backward restatement is not — a point made in Decision MUST
-NOT be made again in Consequences. The check lists candidates and does NOT fail on them,
-because it cannot tell a lazy repeat from a deliberate one: it finds four in Larry's own
-hand-written invite prose, and at least some of those earn their place. Read what it
+**Within an ADR or a vision doc, direction decides it.** One reader passes every section
+in one sitting, so a forward-looking summary is fine — it tells them what is coming — while
+a backward restatement is a sentence read twice: a point made in Decision MUST NOT be made
+again in Consequences.
+
+**Within a task file the phases have a DIFFERENT reader, so the same repeat is licensed.**
+Larry reads the Pass-1 sections, as the top of this file says; the implementer transcribing
+at `/build-task` reads the phases, usually in a fresh session. A Pass-1 point reappearing
+in a phase is therefore the across-files case above rather than the backward one, and what
+separates a good copy from a bad one is which half of the sentence travels:
+
+- **The phase carries the INSTRUCTION**, and MUST stand alone for someone transcribing it.
+  `tasks/nebula-galaxy-collapse-and-chat.md` § *Phase 3* restates the container drive
+  sequence — `destroy()` → `start()` → readiness probe → build → `destroy()` — which
+  § *Decisions locked* already pins. Both earn their place; keep them.
+- **Pass 1 carries the RATIONALE**, and a phase re-deriving it MUST cite the section by
+  name instead. In the same file, § *Phase 2* re-argued why ADR-013's `profileId` stamp is
+  immutable — write-time-pinned, never re-keyed, display-only — which § *Preserved* already
+  argues under *Name resolution*. That copy was cut to a pointer: it is the one that drifts,
+  and nobody needs it to do the work the phase describes.
+
+**The check lists candidates and does NOT fail on them**, because it cannot tell a lazy
+repeat from a deliberate one: it finds four in Larry's own hand-written invite prose, and
+at least some of those earn their place. It marks a phase target `[phase]`, so you know
+which of the two tests above to apply. It does not hide those, because a rationale dumped
+into a phase is what caught one file stating a single fact in five places. Read what it
 prints and judge each one.
 
 ## Not for the reader

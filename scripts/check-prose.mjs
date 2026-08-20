@@ -138,6 +138,13 @@ function sections(t) {
 // Six-word shingles shared between a later section and an earlier one — the
 // backward restatement that costs a reader the most (a forward-looking summary
 // is fine and is not what this catches, because it looks ahead, not behind).
+// A phase's reader is the implementer transcribing it at /build-task, not Larry — he
+// reads only the Pass-1 sections. So a Pass-1 point reappearing in a phase is the
+// cross-file case, not the backward one, and the test to apply there is different:
+// the phase keeps the INSTRUCTION, the rationale stays upstream. See
+// .claude/rules/prose-voice.md § *Duplication — the reader decides it*.
+const isPhaseHead = (head) => /^phase\s*\d/i.test(head)
+
 function backwardRestatements(t) {
   const secs = sections(stripCode(t)).filter((s) => s.body.trim())
   const seen = new Map()
@@ -158,7 +165,7 @@ function backwardRestatements(t) {
   for (const s of secs) {
     for (const sh of shingle(s.body)) {
       if (seen.has(sh) && seen.get(sh) !== s.head) {
-        hits.push({ from: seen.get(sh), to: s.head, text: sh })
+        hits.push({ from: seen.get(sh), to: s.head, text: sh, toPhase: isPhaseHead(s.head) })
       } else if (!seen.has(sh)) seen.set(sh, s.head)
     }
   }
@@ -318,11 +325,20 @@ if (failing.length) {
 const restating = results.filter((r) => r.restated.length)
 if (restating.length) {
   console.log('\nBackward restatement (report only — a forward summary is fine, a backward one is not):\n')
+  let anyPhase = false
   for (const r of restating) {
     console.log(`  ${r.path}`)
     for (const h of r.restated.slice(0, 4)) {
-      console.log(`    · § ${h.from}  →  § ${h.to}   "${h.text}"`)
+      if (h.toPhase) anyPhase = true
+      console.log(`    · § ${h.from}  →  § ${h.to}${h.toPhase ? '  [phase]' : ''}   "${h.text}"`)
     }
+  }
+  if (anyPhase) {
+    console.log(
+      '\n  [phase] = the target is a phase, whose reader is the implementer rather than Larry.\n' +
+      '  Repeating the INSTRUCTION there is licensed — a phase must be transcribable without\n' +
+      '  scrolling up. Repeating the RATIONALE is the defect: cite the section by name instead.',
+    )
   }
 }
 

@@ -30,6 +30,12 @@ When the file being restructured **spun out of other work and its framing predat
 
 Why blind-then-mine, not evolve: **a review panel correctly enforces recorded non-goals and framing, so by review time anchoring has already won.** Evidence (`nebula-invite`, 2026-08-19): the fresh path generated the mesh-facade invite design that the old file's own non-goals had fenced out ("mixes the Registry and mesh domains"), while the mining pass recovered everything the old file was right about. The retro's split: fresh prose won on design generation; the old file won on completeness; mining is what closes the gap.
 
+## Before you draft — read the voice rule
+
+Read `.claude/rules/prose-voice.md` and one section of `docs/vision/auth.md` BEFORE writing
+a line of the file. The rule's `paths:` glob fires when you touch a matching file, which is
+too late for a new task file — the draft is already composed by then.
+
 ## Pass 1 — design intent only
 
 Write the file down to and including *Design intent, constraints, and future state*, then **stop and ask for a read.** Nothing below it exists yet.
@@ -55,7 +61,7 @@ Missing: [numbered, specific, each a thing this task adds or changes]
 
 **Rules for the design-intent section — these are what make it worth reviewing:**
 
-- **State it once.** This section is a *contract*, not a summary of the phases. If a claim appears here and again in a phase, delete one. (The identity-mint file stated one fact in **five** places; a reviewer then has to diff five copies to find the current one.)
+- **State the RATIONALE once.** This section is a *contract*, not a summary of the phases. If a reason appears here and again in a phase, delete the phase's copy and cite the section by name — it is the copy that drifts, and the implementer does not need it to do the work. (The identity-mint file stated one fact in **five** places; a reviewer then has to diff five copies to find the current one.) A phase repeating the **instruction** is different and is fine: the phase has to stand alone for whoever transcribes it. `.claude/rules/prose-voice.md` § *Duplication — the reader decides it* carries the split and a worked example of each side.
 - **Positive form only.** No "not X" disclaimers, no dated self-corrections, no rebutting an objector the reader cannot see. The negative belongs in the Decisions table as a rejected alternative — that is its home, per the `answer-by-describing-not-asserting` rule.
 - **Name the invariant, not the incidental property.** "This is safe because *nothing currently mints such a principal*" expires silently. "This is safe because authority is confined to the node it runs in" does not. See `.claude/rules/calibration.md` § 4.
 - **State every load-bearing assumption as a checkable claim.** If the intent depends on "these two changes share a call chain" or "this test is blocked only on X", write it as a claim so review can falsify it. Both of those examples were false in a real file.
@@ -117,12 +123,24 @@ Only after the intent is approved:
 
 - **Phases are goals with testable criteria, not step lists.** `/build-task` transcribes phase order, so numbering must equal executable order — and every acceptance obligation must live *in a phase*, or it is neither transcribed nor verified. A floating top-of-file section is not built.
 - **Success criteria must be capable of failing.** Name the mutation. Assert the *persisted effect*, not a `200` (a `@mesh` guard runs post-ack, so a denial is not in the synchronous response).
-- **An edit to standing guidance goes in the LAST phase that changes what it describes — never the phase that happens to notice it.** The trap is specific: when a phase rewrites an *enumeration whose value is that it is exhaustive* (a reader list, a call-site table, "the N sites that do X") and states the command that checks it, a **later phase in the same task can add a member and silently falsify it**. The list then ships wrong in exactly the way it was rewritten to stop being wrong, and no test can red it. This is `calibration.md` §4 with the clock sped up — the justification expires *before the task ships*, so the "re-derive when the reason dies" reflex never fires. **When drafting, ask of every rule/ADR/README edit: does any LATER phase add a member to what this counts?** If yes, move the edit down; if it must stay early (because an earlier phase would otherwise ship code the rule forbids), say in the phase text which later phase amends it. Bit 2026-07-28: `/mint-narrower-token` Phase 3 wrote *"one CONTENTS reader"* into always-loaded `security.md`; Phase 4, four bullets later, added the second.
+- **An edit to standing guidance goes in the LAST phase that changes what it describes — never the phase that happens to notice it.** The trap is specific: when a phase rewrites an *enumeration whose value is that it is exhaustive* (a reader list, a call-site table, "the N sites that do X") and states the command that checks it, a **later phase in the same task can add a member and silently falsify it**. The list then ships wrong in exactly the way it was rewritten to stop being wrong, and no test can red it. This is `calibration.md` §4 with the clock sped up — the justification expires *before the task ships*, so the "re-derive when the reason dies" reflex never fires.
+  - **When drafting, ask of every rule/ADR/README edit: does any LATER phase add a member to what this counts?** If yes, move the edit down; if it must stay early (because an earlier phase would otherwise ship code the rule forbids), say in the phase text which later phase amends it. Bit 2026-07-28: `/mint-narrower-token` Phase 3 wrote *"one CONTENTS reader"* into always-loaded `security.md`; Phase 4, four bullets later, added the second.
   - ⚠️ **This is in tension with "the work lives in the phase that causes it"** — which is right for *code* and for a rule that merely renames. Enumerations are the exception, because their correctness is a property of the whole task's end state, not of one phase's diff. Prefer a **structural** claim over a counted one where you can (*"every ADR-016 site is on this list"* survives a later phase; *"one CONTENTS reader"* does not).
 - **Inventories over structure, never a bare count.** "Every `Response` in `src/` with a 4xx status carries `issues[]`" beats "`grep 'error_description'` returns nothing." Counts go stale or are wrong on entry; a count-based criterion passes silently when the count was wrong. Scope any grep the same way the criterion is scoped, or the two disagree.
 - **Relationships is load-bearing, not bookkeeping.** Every drift untangled on 2026-07-26 was cross-file: a backlog row asserting the opposite of a decision, a sibling task's premise invalidated, an un-skip obligation with no owner. If this task changes what another file says, say so here.
 - **Give every section a meaningful NAME, and expect it to be cited by that name** — a sibling file will refer to it, and a bare `§N` there is opaque and rots the moment a section is inserted or moves out. Number for order where order is load-bearing (phases); otherwise the name is the handle. See `workflow.md` § *Referring to things across files*.
 - Keep inline `//` comment lines ≤ ~85 chars — Larry reviews these in Typora.
+
+## Before handing the draft over
+
+Run the voice gate on the file you wrote and bring it within budget:
+
+```sh
+node scripts/check-prose.mjs tasks/<file>.md
+```
+
+It is diff-scoped by design — most of the repo predates it. Fix what you wrote; do not
+open a campaign against the rest of the file if you were editing an existing one.
 
 ## Finally
 
