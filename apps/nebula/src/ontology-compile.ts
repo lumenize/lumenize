@@ -36,58 +36,76 @@ export interface OntologyVersionRow {
  * Resources machinery (validation, snapshots, `changedBy` attribution, subscriptions, queries)
  * rather than a second store.
  *
- * - `InviteStatus` — one row per (email, node) a node invite has targeted (`Star.invite`), the
+ * ⚠️ Why not a second store (a sibling per-scope DO carrying platform out-of-band state)?
+ * Considered and rejected for invite state (2026-08-20): the rows are keyed by Star DAG nodes and
+ * flip beside `setPermission` writes, so co-location keeps that state machine inside one
+ * single-threaded instance, and ADR-008 org-visibility + `requirePermission` already gate reads
+ * and issuance correctly — a sibling DO would re-derive both and turn every flip into a cross-DO
+ * message with a partial-failure window. A second store earns its keep only when the state is
+ * decoupled from Star state, high-volume enough that per-row snapshot history is a cost rather
+ * than a feature, or needs visibility other than org-visible; the out-of-band-events design
+ * starts from that boundary.
+ *
+ * - `_InviteStatus` — one row per (email, node) a node invite has targeted (`Star.invite`), the
  *   live submission state the members panel query-subscribes (`pending` → `sent` /
  *   `submission-failed`). Org-visible like everything else at its node (ADR-008); rows get random
  *   opaque ids (ADR-010) with (email, node) as the uniqueness/query dimension, converged by the
  *   writer, never keyed on. `state`/`tier` stay `string` in the schema — the enum lives in the
  *   writing code, not a second schema language (the `Message.status` precedent).
- * - `OrgNode` — a declaration-only relationship TARGET: the query machinery subscribes on to-one
+ * - `_OrgNode` — a declaration-only relationship TARGET: the query machinery subscribes on to-one
  *   RELATIONSHIP fields (a field typed as another ontology type, stored as an id string), and
- *   `InviteStatus.node` holds a DAG **node** id, which is not itself a Resource. Declaring
- *   `OrgNode` makes that reference expressible in the one schema language (ADR-001) — nothing
+ *   `_InviteStatus.node` holds a DAG **node** id, which is not itself a Resource. Declaring
+ *   `_OrgNode` makes that reference expressible in the one schema language (ADR-001) — nothing
  *   instantiates it.
  *
- * ⚠️ These names are RESERVED, and the guard below is EXPLICIT because TypeScript would not
- * refuse for us: duplicate interfaces MERGE (declaration merging — an error only on member
- * conflicts, and even those don't block emit under the validator compiler's settings), so without
- * the check an app declaring `InviteStatus` would silently widen the platform type — the exact
- * silent override a reserved name must never become.
+ * ⚠️ Type names beginning with `_` are RESERVED for the platform (the GraphQL-`__` / `sqlite_`
+ * convention), and the guard below is EXPLICIT because TypeScript would not refuse a collision
+ * for us: duplicate interfaces MERGE (declaration merging — an error only on member conflicts,
+ * and even those don't block emit under the validator compiler's settings), so without the check
+ * an app redeclaring a platform type would silently widen it. Reserving the PREFIX rather than
+ * the current names means a future platform type can never collide with a conforming app and the
+ * guard needs no edit when one is added — but every entry here MUST start with `_`, or it falls
+ * outside the protected namespace (checked at module load below).
  *
  * ⚠️ Appending a platform type does not invalidate existing snapshots, but a WARM Worker-Loader
  * still serves the validator compiled without it (the bundle id derives from the app version,
  * which does not change) — a fresh boot or the pre-alpha wipe picks it up.
  */
 export const PLATFORM_RESOURCE_TYPES: readonly string[] = [
-  'interface OrgNode { platformReserved?: string }',
-  'interface InviteStatus { node: OrgNode; email: string; tier: string; state: string; error?: string }',
+  'interface _OrgNode { platformReserved?: string }',
+  'interface _InviteStatus { node: _OrgNode; email: string; tier: string; state: string; error?: string }',
 ];
 
-/** The reserved type names, derived from the declarations so the two can never drift. */
-const RESERVED_TYPE_NAMES: readonly string[] = PLATFORM_RESOURCE_TYPES.map((decl) => {
+// Every platform type must live in the reserved `_` namespace — the prefix guard in
+// `compileOntologyVersion` protects nothing outside it, so an entry without the prefix would
+// silently reopen the app-collision hazard the guard exists to close.
+for (const decl of PLATFORM_RESOURCE_TYPES) {
   const name = /^interface\s+([A-Za-z0-9_]+)/.exec(decl)?.[1];
   if (!name) throw new Error(`PLATFORM_RESOURCE_TYPES entry is not an interface declaration: ${decl}`);
-  return name;
-});
+  if (!name.startsWith('_')) {
+    throw new Error(`PLATFORM_RESOURCE_TYPES entry is outside the reserved "_" namespace: ${decl}`);
+  }
+}
 
 /**
  * Compile a versionConfig into a stored row. Throws on invalid TypeScript or
- * typia compile errors, and on an app type text that declares a reserved
- * platform name (see {@link PLATFORM_RESOURCE_TYPES} — TS would silently MERGE
- * the duplicate otherwise); the caller surfaces the message to the admin.
+ * typia compile errors, and on an app type text that declares any `_`-prefixed
+ * type name — the reserved platform namespace (see
+ * {@link PLATFORM_RESOURCE_TYPES} — TS would silently MERGE a duplicate
+ * otherwise); the caller surfaces the message to the admin.
  * {@link PLATFORM_RESOURCE_TYPES} are unioned in, so every version carries them.
  */
 export function compileOntologyVersion(
   versionConfig: OntologyVersionConfig,
 ): OntologyVersionRow {
-  for (const reserved of RESERVED_TYPE_NAMES) {
-    // `interface X` / `type X =` / `class X` all collide in the type namespace.
-    if (new RegExp(`\\b(?:interface|type|class|enum)\\s+${reserved}\\b`).test(versionConfig.types)) {
-      throw new Error(
-        `Ontology type name "${reserved}" is reserved by the platform (PLATFORM_RESOURCE_TYPES) — ` +
-        'rename the app type; TypeScript would otherwise merge the declarations silently.',
-      );
-    }
+  // `interface X` / `type X =` / `class X` / `enum X` all collide in the type namespace.
+  const underscored = /\b(?:interface|type|class|enum)\s+(_[A-Za-z0-9_]*)/.exec(versionConfig.types);
+  if (underscored) {
+    throw new Error(
+      `Ontology type name "${underscored[1]}" starts with "_", which is reserved for platform ` +
+      'types (PLATFORM_RESOURCE_TYPES) — rename the app type; TypeScript would otherwise merge ' +
+      'a colliding declaration silently.',
+    );
   }
   const md = extractTypeMetadata([...PLATFORM_RESOURCE_TYPES, versionConfig.types].join('\n'));
   // Pass the original relationship map so the generated validator can emit a

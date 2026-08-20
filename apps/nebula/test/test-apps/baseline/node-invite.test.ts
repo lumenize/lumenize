@@ -1,7 +1,7 @@
 /**
  * Node invites — `Star.invite(nodeId, invitees)` writes BOTH planes at invite time: the DAG grant
  * here (via the traveling result handler) and the membership through the facade → Registry. The
- * invitee's first login finds everything in place; the live submission state rides `InviteStatus`
+ * invitee's first login finds everything in place; the live submission state rides `_InviteStatus`
  * rows (a platform-fixed Resources type, org-visible at the node per ADR-008).
  *
  * ADR-009 rung 2 (the whole baseline lane): real founding, real invites, real server-issued
@@ -9,7 +9,7 @@
  * never the ack alone. The `/live` twin (`harness/scenarios/node-invite-roundtrip.ts`) walks the
  * same flow on real email.
  *
- * ⚠️ A runtime precondition every test here honors: the node invite's `InviteStatus` writes ride
+ * ⚠️ A runtime precondition every test here honors: the node invite's `_InviteStatus` writes ride
  * the ordinary Resources pipeline, so the host Star must hold an INSTALLED ontology (true of every
  * resource write; a production Star always has its app's). `callStarApplyOntology` installs one.
  */
@@ -36,7 +36,7 @@ function nodeInvite(client: NebulaClient, nodeId: string, invitees: unknown): Pr
   );
 }
 
-/** Admin at `star` with the test ontology installed (InviteStatus rides any version — it is
+/** Admin at `star` with the test ontology installed (_InviteStatus rides any version — it is
  *  platform-unioned into every compiled ontology). */
 async function starWithOntology(star: string) {
   const browser = new Browser();
@@ -46,18 +46,18 @@ async function starWithOntology(star: string) {
   return { browser, ...admin };
 }
 
-/** The current InviteStatus rows at `nodeId`, as { email → { state, tier, error? } } — read
+/** The current _InviteStatus rows at `nodeId`, as { email → { state, tier, error? } } — read
  *  through the PUBLIC query + read path (what the members panel does). */
 async function inviteStatuses(
   client: NebulaClient, nodeId: string,
 ): Promise<Record<string, { state: string; tier: string; error?: string }>> {
   using sub = client.resources.subscribeQuery({
-    queryType: 'parentChild', typeName: 'InviteStatus', field: 'node', value: nodeId,
+    queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: nodeId,
   });
   await sub.ready;
   const out: Record<string, { state: string; tier: string; error?: string }> = {};
   for (const id of sub.resourceIds) {
-    const snapshot = await client.resources.read('InviteStatus', id);
+    const snapshot = await client.resources.read('_InviteStatus', id);
     if (snapshot) {
       const v = snapshot.value as { email: string; state: string; tier: string; error?: string };
       out[v.email] = { state: v.state, tier: v.tier, ...(v.error !== undefined ? { error: v.error } : {}) };
@@ -66,18 +66,20 @@ async function inviteStatuses(
   return out;
 }
 
-describe('PLATFORM_RESOURCE_TYPES — reserved names refuse loudly', () => {
-  it('an app ontology declaring a reserved platform type name is refused at compile, never merged', async () => {
-    // Pure function, no running system needed: the guard exists because TypeScript would MERGE the
+describe('PLATFORM_RESOURCE_TYPES — the reserved "_" namespace refuses loudly', () => {
+  it('an app ontology declaring any _-prefixed type name is refused at compile, never merged', async () => {
+    // Pure function, no running system needed: the guard exists because TypeScript would MERGE a
     // duplicate interface silently (declaration merging), and the validator compiler emits despite
     // type errors — so without the explicit check a colliding app type widens the platform type
-    // with no signal anywhere. Reds against deleting the reserved-name loop in
+    // with no signal anywhere. The PREFIX is reserved wholesale, not the current names — hence the
+    // second probe, a name on no platform list, which proves the rule is the namespace and a
+    // future platform type needs no guard edit. Reds against deleting the underscore check in
     // compileOntologyVersion (the compile then succeeds — the silent merge).
     const { compileOntologyVersion } = await import('../../../src/ontology-compile');
-    for (const reserved of ['InviteStatus', 'OrgNode']) {
+    for (const name of ['_InviteStatus', '_AnyFutureName']) {
       expect(() => compileOntologyVersion({
-        version: 'v-collide', types: `interface ${reserved} { anything: string }`,
-      })).toThrow(new RegExp(`"${reserved}" is reserved`));
+        version: 'v-collide', types: `interface ${name} { anything: string }`,
+      })).toThrow(new RegExp(`"${name}" starts with "_"`));
     }
     // Positive control: a non-colliding config still compiles (the guard refuses names, not apps).
     expect(compileOntologyVersion({ version: 'v-ok', types: TEST_TYPES }).version).toBe('v-ok');
@@ -223,7 +225,7 @@ describe('Star.invite — the validation boundary', () => {
   });
 });
 
-describe('InviteStatus — org-visible live state', () => {
+describe('_InviteStatus — org-visible live state', () => {
   it('a second admin\'s re-invite converges on ONE row, in a defined state', async () => {
     const star = uniqueStar();
     const { client: adminA } = await starWithOntology(star);
@@ -247,12 +249,12 @@ describe('InviteStatus — org-visible live state', () => {
 
       // Exactly ONE row for the address — reds against INSERTing a second (the convergence rule).
       using sub = adminB.resources.subscribeQuery({
-        queryType: 'parentChild', typeName: 'InviteStatus', field: 'node', value: ROOT_NODE_ID,
+        queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
       });
       await sub.ready;
       let matches = 0;
       for (const id of sub.resourceIds) {
-        const snapshot = await adminB.resources.read('InviteStatus', id);
+        const snapshot = await adminB.resources.read('_InviteStatus', id);
         if ((snapshot?.value as { email?: string } | undefined)?.email === target) matches++;
       }
       expect(matches).toBe(1);
@@ -270,7 +272,7 @@ describe('InviteStatus — org-visible live state', () => {
     try {
       // B subscribes FIRST (org-visible, ADR-008): the whole lifecycle arrives on B's channel.
       using sub = adminB.resources.subscribeQuery({
-        queryType: 'parentChild', typeName: 'InviteStatus', field: 'node', value: ROOT_NODE_ID,
+        queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
       });
       await sub.ready;
 

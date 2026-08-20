@@ -51,7 +51,7 @@ export interface NodeInvitee { email: string; tier: PermissionTier }
 
 /** `Star.invite`'s synchronous ack — SUBMISSION outcomes only (a true delivery failure is
  *  out-of-band and arrives hours later, when no tab is listening); everything downstream lands in
- *  `InviteStatus` rows the members panel query-subscribes. */
+ *  `_InviteStatus` rows the members panel query-subscribes. */
 export interface NodeInviteAck { accepted: number; errors: InviteeError[] }
 
 /** The DAG tier vocabulary, as a runtime gate — mesh args are compile-time typed but
@@ -449,14 +449,14 @@ export class Star extends NebulaDO {
    * Invite people onto a NODE — the two-plane operation: it initiates here, where the inviter's
    * authority lives (`requirePermission`: `admin` at `nodeId` — the only authz decision on this
    * path, because the facade cannot evaluate a DAG grant by design), writes `pending`
-   * `InviteStatus` rows locally, fires the membership mint through the facade, and returns the
+   * `_InviteStatus` rows locally, fires the membership mint through the facade, and returns the
    * ack. The result handler ({@link onInviteResult}) writes the `setPermission` grants and flips
    * each row to `sent`/`submission-failed` — so the two planes are both written at INVITE time,
    * and the invitee's first login finds everything in place (no login-time sequencing).
    *
    * `callAsync`-able: cross-node-self-contained — the facade call is FIRED with a traveling
    * handler, never awaited, so the ack carries only what is decided locally (SUBMISSION outcomes;
-   * everything later is `InviteStatus` state). Batch semantics: one `nodeId` per call (one
+   * everything later is `_InviteStatus` state). Batch semantics: one `nodeId` per call (one
    * `requirePermission` licenses the whole batch), `tier` per invitee, a malformed email joins the
    * per-invitee errors without failing the batch — but an out-of-vocabulary `tier` refuses the
    * WHOLE call before any side effect (a grant vocabulary error is a caller bug, not a per-address
@@ -464,11 +464,11 @@ export class Star extends NebulaDO {
    *
    * The facade call requests NO `scopeAdmin` bit — the cap rule in its degenerate form: a node
    * inviter's authority is a DAG grant, and the `tier` parameter governs the DAG grant only.
-   * Convergence: one `InviteStatus` row per (email, node) — a re-invite converges on the existing
+   * Convergence: one `_InviteStatus` row per (email, node) — a re-invite converges on the existing
    * row (fresh `tier`, back to `pending`) rather than duplicating, so a second admin sees one
    * coherent state (ADR-008 org-visibility).
    *
-   * Precondition: the host Star must hold an INSTALLED ontology — the `InviteStatus` rows ride the
+   * Precondition: the host Star must hold an INSTALLED ontology — the `_InviteStatus` rows ride the
    * ordinary Resources pipeline, so this fails closed (before the facade fires) on a Star that has
    * never had one, exactly as any resource write would. A production Star always has its app's.
    */
@@ -518,7 +518,7 @@ export class Star extends NebulaDO {
         if (existing) {
           ops[existing.resourceId] = { op: 'put', eTag: existing.meta.eTag, value };
         } else {
-          ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: 'InviteStatus', value };
+          ops[crypto.randomUUID()] = { op: 'create', nodeId, typeName: '_InviteStatus', value };
         }
       }
       const written = await this.#dataPlane.doTransaction(crypto.randomUUID(), ops, '');
@@ -548,7 +548,7 @@ export class Star extends NebulaDO {
    * DO's eviction and the inviter's disconnect. Writes the second plane: `setPermission` at the
    * node for every minted `sub` (already-member outcomes included — that is what heals the one
    * reachable two-plane inconsistency, a membership without its grant), then flips each
-   * `InviteStatus` row to `sent`/`submission-failed`.
+   * `_InviteStatus` row to `sent`/`submission-failed`.
    *
    * `public` and deliberately NOT `@mesh()` — the fire-back lands via `__handleResponse`
    * (allowlist off, scope-check on), and an `@mesh` here would let any in-scope caller forge an
@@ -597,9 +597,9 @@ export class Star extends NebulaDO {
     }
   }
 
-  /** The CURRENT `InviteStatus` row for (email, node), or null — the convergence lookup. */
+  /** The CURRENT `_InviteStatus` row for (email, node), or null — the convergence lookup. */
   #findInviteStatus(nodeId: string, email: string): (Snapshot & { resourceId: string }) | null {
-    for (const { resourceId } of this.#dataPlane.findCurrentByField('InviteStatus', 'node', nodeId)) {
+    for (const { resourceId } of this.#dataPlane.findCurrentByField('_InviteStatus', 'node', nodeId)) {
       const snapshot = this.#dataPlane.doRead(resourceId);
       if (snapshot && (snapshot.value as { email?: string }).email === email) {
         return { ...snapshot, resourceId };
@@ -631,7 +631,7 @@ export class Star extends NebulaDO {
         [existing.resourceId]: { op: 'put', eTag: existing.meta.eTag, value },
       }, '');
       if (!written.ok) {
-        debug('nebula.Star.invite').warn('an InviteStatus flip did not apply (a newer writer owns the row)', {
+        debug('nebula.Star.invite').warn('an _InviteStatus flip did not apply (a newer writer owns the row)', {
           nodeId, resourceId: existing.resourceId,
         });
       }

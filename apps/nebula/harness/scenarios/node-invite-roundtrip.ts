@@ -1,6 +1,6 @@
 /**
  * **Scenario 5 on real infrastructure — a node invite writes BOTH planes, walked as the invitee.**
- * `Star.invite(nodeId, …)` → pending `InviteStatus` → facade → Registry mint → REAL email through
+ * `Star.invite(nodeId, …)` → pending `_InviteStatus` → facade → Registry mint → REAL email through
  * the catch-all → the invitee clicks, logs in AT the star, and acts at the node under the grant
  * written at invite time — nothing left to apply on arrival (the whole point of the design).
  *
@@ -18,7 +18,7 @@
  *  4. The invitee's first WRITE at the node commits — the invite-time grant authorizes it.
  *     *Live-mutation-checked: suppress the handler's grant write → this limb reds while 1–3 stay
  *     green (run 2026-08-19).*
- *  5. The `InviteStatus` row reached `sent`, read back through the public query + read path.
+ *  5. The `_InviteStatus` row reached `sent`, read back through the public query + read path.
  *  6. A negative control: a SECOND real member of the star with no node invite is refused the same
  *     write — proving limb 4 was the grant, not an open node.
  *
@@ -57,7 +57,7 @@ export async function run(stack: DevStack): Promise<void> {
 
     // A running Star needs an installed ontology for ANY resource write (a production Star always
     // has its app's) — compiled here in Node off the same leaf the Worker uses, installed through
-    // the admin-gated mesh entry. InviteStatus rides every version (platform-unioned).
+    // the admin-gated mesh entry. _InviteStatus rides every version (platform-unioned).
     const row = compileOntologyVersion({
       version: `live-${suffix}`,
       types: 'interface TestResource { title: string }',
@@ -122,20 +122,20 @@ export async function run(stack: DevStack): Promise<void> {
     }
     assert.ok(committed, `the invitee's write never committed (last outcome: ${lastKind}) — the invite-time grant is missing`);
 
-    // ── LIMB 5: the InviteStatus row reached `sent` (the public query + read path) ─────────────
+    // ── LIMB 5: the _InviteStatus row reached `sent` (the public query + read path) ─────────────
     const sub = invitee.resources.subscribeQuery({
-      queryType: 'parentChild', typeName: 'InviteStatus', field: 'node', value: ROOT_NODE_ID,
+      queryType: 'parentChild', typeName: '_InviteStatus', field: 'node', value: ROOT_NODE_ID,
     });
     await sub.ready;
-    assert.ok(sub.resourceIds.length >= 1, 'no InviteStatus row visible at the node');
+    assert.ok(sub.resourceIds.length >= 1, 'no _InviteStatus row visible at the node');
     let state: string | undefined;
     for (const id of sub.resourceIds) {
-      const snapshot = await invitee.resources.read('InviteStatus', id);
+      const snapshot = await invitee.resources.read('_InviteStatus', id);
       const v = snapshot?.value as { email?: string; state?: string } | undefined;
       if (v?.email === inviteeEmail) state = v.state;
     }
     sub[Symbol.dispose]();
-    assert.equal(state, 'sent', `the (email, node) InviteStatus row holds "${state ?? 'no row'}", wanted "sent"`);
+    assert.equal(state, 'sent', `the (email, node) _InviteStatus row holds "${state ?? 'no row'}", wanted "sent"`);
 
     // ── LIMB 6: negative control — a member with NO node invite is refused the same write ──────
     const outsiderEmail = uniqueTestEmail();
@@ -189,7 +189,7 @@ export async function run(stack: DevStack): Promise<void> {
 
   console.error(
     '[node-invite-roundtrip] ack synchronous; real letter tagged + delivered; click logged in ' +
-    'bit-less at the star; the invite-time grant authorized the first write; InviteStatus reached ' +
+    'bit-less at the star; the invite-time grant authorized the first write; _InviteStatus reached ' +
     'sent; the un-granted control was refused',
   );
 }
