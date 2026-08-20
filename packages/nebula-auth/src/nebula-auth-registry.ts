@@ -454,13 +454,16 @@ export class NebulaAuthRegistry extends DurableObject {
   // ============================================
 
   /**
-   * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row (with
-   * data-use consent opt-IN), MINTS the claiming admin `Identity` (`scopeAdmin=1`, `emailVerified=0` — the
-   * claimer still proves via the magic link, which find-and-flips `emailVerified`), and issues a
-   * magic link. An mint point — this is where a Universe's first admin identity is minted.
+   * Universe self-signup (open, Turnstile-gated at the Worker). Registers the `Scopes` row, mints
+   * the claiming admin identity via `#mintIdentity` — an `Emails` row for a new address plus the
+   * `Memberships` row (`scopeAdmin=1`; a new address starts `emailVerified=0` and the claimer proves
+   * it via the magic link, which find-and-flips `emailVerified`) — and issues a magic link. A mint
+   * point — this is where a Universe's first admin identity is minted.
    *
-   * ⚠️ Self-signup idempotency (mints the scope itself, so `UNIQUE(email,scope)` can't backstop a
-   * double-submit) is deferred for pre-alpha — §Founder / Phase-1 success criteria (m6).
+   * ⚠️ Self-signup idempotency (mints the scope itself, so `Memberships`' `UNIQUE (emailId,
+   * universeGalaxyStarId)` can't backstop a double-submit) is deferred for pre-alpha — the planned
+   * fix is a pending-signup single-flight keyed on the address alone; the empty `it.skip` stub in
+   * `test/identity-mint-point.test.ts` marks the hole.
    */
   async claimUniverse(slug: string, email: string, origin: string):
     Promise<{ message: string; magicLinkUrl?: string }> {
@@ -508,7 +511,7 @@ export class NebulaAuthRegistry extends DurableObject {
 
   /**
    * **Open Star self-signup** — a stranger becomes the star-scoped admin of a Star inside someone else's Galaxy,
-   * with no admin in the loop. An MINT POINT: this is where a Star's star-scoped admin identity is minted.
+   * with no admin in the loop. A MINT POINT: this is where a Star's star-scoped admin identity is minted.
    *
    * That openness is the product, not a defect to engineer away. A star-scoped admin holds the **star's
    * own scope** as their `authScope`, which `hasDominionOver` makes inert at every ancestor (ADR-015: dominion
