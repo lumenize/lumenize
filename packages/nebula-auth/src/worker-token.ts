@@ -215,7 +215,17 @@ export async function handleEmailMagicLink(request: Request, env: Env, instanceN
 
 // ── magic-link / accept-invite (click) ───────────────────────────────────────────────────────────
 
-/** Shared consume: generate the raw refresh token, call the registry consume RPC, set cookie + redirect. */
+/** Shared consume: generate the raw refresh token, call the registry consume RPC, set cookie + redirect.
+ *
+ * ⚠️ Placement invariant: this request touches only the PRE-PLACED Registry singleton (+ KV) and
+ * 302s to static assets — it first-touches no per-user DO. That is load-bearing because corporate
+ * email scanners fetch these links and follow the redirect (why they are multi-use within TTL),
+ * and a Durable Object is permanently placed near its FIRST request — so a per-user DO created
+ * here would live near the scanner's datacenter, not the user, forever. Per-user placement
+ * happens at WebSocket connect (per-tab Gateway instance — self-correcting) and at provisioning
+ * (Turnstile-gated, real browser). If this path ever gains a per-user DO first-touch, it inherits
+ * the scanner-placement problem; the known remedy is an interstitial POST-on-click form (rendering
+ * scanners follow GET links but do not submit forms). */
 async function consumeAndLogin(
   env: Env,
   rawLoginToken: string,

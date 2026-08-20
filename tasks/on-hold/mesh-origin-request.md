@@ -2,6 +2,8 @@
 
 **Status**: design settled 2026-06-12 (interface, capture point, and naming pinned with Larry), not started. Its original consumer — [nebula-dataplane-root-admin.md](nebula-dataplane-root-admin.md) Part 1b (place the Star near the tenant) — was DEFERRED 2026-06-15, so there's no immediate driver. Pick up when a real pre-create provisioning entry point lands.
 
+**The placement fact that motivates the `locationHint` half (recorded 2026-08-20):** a Star is placed near its *founder* at provisioning and Cloudflare never migrates it toward its traffic — an admin in Philadelphia founds a Star and members in Sydney talk to Philadelphia forever. Today no user-serving DO is placed by anything a link scanner can reach (the magic-link consume path's invariant — `consumeAndLogin`'s JSDoc in `packages/nebula-auth/src/worker-token.ts`), so founder-placement is the only placement unfairness in the system, and `CallOptions.locationHint` is its lever.
+
 ## Objective
 
 Client-originated mesh calls carry a curated snapshot of the originating HTTP request — geo (`request.cf` subset), IP, user agent, accept-language — on `callContext`, so features that need origin facts (DO placement hints, audit logs, i18n) read them generically instead of plumbing one-offs per feature. Plus the write-side companion: a caller can direct placement of a not-yet-created DO via `CallOptions.locationHint`.
