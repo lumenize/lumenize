@@ -1209,7 +1209,7 @@ export class NebulaAuthRegistry extends DurableObject {
     log.info('Scope deleted', {
       target,
       callerSub,
-      // ⚠️ **Named for the TOKEN, not for a role — deliberately.** This object is ADR-016's own
+      // ⚠️ **Named for the TOKEN, not for a role — deliberately.** The field is ADR-016's own
       // phrase: "the FULL verified claims of the acting token". So `actingToken.sub` reads as *the
       // token's subject*, which is what it is; nobody expects a token's `sub` to be its actor.
       // A ROLE name inverts and misleads here: `actor.sub` reads as "the actor", but under
@@ -1217,12 +1217,7 @@ export class NebulaAuthRegistry extends DurableObject {
       // misreading ADR-016 exists to prevent, and it would be believed. (`actingClaims` was the same
       // defect one step removed — "the acting claims" still invites "the acting sub".) Let the
       // structure carry the meaning: a token has a subject and an actor, and `act` names the actor.
-      actingToken: {
-        sub: callerClaims.sub,
-        act: callerClaims.act,
-        profileId: callerClaims.profileId,
-        access: callerClaims.access,
-      },
+      actingToken: projectActingToken(callerClaims),
       affected: plan.affected.map(a => a.instanceName),
     });
     return { affected: plan.affected };

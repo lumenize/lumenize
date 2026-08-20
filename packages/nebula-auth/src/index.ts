@@ -49,8 +49,10 @@ export {
 } from './parse-id';
 
 // ADR-016's acting-principal projection — the ONE shared shape every record site uses.
-// ⚠️ Exported deliberately: `apps/nebula` needs the identical record for Resources' `changedBy`, and
-// a second hand-rolled projection there is the divergence ADR-016 calls unrecoverable history.
+// ⚠️ Exported deliberately: `apps/nebula` records the identical shape (Resources' `actingToken`
+// column), and a second hand-rolled projection there is the divergence ADR-016 calls unrecoverable
+// history. (Resources itself imports it from the Node-safe `./claims` subpath, not this barrel —
+// this module is in its client value graph and the barrel exports the Registry DO.)
 export { projectActingToken } from './access-claims';
 export type { ActingTokenRecord } from './access-claims';
 

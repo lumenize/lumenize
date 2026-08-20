@@ -7,7 +7,7 @@
 
 ## Context
 
-A person's public profile (`name`/`nickname`/`picture`) must resolve from a bare `sub` wherever it is encountered — a chat roster, `changedBy` attribution, the org tree — and those encounters routinely cross scope/Star/Universe boundaries (a roster in scope X references a `sub` whose profile lives in scope Y). The `profileId` is a random opaque registry UUID (ADR-010): unguessable and non-enumerable, but **not scarce** — the mesh hands it out wherever display resolution is legitimate (the bearer's own JWT claim, [ADR-013](013-identity-profileid-resolution.md)'s attribution stamps on every snapshot, rosters, URLs per ADR-017), so holding one is ordinary, not evidence of anything.
+A person's public profile (`name`/`nickname`/`picture`) must resolve from a bare `sub` wherever it is encountered — a chat roster, `actingToken` attribution, the org tree — and those encounters routinely cross scope/Star/Universe boundaries (a roster in scope X references a `sub` whose profile lives in scope Y). The `profileId` is a random opaque registry UUID (ADR-010): unguessable and non-enumerable, but **not scarce** — the mesh hands it out wherever display resolution is legitimate (the bearer's own JWT claim, [ADR-013](013-identity-profileid-resolution.md)'s attribution stamps on every snapshot, rosters, URLs per ADR-017), so holding one is ordinary, not evidence of anything.
 
 ADR-008 established "identity is not confidential" but is **explicitly intra-Star** and disclaims cross-tenant visibility, so it does not by itself license a global read. The reflex a fresh contributor reaches for is a scope-intersection **reach gate** on the profile read — which breaks exactly the cross-scope resolution the feature exists for.
 

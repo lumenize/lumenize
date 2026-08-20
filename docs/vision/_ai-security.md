@@ -45,7 +45,7 @@ stated there: an AI that can never read what the asking user cannot read — nev
 
 **What is shared across levels 2 and 3 is the substrate, and that is the important part.** A Studio chat
 message and an end-user chat message are both Resources. So both inherit full non-destructive history, both
-carry a `changedBy` naming who wrote them, and both would inherit an observation record naming what an answer
+carry an `actingToken` naming who wrote them, and both would inherit an observation record naming what an answer
 read. Neither level needs its own attribution story, and neither should get one — the level-specific sections
 below therefore point at § *Attribution* rather than restating it.
 
@@ -296,7 +296,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 |---|---|---|
 | Nothing important is permanently destroyed | [ADR-004](../adr/004-snodgrass-temporal-resources.md) snapshot sequences; soft delete is a snapshot transition | **Built** |
 | An injection's read blast radius is capped at the asking user | ReBAC/DAG substrate ([`auth.md`](auth.md) § *The data plane*) | **Built** |
-| Every resource change names who made it | `Snapshots.changedBy` | **Built**, in an interim shape |
+| Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
 | Destructive and authority-changing acts record the full acting token | one shared projection, ADR-016 | **Partially built**; durable sink absent |
 | A shared answer is re-authorized against what produced it | observations, [ADR-019](../adr/019-derived-artifacts-record-observations.md) | **Designed, not built** |
@@ -333,7 +333,7 @@ exposure is a rim around an attributed core; theirs is the core.
 **Most outside-world traffic is inbound, and it splits cleanly.**
 
 - **Pulled into Resources** — the common case, and there is no gap at all: the moment external data lands as a
-  Resource it inherits full history and a `changedBy`, exactly as if a person had typed it.
+  Resource it inherits full history and an `actingToken`, exactly as if a person had typed it.
 - **Used ephemerally** — never persisted, so there is nothing to version. What we keep is the **who and when**
   of the call, plus some of the **what** (the URL, the address) — deliberately not the full content, which
   would mean warehousing third-party data we chose not to keep. ⏳ *Designed, not built:* the hook is the
@@ -364,7 +364,7 @@ or cite back at them, and that is the line to hold: a byproduct they own, never 
 Attribution is one question asked in four parts, and we have clean answers to two of them.
 
 **Who acted.** `originAuth` on the mesh call context carries the verified claims of whoever originated the
-call, propagated automatically across every hop. Resources project it into `Snapshots.changedBy` on every
+call, propagated automatically across every hop. Resources project it into `Snapshots.actingToken` on every
 write, so "what changed, when, and by whom" is a lookup rather than a reconstruction. Under impersonation the
 record names both parties — the subject and the full actor chain — which is [`auth.md`](auth.md) §
 *Impersonation*'s second rule, and ADR-016's whole reason for existing.
@@ -378,7 +378,7 @@ the mutable `state` side channel.
 context: `callChain` is the topology, and `originAuth` — the verified `sub` plus the full JWT payload,
 including the `act` chain — is the identity, inherited **unchanged at every hop** and never re-derived. So
 any node, however many hops deep, can answer *who is this on behalf of* without a lookup and without anyone
-threading it by hand; that is what lets Resources build `changedBy` from context alone. At a client origin the
+threading it by hand; that is what lets Resources build the `actingToken` record from context alone. At a client origin the
 identity is even present in the topology element, since a client's `instanceName` begins with its `sub` and
 the Gateway verifies that against the JWT before accepting the socket. **Attribution needs both halves, and
 both are already present** — what is missing is somewhere to put them (below), not the data itself.
@@ -389,9 +389,9 @@ entries between the origin and the Gateway are client-assertable; everything app
 framework-stamped. `originAuth` carries no such caveat — it is replaced wholesale from the verified
 attachment. Neither is an authorization input.
 
-⚠️ **Neither of these is persisted anywhere durable except `changedBy`.** `callChain` lives for the duration of
+⚠️ **Neither of these is persisted anywhere durable except the `actingToken` column.** `callChain` lives for the duration of
 a call. The acting-token records that ADR-016 requires today go to the debug log and nowhere durable
-([`auth.md`](auth.md) § *Reading the history*). So the "know within seconds exactly who did it" half of the
+([`auth.md`](auth.md) § *Attribution*). So the "know within seconds exactly who did it" half of the
 position is, right now, a design and a log line — not a capability. **That gap is the single largest distance
 between this document and the system.**
 
@@ -440,7 +440,7 @@ What the platform owes a domain expert who is not an agentic-development expert:
 - **A system prompt that pushes toward the loop,** so improving the guidance is the default motion at the end
   of a piece of work rather than a practice they would have to invent.
 - **Guidance as Resources,** which is what makes its evolution attributable and reversible for free — the same
-  substrate, not a parallel mechanism. A guidance edit is a snapshot with a `changedBy`, so "who loosened this
+  substrate, not a parallel mechanism. A guidance edit is a snapshot with an `actingToken`, so "who loosened this
   rule and when" is a lookup, and reverting is re-addressing a prior snapshot.
 - **Chat history as Resources,** so the record of how an app came to be is durable, attributable, subscribable,
   and governed by the same grants as everything else in the Galaxy.

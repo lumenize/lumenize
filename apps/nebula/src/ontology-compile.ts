@@ -33,7 +33,7 @@ export interface OntologyVersionRow {
 /**
  * Platform-fixed Resource types, unioned into EVERY compiled ontology version — entities the
  * PLATFORM writes on a host's data plane regardless of what the app defines, riding the ordinary
- * Resources machinery (validation, snapshots, `changedBy` attribution, subscriptions, queries)
+ * Resources machinery (validation, snapshots, `actingToken` attribution, subscriptions, queries)
  * rather than a second store.
  *
  * ⚠️ Why not a second store (a sibling per-scope DO carrying platform out-of-band state)?

@@ -19,8 +19,11 @@
  *
  * PURE by construction: imports only `./parse-id` and `./types` — no `cloudflare:workers`, and as of
  * 2026-07-31 no crypto import either (the `jti` is a direct `crypto.randomUUID()` call) — so it is
- * safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath. Signing stays with the caller
- * (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
+ * safe to pull into the Node-safe `@lumenize/nebula-auth/testing` subpath, and it IS the
+ * `@lumenize/nebula-auth/claims` subpath — the route by which a module in a Node-safe value graph
+ * (e.g. apps/nebula's `resources.ts`, reachable from its client subpath) takes `projectActingToken`
+ * without dragging the root barrel's Registry DO (`cloudflare:workers`) along. Signing stays with the
+ * caller (the server resolves BLUE/GREEN from env; the test-util reads `.dev.vars`).
  */
 import type { AccessEntry, NebulaJwtPayload } from './types';
 import { ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER } from './types';
@@ -84,14 +87,6 @@ export function buildNebulaAccessEntry(
   return access;
 }
 
-/**
- * Build the full Nebula JWT payload (unsigned).
- *
- * Enforces the internal-consistency invariant — the active scope (`aud`) must sit at or below
- * the minted `authScope` — throwing the same error the server mint does. This is
- * defense-in-depth mirrored at `router.verifyNebulaAccessToken`: it makes an inconsistent
- * token impossible to construct here, not merely rejected downstream.
- */
 /** The acting-principal record: every party to an action, projected from verified claims. */
 export interface ActingTokenRecord {
   /** The AUTHORITY principal — the token's subject. ⚠️ Under impersonation this is the person acted
@@ -122,6 +117,14 @@ export function projectActingToken(claims: NebulaJwtPayload): ActingTokenRecord 
   return { sub: claims.sub, act: claims.act, profileId: claims.profileId, access: claims.access };
 }
 
+/**
+ * Build the full Nebula JWT payload (unsigned).
+ *
+ * Enforces the internal-consistency invariant — the active scope (`aud`) must sit at or below
+ * the minted `authScope` — throwing the same error the server mint does. This is
+ * defense-in-depth mirrored at `router.verifyNebulaAccessToken`: it makes an inconsistent
+ * token impossible to construct here, not merely rejected downstream.
+ */
 export function buildNebulaJwtPayload(input: NebulaAccessClaimInput): NebulaJwtPayload {
   const access = buildNebulaAccessEntry(input.instanceName, input.scopeAdmin);
   // Structural — two strings, no `scopeAdmin` operand. It asserts the token is internally

@@ -1850,7 +1850,7 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
    * Post a `role:'user'` Message to the pre-alpha session (Child 3 Phase 4) — a single
    * atomic create on the DevStudio data plane, stamped with the sender's `author` (the surrogate
    * `sub`, display-only — D-attribution). `email` is no longer a JWT claim
-   * (tasks/nebula-auth-surrogate-sub.md), so the author is the `sub`; server-stamped `changedBy.sub`
+   * (tasks/archive/nebula-auth-surrogate-sub.md), so the author is the `sub`; server-stamped `actingToken.sub`
    * display is the proper follow-on (tasks/nebula-chat-history-multiuser.md). Returns the
    * client-generated message id. Rides the `Message where session==DEFAULT_SESSION_ID` query, so the
    * sender AND every other subscriber see it via the fanout (no optimistic echo, D-echo). `chat`

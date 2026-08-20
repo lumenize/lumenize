@@ -64,14 +64,11 @@ export type EmailMessage =
  *
  * ⚠️ **Local, deliberately.** `@lumenize/crypto` is a shared primitive package with its own consumers; widening
  * its type is out of scope. ⚠️ **Not a pending reconciliation** — `tasks/archive/nebula-auth-decouple-from-auth.md`
- * considered folding this widening into the shared package and REJECTED it (widening now buys a shape
- * about to change); ADR-016 / `nebula-pre-alpha.md` schema-surgery item 6 is where `projectActClaim`'s
- * deletion actually lives, as `resources.ts` already cites. ⚠️ `apps/nebula/src/resources.ts`
- * keeps importing the **narrow** `@lumenize/crypto` type: its `changedBy` is a persistence boundary, and
- * declaring an optional `profileId` there is the ADR-001 divergence `projectActClaim` exists to
- * prevent. **The type system is not a guard across that seam** — the widened shape is structurally
- * assignable to the narrow one, so nothing errors if the wrong import is chosen; the projection is the
- * sole enforcement.
+ * considered folding this widening into the shared package and REJECTED it. This widened chain is also
+ * exactly what persists: `apps/nebula`'s `Snapshots.actingToken` column stores the full
+ * `ActingTokenRecord` (ADR-016), whose `act` is this type — the old narrow-`changedBy` interim and its
+ * `projectActClaim` projection were deleted when `nebula-pre-alpha.md`'s schema-surgery item 6 landed
+ * (2026-08-20).
  *
  * Recursive per RFC 8693, outermost = current. This endpoint's mint never nests (the root-identity gate
  * refuses an act-bearing caller and the builder writes a flat actor), but depth ≤ 1 is a property of

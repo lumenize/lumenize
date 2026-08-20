@@ -43,6 +43,7 @@ export { END_OF_TIME } from './resources';
 export type {
   Snapshot,
   SnapshotMeta,
+  WireActingToken,
   OperationDescriptor,
   TransactionResult,
   TransactionError,

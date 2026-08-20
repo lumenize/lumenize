@@ -53,6 +53,22 @@ export async function run(stack: DevStack): Promise<void> {
       'read-back Message.session must equal the FK (ADR-006 by-id relationship preserved)',
     );
 
+    // ── ATTRIBUTION rides the read-back (ADR-016 record → wire projection): the server stamped the
+    // writer's identity from the VERIFIED token — subject `sub` + display `profileId` — and the
+    // asserted `access` never leaves the DO. Real-login claims (rung 1), so the `profileId` here is
+    // the one the registry actually minted for this fresh address — no fixture to build wrong.
+    // (Each assert is backed by an in-lane mutation: narrowed projection reds the profileId limb;
+    // wire pass-through reds the access limb — mint-narrower-token-payoff / star-resources.)
+    {
+      const at = readBack.meta.actingToken;
+      const claims = driver.client.claims;
+      assert.ok(claims.profileId, 'fixture guard: a real login must carry a profileId claim, or the equality below is vacuous');
+      assert.equal(at.sub, claims.sub, 'actingToken.sub must be the logged-in writer');
+      assert.equal(at.profileId, claims.profileId,
+        'actingToken.profileId must ride for display (the ADR-013 write-time stamp)');
+      assert.ok(!('access' in at), 'the asserted access must NOT ride a client-bound snapshot');
+    }
+
     // ── SUBSCRIBE it back: the marker also arrives on the live subscription's initial snapshot ──
     {
       using sub = driver.client.resources.subscribe('Message', messageId);

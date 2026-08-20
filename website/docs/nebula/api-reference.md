@@ -727,7 +727,7 @@ interface SnapshotMeta {
 - **User code reads `meta`; only the framework writes it.** Writes to `meta.*` pass through middleware unchanged but are warned-on in debug builds.
 - **Tombstones are real snapshots.** A deleted resource keeps its last `value`; `meta.deleted: true` is the only deletion signal — check it *before* any `value` truthiness test (see [Coding your UI § Loading and first paint](./coding-your-ui.md#loading-and-first-paint)). A `null` from `read` means "never created", not "deleted".
 - `meta.nodeId` is how UI code attaches new resources next to existing ones — [Coding your UI § Atomic append](./coding-your-ui.md#atomic-append--adding-to-a-collection) creates a todo at the list's `meta.nodeId`.
-- Additional framework-owned fields (`validTo`, `changedBy`, `ontologyVersion`) exist server-side and may appear; treat `meta` as an open, read-only shape.
+- Additional framework-owned fields (`validTo`, `actingToken`, `ontologyVersion`) exist server-side and may appear; treat `meta` as an open, read-only shape.
 
 ## `textMerge` {#textmerge}
 

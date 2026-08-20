@@ -509,7 +509,7 @@ export class Star extends NebulaDO {
 
     if (valid.length > 0) {
       // `pending` rows, converged on (email, node) — through the ordinary transaction path, so
-      // validation, `changedBy` attribution (the inviter, `act` chain included) and subscriber
+      // validation, `actingToken` attribution (the inviter, `act` chain included) and subscriber
       // fan-out all apply. Server-side write → no originating client to exclude ('').
       const ops: Record<string, OperationDescriptor> = {};
       for (const v of valid) {

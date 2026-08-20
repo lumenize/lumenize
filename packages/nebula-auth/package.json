@@ -11,7 +11,11 @@
       "import": "./src/index.ts",
       "types": "./src/index.ts"
     },
-    "./testing": {
+    "./claims": {
+      "import": "./src/access-claims.ts",
+      "types": "./src/access-claims.ts"
+    },
+  "./testing": {
       "import": "./src/testing.ts",
       "types": "./src/testing.ts"
     },

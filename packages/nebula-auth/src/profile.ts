@@ -267,8 +267,8 @@ export class Profile extends ComposedMeshDO(DurableObject, 'Profile') {
     // which rule (1) forbids. This tests only that an `act` chain is PRESENT, never who the actor is.
     //
     // ⚠️ **A known, accepted consequence of presence-only** — do not "fix" it with the variants above.
-    // If a future `prependActor` ever stamps the platform onto a TOKEN (it is planned only for a
-    // `changedBy` RECORD), a person's own session would carry `act` and lose the owner branch on their
+    // If a future `prependActor` ever stamps the platform onto a TOKEN (it is planned only for an
+    // `actingToken` RECORD), a person's own session would carry `act` and lose the owner branch on their
     // OWN profile. The remedy then is to keep such a token out of this path — or to re-open ADR-012 —
     // never to start comparing `act.sub` to `claims.sub`, which is precisely the manufacture the
     // exception exists to defeat.

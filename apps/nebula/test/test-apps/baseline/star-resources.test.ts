@@ -119,7 +119,7 @@ describe('star-resources', () => {
       expect(snapshot.meta.validTo).toBe(END_OF_TIME);
       expect(snapshot.meta.deleted).toBe(false);
       expect(snapshot.meta.eTag).toBe(txnResult.eTags[resourceId]);
-      expect(snapshot.meta.changedBy.sub).toBeDefined();
+      expect(snapshot.meta.actingToken.sub).toBeDefined();
 
       client[Symbol.dispose]();
     });
@@ -445,11 +445,17 @@ describe('star-resources', () => {
       expect(updateResult.ok).toBe(true);
       if (!updateResult.ok) throw new Error('Expected ok');
 
-      // Read — changedBy should be the user
+      // Read — the actingToken's subject should be the user
       user.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(user) as Snapshot;
       expect(snap.value.title).toBe('v2');
-      expect(snap.meta.changedBy.sub).toBe(userSub);
+      expect(snap.meta.actingToken.sub).toBe(userSub);
+      // Wire boundary: identity + display `profileId` ride the delivered snapshot; the asserted
+      // `access` NEVER leaves the DO — it lives only in the stored column (the payoff test asserts
+      // that half). Mutation: pass the parsed column through #getCurrentSnapshot unprojected → the
+      // key-presence check reds.
+      expect(snap.meta.actingToken.profileId).toBeDefined();
+      expect('access' in snap.meta.actingToken).toBe(false);
 
       admin[Symbol.dispose]();
       user[Symbol.dispose]();

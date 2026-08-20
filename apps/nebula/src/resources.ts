@@ -8,13 +8,12 @@
 
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-// ⚠️ **The NARROW `ActClaim`, deliberately — do NOT swap this to `@lumenize/nebula-auth`'s.** That one
-// is widened with an optional `profileId` (the JWT carries an actor PAIR); this type is the
-// `Snapshots.changedBy` PERSISTENCE boundary, which must not declare a field it does not store
-// (ADR-001). The widened shape is structurally assignable to this one, so **the type system will not
-// catch the swap** — `projectActClaim` below is the sole enforcement, and a widened import would make
-// its narrowing look redundant to the next reader.
-import type { ActClaim } from '@lumenize/crypto';
+// ⚠️ VALUE import from the `/claims` subpath, NEVER the root barrel: this module sits in the Node-safe
+// client value graph (`client-index.ts` re-exports `END_OF_TIME`), and the barrel exports the Registry
+// DO, which pulls `cloudflare:workers`. `/claims` is pure by construction — its own header says so —
+// and it is ADR-016's ONE shared projection; no site assembles its own record.
+import { projectActingToken } from '@lumenize/nebula-auth/claims';
+import type { ActingTokenRecord } from '@lumenize/nebula-auth/claims';
 import { debug } from '@lumenize/debug';
 import { PermissionDeniedError } from './errors';
 import type {
@@ -32,6 +31,22 @@ export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
 
 // ─── Types ─────────────────────────────────────────────────────────
 
+/**
+ * The CLIENT-BOUND attribution projection of the stored ADR-016 record — an ALLOW-LIST (pick, never
+ * subtract): identity (`sub` + the complete `act` chain, actor `profileId`s included — display-only,
+ * public per ADR-012/013) plus the subject's `profileId`, and nothing else. The column stores the full
+ * `ActingTokenRecord` including the asserted `access`; `access` never rides a snapshot off the DO —
+ * a reader has no claim to the writer's asserted authority, and ADR-016 already forbids reading it
+ * back as an authz input. Allow-list so a field later added to the record stays withheld without
+ * anyone deciding (the same shape as ADR-012's private-by-default).
+ */
+export interface WireActingToken {
+  /** The token's SUBJECT. ⚠️ Under impersonation this is the person acted UPON; the actor is `act.sub`. */
+  sub: string;
+  act?: NebulaJwtPayload['act'];
+  profileId?: string;
+}
+
 export interface SnapshotMeta {
   nodeId: string;
   typeName: string;
@@ -39,7 +54,7 @@ export interface SnapshotMeta {
   eTag: string;
   validFrom: string;
   validTo: string;
-  changedBy: ActClaim;
+  actingToken: WireActingToken;
   deleted: boolean;
 }
 
@@ -63,31 +78,30 @@ export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
   | { ok: false; errors: Record<string, TransactionError> };
 
+/** Allow-list pick for the wire — see {@link WireActingToken}. */
+function toWireActingToken(rec: ActingTokenRecord): WireActingToken {
+  return {
+    sub: rec.sub,
+    ...(rec.act && { act: rec.act }),
+    ...(rec.profileId && { profileId: rec.profileId }),
+  };
+}
+
+/** Structural walk shape for {@link identityKey} — both the stored record and the wire projection fit. */
+type ActChainLike = { sub: string; act?: ActChainLike };
+
 /**
- * Narrow an `act` chain to `{ sub, act? }` — dropping `profileId` at **every** depth.
- *
- * ⏳ **An INTERIM with a scheduled end, not the target model.** `nebula-auth`'s JWT `act` claim carries
- * the actor's `profileId` (an actor pair — the claims describe two people); `Snapshots.changedBy` must
- * not, because it is (a) typed as `@lumenize/crypto`'s NARROW `ActClaim`, which cannot declare the field
- * (ADR-001), and (b) doubling as the same-actor coalesce key at `#writeSnapshot`, where a widened
- * record would change the compare. `tasks/nebula-pre-alpha.md`'s schema-surgery item 6 replaces that
- * column with the full acting claims and derives the key from `sub` + `act` — at which point **this
- * function is deleted, not adjusted** (ADR-016 says the widened claim is then exactly what should be
- * stored). Whoever builds item 6: this is the line to remove.
- *
- * ⚠️ **RECURSIVE deliberately.** A one-level projection (`{ sub, ...(a.act && { act: a.act }) }`)
- * passes every fixture `/mint-narrower-token` can produce — its root-identity gate caps that mint at
- * depth 1 — and still leaks `profileId` at depth ≥ 2, which a platform prepending itself as an
- * additional actor will produce. Spreading a variable means TypeScript runs no excess-property check,
- * so nothing would catch it. The recursive form costs the same; a guard that rests on today's
- * producers is a guard that silently expires (`calibration.md` §4).
- *
- * Exported (rather than inlined in the `#`-private `#buildChangedBy`, which is zero-parameter and
- * reads its input from `callContext`) purely so a unit test can hand it a hand-built depth-2 chain —
- * no mint can produce one.
+ * The same-actor coalesce key — IDENTITY ONLY: the subject's `sub` plus the `act` chain's `sub`s, in
+ * chain order. The stored record must NOT be the key: the coalesce window (1 h) spans several 15-min
+ * tokens, so keying on anything a re-mint or a mid-session event can change would stop an editing
+ * session coalescing and multiply rows on the highest-volume write path — `access` flips on a
+ * mid-window promotion, and a `profileId` (the subject's or an actor's) re-points on a future
+ * `sub`-unification. Identity is what "same actor" means.
  */
-export function projectActClaim(act: ActClaim): ActClaim {
-  return { sub: act.sub, ...(act.act && { act: projectActClaim(act.act) }) };
+function identityKey(t: { sub: string; act?: ActChainLike }): string {
+  const subs: string[] = [t.sub];
+  for (let a = t.act; a; a = a.act) subs.push(a.sub);
+  return JSON.stringify(subs);
 }
 
 // ─── Resources Class ───────────────────────────────────────────────
@@ -121,7 +135,7 @@ export class Resources {
         validFrom TEXT NOT NULL,
         validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
         eTag TEXT NOT NULL,
-        changedBy TEXT NOT NULL,
+        actingToken TEXT NOT NULL,
         deleted INTEGER NOT NULL DEFAULT 0 CHECK (deleted IN (0, 1)),
         value TEXT NOT NULL,
         PRIMARY KEY (resourceId, validFrom),
@@ -145,7 +159,7 @@ export class Resources {
 
   #getCurrentSnapshot(resourceId: string): Snapshot | null {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, changedBy, deleted, value
+      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value
        FROM Snapshots
        WHERE resourceId = ? AND validTo = ?`,
       resourceId, END_OF_TIME,
@@ -163,7 +177,10 @@ export class Resources {
         eTag: row.eTag as string,
         validFrom: row.validFrom as string,
         validTo: row.validTo as string,
-        changedBy: JSON.parse(row.changedBy as string) as ActClaim,
+        // The ONE wire choke point: every outbound Snapshot — read(), a conflict's currentSnapshot,
+        // the post-write fanout capture — is built here, so the allow-list projection here is what
+        // keeps the stored `access` inside the column.
+        actingToken: toWireActingToken(JSON.parse(row.actingToken as string) as ActingTokenRecord),
         deleted: Boolean(row.deleted),
       },
     };
@@ -194,10 +211,10 @@ export class Resources {
     return new Date(ts).toISOString();
   }
 
-  #buildChangedBy(): ActClaim {
+  #buildActingToken(): ActingTokenRecord {
     const cc = this.#getCallContext();
     const payload = cc.originAuth?.claims as unknown as NebulaJwtPayload;
-    return { sub: payload.sub, ...(payload.act && { act: projectActClaim(payload.act) }) };
+    return projectActingToken(payload);
   }
 
   #writeSnapshot(
@@ -206,7 +223,7 @@ export class Resources {
     op: OperationDescriptor,
     validFrom: string,
     eTag: string,
-    changedBy: ActClaim,
+    actingToken: ActingTokenRecord,
     typeName: string,
     ontologyVersion: string,
   ): void {
@@ -242,20 +259,24 @@ export class Resources {
         break;
     }
 
-    const changedByJson = JSON.stringify(changedBy);
+    // The FULL record goes into the column (ADR-016: `sub` + complete `act` chain + `profileId` +
+    // asserted `access`); the wire copies are projected at #getCurrentSnapshot.
+    const actingTokenJson = JSON.stringify(actingToken);
 
-    // Coalesce check: same actor within window overwrites in place
+    // Coalesce check: same actor within window overwrites in place. "Same actor" is decided by
+    // identityKey — NEVER by comparing the stored records, which now carry claims a re-mint can
+    // change mid-window (see identityKey's JSDoc).
     if (current && op.op !== 'create') {
       const withinWindow = Date.now() - new Date(current.meta.validFrom).getTime() < coalesceWindowMs;
-      const sameActor = JSON.stringify(current.meta.changedBy) === changedByJson;
+      const sameActor = identityKey(current.meta.actingToken) === identityKey(actingToken);
 
       if (withinWindow && sameActor) {
         // Overwrite in place — same PK (resourceId, validFrom), new value/eTag
         this.#ctx.storage.sql.exec(
           `UPDATE Snapshots
-           SET nodeId = ?, typeName = ?, ontologyVersion = ?, eTag = ?, changedBy = ?, deleted = ?, value = ?
+           SET nodeId = ?, typeName = ?, ontologyVersion = ?, eTag = ?, actingToken = ?, deleted = ?, value = ?
            WHERE resourceId = ? AND validFrom = ?`,
-          nodeId, typeName, ontologyVersion, eTag, changedByJson, deleted ? 1 : 0, value,
+          nodeId, typeName, ontologyVersion, eTag, actingTokenJson, deleted ? 1 : 0, value,
           resourceId, current.meta.validFrom,
         );
         return;
@@ -270,9 +291,9 @@ export class Resources {
 
     // Insert new snapshot
     this.#ctx.storage.sql.exec(
-      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, changedBy, deleted, value)
+      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, actingToken, deleted, value)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, eTag, changedByJson, deleted ? 1 : 0, value,
+      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, eTag, actingTokenJson, deleted ? 1 : 0, value,
     );
   }
 
@@ -363,8 +384,8 @@ export class Resources {
     // writing again.
     const eTag = newETag;
 
-    // Step 4: Build changedBy from callContext
-    const changedBy = this.#buildChangedBy();
+    // Step 4: Build the acting-token record from callContext
+    const actingToken = this.#buildActingToken();
 
     // Step 4.5: Monotonic pre-checks (before the validator). Run against
     // `currentSnapshots` (already read at Step 1 — no extra reads) so a doomed
@@ -605,7 +626,7 @@ export class Resources {
         const typeName = op.op === 'create'
           ? op.typeName
           : authoritative.get(resourceId)!.meta.typeName;
-        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, changedBy, typeName, ontologyVersion);
+        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, actingToken, typeName, ontologyVersion);
         eTags[resourceId] = eTag;
 
         // Capture the post-write snapshot for fanout. Re-read inside the
