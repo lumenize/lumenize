@@ -106,7 +106,7 @@ describe.runIf(HAS_DOCKER)('Scope deletion through the rendered Studio (wrangler
   }, 180_000);
 
   // ⛔ DEFERRED — the invite CARRIER now exists (`NebulaClient.invite` → the mesh facade, built by
-  // tasks/nebula-invite.md 2026-08-19; the Studio still has no invite affordance), but this whole
+  // tasks/archive/nebula-invite.md 2026-08-19; the Studio still has no invite affordance), but this whole
   // lane is blocked upstream of it: `loginToStudio` needs a `.dev` login this suite cannot mint —
   // backlog § *Testing & Quality*'s ui-smoke row OWNS that debt and this skip with it. Deliberately
   // NOT satisfied with an out-of-band registry seed: a test-only fixture in this lane is exactly the

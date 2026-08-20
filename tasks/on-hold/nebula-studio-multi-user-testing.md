@@ -15,7 +15,7 @@
 | Decision | Rejected alternative — why |
 |---|---|
 | **`claim-star` MUST NOT adopt a member-less `Scopes` row** | Open adoption — it lets **anyone who learns the slug** found a Star an admin pre-created for a specific person: first-come-first-served capture, the exact hole `claimStar`'s reserved-slug reject exists to close for `.dev` (*"without it, a stranger founds the user-developer's own `.dev` Studio"*), generalized to every pre-created tenant Star. |
-| **The safe founding of a pre-created Star is an INVITE carrying `scopeAdmin` into the empty scope** | A new adoption/founding mechanism — [nebula-invite.md](../nebula-invite.md)'s planned shape (per-invitee `scopeAdmin`, membership minted into a named scope) already covers it; the empty-scope state is designed-for. No mechanism needed, only (eventually) a test that invite-into-zero-member-scope works. |
+| **The safe founding of a pre-created Star is an INVITE carrying `scopeAdmin` into the empty scope** | A new adoption/founding mechanism — [archive/nebula-invite.md](../archive/nebula-invite.md)'s planned shape (per-invitee `scopeAdmin`, membership minted into a named scope) already covers it; the empty-scope state is designed-for. No mechanism needed, only (eventually) a test that invite-into-zero-member-scope works. |
 | **Visiting a production-bound Star before its founder stays a UI WARNING** | An authorization refusal — ADR-015: downward dominion is total and non-vetoable; restraint for destructive/placement-sensitive actions is a warning, never a refusal. |
 
 ## Open questions for when this resumes
@@ -27,5 +27,5 @@
 ## Relationships
 
 - **Adjoins** [nebula-pre-alpha.md](../nebula-pre-alpha.md)'s synthetic-subjects thread (unowned as of 2026-08-17).
-- **Consumes, when it resumes:** [nebula-invite.md](../nebula-invite.md)'s per-invitee `scopeAdmin` (the founding path above).
+- **Consumes, when it resumes:** [archive/nebula-invite.md](../archive/nebula-invite.md)'s per-invitee `scopeAdmin` (the founding path above).
 - **Does not touch** [nebula-registry-route-guards.md](../archive/nebula-registry-route-guards.md) — `create-star`'s table row is unaffected.

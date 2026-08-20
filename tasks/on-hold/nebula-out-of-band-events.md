@@ -1,6 +1,6 @@
 # Out-of-band events — a generic, subscribed attention mechanism
 
-**Status:** On-hold stub, spun out of the invite design ([nebula-invite.md](../nebula-invite.md) § *Transport*) on 2026-08-19. Design intent captured below; not yet through `/write-task`.
+**Status:** On-hold stub, spun out of the invite design ([archive/nebula-invite.md](../archive/nebula-invite.md) § *Transport*) on 2026-08-19. Design intent captured below; not yet through `/write-task`.
 
 **Target shape in one line:** server-side happenings a user should learn about later (email bounce, build finished, import complete) become **Resources entities** — a discriminated-union event type, addressed to a `sub`, delivered by ordinary query-subscribe on connect/reconnect, dismissed by client soft-delete.
 

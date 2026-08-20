@@ -106,7 +106,7 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 - **The in-app scope switcher** (`myScopeTree`, `activeScope`) — a different picker with a different source, named in § *Future state* only so the two stay apart.
 - **Multi-session switching UI** — the picker makes it possible; building it is later.
 - **Turnstile policy.** It stays exactly where it is; this changes which endpoints need to be behind it, not how it works.
-- **The invite mechanism** → [nebula-invite.md](nebula-invite.md). Invites keep their scoped links.
+- **The invite mechanism** → [archive/nebula-invite.md](archive/nebula-invite.md). Invites keep their scoped links.
 - **Anything about reach or the claims shape** → [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md).
 
 ## Open questions
@@ -123,5 +123,5 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 - **Slotted into** [nebula-pre-alpha.md](nebula-pre-alpha.md) § *Invite-gated*.
 - **Independent of** [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) — that changes what a token carries; this changes when a person is told what they hold. Neither reads the other's surface, so the queue order is free.
 - **Answers a Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — its ⚠️ note that nobody has driven superuser → discover → select the platform scope end to end is this file's open question 3 plus its superuser criterion.
-- **Touches** [nebula-invite.md](nebula-invite.md) only at the boundary: invites keep scoped links, so its mechanism is unaffected by the scope-less default.
+- **Touches** [archive/nebula-invite.md](archive/nebula-invite.md) only at the boundary: invites keep scoped links, so its mechanism is unaffected by the scope-less default.
 - **Documentation** — `website/docs/nebula/auth-flows.md` describes the current flows and is the other surface that changes.
