@@ -32,6 +32,15 @@ Phase by phase, sequentially, in the current branch, following `.claude/rules/` 
 `.claude/rules/prose-voice.md`. Diff-scoped: bring the file no further over budget than you
 found it, and bring what you wrote within it.
 
+**Then walk the diff a second time, for what it DISPLACED.** When a phase adopts something — a
+package, a mechanism, a schema shape, a new predicate — list what it touches and ask of each:
+*what is this still for?* Not "does it still work", which a green test answers either way. This
+is the question that deletes a class instead of guarding it (`calibration.md` §2), and it needs
+an occasion: §2's own tell asks you to notice you are mid-failure, where this asks only whether
+something landed — which your diff already shows you. Larry supplies it by hand as *"what does X
+actually do now that we've adopted Y?"*, and it has repeatedly found a mechanism whose reason had
+quietly moved out from under it.
+
 **Why this and not the verifier panel:** the panel in step 3 checks each phase against its *success criteria*, and a confidently-worded false claim satisfies those. The discriminator is mechanical and was measured (2026-07-30, `nebula-impersonation-client` review): **every claim verified with a targeted tool call was right; every claim inferred from adjacent context was wrong** — five in one sitting. ⚠️ **"I already read that file" is NOT the check** — in the worst instance the disproving line was in the session's own earlier tool output, so the failure was not looking but failing to ask what the read implied. Per-*claim*, not per-file.
 
 ⚠️ **This bites hardest on the standing-guidance edits**, which are the ones no test can red: they ship always-loaded, and a wrong one misleads every future session. The task file is **not evidence for itself** — when a line you are writing is determined by a claim the task file already makes, verify that claim rather than inheriting it. (`✅ Checkable` in a task file means the claim was *shaped* to be falsifiable, **not** that anyone ran it; two such claims shipped false through several review passes precisely because the marker implied otherwise.)
