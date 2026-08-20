@@ -14,7 +14,7 @@ None of these is hypothetical. Every one is drawn from a real, dated failure her
 
 **What to do instead:** users need access to data to do their work, and low-risk information should flow freely. Two of the three corrections are already on your screen, in `workflow.md`'s always-loaded ADR index: [ADR-008](../../docs/adr/008-full-org-tree-visibility.md)'s *visibility ≠ capability*, and [ADR-017](../../docs/adr/017-the-url-is-the-view-state.md)'s test — *does it reveal anything **not already public**?*, never *does it reveal anything?* Read them there. The third loads nowhere else:
 
-- **The wedge is security *without* friction.** Secure-by-default means the substrate carries it, so a user-developer pays nothing. A gate disproportionate to the *real* (not theoretical) risk therefore works against the wedge — especially one fighting a core feature like self-provisioning. `docs/vision/_review-lens.md` argues it, and does not load automatically.
+- **The business wedge is security *without* friction.** Secure-by-default means the substrate carries it, so a user-developer pays nothing. A gate disproportionate to the *real* (not theoretical) risk therefore works against the wedge — especially one fighting a core feature like self-provisioning. `docs/vision/_review-lens.md` argues it, and does not load automatically.
 
 ⚠️ **This does not weaken the substrate.** Non-overridable secure-by-default stays non-overridable; the correction is about not piling friction on top. Where a low-probability, fixable-under-the-covers risk is in genuine tension with velocity or growth, ship — and fix it quietly.
 
@@ -83,7 +83,9 @@ Four failure modes, same root — treating the suite as an oracle rather than as
 
 **Where it bit (2026-07-27):** `actFor` *was* the minted token's `sub`, so every reader had to hold a mapping. Larry proposed the rename, it was talked down on call-site grounds, and the same conversation recurred at his expense until he insisted (`tasks/archive/nebula-mint-narrower-token.md`).
 
-**A good name is a falsifiable claim, and that is the point.** Its replacement — `/mint-narrower-token` with `{ sub, activeScope }` — names the token fields the caller actually wants, and `act.sub` is derived from the Bearer token so it cannot be misnamed at all. Because "narrower" asserted something the code had to satisfy, checking it exposed two real violations. The old name asserted nothing, so nothing could be checked against it.
+**The PARAMETERS are the model here, not the endpoint name.** `{ sub, activeScope }` — each is literally the token field the caller wants, and `act.sub` is derived from the Bearer token, so it is not a parameter and cannot be misnamed at all.
+
+**A good name is also a falsifiable claim.** Asserting the minted token is *narrower* gave the code something it had to satisfy, and checking it exposed two real violations; `delegated` asserted nothing, so nothing could be checked against it. Assert that invariant in a predicate or a JSDoc, though — `/mint-narrower-token` names what the implementation produces, while the caller is asking to impersonate someone, which is what the rest of the system calls it (`admin.impersonate()`, `assertCanImpersonate`, two `/live` scenarios). Whether the endpoint should be renamed is open in `tasks/backlog.md` § *Nebula Auth*.
 
 **How to catch yourself:** you are writing a glossary entry, a mapping table, or a sentence of the form *"X is really Y"* — in a task file, a comment, or a reply. That is the rename signal, not a documentation task.
 
