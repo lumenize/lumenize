@@ -80,6 +80,16 @@ three separate times in one session: the harness's default login path was alread
 and the wrangler session were both present, and `needsContainer = false` already existed — none of it
 discovered until someone asked why the tier had been skipped.
 
+**Check what the harness CONSTRUCTS, not only what a scenario asserts.** A helper that builds
+the credential is a mock wearing a helper's name, and every scenario riding it asserts over a
+shape production cannot mint. `connectDriver`'s mint path sets `instanceName:
+opts.mint?.issuerInstanceName ?? scope` (`lib/harness.ts:320`), so narrowing the scope narrows
+the claim in lockstep — a scenario built on it cannot produce a denial by narrowing, which was
+the exact denial the 2026-08-16 passage/dominion work existed to create. The fix was to
+re-derive rather than port: `scenarios/downward-dominion.ts` takes its admin limb from a real
+login (`provisionAndLogin`, rung 1) so the server decides the claim. That mint path still
+exists for callers that want it — read the line before trusting any scenario built on it.
+
 ⚠️ **A multi-limb scenario reddens on its FIRST failing limb, which hides every later limb's
 vacuity — so mutation-check PER LIMB, not per scenario.** Bit 2026-08-16: `passage-not-dominion`
 went red under the mutation it was written against, which looked like proof the whole scenario was

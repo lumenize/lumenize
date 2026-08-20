@@ -15,5 +15,18 @@
       "WebFetch(domain:developers.cloudflare.com)",
       "WebFetch(domain:jurisjs.com)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/scripts/prose-hook.sh"
+          }
+        ]
+      }
+    ]
   }
 }

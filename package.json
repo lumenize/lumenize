@@ -26,6 +26,7 @@
     "dev:studio": "./scripts/dev-studio.sh",
     "types": "./scripts/generate-types.sh",
     "audit:test-mode": "./scripts/audit-test-mode.sh",
+    "audit:prose": "node scripts/check-prose.mjs",
     "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",

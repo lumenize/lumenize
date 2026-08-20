@@ -58,7 +58,10 @@ separate them from the drafts that missed, and gives the command that checks a f
 access control is determined by three concepts — scope, dominion, and passage."*
 `auth.md` § *Scopes* opens with a seven-word sentence on its own line. Neither opens with
 a compressed aphorism. You SHOULD write the specific sentence first and then ask whether
-the summary above it survives.
+the summary above it survives. **How to catch it mid-draft:** the first clause of a
+paragraph contains *everything*, *every*, *the only*, *always*, or *never*, and the
+sentences after it are specific. Read that first clause against the last ones before
+moving on — it is usually the enumeration that is true.
 
 **Tell the reader where they are going.** ADR-015: *"The rest of this ADR is spent
 precisely specifying those calculations…"* `auth.md`: *"The sections that follow expand
