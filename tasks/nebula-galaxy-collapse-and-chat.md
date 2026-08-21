@@ -365,8 +365,8 @@ Chat's old Phase 3, **simplified**. Streaming is **already built and stays**: `s
 
 *(**The Star-signup page moved to alpha, 2026-08-21** — its server half is built, the pre-alpha cohort arrives by invite, and both this file's § *Serving* and the master plan admit no real third-party signup pre-alpha. ⚠️ The FLOW is not gated: `POST /auth/claim-star` stays open and Turnstile-guarded — open Star self-signup is a pinned business decision. Row in [backlog.md](backlog.md) § *Nebula Studio UI*. The `/app/*` routing it needed is **not** deferred with it — Phase 3 owns it, below.)*
 
-### Phase 8 — audit upward visibility (LAST)
-*(Also adopted from the archived star-founder file. Deliberately last: run it before the collapse and it audits the **5** bare `@mesh()` methods on `galaxy.ts` + `universe.ts`, marks itself done, and leaves the **12** this task folds in from `dev-studio.ts` unaudited — with nothing left to re-trigger it.)*
+### Phase 8 — audit upward visibility
+*(Also adopted from the archived star-founder file. **Runs after Phases 1–5, before the cleanup** — not "last", which is Phase 6's slot. The ordering is load-bearing in one direction only: run it BEFORE the collapse and it audits the handful of bare `@mesh()` methods already on `galaxy.ts` + `universe.ts`, marks itself done, and leaves everything the collapse folds in from `dev-studio.ts` unaudited — with nothing left to re-trigger it. That is also the argument against moving it to a file of its own: it audits a surface **this task creates**, so a sibling file would have to restate the collapse's method inventory to know what to look at.)*
 
 **Goal:** every non-admin `@mesh()` on the collapsed Galaxy/Universe is deliberately reachable by an untrusted descendant, with the reason written down **in the code**.
 
@@ -380,7 +380,7 @@ Chat's old Phase 3, **simplified**. Streaming is **already built and stays**: `s
 - Discharges **ADR-015 clause (3)** (passage ≠ dominion) honestly, with two marker forms rather than one forced label.
 
 ### Phase 6 (cleanup) — retire the container node type + docs + ADR (AFTER green)
-**Sequenced LAST — do not start until Phases 1–5 are green:** don't rip out the old container stack until the plain-`NebulaDO` Galaxy is proven.
+**Sequenced LAST — do not start until EVERY other phase is green:** don't rip out the old container stack until the plain-`NebulaDO` Galaxy is proven. Stated structurally on purpose — a numbered list here went stale the moment Phases 8 and 9 landed ahead of it, and handles are append-only so the digits will keep out-running the order.
 - **Remove `NebulaContainer`** (`apps/nebula/src/nebula-container.ts`) — orphaned once Galaxy `extends NebulaDO` (its `DevContainer` consumer merged into Galaxy in Phase 1/3).
 - **ADR-014 body refresh** — its Consequences still assert the hub `extends Container` / can't construct under pool-workers / `Container` owns `alarm`+`onStart` — the **opposite** of this task's pinned design (`extends NebulaDO`, raw `ctx.container`, retains `svc.broadcast`/`svc.alarms` + pool-workers construction). Fix the Negative/open section to the raw-`ctx.container` reality (the Proposed→Accepted promotion stays gated on the container-hub experiment — the body-fix is independent). ⚠️ The Phase-6 grep sweeps `.claude/rules` + memory, **not `docs/adr`** — easy to miss.
 - ⏭️ **`LumenizeContainer`'s retirement moved to [backlog.md](backlog.md) § *Lumenize Mesh*, 2026-08-21** — the `packages/mesh` deletion, the docs sweep and ADR-007's divergence note go together, gated on this collapse landing. **`NebulaContainer` stays here**: Phase 1 orphans it directly.
