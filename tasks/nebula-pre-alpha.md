@@ -193,8 +193,10 @@ re-deriving here.
   - ⏸️ **The COLLABORATOR** (named-role grant bundle, valid-combinations UI, self-signup redeem hook) is
     **ON HOLD and OUT of pre-alpha** → [on-hold/nebula-collaborator-tiers.md](on-hold/nebula-collaborator-tiers.md);
     resuming is a scheduling call (first consumer: `docs/vision/enterprise.md` § *The invitation is the
-    land motion*). Pre-alpha covers its handful of users with training or the Galaxy-admin-via-bypass
-    enrollment the collapse file carries — broader than the bundle, deliberately so.
+    land motion*). Pre-alpha no longer needs a workaround for it: the collapse file now enrolls a
+    **genuine non-`scopeAdmin` peer** through the shipped invite — a membership at `{u}.{g}` plus one
+    `write` grant at the session node (corrected 2026-08-21; the Galaxy-admin-via-bypass interim it
+    used to carry is gone). What stays on hold is the multi-node grant BUNDLE, not the collaborator.
   - ⚠️ **The SYNTHETIC subjects are NEEDED and UNOWNED.** Neither invite path exercises a data-plane
     permission model — both mint people with mailboxes. For a Star to be exercised it needs **non-admin
     members driven under test**: synthetic act-as-only subjects (no mailbox, no claim, RFC-reserved dead
