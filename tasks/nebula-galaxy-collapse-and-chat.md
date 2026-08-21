@@ -148,7 +148,7 @@ flowchart LR
 3. **Mesh envelopes** (inside the WS): `callee {STAR/GALAXY, scope}` — where `galaxy`/`star` addressing lives. Unchanged.
 
 - **`run_worker_first`:** `["/app/*", "/gateway/*", "/auth/*", "/_version"]`; everything else → Assets → Studio. `/app/*` is Galaxy-served, so the built app does its **own** SPA fallback for its client routes.
-- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds into Phase 3**, which edits the route list anyway: `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`, prod + test), the routing-contract test, Studio's vite `base`.
+- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds into Phase 3**, which edits the route list anyway: `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`) at **every** config site — prod, test, **and `wrangler.harness-no-container.jsonc`**, which is easy to miss and whose omission breaks the container-free `/live` lane — plus the routing-contract test and Studio's vite `base`.
 - **`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, the `GET /_version` handler in [entrypoint.ts](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
 - **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
@@ -315,6 +315,7 @@ phase deletes `/dev-container/*` from that list anyway, so the swap lands here a
 `NEBULA_AUTH_REDIRECT` to `/studio` (prod **and** test), update the routing-contract test, set Studio's vite `base`.
 ⚠️ **The hazard is not a bare `{u}.{g}` slipping past its siblings** — `*` deep-matches, so until `/app/*` is
 worker-first **every** `/app/…` path falls through to Assets and renders the Studio SPA.
+⚠️ **Concurrency note, not an ordering one: [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) reworks `consumeAndLogin`'s redirect**, the same seam this phase flips. Do not interleave the two edits, and settle there — not here — what the post-login destination finally becomes; this phase owns only the `/app`↔`/studio` swap of the value.
 
 **Confirm:** message → codegen → **fresh container start (hidden behind the LLM)** → `runtime.exec` build → **`dist` is
 already in Galaxy's VFS when exec resolves** (assert the readback, not a transfer) → **preview reloads with zero
