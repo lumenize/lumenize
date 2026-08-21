@@ -180,6 +180,19 @@ function backwardRestatements(t) {
   return uniq
 }
 
+// A REGISTER is appended to, grepped, and read one row at a time — never start to
+// finish. The budgets assume the opposite reader, so they measure the wrong thing:
+// "longest bullet" prices a long row against a reader's pass through the document,
+// and in a register each row IS the unit and has to carry its own context. A file
+// declares itself one in frontmatter (`reading_mode: register`); metrics are still
+// computed and reported, they just do not gate. See .claude/rules/prose-voice.md
+// § *Registers are consulted, not read*. Declared per FILE rather than listed here on
+// purpose — a list in this script is wrong the first time a second register appears.
+const declaresRegister = (raw) => {
+  const fm = raw.match(/^---\n([\s\S]*?)\n---\n/)
+  return !!fm && /^reading_mode:\s*register\s*$/m.test(fm[1])
+}
+
 function analyze(path, kind, maxBytes) {
   const raw = readFileSync(path, 'utf8')
   const { header, body: t } = splitHeader(raw)
@@ -212,9 +225,12 @@ function analyze(path, kind, maxBytes) {
     push(dated, `dated build status in an ADR body: "${dated?.[0]?.slice(0, 60)}…" — belongs in the task file`)
   }
 
+  const isRegister = declaresRegister(raw)
+
   return {
     path: relative(ROOT, path),
     kind,
+    isRegister,
     kb,
     warnTotal,
     avg,
@@ -224,7 +240,7 @@ function analyze(path, kind, maxBytes) {
     restated: backwardRestatements(t),
     headerWords: header.trim() ? header.trim().split(/\s+/).length : 0,
     softBullets: bul.filter((n) => n > 100).length,
-    failures,
+    failures: isRegister ? [] : failures,
   }
 }
 
@@ -305,7 +321,8 @@ const failing = results.filter((r) => r.failures.length)
 
 const head = ['file', 'KB', '⚠️', 'avgSent', 'medPara', 'maxBul', 'abs/KB']
 const rows = results.map((r) => [
-  r.path, r.kb.toFixed(1), String(r.warnTotal), r.avg.toFixed(1),
+  r.isRegister ? `${r.path}  [register]` : r.path,
+  r.kb.toFixed(1), String(r.warnTotal), r.avg.toFixed(1),
   String(r.medianPara), String(r.maxBullet), r.abstractRate.toFixed(2),
 ])
 const w = head.map((h, i) => Math.max(h.length, ...rows.map((x) => x[i].length)))
@@ -313,6 +330,10 @@ const line = (c) => c.map((x, i) => (i ? x.padStart(w[i]) : x.padEnd(w[i]))).joi
 console.log(line(head))
 console.log(w.map((n) => '-'.repeat(n)).join('  '))
 for (const r of rows) console.log(line(r))
+if (results.some((r) => r.isRegister)) {
+  console.log('\n  [register] = declares `reading_mode: register`; consulted per row, so the budgets\n' +
+              '  do not gate it. Metrics above are reported as data.')
+}
 
 if (failing.length) {
   console.log('\nOVER BUDGET — see .claude/rules/prose-voice.md\n')

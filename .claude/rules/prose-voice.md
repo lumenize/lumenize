@@ -182,6 +182,42 @@ The ⚠️ count is **reported but never gated** — read it as a description of
 about, not as a score. Header fields (`**Date**`, `**Status**`, `**Deciders**`,
 `**Evidence**`) are excluded from every measurement and reported separately.
 
+## Registers are consulted, not read
+
+**A file that is appended to and read ONE ROW AT A TIME is not governed by these budgets, and
+declares so in its own frontmatter:**
+
+```markdown
+---
+reading_mode: register
+---
+```
+
+`tasks/backlog.md` is the one that exists. Its metrics are still computed and printed — the table
+marks it `[register]` — they just do not gate.
+
+**Why it is exempt rather than merely over budget.** Everything above is calibrated on the reader
+described at the top of this file: one person, closely, usually once. A register has a different
+reader, and the mismatch is not a matter of degree. The longest-bullet budget prices a long bullet
+against a reader's pass *through the document*; in a register each row IS the unit, read alone,
+often months after it was written and with nothing around it — so a row that carries its own
+context is doing its job, and trimming it to hit a number makes it worse. That is the one repair
+this file already refuses to invite for the ⚠️ count, for the same reason.
+
+⚠️ **A task file MUST NOT claim it.** A task file is read start to finish, which is the whole
+premise of Pass 1 — declaring `register` there dodges the gate rather than describing the reader.
+The bar is narrow: appended to over time, consulted per row, and never read whole.
+
+**Declared per file, never listed in the checker.** A filename list in `check-prose.mjs` would be
+an enumeration, wrong the first time a second register appears — the defect `calibration.md` § 2
+keeps naming. The file says what it is; the script reads the declaration.
+
+⚠️ **`tasks/backlog.md` cannot be moved into an exempt DIRECTORY, so do not propose it** (raised
+and rejected 2026-08-21). It carries ~70 inbound links, **49 of them inside `tasks/archive/`**,
+which `workflow.md` freezes: *"an archived file MUST NOT be updated (no link fixups…)"*. Relocating
+it would either break those 49 or require editing frozen files. The declaration is what is
+available.
+
 ```sh
 node scripts/check-prose.mjs <file>...    # gate: exits non-zero over budget
 npm run audit:prose                       # whole-tree report

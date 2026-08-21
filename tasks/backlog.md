@@ -1,3 +1,7 @@
+---
+reading_mode: register
+---
+
 # Backlog
 
 Small tasks and ideas for when I have time (evening coding, etc.)
