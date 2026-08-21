@@ -57,7 +57,7 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 
 ### Claims this rests on, stated so review can falsify them
 
-- **The cookie path is the *only* reason the scope must be known at consume.** `consumeAndLogin`'s two uses of the resolved scope are the redirect target and the cookie path, both of which belong after the choice.
+- **The cookie path is the *only* reason the scope must be known at consume.** `consumeAndLogin`'s two uses of the resolved scope are the redirect target and the cookie path, both of which belong after the choice. ⚠️ **The redirect target is computed in `landingBase` (`landing.ts`), which already branches on TIER** — `tier === 'star' ? STAR_LANDING_PREFIX : NEBULA_AUTH_REDIRECT` — and that branch is **invisible today because both arms evaluate to `/app`**. It is not dead code to route around; it is what this re-order relocates.
 - **Sending to an unknown address is already the posture**, established by `requestMagicLink`'s no-mint invariant — so the uniform response in step 1 changes what a caller *learns*, not what we *send*.
 - **`MagicLinks` rows are ephemeral** (minutes), so nothing durable changes shape and this is **not wipe-gated**.
 - **`discover`'s only production consumer is the Studio login**; the rest are the vitest and Node-harness login helpers.
@@ -117,6 +117,15 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 
 3. **How is the platform entry presented, and what happens when it is chosen?** It is a membership like any other, so it appears in the picker — but no node is named `nebula-platform`, the mesh boundary refuses every call to one, and `activeScope` defaults to `authScope` for every other entry. So choosing it cannot land in Studio the way a workspace does. **Lean: present it as a mode rather than a workspace, and have it land on the in-app scope switcher.** This is the question that started the thread and it gates the picker's shape.
 
+4. **What does `NEBULA_AUTH_REDIRECT` MEAN once the scope is chosen after the click?** Today it is "where a
+   user-developer lands", read by `landingBase` from the scope the consumed token resolved to. After this re-order
+   there is no scope at consume, so either **(a)** the value becomes "where *everyone* lands to choose" and the tier
+   branch moves **after** the pick, or **(b)** the picker gets its own route and the value keeps its current meaning
+   for the post-pick hop. ⚠️ **Time-sensitive, not merely open:**
+   [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md) Phase 3 flips that env value `/app` →
+   `/studio`, which is what makes the tier branch visible for the first time. Whichever file lands second inherits the
+   other's assumption, so decide it here — that phase owns only the swap of the value, never what it means.
+
 ## Relationships
 
 - **Supersedes** the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth* — that row filed this exact re-order as the proper fix and accepted the leak as a pre-alpha residual; this file takes ownership and the row goes when it lands.
@@ -125,5 +134,5 @@ This is the invariant, stated so it does not decay into "discovery is Turnstile-
 - **Answers a Super-admin building-block gap** in [nebula-pre-alpha.md](nebula-pre-alpha.md) — its ⚠️ note that nobody has driven superuser → discover → select the platform scope end to end is this file's open question 3 plus its superuser criterion.
 - **Touches** [archive/nebula-invite.md](archive/nebula-invite.md) only at the boundary: invites keep scoped links, so its mechanism is unaffected by the scope-less default.
 - ⚠️ **Shares a seam with** [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md): its Phase 3 flips `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`) at every config site, while this file changes *when* the redirect target is known. **Do not interleave the two edits** — a concurrency note, not an ordering one; that file carries the reciprocal. Open question 4 is the decision they share.
-- **Keeps scoped deep links OUT of the picker.** `InviteTokens` rows carry their scope and an explicit `/app/{scope}` link already bypasses discovery — that stays true after the re-order. The picker is the destination for the **bare** login flow, never for an arrival that already names where it is going.
+- **Keeps scoped deep links OUT of the picker.** `InviteTokens` rows carry their scope and an explicit deep link bypasses discovery — that stays true after the re-order. ⚠️ **But the PATH in that sentence does not:** once Phase 3 flips the swap, a galaxy- or universe-tier invitee's link lands under `/studio`, not `/app`. Say "the scoped deep link", never `/app/{scope}`, or this goes stale the day the collapse ships. The picker is the destination for the **bare** login flow, never for an arrival that already names where it is going.
 - **Documentation** — `website/docs/nebula/auth-flows.md` describes the current flows and is the other surface that changes.
