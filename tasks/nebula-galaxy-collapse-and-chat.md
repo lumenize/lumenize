@@ -152,7 +152,7 @@ flowchart LR
 3. **Mesh envelopes** (inside the WS): `callee {STAR/GALAXY, scope}` — where `galaxy`/`star` addressing lives. Unchanged.
 
 - **`run_worker_first`:** `["/app/*", "/gateway/*", "/auth/*", "/_version"]`; everything else → Assets → Studio. `/app/*` is Galaxy-served, so the built app does its **own** SPA fallback for its client routes.
-- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds here:** `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`, prod + test), the routing-contract test, Studio's vite `base`.
+- **`consumeAndLogin` tier-branch** (built in [nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md) Phase 2): star → `/app/{scope}`, universe/galaxy → `/studio/{scope}`. **Bounded churn folds into Phase 3**, which edits the route list anyway: `NEBULA_AUTH_REDIRECT` (`/app`→`/studio`, prod + test), the routing-contract test, Studio's vite `base`.
 - **`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, [entrypoint.ts:61](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
 - **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
@@ -308,6 +308,15 @@ exposed on Cloudflare Containers and **absent** locally, where `FUSE_MOUNT=auto`
 shim — so a green local run proves the drive, never the mount. Verify `/proc/mounts` per run, as the spike did, and
 run the mount-dependent criteria **deployed** ([[test-container-changes-with-wrangler-dev]]).
 
+⚠️ **This phase also OWNS the `/app`↔`/studio` swap — it is the phase that edits the route list, and a PARTIAL swap
+breaks login silently.** Today `wrangler.jsonc` is `run_worker_first: ["/auth/*", "/gateway/*", "/dev-container/*",
+"/_version"]` and `NEBULA_AUTH_REDIRECT` is `/app` — Studio at `/app`, the reverse of the pin — while
+`entrypoint-routing-contract.test.ts` asserts `/app` is SPA-owned and `apps/nebula-studio-ui` has no vite `base`. This
+phase deletes `/dev-container/*` from that list anyway, so the swap lands here as one edit: add `/app/*`, flip
+`NEBULA_AUTH_REDIRECT` to `/studio` (prod **and** test), update the routing-contract test, set Studio's vite `base`.
+⚠️ **The hazard is not a bare `{u}.{g}` slipping past its siblings** — `*` deep-matches, so until `/app/*` is
+worker-first **every** `/app/…` path falls through to Assets and renders the Studio SPA.
+
 **Confirm:** message → codegen → **fresh container start (hidden behind the LLM)** → `runtime.exec` build → **`dist` is
 already in Galaxy's VFS when exec resolves** (assert the readback, not a transfer) → **preview reloads with zero
 manual clicks** → `destroy()`; a compile error surfaces as `buildError` (shown, never retried); an infra hiccup as
@@ -316,8 +325,11 @@ Galaxy instance succeed** (a single-build happy path would pass while the drive 
 `monitor()`) and **two overlapping build cycles serialize** (neither a `start()` throw nor a sibling's `destroy()`
 kills an in-flight build); **a `destroy()` issued while the Workspace session is open does NOT fail the request**
 (**mutation:** drop the teardown ordering → a 1006 reds it); **zero stuck-signature entries in the `@lumenize/debug`
-sink** (a log grep — no bespoke counter, per Decisions). ⚠️ **Deploy-only:** every criterion that depends on the mount
-carrying real bytes — run them on Cloudflare, not `wrangler dev`.
+sink** (a log grep — no bespoke counter, per Decisions). **Routing, asserted as a pair:** `GET /studio/{u}.{g}`
+renders the Studio SPA and `GET /app/{u}.{g}.dev` reaches Galaxy. **Mutation:** revert either half of the swap — drop
+`/app/*` from `run_worker_first`, or leave `NEBULA_AUTH_REDIRECT` at `/app` — and one of the two reds; a login round
+trip through the flipped redirect must land in Studio, which is what catches the silent break. ⚠️ **Deploy-only:**
+every criterion that depends on the mount carrying real bytes — run them on Cloudflare, not `wrangler dev`.
 
 ### Phase 4 (chat) — reactive multi-user thread
 Chat's old Phase 2. `App.vue` replaces the local `messages` array with a live subscription to the session's Messages; **subscribes a live `Profile` per distinct participant** — reads the `profileId`(s) stamped on each message (ADR-013; **one per act-chain participant** — principal *and* any actor like Nebula) and subs `store.lmz.profiles[profileId]`, deduped + cumulative over *all who have ever posted*, **no Registry hop**; closes profile-store Phase 4; **also** subscribes the roster for presence + the AI respond-signal (consumed, not built — Non-goals); renders each message by `kind` with the **resolved name** — **`{actor} for {principal}`** when an actor is present (*Nebula for {human}*, both resolved via their Profiles) — a late-joiner's name (or a live name change) back-fills their earlier messages.
@@ -335,21 +347,7 @@ Chat's old Phase 3, **simplified**. Streaming is **already built and stays**: `s
 - How does the model handle **messages arriving mid-stream** (likelier multi-user than in Claude Code)?
 - **Who may TRIGGER a Nebula reply/codegen** (M4) — **any chat participant** (uniform; it spends the *owner's* AI+build). Owner/admin inherently; invited participants via the invite. *Distinct* from the deferred respond-or-not **policy** (LLM judgment on whether to reply) — this is the **authz** to trigger at all; a per-participant budget/rate-limit is a later concern.
 
-### Phase 7 — the Star-signup page, served from Galaxy
-*(Everything server-side is BUILT — `claim-star`, the reserved-slug reject, the Turnstile registration, and the star-tier redirect ([archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md)). This phase builds only the rendered page.)*
-
-**Goal:** a stranger can actually sign up — a real page, on the app's own surface, not a curl command.
-
-⛔ **After Phase 3** (build-box + container-less serving), which is what gives Galaxy a serving surface at all: Galaxy has **no `fetch` handler** today (the only HTTP surfaces in `apps/nebula/src` are `entrypoint.ts` and `dev-container.ts`). Building signup first would mean standing up a serving surface *for signup alone* — the interim this repo keeps paying to unlearn.
-
-**Where, and why it is load-bearing:** the page is served from **Galaxy**, at **`/app/{u}.{g}`**. Signup is necessarily galaxy-scoped (the star does not exist yet), and under this task's pinned routing (`run_worker_first: ["/app/*", "/gateway/*", "/auth/*", "/_version"]`) a **bare** `{u}.{g}` matches no worker-first prefix — it falls through to Assets and renders the **Studio SPA**, the control plane a stranger must never reach. Two segments under the existing `/app/*` prefix needs no new route: `/app/{u}.{g}` = signup/landing · `/app/{u}.{g}.{s}` = a tenant's instance · `/studio/{u}.{g}` = authoring. ⚠️ **Do NOT build it inside `nebula-studio-ui`** — that is the user-developer control plane.
-
-🔒 **The star-tier redirect is already built and tested** (`consumeAndLogin` branches on the *token's* tier: star → `/app/{scope}`, every other tier rides `NEBULA_AUTH_REDIRECT`). It had to ship with `claim-star` because it bakes into every emailed link and no later UI work can correct a link already sent. It matters *here* because without it a claimer clicks their claim link and lands in the Studio control plane instead of their own app. This phase builds only the **rendered page** at that destination.
-
-**Success (capable-of-failing)** — rendered-page assertions only:
-- **(`ui-smoke`)** A stranger completes signup **through the rendered page at `/app/{u}.{g}`** and lands authenticated on the Galaxy-served app surface — **not** the Studio SPA. Assert the concrete path, since a bare `{u}.{g}` falling through to Assets is exactly the failure.
-- **(`ui-smoke`)** The Turnstile widget is present and enforced on the rendered form (the server-side gate is already in `TURNSTILE_ENDPOINTS`). ⚠️ Provisioning the real widget is a Cloudflare-dashboard human step owned by [on-hold/turnstile-on-in-prod.md](on-hold/turnstile-on-in-prod.md) Phase 0; **locally this passes now** — `turnstile-canary` injects the `1x0000…AA` test key.
-- ⚠️ **Both criteria need the lane shown to have RUN, not `↓ skipped`** — record real `npx vitest run --project ui-smoke` output.
+*(**The Star-signup page moved to alpha, 2026-08-21** — its server half is built, the pre-alpha cohort arrives by invite, and both this file's § *Serving* and the master plan admit no real third-party signup pre-alpha. ⚠️ The FLOW is not gated: `POST /auth/claim-star` stays open and Turnstile-guarded — open Star self-signup is a pinned business decision. Row in [backlog.md](backlog.md) § *Nebula Studio UI*. The `/app/*` routing it needed is **not** deferred with it — Phase 3 owns it, below.)*
 
 ### Phase 8 — audit upward visibility (LAST)
 *(Also adopted from the archived star-founder file. Deliberately last: run it before the collapse and it audits the **5** bare `@mesh()` methods on `galaxy.ts` + `universe.ts`, marks itself done, and leaves the **12** this task folds in from `dev-studio.ts` unaudited — with nothing left to re-trigger it.)*
