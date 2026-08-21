@@ -144,6 +144,18 @@ Both conclusions still stand on their *other* reason, which is precisely why nob
 
 **How to catch yourself:** you are proposing a guard rail for something you personally debugged this session. Ask what its signal was — "it broke immediately and I saw it" is evidence *against* the guard rail, and a prompt to ask what else this build changed would have stayed green if it were wrong.
 
+## 11. You will expose a composed capability with per-host `@mesh()` shims
+
+**What you'll do:** when a capability is composed onto more than one node type, give each host its own `@mesh()` method that forwards to the composed instance — then write that same forwarding method again on the next host, and call the duplication unavoidable.
+
+**What to do instead:** one gate method returns the instance and the caller chains — `@mesh() resources() { return this.#dataPlane }` on each host, called as `ctn<Galaxy>().resources().invite(nodeId, invitees)`. The capability then arrives by composition with no per-host code at all, and a continuation chains the same way. `mesh.md` § *Object-capability access: gate once, then chain* carries the mechanism, a worked example, and the discipline that comes with it: the entry `@mesh` is the only check, so every method reachable through the gate authorizes itself — `DagTree`'s gate says so on the line (*"per-op auth inside DagTree"*). Read it there.
+
+**Where it bit (2026-08-21):** designing where `invite` should live once `Star` and the collapsed `Galaxy` both compose `ResourceDataPlane`. The answer offered was two thin `@mesh()` methods per host plus a bridge closure, described as irreducible — *"two thin shims have to stay on the host class"* — when `nebula-client.ts` had been calling `ctn<Star>().dagTree().setPermission(...)` all along, and `dev-studio.ts` documents that gate as *"Single `@mesh()` entry for the DagTree API"*. Larry: *"Creating all of these thin methods is silly."*
+
+**Why the rule did not stop it, which is the reusable part:** `mesh.md` is path-scoped to mesh and nebula **source**, and this decision was made while editing a **task file**, where it never loads. Mesh shape gets decided in prose long before anyone touches a `.ts`. That rule even predicts the bias in its own last line — *"the per-method `@mesh(guard)` shape is the default reflex (and what LLM training knows)"* — so the correction was written down, loaded nowhere, and read too late.
+
+**How to catch yourself:** you are about to write the same `@mesh()` method on two host classes, or a method whose entire body forwards to a composed instance. Either one means the gate belongs one level up.
+
 ## 10. Opening with a sweep — moved
 
 Now `prose-voice.md` § *The moves that make the difference*. It is prose guidance rather than a training bias, and belongs where it loads at drafting time. The handle stays because archived files cite it and they are frozen.
