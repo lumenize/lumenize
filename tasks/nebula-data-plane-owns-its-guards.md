@@ -2,7 +2,7 @@
 
 **Status:** Pass 1 — design intent only, phases NOT written. **Prerequisite detour for [nebula-galaxy-collapse-and-chat.md](nebula-galaxy-collapse-and-chat.md)**, spun out 2026-08-21 so the collapse folds an already-clean class instead of refactoring and folding in one phase. Nothing here is gated on the collapse; it stands on its own and `Star` gets the benefit immediately.
 
-**Objective — the checks that decide *who* a data-plane call is for live INSIDE the composed data plane, so a host that grafts it on gets them already correct.**
+**Objective — a host grafts on `ResourceDataPlane` and gets a correct boundary for free: the checks that decide *who* a call is for, and the registries the capability manages, both live inside it, so no per-host code is written and none can drift.**
 
 **Three goals, in the order they matter:**
 
@@ -31,7 +31,7 @@
 
 **Exposure does not widen, and nothing new lands on the gate.** Every entry being deleted is already a bare `@mesh()` reachable by any caller with passage — `onBeforeCall` provides that gate today and continues to — so relocating those checks changes *where* they run, never *who* can reach them.
 
-**The subscriber eviction moves in, which is what lets the three drains go `#private`.** `ResourceDataPlane` already receives its ontology through a host closure returning `{ version, facet, relationships }`, so it can see a version change without being told; and `ResourceHostBridge.deliverResourceUpdate` already accepts an `Error`, which is how the `OntologyStaleError` reaches clients today. Detect, drain, notify — all inside, with `Star` calling nothing. No `evictAllSubscribers` and no replacement method: the capability manages its own registries rather than exporting an operation for the host to invoke.
+**The subscriber eviction moves in, which is what lets the three drains go `#private`.** `ResourceDataPlane` already receives its ontology through a host closure returning `{ version, facet, relationships }`, so it can see a version change without being told; and `ResourceHostBridge.deliverResourceUpdate` already accepts an `Error`, which is how the `OntologyStaleError` reaches clients today. Detect, drain, notify — all inside, with `Star` calling nothing. The capability manages its own registries rather than exporting an operation for a host to invoke, which is what lets the three drains be `#private` and leaves the gate's surface unchanged.
 
 ⚠️ **This makes eviction LAZY rather than prompt, deliberately.** The provider is pull-based, so the drop is noticed on the next data-plane call instead of at install. Today's push is prompt because install *is* the event. The existing behaviour already treats promptness as best-effort — *"Fire-and-forget; a failed send is tolerable — reconnect + Handler-1 lazy detection are the backstops"* — so this promotes a backstop to the primary path. A client's UI refreshes on next interaction rather than immediately after a deploy.
 
