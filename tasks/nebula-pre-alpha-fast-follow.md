@@ -69,6 +69,14 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 **Six tests are skipped on this, and they should NOT wait for it.** Five browser benchmarks plus `chromium/conflict-modal` fail only because a fresh `uniqueStar()` has no ontology installed — not because they need a *pull* specifically. Their skip comments say "Un-skip when the prod lazy-pull lands", which fused two different problems. `apps/nebula/src/index.ts` already advertises helpers that apply an ontology via `Star.setOntology` **without a Galaxy round-trip**, and `setOntology` is reachable by an admin-scoped caller — so their setup can install one directly. ⚠️ Confirm first that `conflict-modal` merely *needs* an ontology present rather than testing `ontology-stale` behaviour itself; its own comment says the verdict contract "is unaffected", which reads as the former. Tracked separately in [`backlog.md`](backlog.md) § *Testing & Quality*.
 
 
+## Item 5: The published-tier serve — shipped-tag `dist` for `/app/{u}.{g}.{s}/*`
+
+**Placed here 2026-08-24**, out of the collapse's § *Serving* route table (its one ⏭️ deferred row). **Never in doubt — only deferred.** The same Galaxy `fetch` handler that serves `.dev`'s working-tree `dist` serves any other star the `dist` at that env's **shipped tag** — a tag lookup in the Galaxy's own git history, no second store.
+
+**Demand trigger:** the same as Item 4's — the first pre-alpha user who wants to show their app to someone — and the two land together: a published Star needs its ontology (Item 4) and its `dist` (this) at the same moment.
+
+⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
+
 ## Notes
 
 - A third finding from the same Jennifer analysis — **cross-document spec-drift detection** (her two docs contradict each other: photo-first-required vs text-first capture) — is deliberately *not* an item here: it's a Studio/coach-loop capability question that needs its own framing, and the coach loop covers it manually during alpha. Revisit when the Studio eval suite resumes.
