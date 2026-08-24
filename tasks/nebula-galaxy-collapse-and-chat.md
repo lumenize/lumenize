@@ -94,12 +94,19 @@ sequenceDiagram
       G->>K: runtime.exec("vite build") on the mount, LOCAL ctx.container
       Note over K: vite build (oxide JIT) reads source over FUSE, writes dist over FUSE
       K-->>G: exit code plus the post-exec sync bracket (measured 5 files pulled)
-      Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
-      G->>K: destroy() (ephemeral, fresh container per build)
-      G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
-      P->>G: GET dist (dev-direct, uncached)
-      G-->>P: index.html + hashed assets
-      Note over P,Da: preview boots NebulaClient, data to the Star only
+      alt build ok
+        Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
+        G->>K: destroy() (ephemeral, fresh container per build)
+        G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
+        P->>G: GET dist (dev-direct, uncached)
+        G-->>P: index.html + hashed assets
+        Note over P,Da: preview boots NebulaClient, data to the Star only
+      else buildError — their code, deterministic
+        Note over G: SHOW it in the reply, feed the next message, never retry — last-good dist keeps serving
+        G->>K: destroy()
+      else retryable — box hiccup
+        G->>K: destroy(), fresh start(), rebuild (idempotent) — last-good dist keeps serving
+      end
     else plain-answer verdict — no build
       G-->>Chat: thinking starts, then the GENERATION streams the whole answer — zero container starts
     else stay silent (policy deferred — pre-alpha unreachable)
