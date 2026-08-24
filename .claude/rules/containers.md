@@ -185,8 +185,15 @@ than inherit its lifecycle. A correct raw drive replicates:
   container death.
 - **A readiness poll MUST have a timeout**, never an open-ended wait — and it MUST fail *loudly* if a port
   never comes up (a crashed entrypoint is a bug to surface, not a hang to sit in).
-- **Lifecycle transitions MUST be serialized** — `blockConcurrencyWhile` around start/stop, plus an
-  in-flight-start latch so concurrent callers coalesce onto one `start()` instead of racing a second.
+- **Lifecycle transitions MUST be serialized by an in-memory promise-chain latch, and `blockConcurrencyWhile`
+  MUST NOT wrap them.** Chain each start/stop cycle on the previous one's promise, so concurrent callers
+  coalesce onto one `start()` instead of racing a second — and the DO stays responsive throughout, because
+  every await yields. `blockConcurrencyWhile` pauses delivery of EVERY other event to the DO, and a readiness
+  probe is seconds long by nature (a container is booting) — wrapping it deafens the hub for exactly the
+  window it is busiest, stalling the traffic the companion-DO model exists to keep serving. (This bullet
+  previously prescribed `blockConcurrencyWhile`; caught in hand review 2026-08-24 after being transcribed
+  twice.) The latch is coordination state, not business data — `durable-objects.md`'s no-instance-state rule
+  is not in play.
 - **`envVars` MUST be set before `start()`** — the container reads them at *start*, not at construction.
 
 **On the raw path the `extends Container` frictions disappear:** there is **no base alarm loop**, so
