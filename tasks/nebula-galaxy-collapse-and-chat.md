@@ -120,14 +120,11 @@ build() →                                 no source arg — /workspace IS Gala
  | { ok: false, retryable: true, detail } box hiccup — retry (idempotent)
 ```
 
-**There is no transfer STEP in either direction — the mount IS the transfer, and that is measured, not assumed.**
-The old design pushed source in (`applyChanges`/`syncToDevContainer`) and pulled `dist` back out; both steps are
-**deleted, not ported**, because a file written into Galaxy's tree is already in `/workspace`, and `dist` written
-by the build is already in Galaxy's VFS when `exec` resolves — readback measured **0 ms on every run** (`pulled=5`
-on the build's own post-exec sync bracket), the 9-file scaffold write-in likewise 0 ms. *(Bytes still cross during
-the build itself — vite reads source and writes `dist` over FUSE, the measured 1.05× — but as the build's own I/O,
-never as a step before or after it.)* The call is `runtime.exec('vite build')` over the local `ctx.container` —
-not `getTcpPort().fetch()`.
+**There is no transfer step in either direction — the mount IS the transfer.** The old design pushed source in
+(`applyChanges`/`syncToDevContainer`) and pulled `dist` back out; both steps are **deleted, not ported**: a file
+written into Galaxy's tree is already in `/workspace`, and `dist` written by the build is already in Galaxy's VFS
+when `exec` resolves (evidence → § *Relationships*). The call is `runtime.exec('vite build')` over the local
+`ctx.container` — not `getTcpPort().fetch()`.
 
 - **The split is load-bearing:** a compile error is a *normal outcome* — surface it, feed the next message, **never retry**. Only infra failures retry.
 - **Recovery — no `ctx.abort()`, and ephemeral makes it trivial** (the liveness policy — probe, never `.running` — is § *Decisions locked*'s): a hung/wedged build is just `destroy()` + fresh `start()` + rebuild (`retryable`, idempotent); a build hang → `BUILD_TIMEOUT` + SIGKILL → `retryable`. The **stuck state can't arise** (a container never outlives its build), so there's no live-serving emergency to nuke — which is what makes co-locating the container in Galaxy safe (recovery never tears down the brain).
