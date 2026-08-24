@@ -1,25 +1,13 @@
 # Galaxy collapse + chat — one node, one thread
 
-**Status:** **Pre-review as a whole** — the deliberate bet is *one big file, one long review, then implementation that is mostly transcription*. Doing it in multiple task files, would have either left either duplication or a broking interim state between task files. Sole active child of [nebula-pre-alpha.md](nebula-pre-alpha.md); that file's wipe item 6 (`actingToken`) lands before this task's build (Phase 2 consumes it), and the whole-file review is deliberately deferred to just before the build.
+**Status:** **Pre-review as a whole** — the deliberate bet is *one big file, one long review, then implementation that is mostly transcription*. Doing it in multiple task files would have left either duplication or a broken interim state between them. Sole active child of [nebula-pre-alpha.md](nebula-pre-alpha.md); that file's wipe item 6 (`actingToken`) lands before this task's build (Phase 2 consumes it), and the whole-file review is deliberately deferred to just before the build.
 
 > 📖 **Vocabulary — one word, one job**:
 > - **collapse** = the **node** collapse: DevStudio + DevContainer + Galaxy → one `Galaxy`. **Never used for anything else in this file.**
 > - **coalesce** = ADR-004's in-place **snapshot** mechanism (a same-actor write updates the current snapshot rather than opening a new row). Reduces *snapshots*, **not** write count. The code names it `coalesceWindowMs`; called **coalesce** throughout this file so it cannot collide with the *real* (client) debounce below.
 > - **debounce** = the **client debounce** (the custom Vue store's, batching client-originated writes before the wire) — the only debounce this task touches. *(A server-side **local debounce** for streaming was considered and **DEFERRED** — see Phase 6.)*
 
-## Why one design problem — and why the collapse leads
-
-Chat's substrate is exactly what the collapse changes:
-
-| Chat depends on | Post-collapse |
-|---|---|
-| its **address** — session on DevStudio at `{u}.{g}.dev` (env-level) | Galaxy at **`{u}.{g}`** (app-level) — the authoring conversation is per-**app**, not per-env |
-| its **host binding** — `DEV_STUDIO` vs `STAR`? | **`GALAXY`** — chat Resources host on the merged node |
-| its **fanout** — the data-plane fans out via `svc.broadcast` | **unchanged** — Galaxy is a plain `NebulaDO`, so `svc.broadcast` stays; only the *host* relocates, not the mechanism |
-
-**Collapse leads; chat is restored onto the new architecture — *not* chat-first.** Chat's substrate (address, host, fanout — the table above) moves with the collapse, so building chat first would tune it to an architecture we're deleting: don't build against a moving surface.
-
-**Part I** pins the architecture — what the collapsed node is, where the compute runs, how the built app is served, and what the turn apparatus becomes. **Part II** restates chat against that architecture, separating what survives the collapse from what it invalidates. **Part III** interleaves the two into phases.
+**Collapse leads; chat is restored onto it** — chat's address, host and fanout all move with the collapse, so building chat first would tune it to an architecture this task deletes. **Part I** pins the architecture — what the collapsed node is, where the compute runs, how the built app is served, and what the turn apparatus becomes. **Part II** restates chat against it, separating what survives from what the collapse invalidates. **Part III** interleaves the two into phases, document order = build order.
 
 ---
 
