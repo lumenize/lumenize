@@ -13,7 +13,7 @@
 
 # Part I — The architecture
 
-### Decisions locked
+## Decisions locked
 
 - **Collapse all THREE** — Galaxy + DevStudio + DevContainer → one node named **`Galaxy`**.
 - **Container kept, demoted, and EPHEMERAL** — from a live vite dev-server to a **stateless build-box, one fresh container per build**. **There is no source to ship and no `dist` to return**: `/workspace` **is** Galaxy's tree over a live FUSE mount. A container that never outlives a build **can't reach the stuck state** — the keep-alive / stuck-recovery apparatus is *designed away*, not solved. Drive + timing → Phase 3; measurements → § *Relationships*. *(Frontend toolchain is going native Rust/Go; in-workerd builds are a losing bet — [[studio-keep-container-native-tide]].)*
@@ -42,7 +42,7 @@
 - **`appVersion` = the ontology's content hash** (its version), injected into the preview shell so the client's **Star data-ops are version-gated** (`OntologyStaleError`). It bumps on an **ontology** change (the Ontology→Star flow above), **never** on a code build — the built code is versioned by its own per-asset `dist` hashes. ⚠️ **The name is a misnomer** (it's the *ontology* version, not a unified app version) — rename to `ontologyVersion` in the cleanup sweep to kill the "is this a publish artifact?" confusion.
 - **Pre-alpha stays on `nebula.lumenize.com`** — one Worker serves shell, preview, Gateway, and auth together (all same-origin), so there's **no serving-domain work** in this task.
 
-### Why one node is sound — where the compute runs, and what it costs
+## Why one node is sound — where the compute runs, and what it costs
 
 The natural objection — heavy startup plus long in-DO **AI awaits contending on Galaxy's single-threaded ontology-read path** — is answered at its root:
 
@@ -54,7 +54,7 @@ The natural objection — heavy startup plus long in-DO **AI awaits contending o
 - **Keep-warm is retired for BOTH, and the windows are why — not thrift.** The container's whole cost sits in the tolerant window, so warmth buys nothing; the DO's wake sits in the intolerant one, where the fix is the **small bundle tier** (the typia move), not warmth machinery. The only warmth-like thing left is Phase 3's **residency hold** (the `setTimeout` heartbeat), held only during a turn.
 - **The storage axis: wake cost also scales with SQLite size** — a cold-storage restore is proportional (multi-GB → several seconds), and it stacks on whichever bundle tier the Worker is in. ⚠️ It is **NOT paid after every ~10 s hibernation** — eviction to cold storage is a separate, deeper event on an unpublished, it-depends timescale (minutes? days? CF doesn't say), so this is an occasional cost, not a per-idle one. **Monitor, don't engineer** (CF knows it's a sore spot and has roadmap items; git storage + text messages stay small for a while) — mostly a **Star** worry (resource data) *today*: ⚠️ § *Serving*'s placement pin puts the Galaxy in the published app's per-request asset path while three corpora grow on it (git history, the chat thread, the codegen corpus), so that pin rides the deferred cache-origin work — a risk already accepted in the backlog's R2 cache row.
 
-### Pinned node shape
+## Pinned node shape
 
 | Decision | Choice | Rationale |
 |---|---|---|
@@ -63,7 +63,7 @@ The natural objection — heavy startup plus long in-DO **AI awaits contending o
 | Binding | one — **`GALAXY`** (`DEV_STUDIO` + `DEV_CONTAINER` both removed) | Three nodes → one; the brain moves **env→app level** (`{u}.{g}`), data stays per-env (`{u}.{g}.{env}` Star). |
 | wrangler | `containers[].class_name` **and** the DO binding → `Galaxy`. No `defaultPort`/`sleepAfter` class props (those are `Container`-only) — the plain `NebulaDO` manages the **ephemeral** container lifecycle **in code** (start at codegen-start · `monitor()`+probe · `destroy()` after deliver). | container-capability config lives on the concrete node. |
 
-### Cast
+## Cast
 
 - **Galaxy** `{u}.{g}` — the brain: codegen (`env.AI`), git Workspace, chat Resources, orchestration, the co-located build-box; serves the dev `dist/`; owns the ontology registry.
 - **build container** *(local, in Galaxy)* — stateless: it runs `vite build` against a FUSE mount of Galaxy's own tree, writing `dist` back through the same mount. Takes no source and returns no artifact. No serving, no HMR, no durable state; `node_modules` is baked into the image on ext4, never in the mount.
@@ -71,7 +71,7 @@ The natural objection — heavy startup plus long in-DO **AI awaits contending o
 - **Studio shell** — the user-developer's cockpit, one browser page holding two surfaces: the **chat window** (talks to Galaxy over the mesh) and the **preview iframe** (below). *(The Gateway WS that the mesh traffic actually traverses is elided — a transparent hop.)*
 - **preview iframe** — the built app; code ← Galaxy (dev direct, prod behind a cache — R2 only if escalated); data ↔ Star.
 
-### Core flow
+## Core flow
 
 ```mermaid
 sequenceDiagram
@@ -112,7 +112,7 @@ sequenceDiagram
     Note over G: commit ONE durable Message (status complete) — query rerun fans it to every subscriber
 ```
 
-### The build-box contract
+## The build-box contract
 
 **There is no transfer step in either direction — the mount IS the transfer.** The old design pushed source in
 (`applyChanges`/`syncToDevContainer`) and pulled `dist` back out; both steps are **deleted, not ported**: a file
@@ -131,7 +131,7 @@ build() →                                 no source arg — /workspace IS Gala
 - **Recovery — no `ctx.abort()`, and ephemeral makes it trivial** (the liveness policy — probe, never `.running` — is § *Decisions locked*'s): a hung/wedged build is just `destroy()` + fresh `start()` + rebuild (`retryable`, idempotent); a build hang → `BUILD_TIMEOUT` + SIGKILL → `retryable`. The **stuck state can't arise** (a container never outlives its build), so there's no live-serving emergency to nuke — which is what makes co-locating the container in Galaxy safe (recovery never tears down the brain).
 - **Log the stuck signature for evidence — no bespoke counter** (`isStuckFlagError`: *"not running / suddenly disconnected / proxying request to container"* — the cloud-only stale-`running=true` that `destroy()` can't clear, native to `ctx.container` — [[cf-container-stuck-flag-cloud]]). Pre-alpha: it already surfaces as an error → **log it via `@lumenize/debug`** (queryable post-facto; rides the observability-tail-worker harvest). A dedicated **stuck-rate metric via Workers Analytics Engine** — also the billing-usage substrate, so a good first WAE learning — is **post-pre-alpha**. Expect **zero**; if it ever fires, that's data, not a reason to re-add `ctx.abort()` (**bar: "a lot of convincing"** — Larry).
 
-### Serving — dev is the only in-scope tier; published is deferred
+## Serving
 
 *Scope: the **user-developer's app**, not the platform **Studio UI** (the one SPA served from Workers Assets, `apps/nebula/wrangler.jsonc` `assets` → `nebula-studio-ui/dist`). "Static" = the pre-built artifact, not the path — the **Galaxy DO IS engaged per request** to serve `dist/`. **Pre-alpha builds and confirms DEV serving only** (Galaxy-direct, no edge cache); there are no published apps / no third-party signup pre-alpha (that's alpha).*
 
@@ -148,30 +148,7 @@ build() →                                 no source arg — /workspace IS Gala
 
 ⭐ **The convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
 
-**Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
-
-**Code and data, for each of the two apps — four combinations, stated separately because they behave differently.** ⚠️ These are not the route table above: two of the four have no URL of their own (both data planes ride the mesh), and `/auth`, `/gateway` and `/_version` belong to the platform rather than to either app.
-1. **Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the `wrangler.jsonc` block below says why.
-2. **Studio's data plane → MESH to `GALAXY`.** `NebulaClient` over the Gateway WS. **No HTTP data path exists** — that is what makes the addressing question purely a naming question.
-3. **The built app's html/js/css → the Galaxy `fetch` handler** — the two `/app` rows in the table; mechanism in *How `/app/*` is served* below.
-4. **The built app's data plane → MESH to `STAR`.** Same shape as (2), different binding.
-
-**How `/app/*` is served: a hand-written branch on `entrypoint.ts` that derives `{u}.{g}` from the star scope, resolves that Galaxy, and calls `serve.ts`** — whose behavior is the codeblock's match-first rule, encoded once (§ *Decisions locked*; Phase 3 carries the criteria). What only this paragraph says: the serve is **deliberately ungated and GET/HEAD-bounded**, because browsers send no `Authorization` on document loads and data is gated on the mesh path. The star segment also picks **which** `dist`: the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup — no second store. *(Reaching for `routeDORequest` here fails structurally: it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.)* ⚠️ **The built app's vite `base` must equal `/app/{u}.{g}.{s}/`** or its sub-assets 404 ([[preview-path-prefix-vite-base]]). Studio's `base` stays `/`.
-
-**Dev caching pin (2026-08-24): `index.html` serves `Cache-Control: no-store`; hashed assets serve `public, max-age=31536000, immutable`.** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so the un-hashed entry point is the only file that must never be cached: everything it names changes name when its content changes. Any other unhashed file (public-dir copies) rides `no-store` with it. *(ETag/304 revalidation is the available upgrade if entry-point bytes ever matter — the Workspace's git already content-addresses every blob, so an ETag is free — not built now.)*
-
-**Where the ACTIVE scope comes from: the URL. Where the AUTH scope comes from: a client-side hint, never the URL and never a cookie.** The refresh cookie is `Path=/auth/{authScope}`, so the client must know the auth scope to construct the refresh call — a link that breaks the moment the URL carries the *active* scope instead. `App.vue` already persists `localStorage['nebula.authScope']` as a fallback; this **promotes it to primary**.
-  - ⚠️ **localStorage, NOT a cookie, and the reason is structural.** A cookie is transmitted automatically, putting `authScope` in front of server code that is forbidden to read it; localStorage never leaves the client, so *"`authScope` from the cookie"* — the scope-less global refresh `security.md` rejects — becomes **impossible rather than prohibited**. The hint tells the CLIENT which refresh endpoint to call; the SERVER still derives auth scope from the path and validates the path-scoped refresh token.
-  - **The absent case is a feature, not a bug:** no hint (a cold browser), or an active scope the hint's auth scope cannot reach, means **run discovery** — [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)'s prove-then-choose flow, whose discovery request a persisted `profileId` would also feed.
-  - ⚠️ **Caveat to carry:** localStorage is unavailable or partitioned in restricted iframes and under Safari ITP. The preview iframe is same-origin pre-alpha so it does not bite; if the built app ever moves to its own origin the hint must be re-derived there, never assumed.
-
-⚠️ **This is a step toward [ADR-017](../docs/adr/017-the-url-is-the-view-state.md), not compliance.** The active scope is in the URL; **view state beyond scope — selection, open panel, filters, sort, paging — is NOT in this task.**
-
-⚠️ **A denied recipient is NOT the end state.** ADR-017 says a shared URL is safe to paste because *"a recipient without access simply gets denied"*; the product answer is a prompt to ask someone at or above that node in the orgTree, the Google-Docs move. **Deferred past pre-alpha** (Larry, 2026-08-21) → [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md).
-
-⚠️ **`/studio/{u}.{g}` pins the ADDRESS, not the concept — Studio is ONE surface WITH A SCOPE, never "the per-app builder"** (Larry, 2026-08-05). A Universe-level `/studio/{u}` is the same surface at a different altitude — which is also why the surface, not the node, names the prefix. **Nothing here builds it.** ⛔ Not to be **named** (no "Lumenize OS"/"Nebula OS" — rejected 2026-08-05).
-
-- **The `wrangler.jsonc` that configures all of it** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
+**The `wrangler.jsonc` that configures the routing** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
 
   ```jsonc
   "assets": {
@@ -186,11 +163,43 @@ build() →                                 no source arg — /workspace IS Gala
     // match-first rule against its own dist (§ How /app/* is served).
   }
   ```
-- **`consumeAndLogin` tier-branch**, computed in `landingBase` ([archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md)): star → `STAR_LANDING_PREFIX`, every other tier → `NEBULA_AUTH_REDIRECT`. ⚠️ **Only ONE constant moves.** `STAR_LANDING_PREFIX` (`landing.ts`) **stays `/app`** — that is where the built app lives and where a star-tier login belongs; `NEBULA_AUTH_REDIRECT` becomes `/studio`. Today both evaluate to `/app`, which is precisely why the branch is invisible — moving one is what makes it diverge. **What the post-login destination finally IS belongs to** [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) § *Open questions* (4) — that file moves the scope choice to after the click, so this phase owns only the VALUES, never what they mean. **The flip and its transcription sweep are Phase 3's**, which edits the route list anyway.
-- **`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, the `GET /_version` handler in [entrypoint.ts](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
-- **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
-### Naming — the turn *apparatus* is deleted, not renamed
+**Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
+
+**The data planes have no route.** Studio's data rides the mesh to `GALAXY`, the built app's to `STAR` — `NebulaClient` over the Gateway WS in both cases, no HTTP data path — which is what makes serving purely a static-files question. `/auth`, `/gateway` and `/_version` belong to the platform, not to either app.
+
+**`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, the `GET /_version` handler in [entrypoint.ts](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
+
+### Studio — Workers Assets
+
+**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the `wrangler.jsonc` block above says why.
+
+⚠️ **`/studio/{u}.{g}` pins the ADDRESS, not the concept — Studio is ONE surface WITH A SCOPE, never "the per-app builder"** (Larry, 2026-08-05). A Universe-level `/studio/{u}` is the same surface at a different altitude — which is also why the surface, not the node, names the prefix. **Nothing here builds it.** ⛔ Not to be **named** (no "Lumenize OS"/"Nebula OS" — rejected 2026-08-05).
+
+### How `/app/*` is served
+
+**A hand-written branch on `entrypoint.ts` derives `{u}.{g}` from the star scope, resolves that Galaxy, and calls `serve.ts`** — whose behavior is the codeblock's match-first rule, encoded once (§ *Decisions locked*; Phase 3 carries the criteria). What only this section says: the serve is **deliberately ungated and GET/HEAD-bounded**, because browsers send no `Authorization` on document loads and data is gated on the mesh path. The star segment also picks **which** `dist`: the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup — no second store. *(Reaching for `routeDORequest` here fails structurally: it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.)* ⚠️ **The built app's vite `base` must equal `/app/{u}.{g}.{s}/`** or its sub-assets 404 ([[preview-path-prefix-vite-base]]). Studio's `base` stays `/`.
+
+**Dev caching pin (2026-08-24): `index.html` serves `Cache-Control: no-store`; hashed assets serve `public, max-age=31536000, immutable`.** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so the un-hashed entry point is the only file that must never be cached: everything it names changes name when its content changes. Any other unhashed file (public-dir copies) rides `no-store` with it. *(ETag/304 revalidation is the available upgrade if entry-point bytes ever matter — the Workspace's git already content-addresses every blob, so an ETag is free — not built now.)*
+
+**Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
+
+### Where the scopes come from
+
+**Where the ACTIVE scope comes from: the URL. Where the AUTH scope comes from: a client-side hint, never the URL and never a cookie.** The refresh cookie is `Path=/auth/{authScope}`, so the client must know the auth scope to construct the refresh call — a link that breaks the moment the URL carries the *active* scope instead. `App.vue` already persists `localStorage['nebula.authScope']` as a fallback; this **promotes it to primary**.
+  - ⚠️ **localStorage, NOT a cookie, and the reason is structural.** A cookie is transmitted automatically, putting `authScope` in front of server code that is forbidden to read it; localStorage never leaves the client, so *"`authScope` from the cookie"* — the scope-less global refresh `security.md` rejects — becomes **impossible rather than prohibited**. The hint tells the CLIENT which refresh endpoint to call; the SERVER still derives auth scope from the path and validates the path-scoped refresh token.
+  - **The absent case is a feature, not a bug:** no hint (a cold browser), or an active scope the hint's auth scope cannot reach, means **run discovery** — [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)'s prove-then-choose flow, whose discovery request a persisted `profileId` would also feed.
+  - ⚠️ **Caveat to carry:** localStorage is unavailable or partitioned in restricted iframes and under Safari ITP. The preview iframe is same-origin pre-alpha so it does not bite; if the built app ever moves to its own origin the hint must be re-derived there, never assumed.
+
+⚠️ **This is a step toward [ADR-017](../docs/adr/017-the-url-is-the-view-state.md), not compliance.** The active scope is in the URL; **view state beyond scope — selection, open panel, filters, sort, paging — is NOT in this task.**
+
+⚠️ **A denied recipient is NOT the end state.** ADR-017 says a shared URL is safe to paste because *"a recipient without access simply gets denied"*; the product answer is a prompt to ask someone at or above that node in the orgTree, the Google-Docs move. **Deferred past pre-alpha** (Larry, 2026-08-21) → [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md).
+
+### The `/app`↔`/studio` flip
+
+**`consumeAndLogin` tier-branch**, computed in `landingBase` ([archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md)): star → `STAR_LANDING_PREFIX`, every other tier → `NEBULA_AUTH_REDIRECT`. ⚠️ **Only ONE constant moves.** `STAR_LANDING_PREFIX` (`landing.ts`) **stays `/app`** — that is where the built app lives and where a star-tier login belongs; `NEBULA_AUTH_REDIRECT` becomes `/studio`. Today both evaluate to `/app`, which is precisely why the branch is invisible — moving one is what makes it diverge. **What the post-login destination finally IS belongs to** [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) § *Open questions* (4) — that file moves the scope choice to after the click, so this phase owns only the VALUES, never what they mean. **The flip and its transcription sweep are Phase 3's**, which edits the route list anyway.
+
+## Naming — the turn *apparatus* is deleted, not renamed
 
 The durable unit is **`Message`** — never `turn`. "Turn" is single-user (Claude-Code) framing that would quietly smuggle wrong defaults into the multi-user decisions below. And the cleanup is mostly **deletion**, because `turnId` et al. were scaffolding for **one-shot-push delivery**, which the subscription replaces:
 
@@ -209,11 +218,11 @@ The durable unit is **`Message`** — never `turn`. "Turn" is single-user (Claud
 
 # Part II — Chat, on the new architecture
 
-### Objective (target, present tense)
+## Objective (target, present tense)
 
 The Studio chat is a **durable, multi-user, reactive** thread. Human messages AND the agent (Nebula) reply already persist as `Message` Resources, so the bulk of the work is **render + attribution + streaming**, not adding storage. Render the thread from a **live subscription** so reload / reconnect / multi-tab / a second participant all restore and stay live, and attribute each message to a stable identity. A message's author is its snapshot's server-stamped **`actingToken.sub`** (an opaque per-person UUID) — never a client-supplied field; the display **name** resolves from a **live `Profile` subscription per distinct author**, keyed off the `profileId` already stamped on each message's `meta.actingToken` — no `sub`→`profileId` hop, no Registry load. **The client-side consumption is owned by Preserved § *Name resolution*** below. **THE GATE** — the master plan's pre-invite capture of codegen signal ([nebula-pre-alpha.md](nebula-pre-alpha.md)) — rides this substrate: the `Turns` recorder was its shipped precursor, and this task re-homes that capture onto the agent `Message`'s `codegen` value object, so Phase 1's deletion of `recordTurn`/`getTurns` is a re-homing, not a regression.
 
-### Participant model (settled with Larry 2026-07-06 — survives the collapse)
+## Participant model (settled with Larry 2026-07-06 — survives the collapse)
 
 - **Author attribution = the snapshot's `actingToken.sub`; the DISPLAYED author = `{actor} for {principal}`** when an `act` is present (*Nebula for {human}*), else just the principal. `actingToken` is the full ADR-016 record, server-stamped from `callContext` on every snapshot ([resources.ts](../apps/nebula/src/resources.ts)); on the wire it is the `WireActingToken` allow-list — identity + display `profileId`s, never the asserted `access` — unforgeable, **already delivered** on `Snapshot.meta`, just not consumed yet. This eliminates the **author spoof at the render layer**: the displayed author derives from `actingToken.sub`, so a stray/injected `author` key is simply never read.
   - **Authorization always keys off the subject `sub`, never `act`** (RFC-8693). The display deliberately shows **both**, which dissolves the impersonation-display question rather than deferring it.
@@ -244,7 +253,7 @@ The Studio chat is a **durable, multi-user, reactive** thread. Human messages AN
 - **"Immutable" is a UI convention, not a backend property** (ADR-004): a write within the **coalesce** window updates the current snapshot **in place** (new value, new eTag). Chat enforces immutability in the UI: text box local until submit, one write on submit, read-only after.
 - **Writes go through the standard `transaction`.** The reactive `Message where session==…` query-sub view **IS "the list"** — no separate list resource.
 
-### ✅ Preserved — architecture-independent, already `/review-task`-reviewed
+## ✅ Preserved — architecture-independent, already `/review-task`-reviewed
 
 These survive the collapse untouched and are **hard-won**; do not re-derive them:
 
@@ -265,7 +274,7 @@ These survive the collapse untouched and are **hard-won**; do not re-derive them
 - **`commitAssistantMessage → commitAgentMessage`** (leave the model-provider `ChatMessage role` alone; grep-verify the bare identifier).
 - **Migrate, don't ossify** — update tests asserting `.role`/`.author` on a `Message` value (at least `child3-post.test.ts`'s `snap.value as { role?, content?, author? }` read and `child3-session.test.ts`'s `expect(….author).toBe('admin@example.com')`; grep the bare identifiers for the full set).
 
-### Deferred generalization (fenced — do NOT read the shortcut as the model)
+## Deferred generalization (fenced — do NOT read the shortcut as the model)
 
 Every agent (Nebula + a future **Claude Code bridge**) eventually participates via the same mesh-authenticated path. Three layers:
 1. **Data + participant model** *(general NOW — ~zero cost)*: identity-from-`actingToken`, `Participant{kind}`, no `role`. A future external agent slots in with no schema change.
@@ -278,7 +287,7 @@ Every agent (Nebula + a future **Claude Code bridge**) eventually participates v
 
 The rhythm Larry asked for: *a bit of collapse architecture, confirm it, then a bit of chat, confirm it.* Each architecture step gets **exercised** by the chat step after it, so we never stack unconfirmed architecture.
 
-### Phase 1 (collapse) — three classes → `Galaxy`
+## Phase 1 (collapse) — three classes → `Galaxy`
 ✅ **The confinement this phase needs is already live.** Landing the first `DagTree` on a non-leaf node (`{u}.{g}`) is what would have armed an unconfined `access.admin` bypass — a `{u}.{g}.dev`-scoped admin reaching admin over the whole chat DAG. `dag-tree.ts`'s `requirePermission` now confines that bit with `hasDominionOver(claims?.access, hostName)`, so a Galaxy admin's `{u}.{g}.*` still covers `{u}.{g}` via prefix-self while a descendant's does not. **Phase 1 confirms it rather than waiting on it** — the assertion is in Final verification.
 
 Fold `DevStudio` + `DevContainer` into `class Galaxy extends NebulaDO` (the container is a raw-`ctx.container` capability, **NOT** `extends Container` — see Decisions table); the `DEV_CONTAINER` mesh calls become local raw-`ctx.container` work driven through `@cloudflare/computer`'s `Workspace` — `runtime.exec(...)` over the FUSE mount plus a start-and-wait-ready helper, **not** `getTcpPort().fetch()` and no source-push at all (§ *The build-box contract*); budget more than the ~50–100 lines a port-fetch would have cost, since the adoption also lands the dep, the daemon and the teardown order below; init `#dataPlane` (`ResourceDataPlane`) in **`onStart`** (NebulaDO has it — standard, like Star; no lazy-getter workaround needed); **async git/Workspace latch** (`await this.#ensureWorkspace()` at the top of each Workspace-touching method — the closest thing to residual risk); wrangler `exports` + binding rename; re-home the ~6–12 `runInDurableObject` tests — which **stay green under pool-workers** (the DO constructs; only container-driving methods need `wrangler dev`, see Decisions table).
@@ -294,7 +303,7 @@ Fold `DevStudio` + `DevContainer` into `class Galaxy extends NebulaDO` (the cont
   - **Also KEEP the rationale at `dev-studio.ts`'s data-plane surface comment** — *"chat participants are non-admin but DAG-granted"* describes exactly what this task now builds. (Drop only the `(D4)` handle if one is present: `workflow.md` forbids a task-file handle in source.)
   - **Success (capable of failing):** a real non-admin subject at `{u}.{g}` is DENIED a `Message` write on the Galaxy with no grant, and ALLOWED after a `setPermission` at the session node. **Mutation:** drop the grant → the allowed leg reds. **The logic is written once:** `grep -n "dagTree\.requirePermission(.*'admin'" apps/nebula/src/star.ts apps/nebula/src/galaxy.ts` returns **nothing**, and the same pattern over `apps/nebula/src/resource-data-plane.ts` returns the door-gate. ⚠️ **Scope it to those three files** — an unscoped `requirePermission(.*admin` also matches `DagTree`'s own four internal call sites in `dag-tree.ts`, which are unrelated and never go away. Run 2026-08-23 pre-work: `star.ts:508` is the only host hit and the plane has none, which is the exact inversion this phase produces. **Mutation:** leave a copy on either host → the grep reds.
 
-### Phase 2 (chat) — identity + attribution on Galaxy
+## Phase 2 (chat) — identity + attribution on Galaxy
 
 ✅ **The substrate is BUILT** ([nebula-pre-alpha.md](nebula-pre-alpha.md)'s item 6, 2026-08-20): `Snapshots.actingToken` stores the full `ActingTokenRecord` — the subject's `profileId` on the record, each actor's inside the widened `act` chain (the wire projection carries identity + `profileId`s and never `access`) — and the same-actor coalesce key derives from identity alone (`identityKey` in resources.ts). This phase is its first real consumer. What it adds: `actAs` appends the server-composed actor (with its `profileId`) into the record's `act` chain — [ADR-016](../docs/adr/016-record-the-acting-principal.md) blesses a server-composed actor inside a claims-shaped record.
 
@@ -318,7 +327,7 @@ Identity + attribution (host-binding settled: Resources on `GALAXY`). `Message` 
   - **`codegen` must EMBED, not become a by-id ref.** [ADR-006](../docs/adr/006-resources-reference-by-id.md) rewrites a field typed as another *ontology* type into a `string`, so confirm the compiler treats a nested non-resource interface as a value object — and if it does not, that is a real finding to surface, not a shape to quietly flatten.
   - **Success (capable of failing):** a completed agent turn round-trips `codegen.gate` and `codegen.appliedPaths` through the resource layer intact; a **human** message has no `codegen`. **Mutation:** drop the field from the write → reds.
 
-### Phase 3 (collapse) — build-box + container-less serving
+## Phase 3 (collapse) — build-box + container-less serving
 **This phase OWNS the `@cloudflare/computer` adoption, not just the demotion** (§ *Relationships* carries the
 measurements; nothing below re-derives them). Four work items nobody else owns: add `@cloudflare/computer` as an
 `apps/nebula` dependency (it is currently a dep of the spike workspace alone) — ⚠️ **verify its API against the installed `.d.ts`, never the published docs, which lag the code** (the spike found a whole subsystem marked "(planned)" that ships), put the `computerd` daemon in the
@@ -409,7 +418,7 @@ renders the Studio SPA and `GET /app/{u}.{g}.dev` reaches Galaxy. **Mutation:** 
 trip through the flipped redirect must land in Studio, which is what catches the silent break. ⚠️ **Deploy-only:**
 every criterion that depends on the mount carrying real bytes — run them on Cloudflare, not `wrangler dev`.
 
-### Phase 4 (chat) — reactive multi-user thread
+## Phase 4 (chat) — reactive multi-user thread
 `App.vue` replaces the local `messages` array with a live subscription to the session's Messages; **subscribes a live `Profile` per distinct participant** — reads the `profileId`(s) stamped on each message (ADR-013; **one per act-chain participant** — principal *and* any actor like Nebula) and subs `store.lmz.profiles[profileId]`, deduped + cumulative over *all who have ever posted*, **no Registry hop**; closes profile-store Phase 4; **also** subscribes the roster for presence + the AI respond-signal (consumed, not built — Non-goals); renders each message by `kind` with the **resolved name** — **`{actor} for {principal}`** when an actor is present (*Nebula for {human}*, both resolved via their Profiles) — a late-joiner's name (or a live name change) back-fills their earlier messages.
 *(The permission contract these criteria assert — who holds what, and why the collaborator is a non-admin with one grant — is § *Costs / risks* → *Authorization is NOT "unchanged"*: one contract covering four parties; this phase VERIFIES it.)*
 
@@ -423,7 +432,7 @@ every criterion that depends on the mount carrying real bytes — run them on Cl
 
 **Confirm:** **reconnect and reload asserted as DISTINCT paths** (reconnect replays the in-heap subscription registry; reload rebuilds from a fresh heap — the idempotent end-state hides a broken re-walk, testing.md §25); **the headline (constructible NOW)** — `/live` drives **Nebula + the owner (real `@lumenize.io` login, ADR-009) + the coach (super-admin)** all seeing every message, correctly attributed (**Nebula renders as "Nebula" + avatar via its seeded `Profile`**, displayed *Nebula for {human}*), live. **The non-admin COLLABORATOR (Austen) is IN the headline** — invited at `{u}.{g}` with **no `scopeAdmin` bit**, holding one `write` grant at the session node, so all four parties are live (§ *Costs / risks*). Rewrite `studio-chat-reload.ts` to be capable-of-failing **on render** (drop its optimistic-echo assumption).
 
-### Phase 5 (chat) — profile completion, so nobody renders nameless
+## Phase 5 (chat) — profile completion, so nobody renders nameless
 
 **Goal:** every participant sets a name on first login, so the four-party thread renders people rather than blanks.
 
@@ -439,7 +448,7 @@ every criterion that depends on the mount carrying real bytes — run them on Cl
 
 **Confirm (capable-of-failing):** a freshly-invited identity with an empty `Profile` sees the modal on first login and **cannot dismiss it** without setting `name`; once set, the name appears in the thread **on that participant's existing earlier messages** (the per-author subscription back-fills). **Mutation:** key the prompt on `!profile.name` instead of the three-state derivation → the flash-open-then-closed reappears on a cold load and reds. **And the negative:** an identity whose `Profile` already has a name never sees the modal.
 
-### Phase 6 (chat) — streaming: keep the transient stream, one durable write, resilient completion
+## Phase 6 (chat) — streaming: keep the transient stream, one durable write, resilient completion
 Streaming is **already built and stays**: `streamProgress` fire-and-forget `svc.broadcast`s transient chunks to session subscribers (`streamProgress` in [dev-studio.ts](../apps/nebula/src/dev-studio.ts), ~:575) — **no Resource write per chunk** — and `commitAssistantMessage` writes **ONE durable `Message` at completion** (`status:'complete'`), which the query rerun fans to every subscriber. The only change is **resilience**: **delete the fragile `onChatResult` one-shot push** (`deliverTurnResult`/`turnId`/`#pendingTurns`) — a keyed reply-channel held in-heap that strands as "thinking… forever" on a dead socket (ADR-003). `chat()` becomes **fire-and-forget**; the client observes completion on its **`Message` subscription** (the durable Message appearing `complete`), which re-derives on reconnect. **Failure story:** a reply killed *before* the durable commit is caught by an **idle-timeout keyed off the transient stream** — but those `streamProgress` chunks are a liveness **hint, not truth** (best-effort `svc.broadcast`; chunks drop on WS-reconnect / tab-sleep / a quiet model-gap). **The durable `Message` is the source of truth, so the client RECONCILES:** if the reply appears `complete` on the subscription (even *late*, on re-subscribe) it **clears any `failed` and suppresses the re-prompt**; the idle-timeout is set **≫ the max inter-chunk gap** (silent think-phase + a broadcast drop). Only a genuinely silent stream *with no durable completion* surfaces a **`failed` state** → **manual re-prompt** (a fresh user message = a new turn), **NO auto-retry** (the Galaxy-minted agent id stays; a one-click retry-in-place would need an idempotent id derived from the user message — deferred). ⚠️ **Residual, accepted pre-alpha:** the *manual* re-prompt CAN double-commit if the user acts on a spurious `failed` in the window before reconciliation lands — two replies under different ids, rare, tolerated (the "no auto-retry ⇒ never double-generate" guarantee covers *auto* only).
 
 **DEFERRED (post-pre-alpha) — durable-during-stream + the write-debounce apparatus.** An earlier design streamed via per-chunk durable `put`s so the in-progress reply is itself durable (`client == durable` mid-stream; a crash preserves the partial; a mid-stream eviction leaves a durable `running` Message the startup-sweep fails → retry). It buys little pre-alpha and **costs a lot**: a per-chunk `put` pushes a **full snapshot value** through the subscription (O(n²) flood → *needs* a <10s write-debounce to bound it), dragging in a required `{ debounce: 'client'|'server'|'disabled' }` transaction config, a runtime-throw backstop, and the one-debounce-per-write-path invariant — a large apparatus for a write-**count** saving that is ~cents at pre-alpha (DO SQLite writes are cheap, no write-ceiling risk) **while degrading UX** vs the smooth transient stream. Revisit only on a **measured** write-volume need. *(This defers the entire debounce resolution — location + config — with it.)*
@@ -453,7 +462,7 @@ Streaming is **already built and stays**: `streamProgress` fire-and-forget `svc.
   - **Rename the two `turnId` locals in `devstudio-resources-e2e.test.ts`** — they name Message resource ids, not turns; leftover vocabulary from before the resources switch. The KEEP-marked test itself is untouched.
   - **Success (capable of failing):** `grep -rnE '\b(onChatResult|trackTurn|pendingTurns|deliverTurnResult|turnId|runFakeTurn)\b' apps/nebula --include='*.ts' --include='*.vue'` returns **nothing**. Run 2026-08-23 pre-work: **6 files hit** (`nebula-client.ts`, `dev-studio.ts`, four baseline test files), so it discriminates. **Mutation:** carry any symbol across → the grep reds.
 
-### Phase 7 (cleanup) — retire the container node type + docs + ADR (AFTER green)
+## Phase 7 (cleanup) — retire the container node type + docs + ADR (AFTER green)
 **Sequenced LAST — do not start until EVERY other phase is green:** don't rip out the old container stack until the plain-`NebulaDO` Galaxy is proven. Stated structurally on purpose, so it stays true if a phase is added or removed.
 - **Remove `NebulaContainer`** (`apps/nebula/src/nebula-container.ts`) — orphaned once Galaxy `extends NebulaDO` (its `DevContainer` consumer merged into Galaxy in Phase 1/3).
 - **ADR-014 body refresh** — its Consequences still assert the hub `extends Container` / can't construct under pool-workers / `Container` owns `alarm`+`onStart` — the **opposite** of this task's pinned design (`extends NebulaDO`, raw `ctx.container`, retains `svc.broadcast`/`svc.alarms` + pool-workers construction). Fix the Negative/open section to the raw-`ctx.container` reality (the Proposed→Accepted promotion stays gated on the container-hub experiment — the body-fix is independent). ⚠️ The rules/memory grep below sweeps `.claude/rules` + memory, **not `docs/adr`** — easy to miss.
