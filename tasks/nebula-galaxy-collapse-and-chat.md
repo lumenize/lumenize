@@ -25,7 +25,7 @@
 - **Getting the container out of serving decouples *viewing* from the slowest-waking node — a primary reason for the demotion.** Seeing the user-dev app's current state (done before *every* prompt) waits only on **Galaxy** (serves `dist/`) + **Star** (data) waking, **never the container** — which isn't in the read path at all. The container is engaged only on a **build** (a code change — deliberate + latency-tolerant), so even a *cold* container never delays *viewing*.
 - **Every arriving message gets TWO LLM calls, never one — a fast DISCRIMINATOR, then the substantive GENERATION** (Larry, 2026-08-24). The discriminator answers `{respond?, codegen?}` — small fast model, short prompt, sub-second budget. It sits in the **intolerant** latency window: its verdict **places the "Nebula is thinking" acknowledgment**, **gates the container warm** (on the codegen verdict, never on message-arrival — "codegen-start" has always meant this moment), and **forks the generation prompt** (the tool-bearing codegen loop vs a plain answer). The generation is the long, accurate call — big model, full context, tolerant window. Pre-alpha `respond?` is **hardwired YES** (§ *Non-goals* defers only the policy that unhardwires it), and the same verdict is what the mid-generation queue-or-cancel UX consumes later (backlog). ⚠️ Its input is the triggering message ONLY — when the deferred policy makes it read the THREAD, the ADR-019 observation stamp lands in that same change (§ *Participant model*). Models are picked at build and never surfaced in UI.
 - **`ctx.abort()` / stuck-flag recovery deleted** — the ephemeral build-box sidesteps the stuck state *by construction* (never alive long enough to freeze; the state is native to `ctx.container`, cloud-only, deploy-only-recoverable). Log the stuck signature via `@lumenize/debug` for evidence (a dedicated WAE metric is post-pre-alpha) — expect zero.
-- **The user-developer's built app is a pre-built static *artifact*** (the build-box's `dist/`) — served **dev**: Galaxy-direct/uncached (the Galaxy DO **IS** engaged per request; *"static" = the artifact, not the path*) · **published (post-pre-alpha)**: also Galaxy-served, same homogeneous path — edge-cache/R2/herd mechanics are **design-only, deferred to alpha** (no published apps pre-alpha) — *(for that alpha work: edge-cache is a `wrangler.jsonc` line, and content-hashed immutable assets collapse the upgrade herd to ~1 cold fetch/asset/PoP.)* Detail → *Serving*.
+- **The user-developer's built app is a pre-built static *artifact*** (the build-box's `dist/`) — served **dev**: Galaxy-direct, **no edge cache** — the Galaxy DO **IS** engaged per request (the browser's own HTTP cache still applies, as anywhere; *"static" = the artifact, not the path*) · **published (post-pre-alpha)**: also Galaxy-served, same homogeneous path — edge-cache/R2/herd mechanics are **design-only, deferred to alpha** (no published apps pre-alpha) — *(for that alpha work: edge-cache is a `wrangler.jsonc` line, and content-hashed immutable assets collapse the upgrade herd to ~1 cold fetch/asset/PoP.)* Detail → *Serving*.
   - **The star segment in the URL selects WHICH `dist`** — `.dev` serves the working tree's current build (the only case built pre-alpha); any other star serves the build at that env's shipped tag. Mechanics → § *Serving* (the route table + *How `/app/*` is served*); the rule is pinned now so "same homogeneous path" cannot be read as one-dist-for-all.
 - **Tenant apps never use Workers Assets** — one bucket per Worker mixes N tenants; the platform **Studio UI** can, and does, precisely because it is *singular*.
 - **The Galaxy's orgTree HOLDS GRANTS, and is one node.** A non-`scopeAdmin` peer can only act on a data plane through a grant, so the collaborator being a real collaborator requires them. The ancestor-reach closure once considered here — refusing `setPermission` on the Galaxy outright — is therefore **not built**. ⚠️ **Passage is NOT what protects the chat — the DAG grant is**: every star's members have passage into `{u}.{g}` (a sibling **production** Star's as much as `.dev`'s), and the denial is the per-op DAG check inside the Resources plane — the two-gate contract § *Costs / risks* → *Authorization is NOT "unchanged"* states in full. **The residual the closure would have shut is ACCEPTED:** a personal grant keys off the `sub`, not the token's scope — so a session-node grant holder keeps chat access even on a token narrowed to one star. One node, a handful of grants, all auditable.
@@ -98,7 +98,7 @@ sequenceDiagram
         Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
         G->>K: destroy() (ephemeral, fresh container per build)
         G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
-        P->>G: GET dist (dev-direct, uncached)
+        P->>G: GET dist (dev-direct, no edge cache)
         G-->>P: index.html + hashed assets
         Note over P,Da: preview boots NebulaClient, data to the Star only
       else substantive-answer verdict — a DIFFERENT generation path
@@ -132,7 +132,7 @@ build() →                                 no source arg — /workspace IS Gala
 
 ### Serving — dev is the only in-scope tier; published is deferred
 
-*Scope: the **user-developer's app**, not the platform **Studio UI** (the one SPA served from Workers Assets, `apps/nebula/wrangler.jsonc` `assets` → `nebula-studio-ui/dist`). "Static" = the pre-built artifact, not the path — the **Galaxy DO IS engaged per request** to serve `dist/`. **Pre-alpha builds and confirms DEV serving only** (Galaxy-direct, uncached); there are no published apps / no third-party signup pre-alpha (that's alpha).*
+*Scope: the **user-developer's app**, not the platform **Studio UI** (the one SPA served from Workers Assets, `apps/nebula/wrangler.jsonc` `assets` → `nebula-studio-ui/dist`). "Static" = the pre-built artifact, not the path — the **Galaxy DO IS engaged per request** to serve `dist/`. **Pre-alpha builds and confirms DEV serving only** (Galaxy-direct, no edge cache); there are no published apps / no third-party signup pre-alpha (that's alpha).*
 
 **URL scheme (settled with Larry 2026-07-24 as the `/app`↔`/studio` swap):**
 
@@ -141,16 +141,11 @@ build() →                                 no source arg — /workspace IS Gala
 | `/studio/{activeScope}/*` | Workers Assets (SPA fallback) | STUDIO | ✅ **this task** — Phase 3 swaps it in |
 | `/app/{activeScope}/*`<br>= `/app/{u}.{g}.dev/*` | worker-first → Galaxy `fetch` handler, **working-tree `dist`** | USER-APP-DEV | ✅ **this task** — Phase 3 |
 | `/app/{activeScope}/*`<br>= `/app/{u}.{g}.{s}/*` | the **same** handler, `dist` at that env's **shipped tag** | USER-APP-PROD | ⏭️ deferred — published tier, alpha |
-| `/auth/{authScope}/*` | the Registry | PLATFORM | unchanged |
+| `/auth/{authScope}/*` | the Registry | REGISTRY | unchanged |
 | `/gateway/*` | the multiplexed mesh WebSocket | MESH | unchanged |
 | `/_version` | platform-Worker git-SHA | PLATFORM | unchanged |
 
 ⭐ **The convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
-
-```mermaid
-flowchart LR
-    P1([preview iframe]) -->|GET dist, uncached| G1[Galaxy, direct]
-```
 
 **Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy handler — **never** per-tenant Workers Assets (§ *Decisions locked*). The rest of the published tier — edge cache, content-hashed `immutable` assets, R2 escalation — is [backlog.md](backlog.md) § *Future bigger things*'s: forced by *scale*, which is alpha.
 
