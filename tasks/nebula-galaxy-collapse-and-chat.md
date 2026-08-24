@@ -7,7 +7,7 @@
 > - **coalesce** = ADR-004's in-place **snapshot** mechanism (a same-actor write updates the current snapshot rather than opening a new row). Reduces *snapshots*, **not** write count. The code names it `coalesceWindowMs`; called **coalesce** throughout this file so it cannot collide with the *real* (client) debounce below.
 > - **debounce** = the **client debounce** (the custom Vue store's, batching client-originated writes before the wire) — the only debounce this task touches. *(A server-side **local debounce** for streaming was considered and **DEFERRED** — see Phase 6.)*
 
-**Collapse leads; chat is restored onto it** — chat's address, host and fanout all move with the collapse, so building chat first would tune it to an architecture this task deletes. **Part I** pins the architecture — what the collapsed node is, where the compute runs, how the built app is served, and what the turn apparatus becomes. **Part II** restates chat against it, separating what survives from what the collapse invalidates. **Part III** interleaves the two into phases, document order = build order.
+**Collapse leads; chat is restored onto it** — chat's address, host and fanout all move with the collapse, so building chat first would tune it to an architecture this task deletes. **Part I** pins the architecture — what the collapsed node is, where the compute runs, how the built app is served, and what the turn apparatus becomes. **Part II** restates chat against it — § *Preserved* pins what survives untouched. **Part III** interleaves the two into phases, document order = build order.
 
 ---
 
@@ -44,7 +44,7 @@
 
 ## Why one node is sound — where the compute runs, and what it costs
 
-The natural objection — heavy startup plus long in-DO **AI awaits contending on Galaxy's single-threaded ontology-read path** — is answered at its root:
+The natural objection — heavy startup plus long in-DO **AI awaits contending on Galaxy's single-threaded ontology-read path** — is answered at its root, and latency is then priced against the user expectations it actually meets:
 
 - **The CPU-heavy work runs in the container or the LLM, not on Galaxy's DO thread.** The build/compile is the build-box. The `env.AI` call stays on the DO but is a **network await** → opens the input gate → interleaves with ontology reads rather than blocking them.
   - **Galaxy's DO thread does light orchestration + gate-yielding awaits; the container does the heavy/native compute.** Two things are still on the DO thread, **NOT moved by this task**: (a) **typia validation-function generation** (occasional — ontology-change only), (b) isomorphic-git/Workspace ops — acceptable while the dev loop is serial + single-user. typia's move into the container is a **later task with three reasons, any one sufficient**: (1) **contention** — generation runs **tsc**, genuinely CPU-heavy; if it contends once there's concurrent load, move it then, even before any feature need; (2) **TS7.x pull** — typia's author is shipping on a **Go/native `tsc`** that cannot run in a workerd isolate, so adopting it forces the move anyway; (3) ⚠️ **LATENCY, already measured** — the tsc bundle alone puts **every DO in the Worker** (Gateway and Registry included) in the large cold-start tier: create ~1,306 ms vs ~357 ms without it, wake **unstable** to ~1,410 ms; the request path only *loads* a precompiled validator, so the move returns the small tier with **no DO class migration** (`experiments/do-cold-start-bundle-ab/RESULTS.md` § *Now what?* recommends exactly this).
@@ -146,7 +146,17 @@ One Worker serves every surface. The table says who serves what and when it land
 | `/gateway/*` | the multiplexed mesh WebSocket | MESH | unchanged |
 | `/_version` | platform-Worker git-SHA | PLATFORM | unchanged |
 
-⭐ **The convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
+⭐ **The url convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
+
+**Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
+
+**The data planes have no route** — Studio's and the built app's both ride the mesh; each subsection names its host.
+
+**`/_version` stays at root** — the single **platform-Worker git-SHA** compare (`GET /_version` handler in [entrypoint.ts](../apps/nebula/src/entrypoint.ts); deploy/harness tooling). One Worker, one SHA — don't split it per-surface.
+
+### Studio — Workers Assets
+
+**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the block below says why.
 
 **The `wrangler.jsonc` that configures the routing** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
 
@@ -164,15 +174,7 @@ One Worker serves every surface. The table says who serves what and when it land
   }
   ```
 
-**Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
-
-**The data planes have no route.** Studio's data rides the mesh to `GALAXY`, the built app's to `STAR` — `NebulaClient` over the Gateway WS in both cases, no HTTP data path — which is what makes serving purely a static-files question. `/auth`, `/gateway` and `/_version` belong to the platform, not to either app.
-
-**`/_version` stays at root** — the single **platform-Worker git-SHA** compare (one Worker, one SHA; deploy/harness tooling, the `GET /_version` handler in [entrypoint.ts](../apps/nebula/src/entrypoint.ts)), **not** the dev-user's app version (that's mesh `subscribeReload`). Don't split it per-surface; there aren't two Worker builds.
-
-### Studio — Workers Assets
-
-**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the `wrangler.jsonc` block above says why.
+**Studio's data plane rides the mesh to `GALAXY`** — `NebulaClient` over the Gateway WS; **no HTTP data path exists**.
 
 ⚠️ **`/studio/{u}.{g}` pins the ADDRESS, not the concept — Studio is ONE surface WITH A SCOPE, never "the per-app builder"** (Larry, 2026-08-05). A Universe-level `/studio/{u}` is the same surface at a different altitude — which is also why the surface, not the node, names the prefix. **Nothing here builds it.** ⛔ Not to be **named** (no "Lumenize OS"/"Nebula OS" — rejected 2026-08-05).
 
@@ -181,6 +183,8 @@ One Worker serves every surface. The table says who serves what and when it land
 **A hand-written branch on `entrypoint.ts` derives `{u}.{g}` from the star scope, resolves that Galaxy, and calls `serve.ts`** — whose behavior is the codeblock's match-first rule, encoded once (§ *Decisions locked*; Phase 3 carries the criteria). What only this section says: the serve is **deliberately ungated and GET/HEAD-bounded**, because browsers send no `Authorization` on document loads and data is gated on the mesh path. The star segment also picks **which** `dist`: the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup — no second store. *(Reaching for `routeDORequest` here fails structurally: it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.)* ⚠️ **The built app's vite `base` must equal `/app/{u}.{g}.{s}/`** or its sub-assets 404 ([[preview-path-prefix-vite-base]]). Studio's `base` stays `/`.
 
 **Dev caching pin (2026-08-24): `index.html` serves `Cache-Control: no-store`; hashed assets serve `public, max-age=31536000, immutable`.** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so the un-hashed entry point is the only file that must never be cached: everything it names changes name when its content changes. Any other unhashed file (public-dir copies) rides `no-store` with it. *(ETag/304 revalidation is the available upgrade if entry-point bytes ever matter — the Workspace's git already content-addresses every blob, so an ETag is free — not built now.)*
+
+**The built app's data plane rides the mesh to `STAR`** — same shape as Studio's, different binding. And **it carries no version route**: a new build announces itself over mesh `subscribeReload` (the Core-flow reload push) — the intro's `/_version` is the platform Worker's, unrelated.
 
 **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
