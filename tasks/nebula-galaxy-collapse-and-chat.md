@@ -61,8 +61,6 @@ The natural objection — heavy startup plus long in-DO **AI awaits contending o
 | Binding | one — **`GALAXY`** (`DEV_STUDIO` + `DEV_CONTAINER` both removed) | Three nodes → one; the brain moves **env→app level** (`{u}.{g}`), data stays per-env (`{u}.{g}.{env}` Star). |
 | wrangler | `containers[].class_name` **and** the DO binding → `Galaxy`. No `defaultPort`/`sleepAfter` class props (those are `Container`-only) — the plain `NebulaDO` manages the **ephemeral** container lifecycle **in code** (start at codegen-start · `monitor()`+probe · `destroy()` after deliver). | container-capability config lives on the concrete node. |
 
-**Class-doc must flag what the name hides:** (i) *why a "Galaxy" owns a build container* — the container is a **capability** (raw `ctx.container`), not the identity, and Galaxy does **not** `extends Container`; (ii) the DO **constructs + unit-tests under vitest-pool-workers** (`ctx.container` is simply `undefined` there), so only the **container-driving methods** need `wrangler dev` + Docker. Keep those behind a thin shell over pure modules so the bulk stays unit-testable — now *good practice*, no longer *forced* by a construction limit (the old pool-workers construction blocker was specific to `extends Container` — [[ctx-container-plain-do]]).
-
 ### Cast
 
 - **Galaxy** `{u}.{g}` — the brain: codegen (`env.AI`), git Workspace, chat Resources, orchestration, the co-located build-box; serves the dev `dist/`; owns the ontology registry.
