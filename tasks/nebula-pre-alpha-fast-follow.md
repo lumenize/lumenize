@@ -75,6 +75,8 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 **Demand trigger:** the same as Item 4's — the first pre-alpha user who wants to show their app to someone — and the two land together: a published Star needs its ontology (Item 4) and its `dist` (this) at the same moment.
 
+⚠️ **If user-dev source-privacy demand appears, the gate design restarts HERE, under two recorded constraints** (Larry, 2026-08-24): **no cookies**, and browsers send no `Authorization` on document or sub-asset loads — which together likely mean the serve itself is never gated (a published app's END USERS need `index.html` before they can log in), and privacy comes from something else if it comes at all.
+
 ⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
 
 ## Notes
