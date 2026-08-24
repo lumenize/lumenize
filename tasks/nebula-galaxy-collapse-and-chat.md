@@ -133,7 +133,7 @@ build() →                                 no source arg — /workspace IS Gala
 
 ## Serving
 
-*Scope: the **user-developer's app**, not the platform **Studio UI** (the one SPA served from Workers Assets, `apps/nebula/wrangler.jsonc` `assets` → `nebula-studio-ui/dist`). "Static" = the pre-built artifact, not the path — the **Galaxy DO IS engaged per request** to serve `dist/`. **Pre-alpha builds and confirms DEV serving only** (Galaxy-direct, no edge cache); there are no published apps / no third-party signup pre-alpha (that's alpha).*
+One Worker serves every surface. The table says who serves what and when it lands; the subsections that follow take the surfaces one at a time.
 
 **URL scheme (settled with Larry 2026-07-24 as the `/app`↔`/studio` swap):**
 
