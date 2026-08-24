@@ -136,16 +136,16 @@ build() →                                 no source arg — /workspace IS Gala
 
 **URL scheme (settled with Larry 2026-07-24 as the `/app`↔`/studio` swap):**
 
-| Route | Served by | Scope | When |
+| Route | Served by | For | When |
 |---|---|---|---|
-| `/studio/{scope}/*` | Workers Assets (SPA fallback) | ACTIVE | ✅ **this task** — Phase 3 swaps it in |
-| `/app/{u}.{g}.dev/*` | worker-first → Galaxy `fetch` handler, **working-tree `dist`** | ACTIVE | ✅ **this task** — Phase 3 |
-| `/app/{u}.{g}.{s}/*` | the **same** handler, `dist` at that env's **shipped tag** | ACTIVE | ⏭️ deferred — published tier, alpha |
-| `/auth/{authScope}/*` | the Registry | AUTH | unchanged |
-| `/gateway/*` | the multiplexed mesh WebSocket | — | unchanged |
-| `/_version` | platform-Worker git-SHA | — | unchanged |
+| `/studio/{activeScope}/*` | Workers Assets (SPA fallback) | STUDIO | ✅ **this task** — Phase 3 swaps it in |
+| `/app/{activeScope}/*`<br>= `/app/{u}.{g}.dev/*` | worker-first → Galaxy `fetch` handler, **working-tree `dist`** | USER-APP-DEV | ✅ **this task** — Phase 3 |
+| `/app/{activeScope}/*`<br>= `/app/{u}.{g}.{s}/*` | the **same** handler, `dist` at that env's **shipped tag** | USER-APP-PROD | ⏭️ deferred — published tier, alpha |
+| `/auth/{authScope}/*` | the Registry | PLATFORM | unchanged |
+| `/gateway/*` | the multiplexed mesh WebSocket | MESH | unchanged |
+| `/_version` | platform-Worker git-SHA | PLATFORM | unchanged |
 
-⭐ **The convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** (the Scope column). Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
+⭐ **The convention: the FIRST segment names a SURFACE, and where a second segment exists it carries a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
 
 ```mermaid
 flowchart LR
