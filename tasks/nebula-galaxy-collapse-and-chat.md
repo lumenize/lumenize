@@ -84,31 +84,34 @@ sequenceDiagram
     Chat->>G: postUserMessage → transaction (client-debounced in browser)
     Note over G: durable commit of the user Message — onMutations fires the turn (the trigger)
     Note over G: FAST discriminator call — respond? codegen? (small model, short prompt, sub-second — pre-alpha respond is hardwired YES)
-    alt codegen verdict
+    alt respond (pre-alpha always)
       G-->>Chat: thinking starts — the acknowledgment that ends the intolerant latency window
-      G->>K: start() at the verdict (cold plus FUSE mount, measured 2.3-3.7s, hides behind the generation)
-      Note over G: GENERATION (env.AI, big model, full context) — thinking then text streams as transient chunks (streamProgress svc.broadcast, NO writes)
-      G-->>Chat: transient reply chunks (best-effort — a missed chunk just drops animation)
-      Note over G,K: codegen writes source via ws.fs.writeFile into Galaxy SQLite. computerd mirrors it into the container as a live FUSE mount, so there is NO push step and no applyChanges
-      Note over G: the loop — write_file + in-DO compile-on-write, container-free, until mark_complete
-      G->>K: runtime.exec("vite build") on the mount, LOCAL ctx.container
-      Note over K: vite build (oxide JIT) reads source over FUSE, writes dist over FUSE
-      K-->>G: exit code plus the post-exec sync bracket (measured 5 files pulled)
-      alt build ok
-        Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
-        G->>K: destroy() (ephemeral, fresh container per build)
-        G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
-        P->>G: GET dist (dev-direct, uncached)
-        G-->>P: index.html + hashed assets
-        Note over P,Da: preview boots NebulaClient, data to the Star only
-      else buildError — their code, deterministic
-        Note over G: SHOW it in the reply, feed the next message, never retry — last-good dist keeps serving
-        G->>K: destroy()
-      else retryable — box hiccup
-        G->>K: destroy(), fresh start(), rebuild (idempotent) — last-good dist keeps serving
+      alt codegen verdict
+        G->>K: start() at the verdict (cold plus FUSE mount, measured 2.3-3.7s, hides behind the generation)
+        Note over G: GENERATION, codegen path (env.AI, big model, codegen prompt + tools) — thinking then text streams as transient chunks (streamProgress svc.broadcast, NO writes)
+        G-->>Chat: transient reply chunks (best-effort — a missed chunk just drops animation)
+        Note over G,K: codegen writes source via ws.fs.writeFile into Galaxy SQLite. computerd mirrors it into the container as a live FUSE mount, so there is NO push step and no applyChanges
+        Note over G: the loop — write_file + in-DO compile-on-write, container-free, until mark_complete
+        G->>K: runtime.exec("vite build") on the mount, LOCAL ctx.container
+        Note over K: vite build (oxide JIT) reads source over FUSE, writes dist over FUSE
+        K-->>G: exit code plus the post-exec sync bracket (measured 5 files pulled)
+        alt build ok
+          Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
+          G->>K: destroy() (ephemeral, fresh container per build)
+          G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
+          P->>G: GET dist (dev-direct, uncached)
+          G-->>P: index.html + hashed assets
+          Note over P,Da: preview boots NebulaClient, data to the Star only
+        else buildError — their code, deterministic
+          Note over G: SHOW it in the reply, feed the next message, never retry — last-good dist keeps serving
+          G->>K: destroy()
+        else retryable — box hiccup
+          G->>K: destroy(), fresh start(), rebuild (idempotent) — last-good dist keeps serving
+        end
+      else substantive-answer verdict — a DIFFERENT generation path
+        Note over G: GENERATION, answer path (big model, answer prompt, no tools) — streams the whole answer, zero container involvement
+        G-->>Chat: transient reply chunks (best-effort)
       end
-    else plain-answer verdict — no build
-      G-->>Chat: thinking starts, then the GENERATION streams the whole answer — zero container starts
     else stay silent (policy deferred — pre-alpha unreachable)
       Note over G: no acknowledgment, no spend
     end
