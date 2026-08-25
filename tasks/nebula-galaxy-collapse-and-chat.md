@@ -66,7 +66,7 @@ Here is every UX performance objection to the collapse we could think of, addres
 - **Keep-warm is retired for BOTH, and the windows are why — not thrift.**
   - **The container:** its whole cost sits in the tolerant window, so warmth would buy nothing a user can feel.
   - **The DO:** its wake sits in the intolerant window, where the fix is the **small bundle tier** (the typia move) — warmth machinery would mask the cost, not remove it.
-  - **The one survivor:** Phase 3's **residency hold** (the `setTimeout` heartbeat) — warmth-like, but held only during a turn, never while idle.
+  - **The residency hold is NOT keep-warm, despite the resemblance.** Phase 3's `setTimeout` heartbeat keeps the Galaxy from hibernating **mid-turn** — the mesh chain runs detached after early-ack, so no held request ties the DO to its in-flight `env.AI` awaits and container span. It protects **work in progress**, never idle latency.
 - **The storage axis: wake cost also scales with SQLite size.**
   - **The mechanism:** a cold-storage restore is proportional to the DB's size (multi-GB → several seconds), and it stacks on top of whichever bundle tier the Worker is in.
   - **It is NOT paid on every ~10 s hibernation.** Eviction to cold storage is a separate, deeper event on an unpublished, it-depends timescale (minutes? days? CF doesn't say) — an occasional cost, not a per-idle one.
