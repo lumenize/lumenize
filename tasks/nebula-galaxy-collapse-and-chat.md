@@ -188,7 +188,12 @@ One Worker serves every surface. The table says who serves what and when it land
 - **vite `base`:** ⚠️ must equal `/app/{u}.{g}.{s}/` or the sub-assets 404 ([[preview-path-prefix-vite-base]]); Studio's stays `/`.
 - **Never `routeDORequest`:** it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.
 
-**Dev caching pin (2026-08-24): `index.html` serves `Cache-Control: no-store`; hashed assets serve `public, max-age=31536000, immutable`.** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so the un-hashed entry point is the only file that must never be cached: everything it names changes name when its content changes. Any other unhashed file (public-dir copies) rides `no-store` with it. *(ETag/304 revalidation is the available upgrade if entry-point bytes ever matter — the Workspace's git already content-addresses every blob, so an ETag is free — not built now.)*
+**Dev caching pin (2026-08-24):**
+
+- **`index.html`, and any other unhashed file** (public-dir copies): `Cache-Control: no-store`.
+- **Hashed assets:** `public, max-age=31536000, immutable`.
+- **Why the split works:** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so a content change changes the *name*; the un-hashed entry point is the only file that must never be cached.
+- **ETag/304 is the available upgrade, not built:** if entry-point bytes ever matter, the Workspace's git already content-addresses every blob — the ETag is free.
 
 **The built app's data plane rides the mesh to `STAR`** — same shape as Studio's, different binding. And **it carries no version route**: a new build announces itself over mesh `subscribeReload` (the Core-flow reload push) — the intro's `/_version` is the platform Worker's, unrelated.
 
