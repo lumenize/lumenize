@@ -181,7 +181,12 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### How `/app/*` is served
 
-**The `/app/*` route's `serveApp` step derives `{u}.{g}` from the star scope, resolves that Galaxy, and calls `serve.ts`** — whose behavior is the codeblock's match-first rule, encoded once (§ *Decisions locked*; Phase 3 carries the criteria). What only this section says: the serve is **deliberately ungated and GET/HEAD-bounded**, because browsers send no `Authorization` on document loads and data is gated on the mesh path — a passage gate was considered and rejected on exactly that fact (§ *Decisions locked*, 2026-08-24). The star segment also picks **which** `dist`: the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup — no second store. *(Reaching for `routeDORequest` here fails structurally: it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.)* ⚠️ **The built app's vite `base` must equal `/app/{u}.{g}.{s}/`** or its sub-assets 404 ([[preview-path-prefix-vite-base]]). Studio's `base` stays `/`.
+**The `/app/*` route's `serveApp` step: derive `{u}.{g}` from the star scope → resolve that Galaxy → `serve.ts`** (the codeblock's match-first rule, encoded once — § *Decisions locked*; Phase 3 carries the criteria).
+
+- **Gate:** deliberately **ungated, GET/HEAD-bounded** — browsers send no `Authorization` on document loads, and data is gated on the mesh path. A passage gate was considered and rejected on exactly that fact (§ *Decisions locked*, 2026-08-24).
+- **Which `dist`:** the star segment picks it — the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup. No second store.
+- **vite `base`:** ⚠️ must equal `/app/{u}.{g}.{s}/` or the sub-assets 404 ([[preview-path-prefix-vite-base]]); Studio's stays `/`.
+- **Never `routeDORequest`:** it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.
 
 **Dev caching pin (2026-08-24): `index.html` serves `Cache-Control: no-store`; hashed assets serve `public, max-age=31536000, immutable`.** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so the un-hashed entry point is the only file that must never be cached: everything it names changes name when its content changes. Any other unhashed file (public-dir copies) rides `no-store` with it. *(ETag/304 revalidation is the available upgrade if entry-point bytes ever matter — the Workspace's git already content-addresses every blob, so an ETag is free — not built now.)*
 
