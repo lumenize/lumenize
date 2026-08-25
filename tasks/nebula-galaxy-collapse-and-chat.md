@@ -184,7 +184,7 @@ One Worker serves every surface. The table says who serves what and when it land
 **The `/app/*` route's `serveApp` step: derive `{u}.{g}` from the star scope → resolve that Galaxy → `serve.ts`** (the codeblock's match-first rule, encoded once — § *Decisions locked*; Phase 3 carries the criteria).
 
 - **Gate:** deliberately **ungated, GET/HEAD-bounded** — browsers send no `Authorization` on document loads, and data is gated on the mesh path. A passage gate was considered and rejected on exactly that fact (§ *Decisions locked*, 2026-08-24).
-- **Which `dist`:** the star segment picks it — the Galaxy's git history holds every build (commit-per-turn; shipped-version-is-a-tag), so `.dev` is the working tree and any other star is a tag lookup. No second store.
+- **Which `dist`:** if the scope's star segment `{s}` is `.dev`, serve the **working tree's** `dist`. Otherwise, serve the `dist` at **that star's shipped tag** in the Galaxy's git history — commit-per-turn puts every build there, and the tag's naming and mechanics are [fast-follow](nebula-pre-alpha-fast-follow.md) § *Item 5*'s. No second store.
 - **vite `base`:** ⚠️ must equal `/app/{u}.{g}.{s}/` or the sub-assets 404 ([[preview-path-prefix-vite-base]]); Studio's stays `/`.
 - **Never `routeDORequest`:** it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.
 
@@ -195,7 +195,13 @@ One Worker serves every surface. The table says who serves what and when it land
 - **Why the split works:** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so a content change changes the *name*; the un-hashed entry point is the only file that must never be cached.
 - **ETag/304 is the available upgrade, not built:** if entry-point bytes ever matter, the Workspace's git already content-addresses every blob — the ETag is free.
 
-**The built app's data plane rides the mesh to `STAR`** — same shape as Studio's, different binding. And **it carries no version route**: a new build announces itself over mesh `subscribeReload` (the Core-flow reload push) — the intro's `/_version` is the platform Worker's, unrelated.
+**The built app's data plane rides the mesh to `STAR`** — same shape as Studio's, different binding.
+
+**Three versions live near this route, and none is another:**
+
+- **`/_version`** — the **platform Worker's** git SHA (ours; the intro's route).
+- **`ontologyVersion`** (today misnamed `appVersion`) — the **ontology's** content hash; gates *data* ops (`OntologyStaleError`) and bumps only on an ontology change, never a code build (§ *Decisions locked*).
+- **The built app's code** — no version *number* at all: hashed asset names + the Galaxy's git history, with an env's shipped code being that star's **shipped tag** (the `{s}` lookup above). A new build announces itself over mesh `subscribeReload`, not a route.
 
 **Custom domains (deferred):** a tenant app then moves to its **own origin at root** (truly non-prefixed); the client's origin-relative WS must reach the Gateway there (or set an explicit control-plane `baseUrl`). The `/app` prefix persists for the **dev preview**, which stays on the control-plane origin.
 
