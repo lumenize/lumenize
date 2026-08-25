@@ -79,6 +79,16 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 ⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
 
+## Item 6: Mid-generation chat UX — the two-stage arrival pipeline
+
+**Moved here from the backlog 2026-08-24** (it is near-term, with a demand trigger — not a someday row). Pre-alpha the codegen trigger is **single-flight** and a mid-generation post just sits in the thread (collapse Phase 4); Larry judges that unacceptable UX beyond pre-alpha.
+
+**Demand trigger:** the first multi-user session that hits the single-flight floor in anger.
+
+**Target sketch:** a **two-stage arrival pipeline**. Stage 1 — EVERY message runs the fast **discriminator** (the collapse's two-LLM-calls Decisions row) on arrival: cheap enough to block on, or its own short queue. Stage 2 — only a "Nebula must respond" verdict enters the **codegen queue**: empty → run; busy → prompt the author — *"interrupt Nebula's thinking, or queue this for after?"* **Cancel lives on the streaming response.**
+
+**Couplings:** the respond-or-not policy + `@`-mention control ride the same classifier and land with this; cancel must ride the container teardown order — let the sync bracket resolve, `destroy()`, tolerate the 1006 — and release the residency hold (both pinned in the collapse's Phase 3).
+
 ## Notes
 
 - A third finding from the same Jennifer analysis — **cross-document spec-drift detection** (her two docs contradict each other: photo-first-required vs text-first capture) — is deliberately *not* an item here: it's a Studio/coach-loop capability question that needs its own framing, and the coach loop covers it manually during alpha. Revisit when the Studio eval suite resumes.
