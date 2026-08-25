@@ -157,7 +157,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### Studio — Workers Assets
 
-**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the block below says why.
+**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the block below says why. And a corollary of SPA fallback: an unmatched path is Studio's `index.html` at **200**, never a 404 — **Studio's client router owns the not-found view**.
 
 **The `wrangler.jsonc` that configures the routing** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
 
@@ -185,7 +185,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 - **Gate:** deliberately **ungated, GET/HEAD-bounded** — browsers send no `Authorization` on document loads, and data is gated on the mesh path. A passage gate was considered and rejected on exactly that fact (§ *Decisions locked*, 2026-08-24).
 - **Which `dist`:** if the scope's star segment `{s}` is `.dev`, serve the **working tree's** `dist`. Otherwise, serve the `dist` at **that star's shipped tag** in the Galaxy's git history — commit-per-turn puts every build there, and the tag's naming and mechanics are [fast-follow](nebula-pre-alpha-fast-follow.md) § *Item 5*'s. No second store.
-- **vite `base`:** ⚠️ must equal `/app/{u}.{g}.{s}/` or the sub-assets 404 ([[preview-path-prefix-vite-base]]); Studio's stays `/`.
+- **vite `base`:** ⚠️ the built app's must equal `/app/{u}.{g}.{s}/`, and the failure is a SILENT one, not a 404. With the default `base: '/'`, its `index.html` asks for `/assets/index-{hash}.js` — root-absolute, so the request never starts with `/app/` and never reaches the Galaxy: it falls to **Studio's** Assets bucket, misses (the hash names an app file), and SPA fallback answers the script tag with Studio's `index.html` at **200** — white screen, clean network tab. *(The memory [[preview-path-prefix-vite-base]] recorded a real 404 from the old vite-dev-server world; the mechanism moved, the pin stands.)* Studio's own `base` stays `/`.
 - **Never `routeDORequest`:** it reads segment 0 as the binding and segment 1 as the instance, so `/app/{u}.{g}.{s}` names neither.
 
 **Dev caching pin (2026-08-24):**
