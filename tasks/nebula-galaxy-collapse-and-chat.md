@@ -183,8 +183,8 @@ One Worker serves every surface. The table says who serves what and when it land
   ```jsonc
   "assets": {
     // ONE bundle: Studio is one app for the whole system. A scope appears only in the
-    // browser's DOCUMENT path (/studio/{activeScope}/), never in what is served — and this
-    // task moves only that prefix (/app → /studio); the bundle itself is untouched.
+    // browser's address-bar path (/studio/{activeScope}/), never in what is served —
+    // every scope gets the same files.
     "directory": "../nebula-studio-ui/dist",   // Studio's vite build — the ONE Workers-Assets bucket
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
