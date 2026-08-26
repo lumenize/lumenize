@@ -225,10 +225,10 @@ One Worker serves every surface. The table says who serves what and when it land
 
 **Dev caching pin (2026-08-24):**
 
-- **`index.html`, and any other unhashed file** (public-dir copies): `Cache-Control: no-store`.
+- **`index.html`, and any other unhashed file** (public-dir copies): `Cache-Control: no-store`. The scaffold prefers IMPORTED assets over `public/` — an imported logo is content-hashed (or inlined ≤4KB) like any bundled file — so the unhashed set stays favicon-class: files whose fixed name is the point.
 - **Hashed assets:** `public, max-age=31536000, immutable`.
 - **Why the split works:** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so a content change changes the *name*; the un-hashed entry point is the only file that must never be cached.
-- **ETag/304 is the available upgrade, not built:** if entry-point bytes ever matter, the Workspace's git already content-addresses every blob — the ETag is free.
+- **ETag/304 is the available upgrade, not built:** if unhashed-file bytes ever matter, the Workspace's git already content-addresses every blob — the ETag is free. With it, the unhashed arm relaxes to `no-cache` (revalidate, 304 on unchanged), never to a `max-age` guess, which would serve a stale file with no recourse.
 - **No edge tier sits in front (pre-alpha):** every request reaches the Galaxy; the browser's HTTP cache is the only cache in the path. The published tier's edge mechanics are measured-then-decided ([backlog.md](backlog.md) § *Future bigger things*).
 
 **The built app's data plane rides the mesh to `STAR`** — same shape as Studio's, different binding.
