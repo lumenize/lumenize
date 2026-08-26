@@ -1,6 +1,6 @@
 # Login proves the mailbox, then you choose the workspace
 
-**Status:** Active child. **Invite-gated** — the login flow is what every pre-alpha user meets first, and Larry wants it tested with them (2026-08-09). Independent of ✅ [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) (**BUILT + archived 2026-08-16**), so it did not disturb that queue position. Supersedes the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth*, which filed this same re-order as a deferred residual on 2026-06-26.
+**Status:** Active child. **Invite-gated** — the login flow is what every pre-alpha user meets first, and Larry wants it tested with them (2026-08-09). **Sequencing vs the Galaxy collapse: least resistance decides** (Larry, 2026-08-24) — the collapse does not need this first; both files edit `consumeAndLogin`'s redirect seam, so do not interleave, and whichever lands second inherits. Independent of ✅ [nebula-passage-dominion-from-scope.md](archive/nebula-passage-dominion-from-scope.md) (**BUILT + archived 2026-08-16**), so it did not disturb that queue position. Supersedes the `discover(email)` oracle row in [backlog.md](backlog.md) § *Nebula Auth*, which filed this same re-order as a deferred residual on 2026-06-26.
 
 > 📐 **`/write-task` Pass 1 — design intent is below, phases are NOT written.** From here: `/review-task` **Stage 1** on this phase-less file → resolve and edit → write phases → **Stage 2**. § *Acceptance criteria* is Pass-2 input.
 
