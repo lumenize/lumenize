@@ -195,7 +195,7 @@ One Worker serves every surface. The table says who serves what and when it land
     
     "not_found_handling": "single-page-application",
     // "single-page-application" means that if the file exists, it is served, but if it doesn't
-    // index.html is served at a 200. It's up to the client-side routing inside the Studio UI
+    // index.html is served with a 200. It's up to the client-side routing inside the Studio UI
     // to decide what to do after that, including things that would normally have resulted in a 404.
     
     "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/_version"]
@@ -207,8 +207,6 @@ One Worker serves every surface. The table says who serves what and when it land
   ```
 
 **Studio's data plane rides the mesh to `GALAXY`** — `NebulaClient` over the Gateway WS; **no HTTP data path exists**.
-
-⚠️ **`/studio/{u}.{g}` pins the ADDRESS, not the concept — Studio is ONE surface WITH A SCOPE, never "the per-app builder"** (Larry, 2026-08-05). A Universe-level `/studio/{u}` is the same surface at a different altitude — which is also why the surface, not the node, names the prefix. **Nothing here builds it.** ⛔ Not to be **named** (no "Lumenize OS"/"Nebula OS" — rejected 2026-08-05).
 
 ### How `/app/*` is served — the `.dev` star, the only one pre-alpha
 
