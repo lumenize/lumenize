@@ -182,20 +182,27 @@ One Worker serves every surface. The table says who serves what and when it land
 
   ```jsonc
   "assets": {
-    // ONE bundle: Studio is one app for the whole system. A scope appears only in the
-    // browser's address-bar path (/studio/{activeScope}/), never in what is served —
-    // every scope gets the same files.
+    // ONE bundle: Studio is one app for the whole system. The activeScope segment doesn't
+    // change what is served. Rather, it tells the Studio UI which Galaxy to address over
+    // mesh and which .dev Star to use for the embedded iframe(s).
+    
     "directory": "../nebula-studio-ui/dist",   // Studio's vite build — the ONE Workers-Assets bucket
+    
     "binding": "ASSETS",
+    // Optional, and unused today: it puts env.ASSETS.fetch(request) on the Worker — retrieves
+    // a file with html/not-found handling applied. The lever for ever serving Studio files
+    // from a worker-first path (auth-gated entry, custom headers).
+    
     "not_found_handling": "single-page-application",
-    // "single-page-application": a real file (js/css/png) is served as itself; only a MISS
-    // falls back to Studio's index.html — at 200, never a 404, so Studio's client router
-    // owns the not-found view.
+    // "single-page-application" means that if the file exists, it is served, but if it doesn't
+    // index.html is served at a 200. It's up to the client-side routing inside the Studio UI
+    // to decide what to do after that, including things that would normally have resulted in a 404.
+    
     "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/_version"]
     // A LISTED prefix always runs entrypoint.ts, which never falls back to Assets (it ends
     // in 404) — which is exactly why /studio/* MUST stay unlisted. /app/* is the serveApp
     // route step, which reimplements the same match-first rule against its own dist
-    // (§ How /app/* is served — whose vite-base bullet also carries why Studio's base is `/`).
+    // (§ How /app/* is served — whose vite-base bullet also carries why Studio's vite-base is `/`).
   }
   ```
 
