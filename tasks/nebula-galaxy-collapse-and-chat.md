@@ -120,7 +120,8 @@ sequenceDiagram
         K-->>G: exit code (the three-way outcome is the build-box contract below) plus the post-exec sync bracket (measured 5 files pulled)
         Note over G,K: dist is ALREADY in Galaxy SQLite when exec resolves — readback measured 0ms, so there is no return-dist step either
         G->>K: destroy() (ephemeral, fresh container per build)
-        G-->>P: reload — broadcastReload to the preview's subscribeReload subscription
+        G->>Da: build landed — trigger the reload fan-out
+        Da-->>P: reload — broadcastReload to the preview's subscribeReload subscription
         P->>G: GET dist (dev-direct, no edge cache)
         G-->>P: index.html + hashed assets
         Note over P,Da: preview boots NebulaClient, data to the Star only
