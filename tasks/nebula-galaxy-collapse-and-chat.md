@@ -136,7 +136,7 @@ sequenceDiagram
 
 ## The build-box contract
 
-**There is no transfer step in either direction — the mount IS the transfer.** The old design pushed source in
+**There is no *intentional* transfer step in either direction — the mount IS the transfer.** The old design pushed source in
 (`applyChanges`/`syncToDevContainer`) and pulled `dist` back out; both steps are **deleted, not ported**: a file
 written into Galaxy's tree is already in `/workspace`, and `dist` written by the build is already in Galaxy's VFS
 when `exec` resolves (evidence → § *Relationships*). The call is `runtime.exec('vite build')` over the local
@@ -170,7 +170,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ⭐ **The url convention: the FIRST segment names a SURFACE, and the second segment, if applicable, is a scope** — spelled `{activeScope}` / `{authScope}` in the table's routes. Do not name routes by node: Studio's data plane is `GALAXY` and so is the built app's server, so node-naming collapses both onto one prefix — surface-naming is what keeps Studio and the built app distinct.
 
-**Placement pin (forced by the collapse):** the deferred `{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
+**Placement pin (forced by the collapse):** the deferred `.{s}` row rides the **same** Galaxy `.fetch()` handler — **never** per-tenant Workers Assets (§ *Decisions locked*). Its serve is **never in doubt, only deferred** — [nebula-pre-alpha-fast-follow.md](nebula-pre-alpha-fast-follow.md) § *Item 5*. The **scale** mechanisms — edge cache, herd, R2 — are a different kind of future: **decided by measured experience, not committed** — [backlog.md](backlog.md) § *Future bigger things*.
 
 **The data planes have no route** — Studio's and the built app's both ride the mesh; each subsection names its host.
 
@@ -178,21 +178,24 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### Studio — Workers Assets
 
-**Studio's html/js/css → Workers Assets.** One static bundle for every scope; `base` is `/`, so assets resolve at `/assets/…` no matter which scope's document path served them — already scope-independent, **nothing to change**. ⚠️ **`/studio/*` MUST stay OUT of `run_worker_first`** — the block below says why. And a corollary of SPA fallback: an unmatched path is Studio's `index.html` at **200**, never a 404 — **Studio's client router owns the not-found view**.
-
-**The `wrangler.jsonc` that configures the routing** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
+**The config is the explanation** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
 
   ```jsonc
   "assets": {
+    // ONE bundle: Studio is one app for the whole system. A scope appears only in the
+    // browser's DOCUMENT path (/studio/{activeScope}/), never in what is served — and this
+    // task moves only that prefix (/app → /studio); the bundle itself is untouched.
     "directory": "../nebula-studio-ui/dist",   // Studio's vite build — the ONE Workers-Assets bucket
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
+    // "single-page-application": a real file (js/css/png) is served as itself; only a MISS
+    // falls back to Studio's index.html — at 200, never a 404, so Studio's client router
+    // owns the not-found view.
     "run_worker_first": ["/app/*", "/auth/*", "/gateway/*", "/_version"]
-    // A LISTED prefix always runs entrypoint.ts, which never falls back to Assets (it ends in 404)
-    // — which is exactly why /studio/* is NOT listed. An UNLISTED path goes straight to Assets:
-    // a real file (js/css/png) is served as itself; only a miss falls back to Studio's index.html
-    // ("single-page-application"). /app/* is the serveApp route step, which reimplements the same
-    // match-first rule against its own dist (§ How /app/* is served).
+    // A LISTED prefix always runs entrypoint.ts, which never falls back to Assets (it ends
+    // in 404) — which is exactly why /studio/* MUST stay unlisted. /app/* is the serveApp
+    // route step, which reimplements the same match-first rule against its own dist
+    // (§ How /app/* is served — whose vite-base bullet also carries why Studio's base is `/`).
   }
   ```
 
