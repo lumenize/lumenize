@@ -178,7 +178,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### Studio — Workers Assets
 
-**The config is the explanation** (target form — Phase 3 makes the one edit: `/dev-container/*` out, `/app/*` in):
+**The config is the explanation — and Studio's move needs NO edit to it.** `/studio/*` arrives with zero assets-config changes (an unlisted prefix falls to Assets by construction); Studio's half of the swap is the `NEBULA_AUTH_REDIRECT` flip (§ *The `/app`↔`/studio` flip*). The stanza's one Phase-3 edit — `/dev-container/*` out, `/app/*` in — is the *other* section's route:
 
   ```jsonc
   "assets": {
