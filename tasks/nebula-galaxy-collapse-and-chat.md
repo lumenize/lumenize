@@ -157,11 +157,11 @@ build() →                                 no source arg — /workspace IS Gala
 
 One Worker serves every surface. The table says who serves what and when it lands; the subsections that follow take the surfaces one at a time.
 
-**URL scheme (settled with Larry 2026-07-24 as the `/app`↔`/studio` swap):**
+**URL scheme (settled with Larry 2026-07-24 — Studio moves to `/studio`, and `/app` becomes the built app's):**
 
 | Route | Served by | For | When |
 |---|---|---|---|
-| `/studio/{activeScope}/*`<br/>= `/studio/{u}.{g}/*` | Workers Assets (SPA fallback) | STUDIO | ✅ **this task** — Phase 3 swaps it in |
+| `/studio/{activeScope}/*`<br/>= `/studio/{u}.{g}/*` | Workers Assets (SPA fallback) | STUDIO | ✅ **this task** — Phase 3 lands it |
 | `/app/{activeScope}/*`<br>= `/app/{u}.{g}.dev/*` | worker-first → Galaxy `fetch` handler, **working-tree `dist`** | USER-APP-DEV | ✅ **this task** — Phase 3 |
 | `/app/{activeScope}/*`<br>= `/app/{u}.{g}.{s}/*` | the **same** handler, the published **`dist-prod/`** (one copy, every tenant star) | USER-APP-PROD | ⏭️ deferred — [fast-follow](nebula-pre-alpha-fast-follow.md) § *Item 5* |
 | `/auth/{authScope}/*` | the Registry | REGISTRY | unchanged |
@@ -178,7 +178,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### Studio — Workers Assets
 
-**The config is the explanation — and Studio's move needs NO edit to it.** `/studio/*` arrives with zero assets-config changes (an unlisted prefix falls to Assets by construction); Studio's half of the swap is the `NEBULA_AUTH_REDIRECT` flip (§ *The `/app`↔`/studio` flip*). The stanza's one Phase-3 edit — `/dev-container/*` out, `/app/*` in — is the *other* section's route:
+**The config is the explanation — and Studio's move needs NO edit to it.** `/studio/*` arrives with zero assets-config changes (an unlisted prefix falls to Assets by construction); Studio's half of the move is the `NEBULA_AUTH_REDIRECT` change (§ *Where a login lands*). The stanza's one Phase-3 edit — `/dev-container/*` out, `/app/*` in — is the *other* section's route:
 
   ```jsonc
   "assets": {
@@ -240,11 +240,11 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ⚠️ **A denied recipient is NOT the end state.** ADR-017 says a shared URL is safe to paste because *"a recipient without access simply gets denied"*; the product answer is a prompt to ask someone at or above that node in the orgTree, the Google-Docs move. **Deferred past pre-alpha** (Larry, 2026-08-21) → [on-hold/nebula-request-access.md](on-hold/nebula-request-access.md).
 
-### The `/app`↔`/studio` flip
+### Where a login lands
 
-**This task's whole flip is one value.** Phase 3 flips `NEBULA_AUTH_REDIRECT` from `/app` to `/studio` (with the transcription sweep; today both constants in `consumeAndLogin`'s tier branch evaluate to `/app`, which is why the branch has been invisible). Pre-alpha **no real star-tier login exists** — no published apps; every human logs into Studio — so the interim behavior is simply **every login lands at `/studio/{activeScope}`**. The star arm (`STAR_LANDING_PREFIX`, stays `/app`) fires only in tests, and deleting it would red the suite's 63 star-landing assertions for zero behavior change. The preview iframe reaches `/app/{u}.{g}.dev/` because **Studio composes that URL itself** (Phase 3's App.vue work) — no login ever routes a person there.
+**One env value, changed once, one way.** Phase 3 sets `NEBULA_AUTH_REDIRECT` from `/app` to `/studio` (with the transcription sweep; today both constants in `consumeAndLogin`'s tier branch evaluate to `/app`, which is why the branch has been invisible). Pre-alpha **no real star-tier login exists** — no published apps; every human logs into Studio — so the behavior is simply **every login lands at `/studio/{activeScope}`**. The star arm (`STAR_LANDING_PREFIX`, stays `/app`) fires only in tests, and deleting it would red the suite's 63 star-landing assertions for zero behavior change. The preview iframe reaches `/app/{u}.{g}.dev/` because **Studio composes that URL itself** (Phase 3's App.vue work) — no login ever routes a person there.
 
-**The future login flow — mailbox proof, then a workspace picker (none when there is exactly one choice) — is [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md)'s design, not this file's.** **The collapse goes FIRST** (pinned on ease, Larry 2026-08-24 — this file's half of the shared `consumeAndLogin` seam is one env value plus a sweep; ⚠️ re-evaluate if that reading weakens once that file's phases are written). ⚠️ Do not interleave the seam edits; whichever lands second inherits — the reciprocal note lives in that file.
+**The value never changes back — the redirect later gets SMARTER.** [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) replaces the static redirect with its discovery flow — mailbox proof, then a workspace picker (none when there is exactly one choice); that changes *when the destination is known*, never this value's direction, and its design is that file's, not this one's. **The collapse goes FIRST** (pinned on ease, Larry 2026-08-24 — this file's half of the shared `consumeAndLogin` seam is one env value plus a sweep; ⚠️ re-evaluate if that reading weakens once that file's phases are written). ⚠️ Do not interleave the seam edits; whichever lands second inherits — the reciprocal note lives in that file.
 
 ## Naming — the turn *apparatus* is deleted; `Session` is renamed
 
@@ -429,14 +429,14 @@ exposed on Cloudflare Containers and **absent** locally, where `FUSE_MOUNT=auto`
 shim — so a green local run proves the drive, never the mount. Verify `/proc/mounts` per run, as the spike did, and
 run the mount-dependent criteria **deployed** ([[test-container-changes-with-wrangler-dev]]).
 
-⚠️ **This phase also OWNS the `/app`↔`/studio` swap — it is the phase that edits the route list, and a PARTIAL swap
-breaks login silently.** Today `wrangler.jsonc` is `run_worker_first: ["/auth/*", "/gateway/*", "/dev-container/*",
+⚠️ **This phase also OWNS the prefix move — Studio to `/studio`, `/app` to the built app — because it edits the
+route list, and a PARTIAL move breaks login silently.** Today `wrangler.jsonc` is `run_worker_first: ["/auth/*", "/gateway/*", "/dev-container/*",
 "/_version"]` and `NEBULA_AUTH_REDIRECT` is `/app` — Studio at `/app`, the reverse of the pin — while
 `entrypoint-routing-contract.test.ts` asserts `/app` is SPA-owned and `apps/nebula-studio-ui` has no vite `base`. This
-phase deletes `/dev-container/*` from that list anyway, so the change lands here as one edit: add `/app/*`, flip
+phase deletes `/dev-container/*` from that list anyway, so the change lands here as one edit: add `/app/*`, set
 `NEBULA_AUTH_REDIRECT` to `/studio` (prod **and** test), update the routing-contract test, set Studio's vite `base`.
   - **The transcription sweep** (§ *Serving* keeps only the pin). Derive the sites — `grep -rn NEBULA_AUTH_REDIRECT --exclude-dir=node_modules apps packages` — then triage against these known shapes:
-    - ✅ **`STAR_LANDING_PREFIX = '/app'` (`landing.ts`) STAYS** — the sweep will not surface it (different symbol), and it must not be flipped: `/app` is where the built app lives.
+    - ✅ **`STAR_LANDING_PREFIX = '/app'` (`landing.ts`) STAYS** — the sweep will not surface it (different symbol), and it must not be changed: `/app` is where the built app lives.
     - **Two `--var NEBULA_AUTH_REDIRECT:/app` flags** in the chromium and browser `global-setup.ts` launchers, and **two inline env objects** in `nebula-auth-invite.test.ts` — none of them in a `.jsonc`.
     - **`App.vue`'s own path parse** and the **eight Playwright `page.goto` entry points** that build the URL by hand (`ui-smoke/smoke.test.ts` ×3, `ui-smoke/helpers.ts` ×2, `harness/scenarios/studio-chat-reload.ts` ×3) — the sweep will not find these. ✅ **All eight drive STUDIO** (verified 2026-08-21), so all eight become `/studio/${scope}`; none is a built-app entry point.
     - ⛔ **`packages/nebula-auth/test/wrangler.jsonc` must STAY `/app`** — the sweep finds it, wrongly. Its own suite says why: *"Do NOT flip it project-wide: `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` on 63 call sites across 8 files."* That suite swaps `env` per-test (`withStudioRedirect`); follow that pattern.
@@ -449,9 +449,9 @@ phase deletes `/dev-container/*` from that list anyway, so the change lands here
   - `:487` — `client.lmz.call("DEV_STUDIO", a.instanceName, ctnT())`, a hardcoded **mesh binding** → **`"GALAXY"`**.
   - `:68`, `:191`, `:416` — three `previewSrc.value = \`/dev-container/${…}/\`` assignments building the **preview iframe URL** → the Galaxy-served form, `/app/{u}.{g}.{s}/` (§ *Serving*). Note `:416` passes a **star** while `:68`/`:191` pass `activeScope`, so the galaxy/star split has to be derived at each site rather than string-swapped.
   - ⚠️ **This is the ONE surface where the split is real.** Studio holds an app-level scope after the collapse (the session-addressing row in § *Decisions locked*) but the preview it embeds is per-**star**, so these three sites are where `{u}.{g}` and `{starSlug}` must be composed — not a prefix substitution.
-  - ⚠️ **`App.vue`'s own scope parse becomes `/studio/{scope}`** — it reads `location.pathname.match(/^\/app\/([^/?#]+)/)` today, one segment, and stays one segment; only the prefix moves. ⚠️ **But it now yields the ACTIVE scope, not the auth scope** (§ *Serving*), so the `?? localStorage.getItem(SCOPE_KEY)` fallback stops being a fallback and becomes the **primary source of auth scope**. That inversion is the real change here, not the regex. And the fallback is what makes a half-done swap invisible: a warm browser keeps working off the cached value while every FRESH browser gets `urlScope === undefined` — the invited collaborator's first login (Phase 4) and every harness run (Phase 5). **The routing criterion must clear `localStorage` before navigating.** Keep the comment's no-`?scope=`-fallback rule: *"a second way in is an interim that gets reached for later (the unlearning tax)."*
+  - ⚠️ **`App.vue`'s own scope parse becomes `/studio/{scope}`** — it reads `location.pathname.match(/^\/app\/([^/?#]+)/)` today, one segment, and stays one segment; only the prefix moves. ⚠️ **But it now yields the ACTIVE scope, not the auth scope** (§ *Serving*), so the `?? localStorage.getItem(SCOPE_KEY)` fallback stops being a fallback and becomes the **primary source of auth scope**. That inversion is the real change here, not the regex. And the fallback is what makes a half-done move invisible: a warm browser keeps working off the cached value while every FRESH browser gets `urlScope === undefined` — the invited collaborator's first login (Phase 4) and every harness run (Phase 5). **The routing criterion must clear `localStorage` before navigating.** Keep the comment's no-`?scope=`-fallback rule: *"a second way in is an interim that gets reached for later (the unlearning tax)."*
 
-⚠️ **Concurrency note, not an ordering one: [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) reworks `consumeAndLogin`'s redirect**, the same seam this phase flips. Do not interleave the two edits, and settle there — not here — what the post-login destination finally becomes; this phase owns only the `/app`↔`/studio` swap of the value.
+⚠️ **Concurrency note, not an ordering one: [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) reworks `consumeAndLogin`'s redirect**, the same seam this phase edits. Do not interleave the two edits, and settle there — not here — what the post-login destination finally becomes; this phase owns only setting the value to `/studio`.
 
 **Confirm:** message → codegen → **fresh container start (hidden behind the LLM)** → `runtime.exec` build → **`dist` is
 already in Galaxy's VFS when exec resolves** (assert the readback, not a transfer) → **preview reloads with zero
@@ -462,9 +462,9 @@ Galaxy instance succeed** (a single-build happy path would pass while the drive 
 kills an in-flight build); **a `destroy()` issued while the Workspace session is open does NOT fail the request**
 (**mutation:** drop the teardown ordering → a 1006 reds it); **zero stuck-signature entries in the `@lumenize/debug`
 sink** (a log grep — no bespoke counter, per Decisions). **Routing, asserted as a pair:** `GET /studio/{u}.{g}`
-renders the Studio SPA and `GET /app/{u}.{g}.dev` reaches Galaxy. **Mutation:** revert either half of the swap — drop
+renders the Studio SPA and `GET /app/{u}.{g}.dev` reaches Galaxy. **Mutation:** revert either half of the move — drop
 `/app/*` from `run_worker_first`, or leave `NEBULA_AUTH_REDIRECT` at `/app` — and one of the two reds; a login round
-trip through the flipped redirect must land in Studio, which is what catches the silent break. ⚠️ **Deploy-only:**
+trip through the changed redirect must land in Studio, which is what catches the silent break. ⚠️ **Deploy-only:**
 every criterion that depends on the mount carrying real bytes — run them on Cloudflare, not `wrangler dev`.
 
 ## Phase 4 (chat) — reactive multi-user thread
