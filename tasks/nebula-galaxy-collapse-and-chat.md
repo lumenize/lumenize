@@ -469,6 +469,8 @@ stays unset — `/` — per § *How `/app/*` is served*'s vite-base bullet.
 
 ⚠️ **Concurrency note, not an ordering one: [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) reworks `consumeAndLogin`'s redirect**, the same seam this phase edits. Do not interleave the two edits, and settle there — not here — what the post-login destination finally becomes; this phase owns only setting the value to `/studio`.
 
+🔒 **The reload trigger this phase wires is BUILD COMPLETION (a Galaxy→Star fan-out call), and wiring it also RETIRES `star.ts`'s ontology-install trigger** (`if (isNewVersion) this.broadcastReload()`) — § *Serving*'s push step carries why (the label is baked at build; one turn, one reload). The channel and `broadcastReload` itself stay (publish's future signal). **Criterion:** an ontology-touching turn produces exactly ONE preview reload; **mutation:** restore the install trigger → the single-reload assertion reds.
+
 **Confirm:** message → codegen → **fresh container start (hidden behind the LLM)** → `runtime.exec` build → **`dist` is
 already in Galaxy's VFS when exec resolves** (assert the readback, not a transfer) → **preview reloads with zero
 manual clicks** → `destroy()`; a compile error surfaces as `buildError` (shown, never retried); an infra hiccup as
