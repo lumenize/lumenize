@@ -178,7 +178,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### Studio — Workers Assets
 
-**The config is the explanation — note that `/studio` appears NOWHERE in it.** Assets serves every path not listed in `run_worker_first`, so Studio's document moving to `/studio/{u}.{g}` takes zero edits to this stanza. Its one Phase-3 edit — `/dev-container/*` out, `/app/*` in — hands `/app` to the Galaxy (the *other* section's route); Studio's remaining piece is the `NEBULA_AUTH_REDIRECT` change (§ *Where a login lands*):
+**The config is the explanation — note that `/studio` appears NOWHERE in it.** Assets serves every path not listed in `run_worker_first`, and that is how all of `/studio/*` is served: unlisted, by construction. How a login gets there — `NEBULA_AUTH_REDIRECT` — is § *Where a login lands*'s:
 
   ```jsonc
   "assets": {
