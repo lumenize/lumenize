@@ -81,6 +81,8 @@ The **substrate-not-primitives** thesis: Nebula builds a thin secure substrate (
 
 ⚠️ **If user-dev source-privacy demand appears, the gate design restarts HERE, under two recorded constraints** (Larry, 2026-08-24): **no cookies**, and browsers send no `Authorization` on document or sub-asset loads — which together likely mean the serve itself is never gated (a published app's END USERS need `index.html` before they can log in), and privacy comes from something else if it comes at all.
 
+⚠️ **The publish-refresh push is a THUNDERING HERD by construction — dev's build trigger is not** (Larry's catch, 2026-08-26). Dev reloads a handful of open previews at prompt pace; a publish-triggered `broadcastReload` reloads EVERY live client at once, each fetching `index.html` + assets from the one Galaxy DO, and the broadcast itself is O(N) sends from that same DO. When publish wires the signal, either jitter the client handler's reload or keep prod LAZY — the ontology version gate already guarantees correctness, and a code-only publish picked up on next natural reload is ordinary web behavior. The push is UX, never correctness, which is what makes lazy a real option.
+
 ⚠️ The **scale** mechanisms — edge cache, the release herd, R2 as an escalation — are NOT this item's: they are decided by measured experience, and live in [backlog.md](backlog.md) § *Future bigger things*.
 
 ## Item 6: Mid-generation chat UX — the two-stage arrival pipeline
