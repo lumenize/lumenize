@@ -243,7 +243,11 @@ One Worker serves every surface. The table says who serves what and when it land
 
 ### The `/app`↔`/studio` flip
 
-**`consumeAndLogin` tier-branch**, computed in `landingBase` ([archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md)): star → `STAR_LANDING_PREFIX`, every other tier → `NEBULA_AUTH_REDIRECT`. ⚠️ **Only ONE constant moves.** `STAR_LANDING_PREFIX` (`landing.ts`) **stays `/app`** — that is where the built app lives and where a star-tier login belongs; `NEBULA_AUTH_REDIRECT` becomes `/studio`. Today both evaluate to `/app`, which is precisely why the branch is invisible — moving one is what makes it diverge. **What the post-login destination finally IS belongs to** [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md) § *Open questions* (4) — that file moves the scope choice to after the click, so this phase owns only the VALUES, never what they mean. **The flip and its transcription sweep are Phase 3's**, which edits the route list anyway.
+**The future state, so heads land in the right place** (owned by [nebula-login-prove-then-choose.md](nebula-login-prove-then-choose.md), a ③ item that lands BEFORE this task): a login click proves the mailbox, then a **picker** lists the person's memberships and they choose the workspace — landing at `/studio/{activeScope}` (or a scoped deep link straight into `/app/{scope}`); **no picker when there is exactly one choice**. What that page looks like and does is that file's design, not this one's.
+
+**What THIS task owns is one value, not the flow.** `consumeAndLogin`'s tier branch (`landingBase`, [archive/nebula-star-founder-provisioning.md](archive/nebula-star-founder-provisioning.md)) computes: star tier → `STAR_LANDING_PREFIX`, every other tier → `NEBULA_AUTH_REDIRECT`. Today **both constants evaluate to `/app`**, which is why the branch is invisible. Phase 3 flips `NEBULA_AUTH_REDIRECT` to `/studio` (with the transcription sweep), so wherever the login flow sends a non-star principal — directly in the interim, via the picker once prove-then-choose lands — it points at Studio's new prefix. `STAR_LANDING_PREFIX` stays `/app`: a star-tier login lands in the built app by design.
+
+⚠️ **Concurrency note, not an ordering one:** both files edit the same `consumeAndLogin` seam — do not interleave the two edits; whichever lands second inherits, and the reciprocal note lives in that file too.
 
 ## Naming — the turn *apparatus* is deleted; `Session` is renamed
 
