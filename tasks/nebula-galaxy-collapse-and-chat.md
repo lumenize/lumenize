@@ -237,7 +237,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 - **`/_version`** — the **platform Worker's** git SHA (ours; the intro's route).
 - **`ontologyVersion`** (today's `appVersion`, renamed in Phase 2) — the **ontology's** version label; gates *data* ops (`OntologyStaleError`) and changes only on an ontology change, never a code build (§ *Decisions locked*).
-- **The built app's code** — no version *number* at all: hashed asset names + the Galaxy's git history (the published tier's copy-and-provenance story is Item 5's). A new build announces itself over mesh `subscribeReload`, not a route.
+- **The built app's code** — no version *number* at all: hashed asset names + the Galaxy's git history (the published tier's copy-and-provenance story is Item 5's). A new build announces itself over mesh `subscribeReload`, not a route: the ANNOUNCER is the builder — the Galaxy just ran the build, so completion is its own event, nothing watches or compares — and the SUBSCRIBER is the preview's embedded `NebulaClient`, one more subscription on the same mesh connection its data plane already rides (`nebula-client.ts` holds both ends today).
 
 ### Where the scopes come from
 
