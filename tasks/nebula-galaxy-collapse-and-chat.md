@@ -225,7 +225,7 @@ One Worker serves every surface. The table says who serves what and when it land
 
 **Dev caching pin (2026-08-24):**
 
-- **`index.html`, and any other unhashed file** (public-dir copies): `Cache-Control: no-store`. The scaffold prefers IMPORTED assets over `public/` — an imported logo is content-hashed (or inlined ≤4KB) like any bundled file — so the unhashed set stays favicon-class: files whose fixed name is the point.
+- **`index.html`, and any other unhashed file** (`public/` copies): `Cache-Control: no-store`. An app has two ways to carry a file like a logo. Reference it from code or a template — `import logo from './logo.png'`, or `<img src="./logo.png">` — and vite emits it as `assets/logo-{hash}.png` (or inlines it as a data URI when ≤4KB) and rewrites the reference, so it rides the hashed arm below. Or drop it in the `public/` folder, which vite copies into `dist/` verbatim, name unchanged — that is what lands here, unhashed. Generated apps should reference everything the first way; `public/` is only for files whose exact name is the contract (`favicon.ico`, `robots.txt`).
 - **Hashed assets:** `public, max-age=31536000, immutable`.
 - **Why the split works:** vite's build content-hashes every bundled file — `assets/index-{hash}.js`, the css, imported images — so a content change changes the *name*; the un-hashed entry point is the only file that must never be cached.
 - **ETag/304 is the available upgrade, not built:** if unhashed-file bytes ever matter, the Workspace's git already content-addresses every blob — the ETag is free. With it, the unhashed arm relaxes to `no-cache` (revalidate, 304 on unchanged), never to a `max-age` guess, which would serve a stale file with no recourse.
