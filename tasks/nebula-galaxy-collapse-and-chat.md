@@ -311,7 +311,25 @@ Every `Message` snapshot includes a `meta.actingToken` that looks like this (a N
 }
 ```
 
-- **The DISPLAYED author walks the WHOLE chain, outermost first: `{actor} for {principal}`** when one `act` is present (*Nebula for {human}*), and a deeper chain continues the same way — *Nebula for {coach} for {human}*, no parentheses (pinned 2026-08-27) — else the principal alone. Every party is deliberately shown.
+The same record two deep — the coach posted while IMPERSONATING the user, and that message triggered Nebula:
+
+```jsonc
+{
+  "sub": "9f2e6c0a-…",        // the USER — still the subject; authorization keys off this
+  "profileId": "c41d88b2-…",
+  "act": {                    // top entry = the actor that produced THIS message
+    "sub": "agent:nebula",
+    "profileId": "…",         // NEBULA_PROFILE_ID
+    "act": {                  // the coach's own entry, preserved beneath — never flattened
+      "sub": "7b31a9d4-…",    // the COACH
+      "profileId": "e5c2f810-…"
+    }
+  }
+}
+// byline: "Nebula for {coach} for {user}" — the chain read top-down
+```
+
+- **The DISPLAYED author walks the WHOLE chain, top-down: `{actor} for {principal}`** when one `act` is present (*Nebula for {human}*), a deeper chain continuing the same way — the second codeblock's byline, *Nebula for {coach} for {user}*, no parentheses (pinned 2026-08-27) — else the principal alone. Every party is deliberately shown.
 - **Display derives ONLY from verified claims — author from `sub`, `kind` from the outermost `act?.sub === NEBULA_SUB` — which is what makes author spoofing impossible.** The claims ride a committed snapshot's `meta.actingToken`, and the optimistic echo of your own pending message reads your own JWT's. A Nebula reply has no optimistic moment at all — clients never author one: its transient chunks and its durable snapshot both arrive FROM the server on the subscription, so its attribution is server-supplied at every stage, no round trip waited on. Today's `Message.author` is CLIENT-written — a sender could post as anyone by providing a name — and an injected `role` would dress a human message as Nebula's; this task DROPS both fields (type, writers, tests — § *Preserved*).
 - **An outdated or hostile client can still SEND either key; it lands inert — and this is a GENERAL Resources fact, not a chat one.** typia is non-strict, so ANY undeclared key persists at rest on any Resource (§ *Preserved*); once dropped, `author`/`role` are indistinguishable from other excess-key garbage. No render path reads them — hence the criterion asserts the render, never absence-from-storage. Rejecting excess keys plane-wide (the smuggling/poisoning angle) is [backlog.md](backlog.md) § *Nebula*'s.
 - **Attribution is by `kind`** (`agent` | `human`) + the display name **`Nebula`** (never "assistant") — and `kind` is DERIVED at render (outermost `act?.sub === NEBULA_SUB` → agent), never stored: a stored `kind` is a second, client-writable source of truth that can contradict the stamp and reopens the `role` spoof, and deriving means a future agent type needs no data rewrite. ⓘ `ChatMessage.role:'user'|'assistant'` is the **codegen model provider's** request format for `env.AI`, not our `Message` Resource — our vocabulary translates at that call boundary (`agent`→`'assistant'`, `human`→`'user'`) and nowhere else.
@@ -343,7 +361,7 @@ These are settled; review the wording, don't re-derive the decisions:
 - **typia `validate` is non-strict — dropping `role`/`author` from the TYPE deletes nothing at rest.** It neither rejects nor strips excess keys, and `transaction` writes `result.data` verbatim, so a type-only drop leaves them persisting with a green build. What follows:
   - **The writers need to stop writing them** (Phase 2's ontology edit).
   - **Tests assert the RENDER, never absence-from-storage** (that assertion is vacuous). Migrate, don't ossify: update tests asserting `.role`/`.author` on a `Message` value — at least `child3-post.test.ts`'s `snap.value as { role?, content?, author? }` read and `child3-session.test.ts`'s `expect(….author).toBe('admin@example.com')` — then grep the bare identifiers for the full set.
-- **RFC-8693 act-chain nesting: prepend the actor as the OUTERMOST `act`**, preserving any pre-existing verified `payload.act` underneath (outermost = current, most-nested = earliest). Flatten/overwrite DROPS the delegation chain. A depth-2 chain is reachable today — an impersonated session's committed message triggers Nebula, whose prepend nests the admin beneath its own entry (render: § *Participant model*'s whole-chain byline).
+- **RFC-8693 act-chain nesting: prepend the new actor as the TOP `act`, preserving any pre-existing verified `payload.act` beneath it.** § *Participant model*'s depth-2 codeblock (coach + user) IS this rule as JSON — and is reachable today, since an impersonated session's committed message triggers Nebula. Flatten/overwrite DROPS the delegation chain.
   - ⚠️ **The helper does not exist yet — this task ADDS it** (§ *Files*), so what is preserved is the RULE, not an implementation: `prependActor` appears nowhere in `packages/` or `apps/` today, and `profile.ts`'s own comment calls it *"a future `prependActor`"*. Build ONE tested helper called by `#buildActingToken` AND the later cross-node mint path, so the two cannot drift on RFC semantics.
   - ⚠️ **`prependActor` applies to the actingToken RECORD only — never to a TOKEN.** Why: the Profile owner check is presence-only by design — `claims.profileId === profileId && !claims.act` ([ADR-012](../docs/adr/012-global-profile-visibility.md); both identity-comparing variants were rejected) — so ANY token carrying `act` loses ownership of its own profile. Prepend into a session's token and that person can no longer edit their own profile. And the anti-fix is also pinned: if a token ever seems to need the prepend, that re-opens ADR-012 — it is NOT repaired with `act.sub === claims.sub`. Noted at `profile.ts`; history in [archive/nebula-mint-narrower-token.md](archive/nebula-mint-narrower-token.md).
 - **`NEBULA_SUB` = a self-describing `agent:nebula`** — an **actor id**, never a standalone subject (`actingToken.sub` is the triggering human, never `NEBULA_SUB`). Self-describing over a UUID: readable, syntactically not-a-human, and degrades legibly in the cold case; shape-agnostic since `kind` is a constant compare (outermost `act?.sub === NEBULA_SUB`). ⚠️ *build-checks:* nothing validates `sub` as UUID-shaped, and the actor-profileId stamp (below) is always emitted, so `agent:nebula` never reaches a Registry resolver. **Home: `chat-constants.ts`** — imported by BOTH the Galaxy (stamping the actor) and `NebulaClient`/Studio render (deriving `kind`); one compile-time constant reaching the Worker and browser bundles through the existing import graph, nothing exported at runtime.
