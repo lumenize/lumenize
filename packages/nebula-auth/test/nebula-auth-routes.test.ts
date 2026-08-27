@@ -253,7 +253,7 @@ describe('@lumenize/nebula-auth — Worker Router', () => {
     // ⚠️ The binding is `/app` project-wide (test/wrangler.jsonc), which would make both branches
     // produce the SAME string and the test vacuous. Each test below mutates it to `/studio` for its
     // duration and restores it, so the branches genuinely diverge. Do NOT flip it project-wide:
-    // `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` on 63 call sites across 8 files.
+    // `test-helpers.ts` `clickLink` asserts `/^\/app(\/|$)/` at its call sites throughout this suite.
     describe('login redirect tier split', () => {
       async function withStudioRedirect<T>(fn: () => Promise<T>): Promise<T> {
         const original = (env as any).NEBULA_AUTH_REDIRECT;
