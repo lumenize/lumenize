@@ -1,6 +1,6 @@
 # Use `lumenize.dev` for hosted apps + support customer custom domains
 
-**Status**: design captured 2026-06-27 (with Larry). **Phase 0 (outbound-URL discipline) DONE 2026-06-27**; the rest is on-hold. Supersedes two backlog items (preview-origin-isolation + Universe-level custom domains), folded in here. No immediate driver — pre-alpha runs everything on `nebula.lumenize.com` and that's fine for now. Pick up the rest when (a) we're about to host untrusted multi-tenant apps, or (b) a customer asks for their own domain, or (c) the `createNebulaClient` `authScope` URL auto-detect (backlog) needs the deployment-URL scheme pinned.
+**Status**: design captured 2026-06-27 (with Larry). **Phase 0 (outbound-URL discipline) DONE 2026-06-27**; the rest is on-hold. Supersedes two backlog items (preview-origin-isolation + Universe-level custom domains), folded in here. ⚠️ **DRIVER ARRIVED 2026-08-28 — trigger (a), earlier than expected, and it re-orders the work: the PREVIEW slice comes first.** Multi-user Studio chat means generated code is now viewed by someone other than its prompter, and the preview iframe is same-origin with Studio — so app code can drive an admin's authenticated DOM ([nebula-galaxy-collapse-and-chat.md](../nebula-galaxy-collapse-and-chat.md) § *Costs / risks* accepts it for pre-alpha and names this file as the fix; its trigger is the first less-trusted collaborator or the first published app). The remaining pickup triggers stand: (b) a customer asks for their own domain, or (c) the `createNebulaClient` `authScope` URL auto-detect (backlog) needs the deployment-URL scheme pinned.
 
 ## Objective
 
@@ -15,6 +15,17 @@ Hosting untrusted, LLM-generated app code on `*.nebula.lumenize.com` shares the 
 - **Public Suffix List (PSL).** Submit `lumenize.dev` to the PSL (the `*.workers.dev` pattern) so even *sibling* tenant apps can't cookie-toss each other. This is the gold-standard multi-tenant isolation; do it before hosting other people's apps.
 
 **Framing:** `nebula.lumenize.com` = **trusted control plane** (Studio, auth, gateway-for-Studio). `lumenize.dev` = **untrusted data plane** (rendered apps + the API calls they make). For a secure-by-default platform running untrusted code, this is the correct architecture, not a nicety.
+
+## The PREVIEW slice — the first and cheapest cut (2026-08-28)
+
+**The `.dev` preview is where untrusted code actually runs today, and it needs almost none of the machinery below.** Host→scope translation is the expensive part of this file; the preview can skip it entirely by keeping the canonical path and changing only the host:
+
+- **Path stays exactly as-is** — `/app/{u}.{g}.dev/*`, self-describing, so `entrypoint.ts` keeps routing purely by path and needs NO host parsing.
+- **Host becomes a flat per-galaxy label** — `acme--crm.lumenize.dev` (Fork A's own lean; one level, so free `*.lumenize.dev` Universal SSL, no ACM, no per-universe cert step). That buys BOTH boundaries the browser can give: app-cannot-touch-Studio, and app-cannot-touch-a-sibling-galaxy's-app.
+- **Fork B does not need deciding for this slice** — there is exactly one `.dev` Star per Galaxy.
+- **What it costs:** the zone + a wildcard route to the same Worker, the iframe URL composition in `App.vue` (which the collapse's Phase 3 already rewrites), and the auth question below.
+
+⚠️ **The one genuinely open piece: an embedded cross-origin preview cannot use its OWN refresh cookie.** Once the frame is cross-origin its cookies are **third-party** — Safari blocks them outright, Chrome is deprecating them — so "the user just logs in again inside the iframe" does not survive contact with the browser. Candidates, undecided: **(a)** Studio HANDS the frame a scoped token over `postMessage` (an explicit capability grant — the child still cannot *take* anything, which is the boundary being bought); **(b)** the Storage Access API; **(c)** the preview's data plane authenticates by some other carrier entirely. ⓘ Same family as two notes already recorded elsewhere: the collapse's *"if the built app ever moves to its own origin the hint must be re-derived there, never assumed"* (§ *Where the scopes come from*), and its Phase-4 open piece on the collaborator's star-side session — settle them together.
 
 ## Addressing & edge translation (canonical identity unchanged)
 
