@@ -84,6 +84,14 @@ section that defines something MUST carry one real example.
 follow, in preference order."* `auth.md` even switches to second person for the walk:
 *"You enter by authenticating… You then open a connection by presenting one."*
 
+**Information-outline a paragraph that answers more than one question.** One labeled
+bullet per concern — a bold claim, then only its own support — instead of a semicolon
+chain (Larry's term, adopted 2026-08-27 from the collapse hand review, where it was the
+single most-used repair). The test: a reader who wants just one of the answers can find
+and read only it. And when the section contains a config or code block, **the block is
+the spine**: explanations become comments on the lines they explain, and prose keeps only
+what has no line — "the config is the explanation."
+
 **Reach for a picture when the point is a judgement call.** ADR-015 on why downward is
 generous: *"A Universe or Galaxy admin stands to their tenancy roughly as we stand to our
 own Cloudflare account."* ADR-018: *"The singleton absorbs load by running out."*
