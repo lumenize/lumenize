@@ -311,7 +311,7 @@ Every `Message` snapshot includes a `meta.actingToken` that looks like this (a N
 }
 ```
 
-- **The DISPLAYED author is `{actor} for {principal}`** when `act` is present (*Nebula for {human}*), else the principal alone — both parties deliberately shown, which dissolves the impersonation-display question rather than deferring it. Deriving display from `actingToken.sub` also eliminates the **author spoof at the render layer**: a stray/injected `author` key is simply never read.
+- **The DISPLAYED author is `{actor} for {principal}`** when `act` is present (*Nebula for {human}*), else the principal alone — both parties deliberately shown. This is also what kills **author spoofing**: today's `Message.author` value field is CLIENT-written, so a sender could post as anyone by typing a name into their own message. The displayed author now derives only from the server-stamped record — the value's `author` key is never read, so a spoofed one can still arrive and persist (typia is non-strict — § *Preserved*) but is inert.
 - **Attribution is by `kind`** (`agent` | `human`) + the display name **`Nebula`** (never "assistant"). ⚠️ *Separate thing, leave it:* `ChatMessage.role:'user'|'assistant'` is the **codegen model provider's** request format for `env.AI` — not our `Message` Resource.
 - **`Participant { sub, kind, name }` is RESOLVED by reactive lookup, never stored on a Message** — `sub` from `actingToken`, **`kind` derived** (`sub === NEBULA_SUB` → agent), `name` off the stamped `profileId` via a live `Profile` sub (mechanics: Preserved § *Name resolution*).
 - **Human vs agent is a participant property, not a capability role.** Data-plane capabilities (post/read/subscribe) are uniform at the API, DAG-gated + UI-shaped.
