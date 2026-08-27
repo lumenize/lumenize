@@ -308,8 +308,9 @@ re-deriving here.
   `tasks/on-hold/nebula-skills.md` · eval / **Studio self-improvement loop** `tasks/on-hold/nebula-studio-self-improvement.md`
 - Provisioning pull-half: `tasks/on-hold/nebula-request-access.md` · Root-admin: `tasks/on-hold/nebula-dataplane-root-admin.md`
 - Fast-follow / demand-driven capabilities (reactive, post-core): `tasks/nebula-pre-alpha-fast-follow.md` —
-  parent index for media storage, app AI persona, and outside-world connectivity (design+phases in
-  `tasks/nebula-outside-world.md`; `fetch` → email → search → secrets-last; incl. Wave-3 inbound email).
+  the parent index; each item carries its own demand trigger, so read them there rather than tracking a
+  list here. Outside-world connectivity is the one with its own design+phases file
+  (`tasks/nebula-outside-world.md`; `fetch` → email → search → secrets-last; incl. Wave-3 inbound email).
 - **Live harness:** local drive = `apps/nebula/harness/` (the `/live` skill + always-loaded `live.md`
   rule); prod drive = `apps/nebula/harness/prod.ts` (autonomous, read-mostly; **standing authorization**
   to drive/read prod when Larry asks — writes/deploys stay deliberate). ⚠️ Turnstile is **OFF in prod**
