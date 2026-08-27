@@ -237,25 +237,31 @@ async function consumeAndLogin(
   const rawRefreshToken = generateRandomString(32);
   const refreshTokenHash = await hashString(rawRefreshToken);
   const refreshExpiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL * 1000).toISOString();
+  // The invite path may seed a SECOND session (the co-minted `.dev` workspace membership):
+  // generate its token up-front; the registry records it only when that membership exists,
+  // and the cookie is set only when the registry says it did.
+  const rawDevRefreshToken = generateRandomString(32);
+  const devRefreshTokenHash = consume === 'consumeInvite' ? await hashString(rawDevRefreshToken) : undefined;
 
-  const result = await registry(env)[consume](loginTokenHash, refreshTokenHash, refreshExpiresAt) as
-    { sub: string; universeGalaxyStarId: string } | null;
+  const result = await registry(env)[consume](loginTokenHash, refreshTokenHash, refreshExpiresAt, devRefreshTokenHash) as
+    { sub: string; universeGalaxyStarId: string; devSession?: { universeGalaxyStarId: string } } | null;
   // No token resolved, so there is no server-trusted scope — fall back to the URL segment purely to
   // pick a landing surface for the error page (it grants nothing; see `landingBase`).
   if (!result) return redirectWithError(env, 'invalid_token', urlInstanceName);
 
-  // Carry the scope on the redirect as a PATH segment (`/app/{scope}`) so the landing SPA auto-connects
-  // with no local state (the magic link opens a fresh tab; localStorage can't be relied on). The base
-  // is tier-split off the TOKEN's scope, never the URL's.
+  // Carry the scope on the redirect as a PATH segment (`/studio/{scope}`) so the landing SPA
+  // auto-connects with no local state (the magic link opens a fresh tab; localStorage can't be
+  // relied on). The base is tier-split off the TOKEN's scope, never the URL's.
   const redirect = landingBase(env, result.universeGalaxyStarId);
   const location = `${redirect}/${encodeURIComponent(result.universeGalaxyStarId)}`;
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: location,
-      'Set-Cookie': refreshCookie(result.universeGalaxyStarId, rawRefreshToken),
-    },
-  });
+  const headers = new Headers({ Location: location });
+  headers.append('Set-Cookie', refreshCookie(result.universeGalaxyStarId, rawRefreshToken));
+  // Two cookies with DIFFERENT Path scopes never collide — the browser holds one session
+  // per enrolled scope, which is exactly what the workspace preview's data plane needs.
+  if (result.devSession) {
+    headers.append('Set-Cookie', refreshCookie(result.devSession.universeGalaxyStarId, rawDevRefreshToken));
+  }
+  return new Response(null, { status: 302, headers });
 }
 
 export async function handleMagicLinkClick(request: Request, env: Env, instanceName?: string): Promise<Response> {

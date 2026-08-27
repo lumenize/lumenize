@@ -20,7 +20,7 @@ import { setDebugSink, clearDebugSink } from '@lumenize/debug';
 import { sendInviteEmails, summarizeInvites } from '../src/invite-entry';
 import type { EmailMessage, InviteMintResult, NebulaJwtPayload } from '../src/types';
 import {
-  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url,
+  foundUniverse, issueInvitesAs, clickLink, refreshAndParse, url, createGalaxy,
 } from './test-helpers';
 
 function uni(): string { return `u${crypto.randomUUID().slice(0, 8)}`; }
@@ -47,6 +47,54 @@ async function inviteRows(email: string, scope: string): Promise<Array<{ expires
     'SELECT expiresAt FROM InviteTokens WHERE email = ? AND universeGalaxyStarId = ?', email, scope,
   )]);
 }
+
+describe('Galaxy invite — the workspace SECOND HALF (collapse Phase 4)', () => {
+  it('a galaxy invite co-mints a `.dev` scopeAdmin membership, and ONE acceptance click seeds BOTH sessions', async () => {
+    const u = uni();
+    const galaxy = `${u}.app`;
+    const admin = await foundUniverse(SELF, u, em('adm'));
+    expect((await createGalaxy(SELF, galaxy, admin.access_token)).status).toBe(201);
+
+    const invitee = em('austen');
+    const mint = await issueInvitesAs(admin.access_token, galaxy, [{ email: invitee }]);
+
+    // ONE click → TWO Set-Cookie headers, Path-scoped per enrolled scope.
+    const resp = await SELF.fetch(new Request(linkFor(mint, invitee), { redirect: 'manual' }));
+    expect(resp.status).toBe(302);
+    const cookies = resp.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    const galaxyCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy};`))!;
+    const devCookie = cookies.find((c) => c.includes(`Path=/auth/${galaxy}.dev;`))!;
+    expect(galaxyCookie, 'a refresh cookie Path-scoped to the galaxy').toBeTruthy();
+    expect(devCookie, 'a SECOND refresh cookie Path-scoped to the .dev workspace').toBeTruthy();
+
+    // The galaxy session mints NO admin bit (the collaborator is a peer there)…
+    const galaxyToken = galaxyCookie.split(';')[0]!.split('=')[1]!;
+    const { parsed: gp } = await refreshAndParse(SELF, galaxy, galaxyToken);
+    expect(gp.access.authScope).toBe(galaxy);
+    expect(gp.access.scopeAdmin).toBeUndefined();
+    // …and the workspace session mints scopeAdmin over the `.dev` Star — dominion over
+    // the workspace IS the whole grant (the pinned second half).
+    const devToken = devCookie.split(';')[0]!.split('=')[1]!;
+    const { parsed: dp } = await refreshAndParse(SELF, `${galaxy}.dev`, devToken);
+    expect(dp.access.authScope).toBe(`${galaxy}.dev`);
+    expect(dp.access.scopeAdmin).toBe(true);
+    // The two sessions are the SAME person (one address → one profileId)…
+    expect(dp.profileId).toBe(gp.profileId);
+    // …but DIFFERENT memberships (sub is per-(email, scope) — ADR-013 keys on sub).
+    expect(dp.sub).not.toBe(gp.sub);
+  });
+
+  it('a UNIVERSE invite stays single-session (the second half is galaxy-tier only)', async () => {
+    const u = uni();
+    const admin = await foundUniverse(SELF, u, em('adm'));
+    const invitee = em('solo');
+    const mint = await issueInvitesAs(admin.access_token, u, [{ email: invitee }]);
+    const resp = await SELF.fetch(new Request(linkFor(mint, invitee), { redirect: 'manual' }));
+    expect(resp.status).toBe(302);
+    expect(resp.headers.getSetCookie()).toHaveLength(1);
+  });
+});
 
 describe('Invite Flow (per-invitee primitive)', () => {
   const entries: any[] = [];

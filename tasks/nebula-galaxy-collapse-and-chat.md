@@ -594,6 +594,22 @@ Four labeled pieces, all client-side consumption of what Phases 1–2 built:
 
 🔒 **This phase also SETTLES the collaborator's star-side SESSION** — § *Costs / risks* → the invite's second half leaves it as the one open piece: the preview's data plane needs a token whose `authScope` is `{u}.{g}.dev`, so Austen's browser must hold a refresh cookie at `/auth/{u}.{g}.dev`. Candidate: the invite ACCEPTANCE seeds sessions for BOTH scopes it enrolled; § *Where the scopes come from*'s per-workspace hint map already handles the client side. Whatever the mechanism, the headline's she-READS-`.dev`-data criterion consumes it.
 
+✅ **BUILT 2026-08-28 — build notes that would surprise a re-reader:**
+- **Studio's RESOURCE pair now points at the GALAXY too** (`App.vue`'s `chatPair` helper sets both).
+  The pin's "Studio uses zero `client.resources.*`" measurement aged the moment this phase's
+  subscription render landed — the thread and its content reads ride `resources.*`, and the
+  reconnect walk re-fires on the resource pair, so a `'STAR'`-defaulted Studio would re-subscribe a
+  phantom Star. The `'STAR'` DEFAULT is untouched (generated apps + docs unchanged).
+- **The headline scenario is SEQUENTIAL by necessity, and that is the single-flight working**:
+  three rapid posts yielded exactly one generation (two "skipped: generation in flight" markers,
+  observed live) — `four-party-chat.ts` waits out each turn the way a participant would.
+- **An in-turn agent commit cannot red the human-only predicate** — the latch is still held when
+  `commitAgentMessage` fires, so the single-flight shadows it there. The predicate's LIVE case is a
+  latch-free agent commit (a deadline-abandoned turn's late landing); the bounded test drives that
+  exact shape (`chat-trigger.test.ts` T3, reshaped after the shadowing was measured).
+- The reload leg of the reconnect/reload pair is `child3-e2e`'s late-joiner; the reconnect leg is
+  `chat-trigger` T7 (server-side amnesia first, so the idempotent end-state cannot hide a gutted walk).
+
 **Confirm:** **reconnect and reload asserted as DISTINCT paths** (reconnect replays the in-heap subscription registry; reload rebuilds from a fresh heap — the idempotent end-state hides a broken re-walk, testing.md § *Tests must be capable of failing*); **the headline (constructible NOW)** — `/live` drives **Nebula + the owner (real `@lumenize.io` login, ADR-009) + the coach (super-admin)** all seeing every message, correctly attributed (**Nebula renders as "Nebula" + avatar via its seeded `Profile`**, displayed *Nebula for {human}*), live. **The non-admin COLLABORATOR (Austen) is IN the headline** — invited at `{u}.{g}` with **no `scopeAdmin` bit**, holding one `write` grant at the session node, so all four parties are live — and the invite's `.dev` second half (§ *Costs / risks*) is asserted by her READING `.dev` Star data. Rewrite `studio-chat-reload.ts` to be capable-of-failing **on render** (drop its optimistic-echo assumption).
 
 ## Phase 5 (chat) — profile completion, so nobody renders nameless

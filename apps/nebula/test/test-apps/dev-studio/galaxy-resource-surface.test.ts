@@ -73,7 +73,7 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
     const admin = meshMethods(true);
     for (const m of [
       'writeSource', 'readSource', 'appendWorkspaceOntology',
-      'chat', 'warmPreview', 'ensureChat', 'buildNow',
+      'warmPreview', 'ensureChat', 'buildNow',
       'appendOntologyVersion', 'setGalaxyConfig',
     ]) {
       expect(admin).toContain(m);
@@ -86,6 +86,18 @@ describe('Galaxy @mesh surface freeze (m5)', () => {
     const fn = (Galaxy.prototype as unknown as Record<string, unknown>).onInviteResult;
     expect(typeof fn).toBe('function');
     expect(isMeshCallable(fn as (...a: unknown[]) => unknown)).toBe(false);
+  });
+
+  it('the mesh surface offers NO `chat` method at all — the commit IS the trigger', () => {
+    // Phase 4 (collapse): the committed human Message triggers codegen; an invocable
+    // `chat` husk — even bare-@mesh — would let a mere passage-holder run the loop with
+    // no door (the DAG write check on the Message commit is the ONLY door). The runner
+    // survives as the non-mesh `runTriggeredTurn`, unreachable remotely.
+    const proto = Galaxy.prototype as unknown as Record<string, unknown>;
+    expect(proto.chat).toBeUndefined();
+    const runner = proto.runTriggeredTurn;
+    expect(typeof runner).toBe('function');
+    expect(isMeshCallable(runner as (...a: unknown[]) => unknown)).toBe(false);
   });
 });
 

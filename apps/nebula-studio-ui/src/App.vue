@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import { Send, RotateCw, Eraser, LogIn, Loader2, User, LogOut, Trash2, ChevronLeft, Plus, Hammer } from "lucide-vue-next";
-import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION } from "@lumenize/nebula/frontend";
+import { createNebulaClient, CHAT_MESSAGE_ONTOLOGY_VERSION, DEFAULT_CHAT_ID, deriveParticipants } from "@lumenize/nebula/frontend";
 import type { ScopeDeletionPlan } from "@lumenize/nebula/frontend";
 // Type-only (erased at build — does NOT pull cloudflare:workers into the browser bundle).
 import type { Star } from "@lumenize/nebula";
@@ -26,13 +26,92 @@ const authHint = (active: string) => localStorage.getItem(AUTH_HINT_PREFIX + act
 const activeScope = ref<string | undefined>(urlScope);
 const authScope = ref<string | undefined>(urlScope ? (authHint(urlScope) ?? urlScope) : undefined);
 
+// LOCAL notices only (login guidance, errors, nudges). The CONVERSATION renders from the
+// durable Message subscription below — never from a local echo (D-echo: the sender sees
+// its own message via the fanout, like everyone else).
 type Msg = { role: "you" | "studio" | "error" | "thought"; text: string };
 const messages = ref<Msg[]>([]);
 const input = ref("");
 const connected = ref(false);
 const connecting = ref(false); // post-magic-link auto-connect in flight (shows "Signing you in…")
 const busy = ref(false);
-const thinking = ref(false);
+
+// ── The live thread (the durable `Message` subscription — the collapse's Phase 4) ──
+// Membership rides the query subscription (ids only); content + meta auto-subscribe by
+// READING `store.resources.Message[id]` in the render, and every participant's display
+// name auto-subscribes by reading `store.lmz.profiles[profileId]` (refcounted; a name
+// set later back-fills every earlier message).
+const messageIds = ref<string[]>([]);
+type ChatSub = { resourceIds: string[]; setRenderWindow(ids: string[]): void; onChange(cb: () => void): void; ready: Promise<void> } & Disposable;
+let chatSub: ChatSub | null = null;
+/** The in-flight transient stream (best-effort animation; the durable Message is truth). */
+const streaming = ref<{ id: string; text: string } | null>(null);
+/** The id of MY last posted message — "thinking" until an agent reply links back to it. */
+const lastPostedId = ref<string | null>(null);
+
+function openChatThread(client: { resources: { subscribeQuery(q: unknown): unknown } }) {
+  closeChatThread();
+  const sub = client.resources.subscribeQuery({
+    queryType: "parentChild", typeName: "Message", field: "chat", value: DEFAULT_CHAT_ID,
+  }) as ChatSub;
+  const sync = () => {
+    messageIds.value = [...sub.resourceIds];
+    sub.setRenderWindow(sub.resourceIds); // the pre-alpha thread is small — render it all
+    // A durable message supersedes its transient stream.
+    if (streaming.value && sub.resourceIds.includes(streaming.value.id)) streaming.value = null;
+  };
+  sub.onChange(sync);
+  sub.ready.then(sync).catch(() => { /* denied/failed — the thread just stays empty */ });
+  chatSub = sub;
+}
+function closeChatThread() {
+  try { chatSub?.[Symbol.dispose](); } catch { /* already released */ }
+  chatSub = null;
+  messageIds.value = [];
+  streaming.value = null;
+  lastPostedId.value = null;
+}
+
+type ThreadMsg = { id: string; kind: "agent" | "human"; mine: boolean; byline: string; content: string; thought?: string };
+function participantName(p: { kind: "agent" | "human"; profileId?: string }): string {
+  const prof = p.profileId ? (nebula.value?.store.lmz.profiles as Record<string, { value?: { name?: string; nickname?: string } }>)?.[p.profileId]?.value : undefined;
+  return prof?.nickname || prof?.name || (p.kind === "agent" ? "Nebula" : "Someone");
+}
+const thread = computed<ThreadMsg[]>(() => {
+  const store = nebula.value?.store;
+  if (!store) return [];
+  const mySub = (nebula.value?.client as { claims?: { sub?: string } } | undefined)?.claims?.sub;
+  const out: ThreadMsg[] = [];
+  for (const id of messageIds.value) {
+    const snap = (store.resources as Record<string, Record<string, { value?: Record<string, unknown>; meta?: { actingToken?: never } }>>).Message?.[id];
+    if (!snap?.value || !snap?.meta) continue; // content sub still loading
+    const at = (snap.meta as { actingToken: Parameters<typeof deriveParticipants>[0] }).actingToken;
+    const parties = deriveParticipants(at);
+    out.push({
+      id,
+      kind: parties[0]!.kind,
+      mine: at.sub === mySub && parties.length === 1,
+      // The WHOLE-chain byline, top-down: "Nebula for {coach} for {user}" — every party
+      // resolved via its own Profile (the read IS the subscription).
+      byline: parties.map(participantName).join(" for "),
+      content: String(snap.value.content ?? ""),
+      thought: typeof snap.value.thought === "string" ? snap.value.thought : undefined,
+    });
+  }
+  return out;
+});
+// Thinking: my message posted, no agent reply linking back to it yet.
+const thinking = computed(() => {
+  const posted = lastPostedId.value;
+  if (!posted) return false;
+  const store = nebula.value?.store;
+  if (!store) return false;
+  for (const id of messageIds.value) {
+    const v = (store.resources as Record<string, Record<string, { value?: { replyTo?: string } }>>).Message?.[id]?.value;
+    if (v?.replyTo === posted) return false;
+  }
+  return true;
+});
 const previewSrc = ref("");
 const nebula = shallowRef<ReturnType<typeof createNebulaClient> | null>(null);
 
@@ -71,7 +150,12 @@ const galaxyOf = (s?: string) => {
 };
 const chatPair = (s?: string) => {
   const g = galaxyOf(s);
-  return g ? { chatHostBinding: "GALAXY", chatScope: g } : {};
+  // Post-collapse Studio's DATA plane is the galaxy too: the thread subscription and its
+  // per-message content reads ride `client.resources.*`, so the RESOURCE pair must point
+  // at the GALAXY alongside the chat pair (the 'STAR' default stays for generated apps —
+  // Studio is a specific consumer choosing its plane, the same shape every baseline
+  // fixture and harness driver uses).
+  return g ? { resourceHostBinding: "GALAXY", chatHostBinding: "GALAXY", chatScope: g } : {};
 };
 // Stage content: the hierarchy manager (opened from the avatar menu) > the live preview (only when
 // you're inside a `.dev` Star) > the Universe/Galaxy/Star help (the default, incl. first use).
@@ -205,12 +289,14 @@ async function connect() {
     onLoginRequired: onSessionExpired,
   });
   await n.ready; // throws if not authenticated
+  n.client.setOnStreamChunk((messageId, text) => { streaming.value = { id: messageId, text }; });
   nebula.value = n;
   connected.value = true;
   sessionExpired.value = false;
   if (isWorkspace(activeScope.value)) {
     previewSrc.value = `/app/${previewStar(activeScope.value!)}/`; // render now; refresh on the ready push
     n.client.warmPreview(); // initial-load refresh cue (builds push their own reload)
+    openChatThread(n.client);
   }
   await nudgeNextStep();
 }
@@ -287,24 +373,17 @@ async function send() {
     await createApp(msg);
     return;
   }
-  log("you", msg);
   input.value = "";
   busy.value = true;
-  thinking.value = true;
   try {
-    const client = nebula.value.client;
-    // Resilient delivery: client.chat() fires the turn one-way and resolves when the
-    // result is delivered back via onChatResult (direct delivery by instanceName), so a
-    // WS drop+reconnect mid-turn no longer strands the reply. NOT an awaited callRaw.
-    const reply = await client.chat(msg);
-    thinking.value = false;
-    if (reply.thought) log("thought", reply.thought);
-    log("studio", reply.reply);
-    reloadPreview();
+    // The COMMIT is the trigger (the collapse's Phase 4): postUserMessage writes the
+    // durable Message; the Galaxy's commit hook starts the turn under MY authority; the
+    // reply arrives on the Message subscription like everyone else's (no echo, no reply
+    // channel). The preview reloads on the build-completion push, not here.
+    lastPostedId.value = await nebula.value.client.postUserMessage(msg);
   } catch (e) {
-    log("error", `chat failed: ${(e as Error).message}`);
+    log("error", `send failed: ${(e as Error).message}`);
   } finally {
-    thinking.value = false;
     busy.value = false;
   }
 }
@@ -431,9 +510,11 @@ async function openWorkspace(galaxy: string) {
       onLoginRequired: onSessionExpired,
     });
     await n.ready;
+    n.client.setOnStreamChunk((messageId, text) => { streaming.value = { id: messageId, text }; });
     nebula.value = n;
     messages.value = [];
     manageOpen.value = false;
+    openChatThread(n.client);
     previewSrc.value = `/app/${previewStar(galaxy)}/`; // render the stage NOW (Galaxy-served dist)
     // The ready signal is immediate post-collapse (nothing to warm for viewing — the container is
     // only engaged on a build); it survives a WS reconnect (addressed by instanceName). Build
@@ -522,6 +603,7 @@ async function confirmDelete() {
 }
 
 function resetToLoggedOut() {
+  closeChatThread();
   if (activeScope.value) localStorage.removeItem(AUTH_HINT_PREFIX + activeScope.value);
   menuOpen.value = false;
   manageOpen.value = false;
@@ -573,22 +655,32 @@ async function logout() {
       </header>
 
       <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-        <template v-for="(m, i) in messages" :key="i">
-          <details v-if="m.role === 'thought'" class="text-xs opacity-70">
-            <summary class="cursor-pointer select-none">💭 Studio's thought process</summary>
-            <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.text }}</pre>
-          </details>
-          <div v-else :class="['chat', m.role === 'you' ? 'chat-end' : 'chat-start']">
-            <div
-              :class="['chat-bubble', m.role === 'error' ? 'chat-bubble-error' : m.role === 'you' ? 'chat-bubble-primary' : '']"
-            >
-              {{ m.text }}
-            </div>
+        <!-- The DURABLE thread (the Message subscription) — every participant, live,
+             attributed by the whole-chain byline resolved through each party's Profile. -->
+        <template v-for="m in thread" :key="m.id">
+          <div :class="['chat', m.mine ? 'chat-end' : 'chat-start']">
+            <div class="chat-header text-xs opacity-60 mb-0.5">{{ m.byline }}</div>
+            <div :class="['chat-bubble', m.mine ? 'chat-bubble-primary' : '']">{{ m.content }}</div>
           </div>
+          <details v-if="m.thought" class="text-xs opacity-70 -mt-1">
+            <summary class="cursor-pointer select-none">💭 thought process</summary>
+            <pre class="mt-2 whitespace-pre-wrap break-words bg-base-300 rounded p-2 max-h-80 overflow-auto">{{ m.thought }}</pre>
+          </details>
         </template>
-        <div v-if="thinking" class="chat chat-start">
+        <!-- The transient stream (best-effort animation; superseded by the durable reply). -->
+        <div v-if="streaming && !messageIds.includes(streaming.id)" class="chat chat-start">
+          <div class="chat-header text-xs opacity-60 mb-0.5">Nebula</div>
+          <div class="chat-bubble whitespace-pre-wrap">{{ streaming.text }}</div>
+        </div>
+        <div v-else-if="thinking" class="chat chat-start">
           <div class="chat-bubble flex items-center gap-2"><Loader2 class="size-4 animate-spin" /> Studio is thinking…</div>
         </div>
+        <!-- Local notices (login guidance, nudges, errors) — never the conversation. -->
+        <template v-for="(m, i) in messages" :key="'n' + i">
+          <div :class="['chat', 'chat-start']">
+            <div :class="['chat-bubble', m.role === 'error' ? 'chat-bubble-error' : '']">{{ m.text }}</div>
+          </div>
+        </template>
       </div>
 
       <footer class="p-4 border-t border-base-300">

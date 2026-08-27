@@ -84,10 +84,13 @@ export interface ScopeDeletionPlan {
   affectedUsers: ScopeDeletionAffectedUsers;
 }
 
-/** Result of a login-channel consume: the identity + scope the Worker needs to mint the JWT. */
+/** Result of a login-channel consume: the identity + scope the Worker needs to mint the JWT.
+ *  `devSession` rides an invite consume whose co-minted `.dev` workspace membership was also
+ *  taken up — the Worker sets a SECOND Path-scoped refresh cookie for it. */
 export interface ConsumeResult {
   sub: string;
   universeGalaxyStarId: string;
+  devSession?: { universeGalaxyStarId: string };
 }
 
 export class NebulaAuthRegistry extends DurableObject {
@@ -905,6 +908,16 @@ export class NebulaAuthRegistry extends DurableObject {
         // Pre-create the invitee identity (idempotent on (email, scope)) — the mint point.
         const minted = this.#mintIdentity(email, universeGalaxyStarId, requestedBit);
 
+        // The workspace SECOND HALF (galaxy-tier invites only): a galaxy collaborator is
+        // ALSO enrolled in the `.dev` workspace Star, WITH `scopeAdmin` — dominion over
+        // the workspace is the whole grant (coarse passage + the confined scope-admin
+        // bypass), so she can experiment there while her galaxy membership carries no
+        // admin bit at all. Authority: the inviter's dominion over the galaxy covers its
+        // descendant `.dev` structurally (downward-total). Idempotent like the primary.
+        let galaxyTier = false;
+        try { galaxyTier = parseId(universeGalaxyStarId).tier === 'galaxy'; } catch { /* not a scope id */ }
+        if (galaxyTier) this.#mintIdentity(email, `${universeGalaxyStarId}.dev`, true);
+
         let outcome: InviteeMintResult['outcome'] = minted.created ? 'invited' : 'already-member';
         if (!minted.created && requestedBit && !minted.scopeAdmin) {
           // The promotion — reached ONLY under (capped bit ∧ row bit 0), which is what makes
@@ -993,6 +1006,7 @@ export class NebulaAuthRegistry extends DurableObject {
    */
   async consumeInvite(
     inviteTokenHash: string, refreshTokenHash: string, refreshExpiresAt: string,
+    devRefreshTokenHash?: string,
   ): Promise<ConsumeResult | null> {
     const rows = this.#sql`
       SELECT email, universeGalaxyStarId, expiresAt FROM InviteTokens WHERE tokenHash = ${inviteTokenHash}
@@ -1009,8 +1023,25 @@ export class NebulaAuthRegistry extends DurableObject {
       return null;
     }
     await this.#recordRefreshToken(identity.sub, identity.universeGalaxyStarId, identity.scopeAdmin, identity.profileId, refreshTokenHash, refreshExpiresAt);
+
+    // The workspace SECOND SESSION (the co-minted `.dev` membership, galaxy-tier invites
+    // only): the SAME acceptance click takes it up and seeds its own refresh session, so
+    // the browser leaves holding cookies for BOTH scopes the invite enrolled — the
+    // preview's data plane needs a token whose authScope is the `.dev` Star, and its
+    // Path-scoped cookie can come from nowhere else. Deliberately minimal (the
+    // test-personas future supersedes this wholesale).
+    let devSession: ConsumeResult['devSession'];
+    let galaxyTier = false;
+    try { galaxyTier = parseId(invite.universeGalaxyStarId as string).tier === 'galaxy'; } catch { /* not a scope id */ }
+    if (devRefreshTokenHash && galaxyTier) {
+      const devIdentity = this.getAndVerifyIdentity(invite.email as string, `${invite.universeGalaxyStarId}.dev`);
+      if (devIdentity) {
+        await this.#recordRefreshToken(devIdentity.sub, devIdentity.universeGalaxyStarId, devIdentity.scopeAdmin, devIdentity.profileId, devRefreshTokenHash, refreshExpiresAt);
+        devSession = { universeGalaxyStarId: devIdentity.universeGalaxyStarId };
+      }
+    }
     debug('nebula-auth.Registry.login.succeeded').info('Invite accepted', { targetSub: identity.sub });
-    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId };
+    return { sub: identity.sub, universeGalaxyStarId: identity.universeGalaxyStarId, ...(devSession ? { devSession } : {}) };
   }
 
   /** Index-first refresh-token record: `RefreshTokenIndex` (sync) FIRST, then the KV record (M3).

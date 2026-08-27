@@ -212,29 +212,29 @@ describe('Galaxy command surface is admin-gated (requireDominionHere)', () => {
 // `Message` IS a codegen turn; the corpus folds into its `codegen` value object in Phase 2
 // of tasks/nebula-galaxy-collapse-and-chat.md.)
 
-describe('Galaxy residency hold — single-flight latch + generation deadline', () => {
+describe('Galaxy turn runner — single-flight latch + generation deadline', () => {
   // The criterion the deadline exists for: a NEVER-RESOLVING model call must not wedge the
-  // core loop with every suite green — the heartbeat would block the eviction that clears
-  // state, and the latch would refuse every later message. Driven through the REAL
-  // early-ack envelope path (claims must ride callContext for the data-plane checks inside
-  // the turn); the probe captures deliveries + the stage outcomes in storage, polled here.
-  it('a hung generation is deadline-failed, the latch refuses DURING it, and a post-deadline fresh message runs a NEW generation', async () => {
+  // core loop with every suite green — the latch would refuse every later message forever.
+  // Driven through the REAL early-ack envelope path; the probe captures commits + timings
+  // in storage, polled here.
+  it('a hung generation is deadline-released, the latch refuses DURING it, and a post-deadline fresh trigger generates', async () => {
     const scope = uniqueGalaxyScope();
     await fire(env.GALAXY_DEADLINE, 'GALAXY_DEADLINE', scope, 'chatDeadlineScenario');
     const outcome = await vi.waitFor(async () => {
       const o = await inDO(env.GALAXY_DEADLINE, scope,
         (inst: any) => inst.ctx.storage.kv.get('probe:scenario'));
       expect(o).toBeTruthy();
-      return o as { busyReply: string; deadlineReply: string; freshReply: string; delivered: { turnId: string; reply: string }[] };
+      return o as { busyMs: number; hungMs: number; committed: { messageId: string; content: string; replyTo: string }[] };
     }, { timeout: 15000 });
 
-    // (2) The single-flight refusal, delivered to the client like any turn result.
-    expect(outcome.busyReply).toContain('still working');
-    // (3) The deadline surfaced the hung turn as failed server-side.
-    expect(outcome.deadlineReply).toContain('took too long');
-    // (4) THE CRITERION: the latch released — a fresh message ran a NEW generation.
-    expect(outcome.freshReply).toBe('fresh turn ran');
-    // Every stage's result was DELIVERED (the busy + failed turns are not silent).
-    expect(outcome.delivered.map((d) => d.turnId)).toEqual(['t-busy', 't-hung', 't-fresh']);
+    // (2) The single-flight refusal returned AT ONCE (no model round, no deadline wait).
+    expect(outcome.busyMs).toBeLessThan(300);
+    // (3) The hung turn released at the deadline (~800ms), not at the model (never).
+    expect(outcome.hungMs).toBeGreaterThanOrEqual(700);
+    expect(outcome.hungMs).toBeLessThan(5000);
+    // (4) THE CRITERION: exactly ONE durable commit — the fresh post-deadline turn's.
+    // The hung turn (never completed) and the busy turn (refused) committed nothing.
+    expect(outcome.committed).toHaveLength(1);
+    expect(outcome.committed[0]).toMatchObject({ content: 'fresh turn ran', replyTo: 'm-fresh' });
   });
 });

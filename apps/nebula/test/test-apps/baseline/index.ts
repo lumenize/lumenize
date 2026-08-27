@@ -351,26 +351,61 @@ export class StarTest extends Star {
 // ============================================
 
 export class GalaxyTest extends Galaxy {
-  // Scripted chat support: a fake model script (per-round env.AI responses) + an
-  // always-ok build, so the BUILD-COMPLETION reload trigger is drivable in-lane. The
-  // REAL container drive is the build-box /live scenario; nothing here reaches
-  // ctx.container (absent under pool-workers anyway).
+  // Scripted chat support: a fake model script (per-round responses, consumed by the
+  // shared `runModel` router so the codegen loop AND the answer path both ride it) + an
+  // always-ok build, so the trigger pipeline is drivable in-lane. A `{ __delayMs }`
+  // entry sleeps then falls through — the lever for spanning a generation across
+  // commits (the single-flight tests). The REAL container drive is the build-box /live
+  // scenario; nothing here reaches ctx.container (absent under pool-workers anyway).
   #chatScript: unknown[] = [];
-  protected override async callModel(_messages: ChatMessage[], _params: ModelParams): Promise<unknown> {
-    const next = this.#chatScript.shift();
-    if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
-    return next;
+  #pinnedCodegen = true;
+  protected override async runModel(_model: string, _body: Record<string, unknown>): Promise<unknown> {
+    for (;;) {
+      const next = this.#chatScript.shift();
+      if (next === undefined) throw new Error('GalaxyTest chat script exhausted');
+      const delay = (next as { __delayMs?: number }).__delayMs;
+      if (typeof delay === 'number') {
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      return next;
+    }
   }
   protected override build(): Promise<BuildOutcome> {
     return Promise.resolve({ ok: true });
   }
 
-  /** Run ONE real chat turn against the scripted model (the whole pipeline: loop →
-   *  commit → build-completion reload trigger → delivery). Admin-gated like `chat`. */
+  /** Pin the discriminator (no model call, deterministic fork) — the verdict's own
+   *  model behavior is out of scope in-lane; what the pin exercises is what the fork
+   *  DOES (warm gating + prompt selection). */
+  protected override async discriminate(): Promise<{ respond: true; codegen: boolean }> {
+    return { respond: true, codegen: this.#pinnedCodegen };
+  }
+
+  /** Run ONE real TRIGGERED turn against the scripted model (the whole pipeline:
+   *  discriminator (pinned) → loop → commit → build-completion reload trigger).
+   *  Drives `runTriggeredTurn` — the same runner the commit hook invokes. */
   @mesh(requireDominionHere)
-  async chatScriptedForTest(turnId: string, clientId: string, message: string, replyTo: string, script: unknown[]): Promise<{ reply: string; thought: string }> {
+  async chatScriptedForTest(userMessageId: string, message: string, script: unknown[]): Promise<void> {
     this.#chatScript = script;
-    return this.chat(turnId, clientId, message, replyTo);
+    await this.runTriggeredTurn(userMessageId, message);
+  }
+
+  /** Seed the fake-model script for turns the REAL commit hook will trigger (a
+   *  `postUserMessage` commit fires `#onChatCommitted` in the same isolate, so the
+   *  seeded script is what its generation consumes). Ephemeral by design. */
+  @mesh(requireDominionHere)
+  seedChatScriptForTest(script: unknown[], opts: { codegen?: boolean } = {}): void {
+    this.#chatScript = [...script];
+    this.#pinnedCodegen = opts.codegen ?? true;
+  }
+
+  /** Test-only: drop + recreate the QuerySubscribers table — the reconnect test's
+   *  server-side amnesia, so the client's re-subscribe walk is what restores fanout
+   *  (without it the walk's absence would be invisible: rows would just still exist). */
+  @mesh(requireDominionHere)
+  clearQuerySubscribersForTest(): void {
+    this.ctx.storage.sql.exec('DELETE FROM QuerySubscribers');
   }
 
   /** Dump the Galaxy's ReloadSubscribers (the build-completion reload channel). */
@@ -913,12 +948,25 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 
-  /** One scripted chat turn (fake model + always-ok build — the reload-trigger drive). */
-  callGalaxyChatScripted(scope: string, message: string, script: unknown[], replyTo = crypto.randomUUID()): void {
+  /** One scripted TRIGGERED turn (fake model + always-ok build — the reload-trigger drive). */
+  callGalaxyChatScripted(scope: string, message: string, script: unknown[], userMessageId = crypto.randomUUID()): void {
     this.resetResults();
-    const remote = this.ctn<GalaxyTest>().chatScriptedForTest(
-      crypto.randomUUID(), this.lmz.instanceName!, message, replyTo, script,
-    );
+    const remote = this.ctn<GalaxyTest>().chatScriptedForTest(userMessageId, message, script);
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Clear the GALAXY's QuerySubscribers (the reconnect test's server-side amnesia). */
+  callGalaxyClearQuerySubscribers(scope: string): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().clearQuerySubscribersForTest();
+    this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
+  }
+
+  /** Seed the fake-model script ahead of a REAL `postUserMessage` (the commit-hook
+   *  trigger consumes it). Result-handler form so a test can await the seed landing. */
+  callGalaxySeedChatScript(scope: string, script: unknown[], opts: { codegen?: boolean } = {}): void {
+    this.resetResults();
+    const remote = this.ctn<GalaxyTest>().seedChatScriptForTest(script, opts);
     this.lmz.call('GALAXY', scope, remote, this.ctn().handleResult(remote));
   }
 

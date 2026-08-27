@@ -1903,31 +1903,11 @@ export class NebulaClient extends LumenizeClient<NebulaJwtPayload> {
     return { binding: this.#chatHostBinding, scope: this.#chatScope };
   }
 
-  /**
-   * Fire a codegen turn at the Galaxy and resolve when its result is delivered
-   * back via {@link onChatResult}. Uses fire-and-forget + **direct delivery**, NOT
-   * an awaited `callRaw`: a turn can run for minutes, during which the client WS
-   * may drop and reconnect — the result is addressed to this client's stable
-   * `instanceName`, so the Gateway routes it to whatever socket is current rather
-   * than stranding it on the original socket (the "thinking… forever" bug). The
-   * returned Promise survives a reconnect (same JS context) but NOT a page reload —
-   * history-restore on refresh is the deferred reactive-chat work. The client passes
-   * its own `instanceName` explicitly (not `callChain[0]`). See ADR-003 +
-   * [[client-calls-use-direct-delivery]].
-   */
-  async chat(message: string): Promise<ChatTurnResult> {
-    // Create the user Message FIRST (atomic, on Enter — no streaming for a user message,
-    // one create). No optimistic echo — the sender sees its own Message via the query
-    // fanout, like everyone else. Its client-minted id becomes the agent reply's
-    // `replyTo` (the corpus's prompt→reply linkage).
-    const userMessageId = await this.postUserMessage(message);
-    const turnId = crypto.randomUUID();
-    const clientId = this.lmz.instanceName;
-    const pending = this.trackTurn(turnId);
-    const { binding, scope } = this.#chatHost();
-    this.lmz.call(binding, scope, this.ctn<Galaxy>().chat(turnId, clientId, message, userMessageId));
-    return pending;
-  }
+  // (`chat()` is GONE — the committed human `Message` IS the codegen trigger since the
+  // collapse's Phase 4: the send is {@link postUserMessage}, the Galaxy's commit hook
+  // starts the turn under the poster's own authority, and completion arrives on the
+  // `Message` subscription. The one-shot delivery machinery below (`onChatResult`,
+  // `trackTurn`) is retired in Phase 6.)
 
   /**
    * Post a human `Message` to the pre-alpha chat — a single atomic create on the CHAT

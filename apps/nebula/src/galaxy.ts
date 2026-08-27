@@ -46,6 +46,7 @@ import { chatOntologySeedRow } from './chat-ontology';
 import { DEFAULT_CHAT_ID, CHAT_NODE_ID } from './chat-constants';
 import { OntologyStaleError } from './errors';
 import { serveApp } from './serve';
+import { deriveKind } from './participants';
 import { SCAFFOLD_FILES } from './scaffold-seed';
 import { ReloadSubscriptions } from './reload-subscriptions';
 import type { DagTree } from './dag-tree';
@@ -56,6 +57,7 @@ import type { NebulaAuthFacade } from '@lumenize/nebula-auth/facade';
 import type { OperationDescriptor, Snapshot, TransactionResult } from './resources';
 import {
   runCodegenLoop,
+  parseModelTurn,
   assembleCodegenPrompt,
   CODEGEN_TOOLS,
   TOOL_ARGS_TYPES,
@@ -117,6 +119,10 @@ const GIT_INITED_KEY = 'galaxy:gitInited';
 /** The codegen model id — the ONE place a vendor id appears. Swappable: Studio is
  *  model-agnostic, and the model name is never surfaced in the UI or elsewhere. */
 const STUDIO_MODEL = '@cf/moonshotai/kimi-k2.7-code';
+
+/** The fast-discriminator model id — small + cheap, sub-second budget (the two-LLM-calls
+ *  Decisions row). Swappable like {@link STUDIO_MODEL}; never surfaced. */
+const DISCRIMINATOR_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 
 /** A build hang is killed here and surfaces as `retryable` (BUILD_TIMEOUT + SIGKILL —
  *  the build-box contract). Generous: a heavy-lib vite 8 build measured seconds, not
@@ -287,6 +293,9 @@ export class Galaxy extends NebulaDO {
           this.lmz.call(CLIENT_GATEWAY_BINDING, clientId,
             this.ctn<NebulaClient>().handleQuerySubscribersUpdate(queryHash, result),
             this.ctn<Galaxy>().onQuerySubscriberListBroadcastResult(queryHash), { onErrorOnly: true }),
+        // THE codegen trigger's seam — a committed human Message starts a turn
+        // (#onChatCommitted's predicate owns what reacts).
+        onCommitted: (mutations) => this.#onChatCommitted(mutations),
       },
       () => { /* no org-tree subscribe channel on Galaxy */ },
       // Host name as a THUNK — `this.lmz.instanceName` is not stamped yet inside `onStart()`.
@@ -752,88 +761,120 @@ export class Galaxy extends NebulaDO {
   // ─── The codegen turn ───────────────────────────────────────────────
 
   /**
-   * The codegen turn: drive the bounded self-correcting loop ({@link runCodegenTurn} —
-   * which writes source to the Workspace, runs the Rung-1 compile on each write, and
-   * self-corrects on the error-tail), streaming progress transiently to chat
-   * subscribers and committing ONE durable agent `Message` at the end —
-   * Nebula-attributed via the actor stamp, `replyTo`-linked to the triggering human
-   * `Message`, and carrying the folded `codegen` corpus record.
+   * The post-commit observer — THE codegen trigger. A committed **human** `Message` on
+   * the chat node starts a turn; nothing else does, and there is deliberately no
+   * mesh-callable `chat` entry at all (an invocable husk would let a mere
+   * passage-holder run the loop with no door). The DAG `write` check on the Message
+   * commit is therefore the ONLY door: **chat participation is a uniform floor;
+   * permissions above it vary** — anyone whose write lands may trigger, and a caller
+   * whose write is refused at the DAG can never reach the model.
    *
-   * There is no container in this path yet: the loop's `write_file` compiles in-DO,
-   * and the `build` tool (one ephemeral container per build) lands in Phase 3.
+   * The predicate is on KIND (the stamped actingToken — never `sub`, never the value):
+   * an agent reply is itself a committed `Message`, so without the human-only gate
+   * Nebula answers itself forever. SINGLE-FLIGHT: a human Message committed while a
+   * generation is in flight fires nothing — the skipped message sits in the thread and
+   * a participant re-prompts after completion (the pre-alpha floor; the two-stage
+   * arrival pipeline is the fast-follow's refinement seam).
    *
-   * **Fired one-way** (`client.chat` uses a `lmz.call()` continuation): a turn can run
-   * for minutes, during which the client WS may drop and reconnect. The result is
-   * delivered back via {@link deliverTurnResult} as a SEPARATE direct-delivery call
-   * addressed to the client's stable `instanceName` (`clientId`), so it lands on
-   * whatever socket is current rather than the dead originating one. `turnId`
-   * (client-generated) is carried out and mirrored back so the client correlates the
-   * result to its pending turn. TEMP → target=Phase 4: the committed human `Message`
-   * becomes the trigger and this method leaves the mesh surface.
-   *
-   * ⚠️ Run with `wrangler dev` — the loop calls `env.AI.run` (or the REST lane).
+   * The detached turn runs under the POSTER's own callContext (AsyncLocalStorage rides
+   * the floating promise), so the agent reply commits with the triggering human's
+   * authority and Nebula stamped as the actor — the participant model, structurally.
    */
-  @mesh(requireDominionHere)
-  async chat(turnId: string, clientId: string, message: string, replyToMessageId: string): Promise<{ reply: string; thought: string }> {
+  #onChatCommitted(mutations: Map<string, Snapshot>): void {
+    for (const [resourceId, snap] of mutations) {
+      if (snap.meta.typeName !== 'Message' || snap.meta.nodeId !== CHAT_NODE_ID) continue;
+      if (deriveKind(snap.meta.actingToken) !== 'human') continue;
+      if (this.#turnInFlight) {
+        debug('nebula.Galaxy.trigger').info('skipped: generation in flight (single-flight)', { resourceId });
+        continue;
+      }
+      const content = (snap.value as { content?: string }).content ?? '';
+      debug('nebula.Galaxy.trigger').debug('human Message committed — turn starts', { resourceId });
+      void this.runTriggeredTurn(resourceId, content).catch((e) => {
+        debug('nebula.Galaxy.trigger').error('triggered turn threw', {
+          resourceId, error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    }
+  }
+
+  /**
+   * One triggered turn: single-flight latch + generation deadline around the turn body.
+   * `protected`, NOT `@mesh` — reachable only from the commit trigger (and test
+   * probes); the absence of `@mesh` is the not-remotely-callable boundary.
+   *
+   * ⚠️ Run with `wrangler dev` — the turn calls `env.AI.run` (or the REST lane).
+   */
+  protected async runTriggeredTurn(userMessageId: string, content: string): Promise<void> {
     // SINGLE-FLIGHT: one generation at a time. The flag is in-memory BY DESIGN — a
     // post-deadline or evicted turn clears it (eviction wipes the isolate), so a fresh
     // message always triggers a NEW generation rather than wedging behind a hung one.
-    if (this.#turnInFlight) {
-      const busy = {
-        reply: "I'm still working on the previous request — send that again in a moment.",
-        thought: 'turn refused: a generation is already in flight (single-flight latch)',
-      };
-      this.deliverTurnResult(turnId, clientId, busy);
-      return busy;
-    }
+    if (this.#turnInFlight) return;
     this.#turnInFlight = true;
-    // RESIDENCY: mesh runs this chain DETACHED after early-ack, so no in-flight request
-    // pins the Galaxy — what holds it through a turn is the turn's own OUTBOUND I/O:
-    // every long span is a network await (the `env.AI` fetch, the build's capnweb
+    // RESIDENCY: the turn runs DETACHED (a floating promise off the commit), so no
+    // in-flight request pins the Galaxy — what holds it is the turn's own OUTBOUND
+    // I/O: every long span is a network await (the `env.AI` fetch, the build's capnweb
     // session), and an open outbound connection keeps a DO resident (measured, ≤15 min
     // hazard-bounded). A `setTimeout` HEARTBEAT was designed here and REMOVED on
     // deployed evidence (experiments/residency-hold, 2026-08-28): a detached timer
-    // await was evicted mid-window WITH the 5 s re-arming heartbeat running — a timer
+    // await was evicted at ~70 s WITH the 5 s re-arming heartbeat running — a timer
     // does not hold an isolate, so the heartbeat insured nothing and billed wall-clock.
     // An eviction mid-turn is covered as designed: input is durable before the LLM
     // runs, the in-memory latch dies with the isolate, and a fresh message starts a
     // fresh generation.
     // The GENERATION DEADLINE stays: past it the latch releases and the turn surfaces
-    // as failed, so a hung await (which its own socket may keep resident!) cannot
-    // wedge the loop until force-eviction.
+    // as failed server-side (the client's Phase-6 idle-timeout owns the UX), so a hung
+    // await (which its own socket may keep resident!) cannot wedge the loop until
+    // force-eviction.
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      return await Promise.race([
-        this.#chatTurn(turnId, clientId, message, replyToMessageId),
-        new Promise<{ reply: string; thought: string }>((resolve) => {
+      await Promise.race([
+        this.#chatTurn(userMessageId, content),
+        new Promise<void>((resolve) => {
           deadlineTimer = setTimeout(() => {
-            const failed = {
-              reply: "That took too long and I gave up — send your request again and I'll start fresh.",
-              thought: `turn failed: generation exceeded the ${this.generationDeadlineMs}ms deadline`,
-            };
-            this.deliverTurnResult(turnId, clientId, failed);
-            resolve(failed);
+            debug('nebula.Galaxy.trigger').error('turn failed: generation exceeded the deadline', {
+              userMessageId, deadlineMs: this.generationDeadlineMs,
+            });
+            resolve();
           }, this.generationDeadlineMs);
         }),
       ]);
     } finally {
       this.#turnInFlight = false;
-      // A completed turn must not fire a spurious post-hoc "failed" delivery.
+      // A completed turn must not leave the deadline armed.
       if (deadlineTimer) clearTimeout(deadlineTimer);
     }
   }
 
-  /** The turn body `chat` races against the generation deadline. */
-  async #chatTurn(turnId: string, clientId: string, message: string, replyToMessageId: string): Promise<{ reply: string; thought: string }> {
-    await this.ensureChat(); // the default Chat exists before Messages FK to it
+  /** The turn body the trigger races against the generation deadline: discriminator
+   *  first, then the codegen loop OR the plain-answer generation. */
+  async #chatTurn(userMessageId: string, message: string): Promise<void> {
+    // STAGE 1 — the fast DISCRIMINATOR (the two-LLM-calls model): its verdict places
+    // nothing UI-side pre-alpha (`respond?` is hardwired YES), but it GATES the
+    // container warm (on the codegen verdict, never on message-arrival) and forks the
+    // generation prompt. A plain question therefore starts ZERO containers.
+    const verdict = await this.discriminate(message);
+    debug('nebula.Galaxy.trigger').info('discriminator verdict', { userMessageId, codegen: verdict.codegen });
+
+    // Mint the agent Message id up front (Galaxy-minted — the human message's id is
+    // client-minted); stream progress transiently to chat subscribers; commit ONE
+    // durable Message at the end, `replyTo`-linked to the triggering human Message.
+    const agentMessageId = crypto.randomUUID();
+
+    if (!verdict.codegen) {
+      // ANSWER path — big model, answer prompt, no tools, zero container involvement.
+      const reply = await this.#answerTurn(message, agentMessageId);
+      await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId);
+      return;
+    }
+
+    // CODEGEN path — fire the container warm NOW (the ~3 s cold+mount hides behind
+    // the generation; the build tool's exec finds it already up), then run the loop.
+    this.warmBuildBox();
     // The tree the turn READ — captured BEFORE the loop writes (the codegen record's
     // `sourceCommit`; git is local to this DO's VFS, so the ref recovers the bytes).
     let sourceCommit: string | undefined;
     try { sourceCommit = (await this.#ws.git.log({ depth: 1 }))[0]?.oid; } catch { /* fresh repo */ }
-    // Mint the agent Message id up front (Galaxy-minted — the human message's id is
-    // client-minted); stream the loop's progress transiently to chat subscribers;
-    // commit ONE durable Message at the end.
-    const agentMessageId = crypto.randomUUID();
     const result = await this.runCodegenTurn(
       message, DEFAULT_LOOP_CONFIG,
       (step) => this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, step, CHAT_NODE_ID),
@@ -872,7 +913,7 @@ export class Galaxy extends NebulaDO {
     if (result.output) parts.push(`📄 ${result.output}`);
     for (const [path, content] of written) parts.push(`📝 ${path}\n\`\`\`\n${content}\n\`\`\``);
     parts.push(`🔧 ${result.detail ?? result.stop}\nFiles: ${files.join(', ') || '(none)'} — ${compile}`);
-    const payload = { reply, thought: parts.join('\n\n— — —\n\n') };
+    const thought = parts.join('\n\n— — —\n\n');
     // The folded codegen corpus record (the deleted Turns table's successor — the
     // field-by-field pin is nebula-studio-self-improvement.md § The folded shape).
     // `scaffold` stays absent until the scaffold store exists (Part B).
@@ -888,8 +929,8 @@ export class Galaxy extends NebulaDO {
     // The DURABLE agent Message — the source of truth, fanned to every chat subscriber
     // via the query rerun (history-restore + multi-participant + disconnect-recovery).
     // The client reconciles its ephemeral stream against it by id.
-    await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, replyToMessageId, {
-      thought: payload.thought,
+    await this.commitAgentMessage(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID, userMessageId, {
+      thought,
       codegen,
     });
     // ONE reload per turn, on build completion — the Galaxy that just ran the build
@@ -901,9 +942,98 @@ export class Galaxy extends NebulaDO {
       (tc) => tc.name === 'build' && (tc.result as { ok?: boolean } | undefined)?.ok === true,
     );
     if (buildSucceeded) this.broadcastReload();
-    // The ephemeral onChatResult push stays for now (retired in Phase 6).
-    this.deliverTurnResult(turnId, clientId, payload);
-    return payload;
+  }
+
+  /**
+   * The plain-answer generation — the discriminator's non-codegen fork: the big model,
+   * an answer prompt, NO tools, zero container involvement. The whole answer streams
+   * as transient chunks (best-effort animation); the durable Message is the caller's
+   * commit.
+   */
+  async #answerTurn(message: string, agentMessageId: string): Promise<string> {
+    const raw = await this.runModel(STUDIO_MODEL, {
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are Studio, the assistant inside an app-building workspace. Answer the ' +
+            'question conversationally and concisely. Do NOT emit code or tool calls — ' +
+            'this turn changes nothing in the app.',
+        },
+        { role: 'user', content: message },
+      ],
+      temperature: 0.7,
+      max_tokens: 1024,
+    });
+    const turn = parseModelTurn(raw);
+    const reply = turn.text.trim() || 'I had nothing to add — try rephrasing?';
+    this.streamProgress(DEFAULT_CHAT_ID, agentMessageId, reply, CHAT_NODE_ID);
+    return reply;
+  }
+
+  /**
+   * The fast DISCRIMINATOR — a small model, short prompt, sub-second budget, answering
+   * `{ respond?, codegen? }`. Pre-alpha `respond` is HARDWIRED YES (the unhardwiring
+   * policy is the fast-follow's); what the verdict does today is gate the container
+   * warm and fork the generation prompt. `protected` so probes can pin the verdict.
+   *
+   * Fails OPEN toward `codegen: true`: the pre-alpha journey is building, so a
+   * discriminator hiccup costs one speculative container start rather than a builder's
+   * change silently answered as chat.
+   */
+  protected async discriminate(message: string): Promise<{ respond: true; codegen: boolean }> {
+    try {
+      const raw = await this.runModel(DISCRIMINATOR_MODEL, {
+        messages: [
+          {
+            role: 'system',
+            content:
+              'A message arrived in an app-building chat. Reply with ONLY the JSON ' +
+              '{"codegen": true} if the message asks to build, change, style, or fix ' +
+              'the app (its UI, behavior, or data model); reply {"codegen": false} if ' +
+              'it is a question or conversation that changes nothing.',
+          },
+          { role: 'user', content: message },
+        ],
+        temperature: 0,
+        max_tokens: 32,
+      });
+      const text = parseModelTurn(raw).text;
+      const parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)) as { codegen?: unknown };
+      return { respond: true, codegen: parsed.codegen !== false };
+    } catch (e) {
+      debug('nebula.Galaxy.discriminate').warn('verdict failed — defaulting to codegen', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return { respond: true, codegen: true };
+    }
+  }
+
+  /**
+   * Speculatively start the build container at the CODEGEN VERDICT (never at
+   * message-arrival — the criterion), so its cold start + mount hides behind the
+   * generation and the build tool's exec finds it up. Fire-and-forget: a warm failure
+   * costs nothing (the exec's own connect starts it) and must never delay the model.
+   * A no-container environment (pool-workers) is a silent no-op. `protected` so the
+   * drive log can be asserted (a plain-question turn starts ZERO containers).
+   */
+  protected warmBuildBox(): void {
+    // The marker precedes the container guard ON PURPOSE: "a plain-question turn fires
+    // ZERO warms" is asserted on this marker's count, in-lane included (where
+    // ctx.container is absent and the start below is a no-op).
+    debug('nebula.Galaxy.warm').info('container warm fired (codegen verdict)');
+    if (!this.ctx.container) return;
+    try {
+      void (this.#containerApi ??= new WorkspaceContainerAPI(this.ctx)).start({}).catch((e: unknown) => {
+        debug('nebula.Galaxy.warm').warn('warm start failed (non-fatal — exec will retry)', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+    } catch (e) {
+      debug('nebula.Galaxy.warm').warn('warm start threw (non-fatal)', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   /**
@@ -1291,19 +1421,28 @@ export class Galaxy extends NebulaDO {
    * The model id stays isolated to `STUDIO_MODEL` and is never surfaced.
    */
   protected async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
-    const body = {
+    return this.runModel(STUDIO_MODEL, {
       messages,
       tools: CODEGEN_TOOLS,
       temperature: params.temperature,
       max_tokens: params.max_tokens,
-    };
+    });
+  }
+
+  /**
+   * The one model-transport router every generation path shares — the codegen loop
+   * (via {@link callModel}), the discriminator, and the plain-answer turn — so the
+   * REST-vs-binding split lives once. `protected` so a probe overriding IT scripts
+   * every path at once.
+   */
+  protected async runModel(model: string, body: Record<string, unknown>): Promise<unknown> {
     // WORKERS_AI_TOKEN / CLOUDFLARE_ACCOUNT_ID / CF_AI_GATEWAY are runtime env (`.dev.vars`
     // / `wrangler secret`), not committed wrangler vars, so they're absent from the
     // generated `Env` — widen at the read (packaging.md).
     const env = this.env as Env & { WORKERS_AI_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string };
-    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, body);
+    if (env.WORKERS_AI_TOKEN) return this.#callModelRest(env, env.WORKERS_AI_TOKEN, model, body);
     // The model-catalog types don't cover every @cf id; run() is treated loosely.
-    return (this.env.AI as any).run(STUDIO_MODEL, body);
+    return (this.env.AI as any).run(model, body);
   }
 
   /**
@@ -1327,11 +1466,12 @@ export class Galaxy extends NebulaDO {
   async #callModelRest(
     env: { CLOUDFLARE_ACCOUNT_ID?: string; CF_AI_GATEWAY?: string },
     token: string,
+    model: string,
     body: unknown,
   ): Promise<unknown> {
     const accountId = env.CLOUDFLARE_ACCOUNT_ID;
     if (!accountId) throw new Error('Workers AI REST path needs CLOUDFLARE_ACCOUNT_ID');
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${STUDIO_MODEL}`;
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
     const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',

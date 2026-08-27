@@ -117,6 +117,14 @@ export interface ResourceHostBridge {
   /** Deliver the current roster to ONE joining WATCHER (its initial `subscribeQuerySubscribers` snapshot),
    *  or an Error (fail-closed on an invalid query). Single-target; dedicated-reap `onResult`-cleaned. */
   deliverRosterUpdate(clientId: string, queryHash: string, result: SubscriberEntry[] | Error): void;
+  /**
+   * Post-commit observation hook — fired once per successful transaction, AFTER the
+   * broadcast + query-rerun channels, with the committed snapshots. The host's seam for
+   * reacting to durable writes (the Galaxy's codegen trigger hangs here); fires on EVERY
+   * commit path uniformly (client transactions and server-internal ensures alike) — the
+   * host's own predicate decides what reacts, never this plumbing.
+   */
+  onCommitted?(mutations: Map<string, Snapshot>): void;
 }
 
 export class ResourceDataPlane {
@@ -526,7 +534,11 @@ export class ResourceDataPlane {
       { [resourceId]: { op: 'create', typeName, nodeId, value } },
       version, crypto.randomUUID(), facet,
       {
-        onMutations: (mutations) => { this.#broadcast(mutations, ''); this.#rerunQueriesForCommit(mutations); },
+        onMutations: (mutations) => {
+          this.#broadcast(mutations, '');
+          this.#rerunQueriesForCommit(mutations);
+          this.#bridge.onCommitted?.(mutations);
+        },
         // Server-composed only — see resources.ts TransactionOpts (the trust fence).
         actor: opts.actor,
       },
@@ -551,9 +563,11 @@ export class ResourceDataPlane {
       return await this.#resources.transaction(ops, version, newETag, facet, {
         onMutations: (mutations) => {
           // The single post-commit hook drives BOTH channels (Flow 2 + Flow 3 A):
-          // single-resource content fanout, then the query rerun for touched types.
+          // single-resource content fanout, then the query rerun for touched types —
+          // then the host's own post-commit observer (the codegen trigger's seam).
           this.#broadcast(mutations, clientId);
           this.#rerunQueriesForCommit(mutations);
+          this.#bridge.onCommitted?.(mutations);
         },
         // Server-composed only — the host's client-facing @mesh entries must never accept or
         // forward a client `actor` (resources.ts TransactionOpts — the trust fence).

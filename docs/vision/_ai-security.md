@@ -443,6 +443,10 @@ What the platform owes a domain expert who is not an agentic-development expert:
   rule and when" is a lookup, and reverting is re-addressing a prior snapshot.
 - **Chat history as Resources,** so the record of how an app came to be is durable, attributable, subscribable,
   and governed by the same grants as everything else in the Galaxy.
+- **Chat participation is a uniform floor; permissions above it vary.** Anyone whose message lands in the
+  thread may trigger the agent — the DAG `write` check on that durable commit is the only door, and there is
+  deliberately no separate invoke-the-agent entry to gate. An owner, a coach, and an invited collaborator with
+  one `write` grant all trigger the same way; what differs above the floor is what each may otherwise touch.
 
 Governance here is advisory practice with documented-exception override, never a hard gate — consistent with
 how we treat guidance in this repo, and with the anti-friction half of the security wedge

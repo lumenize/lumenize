@@ -114,6 +114,11 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
   protected override generationDeadlineMs = 800;
   #hangNext = false;
 
+  /** Pin the verdict: no discriminator model call, straight to the (scripted) codegen path. */
+  protected override async discriminate(): Promise<{ respond: true; codegen: boolean }> {
+    return { respond: true, codegen: true };
+  }
+
   protected override async callModel(messages: ChatMessage[], params: ModelParams): Promise<unknown> {
     if (this.#hangNext) {
       this.#hangNext = false;
@@ -122,22 +127,27 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
     return super.callModel(messages, params);
   }
 
-  /** Capture deliveries instead of dialing a Gateway (none in this lane). */
-  protected override deliverTurnResult(turnId: string, _clientId: string, payload: { reply: string; thought: string }): void {
-    const seen = this.ctx.storage.kv.get<{ turnId: string; reply: string }[]>('probe:delivered') ?? [];
-    seen.push({ turnId, reply: payload.reply });
-    this.ctx.storage.kv.put('probe:delivered', seen);
+  /** Capture the durable commits in kv instead of the real data plane (no chat host
+   *  claims machinery in this lane's direct-probe drive; the REAL commit path is the
+   *  baseline reload-contract's scripted trigger). */
+  protected override async commitAgentMessage(
+    _chatId: string, messageId: string, content: string, _nodeId: string, replyTo: string,
+  ): Promise<void> {
+    const seen = this.ctx.storage.kv.get<{ messageId: string; content: string; replyTo: string }[]>('probe:committed') ?? [];
+    seen.push({ messageId, content, replyTo });
+    this.ctx.storage.kv.put('probe:committed', seen);
   }
 
   /**
    * The whole scenario in one entry (the concurrency is the subject, so it must run
-   * inside one DO invocation): (1) a HUNG turn starts; (2) a second turn while it hangs
-   * is refused by the single-flight latch; (3) the hung turn hits the deadline and
-   * surfaces as failed; (4) a FRESH turn after the deadline runs a NEW generation to
-   * completion. Returns the reply of each stage + the captured deliveries.
+   * inside one DO invocation): (1) a HUNG generation starts (detached, like the commit
+   * trigger fires it); (2) a second trigger while it hangs is REFUSED by the
+   * single-flight latch (returns at once, generates nothing); (3) the hung turn hits
+   * the deadline and releases the latch; (4) a FRESH trigger then runs a NEW
+   * generation to a durable commit. Outcomes persisted for the test's poll.
    */
   @mesh(requireDominionHere)
-  async chatDeadlineScenario(): Promise<{ busyReply: string; deadlineReply: string; freshReply: string; delivered: { turnId: string; reply: string }[] }> {
+  async chatDeadlineScenario(): Promise<void> {
     // One text-only model round (OpenAI shape, zero tool_calls) → the loop's safe
     // no-tool-calls stop; its content becomes the fresh turn's reply.
     this.setScriptForTest([
@@ -145,24 +155,24 @@ export class GalaxyDeadlineProbe extends GalaxyLoopProbe {
     ]);
     // (1) The hung generation (fired, not awaited — the hang is the point).
     this.#hangNext = true;
-    const hung = this.chat('t-hung', 'probe-client', 'hang please', crypto.randomUUID());
-    // (2) Single-flight: a second turn while one is in flight is refused.
-    const busy = await this.chat('t-busy', 'probe-client', 'me too', crypto.randomUUID());
-    // (3) The deadline releases the latch and surfaces the hung turn as failed.
-    const deadline = await hung;
-    // (4) A fresh message now triggers a NEW generation (the criterion).
-    const fresh = await this.chat('t-fresh', 'probe-client', 'try again', crypto.randomUUID());
-    const outcome = {
-      busyReply: busy.reply,
-      deadlineReply: deadline.reply,
-      freshReply: fresh.reply,
-      delivered: this.ctx.storage.kv.get<{ turnId: string; reply: string }[]>('probe:delivered') ?? [],
-    };
-    // Persisted for the test's poll: the drive is the early-ack envelope path (claims must
-    // ride callContext for the data-plane's permission checks), whose return travels only
-    // as a fire-back — the durable record is the in-lane observation surface.
-    this.ctx.storage.kv.put('probe:scenario', outcome);
-    return outcome;
+    const t0 = Date.now();
+    const hung = this.runTriggeredTurn('m-hung', 'hang please');
+    // Yield one microtask so the hung turn takes the latch before (2) probes it.
+    await Promise.resolve();
+    // (2) Single-flight: refused at once — no model round, no commit.
+    const busyStart = Date.now();
+    await this.runTriggeredTurn('m-busy', 'me too');
+    const busyMs = Date.now() - busyStart;
+    // (3) The deadline releases the latch (the hung model call never resolves).
+    await hung;
+    const hungMs = Date.now() - t0;
+    // (4) THE CRITERION: a fresh trigger now runs a NEW generation to completion.
+    await this.runTriggeredTurn('m-fresh', 'try again');
+    this.ctx.storage.kv.put('probe:scenario', {
+      busyMs,
+      hungMs,
+      committed: this.ctx.storage.kv.get('probe:committed') ?? [],
+    });
   }
 }
 

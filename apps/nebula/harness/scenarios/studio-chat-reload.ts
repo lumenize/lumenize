@@ -1,8 +1,9 @@
 /**
- * Phase-2 scenario (exploratory) — drive the rendered Studio through login → chat → reload and
- * CAPTURE the post-reload state (screenshot + a11y snapshot + console/network). Tests the HARNESS,
- * not the feature: it passes as long as it produced the capture, regardless of whether chat history
- * renders — the render check is the *use* (a separate chat-history-UI task), not the harness's bar.
+ * Drive the rendered Studio through login → post → reload, ASSERTING ON RENDER (the
+ * collapse's Phase 4 rewrite — the old optimistic-echo assumption is gone): the posted
+ * marker must render from the durable Message SUBSCRIPTION before the reload, and render
+ * AGAIN after it (fresh-heap history restore). Captures (screenshot + a11y +
+ * console/network) ride every leg for the evidence trail.
  *
  * Login uses the REAL magic-link loop (reusing the ui-smoke email helpers) — the proven path. See
  * FINDINGS.md for why cookie/token injection (skip-login) resists: the Studio SPA drives its own
@@ -85,28 +86,25 @@ export async function run(stack: DevStack): Promise<void> {
       throw e;
     }
 
-    // 4. Submit a chat turn with a marker. The user's OWN message echoes optimistically (before any
-    //    codegen), so waiting for it to appear CONFIRMS the turn was actually posted — we don't
-    //    swallow that. `echoedBeforeReload=false` means the turn never became visible (a different
-    //    problem from "it posted but didn't survive the reload"), which the BEFORE capture records.
+    // 4. Submit a chat turn with a marker. There is NO optimistic echo any more (the
+    //    collapse's Phase 4): the sender's own message renders from the durable Message
+    //    SUBSCRIPTION like everyone else's — so this wait ASSERTS the whole
+    //    post → commit → fanout → subscription-render pipeline, capable of failing.
     const marker = `harness browser check ${Date.now()}`;
     await page.getByPlaceholder('Describe a change…').fill(marker);
     await page.getByPlaceholder('Describe a change…').press('Enter');
-    let echoedBeforeReload = true;
-    try {
-      await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
-    } catch {
-      echoedBeforeReload = false;
-    }
+    await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
     // 5a. CAPTURE BEFORE reload — proof of what the turn actually produced on screen (or that it
     //     didn't echo). Without this, "empty after reload" is ambiguous (never-posted vs lost).
     const before = await captureArtifacts(inst, 'studio-chat-before-reload');
 
-    // 5b. Reload → the empirical question: does the posted turn survive / re-authenticate?
+    // 5b. RELOAD — the fresh-heap path: the SPA reconnects, re-opens the thread
+    //    subscription, and the marker renders AGAIN from the durable Message (history
+    //    restore). Asserted, not reported — this is exactly what the old scenario's
+    //    optimistic echo could not distinguish.
     await page.goto(`${viteBaseUrl}/studio/${SCOPE}`, { waitUntil: 'domcontentloaded' });
-    await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
-      /* may not reconnect (e.g. refresh-token 401) — the AFTER capture records the reason */
-    });
+    await page.getByPlaceholder('Describe a change…').waitFor({ state: 'visible', timeout: 30_000 });
+    await page.getByText(marker).first().waitFor({ state: 'visible', timeout: 20_000 });
     const after = await captureArtifacts(inst, 'studio-chat-after-reload');
     const renderedAfterReload = (await page.getByText(marker).count()) > 0;
 
@@ -119,10 +117,7 @@ export async function run(stack: DevStack): Promise<void> {
         `${cap.label}: harness must produce an a11y snapshot`);
     }
 
-    // Report the empirical before/after (NOT assertions — this is the *use*; the harness passes
-    // regardless). failedRequests/consoleErrors are cumulative on the page; the 401-on-refresh and
-    // failed dev-container reloads (if any) show WHY a post-reload state is empty.
-    console.error(`[studio-chat-reload] turn echoed before reload: ${echoedBeforeReload}`);
+    console.error(`[studio-chat-reload] turn rendered via the subscription, pre- AND post-reload`);
     console.error(`[studio-chat-reload] turn present after reload:  ${renderedAfterReload}`);
     console.error(`[studio-chat-reload] captures → ${before.dir} , ${after.dir}`);
     const refresh401 = after.failedRequests.filter((r) => r.url.includes('/refresh-token'));
