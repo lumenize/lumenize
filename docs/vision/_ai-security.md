@@ -130,8 +130,8 @@ promising that and started measuring, budgeting, and recovering instead. Four of
 **The hard part is the same one SRE had: deciding what to measure.** Latency and availability are trivially
 measurable, and the agent-security equivalents are not obvious — which is exactly why this is worth naming
 rather than gesturing at. The candidate signals are the ones the substrate already produces or is designed to:
-**denied-observation events** ([ADR-019](../adr/019-derived-artifacts-record-observations.md)) as the leak-
-attempt proxy, **permission-denial rates** from the data plane, **egress-broker denials** against the
+**refused-as-subject asks** (the consent loop's brokered escalations; formerly the withdrawn ADR-019's
+denied-observation events) as the leak-attempt proxy, **permission-denial rates** from the data plane, **egress-broker denials** against the
 per-tenant allow-list, and **codegen gate failures** as the secure-default regression signal. None is a
 complete measure of "was this safe." Together they are a great deal better than the nothing most systems have,
 and each is a byproduct of a mechanism we need anyway rather than a bespoke security telemetry project.
@@ -299,7 +299,7 @@ at knowing within seconds when something has gone sideways and exactly who did i
 | Every resource change names who made it | `Snapshots.actingToken` | **Built** — the full ADR-016 record |
 | A record names the agent that acted for a human | server-composed actor, [ADR-016](../adr/016-record-the-acting-principal.md) | **Designed, not built** |
 | Destructive and authority-changing acts record the full acting token | one shared projection, ADR-016 | **Partially built**; durable sink absent |
-| A shared answer is re-authorized against what produced it | observations, [ADR-019](../adr/019-derived-artifacts-record-observations.md) | **Designed, not built** |
+| A shared answer is the permission-holder's disclosure decision | the consent loop (§ *A worked scenario*); ADR-019 withdrawn 2026-08-26 | **Model settled; brokered ask not built** |
 | The inference layer is recorded, not just the message | the agent `Message`'s `codegen` value object | **Designed, not built** |
 | Every outbound call is recorded and cannot be bypassed | the egress broker as `globalOutbound` | **Designed**; the record itself unspecified |
 | The system changes itself from outcome signal | [`self-improving-platform.md`](self-improving-platform.md) | **Direction committed, timing gated** |
@@ -395,12 +395,11 @@ a call. The acting-token records that ADR-016 requires today go to the debug log
 position is, right now, a design and a log line — not a capability. **That gap is the single largest distance
 between this document and the system.**
 
-**What the agent read.** ADR-019 is the read-side mirror: any artifact derived from resource reads records the
-ids of what it read, immutably at write time, and every subsequent reader is authorized against those ids,
-live. The distinction that makes it compatible with ADR-016 rather than contradicting it is that observations
-store **references** — the subjects of a fresh check — never a **verdict**. This matters most at level 3: an
-answer produced under one participant's authority gets persisted as a Message and re-rendered to another
-participant whose grants may be narrower. The substrate gated the read; nothing yet gates the re-read.
+**What the agent read.** ADR-019 committed the read-side mirror — record what an artifact read, re-check
+every later reader — and was **withdrawn 2026-08-26**: the level-3 sharing case it guarded (an answer produced
+under one participant's authority, persisted as a Message, re-rendered to another) is now the
+permission-holder's **disclosure decision**, made in the consent loop (§ *A worked scenario*). The capture
+question is re-derived if a real resource read ever enters a prompt — the collapse task carries that tripwire.
 
 **What the model actually did.** The three above concern the application layer. The inference layer is a
 fourth part, and Studio's chat is where it gets recorded: the agent `Message` carries a `codegen` value object
@@ -456,9 +455,10 @@ adds is the two commitments that keep it true *after* an answer exists:
 
 - **Attribution** — an agent answer is written as a Resource by a principal, so who produced it is recorded
   rather than inferred.
-- **Observations** — the answer records what it read, and every later reader is re-checked against those ids,
-  live. Without this, the per-asker guarantee silently becomes a per-*first*-asker guarantee the moment an
-  answer is shared, and the defect is invisible to the author because they could always see the data.
+- **Disclosure is a decision, not a leak** — sharing an answer beyond the asker is the permission-holder's
+  call, made in the consent loop the scenario below walks. (ADR-019's stored-observations re-check was
+  withdrawn 2026-08-26 in its favor: no system re-authorizes a pasted answer against source ACLs, and
+  neither do we.)
 
 Both are level-agnostic. A generated app's chat and Studio's chat get them from the same substrate.
 
@@ -484,7 +484,7 @@ Austen opens Studio and asks a question that requires reading across all of them
 >
 > **Austen:** (a)
 >
-> **Nebula:** @Jennifer — do you want me to (a) answer Austen's two questions, (b) grant Austen
+> **Nebula:** @Jennifer — do you want me to (a) answer Austen's two questions, posting the answer here in this chat, (b) grant Austen
 > admin over `gigi.kaizen` permanently, so she can keep asking (note: that is read **and** write
 > **and** admin over every Star in the app), (c) the same grant, expiring after a period you choose, of (d) none of the above?
 >
@@ -493,6 +493,9 @@ Austen opens Studio and asks a question that requires reading across all of them
 > **Nebula:** 5% of weekly-active users have created a zorch. 2% of tenants have any user who has.
 
 Had Jennifer picked (b) or (c), the answer would have been identical — Austen could simply have kept asking.
+And option (a) is a **disclosure decision**: the answer lands in a chat whose readers include Austen, exactly
+as if Jennifer had run the query and pasted the result — the act that replaced ADR-019's stored-observation
+re-check (withdrawn 2026-08-26).
 
 **The refusal is not a policy the model could be talked out of.** Nebula holds no authority of its
 own; it acts as the person who prompted it, and the query carries *that person's* reach
@@ -532,7 +535,7 @@ locally.
 
 ## Claim discipline
 
-Read alongside `strategy.md` § *Why now*'s claim discipline and ADR-019's ceiling paragraph. Both apply here
+Read alongside `strategy.md` § *Why now*'s claim discipline and the withdrawn ADR-019's ceiling paragraph (kept in its body; the claim-discipline point outlives the withdrawal). Both apply here
 without amendment; these are the additions specific to this document's argument.
 
 1. **"Assume the agency" is not "deprioritize security."** It reads that way out of context, and this document
@@ -571,9 +574,9 @@ without amendment; these are the additions specific to this document's argument.
   ADR-016 draws (server-stamped vs client-supplied). Narrow by construction — it touches the topology half
   only, since `originAuth` is replaced wholesale from the verified attachment — but decide it before any
   durable sink consumes `callChain`.
-- **Is the inference-layer record inside ADR-019's scope, or its own commitment?** ADR-019 covers what an
-  artifact *read* from Resources. Which model, which scaffold, which tool calls is a different axis, currently
-  pinned only in task files. It may deserve its own ADR once the chat work lands and gives it contact.
+- **Does the inference-layer record deserve its own commitment?** (Its former candidate home, ADR-019, was
+  withdrawn 2026-08-26.) Which model, which scaffold, which tool calls is its own axis, currently pinned only
+  in task files. It may deserve its own ADR once the chat work lands and gives it contact.
 - **What exactly does the egress record hold?** § *Where reversibility stops* commits to the who and the when,
   and to *some* of the what — the URL, the address — while deliberately declining the full content of an
   ephemeral call. Where that line falls per connector is unpinned, and it is the one place where recording
