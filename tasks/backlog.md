@@ -516,6 +516,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Nebula
 
+- [ ] **Reject (or strip) excess keys on Resource writes — plane-wide** (Larry, 2026-08-26, collapse hand review). typia's `validate` is non-strict and `transaction` writes `result.data` verbatim, so any client with a write grant can persist arbitrary UNDECLARED keys on any Resource — schema-invisible storage. The render-side answer (never read them — the collapse's Participant model) makes them inert for display, but they remain: (a) a smuggling channel — stored under our roof, shown by no UI; (b) unbounded garbage no field constraint governs; (c) a poisoning hazard — a stored junk key silently becomes MEANINGFUL the day a later ontology version declares a field with that name, without ever having been validated. typia has the machinery (`validateEquals` rejects excess; a prune variant strips); reject-loudly fits no-foot-guns better than a silent strip. Weigh against ADR-002's round-trip breadth before deciding.
+
 - [ ] **Sweep `star.ts` for thin `@mesh()` forwards that should be OCAN gates.** Out of the collapse's Phase 1 2026-08-21, where it was an unbounded rider on a bounded change. `star.ts` predates the gate-once-then-chain pattern in places: inventory every `@mesh()` whose body only forwards to `#dataPlane` or another composed instance (`grep -n '@mesh(' apps/nebula/src/star.ts`, then read each body — a forwarding one-liner is the tell) and collapse it into the `resources()` gate. `dagTree()` is the exemplar already done right — leave it. Mechanism and the authorize-itself discipline: `.claude/rules/mesh.md` § *Object-capability access: gate once, then chain*.
 
 
