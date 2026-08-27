@@ -325,12 +325,12 @@ Every `Message` snapshot includes a `meta.actingToken` that looks like this (a N
   - ⚠️ **Panel note: [ADR-019](../docs/adr/019-derived-artifacts-record-observations.md) was WITHDRAWN (2026-08-26) in this model's favor — this surface is what withdrew it.** Do not cite it as a commitment, and do not propose a stored-observation re-check.
   - ⓘ **Today's codegen prompt reads NO Resources at all** — a static system bundle, `/src/App.vue`, the ontology `.d.ts`, and the triggering message; the tool surface is `write_file` + `mark_complete`. When chat history enters it (the respond-or-not policy), those are reads AS the asker of a thread its readers already share — covered by this model, no capture machinery required.
   - **The brokered-ask flow is a product feature, not built here** — [backlog.md](backlog.md) § *Nebula*. The full worked scenario — cast, the time-boxed-grant option, why the refusal is structural — is [docs/vision/_ai-security.md](../docs/vision/_ai-security.md) § *A worked scenario — why the refusal is structural*; it is `_`-prefixed, so panels do not auto-load it, and this pointer is the deliberate exception.
-- **"Immutable" is a UI convention, not a backend property** (ADR-004): a write within the **coalesce** window updates the current snapshot **in place** (new value, new eTag). Chat enforces immutability in the UI: text box local until submit, one write on submit, read-only after.
+- **"Immutable" within the coalese window is a UI convention, not a backend property** (ADR-004): a write within the **coalesce** window updates the current snapshot **in place** (new value, new eTag). Chat enforces immutability in the UI: text box local until submit, one write on submit, read-only after.
 - **Writes go through the standard `transaction`.** The reactive `Message where session==…` query-sub view **IS "the list"** — no separate list resource.
 
-## ✅ Preserved — architecture-independent, already `/review-task`-reviewed
+## Preserved — hard-won invariants that survive the collapse
 
-These survive the collapse untouched and are **hard-won**; do not re-derive them:
+These are settled; review the wording, don't re-derive the decisions:
 
 - **Same-IDENTITY `actAs` on the create AND every `put`** — the in-place **coalesce** keys on identity (`sub` + the `act` chain's subs — `identityKey` in [resources.ts](../apps/nebula/src/resources.ts), item 6's build); an actor-chain drift between chunks silently opens a **new snapshot row**, while a `profileId`/`access`-only delta deliberately does not (a general Resources invariant; chat now commits once at completion, so it doesn't arise for chat — preserve it for any multi-write resource).
 - **typia `validate` is non-strict** — it neither rejects nor strips excess keys, and `transaction` writes `result.data` verbatim. So a type-only drop of `role`/`author` leaves them **persisting at rest with a green build**: the **writers** must stop writing them. Assert the **render**, not absence-from-storage (that assertion is vacuous).
